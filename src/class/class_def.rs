@@ -2,7 +2,7 @@ use crate::{
     atom::Atom,
     class::{ClassID, ClassInitializeFn, FreeObjFn},
     context::ContextPtr,
-    function::JSFunctionDef,
+    function::FunctionDef,
     object::JS_PROP_NO_EXOTIC,
     value::JSValue,
 };
@@ -62,7 +62,7 @@ impl ClassDef {
 
 #[derive(Debug)]
 pub(crate) struct ClassFieldsDef {
-    pub(crate) fields_init_fd: *mut JSFunctionDef,
+    pub(crate) fields_init_fd: *mut FunctionDef,
     pub(crate) computed_fields_count: i32,
     pub(crate) need_brand: bool,
     pub(crate) brand_push_pos: i32,

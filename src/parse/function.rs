@@ -4,7 +4,7 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
     eval::EvalType,
-    function::{ARGUMENT_VAR_OFFSET, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum},
+    function::{ARGUMENT_VAR_OFFSET, FunctionDef, JSFunctionKindEnum, JSVarDefEnum},
     module::ExportType,
     stack_frame::ExecMode,
     utils::unlikely,
@@ -46,11 +46,11 @@ impl<'s> JSParseState<'s> {
         ptr: *const u8,
         function_line_num: i32,
         is_expr: bool,
-    ) -> Result<Box<JSFunctionDef>, i32> {
+    ) -> Result<Box<FunctionDef>, i32> {
         // save original cur_func
         let parent_fd = self.cur_func_def;
 
-        let mut sub_fd = JSFunctionDef::new(
+        let mut sub_fd = FunctionDef::new(
             &self.ctx,
             unsafe { parent_fd.as_mut() },
             false,
@@ -469,7 +469,7 @@ impl<'s> JSParseState<'s> {
         ptr: *const u8,
         function_line_num: i32,
         export_flag: JSParseExportEnum,
-        pfd: *mut *mut JSFunctionDef,
+        pfd: *mut *mut FunctionDef,
     ) -> Result<(), i32> {
         let is_expr = !matches!(
             func_type,
@@ -589,7 +589,7 @@ impl<'s> JSParseState<'s> {
                 /* Always create a lexical name, fail if at the same scope as existing name */
                 /* Lexical variable will be initialized upon entering scope */
                 // now fd0 is still the cur_func
-                debug_assert_eq!(cur_fd as *mut JSFunctionDef, self.cur_func_def);
+                debug_assert_eq!(cur_fd as *mut FunctionDef, self.cur_func_def);
                 lexical_func_idx = self.define_var_cur_func(
                     func_name,
                     if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
@@ -611,10 +611,10 @@ impl<'s> JSParseState<'s> {
             is_expr,
         )?;
 
-        debug_assert_eq!(sub_fd.parent, cur_fd as *mut JSFunctionDef);
+        debug_assert_eq!(sub_fd.parent, cur_fd as *mut FunctionDef);
         debug_assert_eq!(
-            self.cur_func_mut() as *mut JSFunctionDef,
-            cur_fd as *mut JSFunctionDef
+            self.cur_func_mut() as *mut FunctionDef,
+            cur_fd as *mut FunctionDef
         );
 
         // reparse_ident_token:
@@ -778,7 +778,7 @@ impl<'s> JSParseState<'s> {
         )
     }
 
-    fn parse_function_check_names(&self, fd: &JSFunctionDef, func_name: Atom) -> Result<(), i32> {
+    fn parse_function_check_names(&self, fd: &FunctionDef, func_name: Atom) -> Result<(), i32> {
         if fd.attrs.exec_mode.contains(ExecMode::STRICT) {
             if !fd.attrs.has_simple_parameter_list && fd.has_use_strict {
                 self.throw_syntax_error(

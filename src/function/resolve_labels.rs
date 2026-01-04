@@ -2,7 +2,7 @@ use crate::{
     bytecode::{OpCode, SpecialObject, opcode_info_intermediate, opcodes},
     context::ContextImpl,
     function::{
-        CodeMatchState, JSFunctionDef, push_vec_atom, push_vec_short_code, push_vec_short_int,
+        CodeMatchState, FunctionDef, push_vec_atom, push_vec_short_code, push_vec_short_int,
         push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
     },
     stack_frame::ExecMode,
@@ -29,7 +29,7 @@ enum ResolveLabelsState {
     Fail,
 }
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// pass 3: peephole optimizations and resolve goto/labels.
     pub fn resolve_labels(&mut self, ctx: &ContextImpl) -> Result<(), i32> {
         let bc_ptr = self.byte_code.as_ptr();

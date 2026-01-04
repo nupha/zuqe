@@ -6,7 +6,7 @@ use crate::{
         OP_DEFINE_METHOD_METHOD, OP_DEFINE_METHOD_SETTER,
     },
     defer,
-    function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
+    function::{FunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
     object::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
@@ -48,7 +48,7 @@ impl<'s> JSParseState<'s> {
 
     /// parse class field defination
     fn parse_class_field(&mut self, cls_fields: &mut ClassFieldsDef) -> Result<(), i32> {
-        let mut init_fd = std::ptr::null_mut::<JSFunctionDef>();
+        let mut init_fd = std::ptr::null_mut::<FunctionDef>();
 
         if cls_fields.fields_init_fd.is_null() {
             self.emit_class_init_start(cls_fields)?;
@@ -146,7 +146,7 @@ impl<'s> JSParseState<'s> {
         }
 
         // parse getter or setter function
-        let mut method_fd = std::ptr::null_mut::<JSFunctionDef>();
+        let mut method_fd = std::ptr::null_mut::<FunctionDef>();
         self.parse_function_decl_ex(
             if is_set {
                 JSParseFunctionEnum::JS_PARSE_FUNC_SETTER
@@ -220,7 +220,7 @@ impl<'s> JSParseState<'s> {
         let mut start_ptr: *const u8;
 
         // current method function def
-        let mut method_fd = std::ptr::null_mut::<JSFunctionDef>();
+        let mut method_fd = std::ptr::null_mut::<FunctionDef>();
         // prop name atom
         let mut name = Atom::NULL;
 
@@ -246,7 +246,7 @@ impl<'s> JSParseState<'s> {
         let define_class_offset: i32 = self.cur_func_mut().last_opcode_pos;
 
         // class function defination
-        let mut ctor_fd: *mut JSFunctionDef = std::ptr::null_mut();
+        let mut ctor_fd: *mut FunctionDef = std::ptr::null_mut();
 
         while self.token.kind != TokenKind::Char('}') {
             if self.token.kind == TokenKind::Char(';') {
@@ -737,8 +737,8 @@ impl<'s> JSParseState<'s> {
     fn parse_class_default_ctor(
         &mut self,
         has_super: bool,
-        fd: *mut JSFunctionDef,
-    ) -> Result<*mut JSFunctionDef, i32> {
+        fd: *mut FunctionDef,
+    ) -> Result<*mut FunctionDef, i32> {
         let pos = self.get_pos();
 
         let (src, func_type) = if has_super {
@@ -794,7 +794,7 @@ impl<'s> JSParseState<'s> {
 /// add a private field variable in the current scope
 fn add_private_class_field(
     s: &JSParseState,
-    fd: &mut JSFunctionDef,
+    fd: &mut FunctionDef,
     name: Atom,
     var_kind: JSVarKindEnum,
     is_static: bool,
@@ -808,7 +808,7 @@ fn add_private_class_field(
 }
 
 /// find field in the current scope
-fn find_private_class_field(fd: &JSFunctionDef, name: Atom, scope_level: i32) -> Option<u16> {
+fn find_private_class_field(fd: &FunctionDef, name: Atom, scope_level: i32) -> Option<u16> {
     let mut i = fd.scopes[scope_level as usize].first;
 
     while i != -1 {

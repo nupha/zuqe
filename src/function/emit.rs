@@ -1,11 +1,11 @@
 use crate::{
     atom::{Atom, AtomKind},
     bytecode::{OpCode, OpCodeTemp, opcodes},
-    function::{JSFunctionDef, JSFunctionKindEnum},
+    function::{FunctionDef, JSFunctionKindEnum},
     value::JSValue,
 };
 
-impl JSFunctionDef {
+impl FunctionDef {
     #[inline(always)]
     pub fn emit_u8(&mut self, val: u8) {
         push_vec_u8(&mut self.byte_code, val);

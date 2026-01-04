@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use crate::{
     context::{ContextImpl, ContextPtr},
-    function::JSFunctionDef,
+    function::FunctionDef,
     number::IntOrFloat,
 };
 
@@ -58,7 +58,7 @@ pub struct JSParseState<'s> {
 
     /// A raw pointer to current parsing function def.
     /// null if no current function def.
-    pub(super) cur_func_def: *mut JSFunctionDef,
+    pub(super) cur_func_def: *mut FunctionDef,
 
     /// Indicates if parsing a JavaScript module
     pub(crate) is_module: bool,
@@ -86,7 +86,7 @@ impl<'s> JSParseState<'s> {
     /// * `filename` - Name of source file
     fn new_internal(
         ctx: &ContextImpl,
-        fd: *mut JSFunctionDef,
+        fd: *mut FunctionDef,
         source: &'s [u8],
         filename: &'s str,
     ) -> Self {
@@ -124,7 +124,7 @@ impl<'s> JSParseState<'s> {
     #[inline(always)]
     pub(crate) fn new(
         ctx: &ContextImpl,
-        fd: NonNull<JSFunctionDef>,
+        fd: NonNull<FunctionDef>,
         source: &'s [u8],
         filename: &'s str,
     ) -> Self {
@@ -149,7 +149,7 @@ impl<'s> JSParseState<'s> {
     /// Get function def which is currently being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub(crate) fn cur_func(&self) -> &JSFunctionDef {
+    pub(crate) fn cur_func(&self) -> &FunctionDef {
         debug_assert!(!self.cur_func_def.is_null());
         unsafe { &*self.cur_func_def }
     }
@@ -158,7 +158,7 @@ impl<'s> JSParseState<'s> {
     /// Will panic if cur_func is null.
     #[allow(clippy::mut_from_ref)]
     #[inline(always)]
-    pub(super) fn cur_func_mut(&self) -> &mut JSFunctionDef {
+    pub(super) fn cur_func_mut(&self) -> &mut FunctionDef {
         debug_assert!(!self.cur_func_def.is_null());
         unsafe { &mut *self.cur_func_def }
     }
@@ -168,12 +168,12 @@ impl<'s> JSParseState<'s> {
     #[inline]
     pub(super) fn with_cur_func_mut<R>(
         &mut self,
-        f: impl FnOnce(&mut JSParseState, &mut JSFunctionDef) -> R,
+        f: impl FnOnce(&mut JSParseState, &mut FunctionDef) -> R,
     ) -> Option<R> {
         unsafe { self.cur_func_def.as_mut().map(|fd| f(self, fd)) }
     }
 
-    /// Perform push scope on current function def. For detail, see JSFunctionDef::push_scope()
+    /// Perform push scope on current function def. For detail, see FunctionDef::push_scope()
     ///
     /// # Returns
     ///
@@ -190,7 +190,7 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    /// Perform pop scope on current function def. For detail, see JSFunctionDef::pop_scope()
+    /// Perform pop scope on current function def. For detail, see FunctionDef::pop_scope()
     pub(super) fn pop_scope(&mut self) {
         if !self.cur_func_def.is_null() {
             let last_line_num = self.last_line_num;
@@ -203,7 +203,7 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    /// Perform close scopes on current function def. For detail, see JSFunctionDef::close_scopes()
+    /// Perform close scopes on current function def. For detail, see FunctionDef::close_scopes()
     pub(super) fn close_scopes(&mut self, scope: i32, scope_stop: i32) {
         self.cur_func_mut()
             .close_scopes(scope as _, scope_stop as _, self.last_line_num);

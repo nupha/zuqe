@@ -4,7 +4,7 @@ use crate::{
     atom::Atom,
     bytecode::OpCodeTemp,
     context::ContextImpl,
-    function::{JSFunctionDef, JSVarKindEnum},
+    function::{FunctionDef, JSVarKindEnum},
 };
 
 use super::{ARG_SCOPE_END, JSVarDef};
@@ -18,7 +18,7 @@ pub struct JSVarScope {
     pub first: i32,
 }
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// Enters a new lexical scope for variable declarations.
     ///
     /// Create a new scope and push to scopes stack in the function def
@@ -184,7 +184,7 @@ pub struct ScopedVarsIterItem<'a> {
 }
 
 pub struct ScopedVarsIter<'a> {
-    cur_fd: *const JSFunctionDef,
+    cur_fd: *const FunctionDef,
     cur_idx: i32,
     _mark: PhantomData<&'a ()>,
 }
@@ -232,7 +232,7 @@ pub struct ScopedVarsIterMutItem<'a> {
 }
 
 pub struct ScopedVarsIterMut<'a> {
-    fd: NonNull<JSFunctionDef>,
+    fd: NonNull<FunctionDef>,
     cur_idx: i32,
     _mark: PhantomData<&'a ()>,
 }
@@ -264,7 +264,7 @@ impl<'a> ScopedVarsIterMut<'a> {
     }
 }
 
-impl JSFunctionDef {
+impl FunctionDef {
     pub fn scoped_vars_iter<'a>(&self, scope: u16) -> ScopedVarsIter<'a> {
         let idx = self.scopes[scope as usize].first;
         ScopedVarsIter {

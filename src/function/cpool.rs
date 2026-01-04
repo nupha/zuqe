@@ -1,8 +1,8 @@
 use crate::value::JSValue;
 
-use super::JSFunctionDef;
+use super::FunctionDef;
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// returns index of `val` in constant pool index.
     /// Note: `val` is consumed
     pub fn cpool_add(&mut self, val: JSValue) -> Result<u16, i32> {

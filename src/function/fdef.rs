@@ -27,11 +27,11 @@ pub(crate) struct BytecodeDebugSetting {
 }
 
 #[derive(Debug)]
-pub(crate) struct JSFunctionDef {
+pub(crate) struct FunctionDef {
     pub(crate) ctx: ContextPtr,
 
     /// parent function def, null for root fd.
-    pub parent: *mut JSFunctionDef,
+    pub parent: *mut FunctionDef,
     /// scope level of parent fd
     pub parent_scope_level: i32,
     /// 在父级常量池中的索引，-1表示无
@@ -39,7 +39,7 @@ pub(crate) struct JSFunctionDef {
     pub parent_cpool_idx: i32,
 
     /// list of children function defs
-    pub child_list: Vec<NonNull<JSFunctionDef>>,
+    pub child_list: Vec<NonNull<FunctionDef>>,
 
     // TODO: use Option<EvalType>
     /// 是否是eval代码
@@ -172,18 +172,18 @@ pub(crate) struct JSFunctionDef {
     pub(crate) debug: BytecodeDebugSetting,
 }
 
-// TODO: JSFunctionDef should be tracable?
+// TODO: FunctionDef should be tracable?
 // unsafe impl GcTracable for JSFuntionDef {
 //     // TODO
 // }
 
-impl Drop for JSFunctionDef {
+impl Drop for FunctionDef {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// alloc a function def, and initialize it.
     fn new_internal(
         ctx: &ContextImpl,
@@ -282,7 +282,7 @@ impl JSFunctionDef {
     /// create function def and attach to parent-child chain
     pub(crate) fn new(
         ctx: &ContextImpl,
-        parent: Option<&mut JSFunctionDef>,
+        parent: Option<&mut FunctionDef>,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
@@ -444,7 +444,7 @@ pub struct JumpSlot {
     pub label: i32,
 }
 
-pub(super) fn get_label_pos(s: &JSFunctionDef, mut label: i32) -> i32 {
+pub(super) fn get_label_pos(s: &FunctionDef, mut label: i32) -> i32 {
     let mut pos: i32 = 0;
 
     for _ in 0..20 {
@@ -471,7 +471,7 @@ pub(super) fn get_label_pos(s: &JSFunctionDef, mut label: i32) -> i32 {
 }
 
 pub(super) fn skip_dead_code(
-    s: &mut JSFunctionDef,
+    s: &mut FunctionDef,
     bc_buf: *const u8,
     bc_len: usize,
     pos: usize,
@@ -561,7 +561,7 @@ pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: u16) {
     push_vec_u16(bc, idx);
 }
 
-pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Vec<u8>) {
+pub(super) fn instantiate_hoisted_definitions(s: &mut FunctionDef, bc: &mut Vec<u8>) {
     // add the hoisted functions in arguments and local variables
     for (i, vd) in s.args.iter().enumerate() {
         if vd.func_pool_idx >= 0 {
@@ -607,7 +607,7 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Ve
         }
     }
 
-    // add the global variables (only happens if JSFunctionDef::is_global_var is true)
+    // add the global variables (only happens if FunctionDef::is_global_var is true)
     for mut hf in s.global_vars.drain(..) {
         let mut has_closure: i32 = 0;
         let mut force_init = hf.force_init();
@@ -707,12 +707,12 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Ve
 }
 
 pub(crate) struct FunctionDefParentIter<'a> {
-    cur_fd: *const JSFunctionDef,
+    cur_fd: *const FunctionDef,
     _mark: PhantomData<&'a ()>,
 }
 
 impl<'a> Iterator for FunctionDefParentIter<'a> {
-    type Item = &'a JSFunctionDef;
+    type Item = &'a FunctionDef;
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.cur_fd.is_null() {
@@ -727,7 +727,7 @@ impl<'a> Iterator for FunctionDefParentIter<'a> {
     }
 }
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// iterate over parent function def chain.
     pub fn parent_iter<'a>(&self, include_self: bool) -> FunctionDefParentIter<'a> {
         if include_self {

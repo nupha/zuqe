@@ -8,7 +8,7 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     error::JSResult,
     eval::EvalType,
-    function::{JSFunctionDef, JSVarRef},
+    function::{FunctionDef, JSVarRef},
     runtime::RuntimePtr,
     stack_frame::{ExecMode, StackFrame},
     utils::{get_leb128, get_sleb128, read_from_ptr},
@@ -163,7 +163,7 @@ impl BytecodeImpl {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         ctx: &ContextImpl,
-        fd: &JSFunctionDef,
+        fd: &FunctionDef,
         binary: Box<[u8]>,
         consts_section: Option<(u16, u16)>,
         vardefs_start: i32,

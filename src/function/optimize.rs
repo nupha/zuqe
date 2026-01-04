@@ -2,7 +2,7 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
     function::{
-        JSFunctionDef, Label, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_u8,
+        FunctionDef, Label, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_u8,
         push_vec_u16,
     },
     stack_frame::ExecMode,
@@ -39,7 +39,7 @@ impl Default for CodeMatchState {
     }
 }
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// match in bytecodes for specified `pattern`, starting since `pos`.
     pub(super) fn code_match(&self, mut pos: usize, pattern: &[i32]) -> Option<CodeMatchState> {
         let bc_ptr = self.byte_code.as_ptr();

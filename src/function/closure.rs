@@ -13,7 +13,7 @@ use crate::{
     stack_frame::StackFrame,
 };
 
-use super::{ARG_SCOPE_END, JSFunctionDef, JSVarKindEnum, is_var_in_arg_scope};
+use super::{ARG_SCOPE_END, FunctionDef, JSVarKindEnum, is_var_in_arg_scope};
 
 #[derive(Debug)]
 pub struct JSClosureVar {
@@ -104,7 +104,7 @@ impl JSClosureVar {
     }
 }
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// `fd` must be an ancestor of `self`.
     /// Create in 'self' a closure referencing a local variable (is_local = TRUE)
     /// or a closure (is_local = FALSE) in `fd`
@@ -112,7 +112,7 @@ impl JSFunctionDef {
     pub(super) fn get_closure_var2(
         &mut self,
         ctx: &ContextImpl,
-        fd: *const JSFunctionDef,
+        fd: *const FunctionDef,
         mut is_local: bool,
         is_arg: bool,
         var_idx: u16,
@@ -157,7 +157,7 @@ impl JSFunctionDef {
     pub(super) fn get_closure_var(
         &mut self,
         ctx: &ContextImpl,
-        fd: *const JSFunctionDef,
+        fd: *const FunctionDef,
         is_arg: bool,
         var_idx: u16,
         var_name: Atom,
@@ -330,7 +330,7 @@ impl Bytecode {
 /// scope_idx=-1 means end of scope chain at top.
 pub(crate) fn add_closure_variables(
     ctx: &ContextImpl,
-    s: &mut JSFunctionDef,
+    s: &mut FunctionDef,
     bc: &Bytecode,
     scope_idx: i32,
 ) -> Result<(), i32> {

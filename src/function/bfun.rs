@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// Special index for argument scope.
-/// This is same to `JSFunctionDef::body_scope`, which was automatically pushed
+/// This is same to `FunctionDef::body_scope`, which was automatically pushed
 /// when creating root function def in `eval_internal()`.
 pub const ARG_SCOPE_INDEX: i32 = 1;
 

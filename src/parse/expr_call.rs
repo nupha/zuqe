@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcodes},
-    function::{FuncCallType, JSFunctionDef},
+    function::{FuncCallType, FunctionDef},
     utils::read_from_ptr,
 };
 
@@ -33,7 +33,7 @@ impl<'s> JSParseState<'s> {
 
     fn parse_func_call3(
         &mut self,
-        fd: &mut JSFunctionDef, // TODO: remove this arg
+        fd: &mut FunctionDef, // TODO: remove this arg
         opcode: u8,
         call_type: FuncCallType,
         _has_optional_chain: bool,
@@ -308,7 +308,7 @@ impl<'s> JSParseState<'s> {
 
     pub(super) fn emit_func_call(
         &mut self,
-        fd: &mut JSFunctionDef,
+        fd: &mut FunctionDef,
         call_type: FuncCallType,
         opcode: u8,
         arg_count: u16,

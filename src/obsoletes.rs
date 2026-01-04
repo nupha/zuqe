@@ -20,8 +20,8 @@ use crate::{
     context::ContextPtr,
     error::{ErrorKind, JSResult},
     function::{
-        AsyncFuncState, BlockEnv, Bytecode, CallContext, FieldDef, JSCFunction, JSCFunctionMagic,
-        JSFunctionDef, JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef,
+        AsyncFuncState, BlockEnv, Bytecode, CallContext, FieldDef, FunctionDef, JSCFunction,
+        JSCFunctionMagic, JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef,
         Label, NativeCallback, RelocEntry,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
@@ -553,24 +553,24 @@ pub unsafe fn lre_parse_escape(pp: *mut *const u8, allow_utf16: i32) -> Result<u
     unreachable!("use JSParseState::parse_string_escape() instead")
 }
 
-#[deprecated(note = "use JSFunctionDef::find_var_in_child_scope() instead")]
+#[deprecated(note = "use FunctionDef::find_var_in_child_scope() instead")]
 pub unsafe fn find_var_in_child_scope(
     ctx: ContextPtr,
-    fd: *mut JSFunctionDef,
+    fd: *mut FunctionDef,
     name: AtomRef,
     scope_level: i32,
 ) -> Option<u16> {
-    unreachable!("use JSFunctionDef::find_var_in_child_scope() instead");
+    unreachable!("use FunctionDef::find_var_in_child_scope() instead");
 }
 
-#[deprecated(note = "use JSFunctionDef::add_scope_var() instead")]
+#[deprecated(note = "use FunctionDef::add_scope_var() instead")]
 pub unsafe fn add_scope_var(
     ctx: ContextPtr,
-    fd: *mut JSFunctionDef,
+    fd: *mut FunctionDef,
     name: AtomRef,
     var_kind: JSVarKindEnum,
 ) -> i32 {
-    unreachable!("use JSFunctionDef::add_scope_var() instead");
+    unreachable!("use FunctionDef::add_scope_var() instead");
 }
 
 #[deprecated(note = "use JSStackFrame::get_var_ref() instead")]
@@ -815,16 +815,16 @@ pub unsafe fn JS_PromiseState(ctx: ContextPtr, promise: JSValue) -> Result<Promi
 }
 
 /// to free `fd` and all its children
-#[deprecated(note = "use JSFunctionDef::dispose() instead")]
-pub unsafe fn js_free_function_def(ctx: ContextPtr, fd: *mut JSFunctionDef) {
+#[deprecated(note = "use FunctionDef::dispose() instead")]
+pub unsafe fn js_free_function_def(ctx: ContextPtr, fd: *mut FunctionDef) {
     unreachable!("unused");
 }
 
 /// create a function object from a function definition.
 /// All the child functions are also created. It must be done this way to resolve all the variables.
 /// The function definition is freed.
-#[deprecated(note = "use JSFunctionDef::compile() instead")]
-pub unsafe fn js_create_function(ctx: ContextPtr, fd: *mut JSFunctionDef) -> JSValue {
+#[deprecated(note = "use FunctionDef::compile() instead")]
+pub unsafe fn js_create_function(ctx: ContextPtr, fd: *mut FunctionDef) -> JSValue {
     unreachable!("unused");
     // Box::from_raw(fd).make_function(ctx)
 }
@@ -1213,47 +1213,47 @@ pub unsafe fn js_parse_error(s: *mut JSParseState, message: &CStr) -> i32 {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSFunctionDef::find_global_var() instead")]
-pub unsafe fn find_global_var(fd: *mut JSFunctionDef, name: &Atom) -> *mut JSGlobalVar {
+#[deprecated(note = "use FunctionDef::find_global_var() instead")]
+pub unsafe fn find_global_var(fd: *mut FunctionDef, name: &Atom) -> *mut JSGlobalVar {
     (*fd)
         .find_global_var(name)
         .map_or(std::ptr::null_mut(), |v| v as *const JSGlobalVar as *mut _)
 }
 
 /* add a global variable definition */
-#[deprecated(note = "use JSFunctionDef::add_global_var() instead")]
+#[deprecated(note = "use FunctionDef::add_global_var() instead")]
 pub unsafe fn add_global_var(
     ctx: ContextPtr,
-    s: *mut JSFunctionDef,
+    s: *mut FunctionDef,
     name: &Atom,
 ) -> *mut JSGlobalVar {
     (*s).add_global_var(ctx, name)
         .map_or(std::ptr::null_mut(), |p| p as *mut JSGlobalVar)
 }
 
-#[deprecated(note = "use JSFunctionDef::add_arg() instead")]
-pub unsafe fn add_arg(ctx: ContextPtr, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
+#[deprecated(note = "use FunctionDef::add_arg() instead")]
+pub unsafe fn add_arg(ctx: ContextPtr, fd: *mut FunctionDef, name: AtomRef) -> i32 {
     unreachable!("unused");
     // (*fd).add_arg(ctx, name).map_or(-1, |x| x as i32)
 }
 
-#[deprecated(note = "use JSFunctionDef::find_arg() instead")]
+#[deprecated(note = "use FunctionDef::find_arg() instead")]
 /* return the variable index or -1 if not found,
 add ARGUMENT_VAR_OFFSET for argument variables */
-pub unsafe fn find_arg(ctx: ContextPtr, fd: *const JSFunctionDef, name: AtomRef) -> i32 {
+pub unsafe fn find_arg(ctx: ContextPtr, fd: *const FunctionDef, name: AtomRef) -> i32 {
     unreachable!("unused");
     // (*fd).find_arg(name).map_or(-1, |x| x as i32)
 }
 
-#[deprecated(note = "use JSFunctionDef::find_var_or_arg() instead")]
-pub unsafe fn find_var(ctx: ContextPtr, fd: *const JSFunctionDef, name: AtomRef) -> i32 {
+#[deprecated(note = "use FunctionDef::find_var_or_arg() instead")]
+pub unsafe fn find_var(ctx: ContextPtr, fd: *const FunctionDef, name: AtomRef) -> i32 {
     unreachable!("unused");
     // (*fd).find_var(name).map_or(-1, |x| x as i32)
 }
 
-#[deprecated(note = "use JSFunctionDef::add_var() instead")]
+#[deprecated(note = "use FunctionDef::add_var() instead")]
 /* return the variable index or -1 if error */
-pub unsafe fn add_var(ctx: ContextPtr, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
+pub unsafe fn add_var(ctx: ContextPtr, fd: *mut FunctionDef, name: AtomRef) -> i32 {
     unreachable!("unused");
     // (*fd).add_var(ctx, name).map_or(-1, |x| x as i32)
 }
@@ -1276,8 +1276,8 @@ pub unsafe fn add_reloc(
     unreachable!("use LabelInfo::add_reloc() instead");
 }
 
-#[deprecated(note = "use JSFunctionDef::add_label() instead")]
-pub unsafe fn new_label_fd(fd: *mut JSFunctionDef, label: i32) -> i32 {
+#[deprecated(note = "use FunctionDef::add_label() instead")]
+pub unsafe fn new_label_fd(fd: *mut FunctionDef, label: i32) -> i32 {
     if label < 0 {
         (*fd).add_label().map_or(-1, |x| x as i32)
     } else {
@@ -1285,7 +1285,7 @@ pub unsafe fn new_label_fd(fd: *mut JSFunctionDef, label: i32) -> i32 {
     }
 }
 
-#[deprecated(note = "use JSFunctionDef::add_label() instead")]
+#[deprecated(note = "use FunctionDef::add_label() instead")]
 pub unsafe fn new_label(s: *mut JSParseState) -> i32 {
     unreachable!("unused");
     // (*s).cur_func_mut().add_label().map_or(-1, |x| x as i32)
@@ -1328,18 +1328,18 @@ pub unsafe fn parse_ident(
 }
 
 /// find a variable declaration in a given scope
-#[deprecated(note = "use JSFunctionDef::find_var_in_scope() instead")]
+#[deprecated(note = "use FunctionDef::find_var_in_scope() instead")]
 pub fn find_var_in_scope(
     ctx: ContextPtr,
-    fd: &mut JSFunctionDef,
+    fd: &mut FunctionDef,
     name: AtomRef,
     scope_level: i32,
 ) -> Option<u16> {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSFunctionDef::find_lexical_global_var_mut() instead")]
-pub unsafe fn find_lexical_global_var(fd: *mut JSFunctionDef, name: AtomRef) -> *mut JSGlobalVar {
+#[deprecated(note = "use FunctionDef::find_lexical_global_var_mut() instead")]
+pub unsafe fn find_lexical_global_var(fd: *mut FunctionDef, name: AtomRef) -> *mut JSGlobalVar {
     unreachable!("unused");
 
     // (*fd)
@@ -1350,7 +1350,7 @@ pub unsafe fn find_lexical_global_var(fd: *mut JSFunctionDef, name: AtomRef) -> 
 #[deprecated(note = "use JSFSunctionDef::find_lexical_decl() instead")]
 pub unsafe fn find_lexical_decl(
     ctx: ContextPtr,
-    fd: *mut JSFunctionDef,
+    fd: *mut FunctionDef,
     name: AtomRef,
     scope_idx: i32,
     check_catch_var: bool,
@@ -1362,8 +1362,8 @@ pub unsafe fn find_lexical_decl(
     //     .map_or(-1, |x| x as i32)
 }
 
-#[deprecated(note = "use JSFunctionDef::get_first_lexical_var() instead")]
-pub unsafe fn get_first_lexical_var(fd: *mut JSFunctionDef, scope: i32) -> i32 {
+#[deprecated(note = "use FunctionDef::get_first_lexical_var() instead")]
+pub unsafe fn get_first_lexical_var(fd: *mut FunctionDef, scope: i32) -> i32 {
     (*fd).get_first_lexical_var(scope).map_or(-1, |x| x as i32)
 }
 
@@ -1409,7 +1409,7 @@ pub unsafe fn js_parse_expect(s: *mut JSParseState, tok: i32) -> i32 {
 }
 
 /* return true if scope == parent_scope or if scope is a child of parent_scope */
-pub unsafe fn is_child_scope(fd: *const JSFunctionDef, scope: i32, parent_scope: i32) -> bool {
+pub unsafe fn is_child_scope(fd: *const FunctionDef, scope: i32, parent_scope: i32) -> bool {
     (*fd).is_child_scope(scope, parent_scope)
 }
 
@@ -1417,12 +1417,12 @@ pub unsafe fn is_child_scope(fd: *const JSFunctionDef, scope: i32, parent_scope:
 #[deprecated(note = "use JSFUnctionDef::resolve_scope_var() instead")]
 pub unsafe fn resolve_scope_var(
     ctx: ContextPtr,
-    s: *mut JSFunctionDef,
+    s: *mut FunctionDef,
     var_name: AtomRef,
     scope_level: i32,
     op: u8,
     bc: &[u8],
-    bc_buf: *mut u8, // JSFunctionDef::byte_code buffer ptr
+    bc_buf: *mut u8, // FunctionDef::byte_code buffer ptr
     label: Option<&Label>,
     pos_next: usize,
 ) -> usize {
@@ -1433,8 +1433,8 @@ pub unsafe fn resolve_scope_var(
 /// Converts global variable accesses to local/closure variables when needed
 /// This is the second pass of bytecode generation
 /// Handles scope resolution and variable binding
-#[deprecated(note = "use JSFunctionDef::resolve_variables() instead")]
-pub unsafe fn resolve_variables(ctx: ContextPtr, s: *mut JSFunctionDef) -> Result<(), i32> {
+#[deprecated(note = "use FunctionDef::resolve_variables() instead")]
+pub unsafe fn resolve_variables(ctx: ContextPtr, s: *mut FunctionDef) -> Result<(), i32> {
     (*s).resolve_variables(ctx)
 }
 
@@ -1462,14 +1462,14 @@ pub unsafe fn js_parse_function_decl2(
     ptr: *const u8,
     function_line_num: i32,
     export_flag: JSParseExportEnum,
-    pfd: *mut *mut JSFunctionDef,
+    pfd: *mut *mut FunctionDef,
 ) -> i32 {
     unreachable!("use JSParseState::parse_function_decl2() instead")
 }
 
 /// the pc2line table gives a line number for each PC value
-#[deprecated(note = "use JSFunctionDef::add_pc2line_info() instead")]
-pub unsafe fn add_pc2line_info(s: *mut JSFunctionDef, pc: u32, line_num: i32) {
+#[deprecated(note = "use FunctionDef::add_pc2line_info() instead")]
+pub unsafe fn add_pc2line_info(s: *mut FunctionDef, pc: u32, line_num: i32) {
     (*s).add_pc2line_info(pc, line_num);
 }
 
@@ -2032,15 +2032,15 @@ pub unsafe fn JS_SetPrivateField(
 }
 
 // XXX: remove
-#[deprecated(note = "use JSFunctionDef::has_with_scope() instead")]
-pub unsafe fn has_with_scope(s: *mut JSFunctionDef, mut scope_level: i32) -> bool {
+#[deprecated(note = "use FunctionDef::has_with_scope() instead")]
+pub unsafe fn has_with_scope(s: *mut FunctionDef, mut scope_level: i32) -> bool {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSParseState::define_var_for_func() instead")]
 pub unsafe fn define_var(
     s: *mut JSParseState,
-    fd: *mut JSFunctionDef,
+    fd: *mut FunctionDef,
     name: AtomRef,
     var_def_type: JSVarDefEnum,
 ) -> i32 {
@@ -2913,11 +2913,11 @@ pub(crate) unsafe fn js_closure2(
     // .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
-#[deprecated(note = "use JSFunctionDef::add_closure_var() instead")]
+#[deprecated(note = "use FunctionDef::add_closure_var() instead")]
 /// returns added closure var index, or Err for error.
 pub unsafe fn add_closure_var(
     ctx: ContextPtr,
-    s: &mut JSFunctionDef,
+    s: &mut FunctionDef,
     is_local: bool,
     is_arg: bool,
     var_idx: u16,
@@ -2952,34 +2952,34 @@ pub unsafe fn JS_EvalFunction(ctx: ContextPtr, fun_obj: &JSValue) -> JSValue {
     return JS_EvalFunctionInternal(ctx, fun_obj, &ctx.global_obj.clone(), &[], None);
 }
 
-#[deprecated(note = "use JSFunctionDef::add_func_var() instead")]
-pub unsafe fn add_func_var(ctx: ContextPtr, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
+#[deprecated(note = "use FunctionDef::add_func_var() instead")]
+pub unsafe fn add_func_var(ctx: ContextPtr, fd: *mut FunctionDef, name: AtomRef) -> i32 {
     unreachable!("unused");
     // (*fd).add_func_var(ctx, name).map_or(-1, |x| x as i32)
 }
 
-#[deprecated(note = "use JSFunctionDef::add_var_this() instead")]
-pub unsafe fn add_var_this(ctx: ContextPtr, fd: *mut JSFunctionDef) -> i32 {
+#[deprecated(note = "use FunctionDef::add_var_this() instead")]
+pub unsafe fn add_var_this(ctx: ContextPtr, fd: *mut FunctionDef) -> i32 {
     (*fd).add_var_this(ctx).map_or(-1, |x| x as i32)
 }
 
-#[deprecated(note = "use JSFunctionDef::add_arguments(ctx, false) instead")]
-pub unsafe fn add_arguments_var(ctx: ContextPtr, fd: *mut JSFunctionDef) -> i32 {
+#[deprecated(note = "use FunctionDef::add_arguments(ctx, false) instead")]
+pub unsafe fn add_arguments_var(ctx: ContextPtr, fd: *mut FunctionDef) -> i32 {
     (*fd).add_arguments(ctx, false).map_or(-1, |x| x as i32)
 }
 
 // add an argument definition in the argument scope. Only needed when
 // "eval()" may be called in the argument scope. Return 0 if OK.
-#[deprecated(note = "use JSFunctionDef::add_arguments() instead")]
-pub unsafe fn add_arguments_arg(ctx: ContextPtr, fd: &mut JSFunctionDef) -> i32 {
+#[deprecated(note = "use FunctionDef::add_arguments() instead")]
+pub unsafe fn add_arguments_arg(ctx: ContextPtr, fd: &mut FunctionDef) -> i32 {
     (*fd).add_arguments(ctx, true).map_or(-1, |x| x as i32)
 }
 
 /// find closure var by name, returning index of the closure var
-#[deprecated(note = "use JSFunctionDef::find_closure_var() instead")]
+#[deprecated(note = "use FunctionDef::find_closure_var() instead")]
 pub unsafe fn find_closure_var(
     ctx: ContextPtr,
-    s: &mut JSFunctionDef,
+    s: &mut FunctionDef,
     var_name: AtomRef,
 ) -> Option<u16> {
     unreachable!("unused");
@@ -2988,11 +2988,11 @@ pub unsafe fn find_closure_var(
 // 'fd' must be a parent of 's'. Create in 's' a closure referencing a
 // local variable (is_local = TRUE) or a closure (is_local = FALSE) in
 // 'fd'
-#[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]
+#[deprecated(note = "use FunctionDef::get_closure_var2() instead")]
 pub unsafe fn get_closure_var2(
     ctx: ContextPtr,
-    s: &mut JSFunctionDef,
-    fd: *const JSFunctionDef,
+    s: &mut FunctionDef,
+    fd: *const FunctionDef,
     is_local: bool,
     is_arg: bool,
     var_idx: u16,
@@ -3007,11 +3007,11 @@ pub unsafe fn get_closure_var2(
     // )
 }
 
-#[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]
+#[deprecated(note = "use FunctionDef::get_closure_var2() instead")]
 pub unsafe fn get_closure_var(
     ctx: ContextPtr,
-    s: &mut JSFunctionDef,
-    fd: *const JSFunctionDef,
+    s: &mut FunctionDef,
+    fd: *const FunctionDef,
     is_arg: bool,
     var_idx: u16,
     var_name: AtomRef,
@@ -3123,8 +3123,8 @@ pub fn js_dump_function_bytecode(ctx: ContextPtr, bc: &Bytecode) {
     bc.dump(ctx);
 }
 
-#[deprecated(note = "use JSFunctionDef::compute_stack_size() instead")]
-pub unsafe fn compute_stack_size(ctx: ContextPtr, fd: *mut JSFunctionDef) -> Result<u16, i32> {
+#[deprecated(note = "use FunctionDef::compute_stack_size() instead")]
+pub unsafe fn compute_stack_size(ctx: ContextPtr, fd: *mut FunctionDef) -> Result<u16, i32> {
     (*fd).compute_stack_size(ctx)
 }
 
@@ -3417,66 +3417,66 @@ pub unsafe fn js_parse_skip_parens_token(
         .unwrap_or(-1)
 }
 
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u8(s: *mut JSParseState, val: u8) {
     unreachable!("unused");
     // (*s).cur_func_mut().emit_u8(val)
 }
 
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u16(s: *mut JSParseState, val: u16) {
     unreachable!("unused");
     // (*s).cur_func_mut().emit_u16(val)
 }
 
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u32(s: *mut JSParseState, val: u32) {
     unreachable!("unused");
     // (*s).cur_func_mut().emit_u32(val)
 }
 
 /// emit an atom, increase ref_count
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_atom_dup(s: *mut JSParseState, name: AtomRef) {
     unreachable!("unused");
     // (*s).cur_func_mut().emit_atom_dup(name)
 }
 
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 unsafe fn emit_op_u8(s: *mut JSParseState, op: u8) {
     unreachable!("unused");
     // (*s).cur_func_mut().emit_op_u8(op, (*s).last_line_num)
 }
 
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_op(s: *mut JSParseState, op: OpCode) {
     unreachable!("unused");
     // (*s).cur_func_mut().emit_op(op, (*s).last_line_num)
 }
 
 /* don't update the last opcode and don't emit line number info */
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_label_raw(s: *mut JSParseState, label: i32) {
     unreachable!("unused");
     // (*s).cur_func_mut().emit_label_raw(label)
 }
 
 /* return the label ID offset */
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_label(s: *mut JSParseState, label: i32) -> i32 {
     unreachable!("unused");
     // (*s).cur_func_mut().emit_label(label, (*s).last_line_num)
 }
 
 /* return label or -1 if dead code */
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_goto(s: *mut JSParseState, opcode: OpCode, label: i32) -> i32 {
     unreachable!("unused");
     // (*s).cur_func_mut()
     //     .emit_goto(opcode, label, (*s).last_line_num)
 }
 
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_push_const(s: *mut JSParseState, val: JSValue, as_atom: bool) -> i32 {
     unreachable!("unused");
     // (*s).cur_func_mut()
@@ -3487,20 +3487,20 @@ pub unsafe fn emit_push_const(s: *mut JSParseState, val: JSValue, as_atom: bool)
 /* initialize the class fields, called by the constructor. Note:
 super() can be called in an arrow function, so <this> and
 <class_fields_init> can be variable references */
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_class_field_init(s: *mut JSParseState) {
     unreachable!("unused");
     // (*s).cur_func_mut()
     //     .emit_class_field_init((*s).last_line_num)
 }
 
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_op_temp(s: *mut JSParseState, op: OpCodeTemp) {
     unreachable!("unused");
     // (*s).cur_func_mut().emit_op_temp(op, (*s).last_line_num)
 }
 
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+#[deprecated(note = "use FunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_return(s: *mut JSParseState, hasval: bool) {
     unreachable!("unused");
     // (*s).cur_func_mut().emit_return(hasval, (*s).last_line_num)
@@ -3572,18 +3572,18 @@ pub unsafe fn print_atom(rt: &RuntimeImpl, atom: AtomRef) {
     print!("{}", atom.to_utf8());
 }
 
-#[deprecated(note = "use JSFunctionDef::new() instead")]
+#[deprecated(note = "use FunctionDef::new() instead")]
 pub unsafe fn js_new_function_def(
     ctx: ContextPtr,
-    parent: *mut JSFunctionDef,
+    parent: *mut FunctionDef,
     is_eval: bool,
     is_func_expr: bool,
     filename: &str,
     line_num: i32,
-) -> *mut JSFunctionDef {
-    unreachable!("use JSFunctionDef::new() instead");
+) -> *mut FunctionDef {
+    unreachable!("use FunctionDef::new() instead");
 
-    // if let Ok(d) = JSFunctionDef::new(ctx, parent, is_eval, is_func_expr, filename, line_num) {
+    // if let Ok(d) = FunctionDef::new(ctx, parent, is_eval, is_func_expr, filename, line_num) {
     //     debug_assert_eq!(d.scope_first, -1);
     //     Box::into_raw(d)
     // } else {
@@ -3592,17 +3592,17 @@ pub unsafe fn js_new_function_def(
 }
 
 /// update label ref count by delta. returns new ref count.
-#[deprecated(note = "use JSFunctionDef::update_label_ref_count() instead")]
-pub unsafe fn update_label(fd: *mut JSFunctionDef, label: u32, delta: i32) -> i32 {
+#[deprecated(note = "use FunctionDef::update_label_ref_count() instead")]
+pub unsafe fn update_label(fd: *mut FunctionDef, label: u32, delta: i32) -> i32 {
     (*fd).update_label_ref_count(label, delta)
 }
 
 /// var_name is not consumed.
 // return 0 if OK or -1 if the private field could not be resolved
-#[deprecated(note = "use JSFunctionDef::resolve_scope_private_field() instead")]
+#[deprecated(note = "use FunctionDef::resolve_scope_private_field() instead")]
 pub fn resolve_scope_private_field(
     ctx: ContextPtr,
-    s: *mut JSFunctionDef,
+    s: *mut FunctionDef,
     var_name: AtomRef,
     scope_level: i32,
     op: u8,
@@ -3616,9 +3616,9 @@ pub fn resolve_scope_private_field(
 }
 
 // search in all scopes
-#[deprecated(note = "use JSFunctionDef::find_private_class_field_all() instead")]
+#[deprecated(note = "use FunctionDef::find_private_class_field_all() instead")]
 pub fn find_private_class_field_all(
-    fd: *const JSFunctionDef,
+    fd: *const FunctionDef,
     name: AtomRef,
     scope_level: i32,
 ) -> i32 {
@@ -3631,12 +3631,12 @@ pub fn find_private_class_field_all(
 }
 
 /// var_name is not consumed
-#[deprecated(note = "use JSFunctionDef::resolve_scope_private_field1() instead")]
+#[deprecated(note = "use FunctionDef::resolve_scope_private_field1() instead")]
 pub fn resolve_scope_private_field1(
     ctx: ContextPtr,
     pis_ref: *mut bool,
     pvar_kind: *mut JSVarKindEnum,
-    s: *mut JSFunctionDef,
+    s: *mut FunctionDef,
     var_name: AtomRef,
     scope_level: i32,
 ) -> i32 {
@@ -3654,9 +3654,9 @@ pub fn resolve_scope_private_field1(
 }
 
 /// `label_name` is not consumed
-#[deprecated(note = "use JSFunctionDef::push_break_entry() instead")]
+#[deprecated(note = "use FunctionDef::push_break_entry() instead")]
 pub unsafe fn push_break_entry(
-    fd: *mut JSFunctionDef,
+    fd: *mut FunctionDef,
     be: *mut BlockEnv,
     label_name: AtomRef,
     label_break: i32,
@@ -3666,17 +3666,17 @@ pub unsafe fn push_break_entry(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSFunctionDef::pop_break_entry() instead")]
-pub unsafe fn pop_break_entry(fd: *mut JSFunctionDef) {
+#[deprecated(note = "use FunctionDef::pop_break_entry() instead")]
+pub unsafe fn pop_break_entry(fd: *mut FunctionDef) {
     let be = (*fd).top_break;
     (*fd).top_break = (*be).prev;
 }
 
 /// return the target label, following the OP_goto jumps
 /// the first opcode at destination is stored in *pop
-#[deprecated(note = "use JSFunctionDef::find_jump_target() instead")]
+#[deprecated(note = "use FunctionDef::find_jump_target() instead")]
 pub unsafe fn find_jump_target(
-    s: *mut JSFunctionDef,
+    s: *mut FunctionDef,
     label: u32,
     pop: *mut u8,
     pline: *mut i32,
@@ -3691,12 +3691,12 @@ pub unsafe fn find_jump_target(
     label
 }
 
-#[deprecated(note = "use JSFunctionDef::compute_pc2line_info() instead")]
-pub unsafe fn compute_pc2line_info(s: *mut JSFunctionDef) {
+#[deprecated(note = "use FunctionDef::compute_pc2line_info() instead")]
+pub unsafe fn compute_pc2line_info(s: *mut FunctionDef) {
     (*s).compute_pc2line_info();
 }
 
-#[deprecated(note = "use JSFunctionDef::code_has_label() instead")]
+#[deprecated(note = "use FunctionDef::code_has_label() instead")]
 pub unsafe fn code_has_label(s: *mut std::ffi::c_void, pos: usize, label: u32) -> bool {
     unreachable!("unused")
 }
@@ -4629,17 +4629,17 @@ pub fn js_get_radix(ctx: ContextPtr, val: &JSValue) -> Result<i32, i32> {
 pub fn js_regexp_finalizer(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {}
 
 #[deprecated(note = "use JSParseState::parse_function_check_names() instead")]
-fn js_parse_function_check_names(s: &JSParseState, fd: &JSFunctionDef, func_name: AtomRef) -> i32 {
+fn js_parse_function_check_names(s: &JSParseState, fd: &FunctionDef, func_name: AtomRef) -> i32 {
     unreachable!("unused")
 }
 
-#[deprecated(note = "use JSFunctionDef::parse_check_duplicate_parameter() instead")]
+#[deprecated(note = "use FunctionDef::parse_check_duplicate_parameter() instead")]
 pub(super) fn js_parse_check_duplicate_parameter(s: &JSParseState, name: AtomRef) -> i32 {
     unreachable!("unused")
 }
 
-#[deprecated(note = "use JSFunctionDef::add_eval_variables() instead")]
-fn add_eval_variables(ctx: ContextPtr, s: &mut JSFunctionDef) {
+#[deprecated(note = "use FunctionDef::add_eval_variables() instead")]
+fn add_eval_variables(ctx: ContextPtr, s: &mut FunctionDef) {
     unreachable!("unused")
 }
 
@@ -4653,7 +4653,7 @@ pub unsafe fn JS_GetImportMeta(ctx: ContextPtr, m: *mut ModuleDefImpl) -> JSValu
 pub unsafe fn js_parse_class_default_ctor(
     s: &mut JSParseState,
     has_super: bool,
-    pfd: *mut *mut JSFunctionDef,
+    pfd: *mut *mut FunctionDef,
 ) -> i32 {
     unreachable!("unused");
 }
@@ -4804,10 +4804,10 @@ pub unsafe fn JS_FreeContext(ctx: ContextPtr) {
 // test if 'var_name' is in the variable object on the stack. If is it
 // the case, handle it and jump to 'label_done'.
 // If argument `label_done` is None, new label will be created.
-#[deprecated(note = "use JSFunctionDef::var_object_test() instead")]
+#[deprecated(note = "use FunctionDef::var_object_test() instead")]
 pub unsafe fn var_object_test(
     ctx: ContextPtr,
-    s: *mut JSFunctionDef,
+    s: *mut FunctionDef,
     var_name: &Atom,
     op: u8,
     bc: &mut Vec<u8>,
@@ -4821,10 +4821,10 @@ pub unsafe fn var_object_test(
 /// Resolves special pseudo variables (this, new.target, etc.)
 /// Returns the variable definition index if found
 /// Returns None if the variable is not a pseudo variable
-#[deprecated(note = "use JSFunctionDef::resolve_pseudo_var() instead")]
+#[deprecated(note = "use FunctionDef::resolve_pseudo_var() instead")]
 pub unsafe fn resolve_pseudo_var(
     ctx: ContextPtr,
-    s: *mut JSFunctionDef,
+    s: *mut FunctionDef,
     var_name: &Atom,
 ) -> Option<u16> {
     todo!()

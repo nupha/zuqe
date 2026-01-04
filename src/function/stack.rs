@@ -5,7 +5,7 @@ use crate::{
     utils::read_from_ptr,
 };
 
-use super::JSFunctionDef;
+use super::FunctionDef;
 
 /* compute the maximum stack size needed by the function */
 struct StackSizeState {
@@ -71,7 +71,7 @@ fn ss_check(
     Ok(())
 }
 
-impl JSFunctionDef {
+impl FunctionDef {
     pub fn compute_stack_size(&mut self, ctx: &ContextImpl) -> Result<u16, i32> {
         let bc_ptr = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();

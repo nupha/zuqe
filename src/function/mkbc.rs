@@ -10,9 +10,9 @@ use crate::{
     value::JSValue,
 };
 
-use super::JSFunctionDef;
+use super::FunctionDef;
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// Compile function def to bytecode, returns the Bytecode.
     ///
     /// All the child functions are also created. It must be done this way to resolve all the variables.
@@ -212,7 +212,7 @@ impl JSFunctionDef {
             }
 
             // // vardefs have been copied to bin, we must clean args, vars list here,
-            // // so that when calling JSFunctionDef::finalize() in ::drop(),
+            // // so that when calling FunctionDef::finalize() in ::drop(),
             // // JSVarDef::name atom won't free twice.
             // for vd in self.args.drain(..) {
             //     unsafe {
@@ -254,7 +254,7 @@ impl JSFunctionDef {
             );
         }
 
-        // SAFEGUARD: clear bytecode, so that JSFunctionDef::finalize() will not free atoms in it.
+        // SAFEGUARD: clear bytecode, so that FunctionDef::finalize() will not free atoms in it.
         self.byte_code.clear();
         debug_assert_eq!(bin.len(), bin_size);
 
@@ -363,7 +363,7 @@ impl JSFunctionDef {
 
         // XXX: inefficient, but eval performance is less critical
         // TODO: use parent_iter() iterator
-        let mut cur_fd = self as *mut JSFunctionDef;
+        let mut cur_fd = self as *mut FunctionDef;
         let mut scope_level = unsafe { (&*cur_fd).parent_scope_level };
 
         while let Some(fd) = unsafe { (&*cur_fd).parent.as_mut() } {
@@ -407,7 +407,7 @@ impl JSFunctionDef {
             debug_assert!((0..fd.scopes.len() as i32).contains(&scope_level));
             let mut scope_idx = fd.scopes[scope_level as usize].first;
             while scope_idx >= 0 {
-                let fd_ptr = fd as *const JSFunctionDef;
+                let fd_ptr = fd as *const FunctionDef;
 
                 let vd = fd.vars.get_mut(scope_idx as usize).unwrap();
                 vd.set_is_captured(true);
@@ -435,7 +435,7 @@ impl JSFunctionDef {
                     if !vd.var_name.is_null() {
                         self.get_closure_var2(
                             ctx,
-                            fd as *const JSFunctionDef,
+                            fd as *const FunctionDef,
                             true,
                             true,
                             i as _,
@@ -455,7 +455,7 @@ impl JSFunctionDef {
                     {
                         self.get_closure_var2(
                             ctx,
-                            fd as *const JSFunctionDef,
+                            fd as *const FunctionDef,
                             true,
                             false,
                             i as _,
@@ -473,7 +473,7 @@ impl JSFunctionDef {
                     if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
                         self.get_closure_var2(
                             ctx,
-                            fd as *const JSFunctionDef,
+                            fd as *const FunctionDef,
                             true,
                             false,
                             i as _,
@@ -493,7 +493,7 @@ impl JSFunctionDef {
                     for (i, cv) in cvars.iter().enumerate() {
                         self.get_closure_var2(
                             ctx,
-                            fd as *const JSFunctionDef,
+                            fd as *const FunctionDef,
                             false,
                             cv.is_arg(),
                             i as _,
@@ -508,7 +508,7 @@ impl JSFunctionDef {
             }
 
             scope_level = fd.parent_scope_level;
-            cur_fd = fd as *mut JSFunctionDef;
+            cur_fd = fd as *mut FunctionDef;
         }
     }
 }

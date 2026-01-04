@@ -4,18 +4,18 @@ use crate::{
     context::ContextImpl,
     error::JS_THROW_VAR_RO,
     function::{
-        JSFunctionDef, JSVarKindEnum, get_loc_or_ref, push_vec_atom, push_vec_u8, push_vec_u16,
+        FunctionDef, JSVarKindEnum, get_loc_or_ref, push_vec_atom, push_vec_u8, push_vec_u16,
     },
 };
 
-impl JSFunctionDef {
+impl FunctionDef {
     fn resolve_scope_private_field1(
         &mut self,
         ctx: &ContextImpl,
         var_name: Atom,
         mut scope_level: i32,
     ) -> Result<(u16, JSVarKindEnum, bool), i32> {
-        let mut root_fd: Option<&JSFunctionDef> = None;
+        let mut root_fd: Option<&FunctionDef> = None;
         let mut is_ref = false;
 
         for cur_fd in self.parent_iter(true) {

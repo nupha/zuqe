@@ -2,8 +2,8 @@ use crate::{
     bytecode::{opcode_info_intermediate, opcodes},
     context::ContextImpl,
     function::{
-        BlockEnv, JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST,
-        PC2LINE_RANGE, push_vec_leb128, push_vec_sleb128, push_vec_u8,
+        BlockEnv, FunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE,
+        push_vec_leb128, push_vec_sleb128, push_vec_u8,
     },
     stack_frame::ExecMode,
     utils::read_from_ptr,
@@ -44,7 +44,7 @@ impl Label {
     }
 }
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// Create a new label in function def. returns new label id.
     pub fn add_label(&mut self) -> Result<u32, i32> {
         if self.label_slots.len() == self.label_slots.capacity()

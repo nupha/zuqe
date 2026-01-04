@@ -1,7 +1,7 @@
 use gc_lite::GcTracable;
 
 use crate::{
-    atom::Atom, context::ContextImpl, eval::EvalType, function::JSFunctionDef,
+    atom::Atom, context::ContextImpl, eval::EvalType, function::FunctionDef,
     runtime::JS_MAX_LOCAL_VARS, stack_frame::ExecMode,
 };
 
@@ -200,7 +200,7 @@ impl JSGlobalVar {
     }
 }
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// add a global variable definition
     pub fn add_global_var(
         &mut self,

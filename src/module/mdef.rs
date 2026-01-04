@@ -5,7 +5,7 @@ use crate::{
     builtins::promise::Promise,
     class::JSClassExoticMethods,
     context::{Context, ContextImpl, ContextPtr},
-    function::{BCFuncPayload, FieldDef, JSFunctionDef, JSVarKindEnum, JSVarRef},
+    function::{BCFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, JSVarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, ObjectPayload, ObjectRef},
@@ -411,7 +411,7 @@ pub(crate) fn js_free_modules(ctx: &mut ContextImpl, flag: JSFreeModuleEnum) {
     });
 }
 
-pub(crate) fn add_module_variables(ctx: &ContextImpl, fd: &mut JSFunctionDef) -> i32 {
+pub(crate) fn add_module_variables(ctx: &ContextImpl, fd: &mut FunctionDef) -> i32 {
     // The imported global variables were added as closure variables
     // in js_parse_import(). We add here the module global
     // variables.

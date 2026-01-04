@@ -4,8 +4,8 @@ use crate::{
     context::ContextImpl,
     error::JS_THROW_VAR_RO,
     function::{
-        ARG_SCOPE_END, ARGUMENT_VAR_OFFSET, JSFunctionDef, JSVarKindEnum, push_vec_atom,
-        push_vec_u8, push_vec_u16, push_vec_u32,
+        ARG_SCOPE_END, ARGUMENT_VAR_OFFSET, FunctionDef, JSVarKindEnum, push_vec_atom, push_vec_u8,
+        push_vec_u16, push_vec_u32,
     },
 };
 
@@ -14,7 +14,7 @@ use super::optimize::{
     optimize_scope_make_ref,
 };
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// Resolves variable references within a specific scope
     /// Searches for the variable starting from the given scope and moves upwards
     /// Rewrites bytecode to handle variable access appropriately
@@ -129,7 +129,7 @@ impl JSFunctionDef {
         debug_assert_eq!(var_idx, -1);
 
         // check parent scopes
-        let mut cur_fd: *mut JSFunctionDef = self;
+        let mut cur_fd: *mut FunctionDef = self;
 
         'walk_parent: while unsafe { !(*cur_fd).parent.is_null() } {
             let scope_level = unsafe { (*cur_fd).parent_scope_level };
@@ -678,7 +678,7 @@ impl JSFunctionDef {
         var_name: Atom,
         op: u8,
         bc: &mut Vec<u8>,
-        bc_buf: *mut u8, // JSFunctionDef::byte_code buffer ptr
+        bc_buf: *mut u8, // FunctionDef::byte_code buffer ptr
         label: Option<u32>,
         label_done: Option<u32>,
         mut pos_next: usize,

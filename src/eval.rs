@@ -5,7 +5,7 @@ use crate::{
     builtins::promise::{Promise, PromiseState},
     context::{ContextImpl, ContextPtr},
     error::{ErrorText, JSResult},
-    function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
+    function::{Bytecode, FunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
     parse::JSParseState,
     runtime::TickStatus,
@@ -103,7 +103,7 @@ impl ContextImpl {
         };
 
         // create root function def.
-        let mut fd = JSFunctionDef::new(self, None, true, false, filename, 1)?;
+        let mut fd = FunctionDef::new(self, None, true, false, filename, 1)?;
 
         fd.eval_type = eval_type;
         fd.func_name = Atom::CONST__eval_;

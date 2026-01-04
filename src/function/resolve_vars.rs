@@ -5,15 +5,15 @@ use crate::{
     error::JS_THROW_VAR_REDECL,
     eval::EvalType,
     function::{
-        JSFunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions,
-        push_vec_atom, push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
+        FunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions, push_vec_atom,
+        push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
     },
     utils::{M2, read_from_ptr},
 };
 
 use super::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR, optimize::OPTIMIZE};
 
-impl JSFunctionDef {
+impl FunctionDef {
     /// Performs initial runtime checks for global variables
     /// This must be executed before creating any variables
     /// Checks for potential conflicts between global and closure variables
@@ -473,7 +473,7 @@ impl JSFunctionDef {
             pos = pos_next;
         } // while
 
-        // New bytecode is done, set it to JSFunctionDef
+        // New bytecode is done, set it to FunctionDef
         bc_out.shrink_to_fit();
         self.byte_code = bc_out;
 
@@ -481,7 +481,7 @@ impl JSFunctionDef {
     }
 }
 
-fn mark_eval_captured_variables(s: &mut JSFunctionDef, scope_level: i32) {
+fn mark_eval_captured_variables(s: &mut FunctionDef, scope_level: i32) {
     let mut idx = s.scopes[scope_level as usize].first;
     while idx >= 0 {
         let vd = s.vars.get_mut(idx as usize).unwrap();

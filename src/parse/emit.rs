@@ -2,7 +2,7 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
     class::ClassFieldsDef,
-    function::{JSFunctionDef, JSFunctionKindEnum},
+    function::{FunctionDef, JSFunctionKindEnum},
     value::JSValue,
 };
 
@@ -170,8 +170,8 @@ impl<'s> JSParseState<'s> {
     }
 
     /// create a function def for class fields initialization
-    fn make_class_fields_init_fd(&mut self) -> Result<Box<JSFunctionDef>, i32> {
-        let mut fd = JSFunctionDef::new(
+    fn make_class_fields_init_fd(&mut self) -> Result<Box<FunctionDef>, i32> {
+        let mut fd = FunctionDef::new(
             &self.ctx,
             Some(self.cur_func_mut()),
             false,
