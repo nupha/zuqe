@@ -39,8 +39,6 @@ pub struct StackFrame {
     /// - Bytecode Function object
     /// - Native function object
     /// - undefined, which means stack frame is detached
-    ///
-    /// TODO: use Option<Object> type?
     pub(crate) cur_func: JSValue,
 
     /// Buffer storing arguments, local variables, and stack space

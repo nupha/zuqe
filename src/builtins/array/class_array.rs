@@ -14,9 +14,9 @@ use crate::{
     bytecode::arithmatic::StrictEqMode,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
-    function::{CallContext, FieldDef, JS_CallConstructor, JS_GetFunctionRealm},
+    function::{CallContext, FieldDef, JS_CallConstructor},
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload, Object},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, Object, ObjectPayload},
     runtime::js_check_stack_overflow,
     string::{StringBuf, StringRef},
     value::JSValue,
@@ -98,29 +98,30 @@ fn JS_ArraySpeciesCreate(ctx: ContextPtr, obj: JSValue, len_val: JSValue) -> JSR
 
     let mut ctor = obj.get_property(&ctx, Atom::CONST_constructor)?;
 
-    if ctor.is_constructor() {
+    if let Some(o) = ctor.as_object()
+        && o.is_constructor()
+    {
         // legacy web compatibility
-        let realm = JS_GetFunctionRealm(ctx, ctor)?;
+        let realm = o.realm(ctx)?;
         if realm.id() != ctx.id() && ctor.is_same(realm.array_ctor) {
             ctor = JSValue::UNDEFINED;
         }
     }
 
-    if ctor.is_object() {
-        let species = ctor.get_property(&ctx, Atom::CONST_Symbol_species)?;
-        ctor = species;
-        if ctor.is_null() {
-            ctor = JSValue::UNDEFINED;
-        }
+    if let Some(o) = ctor.as_object() {
+        let species = o.get_property(&ctx, Atom::CONST_Symbol_species)?;
+        ctor = if species.is_null() {
+            JSValue::UNDEFINED
+        } else {
+            species
+        };
     }
 
     if ctor.is_undefined() {
-        js_array_constructor(CallContext::new(
+        js_array_constructor(CallContext::new_simple(
             ctx,
             JSValue::UNDEFINED,
             std::slice::from_ref(&len_val),
-            0,
-            None,
         ))
     } else {
         JS_CallConstructor(&ctx, ctor, std::slice::from_ref(&len_val)).err()

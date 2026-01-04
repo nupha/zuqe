@@ -5390,3 +5390,45 @@ pub(super) fn JS_RegExpExec2(ctx_p: ContextPtr, re: JSValue, str: StringRef) -> 
 pub(crate) fn JS_GetActiveFunction(ctx: &ContextImpl) -> JSValue {
     ctx.rt_ptr().current_stack_frame().unwrap().cur_func
 }
+
+/// TODO: change func_obj type to Object
+#[deprecated(note = "use ObjectImpl::realm() instead")]
+pub(crate) fn JS_GetFunctionRealm(ctx: ContextPtr, func_obj: JSValue) -> Result<ContextPtr, i32> {
+    if !func_obj.is_object() {
+        return Ok(ctx);
+    }
+
+    let realm: ContextPtr;
+    let p = unsafe { func_obj.as_object_unchecked() };
+
+    match p.payload() {
+        ObjectPayload::C_FUNCTION(cfunc) => {
+            realm = cfunc
+                .realm
+                .upgrade(ctx.rt_ptr().gc_heap())
+                .map_or(ctx, ContextPtr::from);
+        }
+        ObjectPayload::BYTECODE_FUNCTION(fo)
+        | ObjectPayload::GENERATOR_FUNCTION(fo)
+        | ObjectPayload::ASYNC_FUNCTION(fo)
+        | ObjectPayload::ASYNC_GENERATOR_FUNCTION(fo) => {
+            realm = fo.bytecode().realm().unwrap_or(ctx);
+        }
+        ObjectPayload::PROXY(px) => {
+            if px.is_revoked() {
+                ctx.throw_type_error_revoked_proxy();
+                return Err(-1);
+            } else {
+                realm = JS_GetFunctionRealm(ctx, px.target().into())?;
+            }
+        }
+        ObjectPayload::BOUND_FUNCTION(bfunc) => {
+            realm = JS_GetFunctionRealm(ctx, bfunc.func_obj)?;
+        }
+        _ => {
+            realm = ctx;
+        }
+    }
+
+    Ok(realm)
+}

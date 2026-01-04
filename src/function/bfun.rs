@@ -196,6 +196,38 @@ impl ObjectImpl {
             Err(-1)
         }
     }
+
+    /// return realm context of the function object
+    pub(crate) fn realm(&self, default: ContextPtr) -> Result<ContextPtr, i32> {
+        match self.payload() {
+            ObjectPayload::C_FUNCTION(cfunc) => Ok(cfunc
+                .realm
+                .upgrade(default.rt_ptr().gc_heap())
+                .map_or(default, ContextPtr::from)),
+            ObjectPayload::BYTECODE_FUNCTION(fo)
+            | ObjectPayload::GENERATOR_FUNCTION(fo)
+            | ObjectPayload::ASYNC_FUNCTION(fo)
+            | ObjectPayload::ASYNC_GENERATOR_FUNCTION(fo) => {
+                Ok(fo.bytecode().realm().unwrap_or(default))
+            }
+            ObjectPayload::PROXY(px) => {
+                if px.is_revoked() {
+                    default.throw_type_error_revoked_proxy();
+                    Err(-1)
+                } else {
+                    px.target().realm(default)
+                }
+            }
+            ObjectPayload::BOUND_FUNCTION(bfunc) => {
+                if let Some(o) = bfunc.func_obj.as_object() {
+                    o.realm(default)
+                } else {
+                    Ok(default)
+                }
+            }
+            _ => Ok(default),
+        }
+    }
 }
 
 impl JSValue {
@@ -209,47 +241,6 @@ impl JSValue {
             Err(-1)
         }
     }
-}
-
-/// TODO: change func_obj type to Object
-pub(crate) fn JS_GetFunctionRealm(ctx: ContextPtr, func_obj: JSValue) -> Result<ContextPtr, i32> {
-    if !func_obj.is_object() {
-        return Ok(ctx);
-    }
-
-    let realm: ContextPtr;
-    let p = unsafe { func_obj.as_object_unchecked() };
-
-    match p.payload() {
-        ObjectPayload::C_FUNCTION(cfunc) => {
-            realm = cfunc
-                .realm
-                .upgrade(ctx.rt_ptr().gc_heap())
-                .map_or(ctx, ContextPtr::from);
-        }
-        ObjectPayload::BYTECODE_FUNCTION(fo)
-        | ObjectPayload::GENERATOR_FUNCTION(fo)
-        | ObjectPayload::ASYNC_FUNCTION(fo)
-        | ObjectPayload::ASYNC_GENERATOR_FUNCTION(fo) => {
-            realm = fo.bytecode().realm().unwrap_or(ctx);
-        }
-        ObjectPayload::PROXY(px) => {
-            if px.is_revoked() {
-                ctx.throw_type_error_revoked_proxy();
-                return Err(-1);
-            } else {
-                realm = JS_GetFunctionRealm(ctx, px.target().into())?;
-            }
-        }
-        ObjectPayload::BOUND_FUNCTION(bfunc) => {
-            realm = JS_GetFunctionRealm(ctx, bfunc.func_obj)?;
-        }
-        _ => {
-            realm = ctx;
-        }
-    }
-
-    Ok(realm)
 }
 
 pub fn get_func_name(func: JSValue) -> Option<String> {
@@ -492,7 +483,9 @@ impl BytecodeFunction {
             // set the prototype
             let mut proto = new_target.get_property(&ctx, Atom::CONST_prototype)?;
             if !proto.is_object() {
-                proto = JS_GetFunctionRealm(ctx, new_target)?
+                proto = new_target
+                    .as_object()
+                    .map_or(Ok(ctx), |o| o.realm(ctx))?
                     .class_proto(func_kind.class_id())
                     .map_or(JSValue::NULL, JSValue::Object);
             }

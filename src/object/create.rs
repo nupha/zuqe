@@ -5,8 +5,7 @@ use crate::{
     atom::Atom,
     class::{ClassID, OtherPayload},
     context::{ContextImpl, ContextPtr},
-    function::JS_GetFunctionRealm,
-    object::{ObjectImpl, ObjectPayload, Object, ShapeHandle},
+    object::{Object, ObjectImpl, ObjectPayload, ShapeHandle},
     value::JSValue,
 };
 
@@ -64,9 +63,10 @@ impl ContextImpl {
         } else if let Ok(p) = ctor.get_property(self, Atom::CONST_prototype) {
             if let Some(o) = p.as_object().copied() {
                 Some(o)
-            } else if let Ok(realm) =
-                JS_GetFunctionRealm(unsafe { ContextPtr::from_ref_unchecked(self) }, ctor)
-            {
+            } else if let Ok(realm) = {
+                let cx = unsafe { ContextPtr::from_ref_unchecked(self) };
+                ctor.as_object().map_or(Ok(cx), |o| o.realm(cx))
+            } {
                 realm.class_proto(class_id)
             } else {
                 return Err(payload);
@@ -103,10 +103,7 @@ impl ContextImpl {
 
     /// create basic object with given prototype `proto`.
     #[inline(always)]
-    pub fn create_base_object_with_proto(
-        &self,
-        proto: Option<Object>,
-    ) -> Result<Object, i32> {
+    pub fn create_base_object_with_proto(&self, proto: Option<Object>) -> Result<Object, i32> {
         self.create_object_with_proto(proto, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     }

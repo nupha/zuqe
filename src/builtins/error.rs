@@ -4,12 +4,13 @@ use crate::{
     builtins::iterator::iterator_to_array,
     context::{ContextImpl, ContextPtr},
     error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
-    function::{CallContext, JS_GetFunctionRealm},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload, Object},
+    function::CallContext,
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectPayload},
     value::JSValue,
 };
 
 pub fn js_error_constructor(cc: CallContext) -> JSResult {
+    let magic = cc.magic();
     let ctx = cc.ctx();
     let mut new_target = *cc.this();
     if new_target.is_undefined() {
@@ -19,26 +20,24 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
     // use proper proto, ensure proto is an object
     let mut proto = new_target.get_property(ctx, Atom::CONST_prototype)?;
     if !proto.is_object() {
-        let realm =
-            JS_GetFunctionRealm(unsafe { ContextPtr::from_ref_unchecked(ctx) }, new_target)?;
-        let magic = cc.magic();
+        let ctx_p = unsafe { ContextPtr::from_ref_unchecked(ctx) };
+        let realm = new_target
+            .as_object()
+            .map_or(Ok(ctx_p), |o| o.realm(ctx_p))?;
+
         proto = if magic < 0 {
             realm.class_proto(JS_CLASS_ERROR).unwrap().into()
         } else {
             realm.native_error_proto[magic as usize]
         };
     }
-
     debug_assert!(proto.is_object());
 
     let mut obj = ctx
-        .create_object_with_proto(
-            Some(Object::try_from(proto).unwrap()),
-            ObjectPayload::ERROR,
-        )
+        .create_object_with_proto(Object::try_from(proto).ok(), ObjectPayload::ERROR)
         .map_err(|_| -1)?;
 
-    let mut arg_index = if cc.magic() == ErrorKind::Aggregate as i32 {
+    let mut arg_index = if magic == ErrorKind::Aggregate as i32 {
         1
     } else {
         0
@@ -70,7 +69,7 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
         }
     }
 
-    if cc.magic() == ErrorKind::Aggregate as i32 {
+    if magic == ErrorKind::Aggregate as i32 {
         let error_list = iterator_to_array(ctx, cc.arg(0))?;
         obj.define_property_value(
             ctx,
@@ -86,7 +85,6 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-/// `errors` value is not consumed.
 pub fn js_aggregate_error_constructor(ctx: &ContextImpl, errors: JSValue) -> JSValue {
     if let Ok(mut obj) = ctx.create_object_with_proto(
         ctx.native_error_proto[ErrorKind::Aggregate as usize]
