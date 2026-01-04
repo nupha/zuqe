@@ -1,7 +1,7 @@
 use crate::{
     atom::{Atom, AtomKind},
     bytecode::{OpCode, OpCodeTemp, opcodes},
-    function::{FunctionDef, JSFunctionKindEnum},
+    function::{FunctionDef, FunctionKind},
     value::JSValue,
 };
 
@@ -56,12 +56,12 @@ impl FunctionDef {
 
     pub fn emit_return(&mut self, mut hasval: bool, last_line_num: i32) {
         // execute the finally blocks before return
-        if self.attrs.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
+        if self.attrs.func_kind != FunctionKind::Normal {
             if !hasval {
                 // no value: direct return in case of async generator
                 self.emit_op(OpCode::UNDEFINED, last_line_num);
                 hasval = true;
-            } else if self.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR {
+            } else if self.attrs.func_kind == FunctionKind::AsyncGenerator {
                 // the await must be done before handling the "finally" in
                 // case it raises an exception
                 self.emit_op(OpCode::AWAIT, last_line_num);
@@ -83,7 +83,7 @@ impl FunctionDef {
 
                 // stack: iter_obj next ret_val
                 if unsafe { (&*top).has_iterator } {
-                    if self.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR {
+                    if self.attrs.func_kind == FunctionKind::AsyncGenerator {
                         self.emit_op(OpCode::NIP, last_line_num); // next
                         self.emit_op(OpCode::SWAP, last_line_num);
                         self.emit_op(OpCode::GET_FIELD2, last_line_num);
@@ -142,7 +142,7 @@ impl FunctionDef {
 
             self.emit_label(label_return, last_line_num);
             self.emit_op(OpCode::RETURN, last_line_num);
-        } else if self.attrs.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
+        } else if self.attrs.func_kind != FunctionKind::Normal {
             self.emit_op(OpCode::RETURN_ASYNC, last_line_num);
         } else {
             self.emit_op(

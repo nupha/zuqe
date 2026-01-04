@@ -2,7 +2,7 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
     class::ClassFieldsDef,
-    function::{FunctionDef, JSFunctionKindEnum},
+    function::{FunctionDef, FunctionKind},
     value::JSValue,
 };
 
@@ -185,7 +185,7 @@ impl<'s> JSParseState<'s> {
         fd.has_arguments_binding = false;
         fd.has_this_binding = true;
 
-        fd.attrs.func_kind = JSFunctionKindEnum::JS_FUNC_NORMAL;
+        fd.attrs.func_kind = FunctionKind::Normal;
         fd.attrs.super_allowed = fd.has_home_object;
         fd.attrs.new_target_allowed = true;
 

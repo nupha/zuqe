@@ -1,6 +1,5 @@
 use crate::{
-    atom::Atom, bytecode::OpCode, error::JS_THROW_ERROR_ITERATOR_THROW,
-    function::JSFunctionKindEnum,
+    atom::Atom, bytecode::OpCode, error::JS_THROW_ERROR_ITERATOR_THROW, function::FunctionKind,
 };
 
 use super::{JSParseState, tokenize::TokenKind};
@@ -11,7 +10,7 @@ impl<'s> JSParseState<'s> {
 
         if !matches!(
             self.cur_func().attrs.func_kind,
-            JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+            FunctionKind::Generator | FunctionKind::AsyncGenerator
         ) {
             self.throw_syntax_error("unexpected 'yield' keyword");
             return Err(-1);
@@ -22,8 +21,7 @@ impl<'s> JSParseState<'s> {
 
         self.next_token()?;
 
-        let is_async =
-            self.cur_func().attrs.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR;
+        let is_async = self.cur_func().attrs.func_kind == FunctionKind::AsyncGenerator;
         let mut is_star = false;
 
         // XXX: is there a better method to detect 'yield' without parameters?

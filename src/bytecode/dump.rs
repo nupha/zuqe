@@ -5,7 +5,7 @@ use crate::{
     bytecode::OpcodeFormat,
     context::{ContextImpl, ContextPtr, ExecMode},
     function::{
-        Bytecode, JSClosureVar, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
+        Bytecode, JSClosureVar, FunctionKind, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
         PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
     string::unicode_from_utf8_v0,
@@ -424,7 +424,7 @@ impl Bytecode {
 
         println!(
             "function: {}{}",
-            if self.func_kind() == JSFunctionKindEnum::JS_FUNC_GENERATOR {
+            if self.func_kind() == FunctionKind::JS_FUNC_GENERATOR {
                 "*"
             } else {
                 ""

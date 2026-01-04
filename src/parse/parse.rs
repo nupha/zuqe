@@ -2,7 +2,7 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
     eval::EvalType,
-    function::JSFunctionKindEnum,
+    function::FunctionKind,
     stack_frame::ExecMode,
     string::{CharCode, Utf8Stream},
 };
@@ -67,7 +67,7 @@ impl<'s> JSParseState<'s> {
                 // function
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                    JSFunctionKindEnum::JS_FUNC_NORMAL,
+                    FunctionKind::Normal,
                     self.token.ptr,
                     self.token.line_num,
                 )
@@ -90,7 +90,7 @@ impl<'s> JSParseState<'s> {
                     // async function
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                        JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        FunctionKind::Normal,
                         self.token.ptr,
                         self.token.line_num,
                     )

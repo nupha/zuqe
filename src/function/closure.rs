@@ -5,8 +5,7 @@ use crate::{
     atom::Atom,
     context::ContextImpl,
     function::{
-        BCFuncPayload, BCFunction, Bytecode, JSFunctionKindEnum, JSVarRef,
-        js_function_set_properties,
+        BCFuncPayload, BCFunction, Bytecode, FunctionKind, JSVarRef, js_function_set_properties,
     },
     object::{JS_PROP_WRITABLE, LazyInit, ObjectPayload, ObjectRef},
     runtime::JS_MAX_LOCAL_VARS,
@@ -270,12 +269,10 @@ impl Bytecode {
         let payload = {
             let p = BCFuncPayload::new(*self, var_refs);
             match self.func_kind() {
-                JSFunctionKindEnum::JS_FUNC_NORMAL => ObjectPayload::BYTECODE_FUNCTION(p),
-                JSFunctionKindEnum::JS_FUNC_GENERATOR => ObjectPayload::GENERATOR_FUNCTION(p),
-                JSFunctionKindEnum::JS_FUNC_ASYNC => ObjectPayload::ASYNC_FUNCTION(p),
-                JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
-                    ObjectPayload::ASYNC_GENERATOR_FUNCTION(p)
-                }
+                FunctionKind::Normal => ObjectPayload::BYTECODE_FUNCTION(p),
+                FunctionKind::Generator => ObjectPayload::GENERATOR_FUNCTION(p),
+                FunctionKind::Async => ObjectPayload::ASYNC_FUNCTION(p),
+                FunctionKind::AsyncGenerator => ObjectPayload::ASYNC_GENERATOR_FUNCTION(p),
             }
         };
         let mut func = BCFunction(

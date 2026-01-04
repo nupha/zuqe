@@ -7,7 +7,7 @@ use crate::{
     },
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::ContextImpl,
-    function::{Callback, JSFunctionKindEnum, JSVarRef},
+    function::{Callback, FunctionKind, JSVarRef},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
@@ -120,7 +120,7 @@ pub(super) fn js_op_define_class(
         }
         _ => unreachable!(),
     };
-    debug_assert_eq!(bc.func_kind(), JSFunctionKindEnum::JS_FUNC_NORMAL);
+    debug_assert_eq!(bc.func_kind(), FunctionKind::Normal);
 
     // SP[-2]: parent class
     let mut parent_class = unsafe { *sp.offset(-2) };

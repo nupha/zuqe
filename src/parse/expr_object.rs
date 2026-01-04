@@ -2,7 +2,7 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
     class::{OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD},
-    function::JSFunctionKindEnum,
+    function::FunctionKind,
     object::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
         PROP_TYPE_SET, PROP_TYPE_STAR, PROP_TYPE_VAR,
@@ -49,41 +49,38 @@ impl<'s> JSParseState<'s> {
                     self.emit_atom(name);
                 } else if self.token.kind == TokenKind::Char('(') {
                     let is_getset = matches!(prop_type, PROP_TYPE_GET | PROP_TYPE_SET);
-                    let (func_type, func_kind, op_flags): (
-                        JSParseFunctionEnum,
-                        JSFunctionKindEnum,
-                        i32,
-                    ) = if is_getset {
-                        (
-                            // type
-                            if prop_type == PROP_TYPE_GET {
-                                JSParseFunctionEnum::JS_PARSE_FUNC_GETTER
-                            } else {
-                                JSParseFunctionEnum::JS_PARSE_FUNC_SETTER
-                            },
-                            // kind
-                            JSFunctionKindEnum::JS_FUNC_NORMAL,
-                            // opflags
-                            OP_DEFINE_METHOD_GETTER as i32 + prop_type - PROP_TYPE_GET,
-                        )
-                    } else {
-                        (
-                            // type
-                            JSParseFunctionEnum::JS_PARSE_FUNC_METHOD,
-                            // kind
-                            if prop_type == PROP_TYPE_STAR {
-                                JSFunctionKindEnum::JS_FUNC_GENERATOR
-                            } else if prop_type == PROP_TYPE_ASYNC {
-                                JSFunctionKindEnum::JS_FUNC_ASYNC
-                            } else if prop_type == PROP_TYPE_ASYNC_STAR {
-                                JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-                            } else {
-                                JSFunctionKindEnum::JS_FUNC_NORMAL
-                            },
-                            // opflags
-                            OP_DEFINE_METHOD_METHOD as i32,
-                        )
-                    };
+                    let (func_type, func_kind, op_flags): (JSParseFunctionEnum, FunctionKind, i32) =
+                        if is_getset {
+                            (
+                                // type
+                                if prop_type == PROP_TYPE_GET {
+                                    JSParseFunctionEnum::JS_PARSE_FUNC_GETTER
+                                } else {
+                                    JSParseFunctionEnum::JS_PARSE_FUNC_SETTER
+                                },
+                                // kind
+                                FunctionKind::Normal,
+                                // opflags
+                                OP_DEFINE_METHOD_GETTER as i32 + prop_type - PROP_TYPE_GET,
+                            )
+                        } else {
+                            (
+                                // type
+                                JSParseFunctionEnum::JS_PARSE_FUNC_METHOD,
+                                // kind
+                                if prop_type == PROP_TYPE_STAR {
+                                    FunctionKind::Generator
+                                } else if prop_type == PROP_TYPE_ASYNC {
+                                    FunctionKind::Async
+                                } else if prop_type == PROP_TYPE_ASYNC_STAR {
+                                    FunctionKind::AsyncGenerator
+                                } else {
+                                    FunctionKind::Normal
+                                },
+                                // opflags
+                                OP_DEFINE_METHOD_METHOD as i32,
+                            )
+                        };
 
                     self.parse_function_decl(func_type, func_kind, start_ptr, start_line)?;
 

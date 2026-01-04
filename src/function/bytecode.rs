@@ -15,7 +15,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{JSFunctionKindEnum, closure::JSClosureVar, var::JSVarDef};
+use super::{FunctionKind, closure::JSClosureVar, var::JSVarDef};
 
 #[derive(Debug)]
 pub struct BytecodeDebugInfo {
@@ -43,7 +43,7 @@ pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
 
 #[derive(Debug, Clone)]
 pub struct BytecodeAttrs {
-    pub(crate) func_kind: JSFunctionKindEnum,
+    pub(crate) func_kind: FunctionKind,
     /// true if a prototype field is necessary
     pub(crate) has_prototype: bool,
     /// 是否有简单参数列表
@@ -71,7 +71,7 @@ pub struct BytecodeAttrs {
 impl Default for BytecodeAttrs {
     fn default() -> Self {
         Self {
-            func_kind: JSFunctionKindEnum::JS_FUNC_NORMAL,
+            func_kind: FunctionKind::Normal,
             has_prototype: false,
             has_simple_parameter_list: false,
             is_derived_class_constructor: false,
@@ -233,7 +233,7 @@ impl BytecodeImpl {
     }
 
     #[inline(always)]
-    pub const fn func_kind(&self) -> JSFunctionKindEnum {
+    pub const fn func_kind(&self) -> FunctionKind {
         self.attrs.func_kind
     }
 

@@ -5,7 +5,7 @@ use crate::{
     builtins::promise::{Promise, PromiseState},
     context::{ContextImpl, ContextPtr},
     error::{ErrorText, JSResult},
-    function::{Bytecode, FunctionDef, JSFunctionKindEnum, add_closure_variables},
+    function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
     parse::JSParseState,
     runtime::TickStatus,
@@ -129,7 +129,7 @@ impl ContextImpl {
         fd.module = frame_module;
         if fd.module.is_some() || eval_flags.contains(EvalFlags::COMPILE_TO_ASYNC) {
             fd.in_function_body = true;
-            fd.attrs.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
+            fd.attrs.func_kind = FunctionKind::Async;
         }
 
         // add fd body scope.

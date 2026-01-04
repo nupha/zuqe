@@ -24,7 +24,7 @@ use crate::{
     context::ContextPtr,
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     eval::{EvalFlags, EvalType},
-    function::{BytecodeFunction, Callback, JSFunctionKindEnum},
+    function::{BytecodeFunction, Callback, FunctionKind},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload,
@@ -124,7 +124,7 @@ impl ContextPtr {
                 Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "Function",
                 1,
-                JSFunctionKindEnum::JS_FUNC_NORMAL as _,
+                FunctionKind::Normal as _,
             )
             .unwrap()
             .into();
@@ -372,7 +372,7 @@ impl ContextPtr {
                 Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "GeneratorFunction",
                 1,
-                JSFunctionKindEnum::JS_FUNC_GENERATOR as i16,
+                FunctionKind::Generator as i16,
             )
             .unwrap()
             .into();

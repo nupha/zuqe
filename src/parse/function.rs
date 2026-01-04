@@ -4,7 +4,7 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
     eval::EvalType,
-    function::{ARGUMENT_VAR_OFFSET, FunctionDef, JSFunctionKindEnum, JSVarDefEnum},
+    function::{ARGUMENT_VAR_OFFSET, FunctionDef, FunctionKind, JSVarDefEnum},
     module::ExportType,
     stack_frame::ExecMode,
     utils::unlikely,
@@ -41,7 +41,7 @@ impl<'s> JSParseState<'s> {
     fn parse_function_sub(
         &mut self,
         func_type: JSParseFunctionEnum,
-        func_kind: JSFunctionKindEnum,
+        func_kind: FunctionKind,
         func_name: Atom,
         ptr: *const u8,
         function_line_num: i32,
@@ -65,7 +65,7 @@ impl<'s> JSParseState<'s> {
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
                 | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
                 | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-        ) && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL;
+        ) && func_kind == FunctionKind::Normal;
         sub_fd.has_home_object = matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
@@ -222,9 +222,7 @@ impl<'s> JSParseState<'s> {
 
                     let name = self.token.atom().unwrap();
 
-                    if name == Atom::CONST_yield
-                        && fd1.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
-                    {
+                    if name == Atom::CONST_yield && fd1.attrs.func_kind == FunctionKind::Generator {
                         self.throw_reserved_identifier_error();
                         return Err(-1);
                     }
@@ -364,7 +362,7 @@ impl<'s> JSParseState<'s> {
         /* generator function: yield after the parameters are evaluated */
         if matches!(
             func_kind,
-            JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+            FunctionKind::Generator | FunctionKind::AsyncGenerator
         ) {
             fd1.emit_op(OpCode::INITIAL_YIELD, self.last_line_num);
         }
@@ -381,7 +379,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_assign_expr()?;
 
                 fd1.emit_op(
-                    if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
+                    if func_kind != FunctionKind::Normal {
                         OpCode::RETURN_ASYNC
                     } else {
                         OpCode::RETURN
@@ -465,7 +463,7 @@ impl<'s> JSParseState<'s> {
     pub(super) fn parse_function_decl_ex(
         &mut self,
         func_type: JSParseFunctionEnum,
-        mut func_kind: JSFunctionKindEnum,
+        mut func_kind: FunctionKind,
         ptr: *const u8,
         function_line_num: i32,
         export_flag: JSParseExportEnum,
@@ -487,12 +485,12 @@ impl<'s> JSParseState<'s> {
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
             | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
             | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR => {
-                if func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
+                if func_kind == FunctionKind::Normal
                     && self.token_is_pseudo_keyword(Atom::CONST_async)
                     && self.peek_token(true) != TokenKind::Char('\n')
                 {
                     self.next_token()?;
-                    func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
+                    func_kind = FunctionKind::Async;
                 }
 
                 self.next_token()?;
@@ -500,8 +498,8 @@ impl<'s> JSParseState<'s> {
                 if self.token.kind == TokenKind::Char('*') {
                     self.next_token()?;
                     func_kind = unsafe {
-                        std::mem::transmute::<u8, JSFunctionKindEnum>(
-                            func_kind as u8 | JSFunctionKindEnum::JS_FUNC_GENERATOR as u8,
+                        std::mem::transmute::<u8, FunctionKind>(
+                            func_kind as u8 | FunctionKind::Generator as u8,
                         )
                     }
                 }
@@ -511,11 +509,10 @@ impl<'s> JSParseState<'s> {
                     if self.token.data.is_reserved()
                         || (atom == Atom::CONST_yield
                             && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-                            && func_kind as u8 & JSFunctionKindEnum::JS_FUNC_GENERATOR as u8 != 0)
+                            && func_kind as u8 & FunctionKind::Generator as u8 != 0)
                         || (atom == Atom::CONST_await
                             && ((func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-                                && (func_kind as u8 & JSFunctionKindEnum::JS_FUNC_ASYNC as u8)
-                                    != 0)
+                                && (func_kind as u8 & FunctionKind::Async as u8) != 0)
                                 || func_type
                                     == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT))
                     {
@@ -562,7 +559,7 @@ impl<'s> JSParseState<'s> {
             let func_idx = cur_fd.find_var(func_name).map_or(-1, |x| x as i32);
 
             if !cur_fd.attrs.exec_mode.contains(ExecMode::STRICT)
-                && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
+                && func_kind == FunctionKind::Normal
                 && cur_fd
                     .find_lexical_decl(func_name, cur_fd.scope_first, false)
                     .is_none()
@@ -592,7 +589,7 @@ impl<'s> JSParseState<'s> {
                 debug_assert_eq!(cur_fd as *mut FunctionDef, self.cur_func_def);
                 lexical_func_idx = self.define_var_cur_func(
                     func_name,
-                    if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
+                    if func_kind != FunctionKind::Normal {
                         JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL
                     } else {
                         JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
@@ -764,7 +761,7 @@ impl<'s> JSParseState<'s> {
     pub(super) fn parse_function_decl(
         &mut self,
         func_type: JSParseFunctionEnum,
-        func_kind: JSFunctionKindEnum,
+        func_kind: FunctionKind,
         ptr: *const u8,
         function_line_num: i32,
     ) -> Result<(), i32> {
@@ -802,7 +799,7 @@ impl<'s> JSParseState<'s> {
         if fd.attrs.exec_mode.contains(ExecMode::STRICT)
             || !fd.attrs.has_simple_parameter_list
             || (fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
-                && fd.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC)
+                && fd.attrs.func_kind == FunctionKind::Async)
             || matches!(
                 fd.func_type,
                 JSParseFunctionEnum::JS_PARSE_FUNC_ARROW

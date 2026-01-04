@@ -1,4 +1,4 @@
-use lre::LreFlags;
+use lre::RegexFlags;
 use smallvec::SmallVec;
 
 use crate::{
@@ -230,7 +230,7 @@ pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
 }
 
 pub fn js_regexp_get_flag(cc: CallContext) -> JSResult {
-    let mask = LreFlags::from_bits_truncate(cc.magic() as u32);
+    let mask = RegexFlags::from_bits_truncate(cc.magic() as u32);
     let ctx = cc.ctx();
     let this = cc.this();
 
@@ -871,49 +871,49 @@ pub static js_regexp_proto_funcs: [FieldDef; 19] = [
         "global",
         Some(js_regexp_get_flag),
         None,
-        LreFlags::GLOBAL.to_u32() as _,
+        RegexFlags::GLOBAL.to_u32() as _,
     ),
     FieldDef::GETSET(
         "ignoreCase",
         Some(js_regexp_get_flag),
         None,
-        LreFlags::IGNORE_CASE.to_u32() as _,
+        RegexFlags::IGNORE_CASE.to_u32() as _,
     ),
     FieldDef::GETSET(
         "multiline",
         Some(js_regexp_get_flag),
         None,
-        LreFlags::MULTI_LINE.to_u32() as _,
+        RegexFlags::MULTI_LINE.to_u32() as _,
     ),
     FieldDef::GETSET(
         "dotAll",
         Some(js_regexp_get_flag),
         None,
-        LreFlags::DOTALL.to_u32() as _,
+        RegexFlags::DOTALL.to_u32() as _,
     ),
     FieldDef::GETSET(
         "unicode",
         Some(js_regexp_get_flag),
         None,
-        LreFlags::UNICODE.to_u32() as _,
+        RegexFlags::UNICODE.to_u32() as _,
     ),
     FieldDef::GETSET(
         "unicodeSets",
         Some(js_regexp_get_flag),
         None,
-        LreFlags::UNICODE_SETS.to_u32() as _,
+        RegexFlags::UNICODE_SETS.to_u32() as _,
     ),
     FieldDef::GETSET(
         "sticky",
         Some(js_regexp_get_flag),
         None,
-        LreFlags::STICKY.to_u32() as _,
+        RegexFlags::STICKY.to_u32() as _,
     ),
     FieldDef::GETSET(
         "hasIndices",
         Some(js_regexp_get_flag),
         None,
-        LreFlags::INDICES.to_u32() as _,
+        RegexFlags::INDICES.to_u32() as _,
     ),
     FieldDef::CALL("exec", 1, js_regexp_exec, 0),
     FieldDef::CALL("compile", 2, js_regexp_compile, 0),

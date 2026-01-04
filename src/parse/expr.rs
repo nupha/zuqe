@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
-    function::{FuncCallType, JSFunctionKindEnum},
+    function::{FuncCallType, FunctionKind},
     number::IntOrFloat,
     utils::unlikely,
     value::JSValue,
@@ -264,7 +264,7 @@ impl<'s> JSParseState<'s> {
                 {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
-                        JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        FunctionKind::Normal,
                         self.token.ptr,
                         self.token.line_num,
                     )?;
@@ -275,7 +275,7 @@ impl<'s> JSParseState<'s> {
             TokenKind::FUNCTION => {
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_EXPR,
-                    JSFunctionKindEnum::JS_FUNC_NORMAL,
+                    FunctionKind::Normal,
                     self.token.ptr,
                     self.token.line_num,
                 )?;
@@ -309,7 +309,7 @@ impl<'s> JSParseState<'s> {
                 if (parse_flags & PF_ARROW_FUNC) != 0 && self.peek_token(true) == TokenKind::ARROW {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
-                        JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        FunctionKind::Normal,
                         self.token.ptr,
                         self.token.line_num,
                     )?;
@@ -324,7 +324,7 @@ impl<'s> JSParseState<'s> {
                     if self.token.kind == TokenKind::FUNCTION {
                         self.parse_function_decl(
                             JSParseFunctionEnum::JS_PARSE_FUNC_EXPR,
-                            JSFunctionKindEnum::JS_FUNC_ASYNC,
+                            FunctionKind::Async,
                             source_ptr,
                             source_line_num,
                         )?;
@@ -339,7 +339,7 @@ impl<'s> JSParseState<'s> {
                     {
                         self.parse_function_decl(
                             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
-                            JSFunctionKindEnum::JS_FUNC_ASYNC,
+                            FunctionKind::Async,
                             source_ptr,
                             source_line_num,
                         )?;

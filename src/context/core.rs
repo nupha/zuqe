@@ -14,7 +14,7 @@ use crate::{
     class::ClassID,
     context::{ContextPtr, JS_MODE_STRICT},
     error::{ErrorKind, STD_ERROR_NAMES, js_error_proto_funcs},
-    function::{BytecodeFunction, Callback, JSFunctionKindEnum, js_function_proto},
+    function::{BytecodeFunction, Callback, FunctionKind, js_function_proto},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, ObjectPayload, ShapeHandle},
     value::JSValue,
 };

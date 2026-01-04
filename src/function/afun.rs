@@ -6,7 +6,7 @@ use crate::{
     class::ClassID,
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
-    function::{AsyncFuncState, BCFunction, BytecodeFunction, Callback, JSFunctionKindEnum},
+    function::{AsyncFuncState, BCFunction, BytecodeFunction, Callback, FunctionKind},
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     value::JSValue,
@@ -31,7 +31,7 @@ impl AsyncFunction {
                 Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "AsyncFunction",
                 1,
-                JSFunctionKindEnum::JS_FUNC_ASYNC as i16,
+                FunctionKind::Async as i16,
                 ctx.function_ctor.as_object().cloned(),
             )?
             .into();

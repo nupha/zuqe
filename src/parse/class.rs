@@ -6,7 +6,7 @@ use crate::{
         OP_DEFINE_METHOD_METHOD, OP_DEFINE_METHOD_SETTER,
     },
     defer,
-    function::{FunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
+    function::{FunctionDef, FunctionKind, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
     object::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
@@ -61,7 +61,7 @@ impl<'s> JSParseState<'s> {
         // stack is now: <empty>
         self.parse_function_decl_ex(
             JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT,
-            JSFunctionKindEnum::JS_FUNC_NORMAL,
+            FunctionKind::Normal,
             self.token.ptr,
             self.token.line_num,
             JSParseExportEnum::JS_PARSE_EXPORT_NONE,
@@ -153,7 +153,7 @@ impl<'s> JSParseState<'s> {
             } else {
                 JSParseFunctionEnum::JS_PARSE_FUNC_GETTER
             },
-            JSFunctionKindEnum::JS_FUNC_NORMAL,
+            FunctionKind::Normal,
             start_ptr,
             self.token.line_num,
             JSParseExportEnum::JS_PARSE_EXPORT_NONE,
@@ -407,9 +407,9 @@ impl<'s> JSParseState<'s> {
                     let mut func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;
 
                     let func_kind = match prop_type {
-                        PROP_TYPE_STAR => JSFunctionKindEnum::JS_FUNC_GENERATOR,
-                        PROP_TYPE_ASYNC => JSFunctionKindEnum::JS_FUNC_ASYNC,
-                        PROP_TYPE_ASYNC_STAR => JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR,
+                        PROP_TYPE_STAR => FunctionKind::Generator,
+                        PROP_TYPE_ASYNC => FunctionKind::Async,
+                        PROP_TYPE_ASYNC_STAR => FunctionKind::AsyncGenerator,
                         _ => {
                             if name == Atom::CONST_constructor && !is_static {
                                 if !ctor_fd.is_null() {
@@ -424,7 +424,7 @@ impl<'s> JSParseState<'s> {
                                     JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
                                 };
                             }
-                            JSFunctionKindEnum::JS_FUNC_NORMAL
+                            FunctionKind::Normal
                         }
                     };
 
@@ -768,7 +768,7 @@ impl<'s> JSParseState<'s> {
         let ret = self.next_token().and_then(|_| {
             self.parse_function_decl_ex(
                 func_type,
-                JSFunctionKindEnum::JS_FUNC_NORMAL,
+                FunctionKind::Normal,
                 src.as_ptr(),
                 orig_token.line_num,
                 JSParseExportEnum::JS_PARSE_EXPORT_NONE,

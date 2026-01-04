@@ -1,7 +1,7 @@
 use crate::{
     atom::{ATOM_CONST_KEYWORD_RANGE, ATOM_CONST_STRICT_KEYWORD_RANGE, Atom},
     bytecode::OpCode,
-    function::JSFunctionKindEnum,
+    function::FunctionKind,
     number::{
         ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
         IntOrFloat, js_atof,
@@ -927,15 +927,13 @@ impl<'s> JSParseState<'s> {
                 Atom::CONST_yield => {
                     matches!(
                         func_kind,
-                        JSFunctionKindEnum::JS_FUNC_GENERATOR
-                            | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+                        FunctionKind::Generator | FunctionKind::AsyncGenerator
                     ) || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
                         && !in_function_body
                         && !parent.is_null()
                         && matches!(
                             unsafe { (&*parent).attrs.func_kind },
-                            JSFunctionKindEnum::JS_FUNC_GENERATOR
-                                | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+                            FunctionKind::Generator | FunctionKind::AsyncGenerator
                         ))
                 }
                 Atom::CONST_await => {

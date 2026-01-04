@@ -12,7 +12,7 @@ use crate::{
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::{
-        AsyncFuncState, BytecodeFunction, CallContext, Callback, FieldDef, JSFunctionKindEnum,
+        AsyncFuncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind,
         NativeFunctionWithData,
     },
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
@@ -429,7 +429,7 @@ impl AsyncGeneratorFunction {
                 Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "AsyncGeneratorFunction",
                 1,
-                JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
+                FunctionKind::AsyncGenerator as i16,
                 Some(func_proto),
             )
             .unwrap()

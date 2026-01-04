@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
-    function::{BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE},
+    function::{BlockEnv, FunctionKind, JSVarDefEnum, OPTIMIZE},
     stack_frame::ExecMode,
     utils::{unlikely, write_to_ptr},
 };
@@ -228,7 +228,7 @@ impl<'s> JSParseState<'s> {
                 TodoState::ParseFuncVar => {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_VAR,
-                        JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        FunctionKind::Normal,
                         self.token.ptr,
                         self.token.line_num,
                     )?;
@@ -397,7 +397,7 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     } else if s.token.kind == TokenKind::AWAIT {
         if !matches!(
             s.cur_func().attrs.func_kind,
-            JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+            FunctionKind::Async | FunctionKind::AsyncGenerator
         ) {
             s.throw_syntax_error("for await is only valid in asynchronous functions");
             return Err(-1);

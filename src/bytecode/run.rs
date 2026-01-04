@@ -30,7 +30,7 @@ use crate::{
     },
     eval::{EvalFlags, EvalType},
     function::{
-        Bytecode, CallContext, JS_CallConstructorInternal, JS_CallInternal, JSFunctionKindEnum,
+        Bytecode, CallContext, JS_CallConstructorInternal, JS_CallInternal, FunctionKind,
         JSVarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
     },
     module::{js_dynamic_import, js_import_meta},
@@ -112,7 +112,7 @@ impl Bytecode {
                     &realm,
                     cur_pc,
                     0,
-                    self.func_kind() != JSFunctionKindEnum::JS_FUNC_NORMAL,
+                    self.func_kind() != FunctionKind::Normal,
                 );
                 return JSValue::EXCEPTION;
             }
@@ -2497,7 +2497,7 @@ impl Bytecode {
             unsafe { Some((pc_base.add(new_pc), sp_base.add(new_sp))) }
         } else {
             // abort with sp=0, pc unchanged
-            let is_generator = self.func_kind() != JSFunctionKindEnum::JS_FUNC_NORMAL;
+            let is_generator = self.func_kind() != FunctionKind::Normal;
             stack_frame.handle_exit(ctx, pc_offset, 0, is_generator);
             None
         }

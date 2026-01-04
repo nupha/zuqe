@@ -20,9 +20,9 @@ use crate::{
     context::ContextPtr,
     error::{ErrorKind, JSResult},
     function::{
-        AsyncFuncState, BlockEnv, Bytecode, CallContext, FieldDef, FunctionDef, JSCFunction,
-        JSCFunctionMagic, JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef,
-        Label, NativeCallback, RelocEntry,
+        AsyncFuncState, BlockEnv, Bytecode, CallContext, FieldDef, FunctionDef, FunctionKind,
+        JSCFunction, JSCFunctionMagic, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, Label,
+        NativeCallback, RelocEntry,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::{AGenPayload, GeneratorPayload},
@@ -1442,7 +1442,7 @@ pub unsafe fn resolve_variables(ctx: ContextPtr, s: *mut FunctionDef) -> Result<
 pub unsafe fn js_parse_function_decl(
     s: *mut JSParseState,
     func_type: JSParseFunctionEnum,
-    func_kind: JSFunctionKindEnum,
+    func_kind: FunctionKind,
     func_name: AtomRef,
     ptr: *const u8,
     function_line_num: i32,
@@ -1457,7 +1457,7 @@ pub unsafe fn js_parse_function_decl(
 pub unsafe fn js_parse_function_decl2(
     s: *mut JSParseState,
     func_type: JSParseFunctionEnum,
-    func_kind: JSFunctionKindEnum,
+    func_kind: FunctionKind,
     func_name: AtomRef,
     ptr: *const u8,
     function_line_num: i32,
@@ -4555,7 +4555,7 @@ pub unsafe fn js_set_module_evaluated(ctx: ContextPtr, m: &ModuleDef) {
 }
 
 /// Class id for function kind
-#[deprecated(note = "use JSFunctionKindEnum::class_id() instead")]
+#[deprecated(note = "use FunctionKind::class_id() instead")]
 pub const func_kind_to_class_id: [ClassID; 4] = [
     JS_CLASS_BYTECODE_FUNCTION,        // 0 JS_FUNC_NORMAL
     JS_CLASS_GENERATOR_FUNCTION,       // 1 JS_FUNC_GENERATOR
@@ -4996,7 +4996,7 @@ fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
 #[deprecated(note = "should use BytecodeFunction::class_constructor ???")]
 pub fn js_function_constructor<'a>(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let func_kind =
-        unsafe { std::mem::transmute::<u8, crate::function::JSFunctionKindEnum>(cc.magic() as u8) };
+        unsafe { std::mem::transmute::<u8, crate::function::FunctionKind>(cc.magic() as u8) };
 
     // build function source
     let mut source = StringBuf::with_capacity(64, false).map_err(|_| {
@@ -5006,7 +5006,7 @@ pub fn js_function_constructor<'a>(ctx: ContextPtr, cc: CallContext) -> JSResult
     source.push_char('(').unwrap();
     if matches!(
         func_kind,
-        JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+        FunctionKind::JS_FUNC_ASYNC | FunctionKind::JS_FUNC_ASYNC_GENERATOR
     ) {
         source.push_str("async").unwrap();
     }
@@ -5014,7 +5014,7 @@ pub fn js_function_constructor<'a>(ctx: ContextPtr, cc: CallContext) -> JSResult
 
     if matches!(
         func_kind,
-        JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+        FunctionKind::JS_FUNC_GENERATOR | FunctionKind::JS_FUNC_ASYNC_GENERATOR
     ) {
         source.push_char('*').unwrap();
     }

@@ -28,51 +28,47 @@ pub const ARG_SCOPE_INDEX: i32 = 1;
 /// to mark end of arugment vars chain.
 pub const ARG_SCOPE_END: i32 = -2;
 
-/// kind of function
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum JSFunctionKindEnum {
+pub enum FunctionKind {
     /// bytecode function
-    JS_FUNC_NORMAL = 0,
+    Normal = 0,
     /// generator
-    JS_FUNC_GENERATOR = 1,
+    Generator = 1,
     /// async function
-    JS_FUNC_ASYNC = 2,
-    /// async generator. JS_FUNC_GENERATOR | JS_FUNC_ASYNC
-    JS_FUNC_ASYNC_GENERATOR = 3,
+    Async = 2,
+    /// async generator.
+    AsyncGenerator = 3,
 }
 
-impl JSFunctionKindEnum {
+impl FunctionKind {
     #[inline(always)]
     pub const fn is_async(self) -> bool {
-        matches!(self, Self::JS_FUNC_ASYNC | Self::JS_FUNC_ASYNC_GENERATOR)
+        matches!(self, Self::Async | Self::AsyncGenerator)
     }
 
     #[inline(always)]
     pub const fn is_generator(self) -> bool {
-        matches!(
-            self,
-            Self::JS_FUNC_GENERATOR | Self::JS_FUNC_ASYNC_GENERATOR
-        )
+        matches!(self, Self::Generator | Self::AsyncGenerator)
     }
 
     /// get associated class id for function kind
     #[inline]
     pub const fn class_id(&self) -> ClassID {
         match self {
-            Self::JS_FUNC_NORMAL => JS_CLASS_BYTECODE_FUNCTION,
-            Self::JS_FUNC_GENERATOR => JS_CLASS_GENERATOR_FUNCTION,
-            Self::JS_FUNC_ASYNC => JS_CLASS_ASYNC_FUNCTION,
-            Self::JS_FUNC_ASYNC_GENERATOR => JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+            Self::Normal => JS_CLASS_BYTECODE_FUNCTION,
+            Self::Generator => JS_CLASS_GENERATOR_FUNCTION,
+            Self::Async => JS_CLASS_ASYNC_FUNCTION,
+            Self::AsyncGenerator => JS_CLASS_ASYNC_GENERATOR_FUNCTION,
         }
     }
 
     #[inline]
     pub const fn generator_class_id(&self) -> Option<ClassID> {
         match self {
-            Self::JS_FUNC_GENERATOR => Some(JS_CLASS_GENERATOR),
-            Self::JS_FUNC_ASYNC_GENERATOR => Some(JS_CLASS_ASYNC_GENERATOR),
-            Self::JS_FUNC_NORMAL | Self::JS_FUNC_ASYNC => None,
+            Self::Generator => Some(JS_CLASS_GENERATOR),
+            Self::AsyncGenerator => Some(JS_CLASS_ASYNC_GENERATOR),
+            Self::Normal | Self::Async => None,
         }
     }
 }
@@ -433,7 +429,7 @@ impl BytecodeFunction {
         // XXX: add a specific eval mode so that Function("}), ({") is rejected
 
         let new_target = *cc.this();
-        let func_kind = unsafe { std::mem::transmute::<u8, JSFunctionKindEnum>(cc.magic() as u8) };
+        let func_kind = unsafe { std::mem::transmute::<u8, FunctionKind>(cc.magic() as u8) };
 
         //
         // make function source script:
@@ -444,7 +440,7 @@ impl BytecodeFunction {
 
         if matches!(
             func_kind,
-            JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+            FunctionKind::Async | FunctionKind::AsyncGenerator
         ) {
             buf.extend_from_slice(b"async ");
         }
@@ -452,7 +448,7 @@ impl BytecodeFunction {
         buf.extend_from_slice(b"function");
         if matches!(
             func_kind,
-            JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+            FunctionKind::Generator | FunctionKind::AsyncGenerator
         ) {
             buf.push(b'*');
         }

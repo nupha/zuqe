@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     error::JSResult,
-    function::{BoundFuncObjPayload, CallContext, FieldDef, JSFunctionKindEnum, js_function_apply},
+    function::{BoundFuncObjPayload, CallContext, FieldDef, FunctionKind, js_function_apply},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     string::JS_ConcatString3,
     value::JSValue,
@@ -119,13 +119,13 @@ fn js_function_toString(cc: CallContext) -> JSResult {
         }
         bc.func_kind()
     } else {
-        JSFunctionKindEnum::JS_FUNC_NORMAL
+        FunctionKind::Normal
     };
 
     let pref = match func_kind {
-        JSFunctionKindEnum::JS_FUNC_GENERATOR => c"function *",
-        JSFunctionKindEnum::JS_FUNC_ASYNC => c"async function ",
-        JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => c"async function *",
+        FunctionKind::Generator => c"function *",
+        FunctionKind::Async => c"async function ",
+        FunctionKind::AsyncGenerator => c"async function *",
         _ => c"function ",
     };
     let suff = c"() { [native code] }";

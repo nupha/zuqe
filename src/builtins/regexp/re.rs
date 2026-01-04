@@ -1,7 +1,7 @@
 use std::{cell::Cell, ops::Range, rc::Rc};
 
 use gc_lite::{GcRef, GcTracable};
-use lre::{LreFlags, Regex};
+use lre::{Regex, RegexFlags};
 use zerocopy::IntoBytes;
 
 use crate::{
@@ -113,7 +113,7 @@ impl RegExpData {
         flags: StringData,
     ) -> Result<Self, i32> {
         // Note: 1) can duplicate same flag; 2) 'u' and 'v' cannot be both set
-        let mut opts = LreFlags::empty();
+        let mut opts = RegexFlags::empty();
         for (_, cc) in flags.chars() {
             if let CharCode::Char(c) = cc {
                 match c {
@@ -151,7 +151,7 @@ impl RegExpData {
             }
         }
 
-        let regex = Regex::with_flags(
+        let regex = Regex::from_bytes(
             &pattern.encode_utf8_bytes_internal(0..pattern.len(), true, !opts.is_unicode()),
             opts,
         )
@@ -168,7 +168,7 @@ impl RegExpData {
     }
 
     #[inline(always)]
-    pub fn flags(&self) -> LreFlags {
+    pub fn flags(&self) -> RegexFlags {
         self.regex.flags()
     }
 

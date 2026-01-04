@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     eval::EvalType,
-    function::{GLOBAL_VAR_OFFSET, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
+    function::{FunctionKind, GLOBAL_VAR_OFFSET, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
     stack_frame::ExecMode,
 };
@@ -150,9 +150,7 @@ impl<'s> JSParseState<'s> {
         {
             let func = self.cur_func();
             match name {
-                Atom::CONST_yield
-                    if func.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR =>
-                {
+                Atom::CONST_yield if func.attrs.func_kind == FunctionKind::Generator => {
                     self.throw_syntax_error("yield is a reserved identifier");
                     return Err(-1);
                 }

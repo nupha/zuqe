@@ -2,7 +2,7 @@ use crate::{
     atom::{Atom, AtomKind},
     bytecode::OpCodeTemp,
     error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
-    function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
+    function::{FunctionKind, JSVarDefEnum, JSVarKindEnum},
     module::{ExportType, ImportEntry, ModuleDef},
     string::Utf8Stream,
 };
@@ -186,7 +186,7 @@ impl<'s> JSParseState<'s> {
                 return {
                     self.parse_function_decl_ex(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                        JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        FunctionKind::Normal,
                         self.token.ptr,
                         self.token.line_num,
                         JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
@@ -202,7 +202,7 @@ impl<'s> JSParseState<'s> {
                 return {
                     self.parse_function_decl_ex(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                        JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        FunctionKind::Normal,
                         self.token.ptr,
                         self.token.line_num,
                         JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
@@ -344,7 +344,7 @@ impl<'s> JSParseState<'s> {
                 {
                     return self.parse_function_decl_ex(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                        JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        FunctionKind::Normal,
                         self.token.ptr,
                         self.token.line_num,
                         JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT,
