@@ -20,8 +20,7 @@ use crate::{
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, ObjectPayload, ObjectRef,
-        ShapeHandle,
+        JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, Object, ObjectPayload, ShapeHandle,
     },
     runtime::{RuntimeImpl, RuntimePtr},
     stack_frame::ExecMode,
@@ -37,11 +36,11 @@ pub struct ContextImpl {
 
     /// Class prototypes slot.
     /// element could be object or null, default to null.
-    /// TODO: use Vec<Option<ObjectRef>> instead
+    /// TODO: use Vec<Option<Object>> instead
     pub(crate) class_proto: Vec<JSValue>,
 
-    pub(crate) iterator_proto: Option<ObjectRef>,
-    pub(crate) async_iterator_proto: Option<ObjectRef>,
+    pub(crate) iterator_proto: Option<Object>,
+    pub(crate) async_iterator_proto: Option<Object>,
     pub(crate) native_error_proto: [JSValue; STD_ERROR_COUNT],
 
     pub(crate) function_ctor: JSValue,
@@ -57,11 +56,11 @@ pub struct ContextImpl {
 
     /// 传统的全局对象（类似ES3的全局环境），存储普通的全局变量（如var声明的变量）
     /// 默认WRITABLE，权限更宽松
-    pub(crate) global_obj: JSValue, // TODO: use ObjectRef instead
+    pub(crate) global_obj: JSValue, // TODO: use Object instead
 
     /// let/const或特殊标记(DEFINE_GLOBAL_LEX_VAR)定义的变量
     /// 强调CONFIGURABLE和约束写权限, 禁止复杂属性行为（如代理式操作）
-    pub(crate) global_var_obj: JSValue, // TODO: use ObjectRef instead
+    pub(crate) global_var_obj: JSValue, // TODO: use Object instead
 
     /// Random number generator state
     pub(crate) random_state: u64,
@@ -191,13 +190,13 @@ impl ContextImpl {
 
     /// get global object
     #[inline]
-    pub fn global_obj(&self) -> ObjectRef {
+    pub fn global_obj(&self) -> Object {
         unsafe { *self.global_obj.as_object_unchecked() }
     }
 
     /// get global var object
     #[inline]
-    pub fn global_var_obj(&self) -> ObjectRef {
+    pub fn global_var_obj(&self) -> Object {
         unsafe { *self.global_var_obj.as_object_unchecked() }
     }
 

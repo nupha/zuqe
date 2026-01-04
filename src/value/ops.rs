@@ -2,11 +2,11 @@ use crate::{
     JS_CLASS_PROXY,
     atom::Atom,
     context::ContextImpl,
-    object::{ObjectPayload, ObjectRef},
+    object::{ObjectPayload, Object},
     value::JSValue,
 };
 
-impl ObjectRef {
+impl Object {
     /// test if object `self` is instance of `ctor`.
     /// Equivalent to: `self instanceof ctor`
     pub(crate) fn ordinary_instance_of(

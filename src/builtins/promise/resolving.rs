@@ -7,7 +7,7 @@ use crate::{
     atom::Atom,
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
-    object::{JS_SpeciesConstructor, ObjectImpl, ObjectRef},
+    object::{JS_SpeciesConstructor, ObjectImpl, Object},
     object_cast,
     utils::unlikely,
     value::JSValue,
@@ -230,7 +230,7 @@ impl Promise {
         ctx: &mut ContextImpl,
         success: JSValue,
         fail: JSValue,
-    ) -> Result<ObjectRef, i32> {
+    ) -> Result<Object, i32> {
         let ctor = JS_SpeciesConstructor(ctx, (*self).into(), JSValue::UNDEFINED)?;
         let (promise2, rr) = Self::create_from_ctor(ctx, ctor)?;
         self.reaction(ctx, [success, fail], rr)?;

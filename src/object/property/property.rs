@@ -8,7 +8,7 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::JSVarRef,
-    object::{LazyInit, ObjectRef},
+    object::{LazyInit, Object},
     utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
@@ -112,7 +112,7 @@ impl Default for JSPropertyDescriptor {
 
 impl JSPropertyDescriptor {
     /// Parse an object to JSPropertyDescriptor.
-    pub(crate) fn parse(ctx: &ContextImpl, desc: ObjectRef) -> Result<Self, i32> {
+    pub(crate) fn parse(ctx: &ContextImpl, desc: Object) -> Result<Self, i32> {
         let mut flags: u32 = 0;
         let mut value: JSValue = JSValue::UNDEFINED;
         let mut getter: JSValue = JSValue::UNDEFINED;
@@ -193,7 +193,7 @@ impl JSPropertyDescriptor {
     }
 
     /// build object from descriptor
-    pub fn make_object(&self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
+    pub fn make_object(&self, ctx: &ContextImpl) -> Result<Object, i32> {
         let mut ret = ctx.create_base_object()?;
 
         if self.flags & JS_PROP_HAS_GET != 0 {
@@ -243,8 +243,8 @@ pub enum JSProperty {
 
     /// TODO: use Box<PropertyGetSet>
     GetSet {
-        getter: Option<ObjectRef>,
-        setter: Option<ObjectRef>,
+        getter: Option<Object>,
+        setter: Option<Object>,
     },
 
     /// TODO: use Box<PropertyLazy>
@@ -307,7 +307,7 @@ impl JSProperty {
     }
 }
 
-impl ObjectRef {
+impl Object {
     /// check if object is extensible.
     /// in case `self` is a Proxy object, may return Err.
     pub fn is_extensible(&self, ctx: &ContextImpl) -> Result<bool, i32> {
@@ -348,8 +348,8 @@ impl ObjectRef {
     pub fn copy_data_properties_from(
         &mut self,
         ctx: &ContextImpl,
-        source: ObjectRef,
-        excluded: Option<ObjectRef>,
+        source: Object,
+        excluded: Option<Object>,
         setprop: bool,
     ) -> Result<(), i32> {
         let mut gpn_flags = JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
@@ -507,7 +507,7 @@ pub fn js_get_length32(ctx: &ContextImpl, obj: JSValue) -> Result<u32, i32> {
 }
 
 /// Get object `length` property as i64
-#[deprecated(note = "use ObjectRef::get_length_prop() or JSValue::get_length_prop() instead")]
+#[deprecated(note = "use Object::get_length_prop() or JSValue::get_length_prop() instead")]
 pub fn js_get_length64(ctx: &ContextImpl, obj: JSValue) -> Result<i64, i32> {
     obj.get_length_prop(ctx)
 }

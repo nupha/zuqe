@@ -13,9 +13,7 @@ use crate::{
     atom::Atom,
     class::ClassID,
     context::{Context, ContextImpl},
-    object::{
-        JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef,
-    },
+    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     string::{CharCode, StringData, StringRef, Utf8Stream, map_utf8_to_utf16_range},
     value::JSValue,
@@ -42,7 +40,7 @@ pub const LRE_FLAG_NAMED_GROUPS: i32 = 1 << 7; // named groups are present in th
 
 #[derive(Debug)]
 pub struct RegExpStringIterPayload {
-    iterating_regexp: ObjectRef,
+    iterating_regexp: Object,
     iterated_string: StringRef,
     pub global: bool,
     pub unicode: bool,
@@ -58,7 +56,7 @@ unsafe impl GcTracable for RegExpStringIterPayload {
 }
 
 impl RegExpStringIterPayload {
-    pub fn new(regexp: ObjectRef, str: StringRef, global: bool, unicode: bool) -> Box<Self> {
+    pub fn new(regexp: Object, str: StringRef, global: bool, unicode: bool) -> Box<Self> {
         Box::new(Self {
             iterating_regexp: regexp,
             iterated_string: str,
@@ -69,7 +67,7 @@ impl RegExpStringIterPayload {
     }
 
     #[inline(always)]
-    pub const fn regexp(&self) -> ObjectRef {
+    pub const fn regexp(&self) -> Object {
         self.iterating_regexp
     }
 
@@ -334,7 +332,7 @@ impl RegExp {
         RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, Box::new(re)))
     }
 
-    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
         match class_id {
             JS_CLASS_REGEXP => {
                 let mut obj = ctx.create_base_object()?;

@@ -31,7 +31,7 @@ use crate::{
     module::{ExportEntry, ExportType, JSResolveResultEnum, ModuleDef, ModuleDefImpl},
     number::{IntOrFloat, JSToNumberHintEnum},
     object::{
-        GCObject, JSProperty, JSPropertyDescriptor, ObjectPayload, ObjectRef, PropertyKey,
+        GCObject, JSProperty, JSPropertyDescriptor, Object, ObjectPayload, PropertyKey,
         ShapeHandle, ShapeProperty,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
@@ -181,9 +181,9 @@ unsafe fn JS_FreeRuntime(rt: &mut RuntimeImpl) {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ObjectRef::opaque() instead")]
+#[deprecated(note = "use Object::opaque() instead")]
 pub unsafe fn JS_GetOpaque(obj: JSValue, class_id: ClassID) -> *mut c_void {
-    unreachable!("use ObjectRef::opaque() instead")
+    unreachable!("use Object::opaque() instead")
     // if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
     //     return std::ptr::null_mut();
     // }
@@ -194,7 +194,7 @@ pub unsafe fn JS_GetOpaque(obj: JSValue, class_id: ClassID) -> *mut c_void {
     // (*p).u.opaque
 }
 
-#[deprecated(note = "use ObjectRef::opaque_must() instead")]
+#[deprecated(note = "use Object::opaque_must() instead")]
 pub unsafe fn JS_GetOpaque2(ctx: ContextPtr, obj: JSValue, class_id: ClassID) -> *mut c_void {
     let p = JS_GetOpaque(obj, class_id);
     if p.is_null() {
@@ -203,9 +203,9 @@ pub unsafe fn JS_GetOpaque2(ctx: ContextPtr, obj: JSValue, class_id: ClassID) ->
     p
 }
 
-#[deprecated(note = "use ObjectRef::set_opaque() instead")]
+#[deprecated(note = "use Object::set_opaque() instead")]
 pub unsafe fn JS_SetOpaque(obj: JSValue, opaque: *mut c_void) {
-    unreachable!("use ObjectRef::set_opaque() instead")
+    unreachable!("use Object::set_opaque() instead")
 
     // if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
     //     let p = JS_VALUE_GET_OBJ(obj);
@@ -1017,7 +1017,7 @@ pub unsafe fn JS_DefinePropertyGetSet(
     //     .map_or(-1, |b| b as i32)
 }
 
-#[deprecated(note = "use ObjectRef::define_auto_init_property() instead")]
+#[deprecated(note = "use Object::define_auto_init_property() instead")]
 pub unsafe fn JS_DefineAutoInitProperty(
     ctx: ContextPtr,
     this_obj: JSValue,
@@ -1026,7 +1026,7 @@ pub unsafe fn JS_DefineAutoInitProperty(
     opaque: *mut std::ffi::c_void,
     flags: u32,
 ) -> Result<bool, i32> {
-    unreachable!("use ObjectRef::define_auto_init_property() instead");
+    unreachable!("use Object::define_auto_init_property() instead");
     // this_obj.define_auto_init_property(ctx, prop, id, opaque, flags)
 }
 
@@ -1537,10 +1537,10 @@ pub unsafe fn js_free_shape_null(rt: *mut RuntimeImpl, sh: *mut ShapeHandle) {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ObjectRef::free() instead")]
+#[deprecated(note = "use Object::free() instead")]
 pub unsafe fn free_object(rt: *mut RuntimeImpl, p: NonNull<JSValue>) {
     unreachable!("unused");
-    // ObjectRef::dispose(rt.as_mut().unwrap(), p);
+    // Object::dispose(rt.as_mut().unwrap(), p);
 }
 
 #[deprecated(note = "not used")]
@@ -1599,7 +1599,7 @@ pub unsafe fn js_map_mark(rt: *mut RuntimeImpl, val: JSValue, mark_func: JS_Mark
 }
 
 // for debug only: dump an object without side effect
-#[deprecated(note = "use ObjectRef::dump() instead")]
+#[deprecated(note = "use Object::dump() instead")]
 pub unsafe fn JS_DumpObject(rt: &RuntimeImpl, p: *const JSValue) {
     unreachable!("unused");
 }
@@ -1775,7 +1775,7 @@ pub fn JS_IsError(val: &JSValue) -> bool {
 
 /// Note: `val` is consumed
 #[deprecated(
-    note = "use JSValue::set_property_internal() or ObjectRef::set_property_internal() instead"
+    note = "use JSValue::set_property_internal() or Object::set_property_internal() instead"
 )]
 pub unsafe fn JS_SetPropertyInternal(
     ctx: ContextPtr,
@@ -1883,7 +1883,7 @@ pub unsafe fn get_typed_array(
     // this_val
     //     .typed_array_must(ctx, is_dataview)
     //     .map_or(std::ptr::null_mut(), |p| {
-    //         p.0.object_unchecked() as *mut ObjectRef
+    //         p.0.object_unchecked() as *mut Object
     //     })
 }
 
@@ -1928,7 +1928,7 @@ pub unsafe fn JS_GetOwnPropertyNames2(
 // }
 
 // ptab and its atoms must be freed by the user.
-#[deprecated(note = "use ObjectRef::get_own_property_names() instead")]
+#[deprecated(note = "use Object::get_own_property_names() instead")]
 pub unsafe fn JS_GetOwnPropertyNamesInternal(
     ctx: ContextPtr,
     ptab: *mut *mut PropertyKey,
@@ -2288,7 +2288,7 @@ pub unsafe fn JS_IsExtensible(ctx: ContextPtr, obj: &JSValue) -> Result<bool, i3
 /* Return -1 if exception,
 FALSE if the property does not exist, TRUE if it exists. If TRUE is
 returned, the property descriptor 'desc' is filled present. */
-#[deprecated(note = "use JSValue::get_own_property() or ObjectRef::get_own_property() instead")]
+#[deprecated(note = "use JSValue::get_own_property() or Object::get_own_property() instead")]
 pub unsafe fn JS_GetOwnPropertyInternal(
     ctx: ContextPtr,
     desc: *mut JSPropertyDescriptor,
@@ -2390,7 +2390,7 @@ pub unsafe fn JS_IsArray(ctx: ContextPtr, val: &JSValue) -> Result<bool, i32> {
 
 /// set the array length and remove the array elements if necessary.
 /// returns 0,1,-1
-#[deprecated(note = "use ObjectRef::set_array_length() instead")]
+#[deprecated(note = "use Object::set_array_length() instead")]
 pub unsafe fn set_array_length(ctx: ContextPtr, p: *mut JSValue, val: JSValue, flags: u32) -> i32 {
     unreachable!("unused")
     // (*p).object_unchecked()
@@ -2399,7 +2399,7 @@ pub unsafe fn set_array_length(ctx: ContextPtr, p: *mut JSValue, val: JSValue, f
 }
 
 /// `val` is duplicated inside
-#[deprecated(note = "use ObjectRef::create_property() instead")]
+#[deprecated(note = "use Object::create_property() instead")]
 pub unsafe fn JS_CreateProperty(
     ctx: ContextPtr,
     p: *mut JSValue,
@@ -2424,7 +2424,7 @@ pub unsafe fn free_property(rt: *mut RuntimeImpl, pr: *mut JSProperty, prop_flag
 }
 
 /// Finds a property in an object by its atom name
-#[deprecated(note = "use ObjectRef::find_own_property1() instead")]
+#[deprecated(note = "use Object::find_own_property1() instead")]
 pub unsafe fn find_own_property1(p: *mut JSValue, atom: AtomRef) -> *mut ShapeProperty {
     unreachable!("unused");
 }
@@ -2433,7 +2433,7 @@ pub unsafe fn find_own_property1(p: *mut JSValue, atom: AtomRef) -> *mut ShapePr
 /// Sets ppr to the property value pointer if found, null otherwise
 /// Returns the property shape pointer if found, null otherwise
 #[inline(always)]
-#[deprecated(note = "use ObjectRef::find_shape_property() instead")]
+#[deprecated(note = "use Object::find_shape_property() instead")]
 pub unsafe fn find_own_property(
     ppr: *mut *mut JSProperty,
     p: *mut JSValue,
@@ -3069,7 +3069,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
 
 /* Note: the property value is not initialized. Return NULL if memory
 error. */
-#[deprecated(note = "use ObjectRef::add_own_property() instead")]
+#[deprecated(note = "use Object::add_own_property() instead")]
 pub unsafe fn add_property(
     ctx: ContextPtr,
     p: *mut JSValue,
@@ -3177,10 +3177,10 @@ pub fn JS_IsEmptyString(v: &JSValue) -> bool {
     }
 }
 
-#[deprecated(note = "use ObjectRef::shape_prepare_update() instead")]
+#[deprecated(note = "use Object::shape_prepare_update() instead")]
 pub unsafe fn js_shape_prepare_update(
     ctx: ContextPtr,
-    p: *mut ObjectRef,
+    p: *mut Object,
     pprs: *mut *mut ShapeProperty,
 ) -> i32 {
     unreachable!("unused");
@@ -3716,7 +3716,7 @@ pub fn JS_GetIterator2(ctx: ContextPtr, obj: &JSValue, method: &JSValue) -> JSVa
     return enum_obj;
 }
 
-#[deprecated(note = "use ObjectRef::get_iterator_must() instead")]
+#[deprecated(note = "use Object::get_iterator_must() instead")]
 pub fn JS_GetIterator(ctx: ContextPtr, obj: &JSValue, is_async: bool) -> JSValue {
     unreachable!("unused");
     // let iter = if is_async {
@@ -3763,7 +3763,7 @@ pub fn JS_GetIterator(ctx: ContextPtr, obj: &JSValue, is_async: bool) -> JSValue
 
 // return -1 if exception, 0 if slow case, 1 if the enumeration is finished
 #[deprecated(
-    note = "use JSForInIterator::prepare_prototype_chain_enum() + ObjectRef::define_property() to achieve"
+    note = "use JSForInIterator::prepare_prototype_chain_enum() + Object::define_property() to achieve"
 )]
 pub unsafe fn js_for_in_prepare_prototype_chain_enum(ctx: ContextPtr, enum_obj: &JSValue) -> i32 {
     unreachable!("unused");
@@ -3793,7 +3793,7 @@ pub fn JS_IteratorNext(
 }
 
 /// TODO: migrate to Iterator::close()
-/// or replace enum_obj: &JSValue with enum_obj: &ObjectRef
+/// or replace enum_obj: &JSValue with enum_obj: &Object
 #[deprecated(note = "use IteratorObject::close() instead")]
 pub fn JS_IteratorClose(
     ctx: ContextPtr,
@@ -3978,8 +3978,8 @@ pub fn js_create_array(ctx: ContextPtr, tab: &[JSValue]) -> Result<Array, i32> {
 
 /// can be called on Array or Arguments objects. return < 0 if memory alloc error.
 /// returns -1 if fail.
-#[deprecated(note = "use ObjectRef::destruct_fast_array() instead")]
-pub fn convert_fast_array_to_array(ctx: ContextPtr, obj: &ObjectRef) -> i32 {
+#[deprecated(note = "use Object::destruct_fast_array() instead")]
+pub fn convert_fast_array_to_array(ctx: ContextPtr, obj: &Object) -> i32 {
     obj.destruct_fast_array(ctx).map_or(-1, |_| 0)
 }
 
@@ -4089,7 +4089,7 @@ pub unsafe fn js_parse_seek_token(
     // }
 }
 
-#[deprecated(note = "use ObjectRef::define_property_desc_multi() instead")]
+#[deprecated(note = "use Object::define_property_desc_multi() instead")]
 pub fn JS_ObjectDefineProperties(
     ctx: ContextPtr,
     obj: &JSValue,
@@ -4196,7 +4196,7 @@ pub unsafe fn map_hash_resize(ctx: ContextPtr, s: *mut JSMapState) {
     unreachable!("unused")
 }
 
-#[deprecated(note = "use ObjectRef::as_BCFunction().is_some() to check")]
+#[deprecated(note = "use Object::as_BCFunction().is_some() to check")]
 pub(crate) const fn js_class_has_bytecode(class_id: ClassID) -> bool {
     matches!(
         class_id,
@@ -4212,18 +4212,18 @@ pub(crate) const fn js_class_has_bytecode(class_id: ClassID) -> bool {
 /// 1. Has a non-normal 'name' property (getter/setter)
 /// 2. 'name' is a non-empty string
 /// 3. 'name' is a symbol with description
-#[deprecated(note = "use ObjectRef::has_name() instead")]
+#[deprecated(note = "use Object::has_name() instead")]
 pub fn js_object_has_name(obj: &JSValue) -> bool {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ObjectRef::define_name() instead")]
+#[deprecated(note = "use Object::define_name() instead")]
 pub fn JS_DefineObjectName(ctx: ContextPtr, obj: &JSValue, name: AtomRef, flags: u32) -> i32 {
     unreachable!("ununsed");
 }
 
 /// Note: `obj` and `str_val` are not consumed.
-#[deprecated(note = "use ObjectRef::define_name_computed() instead")]
+#[deprecated(note = "use Object::define_name_computed() instead")]
 pub unsafe fn JS_DefineObjectNameComputed(
     ctx: ContextPtr,
     obj: &JSValue,
@@ -4876,7 +4876,7 @@ pub unsafe fn js_create_from_ctor(_ctx: ContextPtr, _ctor: JSValue, _class_id: C
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ObjectRef::prevent_extensions() or JSValue::prevent_extensions() instead")]
+#[deprecated(note = "use Object::prevent_extensions() or JSValue::prevent_extensions() instead")]
 pub fn JS_PreventExtensions(ctx: ContextPtr, obj: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(p) = obj {
         if p.class_id() == JS_CLASS_PROXY {
@@ -4937,13 +4937,13 @@ pub unsafe fn JS_DumpShape(_rt: &RuntimeImpl, _i: i32, _sh: &ShapeHandle) {
 }
 
 #[deprecated(note = "use BCFunction::method_set_home_object() instead")]
-pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&ObjectRef>) {
+pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&Object>) {
     if let Some(o) = func_obj.as_object_BCFunction() {
         o.method_set_home_object(home_obj);
     }
 }
 
-#[deprecated(note = "use ObjectRef::set_flag_constructor() directly")]
+#[deprecated(note = "use Object::set_flag_constructor() directly")]
 pub(crate) fn JS_SetConstructorBit(func_obj: &JSValue, val: bool) -> bool {
     if let JSValue::Object(p) = func_obj {
         p.set_flag_constructor(val);

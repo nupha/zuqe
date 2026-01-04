@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
     JS_CLASS_NUMBER, JS_CLASS_REGEXP, JS_CLASS_STRING, atom::Atom, context::ContextImpl,
-    number::f64_stringify, object::ObjectRef,
+    number::f64_stringify, object::Object,
 };
 
 use super::JSValue;
@@ -40,7 +40,7 @@ impl JSValue {
     }
 }
 
-impl ObjectRef {
+impl Object {
     pub fn inspect(&self, ctx: &ContextImpl) -> Result<String, i32> {
         let tag_atom: Atom = if self.is_array(ctx)? {
             Atom::CONST_Array

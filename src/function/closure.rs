@@ -7,7 +7,7 @@ use crate::{
     function::{
         BCFuncPayload, BCFunction, Bytecode, FunctionKind, JSVarRef, js_function_set_properties,
     },
-    object::{JS_PROP_WRITABLE, LazyInit, ObjectPayload, ObjectRef},
+    object::{JS_PROP_WRITABLE, LazyInit, ObjectPayload, Object},
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
 };
@@ -235,7 +235,7 @@ impl Bytecode {
         ctx: &ContextImpl,
         cur_var_refs: &[JSVarRef],
         parent_frame: Option<&mut StackFrame>,
-        proto: Option<ObjectRef>,
+        proto: Option<Object>,
     ) -> Result<BCFunction, i32> {
         let var_refs: Vec<JSVarRef> = if self.closure_var_count != 0 {
             debug_assert!(

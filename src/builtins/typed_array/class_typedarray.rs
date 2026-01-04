@@ -21,7 +21,7 @@ use crate::{
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef, JS_CallConstructor},
     number::JSFloat64Union,
-    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, ObjectRef},
+    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, Object},
     string::StringBuf,
     utils::unlikely,
     value::{HINT_NUMBER, JSValue},
@@ -969,7 +969,7 @@ fn sort_f32_slice(slice: &mut [f32]) {
     });
 }
 
-fn call_cmp_fn(ctx: &ContextImpl, cmp: ObjectRef, a: JSValue, b: JSValue) -> Result<Ordering, i32> {
+fn call_cmp_fn(ctx: &ContextImpl, cmp: Object, a: JSValue, b: JSValue) -> Result<Ordering, i32> {
     let n = cmp
         .call(ctx, JSValue::UNDEFINED, &[a, b])
         .and_then(|v| v.to_i32(ctx))?;

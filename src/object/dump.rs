@@ -5,10 +5,10 @@ use crate::{
     runtime::RuntimeImpl,
 };
 
-use super::ObjectRef;
+use super::Object;
 
 #[cfg(debug_assertions)]
-impl ObjectRef {
+impl Object {
     /// print object debug info to console
     pub fn dump(&self, rt: &RuntimeImpl) {
         // XXX: should encode atoms with special characters

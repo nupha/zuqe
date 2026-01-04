@@ -6,7 +6,7 @@ use std::{
 
 use once_cell::unsync::Lazy;
 use zuqe::{
-    CallContext, ClassDef, ClassID, Context, FieldDef, JSResult, JSValue, ObjectRef, RuntimeImpl,
+    CallContext, ClassDef, ClassID, Context, FieldDef, JSResult, JSValue, Object, RuntimeImpl,
 };
 
 #[derive(Debug)]
@@ -211,7 +211,7 @@ impl JSFile {
         });
     }
 
-    fn init(ctx: Context, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    fn init(ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = ctx.create_base_object()?;
         proto.install_field_defs(&ctx, &CLASS_FILE_PROTO)?;
         Ok(Some(proto))
@@ -232,7 +232,7 @@ impl JSFile {
         Self::CLASS_DEF.with(|cdef| cdef.class_id())
     }
 
-    fn new_instance_internal(ctx: Context, fd: FileDesc) -> Result<ObjectRef, i32> {
+    fn new_instance_internal(ctx: Context, fd: FileDesc) -> Result<Object, i32> {
         let class_id = Self::class_id();
         let opaque = Box::into_raw(Box::new(fd)).cast::<c_void>();
         ctx.create_object_user_class(class_id, opaque).map_err(|e| {
@@ -241,16 +241,16 @@ impl JSFile {
             -1
         })
     }
-    pub fn new_instance(ctx: Context, fh: std::fs::File) -> Result<ObjectRef, i32> {
+    pub fn new_instance(ctx: Context, fh: std::fs::File) -> Result<Object, i32> {
         Self::new_instance_internal(ctx, FileDesc::File(fh))
     }
-    pub fn new_instance_stdin(ctx: Context) -> Result<ObjectRef, i32> {
+    pub fn new_instance_stdin(ctx: Context) -> Result<Object, i32> {
         Self::new_instance_internal(ctx, FileDesc::Stdin)
     }
-    pub fn new_instance_stdout(ctx: Context) -> Result<ObjectRef, i32> {
+    pub fn new_instance_stdout(ctx: Context) -> Result<Object, i32> {
         Self::new_instance_internal(ctx, FileDesc::Stdout)
     }
-    pub fn new_instance_stderr(ctx: Context) -> Result<ObjectRef, i32> {
+    pub fn new_instance_stderr(ctx: Context) -> Result<Object, i32> {
         Self::new_instance_internal(ctx, FileDesc::Stderr)
     }
 }

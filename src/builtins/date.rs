@@ -12,7 +12,7 @@ use crate::{
     context::{Context, ContextImpl},
     error::JSResult,
     function::{CallContext, FieldDef},
-    object::{ObjectPayload, ObjectRef},
+    object::{ObjectPayload, Object},
     string::{CharCode, StringBuf, StringRef},
     value::{HINT_FORCE_ORDINARY, HINT_NONE, HINT_NUMBER, HINT_STRING, JSValue},
 };
@@ -681,7 +681,7 @@ impl Datetime {
         timestamp_ms: INVALID_TIMESTAMP,
     };
 
-    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut obj = ctx.create_base_object()?;
         obj.install_field_defs(&ctx, &js_date_proto_funcs).unwrap();
 

@@ -9,7 +9,7 @@ use crate::{
     defer,
     error::JSResult,
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
-    object::{ObjectImpl, ObjectPayload, ObjectRef},
+    object::{Object, ObjectImpl, ObjectPayload},
     runtime::js_check_stack_overflow,
     stack_frame::{ExecMode, StackFrame},
     value::JSValue,
@@ -270,8 +270,8 @@ impl ContextImpl {
         name: &str,
         length: u8,
         magic: i16,
-        proto: Option<ObjectRef>,
-    ) -> Result<ObjectRef, i32> {
+        proto: Option<Object>,
+    ) -> Result<Object, i32> {
         let mut func_obj = self
             .create_object_with_proto(
                 proto,
@@ -305,7 +305,7 @@ impl ContextImpl {
         name: &str,
         length: u8,
         magic: i16,
-    ) -> Result<ObjectRef, i32> {
+    ) -> Result<Object, i32> {
         self.create_native_function_with_proto(
             handler,
             name,

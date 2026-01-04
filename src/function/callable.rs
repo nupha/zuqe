@@ -8,7 +8,7 @@ use crate::{
     context::{Context, ContextImpl},
     error::JSResult,
     function::{CallContext, CallbackFn, js_function_set_properties},
-    object::{ObjectImpl, ObjectPayload, ObjectRef},
+    object::{ObjectImpl, ObjectPayload, Object},
     object_cast,
     value::JSValue,
 };

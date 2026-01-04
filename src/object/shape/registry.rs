@@ -5,7 +5,7 @@ use gc_lite::{GcRef, GcTracable};
 use crate::{
     atom::Atom,
     object::{
-        JS_PROP_INITIAL_HASH_SIZE, ObjectRef, ShapeHandle, ShapeImpl, shape::shape_hasher_u32,
+        JS_PROP_INITIAL_HASH_SIZE, Object, ShapeHandle, ShapeImpl, shape::shape_hasher_u32,
         shape_initial_hash,
     },
 };
@@ -143,7 +143,7 @@ impl ShapeRegistry {
 
     /// find an empty shape matching given prototype.
     /// Return None if not found.
-    pub fn find_shape_by_proto(&self, proto: Option<ObjectRef>) -> Option<ShapeHandle> {
+    pub fn find_shape_by_proto(&self, proto: Option<Object>) -> Option<ShapeHandle> {
         let hash = shape_initial_hash(proto.map_or(0, |o| o.id()));
 
         self.lut.get(&hash).and_then(|lst| {

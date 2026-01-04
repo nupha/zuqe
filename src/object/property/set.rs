@@ -8,7 +8,7 @@ use crate::{
     error::JS_ThrowReferenceErrorNotDefined,
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
-        JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, ObjectRef,
+        JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, Object,
     },
     utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
@@ -19,7 +19,7 @@ use super::{
     JS_PROP_WRITABLE,
 };
 
-impl ObjectRef {
+impl Object {
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     ///
@@ -33,7 +33,7 @@ impl ObjectRef {
         ctx: &ContextImpl,
         prop: Atom,
         val: JSValue,
-        target: Option<ObjectRef>,
+        target: Option<Object>,
         flags: u32,
     ) -> Result<bool, i32> {
         macro_rules! fail {
@@ -523,7 +523,7 @@ impl JSValue {
         ctx: &ContextImpl,
         prop: Atom,
         val: Self,
-        receiver: Option<ObjectRef>,
+        receiver: Option<Object>,
         flags: u32,
     ) -> Result<bool, i32> {
         if let Self::Object(o) = self {
@@ -601,7 +601,7 @@ impl JSValue {
 
 fn call_setter(
     ctx: &ContextImpl,
-    setter: Option<ObjectRef>,
+    setter: Option<Object>,
     this_obj: JSValue,
     val: JSValue,
     flags: u32,

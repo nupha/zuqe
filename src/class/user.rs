@@ -7,7 +7,7 @@ use crate::{
     atom::{Atom, AtomKind},
     class::{ClassDef, ClassID, ClassInitializeFn, FreeObjFn},
     context::{ContextImpl, ContextPtr},
-    object::{ObjectImpl, ObjectPayload, ObjectRef},
+    object::{ObjectImpl, ObjectPayload, Object},
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -187,7 +187,7 @@ impl ContextImpl {
         class_id: ClassID,
         ctor: JSValue,
         opaque: *mut c_void,
-    ) -> Result<ObjectRef, i32> {
+    ) -> Result<Object, i32> {
         self.create_object_from_ctor(
             ctor,
             ObjectPayload::OTHER(Box::new(OtherPayload { class_id, opaque })),

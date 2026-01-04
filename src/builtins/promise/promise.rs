@@ -13,7 +13,7 @@ use crate::{
         CallContext, Callback, JS_CallConstructor, NativeFunctionWithData,
         js_function_set_properties,
     },
-    object::{JS_PROP_C_W_E, ObjectImpl, ObjectPayload, ObjectRef},
+    object::{JS_PROP_C_W_E, ObjectImpl, ObjectPayload, Object},
     object_cast,
     value::JSValue,
 };
@@ -119,7 +119,7 @@ impl Promise {
     /// create new Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
     /// `executor` must be a callable object.
-    fn from_executor(ctx: &ContextImpl, executor: ObjectRef, ctor: JSValue) -> Result<Self, i32> {
+    fn from_executor(ctx: &ContextImpl, executor: Object, ctor: JSValue) -> Result<Self, i32> {
         executor.ensure_function(ctx)?;
 
         // create js object of promise class
@@ -152,7 +152,7 @@ impl Promise {
     pub(super) fn create_from_ctor(
         ctx: &ContextImpl,
         ctor: JSValue,
-    ) -> Result<(ObjectRef, [JSValue; 2]), i32> {
+    ) -> Result<(Object, [JSValue; 2]), i32> {
         let executor = NativeFunctionWithData::create(
             ctx,
             Promise::executor_handler,
@@ -164,7 +164,7 @@ impl Promise {
             [JSValue::UNDEFINED, JSValue::UNDEFINED].into(),
         )?;
 
-        let promise: ObjectRef = if ctor.is_undefined() {
+        let promise: Object = if ctor.is_undefined() {
             Self::from_executor(ctx, executor.into(), JSValue::UNDEFINED)?.into()
         } else {
             JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor.into()))
@@ -304,7 +304,7 @@ impl Promise {
         Promise::from_executor(ctx, executor, *cc.this()).map(|p| p.into())
     }
 
-    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = ctx.create_base_object()?;
         proto.install_field_defs(&ctx, &js_promise_proto_funcs)?;
 

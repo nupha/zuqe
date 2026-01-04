@@ -6,7 +6,7 @@ use crate::{
     function::{
         Callback, CallbackFn, GetterFn, IteratorFn, JSCFunctionFF, JSCFunctionFFF, SetterFn,
     },
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, ObjectRef},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, Object},
     value::JSValue,
 };
 
@@ -232,7 +232,7 @@ impl FieldDef {
     }
 }
 
-impl ObjectRef {
+impl Object {
     pub fn install_field_defs(
         &mut self,
         ctx: &ContextImpl,

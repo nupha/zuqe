@@ -16,7 +16,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor, JS_GetFunctionRealm},
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload, ObjectRef},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload, Object},
     runtime::js_check_stack_overflow,
     string::{StringBuf, StringRef},
     value::JSValue,
@@ -1592,7 +1592,7 @@ pub static js_array_funcs: [FieldDef; 4] = [
 /// - 反向复制（dir < 0）：从 start_pos + count - 1 到 start_pos 的元素依次复制到 to_pos + count - 1 到 to_pos。
 fn copy_sub_array(
     ctx: &ContextImpl,
-    obj: &mut ObjectRef,
+    obj: &mut Object,
     to_pos: usize,
     start_pos: usize,
     count: usize,

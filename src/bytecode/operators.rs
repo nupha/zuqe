@@ -11,7 +11,7 @@ use crate::{
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-        JS_PROP_WRITABLE, ObjectRef,
+        JS_PROP_WRITABLE, Object,
     },
     stack_frame::StackFrame,
     string::{JS_ConcatString3, StringRef},
@@ -124,7 +124,7 @@ pub(super) fn js_op_define_class(
 
     // SP[-2]: parent class
     let mut parent_class = unsafe { *sp.offset(-2) };
-    let parent_proto: Option<ObjectRef>;
+    let parent_proto: Option<Object>;
 
     if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
         if parent_class.is_null() {

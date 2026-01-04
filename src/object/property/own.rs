@@ -7,7 +7,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_LAZYINIT, JS_PROP_NO_EXOTIC, JS_PROP_NORMAL,
         JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, JSPropertyDescriptor,
-        ObjectImpl, ObjectRef, get_prop_flags,
+        ObjectImpl, Object, get_prop_flags,
     },
     utils::unlikely,
     value::JSValue,
@@ -33,7 +33,7 @@ impl ObjectImpl {
     }
 }
 
-impl ObjectRef {
+impl Object {
     /// Add an own property, and grow object's prop value slots.
     /// This method adds the new prop is to shape, it assumes the new prop does not exist in shape yet.
     /// Returns Err if memory error.
@@ -216,7 +216,7 @@ impl ObjectRef {
         flags: u32,
     ) -> Result<bool, i32> {
         let update_array_length_fn =
-            |mut arr: ObjectRef, idx: u32, cur_len: i64| -> Option<Result<bool, i32>> {
+            |mut arr: Object, idx: u32, cur_len: i64| -> Option<Result<bool, i32>> {
                 debug_assert!(idx < u32::MAX, "array length<=u32::MAX, so idx<u32::MAX");
 
                 if idx + 1 > cur_len as u32 {

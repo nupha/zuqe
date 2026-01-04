@@ -6,14 +6,14 @@ use crate::{
     atom::{Atom, JS_ATOM_MAX_INT},
     context::{ContextImpl, ContextPtr},
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
-    object::{JSProperty, ObjectRef},
+    object::{JSProperty, Object},
     utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
 use super::{JS_PROP_GETSET, JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF};
 
-impl ObjectRef {
+impl Object {
     /// walk up proto chain and get property in shape or by exotic handler.
     pub(crate) fn get_property_internal(
         &self,

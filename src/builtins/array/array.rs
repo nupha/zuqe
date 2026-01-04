@@ -9,7 +9,7 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH,
-        JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, ObjectImpl, ObjectPayload, ObjectRef,
+        JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, ObjectImpl, ObjectPayload, Object,
         PropertyKeyKind,
     },
     object_cast,
@@ -226,7 +226,7 @@ impl Array {
     }
 
     /// sort array-like object `obj`.
-    pub fn sort(ctx: &ContextImpl, obj: &mut ObjectRef, cmp: Option<&JSValue>) -> Result<(), i32> {
+    pub fn sort(ctx: &ContextImpl, obj: &mut Object, cmp: Option<&JSValue>) -> Result<(), i32> {
         if let Some(f) = cmp {
             f.ensure_function(ctx)?;
         }
@@ -479,7 +479,7 @@ impl ContextImpl {
     }
 }
 
-impl ObjectRef {
+impl Object {
     /// return Err if exception (proxy case) or TRUE/FALSE
     pub fn is_array(&self, ctx: &ContextImpl) -> Result<bool, i32> {
         let class_id = self.class_id();

@@ -3,7 +3,7 @@ use crate::{
     atom::Atom,
     context::ContextImpl,
     error::JSResult,
-    object::ObjectRef,
+    object::Object,
     value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},
 };
 
@@ -14,7 +14,7 @@ impl From<bool> for JSValue {
     }
 }
 
-impl ObjectRef {
+impl Object {
     /// Coerce object to primitive (non-object) value
     pub fn to_primitive(self, ctx: &ContextImpl, hint: i32) -> JSResult {
         let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;

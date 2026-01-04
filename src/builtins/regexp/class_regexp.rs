@@ -10,7 +10,7 @@ use crate::{
     function::{CallContext, Callback, FieldDef, JS_CallConstructor, js_function_apply},
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, ObjectPayload,
-        ObjectRef,
+        Object,
     },
     string::{CharCode, CharCodeDecoder, JS_ConcatString3, StringBuf, StringData, StringRef},
     value::JSValue,
@@ -498,7 +498,7 @@ pub fn js_regexp_Symbol_matchAll(cc: CallContext) -> JSResult {
     .map_err(|_| -1)
 }
 
-fn js_is_standard_regexp(ctx: &ContextImpl, rx: ObjectRef) -> Result<bool, i32> {
+fn js_is_standard_regexp(ctx: &ContextImpl, rx: Object) -> Result<bool, i32> {
     let val = rx.get_property(ctx, Atom::CONST_constructor)?;
     if val.is_same(ctx.regexp_ctor) {
         let f = rx.get_property(ctx, Atom::CONST_exec)?;
@@ -553,7 +553,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
     })?;
 
     // regexp match results list
-    let mut matche_list = SmallVec::<[ObjectRef; 10]>::new();
+    let mut matche_list = SmallVec::<[Object; 10]>::new();
     let ctx_p = cc.ctx_ptr();
     let re_obj: JSValue = this_obj.into();
 
@@ -773,7 +773,7 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
         let ctor = JS_SpeciesConstructor(cx, *cc.this(), regexp_ctor)?;
 
         let re = JS_CallConstructor(cx, ctor, &[*cc.this(), flags.into()]).err()?;
-        (TryInto::<ObjectRef>::try_into(re).unwrap(), is_unicode)
+        (TryInto::<Object>::try_into(re).unwrap(), is_unicode)
     };
 
     let mut arr = cx.create_array()?;

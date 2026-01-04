@@ -13,8 +13,8 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
     object::{
-        JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor,
-        ObjectPayload, ObjectRef, check_define_prop_flags,
+        JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
+        ObjectPayload, check_define_prop_flags,
     },
     resource::LocalResource,
     runtime::RuntimePtr,
@@ -290,10 +290,10 @@ impl From<StringRef> for JSValue {
     }
 }
 
-impl TryFrom<ObjectRef> for StringRef {
+impl TryFrom<Object> for StringRef {
     type Error = i32;
 
-    fn try_from(obj: ObjectRef) -> Result<Self, Self::Error> {
+    fn try_from(obj: Object) -> Result<Self, Self::Error> {
         if obj.class_id() == JS_CLASS_STRING {
             if let Some(JSValue::String(s)) = obj.payload().value() {
                 Ok(*s)
@@ -390,7 +390,7 @@ impl StringRef {
     }
 
     /// convert string to a String instance with content transfered.
-    pub fn objectify(self, ctx: &ContextImpl, ctor: JSValue) -> Result<ObjectRef, i32> {
+    pub fn objectify(self, ctx: &ContextImpl, ctor: JSValue) -> Result<Object, i32> {
         let len = self.len();
         let mut o = ctx
             .create_object_from_ctor(ctor, ObjectPayload::STRING(self.into()))

@@ -6,7 +6,7 @@ use crate::{
     class::ClassID,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
-    object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectRef},
+    object::{JS_PROP_CONFIGURABLE, ObjectImpl, Object},
     object_cast,
     value::JSValue,
 };
@@ -16,7 +16,7 @@ use super::MapPair;
 #[derive(Debug)]
 pub struct JSMapIteratorData {
     /// None if iterator is done.
-    pub obj: Option<ObjectRef>,
+    pub obj: Option<Object>,
 
     /// result kind
     pub kind: JSIteratorKindEnum,
@@ -74,7 +74,7 @@ fn js_map_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult 
                     }
                     MapPair::Weak { key, value } => {
                         if let Some(key) = key.upgrade(ctx.rt_ptr().gc_heap()) {
-                            let key = ObjectRef(key);
+                            let key = Object(key);
                             pair.replace((key.into(), if is_set { key.into() } else { *value }));
                             break;
                         }

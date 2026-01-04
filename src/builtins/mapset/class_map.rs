@@ -6,7 +6,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload, ObjectRef},
+    object::{JS_PROP_CONFIGURABLE, ObjectPayload, Object},
     value::JSValue,
 };
 
@@ -145,7 +145,7 @@ fn js_map_delete(cc: CallContext) -> JSResult {
 
                     key_obj.weak_refs.retain(|w| {
                         w.upgrade(ctx.rt_ptr().gc_heap())
-                            .is_some_and(|o| !ObjectRef::from(o).eq(this_obj))
+                            .is_some_and(|o| !Object::from(o).eq(this_obj))
                     });
                 }
 

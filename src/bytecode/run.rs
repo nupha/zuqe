@@ -38,7 +38,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, ObjectRef,
+        JS_PROP_WRITABLE, JSProperty, Object,
     },
     stack_frame::{ExecMode, StackFrame},
     utils::{read_from_ptr, unlikely},
@@ -56,7 +56,7 @@ impl Bytecode {
     pub fn run(
         &self,
         caller_ctx: &ContextImpl, // Context of the calling environment
-        func_home_obj: Option<ObjectRef>,
+        func_home_obj: Option<Object>,
         stack_frame: &mut StackFrame, // The stack frame for execution
         this_obj: JSValue,            // The 'this' binding for the function execution
         new_target: JSValue,          // The new.target value for constructor calls

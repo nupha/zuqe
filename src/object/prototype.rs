@@ -3,19 +3,19 @@ use std::marker::PhantomData;
 use crate::{
     context::ContextImpl,
     error::JSResult,
-    object::{ObjectImpl, ObjectRef},
+    object::{ObjectImpl, Object},
     utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
 /// To iterate over shape proto chain of an object
 pub struct ObjectShapeProtoIter<'a> {
-    obj: Option<ObjectRef>,
+    obj: Option<Object>,
     _mark: PhantomData<&'a ()>,
 }
 
 impl<'a> Iterator for ObjectShapeProtoIter<'a> {
-    type Item = ObjectRef;
+    type Item = Object;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -31,7 +31,7 @@ impl<'a> Iterator for ObjectShapeProtoIter<'a> {
 impl ObjectImpl {
     /// get shape proto of `self`
     #[inline(always)]
-    pub fn shape_proto(&self) -> Option<ObjectRef> {
+    pub fn shape_proto(&self) -> Option<Object> {
         self.shape().and_then(|s| s.proto())
     }
 
@@ -42,7 +42,7 @@ impl ObjectImpl {
     pub fn shape_proto_iter<'a>(&self, include_self: bool) -> ObjectShapeProtoIter<'a> {
         ObjectShapeProtoIter {
             obj: if include_self {
-                Some(unsafe { ObjectRef::from_ref_unchecked(self) })
+                Some(unsafe { Object::from_ref_unchecked(self) })
             } else {
                 self.shape_proto()
             },
@@ -55,10 +55,10 @@ impl ObjectImpl {
     /// Returns:
     /// - Some(object) if it has prototype, None for no prototype.
     /// - Err in case Proxy object calling getPrototypeOf() failed.
-    pub fn prototype(&self, ctx: &ContextImpl) -> Result<Option<ObjectRef>, i32> {
-        let o = unsafe { ObjectRef::from_ref_unchecked(self) };
+    pub fn prototype(&self, ctx: &ContextImpl) -> Result<Option<Object>, i32> {
+        let o = unsafe { Object::from_ref_unchecked(self) };
         if let Some(p) = o.as_Proxy() {
-            Ok(ObjectRef::try_from(p.get_prototype_of(ctx)?).ok())
+            Ok(Object::try_from(p.get_prototype_of(ctx)?).ok())
         } else {
             Ok(self.shape_proto())
         }
@@ -92,7 +92,7 @@ impl ObjectImpl {
             return Err(-1);
         };
 
-        let mut o = unsafe { ObjectRef::from_ref_unchecked(self) };
+        let mut o = unsafe { Object::from_ref_unchecked(self) };
         if let Some(px) = o.as_Proxy_mut() {
             return px.set_prototype_of(ctx, proto_val, throw_flag);
         }

@@ -1,5 +1,5 @@
 use crate::{
-    JS_CLASS_MODULE_NS, atom::Atom, context::ContextImpl, object::ObjectRef, utils::unlikely,
+    JS_CLASS_MODULE_NS, atom::Atom, context::ContextImpl, object::Object, utils::unlikely,
     value::JSValue,
 };
 
@@ -9,7 +9,7 @@ use super::{
     JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty,
 };
 
-impl ObjectRef {
+impl Object {
     /// update value to property slot `idx`, handle 'writable' flag setting.
     pub(super) fn update_prop_slot_value(
         &mut self,
@@ -179,8 +179,8 @@ impl ObjectRef {
             None
         };
 
-        let mut old_getter: Option<ObjectRef> = None;
-        let mut old_setter: Option<ObjectRef> = None;
+        let mut old_getter: Option<Object> = None;
+        let mut old_setter: Option<Object> = None;
 
         if prs_flags & JS_PROP_TMASK != JS_PROP_GETSET {
             // property is not getset type:

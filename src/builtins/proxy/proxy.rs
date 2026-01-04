@@ -13,7 +13,7 @@ use crate::{
         JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
         JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JSPropertyDescriptor, ObjectImpl, ObjectPayload, ObjectRef, PropertyKey,
+        JSPropertyDescriptor, ObjectImpl, ObjectPayload, Object, PropertyKey,
         check_define_prop_flags,
     },
     object_cast,
@@ -26,7 +26,7 @@ use super::{js_proxy_constructor, js_proxy_funcs};
 
 #[derive(Debug)]
 pub struct ProxyPayload {
-    target: ObjectRef,
+    target: Object,
     handler: JSValue,
     is_func: bool,
     is_revoked: Cell<bool>,
@@ -41,7 +41,7 @@ unsafe impl GcTracable for ProxyPayload {
 }
 
 impl ProxyPayload {
-    pub fn new(target: ObjectRef, handler: JSValue) -> Box<Self> {
+    pub fn new(target: Object, handler: JSValue) -> Box<Self> {
         Box::new(Self {
             is_func: target.is_function(),
             target,
@@ -84,7 +84,7 @@ impl ProxyPayload {
     }
 
     #[inline(always)]
-    pub const fn target(&self) -> ObjectRef {
+    pub const fn target(&self) -> Object {
         self.target
     }
 
@@ -205,7 +205,7 @@ pub struct Proxy(pub(super) GcRef<ObjectImpl>);
 object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
-    pub fn class_initialize(ctx: Context, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto =
             ctx.create_native_function(Callback::Constructor(js_proxy_constructor), "Proxy", 2, 0)?;
 
@@ -605,7 +605,7 @@ fn js_proxy_delete_property(ctx: ContextPtr, mut obj: JSValue, atom: Atom) -> Re
 
 fn js_proxy_get_own_property_names(
     ctx: ContextPtr,
-    mut obj: ObjectRef,
+    mut obj: Object,
 ) -> Result<Box<[PropertyKey]>, i32> {
     let cx = &*ctx;
 
@@ -689,7 +689,7 @@ fn js_proxy_get_own_property_names(
     Ok(tab.into_boxed_slice())
 }
 
-fn js_proxy_has(ctx: ContextPtr, mut obj: ObjectRef, atom: Atom) -> Result<bool, i32> {
+fn js_proxy_has(ctx: ContextPtr, mut obj: Object, atom: Atom) -> Result<bool, i32> {
     let cx = &*ctx;
 
     let Some(px) = obj.as_Proxy_mut().map(|x| x.payload_mut()) else {

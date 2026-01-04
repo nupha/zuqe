@@ -1,6 +1,6 @@
 use crate::{runtime::RuntimeImpl, value::JSValue};
 
-use super::ObjectRef;
+use super::Object;
 
 #[deprecated(note = "unused")]
 pub unsafe fn reset_weak_ref(rt: *mut RuntimeImpl, p: *mut JSValue) {

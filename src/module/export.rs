@@ -10,7 +10,7 @@ use crate::{
     module::{ModuleDef, ModuleDefImpl},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, ObjectPayload,
-        ObjectRef,
+        Object,
     },
     utils::unlikely,
     value::JSValue,
@@ -357,7 +357,7 @@ impl ModuleDef {
     }
 
     /// build module ns object
-    fn build_module_ns(&self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
+    fn build_module_ns(&self, ctx: &ContextImpl) -> Result<Object, i32> {
         let mut obj = ctx
             .create_object(ObjectPayload::MODULE_NS)
             .map_err(|_| -1)?;
@@ -471,7 +471,7 @@ impl ModuleDef {
 
     /// get module ns object.
     /// if ns object is not initialized, initialize it and return.
-    pub fn ns(&mut self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
+    pub fn ns(&mut self, ctx: &ContextImpl) -> Result<Object, i32> {
         if let Some(ns) = self.module_ns {
             Ok(ns)
         } else {

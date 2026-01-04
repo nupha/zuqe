@@ -5,7 +5,7 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
     function::{CallContext, JS_GetFunctionRealm},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload, ObjectRef},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload, Object},
     value::JSValue,
 };
 
@@ -33,7 +33,7 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
 
     let mut obj = ctx
         .create_object_with_proto(
-            Some(ObjectRef::try_from(proto).unwrap()),
+            Some(Object::try_from(proto).unwrap()),
             ObjectPayload::ERROR,
         )
         .map_err(|_| -1)?;

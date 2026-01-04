@@ -8,7 +8,7 @@ use crate::{
     module::ModuleDef,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_TMASK, JS_PROP_WRITABLE,
-        ObjectRef,
+        Object,
     },
     value::JSValue,
 };
@@ -28,7 +28,7 @@ pub enum LazyInit {
 
 impl LazyInit {
     /// apply init. returns instantiated value.
-    pub fn instantiate(&mut self, ctx: &ContextImpl, this_obj: ObjectRef) -> JSResult {
+    pub fn instantiate(&mut self, ctx: &ContextImpl, this_obj: Object) -> JSResult {
         match self {
             Self::Prototype => {
                 let mut obj = ctx.create_base_object()?;
@@ -77,9 +77,9 @@ impl JSProperty {
     /// Note: will panic if property is not lazy type.
     pub(super) fn instantiate(
         &mut self,
-        mut obj: ObjectRef,
+        mut obj: Object,
         idx: usize,
-        this_obj: ObjectRef,
+        this_obj: Object,
     ) -> JSResult {
         if let JSProperty::LazyInit {
             realm, init_type, ..
@@ -106,7 +106,7 @@ impl JSProperty {
     }
 }
 
-impl ObjectRef {
+impl Object {
     /// define an AutoInit property on object
     pub fn define_lazy_property(
         &mut self,

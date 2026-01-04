@@ -12,7 +12,7 @@ use crate::{
     context::{Context, ContextImpl},
     error::JSResult,
     function::CallContext,
-    object::{ObjectImpl, ObjectPayload, ObjectRef},
+    object::{ObjectImpl, ObjectPayload, Object},
     object_cast,
     runtime::RuntimeImpl,
     utils::unlikely,
@@ -182,7 +182,7 @@ object_cast!(
 );
 
 impl ArrayBuffer {
-    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
         match class_id {
             JS_CLASS_ARRAY_BUFFER => {
                 // ArrayBuffer
@@ -401,7 +401,7 @@ impl ArrayBuffer {
                 if let Some(o) = w.upgrade(ctx.rt_ptr().gc_heap()) {
                     // typed array or dataview
                     // Note: the typed array length and offset fields are not modified. set count to 0
-                    if let Some(ta) = ObjectRef::from(o).as_TypedArray_mut() {
+                    if let Some(ta) = Object::from(o).as_TypedArray_mut() {
                         ta.payload_mut().set_count(0);
                     }
                 }

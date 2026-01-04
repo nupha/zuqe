@@ -200,7 +200,7 @@ impl ObjectImpl {
         ctx: &ContextImpl,
         shape: Option<ShapeHandle>,
         payload: ObjectPayload,
-    ) -> Result<ObjectRef, ObjectPayload> {
+    ) -> Result<Object, ObjectPayload> {
         #[cfg(debug_assertions)]
         if let Some(sh) = &shape {
             debug_assert!(
@@ -321,7 +321,7 @@ impl ObjectImpl {
             ctx.throw_out_of_memory();
             std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::Int(0)))
         })?;
-        let mut obj = ObjectRef(ob_impl);
+        let mut obj = Object(ob_impl);
 
         if add_length_prop {
             // only for the Array prototype object
@@ -454,7 +454,7 @@ impl ObjectImpl {
     pub fn prevent_extensions(&mut self, ctx: &ContextImpl) -> Result<bool, i32> {
         let gc_ref = unsafe { GcRef::from_ref_unchecked(self) };
 
-        ObjectRef(gc_ref).as_Proxy_mut().map_or_else(
+        Object(gc_ref).as_Proxy_mut().map_or_else(
             || {
                 self.set_flag_extensible(false);
                 Ok(true)
@@ -491,26 +491,27 @@ impl ObjectImpl {
     }
 }
 
+/// An object reference
 #[derive(Clone, Copy)]
-pub struct ObjectRef(pub(crate) GcRef<ObjectImpl>);
+pub struct Object(pub(crate) GcRef<ObjectImpl>);
 
-gcref_wrapper!(ObjectRef, ObjectImpl);
+gcref_wrapper!(Object, ObjectImpl);
 
-impl PartialEq for ObjectRef {
+impl PartialEq for Object {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl From<ObjectRef> for JSValue {
+impl From<Object> for JSValue {
     #[inline(always)]
-    fn from(value: ObjectRef) -> Self {
+    fn from(value: Object) -> Self {
         Self::Object(value)
     }
 }
 
-impl TryFrom<JSValue> for ObjectRef {
+impl TryFrom<JSValue> for Object {
     type Error = i32;
 
     #[inline]
@@ -523,7 +524,7 @@ impl TryFrom<JSValue> for ObjectRef {
     }
 }
 
-impl From<GcRef<ObjectImpl>> for ObjectRef {
+impl From<GcRef<ObjectImpl>> for Object {
     #[inline(always)]
     fn from(value: GcRef<ObjectImpl>) -> Self {
         Self(value)
@@ -533,24 +534,24 @@ impl From<GcRef<ObjectImpl>> for ObjectRef {
 impl From<GcRef<ObjectImpl>> for JSValue {
     #[inline(always)]
     fn from(value: GcRef<ObjectImpl>) -> Self {
-        Self::Object(ObjectRef(value))
+        Self::Object(Object(value))
     }
 }
 
-impl std::fmt::Display for ObjectRef {
+impl std::fmt::Display for Object {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.deref())
     }
 }
 
-impl std::fmt::Debug for ObjectRef {
+impl std::fmt::Debug for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self}")
     }
 }
 
-impl ObjectRef {
-    #[inline]
+impl Object {
+    #[inline(always)]
     pub fn downgrade(&self) -> GcWeak<ObjectImpl> {
         self.0.downgrade(self.rt().gc_heap_mut())
     }
@@ -625,7 +626,7 @@ impl ObjectRef {
 }
 
 impl JSValue {
-    pub const fn as_object(&self) -> Option<&ObjectRef> {
+    pub const fn as_object(&self) -> Option<&Object> {
         if let Self::Object(o) = self {
             Some(o)
         } else {
@@ -633,7 +634,7 @@ impl JSValue {
         }
     }
 
-    pub const fn as_object_mut(&mut self) -> Option<&mut ObjectRef> {
+    pub const fn as_object_mut(&mut self) -> Option<&mut Object> {
         if let Self::Object(o) = self {
             Some(o)
         } else {
@@ -642,7 +643,7 @@ impl JSValue {
     }
 
     #[inline]
-    pub unsafe fn as_object_unchecked(&self) -> &ObjectRef {
+    pub unsafe fn as_object_unchecked(&self) -> &Object {
         if let Self::Object(o) = self {
             o
         } else {
@@ -656,7 +657,7 @@ impl JSValue {
     }
 
     #[inline]
-    pub unsafe fn as_object_mut_unchecked(&mut self) -> &mut ObjectRef {
+    pub unsafe fn as_object_mut_unchecked(&mut self) -> &mut Object {
         if let Self::Object(o) = self {
             o
         } else {
@@ -670,7 +671,7 @@ impl JSValue {
     }
 
     #[inline]
-    pub const fn to_object(self) -> Option<ObjectRef> {
+    pub const fn to_object(self) -> Option<Object> {
         if let Self::Object(o) = self {
             Some(o)
         } else {
@@ -679,7 +680,7 @@ impl JSValue {
     }
 
     #[inline]
-    pub unsafe fn to_object_unchecked(self) -> ObjectRef {
+    pub unsafe fn to_object_unchecked(self) -> Object {
         if let Self::Object(o) = self {
             o
         } else {
@@ -702,7 +703,7 @@ impl JSValue {
     /// - "abc" => \[object "abc"\]
     /// - Symbol() => \[object Symbol()\]
     /// - null, undefined => Error
-    pub fn objectify(&self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
+    pub fn objectify(&self, ctx: &ContextImpl) -> Result<Object, i32> {
         match self {
             Self::Object(o) => Ok(*o),
             Self::String(s) => s.objectify(ctx, JSValue::UNDEFINED),

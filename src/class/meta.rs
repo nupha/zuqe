@@ -9,7 +9,7 @@ use crate::{
     context::ContextImpl,
     error::JSResult,
     function::{Callback, CallbackFn},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -110,7 +110,7 @@ impl RuntimeImpl {
 impl ContextImpl {
     /// get class proto object by `class_id`.
     /// if class proto object is not initialized in this context, returns None.
-    pub fn class_proto(&self, class_id: ClassID) -> Option<ObjectRef> {
+    pub fn class_proto(&self, class_id: ClassID) -> Option<Object> {
         self.class_proto
             .get(class_id as usize)
             .and_then(|x| x.as_object())
@@ -121,7 +121,7 @@ impl ContextImpl {
     ///
     /// equivelent to call `ctx.class_proto(JS_CLASS_OBJECT).unwrap()`
     #[inline]
-    pub fn object_proto(&self) -> ObjectRef {
+    pub fn object_proto(&self) -> Object {
         debug_assert!(self.class_proto.len() > JS_CLASS_OBJECT as usize);
         self.class_proto(JS_CLASS_OBJECT).unwrap()
     }
@@ -130,7 +130,7 @@ impl ContextImpl {
     ///
     /// equivelent to call `ctx.class_proto(JS_CLASS_BYTECODE_FUNCTION).unwrap()`
     #[inline]
-    pub fn function_proto(&self) -> ObjectRef {
+    pub fn function_proto(&self) -> Object {
         debug_assert!(self.class_proto.len() > JS_CLASS_BYTECODE_FUNCTION as usize);
         self.class_proto(JS_CLASS_BYTECODE_FUNCTION).unwrap()
     }
@@ -139,13 +139,13 @@ impl ContextImpl {
     ///
     /// equivelent to call `ctx.class_proto(JS_ARRAY_FUNCTION).unwrap()`
     #[inline]
-    pub fn array_proto(&self) -> ObjectRef {
+    pub fn array_proto(&self) -> Object {
         debug_assert!(self.class_proto.len() > JS_CLASS_ARRAY as usize);
         self.class_proto(JS_CLASS_ARRAY).unwrap()
     }
 
     /// initialize iterator proto object
-    pub fn iterator_proto(&mut self) -> Result<ObjectRef, i32> {
+    pub fn iterator_proto(&mut self) -> Result<Object, i32> {
         let obj = if let Some(o) = self.iterator_proto.as_ref().cloned() {
             o
         } else {

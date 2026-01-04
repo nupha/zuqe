@@ -6,7 +6,7 @@ use crate::{
     builtins::iterator::JSIteratorKindEnum,
     context::{ContextImpl, ContextPtr},
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
-    object::{JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, ObjectRef},
+    object::{JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, Object},
     string::StringRef,
     utils::unlikely,
     value::JSValue,
@@ -56,7 +56,7 @@ impl PropertyKey {
     }
 }
 
-impl ObjectRef {
+impl Object {
     /// Iterates over all own properties of object `self` and executes `callback` for each property.
     ///
     /// This method handles three types of properties:

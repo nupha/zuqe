@@ -2,14 +2,14 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
     context::{ContextImpl, ContextPtr},
-    object::{JSProperty, ObjectRef},
+    object::{JSProperty, Object},
     utils::unlikely,
     value::JSValue,
 };
 
 use super::JS_PROP_CONFIGURABLE;
 
-impl ObjectRef {
+impl Object {
     /// Delete an own property.
     ///
     /// The property is in shape, or delete via exotic/fast-array handler.

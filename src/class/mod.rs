@@ -12,7 +12,7 @@ use crate::{
     atom::Atom,
     context::{Context, ContextPtr},
     error::JSResult,
-    object::{JSPropertyDescriptor, ObjectPayload, ObjectRef, PropertyKey},
+    object::{JSPropertyDescriptor, Object, ObjectPayload, PropertyKey},
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -29,7 +29,7 @@ pub type ClassCallFn = fn(
 
 /// initialize class proto, constructor to ctx.
 /// returns the class proto object created for specified ctx.
-pub type ClassInitializeFn = fn(ctx: Context, class_id: ClassID) -> Result<Option<ObjectRef>, i32>;
+pub type ClassInitializeFn = fn(ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32>;
 
 /// class instance finalize callback.
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
@@ -44,14 +44,14 @@ pub type DefineOwnPropertyFn = fn(
     flags: i32,
 ) -> Result<bool, i32>;
 
-pub type HasPropertyFn = fn(ctx: ContextPtr, target: ObjectRef, prop: Atom) -> Result<bool, i32>;
+pub type HasPropertyFn = fn(ctx: ContextPtr, target: Object, prop: Atom) -> Result<bool, i32>;
 
-/// TODO: change target type to ObjectRef
+/// TODO: change target type to Object
 pub type GetOwnPropertyFn =
     fn(ctx: ContextPtr, target: JSValue, prop: Atom) -> Result<Option<JSPropertyDescriptor>, i32>;
 
 pub type GetOwnPropertyNamesFn =
-    fn(ctx: ContextPtr, target: ObjectRef) -> Result<Box<[PropertyKey]>, i32>;
+    fn(ctx: ContextPtr, target: Object) -> Result<Box<[PropertyKey]>, i32>;
 
 pub type GetPropertyFn =
     fn(ctx: ContextPtr, target: JSValue, prop: Atom, this_obj: JSValue) -> JSResult;
@@ -65,7 +65,7 @@ pub type SetPropertyFn = fn(
     flags: i32,
 ) -> Result<bool, i32>;
 
-/// TODO: change target type to ObjectRef
+/// TODO: change target type to Object
 pub type DeletePropertyFn = fn(ctx: ContextPtr, target: JSValue, prop: Atom) -> Result<bool, i32>;
 
 /// free user class instance handler

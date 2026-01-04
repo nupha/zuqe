@@ -11,7 +11,7 @@ use crate::{
     context::{Context, ContextImpl},
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, NativeFunctionWithData},
-    object::{ObjectImpl, ObjectPayload, ObjectRef},
+    object::{ObjectImpl, ObjectPayload, Object},
     object_cast,
     value::JSValue,
 };
@@ -20,7 +20,7 @@ use super::{JS_IteratorGetCompleteValue, ObjectIter, js_create_iterator_result};
 
 #[derive(Debug)]
 pub struct JSAsyncFromSyncIteratorData {
-    pub(super) obj: ObjectRef,
+    pub(super) obj: Object,
     pub(super) next_method: JSValue,
 }
 
@@ -39,7 +39,7 @@ pub struct AsyncFromSyncIterator(GcRef<ObjectImpl>);
 object_cast!(AsyncFromSyncIterator, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR);
 
 impl AsyncFromSyncIterator {
-    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let aiter_proto = ctx.async_iterator_proto()?;
         let mut proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
         proto.install_field_defs(&ctx, &js_async_from_sync_iterator_proto_funcs)?;
@@ -51,7 +51,7 @@ impl ContextImpl {
     /// Initialize async iterator proto object which is used as proto of:
     /// AsyncFromSyncIterator, AsyncGenerator.
     /// if this proto is not initialized, will create it inside.
-    pub(crate) fn async_iterator_proto(&mut self) -> Result<ObjectRef, i32> {
+    pub(crate) fn async_iterator_proto(&mut self) -> Result<Object, i32> {
         if let Some(o) = self.async_iterator_proto {
             Ok(o)
         } else {

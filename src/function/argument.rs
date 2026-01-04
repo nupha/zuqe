@@ -6,7 +6,7 @@ use crate::{
     error::JSResult,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, ObjectPayload, ObjectRef,
+        JS_PROP_WRITABLE, JSProperty, ObjectPayload, Object,
     },
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
@@ -90,7 +90,7 @@ pub fn js_build_mapped_arguments(
     args: &[JSValue],
     sf: &mut StackFrame,
     arg_count: i32,
-) -> Result<ObjectRef, i32> {
+) -> Result<Object, i32> {
     let mut obj = ctx
         .create_object_with_proto(
             ctx.class_proto(JS_CLASS_OBJECT),

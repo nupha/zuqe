@@ -6,7 +6,7 @@ use crate::{
     class::{ClassID, OtherPayload},
     context::{ContextImpl, ContextPtr},
     function::JS_GetFunctionRealm,
-    object::{ObjectImpl, ObjectPayload, ObjectRef, ShapeHandle},
+    object::{ObjectImpl, ObjectPayload, Object, ShapeHandle},
     value::JSValue,
 };
 
@@ -17,7 +17,7 @@ impl ContextImpl {
         &self,
         shape: ShapeHandle,
         payload: ObjectPayload,
-    ) -> Result<ObjectRef, ObjectPayload> {
+    ) -> Result<Object, ObjectPayload> {
         ObjectImpl::create(self, Some(shape), payload)
     }
 
@@ -27,9 +27,9 @@ impl ContextImpl {
     /// - The `payload` determines what class the new object is.
     pub fn create_object_with_proto(
         &self,
-        proto: Option<ObjectRef>,
+        proto: Option<Object>,
         payload: ObjectPayload,
-    ) -> Result<ObjectRef, ObjectPayload> {
+    ) -> Result<Object, ObjectPayload> {
         // find shape by prototype
         let shape = {
             match self.rt_ptr().shape_registry.find_shape_by_proto(proto) {
@@ -56,10 +56,10 @@ impl ContextImpl {
         &self,
         ctor: JSValue,
         payload: ObjectPayload,
-    ) -> Result<ObjectRef, ObjectPayload> {
+    ) -> Result<Object, ObjectPayload> {
         let class_id = payload.class_id();
 
-        let proto: Option<ObjectRef> = if ctor.is_undefined() {
+        let proto: Option<Object> = if ctor.is_undefined() {
             self.class_proto(class_id)
         } else if let Ok(p) = ctor.get_property(self, Atom::CONST_prototype) {
             if let Some(o) = p.as_object().copied() {
@@ -81,7 +81,7 @@ impl ContextImpl {
     /// Create object with `payload` data, applying its implied class.
     /// That means the new object's prototype and shape are determined by `payload` automatically.
     #[inline(always)]
-    pub fn create_object(&self, payload: ObjectPayload) -> Result<ObjectRef, ObjectPayload> {
+    pub fn create_object(&self, payload: ObjectPayload) -> Result<Object, ObjectPayload> {
         self.create_object_with_proto(self.class_proto(payload.class_id()), payload)
     }
 
@@ -91,7 +91,7 @@ impl ContextImpl {
         &self,
         class_id: ClassID,
         opaque: *mut c_void,
-    ) -> Result<ObjectRef, ObjectPayload> {
+    ) -> Result<Object, ObjectPayload> {
         if class_id < USER_CLASS_ID_START {
             self.throw_internal_error("expect user defined native class id");
             Err(ObjectPayload::OTHER(OtherPayload::new(class_id, opaque)))
@@ -105,15 +105,15 @@ impl ContextImpl {
     #[inline(always)]
     pub fn create_base_object_with_proto(
         &self,
-        proto: Option<ObjectRef>,
-    ) -> Result<ObjectRef, i32> {
+        proto: Option<Object>,
+    ) -> Result<Object, i32> {
         self.create_object_with_proto(proto, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     }
 
     /// Create new basic object using default Object prototype
     #[inline(always)]
-    pub fn create_base_object(&self) -> Result<ObjectRef, i32> {
+    pub fn create_base_object(&self) -> Result<Object, i32> {
         self.create_object(ObjectPayload::OBJECT).map_err(|_| -1)
     }
 }

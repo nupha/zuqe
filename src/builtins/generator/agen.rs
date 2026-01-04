@@ -15,7 +15,7 @@ use crate::{
         AsyncFuncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind,
         NativeFunctionWithData,
     },
-    object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
+    object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, Object},
     object_cast,
     utils::unlikely,
     value::JSValue,
@@ -270,7 +270,7 @@ impl AGenPayload {
 
         let resolving_funcs = js_async_generator_resolve_function_create(
             &ctx,
-            JSValue::Object(ObjectRef(
+            JSValue::Object(Object(
                 self.generator
                     .borrow()
                     .upgrade(ctx.rt_ptr().gc_heap())
@@ -296,7 +296,7 @@ impl AGenPayload {
 
         let resolving_funcs = js_async_generator_resolve_function_create(
             &ctx,
-            JSValue::Object(ObjectRef(
+            JSValue::Object(Object(
                 self.generator
                     .borrow()
                     .upgrade(ctx.rt_ptr().gc_heap())
@@ -388,7 +388,7 @@ impl AsyncGeneratorFunction {
         Ok(obj.into())
     }
 
-    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
         debug_assert!(
             matches!(
                 class_id,

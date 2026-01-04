@@ -11,8 +11,8 @@ use crate::{
     eval::{EvalFlags, EvalType},
     function::{Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, JSVarRef},
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, ObjectImpl, ObjectPayload,
-        ObjectRef,
+        JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ObjectImpl,
+        ObjectPayload,
     },
     object_cast,
     runtime::js_check_stack_overflow,
@@ -97,7 +97,7 @@ pub struct BCFuncPayload {
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
     /// - for 'super' access
-    home_object: Option<ObjectRef>,
+    home_object: Option<Object>,
 }
 
 unsafe impl GcTracable for BCFuncPayload {
@@ -125,11 +125,11 @@ impl BCFuncPayload {
     }
 
     #[inline(always)]
-    pub const fn home_object(&self) -> Option<ObjectRef> {
+    pub const fn home_object(&self) -> Option<Object> {
         self.home_object
     }
 
-    pub(crate) const fn set_home_object(&mut self, obj: Option<ObjectRef>) {
+    pub(crate) const fn set_home_object(&mut self, obj: Option<Object>) {
         self.home_object = obj;
     }
 }
@@ -177,7 +177,7 @@ impl BCFunction {
         unsafe { self.0.as_mut().payload_mut().bc_function_mut().unwrap() }
     }
 
-    pub(crate) fn method_set_home_object(&mut self, home_obj: Option<ObjectRef>) {
+    pub(crate) fn method_set_home_object(&mut self, home_obj: Option<Object>) {
         let fo = self.payload_mut();
         if fo.bytecode().need_home_object() {
             fo.set_home_object(home_obj);
@@ -211,7 +211,7 @@ impl JSValue {
     }
 }
 
-/// TODO: change func_obj type to ObjectRef
+/// TODO: change func_obj type to Object
 pub(crate) fn JS_GetFunctionRealm(ctx: ContextPtr, func_obj: JSValue) -> Result<ContextPtr, i32> {
     if !func_obj.is_object() {
         return Ok(ctx);
@@ -278,12 +278,7 @@ pub fn get_func_name(func: JSValue) -> Option<String> {
 }
 
 /// define `length` and `name` properties on function object `func_obj`
-pub fn js_function_set_properties(
-    ctx: &ContextImpl,
-    mut func_obj: ObjectRef,
-    name: Atom,
-    len: i32,
-) {
+pub fn js_function_set_properties(ctx: &ContextImpl, mut func_obj: Object, name: Atom, len: i32) {
     let _ = func_obj.define_property_value(
         ctx,
         Atom::CONST_length,

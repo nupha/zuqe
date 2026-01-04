@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_BOUND_FUNCTION,
     context::Context,
     error::JSResult,
-    object::{ObjectImpl, ObjectPayload, ObjectRef},
+    object::{ObjectImpl, ObjectPayload, Object},
     object_cast,
     value::JSValue,
 };

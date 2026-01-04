@@ -9,7 +9,7 @@ use crate::{
     function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-        JS_PROP_THROW, ObjectPayload, ObjectRef, PropertyKey,
+        JS_PROP_THROW, ObjectPayload, Object, PropertyKey,
     },
     value::JSValue,
 };
@@ -26,7 +26,7 @@ pub enum JSIteratorKindEnum {
 
 #[derive(Debug)]
 pub struct ForInIterPayload {
-    pub(crate) obj: Option<ObjectRef>,
+    pub(crate) obj: Option<Object>,
     /// obj is an array?
     pub(crate) is_array: bool,
 
@@ -53,7 +53,7 @@ unsafe impl GcTracable for ForInIterPayload {
 impl ForInIterPayload {
     /// create new object with ForInIterPayload payload for given value.
     /// the new object is of CLASS_FOR_IN_ITERATOR class.
-    pub fn create(ctx: &ContextImpl, val: JSValue) -> Result<ObjectRef, i32> {
+    pub fn create(ctx: &ContextImpl, val: JSValue) -> Result<Object, i32> {
         let obj = match val {
             JSValue::Object(o) => Some(o),
             JSValue::NULL | JSValue::UNDEFINED => None,
@@ -102,7 +102,7 @@ impl ForInIterPayload {
     pub(crate) fn prepare_prototype_chain_enum(
         &mut self,
         ctx: &ContextImpl,
-        obj: ObjectRef,
+        obj: Object,
     ) -> Result<bool, i32> {
         // fast path: check if there are enumerable properties in shape proto chain
         let mut slow_path = false;
@@ -145,7 +145,7 @@ impl ForInIterPayload {
 
 #[derive(Clone)]
 pub struct ObjectIter<'a> {
-    pub(crate) target: ObjectRef,
+    pub(crate) target: Object,
     pub(crate) next_method: JSValue,
     pub(crate) ctx: ContextPtr,
     pub(crate) done: bool,
@@ -178,7 +178,7 @@ impl Drop for ObjectIter<'_> {
     }
 }
 
-impl<'a> From<ObjectIter<'a>> for ObjectRef {
+impl<'a> From<ObjectIter<'a>> for Object {
     fn from(mut value: ObjectIter) -> Self {
         value.done = true; // avoid close on drop
         value.target
@@ -194,7 +194,7 @@ impl<'a> From<ObjectIter<'a>> for JSValue {
 impl<'a> ObjectIter<'a> {
     /// `next` is the name of method used to fetch the __next__ value when iterating.
     /// this atom is not consumed.
-    pub fn new(ctx: &'a ContextImpl, target: ObjectRef, next: Atom) -> Result<Self, i32> {
+    pub fn new(ctx: &'a ContextImpl, target: Object, next: Atom) -> Result<Self, i32> {
         let next_method = if !next.is_null() {
             target.get_property(ctx, next)?
         } else {
@@ -213,7 +213,7 @@ impl<'a> ObjectIter<'a> {
     /// apply `method` on `obj` to evaluate next iterate value
     pub(super) fn do_apply_next_method(
         ctx: &ContextImpl,
-        obj: ObjectRef,
+        obj: Object,
         method: JSValue,
         args: &[JSValue],
     ) -> Result<(JSValue, IteratorState), i32> {
@@ -248,7 +248,7 @@ impl<'a> ObjectIter<'a> {
     /// returns: (next_value, is_done)
     pub(crate) fn fetch_next(
         ctx: &ContextImpl,
-        obj: ObjectRef,
+        obj: Object,
         method: JSValue,
         args: &[JSValue],
     ) -> Result<(JSValue, bool), i32> {
@@ -277,7 +277,7 @@ impl<'a> ObjectIter<'a> {
     /// pre-close before iterate is done, calling `return` method if available.
     pub(crate) fn do_close(
         ctx: &ContextImpl,
-        obj: ObjectRef,
+        obj: Object,
         has_exception: bool,
     ) -> Result<(), i32> {
         let pending_exc = if has_exception {
@@ -335,10 +335,10 @@ impl JSValue {
         &self,
         ctx: &ContextImpl,
         is_async: bool,
-    ) -> Result<Option<ObjectRef>, i32> {
+    ) -> Result<Option<Object>, i32> {
         if is_async {
             if let Some(it) = self.invoke_defined(ctx, Atom::CONST_Symbol_asyncIterator, &[])? {
-                ObjectRef::try_from(it?)
+                Object::try_from(it?)
                     .inspect_err(|_| {
                         ctx.throw_type_error_not_an_object();
                     })
@@ -347,7 +347,7 @@ impl JSValue {
                 // method [Symbol.asyncIterator] is not defined:
                 // get [Symbol.iterator], then wrap it into AsyncFromSyncIterator object.
                 if let Some(r) = self.invoke_callable(ctx, Atom::CONST_Symbol_iterator, &[])? {
-                    let it = ObjectRef::try_from(r?).inspect_err(|_| {
+                    let it = Object::try_from(r?).inspect_err(|_| {
                         ctx.throw_type_error_not_an_object();
                     })?;
                     let next_method = it.get_property(ctx, Atom::CONST_next)?;
@@ -365,7 +365,7 @@ impl JSValue {
                 }
             }
         } else if let Some(r) = self.invoke_callable(ctx, Atom::CONST_Symbol_iterator, &[])? {
-            ObjectRef::try_from(r?)
+            Object::try_from(r?)
                 .inspect_err(|_| {
                     ctx.throw_type_error_not_an_object();
                 })
@@ -376,7 +376,7 @@ impl JSValue {
     }
 
     /// Same as [get_iterator()], but will raise 'not iterable' error if get_iterator() returns None.
-    pub fn get_iterator_must(&self, ctx: &ContextImpl, is_async: bool) -> Result<ObjectRef, i32> {
+    pub fn get_iterator_must(&self, ctx: &ContextImpl, is_async: bool) -> Result<Object, i32> {
         self.get_iterator(ctx, is_async)?.ok_or_else(|| {
             ctx.throw_type_error("value is not iterable");
             -1

@@ -8,7 +8,7 @@ use hashlist::PrimitiveCompactHashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimePtr};
 
-use super::super::{obj::ObjectRef, property::JS_PROP_LENGTH};
+use super::super::{obj::Object, property::JS_PROP_LENGTH};
 
 #[derive(Debug)]
 pub struct ShapeImpl {
@@ -25,7 +25,7 @@ pub struct ShapeImpl {
     /// cached shape hash value
     pub hash: u32,
 
-    pub(crate) proto: Option<ObjectRef>,
+    pub(crate) proto: Option<Object>,
 
     /// shape properties
     pub(crate) prop_defs: PrimitiveCompactHashList<ShapeProperty>,
@@ -51,7 +51,7 @@ impl ShapeImpl {
     /// create a new empty shape with prototype 'proto' and given capacity.
     fn new(
         ctx: &ContextImpl,
-        proto: Option<ObjectRef>,
+        proto: Option<Object>,
         props: PrimitiveCompactHashList<ShapeProperty>,
     ) -> Result<Self, i32> {
         //calc shape hash
@@ -98,7 +98,7 @@ impl ShapeImpl {
 
     /// get shape proto
     #[inline(always)]
-    pub const fn proto(&self) -> Option<ObjectRef> {
+    pub const fn proto(&self) -> Option<Object> {
         self.proto
     }
 
@@ -237,7 +237,7 @@ impl ShapeHandle {
     /// The new shape is not registered.
     pub(crate) fn new_internal(
         ctx: &ContextImpl,
-        proto: Option<ObjectRef>,
+        proto: Option<Object>,
         prop_defs: PrimitiveCompactHashList<ShapeProperty>,
     ) -> Result<Self, i32> {
         let mut rt = ctx.rt_ptr();
@@ -254,7 +254,7 @@ impl ShapeHandle {
     /// create a shape with prototype 'proto' and property capacity.
     /// new shape is not registered,
     /// new shape is added to GC, new shape is registered.
-    pub fn new(ctx: &ContextImpl, proto: Option<ObjectRef>, prop_cap: i32) -> Result<Self, i32> {
+    pub fn new(ctx: &ContextImpl, proto: Option<Object>, prop_cap: i32) -> Result<Self, i32> {
         let mut prop_defs = PrimitiveCompactHashList::<ShapeProperty>::new();
         prop_defs.try_reserve_exact(prop_cap as _).map_err(|_| {
             ctx.throw_out_of_memory();

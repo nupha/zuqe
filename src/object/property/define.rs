@@ -5,8 +5,8 @@ use crate::{
     context::ContextImpl,
     number::IntOrFloat,
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSProperty,
-        ObjectRef, PropertyKey,
+        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSProperty, Object,
+        PropertyKey,
     },
     utils::unlikely,
     value::JSValue,
@@ -19,7 +19,7 @@ use super::{
     JSPropertyDescriptor, check_define_prop_flags, get_prop_flags,
 };
 
-impl ObjectRef {
+impl Object {
     /* allowed flags:
        JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JS_PROP_ENUMERABLE
        JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
@@ -28,7 +28,6 @@ impl ObjectRef {
        If JS_PROP_THROW is set, return an exception instead of FALSE.
        if JS_PROP_NO_EXOTIC is set, do not call the exotic define_own_property callback.
     */
-    /// Note: `prop` is not consumed.
     pub(crate) fn define_property(
         &mut self,
         ctx: &ContextImpl,

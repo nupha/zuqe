@@ -8,7 +8,7 @@ use crate::{
     function::{BCFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, JSVarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
-    object::{JS_PROP_C_W_E, ObjectPayload, ObjectRef},
+    object::{JS_PROP_C_W_E, ObjectPayload, Object},
     runtime::{RuntimeImpl, RuntimePtr},
     stack_frame::StackFrameParentIter,
     value::JSValue,
@@ -42,7 +42,7 @@ pub struct ModuleDefImpl {
     pub(crate) star_export_entries: Vec<u16>,
 
     /// module namespace.
-    pub(super) module_ns: Option<ObjectRef>,
+    pub(super) module_ns: Option<Object>,
 
     /// for js module, when func_created is:
     /// - true: bytecode field is a function object value
@@ -80,7 +80,7 @@ pub struct ModuleDefImpl {
     pub resolving_funcs: [JSValue; 2], /* corresponds to spec field: capability */
     pub eval_exception: Option<JSValue>,
     /// the `import.meta` object of module
-    pub meta_obj: Option<ObjectRef>,
+    pub meta_obj: Option<Object>,
 }
 
 unsafe impl GcTracable for ModuleDefImpl {
@@ -200,7 +200,7 @@ impl ModuleDefImpl {
     }
 
     /// get module `import.meta` object.
-    pub fn import_meta(&mut self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
+    pub fn import_meta(&mut self, ctx: &ContextImpl) -> Result<Object, i32> {
         if let Some(o) = self.meta_obj {
             Ok(o)
         } else {
@@ -459,7 +459,7 @@ pub(crate) fn add_module_variables(ctx: &ContextImpl, fd: &mut FunctionDef) -> i
 }
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
-fn js_module_ns_has(_: ContextPtr, obj: ObjectRef, prop: Atom) -> Result<bool, i32> {
+fn js_module_ns_has(_: ContextPtr, obj: Object, prop: Atom) -> Result<bool, i32> {
     Ok(obj.has_shape_property(prop))
 }
 
@@ -510,7 +510,7 @@ pub(super) fn get_script_or_module_name(ctx: &ContextImpl, n_stack_levels: usize
 }
 
 /// get module import.meta object of context current execution.
-pub fn js_import_meta(ctx: &ContextImpl) -> Result<ObjectRef, i32> {
+pub fn js_import_meta(ctx: &ContextImpl) -> Result<Object, i32> {
     if let Some(filename) = get_script_or_module_name(ctx, 0) {
         // XXX: inefficient, need to add a module or script pointer in Bytecode
         if let Some(mut m) = ctx.find_loaded_module(filename) {

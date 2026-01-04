@@ -2,14 +2,14 @@ use crate::{
     atom::{Atom, AtomKind},
     context::ContextImpl,
     error::{JS_ThrowTypeErrorPrivateNotFound, JSResult},
-    object::{JSProperty, ObjectRef},
+    object::{JSProperty, Object},
     utils::unlikely,
     value::JSValue,
 };
 
 use super::JS_PROP_C_W_E;
 
-impl ObjectRef {
+impl Object {
     /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
     pub fn check_brand(&self, ctx: &ContextImpl, func: JSValue) -> Result<bool, i32> {
         if let Some(home_obj) = func

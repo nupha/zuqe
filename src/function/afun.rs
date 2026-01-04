@@ -7,7 +7,7 @@ use crate::{
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::{AsyncFuncState, BCFunction, BytecodeFunction, Callback, FunctionKind},
-    object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
+    object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, Object},
     object_cast,
     value::JSValue,
 };
@@ -22,7 +22,7 @@ pub struct AsyncFunction(pub(crate) GcRef<ObjectImpl>);
 object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
-    pub fn class_initialize(ctx: Context, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
         proto.install_field_defs(&ctx, &js_async_function_proto_funcs)?;
 
@@ -78,7 +78,7 @@ impl BCFunction {
     }
 }
 
-impl ObjectRef {
+impl Object {
     /// if object is a bytecode function, call it in async manner
     pub fn call_async(
         &self,

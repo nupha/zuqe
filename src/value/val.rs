@@ -4,7 +4,7 @@ use crate::{
     function::Bytecode,
     module::ModuleDef,
     number::JSFloat64Union,
-    object::ObjectRef,
+    object::Object,
     string::StringRef,
     utils::{hash_usize, unlikely},
 };
@@ -109,7 +109,7 @@ pub enum JSValue {
     String(StringRef),
     Symbol(Atom),
     Module(ModuleDef),
-    Object(ObjectRef),
+    Object(Object),
     Bytecode(Bytecode),
 }
 

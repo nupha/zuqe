@@ -58,7 +58,7 @@ macro_rules! gcref_wrapper {
 macro_rules! object_cast {
     ($ty:ident, $($class_id:tt)|+) => {
         impl std::ops::Deref for $ty  {
-            type Target = ObjectRef;
+            type Target = Object;
 
             #[inline(always)]
             fn deref(&self) -> &Self::Target {
@@ -73,10 +73,10 @@ macro_rules! object_cast {
             }
         }
 
-        impl TryFrom<ObjectRef> for $ty {
+        impl TryFrom<Object> for $ty {
             type Error = i32;
 
-            fn try_from(obj: ObjectRef) -> Result<Self, Self::Error> {
+            fn try_from(obj: Object) -> Result<Self, Self::Error> {
                 if matches!(obj.class_id(), $($class_id)|+) {
                     Ok(Self(obj.0))
                 } else {
@@ -97,10 +97,10 @@ macro_rules! object_cast {
             }
         }
 
-        impl From<$ty> for ObjectRef {
+        impl From<$ty> for Object {
             #[inline(always)]
             fn from(value: $ty ) -> Self {
-                ObjectRef(value.0)
+                Object(value.0)
             }
         }
 
@@ -111,7 +111,7 @@ macro_rules! object_cast {
             }
         }
 
-        impl ObjectRef {
+        impl Object {
             paste::paste! {
                 #[inline]
                 pub fn [<as_ $ty>](&self) -> Option<&$ty>{
@@ -147,13 +147,13 @@ macro_rules! object_cast {
                 #[inline(always)]
                 pub unsafe fn [<to_ $ty _unchecked>](self) -> $ty {
                     debug_assert!(matches!(self.class_id(), $($class_id)|+));
-                    unsafe { std::mem::transmute::<ObjectRef, $ty>(self) }
+                    unsafe { std::mem::transmute::<Object, $ty>(self) }
                 }
 
                 #[inline]
                 pub fn [<to_ $ty>](self) -> Option<$ty>{
                     if matches!(self.class_id(), $($class_id)|+) {
-                        Some(unsafe { std::mem::transmute::<ObjectRef, $ty>(self) })
+                        Some(unsafe { std::mem::transmute::<Object, $ty>(self) })
                     } else {
                         None
                     }

@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_WEAKSET,
     class::ClassID,
     context::{Context, ContextImpl},
-    object::{ObjectImpl, ObjectPayload, ObjectRef},
+    object::{ObjectImpl, ObjectPayload, Object},
     object_cast,
     utils::hash_usize,
     value::JSValue,
@@ -139,7 +139,7 @@ impl JSMapState {
                         unreachable!()
                     };
                     k.upgrade(ctx.rt_ptr().gc_heap()).and_then(|k| {
-                        if ObjectRef(k) == o {
+                        if Object(k) == o {
                             *v = value;
                             Some(*i)
                         } else {
@@ -199,7 +199,7 @@ impl JSMapState {
                 Some(MapPair::Weak { key: k, value }) => {
                     if let Some(o) = key.as_object() {
                         k.upgrade(o.rt().gc_heap()).and_then(|k| {
-                            if ObjectRef(k) == *o {
+                            if Object(k) == *o {
                                 Some(*value)
                             } else {
                                 None
@@ -242,7 +242,7 @@ impl JSMapState {
                 }
                 Some(MapPair::Weak { key: k, .. }) => {
                     if let Some(k) = k.upgrade(ctx.rt_ptr().gc_heap()) {
-                        if ObjectRef(k) == unsafe { *key.as_object_unchecked() } {
+                        if Object(k) == unsafe { *key.as_object_unchecked() } {
                             self.slots[*i] = MapPair::Removed;
                             self.remove_count += 1;
                             false
@@ -288,7 +288,7 @@ impl JSMapState {
                 Some(MapPair::Weak { key, .. }) => {
                     if key
                         .upgrade(obj.rt().gc_heap())
-                        .is_some_and(|k| ObjectRef(k).id() != obj.id())
+                        .is_some_and(|k| Object(k).id() != obj.id())
                     {
                         self.slots[*i] = MapPair::Removed;
                         false
@@ -346,7 +346,7 @@ object_cast!(
 );
 
 impl MapSet {
-    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
         let iter_proto = ctx.iterator_proto()?;
 
         match class_id {
@@ -418,7 +418,7 @@ impl MapSet {
 }
 
 impl ContextImpl {
-    pub fn create_map_with_entries(&self, entries: JSMapState) -> Result<ObjectRef, i32> {
+    pub fn create_map_with_entries(&self, entries: JSMapState) -> Result<Object, i32> {
         self.create_object(ObjectPayload::MAP(Box::new(entries)))
             .map_err(|_| -1)
     }

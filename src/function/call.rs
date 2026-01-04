@@ -9,7 +9,7 @@ use crate::{
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::build_arg_list,
-    object::{ObjectPayload, ObjectRef},
+    object::{ObjectPayload, Object},
     value::JSValue,
 };
 
@@ -150,7 +150,7 @@ pub const JS_CALL_FLAG_CONSTRUCTOR: i32 = 1 << 0;
 pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
-impl ObjectRef {
+impl Object {
     /// call `self` object. if object is not callable, returns not function error.
     #[inline(always)]
     pub fn call(&self, ctx: &ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
