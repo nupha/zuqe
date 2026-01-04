@@ -35,12 +35,10 @@ pub struct StackFrame {
     /// Pointer to previous stack frame (NULL for first frame)
     pub(crate) prev: *mut Pin<Self>,
 
-    /// Currently executing function.
-    ///
-    /// The value could be:
-    /// - BCFunction object
-    /// - native function object
-    /// - undefined, which means stack frame is detached (cleared)
+    /// Currently executing function, could be:
+    /// - Bytecode Function object
+    /// - Native function object
+    /// - undefined, which means stack frame is detached
     ///
     /// TODO: use Option<ObjectRef> type?
     pub(crate) cur_func: JSValue,

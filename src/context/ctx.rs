@@ -182,6 +182,14 @@ impl ContextImpl {
         &mut self.rt
     }
 
+    /// get current function
+    pub(crate) fn current_function(&self) -> JSValue {
+        self.rt
+            .current_stack_frame()
+            .map(|s| s.cur_func)
+            .unwrap_or(JSValue::UNDEFINED)
+    }
+
     /// get global object
     #[inline]
     pub fn global_obj(&self) -> ObjectRef {
@@ -404,11 +412,6 @@ impl ContextPtr {
     pub fn downgrade(&self) -> GcWeak<ContextImpl> {
         self.0.downgrade(self.rt_ptr().gc_heap_mut())
     }
-}
-
-/* only valid inside C functions */
-pub(crate) fn JS_GetActiveFunction(ctx: &ContextImpl) -> JSValue {
-    ctx.rt_ptr().current_stack_frame().unwrap().cur_func
 }
 
 impl RuntimeImpl {

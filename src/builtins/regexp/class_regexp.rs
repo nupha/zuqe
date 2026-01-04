@@ -5,7 +5,7 @@ use crate::{
     JS_CLASS_REGEXP,
     atom::Atom,
     builtins::js_get_this,
-    context::{ContextImpl, ContextPtr, JS_GetActiveFunction},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, Callback, FieldDef, JS_CallConstructor, js_function_apply},
     object::{
@@ -58,10 +58,9 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
 
     if cc.this().is_undefined() {
         // called as a function
-        let new_target_tmp = JS_GetActiveFunction(ctx);
         if pat_is_regexp && flags1.is_undefined() {
             let ctor = pat.get_property(ctx, Atom::CONST_constructor)?;
-            if ctor.is_same(new_target_tmp) {
+            if ctor.is_same(ctx.current_function()) {
                 return Ok(pat);
             }
         }

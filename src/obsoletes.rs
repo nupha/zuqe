@@ -5385,3 +5385,8 @@ pub fn JS_ParseJSON(ctx: &ContextImpl, source: &[u8], filename: &str, flags: i32
 pub(super) fn JS_RegExpExec2(ctx_p: ContextPtr, re: JSValue, str: StringRef) -> JSResult {
     unreachable!()
 }
+
+#[deprecated(note = "use ContextImpl::current_function() instead")]
+pub(crate) fn JS_GetActiveFunction(ctx: &ContextImpl) -> JSValue {
+    ctx.rt_ptr().current_stack_frame().unwrap().cur_func
+}

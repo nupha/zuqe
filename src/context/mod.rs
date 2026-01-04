@@ -6,4 +6,4 @@ mod intrinsic;
 
 pub use {builder::*, ctx::Context};
 
-pub(crate) use ctx::{ContextImpl, ContextPtr, JS_GetActiveFunction};
+pub(crate) use ctx::{ContextImpl, ContextPtr};

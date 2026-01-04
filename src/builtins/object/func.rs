@@ -5,7 +5,6 @@ use crate::{
         iterator::JSIteratorKindEnum,
         mapset::{js_map_constructor, js_map_get, js_map_set},
     },
-    context::JS_GetActiveFunction,
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
@@ -21,7 +20,7 @@ pub(crate) fn js_object_constructor(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
     let new_target = *cc.this();
 
-    if !new_target.is_undefined() && JS_GetActiveFunction(ctx) != new_target {
+    if !new_target.is_undefined() && ctx.current_function() != new_target {
         ctx.create_object_from_ctor(new_target, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     } else {

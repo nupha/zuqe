@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ERROR,
     atom::Atom,
     builtins::iterator::iterator_to_array,
-    context::{ContextImpl, ContextPtr, JS_GetActiveFunction},
+    context::{ContextImpl, ContextPtr},
     error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
     function::{CallContext, JS_GetFunctionRealm},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload, ObjectRef},
@@ -11,10 +11,9 @@ use crate::{
 
 pub fn js_error_constructor(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
-
     let mut new_target = *cc.this();
     if new_target.is_undefined() {
-        new_target = JS_GetActiveFunction(ctx);
+        new_target = ctx.current_function();
     }
 
     // use proper proto, ensure proto is an object
