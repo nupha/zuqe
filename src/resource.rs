@@ -4,7 +4,7 @@ use std::{
     thread::AccessError,
 };
 
-use gc_lite::{GcError, GcHeap, GcRef, GcTracable, PartitionId};
+use gc_lite::{GcError, GcHeap, GcPartitionId, GcRef, GcTracable};
 use once_cell::unsync::Lazy;
 
 use crate::{atom::AtomRegistry, runtime::RuntimeImpl};
@@ -24,7 +24,7 @@ pub(crate) struct LocalResource {
     /// gc heap
     pub(crate) gc_heap: RefCell<GcHeap>,
     /// gc default parition
-    pub(crate) gc_default_partition: PartitionId,
+    pub(crate) gc_default_partition: GcPartitionId,
 }
 
 impl Drop for LocalResource {
@@ -53,7 +53,7 @@ impl LocalResource {
 
     /// alloc a gc object to partition. Partion None means use default partition
     pub(crate) fn gc_alloc<T: GcTracable>(
-        part_id: Option<PartitionId>,
+        part_id: Option<GcPartitionId>,
         obj: T,
     ) -> Result<GcRef<T>, (GcError, T)> {
         LOCAL_RESOURCE.with(|rcs| {

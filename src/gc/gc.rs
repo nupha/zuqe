@@ -1,10 +1,10 @@
-use gc_lite::{GcError, GcHeap, GcPartition, GcRef, GcTracable, GcTracer, PartitionId};
+use gc_lite::{GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTracer};
 
 use crate::{object::ShapeImpl, runtime::RuntimeImpl, value::JSValue};
 
 impl RuntimeImpl {
     #[inline(always)]
-    pub(crate) const fn gc_part(&self) -> PartitionId {
+    pub(crate) const fn gc_part(&self) -> GcPartitionId {
         self.gc_part
     }
 
@@ -24,8 +24,7 @@ impl RuntimeImpl {
 
     #[inline(always)]
     pub fn gc_info(&self) -> &GcPartition {
-        let part = self.gc_part;
-        self.gc_heap.get_partition(part).unwrap()
+        self.gc_heap.partition(self.gc_part).unwrap()
     }
 
     /// alloc data in gc

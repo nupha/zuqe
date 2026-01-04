@@ -1,6 +1,6 @@
 use std::{ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHeap, GcTracer, PartitionId};
+use gc_lite::{GcHeap, GcPartitionId, GcTracer};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
@@ -75,7 +75,7 @@ pub struct RuntimeImpl {
     /// gc heap
     pub(crate) gc_heap: GcHeap,
     /// gc partion id
-    pub(crate) gc_part: PartitionId,
+    pub(crate) gc_part: GcPartitionId,
     pub(crate) gc_threshold: usize,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
