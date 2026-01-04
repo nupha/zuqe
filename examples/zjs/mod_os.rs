@@ -232,7 +232,8 @@ fn js_os_poll(ctx: Context) -> bool {
                         }
                     }
                 } else if ret == -1 {
-                    let eno = *libc::__error();
+                    let eno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+                    // let eno = *libc::__error();
                     if eno == libc::EINTR {
                         // interrupt
                         return false;
@@ -357,7 +358,7 @@ fn js_os_read_write(cc: CallContext) -> JSResult {
     };
 
     let ret = if r == -1 {
-        unsafe { -*libc::__error() as isize }
+        -std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as isize
     } else {
         r
     };
