@@ -38,41 +38,44 @@ fn js_print(cc: CallContext) -> JSResult {
 }
 
 pub fn setup_globals(ctx: Context) -> Result<(), i32> {
-    let mut global: JSValue = ctx.global_obj().into();
+    let mut global = ctx.global_obj();
     let ctx = &ctx;
 
-    let printf = Callback::Func(js_print);
-
-    let f = ctx.create_native_function(
-        Callback::Func(|cc: CallContext| {
-            let ctx1 = cc.context().rt_mut().create_context_ecma()?;
-            let global = JSValue::Object(ctx1.global_obj());
-            Ok(global)
-        }),
+    global.set_property_str(
+        ctx,
         "createRealm",
-        1,
-        0,
+        ctx.create_native_function(
+            Callback::Func(|cc: CallContext| {
+                let ctx1 = cc.context().rt_mut().create_context_ecma()?;
+                let glo = JSValue::Object(ctx1.global_obj());
+                Ok(glo)
+            }),
+            "createRealm",
+            1,
+            0,
+        )?
+        .into(),
     )?;
 
-    global.set_property_str(ctx, "createRealm", f.into())?;
-
-    let mut console = ctx.create_base_object().unwrap();
-    console.define_property_value_str(
-        ctx,
-        "log",
-        ctx.create_native_function(printf, "print", 0, 0)
+    {
+        let printfn: JSValue = ctx
+            .create_native_function(Callback::Func(js_print), "print", 0, 0)
             .unwrap()
-            .into(),
-        JS_PROP_C_W_E,
-    )?;
-    console.define_property_value_str(
-        ctx,
-        "inspect",
-        ctx.create_native_function(printf, "inspect", 0, 100)?
-            .into(),
-        JS_PROP_C_W_E,
-    )?;
-    global.define_property_value_str(ctx, "console", console.into(), JS_PROP_C_W_E)?;
+            .into();
+
+        global.set_property_str(ctx, "print", printfn)?;
+
+        let mut console = ctx.create_base_object().unwrap();
+        console.define_property_value_str(ctx, "log", printfn, JS_PROP_C_W_E)?;
+        console.define_property_value_str(
+            ctx,
+            "inspect",
+            ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 100)?
+                .into(),
+            JS_PROP_C_W_E,
+        )?;
+        global.define_property_value_str(ctx, "console", console.into(), JS_PROP_C_W_E)?;
+    }
 
     // detachArrayBuffer
     global
@@ -94,13 +97,15 @@ pub fn setup_globals(ctx: Context) -> Result<(), i32> {
         )
         .unwrap();
 
-    let mut args = Vec::<JSValue>::with_capacity(std::env::args().count());
-    for a in std::env::args().skip(1) {
-        let s = ctx.create_string_from_utf8(a.into_bytes())?;
-        args.push(s.into());
+    {
+        let mut args = Vec::<JSValue>::with_capacity(std::env::args().count());
+        for a in std::env::args().skip(1) {
+            let s = ctx.create_string_from_utf8(a.into_bytes())?;
+            args.push(s.into());
+        }
+        let arr = ctx.create_array_with_values(args)?;
+        global.set_property_str(ctx, "scriptArgs", arr.into())?;
     }
-    let arr = ctx.create_array_with_values(args)?;
-    global.set_property_str(ctx, "scriptArgs", arr.into())?;
 
     Ok(())
 }
