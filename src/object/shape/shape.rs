@@ -4,7 +4,7 @@ use std::{
 };
 
 use gc_lite::{GcRef, GcTracable};
-use hashlist::PrimitiveCompactHashList;
+use hash_link::PrimitiveHashLink;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimePtr};
 
@@ -28,14 +28,14 @@ pub struct ShapeImpl {
     pub(crate) proto: Option<Object>,
 
     /// shape properties
-    pub(crate) prop_defs: PrimitiveCompactHashList<ShapeProperty>,
+    pub(crate) prop_defs: PrimitiveHashLink<ShapeProperty>,
 }
 
 unsafe impl GcTracable for ShapeImpl {
     #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.proto.trace(tracer);
-        self.prop_defs.iter().for_each(|x| x.trace(tracer));
+        self.prop_defs.iter().for_each(|(_, p)| p.trace(tracer));
     }
 }
 
@@ -52,11 +52,11 @@ impl ShapeImpl {
     fn new(
         ctx: &ContextImpl,
         proto: Option<Object>,
-        props: PrimitiveCompactHashList<ShapeProperty>,
+        props: PrimitiveHashLink<ShapeProperty>,
     ) -> Result<Self, i32> {
         //calc shape hash
         let mut hash = shape_initial_hash(proto.map_or(0, |p| p.id()));
-        for prs in props.iter() {
+        for (_, prs) in props.iter() {
             hash = shape_hasher_u32(shape_hasher_u32(hash, prs.atom.id()), prs.flags());
         }
 
@@ -111,7 +111,7 @@ impl ShapeImpl {
     /// fully re-calculate and update shape hash
     pub(super) fn full_rehash(&mut self) -> u32 {
         let mut hash = shape_initial_hash(self.proto.as_ref().map_or(0, |p| p.id()));
-        for prs in self.prop_defs.iter() {
+        for (_, prs) in self.prop_defs.iter() {
             hash = shape_hasher_u32(shape_hasher_u32(hash, prs.atom.id()), prs.flags());
         }
         self.hash = hash;
@@ -153,14 +153,14 @@ impl ShapeImpl {
     /// The new shape is not registered.
     pub(crate) fn dup(&self, ctx: &ContextImpl) -> Result<ShapeHandle, i32> {
         // clone properties
-        let mut props = PrimitiveCompactHashList::<ShapeProperty>::new();
+        let mut props = PrimitiveHashLink::<ShapeProperty>::new();
         props
             .try_reserve_exact(self.prop_defs.count())
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
-        for prs in self.prop_defs.iter() {
+        for (_, prs) in self.prop_defs.iter() {
             props.push(*prs);
         }
 
@@ -238,7 +238,7 @@ impl ShapeHandle {
     pub(crate) fn new_internal(
         ctx: &ContextImpl,
         proto: Option<Object>,
-        prop_defs: PrimitiveCompactHashList<ShapeProperty>,
+        prop_defs: PrimitiveHashLink<ShapeProperty>,
     ) -> Result<Self, i32> {
         let mut rt = ctx.rt_ptr();
         let sh = rt
@@ -255,7 +255,7 @@ impl ShapeHandle {
     /// new shape is not registered,
     /// new shape is added to GC, new shape is registered.
     pub fn new(ctx: &ContextImpl, proto: Option<Object>, prop_cap: i32) -> Result<Self, i32> {
-        let mut prop_defs = PrimitiveCompactHashList::<ShapeProperty>::new();
+        let mut prop_defs = PrimitiveHashLink::<ShapeProperty>::new();
         prop_defs.try_reserve_exact(prop_cap as _).map_err(|_| {
             ctx.throw_out_of_memory();
             -1

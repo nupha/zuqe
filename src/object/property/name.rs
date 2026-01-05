@@ -88,7 +88,7 @@ impl Object {
         let sh = self.shape().unwrap();
 
         // 1. shape props
-        for (idx, prs) in sh.prop_defs.iter_with_index() {
+        for (idx, prs) in sh.prop_defs.iter() {
             if !prs.atom.is_null() {
                 let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
                 let kind = prs.atom.kind();

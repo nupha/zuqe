@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (c) 2025 John Ray <996351336@qq.com>
+// Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
@@ -36,9 +36,7 @@ pub use {
     eval::{EvalFlags, EvalType},
     function::{CallContext, Callback, FieldDef},
     module::ModuleDef,
-    object::{
-        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, Object,
-    },
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, Object},
     runtime::{Runtime, RuntimeImpl},
     value::JSValue,
 };

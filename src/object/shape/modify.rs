@@ -142,7 +142,7 @@ impl ObjectImpl {
             .shape()
             .unwrap()
             .prop_defs
-            .get_index(index)
+            .get(index)
             .map(|p| p.flags())
             .unwrap();
         let new_flags = flags_fn(cur_flags);

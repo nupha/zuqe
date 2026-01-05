@@ -72,7 +72,7 @@ impl Object {
             print!("{{ ");
 
             let mut is_first: bool = true;
-            for (idx, prs) in sh.prop_defs.iter().enumerate() {
+            for (idx, prs) in sh.prop_defs.iter() {
                 if !is_first {
                     print!(", ");
                 };

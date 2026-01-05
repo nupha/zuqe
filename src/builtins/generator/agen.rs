@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
 use gc_lite::{GcRef, GcTracable, GcWeak};
 
@@ -15,7 +15,7 @@ use crate::{
         AsyncFuncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind,
         NativeFunctionWithData,
     },
-    object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, Object},
+    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     utils::unlikely,
     value::JSValue,

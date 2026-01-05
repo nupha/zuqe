@@ -9,7 +9,7 @@ use crate::{
     function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-        JS_PROP_THROW, ObjectPayload, Object, PropertyKey,
+        JS_PROP_THROW, Object, ObjectPayload, PropertyKey,
     },
     value::JSValue,
 };
@@ -76,7 +76,7 @@ impl ForInIterPayload {
                     .unwrap()
                     .prop_defs
                     .iter()
-                    .any(|prs| prs.flags() & JS_PROP_ENUMERABLE != 0)
+                    .any(|(_, prs)| prs.flags() & JS_PROP_ENUMERABLE != 0)
                 {
                     // no enumerable property, is fast array.
                     // we only store the number of elements
@@ -275,11 +275,7 @@ impl<'a> ObjectIter<'a> {
     }
 
     /// pre-close before iterate is done, calling `return` method if available.
-    pub(crate) fn do_close(
-        ctx: &ContextImpl,
-        obj: Object,
-        has_exception: bool,
-    ) -> Result<(), i32> {
+    pub(crate) fn do_close(ctx: &ContextImpl, obj: Object, has_exception: bool) -> Result<(), i32> {
         let pending_exc = if has_exception {
             ctx.rt_ptr().take_exception()
         } else {
@@ -331,11 +327,7 @@ impl JSValue {
     ///
     /// - If neither `[Symbol.iterator]` nor `[Symbol.asyncIterator]` are defined,
     ///   returns None indicating that `self` is not iterable.
-    pub fn get_iterator(
-        &self,
-        ctx: &ContextImpl,
-        is_async: bool,
-    ) -> Result<Option<Object>, i32> {
+    pub fn get_iterator(&self, ctx: &ContextImpl, is_async: bool) -> Result<Option<Object>, i32> {
         if is_async {
             if let Some(it) = self.invoke_defined(ctx, Atom::CONST_Symbol_asyncIterator, &[])? {
                 Object::try_from(it?)

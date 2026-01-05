@@ -9,7 +9,7 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH,
-        JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, ObjectImpl, ObjectPayload, Object,
+        JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Object, ObjectImpl, ObjectPayload,
         PropertyKeyKind,
     },
     object_cast,
@@ -139,7 +139,7 @@ impl Array {
                     // faster to iterate thru all the properties.
                     // Need two passes in case one of the property is not  configurable
                     cur_len = length;
-                    for prs in sh.prop_defs.iter() {
+                    for (_, prs) in sh.prop_defs.iter() {
                         if let Some(i) = prs.atom.to_array_index()
                             && i >= cur_len
                             && (prs.flags() & JS_PROP_CONFIGURABLE == 0)
@@ -150,7 +150,7 @@ impl Array {
 
                     // Hint: to avoid index conflict, remove from tail to head
                     for i in (0..propdef_len).rev() {
-                        if let Some(prop) = sh.prop_defs.get_index(i as usize).map(|p| p.atom) {
+                        if let Some(prop) = sh.prop_defs.get(i as usize).map(|p| p.atom) {
                             // non-deleted prop
                             if let Some(idx) = prop.to_array_index()
                                 && idx >= cur_len
