@@ -154,12 +154,10 @@ impl ShapeImpl {
     pub(crate) fn dup(&self, ctx: &ContextImpl) -> Result<ShapeHandle, i32> {
         // clone properties
         let mut props = PrimitiveHashLink::<ShapeProperty>::new();
-        props
-            .try_reserve_exact(self.prop_defs.count())
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+        props.try_reserve(self.prop_defs.count()).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
         for (_, prs) in self.prop_defs.iter() {
             props.push(*prs);
         }
@@ -256,7 +254,7 @@ impl ShapeHandle {
     /// new shape is added to GC, new shape is registered.
     pub fn new(ctx: &ContextImpl, proto: Option<Object>, prop_cap: i32) -> Result<Self, i32> {
         let mut prop_defs = PrimitiveHashLink::<ShapeProperty>::new();
-        prop_defs.try_reserve_exact(prop_cap as _).map_err(|_| {
+        prop_defs.try_reserve(prop_cap as _).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;

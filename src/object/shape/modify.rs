@@ -67,7 +67,7 @@ impl ObjectImpl {
             let mut target = if use_count != 1 {
                 // current shape is shared, dup to new without register.
                 let mut sh2 = self.shape().unwrap().dup(ctx)?;
-                sh2.prop_defs.try_reserve_exact(1).map_err(|_| {
+                sh2.prop_defs.try_reserve(1).map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
@@ -75,7 +75,7 @@ impl ObjectImpl {
             } else {
                 // current shape is exclusive, use it.
                 let mut sh = self.take_shape().unwrap();
-                if sh.prop_defs.try_reserve_exact(1).is_err() {
+                if sh.prop_defs.try_reserve(1).is_err() {
                     self.set_shape(sh); // restore back
                     ctx.throw_out_of_memory();
                     return Err(-1);
