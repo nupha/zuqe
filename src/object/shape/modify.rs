@@ -117,11 +117,7 @@ impl ObjectImpl {
 
         if prs_flag != new_flags {
             self.modify_shape(ctx, |sh| {
-                sh.prop_defs
-                    .get_index_mut(idx)
-                    .unwrap()
-                    .set_flags(new_flags);
-
+                sh.prop_defs.get_mut(idx).unwrap().set_flags(new_flags);
                 sh.full_rehash();
             })?;
             Ok(true)
@@ -149,11 +145,7 @@ impl ObjectImpl {
 
         if cur_flags != new_flags {
             self.modify_shape(ctx, |sh| {
-                sh.prop_defs
-                    .get_index_mut(index)
-                    .unwrap()
-                    .set_flags(new_flags);
-
+                sh.prop_defs.get_mut(index).unwrap().set_flags(new_flags);
                 sh.full_rehash();
             })?;
             Ok(true)

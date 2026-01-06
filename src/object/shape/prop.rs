@@ -1,5 +1,5 @@
 use gc_lite::GcTracable;
-use hash_link::{HashedElement, PrimitiveHashedElement};
+use hash_link::HashedElement;
 
 use crate::{
     atom::Atom,
@@ -25,18 +25,6 @@ impl HashedElement for ShapeProperty {
     #[inline(always)]
     fn get_hash(&self) -> u32 {
         self.atom.id()
-    }
-}
-
-impl PrimitiveHashedElement for ShapeProperty {
-    #[inline(always)]
-    fn is_deleted(&self) -> bool {
-        self.atom.is_null()
-    }
-
-    #[inline(always)]
-    fn set_deleted(&mut self) {
-        self.atom = Atom::NULL;
     }
 }
 
