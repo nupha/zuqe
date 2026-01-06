@@ -35,7 +35,7 @@ impl PrimitiveHashedElement for ShapeProperty {
     }
 
     #[inline(always)]
-    fn set_delete(&mut self) {
+    fn set_deleted(&mut self) {
         self.atom = Atom::NULL;
     }
 }
