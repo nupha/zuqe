@@ -35,7 +35,8 @@ impl Object {
                     let compact = self.modify_shape(ctx, |sh| {
                         sh.prop_defs.remove_index(idx);
 
-                        if (sh.prop_defs.count() >> 1) >= sh.prop_defs.count_deleted() {
+                        // 1/8+ deletion
+                        if (sh.prop_defs.count_deleted() << 3) >= sh.prop_defs.len() {
                             sh.prop_defs.compact();
                             true
                         } else {

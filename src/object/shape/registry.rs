@@ -190,7 +190,7 @@ impl ShapeRegistry {
             .prop_defs
             .iter()
             .zip(unsafe { found.as_ref().prop_defs.iter() })
-            .all(|(a, b)| a == b)
+            .all(|((_, a), (_, b))| a == b)
         {
             let shape = unsafe { found.as_mut() };
 
