@@ -379,19 +379,27 @@ pub(crate) fn js_object_isSealed(cc: CallContext) -> JSResult {
 pub(crate) fn js_object_fromEntries(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
     let mut obj = ctx.create_base_object()?;
+    let mut enum_obj = cc.arg(0).iter(ctx)?;
 
-    // RequireObjectCoercible() not necessary because it is tested in
-    // JS_GetIterator() by JS_GetProperty()
-    for item in cc.arg(0).iter(ctx)? {
-        if let Some(o) = item?.as_object() {
-            let key = o.get_property_u32(ctx, 0)?;
-            let value = o.get_property_u32(ctx, 1)?;
+    while let Some(r) = enum_obj.next() {
+        match r {
+            Ok(JSValue::Object(o)) => {
+                let key = o.get_property_u32(ctx, 0)?;
+                let value = o.get_property_u32(ctx, 1)?;
 
-            let atom = key.to_atom(ctx)?;
-            obj.define_property_value(ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
-        } else {
-            ctx.throw_type_error_not_an_object();
-            return Err(-1);
+                let atom = key.to_atom(ctx)?;
+                obj.define_property_value(ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            }
+            Ok(_) => {
+                ctx.throw_type_error_not_an_object();
+                return Err(-1);
+            }
+            Err(_) => {
+                // fail calling next()
+                // close the iterator object, preserving pending exception
+                let _ = enum_obj.close(true);
+                return Err(-1);
+            }
         }
     }
 

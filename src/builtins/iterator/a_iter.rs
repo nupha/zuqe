@@ -11,7 +11,7 @@ use crate::{
     context::{Context, ContextImpl},
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, NativeFunctionWithData},
-    object::{ObjectImpl, ObjectPayload, Object},
+    object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
 };
@@ -139,7 +139,7 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
             }
         };
 
-        if let Ok((mut value, state)) = ObjectIter::do_apply_next_method(
+        if let Ok((mut value, state)) = ObjectIter::apply_next(
             &ctx,
             p.obj,
             method,

@@ -5,6 +5,7 @@ use gc_lite::GcTracable;
 use crate::{
     atom::Atom,
     context::{ContextImpl, ContextPtr},
+    defer,
     error::JSResult,
     function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
@@ -210,33 +211,32 @@ impl<'a> ObjectIter<'a> {
         })
     }
 
-    /// apply `method` on `obj` to evaluate next iterate value
-    pub(super) fn do_apply_next_method(
+    /// calling `method` on `enum_obj` to iterate next value
+    pub(super) fn apply_next(
         ctx: &ContextImpl,
-        obj: Object,
+        enum_obj: Object,
         method: JSValue,
         args: &[JSValue],
     ) -> Result<(JSValue, IteratorState), i32> {
-        if let JSValue::Object(p) = method
-            && let ObjectPayload::C_FUNCTION(nfun) = p.payload()
+        if let Some(ObjectPayload::C_FUNCTION(nfun)) = method.as_object().map(|o| o.payload())
+            && let Callback::IteratorNext(f) = nfun.handler
         {
             // fast path for the built-in iterators,
             // avoid creating the intermediate result object
-            if let Callback::IteratorNext(f) = nfun.handler {
-                let cc = CallContext::new(
-                    unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                    obj.into(),
-                    args,
-                    nfun.magic as _,
-                    None,
-                );
-                let mut state = IteratorState::NotDone;
-                let ret = f(cc, &mut state)?;
-                return Ok((ret, state));
-            }
+            let cc = CallContext::new(
+                unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                enum_obj.into(),
+                args,
+                nfun.magic as _,
+                None,
+            );
+            let mut state = IteratorState::NotDone;
+            let ret = f(cc, &mut state)?;
+            return Ok((ret, state));
         }
 
-        if let JSValue::Object(o) = method.call(ctx, JSValue::Object(obj), args)? {
+        // generic case: call `method`
+        if let JSValue::Object(o) = method.call(ctx, JSValue::Object(enum_obj), args)? {
             Ok((o.into(), IteratorState::NotParsed))
         } else {
             ctx.throw_type_error("iterator must return an object");
@@ -252,7 +252,7 @@ impl<'a> ObjectIter<'a> {
         method: JSValue,
         args: &[JSValue],
     ) -> Result<(JSValue, bool), i32> {
-        match Self::do_apply_next_method(ctx, obj, method, args)? {
+        match Self::apply_next(ctx, obj, method, args)? {
             (ret, state @ (IteratorState::NotDone | IteratorState::Done)) => {
                 Ok((ret, state == IteratorState::Done))
             }
@@ -275,16 +275,28 @@ impl<'a> ObjectIter<'a> {
     }
 
     /// pre-close before iterate is done, calling `return` method if available.
-    pub(crate) fn do_close(ctx: &ContextImpl, obj: Object, has_exception: bool) -> Result<(), i32> {
+    pub(crate) fn close_internal(
+        ctx: &ContextImpl,
+        obj: Object,
+        has_exception: bool,
+    ) -> Result<(), i32> {
+        let mut rt = ctx.rt_ptr();
         let pending_exc = if has_exception {
-            ctx.rt_ptr().take_exception()
+            rt.take_exception()
         } else {
             JSValue::UNDEFINED
         };
 
-        if let Ok(return_method) = obj.get_property(ctx, Atom::CONST_return) {
-            if !return_method.is_undefined_or_null() {
-                let ret = return_method.call(ctx, obj.into(), &[])?;
+        // restore pending exception
+        defer!({
+            if has_exception {
+                rt.set_exception(pending_exc);
+            }
+        });
+
+        if let Ok(method) = obj.get_property(ctx, Atom::CONST_return) {
+            if !method.is_undefined_or_null() {
+                let ret = method.call(ctx, obj.into(), &[])?;
                 if pending_exc.is_undefined_or_null() && !ret.is_object() {
                     ctx.throw_type_error_not_an_object();
                     return Err(-1);
@@ -310,7 +322,7 @@ impl<'a> ObjectIter<'a> {
         if !self.done {
             self.done = true;
             self.next_method = JSValue::UNDEFINED;
-            Self::do_close(&self.ctx, self.target, has_exception)
+            Self::close_internal(&self.ctx, self.target, has_exception)
         } else if has_exception {
             Err(-1)
         } else {

@@ -3770,7 +3770,7 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(ctx: ContextPtr, enum_obj: 
 }
 
 /// return *pdone: 0-not done, 1-done, 2-the iterator object is not parsed
-#[deprecated(note = "use IteratorObject::apply_next_method() instead")]
+#[deprecated(note = "see JSValue::iter() method")]
 pub fn JS_IteratorNext2(
     ctx: ContextPtr,
     enum_obj: &JSValue,
@@ -3781,7 +3781,7 @@ pub fn JS_IteratorNext2(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use IteratorObject::next() instead")]
+#[deprecated(note = "see JSValue::iter() method")]
 pub fn JS_IteratorNext(
     ctx: ContextPtr,
     enum_obj: &JSValue,

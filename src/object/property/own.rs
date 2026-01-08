@@ -6,8 +6,8 @@ use crate::{
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_LAZYINIT, JS_PROP_NO_EXOTIC, JS_PROP_NORMAL,
-        JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, JSPropertyDescriptor,
-        ObjectImpl, Object, get_prop_flags,
+        JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, JSPropertyDescriptor, Object,
+        ObjectImpl, get_prop_flags,
     },
     utils::unlikely,
     value::JSValue,
@@ -53,27 +53,21 @@ impl Object {
 
     /// Find shape property by name atom.
     /// Returns shape property index (the slot index, not the sequence) and prop flags if the prop exists.
-    #[inline(always)]
+    #[inline]
     pub(crate) fn find_shape_property(&self, prop: Atom) -> Option<(usize, u32)> {
         self.shape().and_then(|sh| {
             sh.prop_defs
                 .find_hash(prop.id())
-                .filter(|(_, p)| p.atom == prop)
                 .map(|(i, prs)| (i, prs.flags()))
                 .next()
         })
     }
 
     /// Check if given property name exists in shape.
-    #[inline(always)]
+    #[inline]
     pub(crate) fn has_shape_property(&self, prop: Atom) -> bool {
-        self.shape().is_some_and(|sh| {
-            sh.prop_defs
-                .find_hash(prop.id())
-                .filter(|(_, p)| p.atom == prop)
-                .count()
-                != 0
-        })
+        self.shape()
+            .is_some_and(|sh| sh.prop_defs.find_hash(prop.id()).count() != 0)
     }
 
     /// test if own property `prop` exists:
