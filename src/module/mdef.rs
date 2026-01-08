@@ -471,6 +471,7 @@ pub(crate) const js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExot
     define_own_property: None,
     get_property: None,
     set_property: None,
+    get_prototype: None,
     set_prototype: None,
 };
 

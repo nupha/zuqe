@@ -1,6 +1,6 @@
 use crate::{
     atom::Atom,
-    class::{ClassID, ClassInitializeFn, FreeObjFn, SetPrototypeFn},
+    class::{ClassID, ClassInitializeFn, FreeObjFn, GetPrototypeFn, SetPrototypeFn},
     context::ContextPtr,
     function::FunctionDef,
     object::JS_PROP_NO_EXOTIC,
@@ -23,6 +23,8 @@ pub(crate) struct JSClassExoticMethods {
     pub has_property: Option<HasPropertyFn>,
     pub get_property: Option<GetPropertyFn>,
     pub set_property: Option<SetPropertyFn>,
+
+    pub get_prototype: Option<GetPrototypeFn>,
     pub set_prototype: Option<SetPrototypeFn>,
 }
 
@@ -130,5 +132,6 @@ pub(crate) const js_arguments_exotic_methods: JSClassExoticMethods = JSClassExot
     has_property: None,
     get_property: None,
     set_property: None,
+    get_prototype: None,
     set_prototype: None,
 };

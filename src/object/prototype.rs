@@ -53,12 +53,24 @@ impl ObjectImpl {
     /// Get prototype object of `self`, both shape and proxy are considered.
     ///
     /// Returns:
-    /// - Some(object) if it has prototype, None for no prototype.
-    /// - Err in case Proxy object calling getPrototypeOf() failed.
+    /// - Some(object) if object has prototype
+    /// - None if object has no prototype.
+    /// - Err(_) in case Proxy object calling getPrototypeOf() failed.
     pub fn prototype(&self, ctx: &ContextImpl) -> Result<Option<Object>, i32> {
-        let o = unsafe { Object::from_ref_unchecked(self) };
-        if let Some(p) = o.as_Proxy() {
-            Ok(Object::try_from(p.get_prototype_of(ctx)?).ok())
+        if self.flags().is_exotic()
+            && let Some(cb) = ctx
+                .rt_ref()
+                .class_registry
+                .get(self.class_id() as usize)
+                .and_then(|c| c.exotic.as_deref())
+                .and_then(|em| em.get_prototype)
+        {
+            // exotic: Proxy
+            cb(
+                unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                JSValue::Object(unsafe { Object::from_ref_unchecked(self) }),
+            )
+            .map(|v| Object::try_from(v).ok())
         } else {
             Ok(self.shape_proto())
         }

@@ -68,6 +68,7 @@ pub type SetPropertyFn = fn(
 /// TODO: change target type to Object
 pub type DeletePropertyFn = fn(ctx: ContextPtr, target: JSValue, prop: Atom) -> Result<bool, i32>;
 
+pub type GetPrototypeFn = fn(ctx: ContextPtr, obj: JSValue) -> JSResult;
 pub type SetPrototypeFn =
     fn(ctx: ContextPtr, obj: JSValue, proto_val: JSValue) -> Result<bool, i32>;
 

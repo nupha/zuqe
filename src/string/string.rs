@@ -808,5 +808,6 @@ pub(crate) const js_string_exotic_methods: JSClassExoticMethods = JSClassExoticM
     has_property: None,
     get_property: None,
     set_property: None,
+    get_prototype: None,
     set_prototype: None,
 };
