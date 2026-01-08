@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
 use crate::{
-    context::ContextImpl,
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
-    object::{ObjectImpl, Object},
+    object::{Object, ObjectImpl},
     utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
@@ -73,18 +73,8 @@ impl ObjectImpl {
         proto_val: JSValue,
         throw_flag: bool,
     ) -> Result<bool, i32> {
-        // Guard: can't set prototype of `Object.prototype`
-        if unlikely(self.id() == ctx.object_proto().id()) {
-            return if throw_flag {
-                ctx.throw_type_error("can't set prototype of Object.prototype");
-                Err(-1)
-            } else {
-                Ok(false)
-            };
-        }
-
-        let proto = if let JSValue::Object(o) = &proto_val {
-            Some(*o)
+        let proto = if let JSValue::Object(p) = proto_val {
+            Some(p)
         } else if proto_val.is_null() {
             None
         } else {
@@ -92,9 +82,29 @@ impl ObjectImpl {
             return Err(-1);
         };
 
-        let mut o = unsafe { Object::from_ref_unchecked(self) };
-        if let Some(px) = o.as_Proxy_mut() {
-            return px.set_prototype_of(ctx, proto_val, throw_flag);
+        let obj = unsafe { Object::from_ref_unchecked(self) };
+
+        if self.flags().is_exotic()
+            && let Some(cb) = ctx
+                .rt_ref()
+                .class_registry
+                .get(self.class_id() as usize)
+                .and_then(|c| c.exotic.as_deref())
+                .and_then(|em| em.set_prototype)
+        {
+            // exotic handler: Proxy
+            let ret = cb(
+                unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                JSValue::Object(obj),
+                proto_val,
+            );
+
+            return if ret == Ok(false) && throw_flag {
+                ctx.throw_type_error("proxy: bad prototype");
+                Err(-1)
+            } else {
+                ret
+            };
         }
 
         if self.shape().unwrap().proto == proto {

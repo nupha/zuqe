@@ -13,7 +13,7 @@ use crate::{
         JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
         JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JSPropertyDescriptor, ObjectImpl, ObjectPayload, Object, PropertyKey,
+        JSPropertyDescriptor, Object, ObjectImpl, ObjectPayload, PropertyKey,
         check_define_prop_flags,
     },
     object_cast,
@@ -167,21 +167,22 @@ impl ProxyPayload {
     ) -> Result<bool, i32> {
         let method = self.get_method(ctx, Atom::CONST_setPrototypeOf)?;
         if method.is_undefined() {
-            return self.target.set_prototype_internal(ctx, proto_val, throw);
+            return self.target.set_prototype_internal(ctx, proto_val, false);
         }
 
         let ret = method.call(ctx, self.handler, &[self.target.into(), proto_val])?;
 
         match ret.to_bool() {
             Ok(false) => {
-                if throw {
-                    ctx.throw_type_error("proxy: bad prototype");
-                    Err(-1)
-                } else {
-                    Ok(false)
-                }
+                Ok(false)
+                // if throw {
+                //     ctx.throw_type_error("proxy: bad prototype");
+                //     Err(-1)
+                // } else {
+                //     Ok(false)
+                // }
             }
-            Ok(true) | Err(_) => {
+            _ => {
                 if !self.target.is_extensible(ctx)?
                     && proto_val
                         != self
@@ -190,9 +191,10 @@ impl ProxyPayload {
                             .map_or(JSValue::NULL, JSValue::Object)
                 {
                     ctx.throw_type_error("proxy: inconsistent prototype");
-                    return Err(-1);
+                    Err(-1)
+                } else {
+                    Ok(true)
                 }
-                Ok(true)
             }
         }
     }
@@ -373,13 +375,9 @@ fn js_proxy_get_own_property(
     obj: JSValue,
     prop: Atom,
 ) -> Result<Option<JSPropertyDescriptor>, i32> {
-    let cx = ctx.deref();
+    let cx = &*ctx;
 
-    let Some(px) = obj
-        .as_object()
-        .and_then(|x| x.as_Proxy())
-        .map(|x| x.payload())
-    else {
+    let Some(px) = obj.as_object_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
 
@@ -467,15 +465,10 @@ fn js_proxy_define_own_property(
     setter: JSValue,
     flags: i32,
 ) -> Result<bool, i32> {
-    let cx = ctx.deref();
-
+    let cx = &*ctx;
     let flags = flags as u32;
 
-    let Some(px) = obj
-        .as_object()
-        .and_then(|x| x.as_Proxy())
-        .map(|x| x.payload())
-    else {
+    let Some(px) = obj.as_object_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
 
@@ -568,11 +561,7 @@ fn js_proxy_define_own_property(
 }
 
 fn js_proxy_delete_property(ctx: ContextPtr, mut obj: JSValue, atom: Atom) -> Result<bool, i32> {
-    let Some(px) = obj
-        .as_object_mut()
-        .and_then(|x| x.as_Proxy_mut())
-        .map(|x| x.payload_mut())
-    else {
+    let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
         return Err(-1);
     };
 
@@ -731,11 +720,7 @@ fn js_proxy_has(ctx: ContextPtr, mut obj: Object, atom: Atom) -> Result<bool, i3
 fn js_proxy_get(ctx: ContextPtr, obj: JSValue, atom: Atom, receiver: JSValue) -> JSResult {
     let cx = &*ctx;
 
-    let Some(px) = obj
-        .as_object()
-        .and_then(|p| p.as_Proxy())
-        .map(|x| x.payload())
-    else {
+    let Some(px) = obj.as_object_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
 
@@ -779,11 +764,7 @@ fn js_proxy_set(
 ) -> Result<bool, i32> {
     let cx = &*ctx;
 
-    let Some(s) = obj
-        .as_object()
-        .and_then(|p| p.as_Proxy())
-        .map(|x| x.payload())
-    else {
+    let Some(s) = obj.as_object_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
 
@@ -835,6 +816,20 @@ fn js_proxy_set(
     Ok(ret)
 }
 
+fn js_proxy_set_prototype(
+    ctx: ContextPtr,
+    mut obj: JSValue,
+    proto_val: JSValue,
+) -> Result<bool, i32> {
+    let ctx = &*ctx;
+
+    let Some(s) = obj.as_object_Proxy_mut() else {
+        return Err(-1);
+    };
+
+    s.set_prototype_of(ctx, proto_val, true)
+}
+
 pub(crate) const js_proxy_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
     get_own_property: Some(js_proxy_get_own_property),
     define_own_property: Some(js_proxy_define_own_property),
@@ -843,4 +838,5 @@ pub(crate) const js_proxy_exotic_methods: JSClassExoticMethods = JSClassExoticMe
     has_property: Some(js_proxy_has),
     get_property: Some(js_proxy_get),
     set_property: Some(js_proxy_set),
+    set_prototype: Some(js_proxy_set_prototype),
 };

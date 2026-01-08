@@ -8,7 +8,7 @@ use crate::{
     function::{BCFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, JSVarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
-    object::{JS_PROP_C_W_E, ObjectPayload, Object},
+    object::{JS_PROP_C_W_E, Object, ObjectPayload},
     runtime::{RuntimeImpl, RuntimePtr},
     stack_frame::StackFrameParentIter,
     value::JSValue,
@@ -471,6 +471,7 @@ pub(crate) const js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExot
     define_own_property: None,
     get_property: None,
     set_property: None,
+    set_prototype: None,
 };
 
 pub fn js_create_module_var(ctx: &ContextImpl, is_lexical: bool) -> Result<JSVarRef, i32> {
