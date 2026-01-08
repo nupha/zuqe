@@ -1,5 +1,5 @@
 use gc_lite::GcTracable;
-use hash_link::HashedElement;
+use hash_link::Hashable;
 
 use crate::{
     atom::Atom,
@@ -20,7 +20,7 @@ unsafe impl GcTracable for ShapeProperty {
     }
 }
 
-impl HashedElement for ShapeProperty {
+impl Hashable for ShapeProperty {
     /// use atom id as hash value
     #[inline(always)]
     fn get_hash(&self) -> u32 {

@@ -30,8 +30,8 @@ use crate::{
     },
     eval::{EvalFlags, EvalType},
     function::{
-        Bytecode, CallContext, JS_CallConstructorInternal, JS_CallInternal, FunctionKind,
-        JSVarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
+        Bytecode, CallContext, FunctionKind, JS_CallConstructorInternal, JS_CallInternal, JSVarRef,
+        build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
     },
     module::{js_dynamic_import, js_import_meta},
     object::{
@@ -556,17 +556,12 @@ impl Bytecode {
                         // Stack operation: [obj, prop, a, ^] -> [a, obj, prop, a, ^]
                         // Duplicates top value and inserts it under third position
                         // Uses array rotation for efficient stack manipulation
-                        let lst = unsafe { std::slice::from_raw_parts_mut(sp.offset(-3), 4) };
-                        lst.rotate_right(1);
+                        unsafe {
+                            std::slice::from_raw_parts_mut(sp.offset(-3), 4).rotate_right(1);
+                        };
 
                         // After rotation, set SP![-3] to value in SP![0] duplicated
                         SP_PUT!(-3, SP_VAL!(0));
-
-                        // SP![0] = SP![-1];
-                        // SP![-1] = SP![-2];
-                        // SP![-2] = SP![-3];
-                        // SP![-3] = SP![0].clone();
-
                         SP_GO!(1);
                     }
                     OpCode::INSERT4 => {

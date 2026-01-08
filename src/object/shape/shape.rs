@@ -4,7 +4,7 @@ use std::{
 };
 
 use gc_lite::{GcRef, GcTracable};
-use hash_link::HashLink;
+use hash_link::HashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimePtr};
 
@@ -28,7 +28,7 @@ pub struct ShapeImpl {
     pub(crate) proto: Option<Object>,
 
     /// shape properties
-    pub(crate) prop_defs: HashLink<ShapeProperty>,
+    pub(crate) prop_defs: HashList<ShapeProperty>,
 }
 
 unsafe impl GcTracable for ShapeImpl {
@@ -52,7 +52,7 @@ impl ShapeImpl {
     fn new(
         ctx: &ContextImpl,
         proto: Option<Object>,
-        props: HashLink<ShapeProperty>,
+        props: HashList<ShapeProperty>,
     ) -> Result<Self, i32> {
         //calc shape hash
         let mut hash = shape_initial_hash(proto.map_or(0, |p| p.id()));
@@ -153,7 +153,7 @@ impl ShapeImpl {
     /// The new shape is not registered.
     pub(crate) fn dup(&self, ctx: &ContextImpl) -> Result<ShapeHandle, i32> {
         // clone properties
-        let mut props = HashLink::<ShapeProperty>::new();
+        let mut props = HashList::<ShapeProperty>::new();
         props.try_reserve(self.prop_defs.count()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
@@ -236,7 +236,7 @@ impl ShapeHandle {
     pub(crate) fn new_internal(
         ctx: &ContextImpl,
         proto: Option<Object>,
-        prop_defs: HashLink<ShapeProperty>,
+        prop_defs: HashList<ShapeProperty>,
     ) -> Result<Self, i32> {
         let mut rt = ctx.rt_ptr();
         let sh = rt
@@ -253,7 +253,7 @@ impl ShapeHandle {
     /// new shape is not registered,
     /// new shape is added to GC, new shape is registered.
     pub fn new(ctx: &ContextImpl, proto: Option<Object>, prop_cap: i32) -> Result<Self, i32> {
-        let mut prop_defs = HashLink::<ShapeProperty>::new();
+        let mut prop_defs = HashList::<ShapeProperty>::new();
         prop_defs.try_reserve(prop_cap as _).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
