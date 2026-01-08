@@ -123,7 +123,15 @@ impl ObjectImpl {
             return Ok(true);
         }
 
-        if !self.flags().extensible() {
+        let flags = self.flags();
+        if flags.immutable_prototype() {
+            return if throw_flag {
+                ctx.throw_type_error("prototype is immutable");
+                Err(-1)
+            } else {
+                Ok(false)
+            };
+        } else if !flags.extensible() {
             return if throw_flag {
                 ctx.throw_type_error("object is not extensible");
                 Err(-1)

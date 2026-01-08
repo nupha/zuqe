@@ -331,7 +331,8 @@ impl ContextPtr {
         );
 
         // Object
-        let object = self.create_base_object_with_proto(None)?;
+        let mut object = self.create_base_object_with_proto(None)?;
+        object.set_flag_immutable_prototype(true);
         self.class_proto[JS_CLASS_OBJECT as usize] = object.into();
 
         // Function

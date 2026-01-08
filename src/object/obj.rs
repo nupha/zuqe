@@ -17,21 +17,23 @@ use super::{
     ObjectPayload, ShapeHandle,
 };
 
+/// TODO: use bitfield instead
 /// Bit flags and metadata for JavaScript objects
 /// Encodes object state and class information in a compact bitfield
 #[derive(Debug, Clone, Copy, Default)]
 #[repr(transparent)]
 pub struct ObjectFlags {
     /// Bitfield storing object state flags and class ID:
-    /// - Bits 31-24: Object state flags
+    /// - Bits 31-23: Object attr flags
     ///   [31] extensible: Can add new properties
     ///   [30] free_mark: Object destruction marker
     ///   [29] is_exotic: Special property handling
     ///   [28] fast_array: Uses optimized array storage
     ///   [27] constructor: Object is a constructor
-    ///   [26] uncatchable_error: Error cannot be caught
-    ///   [25] tmp_mark: Temporary serialization marker
-    ///   [24] HTMLDDA: Special browser compatibility behavior
+    ///   [26] immutable prototype
+    ///   [25] uncatchable_error: Error cannot be caught
+    ///   [24] tmp_mark: Temporary serialization marker
+    ///   [23] HTMLDDA: Special browser compatibility behavior
     /// - Bits 15-0: Class ID (JS_CLASS_* constant)
     bitfield: u32,
 }
@@ -42,9 +44,10 @@ impl ObjectFlags {
     const MASK_IS_EXOTIC: u32 = 0x2000_0000;
     const MASK_FAST_ARRAY: u32 = 0x1000_0000;
     const MASK_IS_CONSTRUCTOR: u32 = 0x0800_0000;
-    const MASK_IS_UNCATCHABLE_ERROR: u32 = 0x0400_0000;
-    const MASK_TMP_MARK: u32 = 0x0200_0000;
-    const MASK_IS_HTMLDDA: u32 = 0x0100_0000;
+    const MASK_IMMUTABLE_PROTOTYPE: u32 = 0x0400_0000;
+    const MASK_IS_UNCATCHABLE_ERROR: u32 = 0x0200_0000;
+    const MASK_TMP_MARK: u32 = 0x0100_0000;
+    const MASK_IS_HTMLDDA: u32 = 0x0080_0000;
 
     pub const fn extensible(&self) -> bool {
         self.bitfield & Self::MASK_EXTENSIBLE != 0
@@ -99,6 +102,17 @@ impl ObjectFlags {
             self.bitfield |= Self::MASK_IS_CONSTRUCTOR;
         } else {
             self.bitfield &= !Self::MASK_IS_CONSTRUCTOR;
+        }
+    }
+
+    pub const fn immutable_prototype(&self) -> bool {
+        self.bitfield & Self::MASK_IMMUTABLE_PROTOTYPE != 0
+    }
+    const fn set_immutable_prototype(&mut self, b: bool) {
+        if b {
+            self.bitfield |= Self::MASK_IMMUTABLE_PROTOTYPE;
+        } else {
+            self.bitfield &= !Self::MASK_IMMUTABLE_PROTOTYPE;
         }
     }
 
@@ -236,6 +250,7 @@ impl ObjectImpl {
         flags.set_exotic(false);
         flags.set_fast_array(false);
         flags.set_constructor(false);
+        flags.set_immutable_prototype(false);
         flags.set_uncatchable_error(false);
         flags.set_tmp_mark(false);
         flags.set_htmldda(false);
@@ -438,6 +453,11 @@ impl ObjectImpl {
     #[inline]
     pub const fn set_flag_extensible(&mut self, b: bool) {
         self.obj_flags.set_extensible(b);
+    }
+
+    #[inline]
+    pub const fn set_flag_immutable_prototype(&mut self, b: bool) {
+        self.obj_flags.set_immutable_prototype(b);
     }
 
     #[inline]
