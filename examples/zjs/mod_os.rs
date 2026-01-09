@@ -5,7 +5,6 @@ use std::{
 };
 
 use gc_lite::{GcTracable, GcTracer};
-use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 use zuqe::{
     CallContext, Context, FieldDef, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JSResult, JSValue,
@@ -404,30 +403,26 @@ fn js_os_signal(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-static MOD_OS_ENTRIES: Lazy<Box<[FieldDef]>> = Lazy::new(|| {
-    let lst = vec![
-        FieldDef::CALL("isatty", 1, js_os_isatty, 0),
-        FieldDef::CALL("ttyGetWinSize", 1, js_os_ttyGetWinSize, 0),
-        FieldDef::CALL("ttySetRaw", 1, js_os_ttySetRaw, 0),
-        FieldDef::CALL("setReadHandler", 2, js_os_setReadHandler, 0),
-        FieldDef::CALL("setWriteHandler", 2, js_os_setReadHandler, 1),
-        FieldDef::CALL("read", 4, js_os_read_write, 0),
-        FieldDef::CALL("write", 4, js_os_read_write, 1),
-        FieldDef::CALL("signal", 2, js_os_signal, 0),
-        FieldDef::CALL("now", 0, js_os_now, 0),
-        FieldDef::INT32("SIGINT", libc::SIGINT, JS_PROP_CONFIGURABLE),
-        FieldDef::INT32("SIGABRT", libc::SIGABRT, JS_PROP_CONFIGURABLE),
-        FieldDef::INT32("SIGFPE", libc::SIGFPE, JS_PROP_CONFIGURABLE),
-        FieldDef::INT32("SIGILL", libc::SIGILL, JS_PROP_CONFIGURABLE),
-        FieldDef::INT32("SIGSEGV", libc::SIGSEGV, JS_PROP_CONFIGURABLE),
-        FieldDef::INT32("SIGTERM", libc::SIGTERM, JS_PROP_CONFIGURABLE),
-    ];
-
-    lst.into()
-});
+const MOD_OS_ENTRIES: &[FieldDef] = &[
+    FieldDef::CALL("isatty", 1, js_os_isatty, 0),
+    FieldDef::CALL("ttyGetWinSize", 1, js_os_ttyGetWinSize, 0),
+    FieldDef::CALL("ttySetRaw", 1, js_os_ttySetRaw, 0),
+    FieldDef::CALL("setReadHandler", 2, js_os_setReadHandler, 0),
+    FieldDef::CALL("setWriteHandler", 2, js_os_setReadHandler, 1),
+    FieldDef::CALL("read", 4, js_os_read_write, 0),
+    FieldDef::CALL("write", 4, js_os_read_write, 1),
+    FieldDef::CALL("signal", 2, js_os_signal, 0),
+    FieldDef::CALL("now", 0, js_os_now, 0),
+    FieldDef::INT32("SIGINT", libc::SIGINT, JS_PROP_CONFIGURABLE),
+    FieldDef::INT32("SIGABRT", libc::SIGABRT, JS_PROP_CONFIGURABLE),
+    FieldDef::INT32("SIGFPE", libc::SIGFPE, JS_PROP_CONFIGURABLE),
+    FieldDef::INT32("SIGILL", libc::SIGILL, JS_PROP_CONFIGURABLE),
+    FieldDef::INT32("SIGSEGV", libc::SIGSEGV, JS_PROP_CONFIGURABLE),
+    FieldDef::INT32("SIGTERM", libc::SIGTERM, JS_PROP_CONFIGURABLE),
+];
 
 pub fn init_mod_os(mut ctx: Context) -> Result<(), i32> {
-    ctx.register_module("os", &MOD_OS_ENTRIES)?;
+    ctx.register_module("os", MOD_OS_ENTRIES)?;
     ctx.add_tick_handler(|cx| -> bool { js_os_poll(cx) });
     Ok(())
 }

@@ -229,7 +229,7 @@ unsafe fn js_object___lookupGetter__(
     res
 }
 
-pub static js_object_proto_funcs: [FieldDef; 7] = [
+pub const js_object_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("toString", 0, js_object_toString, 0),
     FieldDef::CALL("toLocaleString", 0, js_object_toLocaleString, 0),
     FieldDef::CALL("valueOf", 0, js_object_valueOf, 0),

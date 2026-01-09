@@ -211,14 +211,14 @@ pub fn js_generator_next(cc: CallContext, iter_state: &mut IteratorState) -> JSR
     }
 }
 
-pub static js_generator_proto_funcs: [FieldDef; 4] = [
+pub const js_generator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 1, js_generator_next, GEN_MAGIC_NEXT as _),
     FieldDef::ITERATOR_NEXT("return", 1, js_generator_next, GEN_MAGIC_RETURN as _),
     FieldDef::ITERATOR_NEXT("throw", 1, js_generator_next, GEN_MAGIC_THROW as _),
     FieldDef::STR("[Symbol.toStringTag]", "Generator", JS_PROP_CONFIGURABLE),
 ];
 
-pub static js_generator_function_proto_funcs: [FieldDef; 1] = [FieldDef::STR(
+pub const js_generator_function_proto_funcs: &[FieldDef] = &[FieldDef::STR(
     "[Symbol.toStringTag]",
     "GeneratorFunction",
     JS_PROP_CONFIGURABLE,

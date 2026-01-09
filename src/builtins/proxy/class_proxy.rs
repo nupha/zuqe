@@ -62,4 +62,4 @@ fn js_proxy_revocable(cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub static js_proxy_funcs: [FieldDef; 1] = [FieldDef::CALL("revocable", 2, js_proxy_revocable, 0)];
+pub const js_proxy_funcs: &[FieldDef] = &[FieldDef::CALL("revocable", 2, js_proxy_revocable, 0)];

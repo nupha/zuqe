@@ -427,7 +427,7 @@ fn js_object___getClass(cc: CallContext) -> JSResult {
     Ok(name.force_string(cc.ctx()).unwrap().into())
 }
 
-pub static js_object_funcs: [FieldDef; 24] = [
+pub const js_object_funcs: &[FieldDef] = &[
     FieldDef::CALL("create", 2, js_object_create, 0),
     FieldDef::CALL("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
     FieldDef::CALL("setPrototypeOf", 2, js_object_setPrototypeOf, 0),

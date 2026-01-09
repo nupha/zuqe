@@ -7,7 +7,7 @@ use crate::{
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::{AsyncFuncState, BCFunction, BytecodeFunction, Callback, FunctionKind},
-    object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, Object},
+    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
 };
@@ -24,7 +24,7 @@ object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 impl AsyncFunction {
     pub fn class_initialize(ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
-        proto.install_field_defs(&ctx, &js_async_function_proto_funcs)?;
+        proto.install_field_defs(&ctx, js_async_function_proto_funcs)?;
 
         let ctor: JSValue = ctx
             .create_native_function_with_proto(
@@ -233,7 +233,7 @@ impl AsyncFuncState {
     }
 }
 
-pub static js_async_function_proto_funcs: [FieldDef; 1] = [FieldDef::STR(
+pub const js_async_function_proto_funcs: &[FieldDef] = &[FieldDef::STR(
     "[Symbol.toStringTag]",
     "AsyncFunction",
     JS_PROP_CONFIGURABLE,

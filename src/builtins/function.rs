@@ -171,7 +171,7 @@ fn js_function_proto_lineNumber(cc: CallContext) -> JSResult {
     }
 }
 
-pub static js_function_proto_funcs: [FieldDef; 7] = [
+pub const js_function_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("call", 1, js_function_call, 0),
     FieldDef::CALL("apply", 2, js_function_apply, 0),
     FieldDef::CALL("bind", 1, js_function_bind, 0),

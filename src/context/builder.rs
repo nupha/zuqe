@@ -141,18 +141,15 @@ impl RuntimeImpl {
                 &(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).collect::<Vec<_>>(),
             )
             .global(|mut cx, mut gobj| -> Result<(), i32> {
-                gobj.install_field_defs(&cx, &js_global_props)?;
-
+                gobj.install_field_defs(&cx, js_global_props)?;
                 // Reflect: lazy init
-                gobj.install_field_defs(&cx, &js_reflect_obj)?;
-
+                gobj.install_field_defs(&cx, js_reflect_obj)?;
                 // JSON: lazy init
                 #[cfg(feature = "builtin_json")]
-                gobj.install_field_defs(&cx, &crate::builtins::json::js_json_obj)?;
-
+                gobj.install_field_defs(&cx, crate::builtins::json::js_json_obj)?;
                 // Math: lazy init
                 cx.init_random_seed();
-                gobj.install_field_defs(&cx, &js_math_obj)?;
+                gobj.install_field_defs(&cx, js_math_obj)?;
 
                 Ok(())
             })

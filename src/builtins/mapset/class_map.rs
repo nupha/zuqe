@@ -6,7 +6,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload, Object},
+    object::{JS_PROP_CONFIGURABLE, Object, ObjectPayload},
     value::JSValue,
 };
 
@@ -272,7 +272,7 @@ fn js_create_map_iterator(cc: CallContext) -> JSResult {
     .map(JSValue::Object)
 }
 
-pub static js_map_proto_funcs: [FieldDef; 12] = [
+pub const js_map_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("set", 2, js_map_set, 0),
     FieldDef::CALL("get", 1, js_map_get, 0),
     FieldDef::CALL("has", 1, js_map_has, 0),
@@ -302,7 +302,7 @@ pub static js_map_proto_funcs: [FieldDef; 12] = [
     FieldDef::STR("[Symbol.toStringTag]", "Map", JS_PROP_CONFIGURABLE),
 ];
 
-pub static js_set_proto_funcs: [FieldDef; 11] = [
+pub const js_set_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("add", 1, js_map_set, 1),
     FieldDef::CALL("has", 1, js_map_has, 1),
     FieldDef::CALL("delete", 1, js_map_delete, 1),
@@ -326,7 +326,7 @@ pub static js_set_proto_funcs: [FieldDef; 11] = [
     FieldDef::STR("[Symbol.toStringTag]", "Set", JS_PROP_CONFIGURABLE),
 ];
 
-pub static js_weakmap_proto_funcs: [FieldDef; 5] = [
+pub const js_weakmap_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("set", 2, js_map_set, 2),
     FieldDef::CALL("get", 1, js_map_get, 2),
     FieldDef::CALL("has", 1, js_map_has, 2),
@@ -334,7 +334,7 @@ pub static js_weakmap_proto_funcs: [FieldDef; 5] = [
     FieldDef::STR("[Symbol.toStringTag]", "WeakMap", JS_PROP_CONFIGURABLE),
 ];
 
-pub static js_weakset_proto_funcs: [FieldDef; 4] = [
+pub const js_weakset_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("add", 1, js_map_set, 3),
     FieldDef::CALL("has", 1, js_map_has, 3),
     FieldDef::CALL("delete", 1, js_map_delete, 3),
@@ -385,12 +385,12 @@ fn js_map_groupBy(cc: CallContext) -> JSResult {
     cx.create_map_with_entries(ms).map(JSValue::Object)
 }
 
-pub static js_map_funcs: [FieldDef; 2] = [
+pub const js_map_funcs: &[FieldDef] = &[
     FieldDef::CALL("groupBy", 2, js_map_groupBy, 0),
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
-pub static js_set_funcs: [FieldDef; 1] = [FieldDef::GETSET(
+pub const js_set_funcs: &[FieldDef] = &[FieldDef::GETSET(
     "[Symbol.species]",
     Some(js_get_this),
     None,

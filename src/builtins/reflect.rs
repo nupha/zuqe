@@ -136,7 +136,7 @@ fn js_reflect_ownKeys(cc: CallContext) -> JSResult {
     }
 }
 
-pub static js_reflect_funcs: [FieldDef; 14] = [
+pub const js_reflect_funcs: &[FieldDef] = &[
     FieldDef::CALL("apply", 3, js_reflect_apply, 0),
     FieldDef::CALL("construct", 2, js_reflect_construct, 0),
     FieldDef::CALL("defineProperty", 3, js_object_defineProperty, 1),
@@ -158,8 +158,8 @@ pub static js_reflect_funcs: [FieldDef; 14] = [
     FieldDef::STR("[Symbol.toStringTag]", "Reflect", JS_PROP_CONFIGURABLE),
 ];
 
-pub static js_reflect_obj: [FieldDef; 1] = [FieldDef::OBJECT(
+pub const js_reflect_obj: &[FieldDef] = &[FieldDef::OBJECT(
     "Reflect",
-    &js_reflect_funcs,
+    js_reflect_funcs,
     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
 )];

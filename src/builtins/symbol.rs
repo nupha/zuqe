@@ -131,7 +131,7 @@ fn js_symbol_get_description(cc: CallContext) -> JSResult {
     }
 }
 
-pub static js_symbol_proto_funcs: [FieldDef; 5] = [
+pub const js_symbol_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("toString", 0, js_symbol_toString, 0),
     FieldDef::CALL("valueOf", 0, js_symbol_valueOf, 0),
     // XXX: should have writable: false
@@ -159,7 +159,7 @@ fn js_symbol_keyFor(cc: CallContext) -> JSResult {
     }
 }
 
-pub static js_symbol_funcs: [FieldDef; 2] = [
+pub const js_symbol_funcs: &[FieldDef] = &[
     FieldDef::CALL("for", 1, js_symbol_for, 0),
     FieldDef::CALL("keyFor", 1, js_symbol_keyFor, 0),
 ];

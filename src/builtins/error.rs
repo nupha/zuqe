@@ -1,5 +1,7 @@
+use std::borrow::Cow;
+
 use crate::{
-    JS_CLASS_ERROR,
+    FieldDef, JS_CLASS_ERROR,
     atom::Atom,
     builtins::iterator::iterator_to_array,
     context::{ContextImpl, ContextPtr},
@@ -104,3 +106,46 @@ pub fn js_aggregate_error_constructor(ctx: &ContextImpl, errors: JSValue) -> JSV
         JSValue::EXCEPTION
     }
 }
+
+pub fn js_error_toString(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
+    if !cc.this().is_object() {
+        ctx.throw_type_error_not_an_object();
+        return Err(-1);
+    }
+
+    let name = cc.this().get_property(ctx, Atom::CONST_name)?;
+    let name = if name.is_undefined() {
+        Atom::CONST_Error.force_string(ctx)?
+    } else {
+        name.to_string(ctx)?
+    };
+
+    let message = cc.this().get_property(ctx, Atom::CONST_message)?;
+    let message = if message.is_undefined() {
+        Atom::CONST_empty_string.force_string(ctx)?
+    } else {
+        message.to_string(ctx)?
+    };
+
+    let txt: Cow<'_, str> = match (name.is_empty(), message.is_empty()) {
+        (false, false) => format!(
+            "{}: {}",
+            name.encode_utf8(false),
+            message.encode_utf8(false)
+        )
+        .into(),
+        (false, true) => name.encode_utf8(false),
+        (true, false) => message.encode_utf8(false),
+        (true, true) => "".into(),
+    };
+
+    cc.ctx().create_string_from_str(&txt).map(JSValue::String)
+}
+
+pub const js_error_proto_funcs: &[FieldDef] = &[
+    FieldDef::CALL("toString", 0, js_error_toString, 0),
+    FieldDef::STR("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
+    FieldDef::STR("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
+];

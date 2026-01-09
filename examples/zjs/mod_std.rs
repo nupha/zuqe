@@ -1,6 +1,5 @@
 use std::cell::Cell;
 
-use once_cell::sync::Lazy;
 use zuqe::{CallContext, Context, EvalFlags, FieldDef, JS_SetUncatchableError, JSResult, JSValue};
 
 use crate::{
@@ -157,42 +156,39 @@ fn std_exit(mut cc: CallContext) -> JSResult {
     // std::process::exit(n);
 }
 
-static MOD_STD_ENTRIES: Lazy<Box<[FieldDef]>> = Lazy::new(|| {
-    let lst = vec![
-        FieldDef::CALL("open", 2, js_std_open, 0),
-        FieldDef::CALL("puts", 1, js_file_puts, 0), // stdout
-        FieldDef::CALL("evalScript", 1, js_evalScript, 0),
-        FieldDef::CALL("gc", 0, js_gc, 0),
-        FieldDef::CALL("exit", 1, std_exit, 0),
-        FieldDef::BUILD(
-            "in",
-            |cx| {
-                let obj = JSFile::new_instance_stdin(cx)?;
-                Ok(JSValue::Object(obj))
-            },
-            0,
-        ),
-        FieldDef::BUILD(
-            "out",
-            |cx| {
-                let obj = JSFile::new_instance_stdout(cx)?;
-                Ok(JSValue::Object(obj))
-            },
-            0,
-        ),
-        FieldDef::BUILD(
-            "err",
-            |cx| {
-                let obj = JSFile::new_instance_stderr(cx)?;
-                Ok(JSValue::Object(obj))
-            },
-            0,
-        ),
-    ];
-    lst.into()
-});
+const MOD_STD_ENTRIES: &[FieldDef] = &[
+    FieldDef::CALL("open", 2, js_std_open, 0),
+    FieldDef::CALL("puts", 1, js_file_puts, 0), // stdout
+    FieldDef::CALL("evalScript", 1, js_evalScript, 0),
+    FieldDef::CALL("gc", 0, js_gc, 0),
+    FieldDef::CALL("exit", 1, std_exit, 0),
+    FieldDef::BUILD(
+        "in",
+        |cx| {
+            let obj = JSFile::new_instance_stdin(cx)?;
+            Ok(JSValue::Object(obj))
+        },
+        0,
+    ),
+    FieldDef::BUILD(
+        "out",
+        |cx| {
+            let obj = JSFile::new_instance_stdout(cx)?;
+            Ok(JSValue::Object(obj))
+        },
+        0,
+    ),
+    FieldDef::BUILD(
+        "err",
+        |cx| {
+            let obj = JSFile::new_instance_stderr(cx)?;
+            Ok(JSValue::Object(obj))
+        },
+        0,
+    ),
+];
 
 pub fn init_mod_std(mut ctx: Context) -> Result<(), i32> {
-    ctx.register_module("std", &MOD_STD_ENTRIES)?;
+    ctx.register_module("std", MOD_STD_ENTRIES)?;
     Ok(())
 }

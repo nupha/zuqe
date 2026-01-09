@@ -50,9 +50,9 @@ impl LazyInit {
                         .create_native_function(*handler, field.name, *length, field.magic)?
                         .into(),
                     FieldDetail::Str(s) => ctx.create_atom_string(s)?.into(),
-                    FieldDetail::Object(list) => {
+                    FieldDetail::Object(entries) => {
                         let mut obj = ctx.create_base_object()?;
-                        obj.install_field_defs(ctx, list.as_ref())?;
+                        obj.install_field_defs(ctx, entries)?;
                         obj.into()
                     }
                     _ => {

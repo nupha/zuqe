@@ -199,7 +199,7 @@ pub fn js_math_random(mut cc: CallContext) -> JSResult {
     Ok(JSValue::Float64(unsafe { u.d } - 1.0))
 }
 
-pub static js_math_funcs: [FieldDef; 44] = [
+pub const js_math_funcs: &[FieldDef] = &[
     FieldDef::CALL("min", 2, js_math_min_max, 0),
     FieldDef::CALL("max", 2, js_math_min_max, 1),
     //
@@ -272,8 +272,8 @@ pub static js_math_funcs: [FieldDef; 44] = [
     FieldDef::FLOAT64("SQRT2", std::f64::consts::SQRT_2, 0),
 ];
 
-pub static js_math_obj: [FieldDef; 1] = [FieldDef::OBJECT(
+pub const js_math_obj: &[FieldDef] = &[FieldDef::OBJECT(
     "Math",
-    &js_math_funcs,
+    js_math_funcs,
     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
 )];

@@ -76,14 +76,14 @@ fn js_json_parse(cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-static js_json_funcs: [FieldDef; 3] = [
+const js_json_funcs: &[FieldDef] = &[
     FieldDef::CALL("parse", 2, js_json_parse, 0),
     FieldDef::CALL("stringify", 3, js_json_stringify, 0),
     FieldDef::STR("[Symbol.toStringTag]", "JSON", JS_PROP_CONFIGURABLE),
 ];
 
-pub static js_json_obj: [FieldDef; 1] = [FieldDef::OBJECT(
+pub const js_json_obj: &[FieldDef] = &[FieldDef::OBJECT(
     "JSON",
-    &js_json_funcs,
+    js_json_funcs,
     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
 )];

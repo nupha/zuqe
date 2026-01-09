@@ -370,7 +370,7 @@ pub fn js_promise_withResolvers(cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub static js_promise_funcs: [FieldDef; 8] = [
+pub const js_promise_funcs: &[FieldDef] = &[
     FieldDef::CALL("resolve", 1, js_promise_resolve, 0),
     FieldDef::CALL("reject", 1, js_promise_resolve, 1),
     FieldDef::CALL("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
@@ -398,7 +398,7 @@ pub static js_promise_funcs: [FieldDef; 8] = [
 //     Err(-1)
 // }
 
-pub static js_promise_proto_funcs: [FieldDef; 4] = [
+pub const js_promise_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("then", 2, js_promise_then, 0),
     FieldDef::CALL("catch", 1, js_promise_catch, 0),
     FieldDef::CALL("finally", 1, js_promise_finally, 0),

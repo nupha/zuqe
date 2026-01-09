@@ -14,6 +14,24 @@ use crate::{
     value::JSValue,
 };
 
+pub fn js_number_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+    let val = if cc.length() == 0 {
+        JSValue::Int(0)
+    } else {
+        cc.arg(0).to_numeric(ctx)?
+    };
+
+    let new_target = *cc.this();
+    if !new_target.is_undefined() {
+        ctx.create_object_from_ctor(new_target, ObjectPayload::NUMBER(val))
+            .map(JSValue::Object)
+            .map_err(|_| -1)
+    } else {
+        Ok(val)
+    }
+}
+
 fn js_thisNumberValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
     if this_val.is_number() {
         Ok(this_val)
@@ -211,7 +229,7 @@ fn js_number_toFixed(cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub static js_number_proto_funcs: [FieldDef; 6] = [
+pub const js_number_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("toFixed", 1, js_number_toFixed, 0),
     FieldDef::CALL("toPrecision", 1, js_number_toPrecision, 0),
     FieldDef::CALL("toExponential", 1, js_number_toExponential, 0),
@@ -243,7 +261,7 @@ fn js_number_isSafeInteger(cc: CallContext) -> JSResult {
     Ok(is_safe_integer(d).into())
 }
 
-pub static js_number_funcs: [FieldDef; 14] = [
+pub const js_number_funcs: &[FieldDef] = &[
     // global ParseInt and parseFloat should be defined already or delayed
     FieldDef::ALIAS_BASE("parseInt", "parseInt", 0),
     FieldDef::ALIAS_BASE("parseFloat", "parseFloat", 0),
@@ -265,21 +283,3 @@ pub static js_number_funcs: [FieldDef; 14] = [
     FieldDef::FLOAT64("MAX_SAFE_INTEGER", 9007199254740991.0, 0), /* ES6 */
     FieldDef::FLOAT64("MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
 ];
-
-pub fn js_number_constructor(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let val = if cc.length() == 0 {
-        JSValue::Int(0)
-    } else {
-        cc.arg(0).to_numeric(ctx)?
-    };
-
-    let new_target = *cc.this();
-    if !new_target.is_undefined() {
-        ctx.create_object_from_ctor(new_target, ObjectPayload::NUMBER(val))
-            .map(JSValue::Object)
-            .map_err(|_| -1)
-    } else {
-        Ok(val)
-    }
-}

@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_WEAKSET,
     class::ClassID,
     context::{Context, ContextImpl},
-    object::{ObjectImpl, ObjectPayload, Object},
+    object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     utils::hash_usize,
     value::JSValue,
@@ -198,13 +198,8 @@ impl JSMapState {
             lst.iter().find_map(|i| match self.slots.get(*i) {
                 Some(MapPair::Weak { key: k, value }) => {
                     if let Some(o) = key.as_object() {
-                        k.upgrade(o.rt().gc_heap()).and_then(|k| {
-                            if Object(k) == *o {
-                                Some(*value)
-                            } else {
-                                None
-                            }
-                        })
+                        k.upgrade(o.rt().gc_heap())
+                            .and_then(|k| if Object(k) == *o { Some(*value) } else { None })
                     } else {
                         None
                     }
@@ -352,29 +347,29 @@ impl MapSet {
         match class_id {
             JS_CLASS_MAP => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_field_defs(&ctx, &js_map_proto_funcs)?;
+                obj.install_field_defs(&ctx, js_map_proto_funcs)?;
 
                 let mut ctor = ctx
                     .create_global_constructor_only("Map", js_map_constructor, 0, obj.into(), 0)
                     .unwrap();
-                ctor.install_field_defs(&ctx, &js_map_funcs).unwrap();
+                ctor.install_field_defs(&ctx, js_map_funcs).unwrap();
 
                 Ok(Some(obj))
             }
             JS_CLASS_SET => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_field_defs(&ctx, &js_set_proto_funcs)?;
+                obj.install_field_defs(&ctx, js_set_proto_funcs)?;
 
                 let mut ctor = ctx
                     .create_global_constructor_only("Set", js_map_constructor, 0, obj.into(), 1)
                     .unwrap();
-                ctor.install_field_defs(&ctx, &js_set_funcs)?;
+                ctor.install_field_defs(&ctx, js_set_funcs)?;
 
                 Ok(Some(obj))
             }
             JS_CLASS_WEAKMAP => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_field_defs(&ctx, &js_weakmap_proto_funcs)?;
+                obj.install_field_defs(&ctx, js_weakmap_proto_funcs)?;
 
                 ctx.create_global_constructor_only(
                     "WeakMap",
@@ -388,7 +383,7 @@ impl MapSet {
             }
             JS_CLASS_WEAKSET => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_field_defs(&ctx, &js_weakset_proto_funcs)?;
+                obj.install_field_defs(&ctx, js_weakset_proto_funcs)?;
 
                 ctx.create_global_constructor_only(
                     "WeakSet",
@@ -402,12 +397,12 @@ impl MapSet {
             }
             JS_CLASS_MAP_ITERATOR => {
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                proto.install_field_defs(&ctx, &js_map_iterator_proto_funcs)?;
+                proto.install_field_defs(&ctx, js_map_iterator_proto_funcs)?;
                 Ok(Some(proto))
             }
             JS_CLASS_SET_ITERATOR => {
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                proto.install_field_defs(&ctx, &js_set_iterator_proto_funcs)?;
+                proto.install_field_defs(&ctx, js_set_iterator_proto_funcs)?;
                 Ok(Some(proto))
             }
             _ => {

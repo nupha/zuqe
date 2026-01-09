@@ -117,7 +117,7 @@ fn js_array_buffer_slice(cc: CallContext) -> JSResult {
     }
 }
 
-pub static js_array_buffer_proto_funcs: [FieldDef; 4] = [
+pub const js_array_buffer_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET(
         "byteLength",
         Some(js_array_buffer_get_byteLength),
@@ -134,7 +134,7 @@ pub static js_array_buffer_proto_funcs: [FieldDef; 4] = [
     FieldDef::STR("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE),
 ];
 
-pub static js_shared_array_buffer_proto_funcs: [FieldDef; 3] = [
+pub const js_shared_array_buffer_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET(
         "byteLength",
         Some(js_array_buffer_get_byteLength),
@@ -169,12 +169,12 @@ fn js_array_buffer_isView(cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(res))
 }
 
-pub static js_array_buffer_funcs: [FieldDef; 2] = [
+pub const js_array_buffer_funcs: &[FieldDef] = &[
     FieldDef::CALL("isView", 1, js_array_buffer_isView, 0),
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
-pub static js_shared_array_buffer_funcs: [FieldDef; 1] = [FieldDef::GETSET(
+pub const js_shared_array_buffer_funcs: &[FieldDef] = &[FieldDef::GETSET(
     "[Symbol.species]",
     Some(js_get_this),
     None,

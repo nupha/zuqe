@@ -162,8 +162,7 @@ fn js_global_decodeURI(cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(buf).map(|s| s.into())
 }
 
-// global objects
-pub static js_global_props: [FieldDef; 9] = [
+pub const js_global_props: &[FieldDef] = &[
     FieldDef::CALL("parseInt", 2, js_parseInt, 0),
     FieldDef::CALL("parseFloat", 1, js_parseFloat, 0),
     FieldDef::CALL("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),

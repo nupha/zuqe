@@ -12,9 +12,9 @@ use gc_lite::{GcRef, GcTracable, GcWeak};
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
     atom::Atom,
-    builtins::{array::ArrayPayload, promise::Job},
+    builtins::{array::ArrayPayload, error::js_error_proto_funcs, promise::Job},
     class::ClassID,
-    error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
+    error::{STD_ERROR_COUNT, STD_ERROR_NAMES},
     eval::EvalFn,
     function::{Callback, js_function_proto},
     gcref_wrapper,
@@ -351,7 +351,7 @@ impl ContextPtr {
         {
             let mut error = self.create_base_object()?;
             error
-                .install_field_defs(self, &js_error_proto_funcs)
+                .install_field_defs(self, js_error_proto_funcs)
                 .unwrap();
             self.class_proto[JS_CLASS_ERROR as usize] = error.into();
 

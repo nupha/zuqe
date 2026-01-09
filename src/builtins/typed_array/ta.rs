@@ -13,7 +13,7 @@ use crate::{
     context::{Context, ContextImpl},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::Callback,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, Object},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     runtime::RuntimeImpl,
     value::JSValue,
@@ -188,7 +188,7 @@ impl TypedArray {
         ));
 
         let mut proto = ctx.create_base_object().unwrap();
-        proto.install_field_defs(&ctx, &js_typed_array_base_proto_funcs)?;
+        proto.install_field_defs(&ctx, js_typed_array_base_proto_funcs)?;
 
         // TypedArray.prototype.toString must be the same object as Array.prototype.toString
         let to_string = ctx
@@ -211,7 +211,7 @@ impl TypedArray {
             0,
         )?;
         typed_array_base_func
-            .install_field_defs(&ctx, &js_typed_array_base_funcs)
+            .install_field_defs(&ctx, js_typed_array_base_funcs)
             .unwrap();
 
         ctx.bind_ctor_proto(typed_array_base_func.into(), proto.into())

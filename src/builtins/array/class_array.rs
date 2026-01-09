@@ -1410,7 +1410,7 @@ fn JS_FlattenIntoArray(
     Ok(target_index)
 }
 
-pub static js_array_proto_funcs: [FieldDef; 39] = [
+pub const js_array_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("at", 1, js_array_at, 0),
     FieldDef::CALL("with", 2, js_array_with, 0),
     FieldDef::CALL("concat", 1, js_array_concat, 0),
@@ -1477,7 +1477,7 @@ pub static js_array_proto_funcs: [FieldDef; 39] = [
     ),
 ];
 
-pub static js_array_iterator_proto_funcs: [FieldDef; 2] = [
+pub const js_array_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 0, js_array_iterator_next, 0),
     FieldDef::STR(
         "[Symbol.toStringTag]",
@@ -1581,7 +1581,7 @@ fn js_array_isArray(cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(cc.arg(0).is_array(cc.ctx())?))
 }
 
-pub static js_array_funcs: [FieldDef; 4] = [
+pub const js_array_funcs: &[FieldDef] = &[
     FieldDef::CALL("isArray", 1, js_array_isArray, 0),
     FieldDef::CALL("from", 1, js_array_from, 0),
     FieldDef::CALL("of", 0, js_array_of, 0),

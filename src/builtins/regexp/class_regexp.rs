@@ -9,8 +9,8 @@ use crate::{
     error::JSResult,
     function::{CallContext, Callback, FieldDef, JS_CallConstructor, js_function_apply},
     object::{
-        JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, ObjectPayload,
-        Object,
+        JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, Object,
+        ObjectPayload,
     },
     string::{CharCode, CharCodeDecoder, JS_ConcatString3, StringBuf, StringData, StringRef},
     value::JSValue,
@@ -863,7 +863,7 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
     Ok(arr.into())
 }
 
-pub static js_regexp_proto_funcs: [FieldDef; 19] = [
+pub const js_regexp_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("flags", Some(js_regexp_get_flags), None, 0),
     FieldDef::GETSET("source", Some(js_regexp_get_source), None, 0),
     FieldDef::GETSET(
@@ -923,15 +923,14 @@ pub static js_regexp_proto_funcs: [FieldDef; 19] = [
     FieldDef::CALL("[Symbol.matchAll]", 1, js_regexp_Symbol_matchAll, 0),
     FieldDef::CALL("[Symbol.search]", 1, js_regexp_Symbol_search, 0),
     FieldDef::CALL("[Symbol.split]", 2, js_regexp_Symbol_split, 0),
-    //JS_CGETSET_DEF("__source", js_regexp_get___source, NULL ),
-    //JS_CGETSET_DEF("__flags", js_regexp_get___flags, NULL ),
 ];
 
-pub static js_regexp_funcs: [FieldDef; 1] = [
-    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
-    //JS_CFUNC_DEF("__RegExpExec", 2, js_regexp___RegExpExec ),
-    //JS_CFUNC_DEF("__RegExpDelete", 2, js_regexp___RegExpDelete ),
-];
+pub const js_regexp_funcs: &[FieldDef] = &[FieldDef::GETSET(
+    "[Symbol.species]",
+    Some(js_get_this),
+    None,
+    0,
+)];
 
 /// Invoke regexp.exec() method or run js_regexp_exec().
 /// result must be object or null.

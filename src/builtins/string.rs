@@ -1043,7 +1043,7 @@ fn js_string_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResu
     }
 }
 
-pub static js_string_iterator_proto_funcs: [FieldDef; 2] = [
+pub const js_string_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 0, js_string_iterator_next, 0),
     FieldDef::STR(
         "[Symbol.toStringTag]",
@@ -1143,7 +1143,7 @@ fn js_string_raw(cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-pub static js_string_funcs: [FieldDef; 3] = [
+pub const js_string_funcs: &[FieldDef] = &[
     FieldDef::CALL("fromCharCode", 1, js_string_fromCharCode, 0),
     FieldDef::CALL("fromCodePoint", 1, js_string_fromCodePoint, 0),
     FieldDef::CALL("raw", 1, js_string_raw, 0),

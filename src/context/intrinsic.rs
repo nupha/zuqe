@@ -36,13 +36,13 @@ use crate::{
 impl ContextPtr {
     pub(super) fn intrinsic_base_object(mut self) {
         let mut obj = self.class_proto(JS_CLASS_OBJECT).unwrap();
-        obj.install_field_defs(&self, &js_object_proto_funcs)
+        obj.install_field_defs(&self, js_object_proto_funcs)
             .unwrap();
 
         let mut ctor = self
             .create_global_constructor_or_func("Object", js_object_constructor, 1, obj.into(), 0)
             .unwrap();
-        ctor.install_field_defs(&self, &js_object_funcs).unwrap();
+        ctor.install_field_defs(&self, js_object_funcs).unwrap();
     }
 
     pub(super) fn intrinsic_base_function(mut self) {
@@ -172,7 +172,7 @@ impl ContextPtr {
     pub(super) fn intrinsic_base_array(mut self) {
         self.class_proto(JS_CLASS_ARRAY)
             .unwrap()
-            .install_field_defs(&self, &js_array_proto_funcs)
+            .install_field_defs(&self, js_array_proto_funcs)
             .unwrap();
 
         let array_proto = self.class_proto(JS_CLASS_ARRAY).unwrap();
@@ -186,7 +186,7 @@ impl ContextPtr {
             )
             .unwrap();
         array_ctor
-            .install_field_defs(&self, &js_array_funcs)
+            .install_field_defs(&self, js_array_funcs)
             .unwrap();
         self.array_ctor = array_ctor;
 
@@ -231,7 +231,7 @@ impl ContextPtr {
             .create_base_object_with_proto(Some(iter_proto))
             .unwrap();
         array_iter
-            .install_field_defs(&self, &js_array_iterator_proto_funcs)
+            .install_field_defs(&self, js_array_iterator_proto_funcs)
             .unwrap();
 
         let array_values = self
@@ -251,7 +251,7 @@ impl ContextPtr {
                 ObjectPayload::NUMBER(JSValue::Int(0)),
             )
             .unwrap();
-        obj.install_field_defs(&self, &js_number_proto_funcs)
+        obj.install_field_defs(&self, js_number_proto_funcs)
             .unwrap();
 
         let proto: JSValue = obj.into();
@@ -259,7 +259,7 @@ impl ContextPtr {
         let mut ctor = self
             .create_global_constructor_or_func("Number", js_number_constructor, 1, proto, 0)
             .unwrap();
-        ctor.install_field_defs(&self, &js_number_funcs).unwrap();
+        ctor.install_field_defs(&self, js_number_funcs).unwrap();
 
         self.class_proto[JS_CLASS_NUMBER as usize] = proto;
     }
@@ -273,7 +273,7 @@ impl ContextPtr {
             .unwrap();
 
         bool_obj
-            .install_field_defs(&self, &js_boolean_proto_funcs)
+            .install_field_defs(&self, js_boolean_proto_funcs)
             .unwrap();
 
         self.create_global_constructor_or_func(
@@ -299,7 +299,7 @@ impl ContextPtr {
                 )
                 .unwrap();
 
-            o.install_field_defs(&self, &js_string_proto_funcs).unwrap();
+            o.install_field_defs(&self, js_string_proto_funcs).unwrap();
             o.into()
         };
 
@@ -307,7 +307,7 @@ impl ContextPtr {
             .create_global_constructor_or_func("String", js_string_constructor, 1, string_obj, 0)
             .unwrap();
         string_ctor
-            .install_field_defs(&self, &js_string_funcs)
+            .install_field_defs(&self, js_string_funcs)
             .unwrap();
 
         let iter_proto = self.iterator_proto().unwrap();
@@ -315,7 +315,7 @@ impl ContextPtr {
             .create_base_object_with_proto(Some(iter_proto))
             .unwrap();
         string_iter
-            .install_field_defs(&self, &js_string_iterator_proto_funcs)
+            .install_field_defs(&self, js_string_iterator_proto_funcs)
             .unwrap();
 
         self.class_proto[JS_CLASS_STRING as usize] = string_obj;
@@ -324,13 +324,13 @@ impl ContextPtr {
 
     pub(super) fn intrinsic_base_symbol(mut self) {
         let mut obj = self.create_base_object().unwrap();
-        obj.install_field_defs(&self, &js_symbol_proto_funcs)
+        obj.install_field_defs(&self, js_symbol_proto_funcs)
             .unwrap();
 
         let mut ctor = self
             .create_global_constructor_or_func("Symbol", js_symbol_constructor, 0, obj.into(), 0)
             .unwrap();
-        ctor.install_field_defs(&self, &js_symbol_funcs).unwrap();
+        ctor.install_field_defs(&self, js_symbol_funcs).unwrap();
 
         // pre-define builtin Symbol_XXX
         for i in ATOM_CONST_SYMBOL_RANGE {
@@ -351,7 +351,7 @@ impl ContextPtr {
         let mut obj = self
             .create_base_object_with_proto(Some(iter_proto))
             .unwrap();
-        obj.install_field_defs(&self, &js_generator_proto_funcs)
+        obj.install_field_defs(&self, js_generator_proto_funcs)
             .unwrap();
         let proto: JSValue = obj.into();
         self.class_proto[JS_CLASS_GENERATOR as usize] = proto;
@@ -361,7 +361,7 @@ impl ContextPtr {
             .create_base_object_with_proto(Some(self.function_proto()))
             .unwrap();
         generator_function
-            .install_field_defs(&self, &js_generator_function_proto_funcs)
+            .install_field_defs(&self, js_generator_function_proto_funcs)
             .unwrap();
         let generator_function_proto: JSValue = generator_function.into();
         self.class_proto[JS_CLASS_GENERATOR_FUNCTION as usize] = generator_function_proto;

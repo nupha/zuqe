@@ -55,7 +55,7 @@ fn js_boolean_valueOf(cc: CallContext) -> JSResult {
     js_thisBooleanValue(cc.ctx(), *cc.this())
 }
 
-pub static js_boolean_proto_funcs: [FieldDef; 2] = [
+pub const js_boolean_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("toString", 0, js_boolean_toString, 0),
     FieldDef::CALL("valueOf", 0, js_boolean_valueOf, 0),
 ];

@@ -150,7 +150,7 @@ impl ContextImpl {
             o
         } else {
             let mut obj = self.create_base_object()?;
-            obj.install_field_defs(self, &js_iterator_proto_funcs)?;
+            obj.install_field_defs(self, js_iterator_proto_funcs)?;
             self.iterator_proto.replace(obj);
             obj
         };

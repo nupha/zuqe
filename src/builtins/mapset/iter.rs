@@ -6,7 +6,7 @@ use crate::{
     class::ClassID,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
-    object::{JS_PROP_CONFIGURABLE, ObjectImpl, Object},
+    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl},
     object_cast,
     value::JSValue,
 };
@@ -115,12 +115,12 @@ fn js_map_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult 
     }
 }
 
-pub static js_map_iterator_proto_funcs: [FieldDef; 2] = [
+pub const js_map_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 0, js_map_iterator_next, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Map Iterator", JS_PROP_CONFIGURABLE),
 ];
 
-pub static js_set_iterator_proto_funcs: [FieldDef; 2] = [
+pub const js_set_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 0, js_map_iterator_next, 1),
     FieldDef::STR("[Symbol.toStringTag]", "Set Iterator", JS_PROP_CONFIGURABLE),
 ];

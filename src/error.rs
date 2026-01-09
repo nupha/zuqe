@@ -5,7 +5,7 @@ use crate::{
     atom::Atom,
     class::ClassID,
     context::ContextImpl,
-    function::{Bytecode, CallContext, FieldDef, get_func_name},
+    function::{Bytecode, get_func_name},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectPayload,
     },
@@ -413,46 +413,3 @@ pub fn JS_SetUncatchableError(error_val: JSValue, is_uncatchable: bool) {
         o.set_flag_uncatchable_error(is_uncatchable);
     }
 }
-
-pub fn js_error_toString(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-
-    if !cc.this().is_object() {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
-    }
-
-    let name = cc.this().get_property(ctx, Atom::CONST_name)?;
-    let name = if name.is_undefined() {
-        Atom::CONST_Error.force_string(ctx)?
-    } else {
-        name.to_string(ctx)?
-    };
-
-    let message = cc.this().get_property(ctx, Atom::CONST_message)?;
-    let message = if message.is_undefined() {
-        Atom::CONST_empty_string.force_string(ctx)?
-    } else {
-        message.to_string(ctx)?
-    };
-
-    let txt: Cow<'_, str> = match (name.is_empty(), message.is_empty()) {
-        (false, false) => format!(
-            "{}: {}",
-            name.encode_utf8(false),
-            message.encode_utf8(false)
-        )
-        .into(),
-        (false, true) => name.encode_utf8(false),
-        (true, false) => message.encode_utf8(false),
-        (true, true) => "".into(),
-    };
-
-    cc.ctx().create_string_from_str(&txt).map(JSValue::String)
-}
-
-pub static js_error_proto_funcs: [FieldDef; 3] = [
-    FieldDef::CALL("toString", 0, js_error_toString, 0),
-    FieldDef::STR("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
-    FieldDef::STR("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
-];

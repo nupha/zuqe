@@ -42,7 +42,7 @@ impl AsyncFromSyncIterator {
     pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let aiter_proto = ctx.async_iterator_proto()?;
         let mut proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
-        proto.install_field_defs(&ctx, &js_async_from_sync_iterator_proto_funcs)?;
+        proto.install_field_defs(&ctx, js_async_from_sync_iterator_proto_funcs)?;
         Ok(Some(proto))
     }
 }
@@ -56,7 +56,7 @@ impl ContextImpl {
             Ok(o)
         } else {
             let mut o = self.create_base_object()?;
-            o.install_field_defs(self, &js_async_iterator_proto_funcs)?;
+            o.install_field_defs(self, js_async_iterator_proto_funcs)?;
             self.async_iterator_proto.replace(o);
             Ok(o)
         }
@@ -206,7 +206,7 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
     }
 }
 
-pub static js_async_from_sync_iterator_proto_funcs: [FieldDef; 3] = [
+pub const js_async_from_sync_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL(
         "next",
         1,

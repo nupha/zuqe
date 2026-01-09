@@ -188,17 +188,13 @@ fn js_file_close(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-static CLASS_FILE_PROTO: once_cell::sync::Lazy<Box<[FieldDef]>> =
-    once_cell::sync::Lazy::new(|| {
-        let lst = vec![
-            FieldDef::CALL("fileno", 0, js_file_fileno, 0),
-            FieldDef::CALL("readAsString", 0, js_file_readAsString, 0),
-            FieldDef::CALL("puts", 1, js_file_puts, 1),
-            FieldDef::CALL("flush", 0, js_file_flush, 0),
-            FieldDef::CALL("close", 0, js_file_close, 0),
-        ];
-        lst.into()
-    });
+const CLASS_FILE_PROTO: &[FieldDef] = &[
+    FieldDef::CALL("fileno", 0, js_file_fileno, 0),
+    FieldDef::CALL("readAsString", 0, js_file_readAsString, 0),
+    FieldDef::CALL("puts", 1, js_file_puts, 1),
+    FieldDef::CALL("flush", 0, js_file_flush, 0),
+    FieldDef::CALL("close", 0, js_file_close, 0),
+];
 
 pub struct JSFile;
 
@@ -213,7 +209,7 @@ impl JSFile {
 
     fn init(ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = ctx.create_base_object()?;
-        proto.install_field_defs(&ctx, &CLASS_FILE_PROTO)?;
+        proto.install_field_defs(&ctx, CLASS_FILE_PROTO)?;
         Ok(Some(proto))
     }
     fn fini(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {

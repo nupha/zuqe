@@ -275,7 +275,7 @@ fn js_dataview_getter(cc: CallContext) -> JSResult {
     }
 }
 
-pub static js_dataview_proto_funcs: [FieldDef; 20] = [
+pub const js_dataview_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("buffer", Some(js_dataview_getter), None, TA_GET_BUFFER as _),
     FieldDef::GETSET(
         "byteLength",

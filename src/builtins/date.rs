@@ -12,7 +12,7 @@ use crate::{
     context::{Context, ContextImpl},
     error::JSResult,
     function::{CallContext, FieldDef},
-    object::{ObjectPayload, Object},
+    object::{Object, ObjectPayload},
     string::{CharCode, StringBuf, StringRef},
     value::{HINT_FORCE_ORDINARY, HINT_NONE, HINT_NUMBER, HINT_STRING, JSValue},
 };
@@ -683,11 +683,11 @@ impl Datetime {
 
     pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut obj = ctx.create_base_object()?;
-        obj.install_field_defs(&ctx, &js_date_proto_funcs).unwrap();
+        obj.install_field_defs(&ctx, js_date_proto_funcs).unwrap();
 
         let mut ctor =
             ctx.create_global_constructor_or_func("Date", js_date_constructor, 7, obj.into(), 0)?;
-        ctor.install_field_defs(&ctx, &js_date_funcs)?;
+        ctor.install_field_defs(&ctx, js_date_funcs)?;
 
         //self.0.borrow_mut().class_proto[JS_CLASS_DATE as usize] = obj;
         Ok(Some(obj))
@@ -1051,7 +1051,7 @@ fn js_date_toJSON(cc: CallContext) -> JSResult {
     }
 }
 
-pub static js_date_proto_funcs: [FieldDef; 47] = [
+pub const js_date_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("valueOf", 0, js_date_getTime, 0),
     FieldDef::CALL("toString", 0, get_date_string, 0x13),
     FieldDef::CALL("[Symbol.toPrimitive]", 1, js_date_Symbol_toPrimitive, 0),
@@ -1133,7 +1133,7 @@ fn js_Date_UTC(cc: CallContext) -> JSResult {
     Ok(dt.into())
 }
 
-pub static js_date_funcs: [FieldDef; 3] = [
+pub const js_date_funcs: &[FieldDef] = &[
     FieldDef::CALL("now", 0, js_Date_now, 0),
     FieldDef::CALL("parse", 1, js_Date_parse, 0),
     FieldDef::CALL("UTC", 7, js_Date_UTC, 0),

@@ -221,7 +221,7 @@ fn js_typed_array_of(cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub static js_typed_array_base_funcs: [FieldDef; 3] = [
+pub const js_typed_array_base_funcs: &[FieldDef] = &[
     FieldDef::CALL("from", 1, js_typed_array_from, 0),
     FieldDef::CALL("of", 0, js_typed_array_of, 0),
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
@@ -1425,7 +1425,7 @@ fn js_typed_array_indexOf(cc: CallContext) -> JSResult {
     })
 }
 
-pub static js_typed_array_base_proto_funcs: [FieldDef; 36] = [
+pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("length", Some(js_typed_array_get_length), None, 0),
     FieldDef::CALL("at", 1, js_typed_array_at, 0),
     FieldDef::CALL("with", 2, js_typed_array_with, 0),

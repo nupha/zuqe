@@ -210,7 +210,7 @@ impl Proxy {
             ctx.create_native_function(Callback::Constructor(js_proxy_constructor), "Proxy", 2, 0)?;
 
         proto.set_flag_constructor(true);
-        proto.install_field_defs(&ctx, &js_proxy_funcs).unwrap();
+        proto.install_field_defs(&ctx, js_proxy_funcs).unwrap();
 
         ctx.global_obj().define_property_value_str(
             &ctx,
