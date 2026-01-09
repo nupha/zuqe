@@ -317,9 +317,11 @@ impl ContextImpl {
                                 // result = Err(ErrorText::from(self, p.result()));
                             }
                             PromiseState::Pending => {
-                                self.throw_type_error("Promise is pending");
-                                let exc = rt.take_exception();
-                                result = Err(ErrorText::from(self, exc));
+                                #[cfg(debug_assertions)]
+                                eprintln!("warn: has pending Promise when exit");
+                                // self.throw_type_error("Promise is pending");
+                                // let exc = rt.take_exception();
+                                // result = Err(ErrorText::from(self, exc));
                             }
                         }
                     }
