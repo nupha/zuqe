@@ -683,11 +683,11 @@ impl Datetime {
 
     pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut obj = ctx.create_base_object()?;
-        obj.install_field_defs(&ctx, js_date_proto_funcs).unwrap();
+        obj.install_fields(&ctx, js_date_proto_funcs).unwrap();
 
         let mut ctor =
             ctx.create_global_constructor_or_func("Date", js_date_constructor, 7, obj.into(), 0)?;
-        ctor.install_field_defs(&ctx, js_date_funcs)?;
+        ctor.install_fields(&ctx, js_date_funcs)?;
 
         //self.0.borrow_mut().class_proto[JS_CLASS_DATE as usize] = obj;
         Ok(Some(obj))

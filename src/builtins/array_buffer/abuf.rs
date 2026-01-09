@@ -187,7 +187,7 @@ impl ArrayBuffer {
             JS_CLASS_ARRAY_BUFFER => {
                 // ArrayBuffer
                 let mut proto = ctx.create_base_object()?;
-                proto.install_field_defs(&ctx, js_array_buffer_proto_funcs)?;
+                proto.install_fields(&ctx, js_array_buffer_proto_funcs)?;
 
                 let mut ab_func = ctx.create_global_constructor_only(
                     "ArrayBuffer",
@@ -196,14 +196,14 @@ impl ArrayBuffer {
                     proto.into(),
                     0,
                 )?;
-                ab_func.install_field_defs(&ctx, js_array_buffer_funcs)?;
+                ab_func.install_fields(&ctx, js_array_buffer_funcs)?;
 
                 Ok(Some(proto))
             }
             JS_CLASS_SHARED_ARRAY_BUFFER => {
                 // SharedArrayBuffer
                 let mut proto = ctx.create_base_object()?;
-                proto.install_field_defs(&ctx, js_shared_array_buffer_proto_funcs)?;
+                proto.install_fields(&ctx, js_shared_array_buffer_proto_funcs)?;
 
                 let mut sab_func = ctx.create_global_constructor_only(
                     "SharedArrayBuffer",
@@ -212,7 +212,7 @@ impl ArrayBuffer {
                     proto.into(),
                     0,
                 )?;
-                sab_func.install_field_defs(&ctx, js_shared_array_buffer_funcs)?;
+                sab_func.install_fields(&ctx, js_shared_array_buffer_funcs)?;
 
                 Ok(Some(proto))
             }

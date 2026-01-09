@@ -306,7 +306,7 @@ impl Promise {
 
     pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = ctx.create_base_object()?;
-        proto.install_field_defs(&ctx, js_promise_proto_funcs)?;
+        proto.install_fields(&ctx, js_promise_proto_funcs)?;
 
         let mut ctor: JSValue = ctx
             .create_native_function(
@@ -316,7 +316,7 @@ impl Promise {
                 0,
             )?
             .into();
-        ctor.install_field_defs(&ctx, js_promise_funcs)?;
+        ctor.install_fields(&ctx, js_promise_funcs)?;
         ctx.bind_ctor_proto(ctor, proto.into())?;
 
         ctx.global_obj()

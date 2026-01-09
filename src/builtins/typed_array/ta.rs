@@ -188,7 +188,7 @@ impl TypedArray {
         ));
 
         let mut proto = ctx.create_base_object().unwrap();
-        proto.install_field_defs(&ctx, js_typed_array_base_proto_funcs)?;
+        proto.install_fields(&ctx, js_typed_array_base_proto_funcs)?;
 
         // TypedArray.prototype.toString must be the same object as Array.prototype.toString
         let to_string = ctx
@@ -211,7 +211,7 @@ impl TypedArray {
             0,
         )?;
         typed_array_base_func
-            .install_field_defs(&ctx, js_typed_array_base_funcs)
+            .install_fields(&ctx, js_typed_array_base_funcs)
             .unwrap();
 
         ctx.bind_ctor_proto(typed_array_base_func.into(), proto.into())

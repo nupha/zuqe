@@ -406,7 +406,7 @@ impl AsyncGeneratorFunction {
         let aiter_proto = ctx.async_iterator_proto()?;
         let agen_proto: JSValue = {
             let mut o = ctx.create_base_object_with_proto(Some(aiter_proto))?;
-            o.install_field_defs(&ctx, js_async_generator_proto_funcs)?;
+            o.install_fields(&ctx, js_async_generator_proto_funcs)?;
             o.into()
         };
 
@@ -414,7 +414,7 @@ impl AsyncGeneratorFunction {
 
         // AsyncGeneratorFunction
         let mut o = ctx.create_base_object_with_proto(Some(func_proto))?;
-        o.install_field_defs(&ctx, js_async_generator_function_proto_funcs)?;
+        o.install_fields(&ctx, js_async_generator_function_proto_funcs)?;
         let agen_func: JSValue = o.into();
 
         ctx.bind_ctor_proto_ex(

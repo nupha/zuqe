@@ -3,12 +3,9 @@ use std::{cell::Cell, ffi::c_void, ptr::NonNull};
 use gc_lite::GcTracable;
 
 use crate::{
-    USER_CLASS_ID_START,
+    ClassDef, USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
-    class::{
-        ClassCallFn, ClassFinalizeFn, ClassID, ClassInitializeFn, FreeObjFn,
-        class_def::ClassExoticMethods,
-    },
+    class::ClassID,
     context::{ContextImpl, ContextPtr},
     object::{Object, ObjectImpl, ObjectPayload},
     runtime::RuntimeImpl,
@@ -40,63 +37,6 @@ impl OtherPayload {
     #[inline(always)]
     pub const unsafe fn replace_opaque(&mut self, opaque: *mut c_void) -> *mut c_void {
         std::mem::replace(&mut self.opaque, opaque)
-    }
-}
-
-/// user class definition
-#[derive(Default)]
-pub struct ClassDef {
-    /// class name
-    pub(crate) class_name: &'static str,
-
-    /// callback handler when called
-    pub(crate) call: Option<ClassCallFn>,
-    /// exotic property method handlers
-    pub(crate) exotic: Option<Box<ClassExoticMethods>>,
-    /// free user class instance handler
-    pub(crate) finalize_opaque: Option<FreeObjFn>,
-
-    /// initialize class proto, constructor to context
-    pub(crate) initialize: Option<ClassInitializeFn>,
-    /// class instance finalize callback
-    pub(crate) finalize: Option<ClassFinalizeFn>,
-}
-
-impl ClassDef {
-    /// create a class def
-    pub const fn new(class_name: &'static str) -> Self {
-        debug_assert!(!class_name.is_empty());
-        Self {
-            class_name,
-            call: None,
-            exotic: None,
-            finalize_opaque: None,
-
-            initialize: None,
-            finalize: Some(Self::user_class_finalize),
-        }
-    }
-
-    pub const fn initialize(mut self, f: ClassInitializeFn) -> Self {
-        self.initialize.replace(f);
-        self
-    }
-
-    /// Handler on class instance finalize to process opaque pointer.
-    /// used for of non-builtin class instance only.
-    pub const fn finalize_opaque(mut self, f: FreeObjFn) -> Self {
-        self.finalize_opaque.replace(f);
-        self
-    }
-
-    fn user_class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
-        if let Some(u) = isa.other() {
-            if let Some(f) = rt.class_registry[u.class_id as usize].free_obj {
-                f(rt, u.opaque, id)
-            }
-        } else {
-            unreachable!();
-        }
     }
 }
 

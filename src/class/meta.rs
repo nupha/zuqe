@@ -3,8 +3,8 @@ use crate::{
     atom::Atom,
     builtins::iterator::js_iterator_proto_funcs,
     class::{
-        ClassCallFn, ClassDef, ClassFinalizeFn, ClassID, ClassInitializeFn, FreeObjFn,
-        ClassExoticMethods, StdClassDef,
+        ClassCallFn, ClassDef, ClassExoticMethods, ClassFinalizeFn, ClassID, ClassInitializeFn,
+        FreeObjFn, StdClassDef,
     },
     context::ContextImpl,
     error::JSResult,
@@ -79,7 +79,7 @@ impl RuntimeImpl {
     }
 
     /// register standard class defs.
-    pub(crate) fn register_std_classes(
+    pub(crate) fn register_builtin_classes(
         &mut self,
         tab: &[StdClassDef],
         start_id: ClassID,
@@ -150,7 +150,7 @@ impl ContextImpl {
             o
         } else {
             let mut obj = self.create_base_object()?;
-            obj.install_field_defs(self, js_iterator_proto_funcs)?;
+            obj.install_fields(self, js_iterator_proto_funcs)?;
             self.iterator_proto.replace(obj);
             obj
         };

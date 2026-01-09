@@ -313,7 +313,7 @@ impl RegExp {
         match class_id {
             JS_CLASS_REGEXP => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_field_defs(&ctx, js_regexp_proto_funcs).unwrap();
+                obj.install_fields(&ctx, js_regexp_proto_funcs).unwrap();
 
                 let mut ctor = ctx.create_global_constructor_or_func(
                     "RegExp",
@@ -322,7 +322,7 @@ impl RegExp {
                     obj.into(),
                     0,
                 )?;
-                ctor.install_field_defs(&ctx, js_regexp_funcs).unwrap();
+                ctor.install_fields(&ctx, js_regexp_funcs).unwrap();
 
                 ctx.regexp_ctor = ctor;
                 Ok(Some(obj))
@@ -330,7 +330,7 @@ impl RegExp {
             JS_CLASS_REGEXP_STRING_ITERATOR => {
                 let iter_proto = ctx.iterator_proto()?;
                 let mut iter = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                iter.install_field_defs(&ctx, js_regexp_string_iterator_proto_funcs)?;
+                iter.install_fields(&ctx, js_regexp_string_iterator_proto_funcs)?;
 
                 // let mut cx = ctx.0.borrow_mut();
                 // cx.regexp_ctor = ctor;

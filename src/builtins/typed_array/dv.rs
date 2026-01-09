@@ -97,7 +97,7 @@ impl DataView {
         debug_assert_eq!(class_id, JS_CLASS_DATAVIEW);
 
         let mut dv_obj = ctx.create_base_object()?;
-        dv_obj.install_field_defs(&ctx, js_dataview_proto_funcs)?;
+        dv_obj.install_fields(&ctx, js_dataview_proto_funcs)?;
 
         let dv_ctor: JSValue = ctx
             .create_native_function(

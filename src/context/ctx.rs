@@ -351,7 +351,7 @@ impl ContextPtr {
         {
             let mut error = self.create_base_object()?;
             error
-                .install_field_defs(self, js_error_proto_funcs)
+                .install_fields(self, js_error_proto_funcs)
                 .unwrap();
             self.class_proto[JS_CLASS_ERROR as usize] = error.into();
 

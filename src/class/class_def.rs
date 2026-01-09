@@ -1,9 +1,10 @@
 use crate::{
+    RuntimeImpl,
     atom::Atom,
-    class::{ClassInitializeFn, GetPrototypeFn, SetPrototypeFn},
+    class::{ClassCallFn, ClassInitializeFn, FreeObjFn, GetPrototypeFn, SetPrototypeFn},
     context::ContextPtr,
     function::FunctionDef,
-    object::JS_PROP_NO_EXOTIC,
+    object::{JS_PROP_NO_EXOTIC, ObjectPayload},
     value::JSValue,
 };
 
@@ -12,6 +13,7 @@ use super::{
     GetOwnPropertyNamesFn, GetPropertyFn, HasPropertyFn, SetPropertyFn,
 };
 
+/// class has extends inherits
 pub(crate) const JS_DEFINE_CLASS_HAS_HERITAGE: i32 = 1 << 0;
 
 #[derive(Copy, Clone, Default)]
@@ -60,6 +62,63 @@ impl Default for ClassFieldsDef {
             need_brand: Default::default(),
             brand_push_pos: Default::default(),
             is_static: Default::default(),
+        }
+    }
+}
+
+/// user class definition
+#[derive(Default)]
+pub struct ClassDef {
+    /// class name
+    pub(crate) class_name: &'static str,
+
+    /// callback handler when called
+    pub(crate) call: Option<ClassCallFn>,
+    /// exotic property method handlers
+    pub(crate) exotic: Option<Box<ClassExoticMethods>>,
+    /// free user class instance handler
+    pub(crate) finalize_opaque: Option<FreeObjFn>,
+
+    /// initialize class proto, constructor to context
+    pub(crate) initialize: Option<ClassInitializeFn>,
+    /// class instance finalize callback
+    pub(crate) finalize: Option<ClassFinalizeFn>,
+}
+
+impl ClassDef {
+    /// create a class def
+    pub const fn new(class_name: &'static str) -> Self {
+        debug_assert!(!class_name.is_empty());
+        Self {
+            class_name,
+            call: None,
+            exotic: None,
+            finalize_opaque: None,
+
+            initialize: None,
+            finalize: Some(Self::user_class_finalize),
+        }
+    }
+
+    pub const fn initialize(mut self, f: ClassInitializeFn) -> Self {
+        self.initialize.replace(f);
+        self
+    }
+
+    /// Handler on class instance finalize to process opaque pointer.
+    /// used for of non-builtin class instance only.
+    pub const fn finalize_opaque(mut self, f: FreeObjFn) -> Self {
+        self.finalize_opaque.replace(f);
+        self
+    }
+
+    fn user_class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
+        if let Some(u) = isa.other() {
+            if let Some(f) = rt.class_registry[u.class_id as usize].free_obj {
+                f(rt, u.opaque, id)
+            }
+        } else {
+            unreachable!();
         }
     }
 }

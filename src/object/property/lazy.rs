@@ -52,7 +52,7 @@ impl LazyInit {
                     FieldDetail::Str(s) => ctx.create_atom_string(s)?.into(),
                     FieldDetail::Object(entries) => {
                         let mut obj = ctx.create_base_object()?;
-                        obj.install_field_defs(ctx, entries)?;
+                        obj.install_fields(ctx, entries)?;
                         obj.into()
                     }
                     _ => {

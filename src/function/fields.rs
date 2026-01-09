@@ -10,18 +10,6 @@ use crate::{
     value::JSValue,
 };
 
-// Property definition types
-pub const JS_DEF_CFUNC: u8 = 0;
-pub const JS_DEF_CGETSET: u8 = 1;
-pub const JS_DEF_CGETSET_MAGIC: u8 = 2;
-pub const JS_DEF_PROP_STRING: u8 = 3;
-pub const JS_DEF_PROP_INT32: u8 = 4;
-pub const JS_DEF_PROP_INT64: u8 = 5;
-pub const JS_DEF_PROP_DOUBLE: u8 = 6;
-pub const JS_DEF_PROP_UNDEFINED: u8 = 7;
-pub const JS_DEF_OBJECT: u8 = 8;
-pub const JS_DEF_ALIAS: u8 = 9;
-
 #[repr(u8)]
 #[derive(Debug, Clone)]
 pub enum FieldDetail {
@@ -233,7 +221,7 @@ impl FieldDef {
 }
 
 impl Object {
-    pub fn install_field_defs(
+    pub fn install_fields(
         &mut self,
         ctx: &ContextImpl,
         entries: &'static [FieldDef],
@@ -358,13 +346,13 @@ impl Object {
 }
 
 impl JSValue {
-    pub fn install_field_defs(
+    pub fn install_fields(
         &mut self,
         ctx: &ContextImpl,
         entries: &'static [FieldDef],
     ) -> Result<(), i32> {
         if let Self::Object(o) = self {
-            o.install_field_defs(ctx, entries)
+            o.install_fields(ctx, entries)
         } else {
             ctx.throw_type_error_not_an_object();
             Err(-1)

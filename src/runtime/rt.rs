@@ -156,7 +156,7 @@ impl RuntimeImpl {
         });
 
         // register builtin classes
-        rt.register_std_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
+        rt.register_builtin_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
 
         // setup common classes
         {

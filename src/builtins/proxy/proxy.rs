@@ -5,7 +5,7 @@ use gc_lite::{GcRef, GcTracable};
 use crate::{
     JS_CLASS_PROXY,
     atom::Atom,
-    class::{ClassID, ClassExoticMethods},
+    class::{ClassExoticMethods, ClassID},
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::{Callback, JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2},
@@ -210,7 +210,7 @@ impl Proxy {
             ctx.create_native_function(Callback::Constructor(js_proxy_constructor), "Proxy", 2, 0)?;
 
         proto.set_flag_constructor(true);
-        proto.install_field_defs(&ctx, js_proxy_funcs).unwrap();
+        proto.install_fields(&ctx, js_proxy_funcs).unwrap();
 
         ctx.global_obj().define_property_value_str(
             &ctx,

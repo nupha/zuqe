@@ -201,7 +201,7 @@ pub struct JSFile;
 impl JSFile {
     fn handle_init(ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = ctx.create_base_object()?;
-        proto.install_field_defs(&ctx, CLASS_FILE_PROTO)?;
+        proto.install_fields(&ctx, CLASS_FILE_PROTO)?;
         Ok(Some(proto))
     }
     fn handle_fini(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
