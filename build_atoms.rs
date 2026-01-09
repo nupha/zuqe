@@ -145,12 +145,12 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     //
     // atomics
     //
-    #[cfg(feature = "atomics")]
-    "not_equal",
-    #[cfg(feature = "atomics")]
-    "timed_out",
-    #[cfg(feature = "atomics")]
-    "ok",
+    // #[cfg(feature = "atomics")]
+    // "not_equal",
+    // #[cfg(feature = "atomics")]
+    // "timed_out",
+    // #[cfg(feature = "atomics")]
+    // "ok",
     //
     "toJSON",
     //

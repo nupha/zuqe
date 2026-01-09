@@ -1,3 +1,4 @@
+#[cfg(feature = "all_unicode")]
 use unicode_normalization::UnicodeNormalization;
 
 use crate::{
@@ -645,37 +646,6 @@ fn js_string_includes(cc: CallContext) -> JSResult {
     }
 }
 
-fn js_string_localeCompare(cc: CallContext) -> JSResult {
-    let cx = cc.ctx();
-
-    let a = cc.this().to_string_non_undefined_or_null(cx)?;
-    let b = cc.arg(0).to_string(cx)?;
-
-    // locale normalize
-    let mut u1 = a.content().chars_lossy().nfc();
-    let mut u2 = b.content().chars_lossy().nfc();
-
-    let cmp = loop {
-        match (u1.next(), u2.next()) {
-            (Some(c1), Some(c2)) if c1 == c2 => {
-                continue;
-            }
-            (Some(c1), Some(c2)) => {
-                break c1.cmp(&c2);
-            }
-            (None, None) => break std::cmp::Ordering::Equal,
-            (None, Some(_)) => break std::cmp::Ordering::Less,
-            (Some(_), None) => break std::cmp::Ordering::Greater,
-        }
-    };
-
-    match cmp {
-        std::cmp::Ordering::Less => Ok(JSValue::Int(-1)),
-        std::cmp::Ordering::Equal => Ok(JSValue::Int(0)),
-        std::cmp::Ordering::Greater => Ok(JSValue::Int(1)),
-    }
-}
-
 pub fn check_regexp_g_flag(ctx: &ContextImpl, regexp: &JSValue) -> i32 {
     let ret = if let Ok(b) = js_is_regexp(ctx, regexp) {
         b
@@ -865,6 +835,39 @@ fn js_string_toLowerCase(cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
+#[cfg(feature = "all_unicode")]
+fn js_string_localeCompare(cc: CallContext) -> JSResult {
+    let cx = cc.ctx();
+
+    let a = cc.this().to_string_non_undefined_or_null(cx)?;
+    let b = cc.arg(0).to_string(cx)?;
+
+    // locale normalize
+    let mut u1 = a.content().chars_lossy().nfc();
+    let mut u2 = b.content().chars_lossy().nfc();
+
+    let cmp = loop {
+        match (u1.next(), u2.next()) {
+            (Some(c1), Some(c2)) if c1 == c2 => {
+                continue;
+            }
+            (Some(c1), Some(c2)) => {
+                break c1.cmp(&c2);
+            }
+            (None, None) => break std::cmp::Ordering::Equal,
+            (None, Some(_)) => break std::cmp::Ordering::Less,
+            (Some(_), None) => break std::cmp::Ordering::Greater,
+        }
+    };
+
+    match cmp {
+        std::cmp::Ordering::Less => Ok(JSValue::Int(-1)),
+        std::cmp::Ordering::Equal => Ok(JSValue::Int(0)),
+        std::cmp::Ordering::Greater => Ok(JSValue::Int(1)),
+    }
+}
+
+#[cfg(feature = "all_unicode")]
 fn js_string_normalize(cc: CallContext) -> JSResult {
     let cx = cc.ctx();
     let val = cc.this().to_string_non_undefined_or_null(cx)?;
@@ -925,7 +928,7 @@ fn js_string__quote(cc: CallContext) -> JSResult {
     }
 }
 
-pub static js_string_proto_funcs: [FieldDef; 40] = [
+pub const js_string_proto_funcs: &[FieldDef] = &[
     FieldDef::INT32("length", 0, JS_PROP_CONFIGURABLE),
     FieldDef::CALL("charAt", 1, js_string_at, 0),
     FieldDef::CALL("at", 1, js_string_at, 1),
@@ -973,18 +976,23 @@ pub static js_string_proto_funcs: [FieldDef; 40] = [
     FieldDef::ALIAS("trimLeft", "trimStart"),
     FieldDef::CALL("toString", 0, js_string_toString, 0),
     FieldDef::CALL("valueOf", 0, js_string_toString, 0),
-    FieldDef::CALL("localeCompare", 1, js_string_localeCompare, 0),
     FieldDef::CALL("toLowerCase", 0, js_string_toLowerCase, 1),
     FieldDef::CALL("toUpperCase", 0, js_string_toLowerCase, 0),
     FieldDef::CALL("toLocaleLowerCase", 0, js_string_toLowerCase, 1),
     FieldDef::CALL("toLocaleUpperCase", 0, js_string_toLowerCase, 0),
-    FieldDef::CALL("normalize", 0, js_string_normalize, 0),
     FieldDef::CALL(
         "[Symbol.iterator]",
         0,
         js_create_array_iterator,
         (JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) | 4,
     ),
+    //
+    // all unicode
+    #[cfg(feature = "all_unicode")]
+    FieldDef::CALL("normalize", 0, js_string_normalize, 0),
+    #[cfg(feature = "all_unicode")]
+    FieldDef::CALL("localeCompare", 1, js_string_localeCompare, 0),
+    //
     // ES6 Annex B 2.3.2 etc.
     // JS_CFUNC_MAGIC_DEF("anchor", 1, js_string_CreateHTML, magic_string_anchor),
     // JS_CFUNC_MAGIC_DEF("big", 0, js_string_CreateHTML, magic_string_big),

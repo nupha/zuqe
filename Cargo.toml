@@ -8,21 +8,11 @@ license = "Apache-2.0"
 build = "build.rs"
 
 [features]
-string_intern = []
-nan_boxing = []
-all_unicode = []
-atomics = []
+all_unicode = ["unicode-xid", "unicode-normalization"]
 builtin_json = []
 dump_bytecode = []
 
-default = [
-    #"string_intern",
-    "all_unicode",
-    "atomics",
-    #"dump_bytecode",
-
-    "builtin_json",
-]
+default = ["all_unicode", "builtin_json"]
 
 [profile.release]
 overflow-checks = false
@@ -39,7 +29,7 @@ debug = false
 opt-level = 3
 strip = "symbols"
 
-# used for flamegraph
+# for flamegraph
 [profile.release-with-debug]
 inherits = "release"
 debug = true
@@ -57,8 +47,8 @@ smallvec = "1.13"
 fallible_collections = "0.5"
 gc-lite = "0.3"
 lre = "0.1"
-unicode-xid = "0.2"
-unicode-normalization = "0.1"
+unicode-xid = { version = "0.2", optional = true }
+unicode-normalization = { version = "0.1", optional = true }
 zerocopy = "0.8"
 
 [target.'cfg(unix)'.dependencies]
