@@ -30,7 +30,7 @@ pub mod builtins;
 
 pub use {
     atom::Atom,
-    class::{ClassDef, ClassID, StdClassDef},
+    class::{ClassDef, ClassID},
     context::{Context, ContextBuilder},
     error::{ErrorText, JS_SetUncatchableError, JSResult},
     eval::{EvalFlags, EvalType},

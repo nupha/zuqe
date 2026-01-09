@@ -1,10 +1,10 @@
 use std::{
+    cell::Cell,
     ffi::c_void,
     io::{Read, Write},
     os::fd::AsRawFd,
 };
 
-use once_cell::unsync::Lazy;
 use zuqe::{
     CallContext, ClassDef, ClassID, Context, FieldDef, JSResult, JSValue, Object, RuntimeImpl,
 };
@@ -199,33 +199,39 @@ const CLASS_FILE_PROTO: &[FieldDef] = &[
 pub struct JSFile;
 
 impl JSFile {
-    thread_local! {
-        static CLASS_DEF: Lazy<ClassDef> = Lazy::new(|| {
-            ClassDef::define("File")
-                .initialize(JSFile::init)
-                .finalize_opaque(JSFile::fini)
-        });
-    }
-
-    fn init(ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    fn handle_init(ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = ctx.create_base_object()?;
         proto.install_field_defs(&ctx, CLASS_FILE_PROTO)?;
         Ok(Some(proto))
     }
-    fn fini(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
+    fn handle_fini(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
         if !opaque.is_null() {
             let p = unsafe { Box::from_raw(opaque.cast::<FileDesc>()) };
             drop(p);
         }
     }
 
-    pub fn register(rt: &mut RuntimeImpl) -> Result<ClassID, i32> {
-        Self::CLASS_DEF.with(|cdef| rt.register_class_def(cdef))
+    thread_local! {
+        static CLASS_ID: Cell<ClassID> = const { Cell::new(0) };
     }
 
+    /// register class
+    pub fn register(rt: &mut RuntimeImpl) -> Result<ClassID, i32> {
+        let class_id = rt.register_class(
+            &ClassDef::new("File")
+                .initialize(Self::handle_init)
+                .finalize_opaque(Self::handle_fini),
+        )?;
+
+        // save assigned class_id
+        Self::CLASS_ID.with(|s| s.set(class_id));
+        Ok(class_id)
+    }
+
+    /// get class id
     #[inline(always)]
     pub fn class_id() -> ClassID {
-        Self::CLASS_DEF.with(|cdef| cdef.class_id())
+        Self::CLASS_ID.with(|x| x.get())
     }
 
     fn new_instance_internal(ctx: Context, fd: FileDesc) -> Result<Object, i32> {

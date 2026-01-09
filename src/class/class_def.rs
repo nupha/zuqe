@@ -1,6 +1,6 @@
 use crate::{
     atom::Atom,
-    class::{ClassID, ClassInitializeFn, FreeObjFn, GetPrototypeFn, SetPrototypeFn},
+    class::{ClassInitializeFn, GetPrototypeFn, SetPrototypeFn},
     context::ContextPtr,
     function::FunctionDef,
     object::JS_PROP_NO_EXOTIC,
@@ -8,14 +8,14 @@ use crate::{
 };
 
 use super::{
-    ClassCallFn, ClassFinalizeFn, DefineOwnPropertyFn, DeletePropertyFn, GetOwnPropertyFn,
+    ClassFinalizeFn, DefineOwnPropertyFn, DeletePropertyFn, GetOwnPropertyFn,
     GetOwnPropertyNamesFn, GetPropertyFn, HasPropertyFn, SetPropertyFn,
 };
 
 pub(crate) const JS_DEFINE_CLASS_HAS_HERITAGE: i32 = 1 << 0;
 
 #[derive(Copy, Clone, Default)]
-pub(crate) struct JSClassExoticMethods {
+pub(crate) struct ClassExoticMethods {
     pub get_own_property: Option<GetOwnPropertyFn>,
     pub get_own_property_names: Option<GetOwnPropertyNamesFn>,
     pub delete_property: Option<DeletePropertyFn>,
@@ -29,38 +29,10 @@ pub(crate) struct JSClassExoticMethods {
 }
 
 /// builtin class definition
-pub struct StdClassDef {
+pub(crate) struct StdClassDef {
     pub class_name: Atom,
     pub initialize: Option<ClassInitializeFn>,
     pub finalize: Option<ClassFinalizeFn>,
-}
-
-/// class definition
-#[derive(Default)]
-pub struct ClassDef {
-    /// class name
-    pub(crate) class_name: &'static str,
-    pub(crate) class_id: ClassID,
-
-    /// callback handler when called
-    pub(crate) call: Option<ClassCallFn>,
-    /// exotic property method handlers
-    pub(crate) exotic: Option<Box<JSClassExoticMethods>>,
-    /// free user class instance handler
-    pub(crate) finalize_opaque: Option<FreeObjFn>,
-
-    /// initialize class proto, constructor to context
-    pub(crate) initialize: Option<ClassInitializeFn>,
-    /// class instance finalize callback
-    pub(crate) finalize: Option<ClassFinalizeFn>,
-}
-
-impl ClassDef {
-    /// for non-builtin class defs only
-    #[inline(always)]
-    pub const fn class_id(&self) -> ClassID {
-        self.class_id
-    }
 }
 
 #[derive(Debug)]
@@ -124,7 +96,7 @@ fn js_arguments_define_own_property(
     )
 }
 
-pub(crate) const js_arguments_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
+pub(crate) const js_arguments_exotic_methods: ClassExoticMethods = ClassExoticMethods {
     define_own_property: Some(js_arguments_define_own_property),
     delete_property: None,
     get_own_property: None,

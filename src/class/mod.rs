@@ -2,9 +2,9 @@ mod class_def;
 mod meta;
 mod user;
 
-pub use class_def::*;
+pub use user::ClassDef;
 
-pub(crate) use {meta::*, user::*};
+pub(crate) use {class_def::*, meta::*, user::*};
 
 use std::ffi::c_void;
 

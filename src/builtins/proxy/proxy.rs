@@ -5,7 +5,7 @@ use gc_lite::{GcRef, GcTracable};
 use crate::{
     JS_CLASS_PROXY,
     atom::Atom,
-    class::{ClassID, JSClassExoticMethods},
+    class::{ClassID, ClassExoticMethods},
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::{Callback, JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2},
@@ -834,7 +834,7 @@ fn js_proxy_set_prototype(
     }
 }
 
-pub(crate) const js_proxy_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
+pub(crate) const js_proxy_exotic_methods: ClassExoticMethods = ClassExoticMethods {
     get_own_property: Some(js_proxy_get_own_property),
     define_own_property: Some(js_proxy_define_own_property),
     delete_property: Some(js_proxy_delete_property),

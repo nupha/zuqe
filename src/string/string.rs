@@ -9,7 +9,7 @@ use gc_lite::{GcRef, GcTracable};
 use crate::{
     JS_CLASS_STRING,
     atom::{Atom, AtomInfo, AtomKind, is_const_atom, is_small_int_atom},
-    class::JSClassExoticMethods,
+    class::ClassExoticMethods,
     context::{ContextImpl, ContextPtr},
     number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
     object::{
@@ -770,7 +770,7 @@ fn string_define_own_property(
     }
 }
 
-pub(crate) const js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
+pub(crate) const js_string_exotic_methods: ClassExoticMethods = ClassExoticMethods {
     get_own_property: Some(
         |ctx: ContextPtr, obj: JSValue, prop: Atom| -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method for JS_CLASS_STRING object

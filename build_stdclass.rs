@@ -556,7 +556,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
     cdefs.push("];".to_string());
 
     let lines = [
-        "use crate::{Atom, ClassID, StdClassDef};\n".to_string(),
+        "use crate::{Atom, class::{ClassID, StdClassDef}};\n".to_string(),
         consts.join("\n"),
         "".to_string(),
         cdefs.join("\n"),

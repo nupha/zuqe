@@ -4,7 +4,7 @@ use crate::{
     builtins::iterator::js_iterator_proto_funcs,
     class::{
         ClassCallFn, ClassDef, ClassFinalizeFn, ClassID, ClassInitializeFn, FreeObjFn,
-        JSClassExoticMethods, StdClassDef,
+        ClassExoticMethods, StdClassDef,
     },
     context::ContextImpl,
     error::JSResult,
@@ -24,7 +24,7 @@ pub(crate) struct ClassMeta {
     pub(crate) call: Option<ClassCallFn>,
 
     /// exotic property method handlers
-    pub(crate) exotic: Option<Box<JSClassExoticMethods>>,
+    pub(crate) exotic: Option<Box<ClassExoticMethods>>,
 
     /// handler to free instance of class
     pub(crate) free_obj: Option<FreeObjFn>,

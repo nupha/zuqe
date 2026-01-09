@@ -3,7 +3,7 @@ use gc_lite::{GcRef, GcTracable};
 use crate::{
     atom::Atom,
     builtins::promise::Promise,
-    class::JSClassExoticMethods,
+    class::ClassExoticMethods,
     context::{Context, ContextImpl, ContextPtr},
     function::{BCFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, JSVarRef},
     gcref_wrapper,
@@ -463,7 +463,7 @@ fn js_module_ns_has(_: ContextPtr, obj: Object, prop: Atom) -> Result<bool, i32>
     Ok(obj.has_shape_property(prop))
 }
 
-pub(crate) const js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
+pub(crate) const js_module_ns_exotic_methods: ClassExoticMethods = ClassExoticMethods {
     has_property: Some(js_module_ns_has),
     get_own_property: None,
     get_own_property_names: None,

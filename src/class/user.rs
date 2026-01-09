@@ -5,9 +5,12 @@ use gc_lite::GcTracable;
 use crate::{
     USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
-    class::{ClassDef, ClassID, ClassInitializeFn, FreeObjFn},
+    class::{
+        ClassCallFn, ClassFinalizeFn, ClassID, ClassInitializeFn, FreeObjFn,
+        class_def::ClassExoticMethods,
+    },
     context::{ContextImpl, ContextPtr},
-    object::{ObjectImpl, ObjectPayload, Object},
+    object::{Object, ObjectImpl, ObjectPayload},
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -40,24 +43,31 @@ impl OtherPayload {
     }
 }
 
+/// user class definition
+#[derive(Default)]
+pub struct ClassDef {
+    /// class name
+    pub(crate) class_name: &'static str,
+
+    /// callback handler when called
+    pub(crate) call: Option<ClassCallFn>,
+    /// exotic property method handlers
+    pub(crate) exotic: Option<Box<ClassExoticMethods>>,
+    /// free user class instance handler
+    pub(crate) finalize_opaque: Option<FreeObjFn>,
+
+    /// initialize class proto, constructor to context
+    pub(crate) initialize: Option<ClassInitializeFn>,
+    /// class instance finalize callback
+    pub(crate) finalize: Option<ClassFinalizeFn>,
+}
+
 impl ClassDef {
-    thread_local! {
-        static USER_CLASS_ID_SERIAL: Cell<u16> = const { Cell::new(USER_CLASS_ID_START) };
-    }
-
-    /// create a non-builtin class def.
-    pub fn define(class_name: &'static str) -> Self {
+    /// create a class def
+    pub const fn new(class_name: &'static str) -> Self {
         debug_assert!(!class_name.is_empty());
-
-        let class_id = Self::USER_CLASS_ID_SERIAL.with(|ser| {
-            let i = ser.get();
-            ser.set(i + 1);
-            i
-        });
-
         Self {
             class_name,
-            class_id,
             call: None,
             exotic: None,
             finalize_opaque: None,
@@ -91,17 +101,24 @@ impl ClassDef {
 }
 
 impl RuntimeImpl {
-    /// register a non-builtin class defination. returns the class_id.
-    pub fn register_class_def(&mut self, class_def: &ClassDef) -> Result<ClassID, i32> {
+    /// register a class defination. returns the assigned class_id.
+    pub fn register_class(&mut self, class_def: &ClassDef) -> Result<ClassID, i32> {
         debug_assert!(!class_def.class_name.is_empty());
         debug_assert!(class_def.finalize.is_some());
 
-        let class_id = class_def.class_id;
+        thread_local! {
+            static CLASS_ID_SERIAL: Cell<u16> = const { Cell::new(USER_CLASS_ID_START) };
+        }
+        let class_id = CLASS_ID_SERIAL.with(|ser| {
+            let i = ser.get();
+            ser.set(i + 1);
+            i
+        });
         debug_assert!(class_id >= USER_CLASS_ID_START);
 
         let class_atom = Atom::from_str(self.into(), class_def.class_name, AtomKind::String)?;
-
         self.add_class_internal(class_id, class_atom, class_def)?;
+
         Ok(class_id)
     }
 }
