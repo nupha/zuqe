@@ -398,12 +398,12 @@ pub(crate) const HINT_FORCE_ORDINARY: i32 = 0x01 << 4; /* don't try Symbol.toPri
 /// Value with lifetime
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct ValueHandle<'a> {
+pub struct Value<'a> {
     inner: JSValue,
     _marker: PhantomData<&'a ()>,
 }
 
-impl<'a> Deref for ValueHandle<'a> {
+impl<'a> Deref for Value<'a> {
     type Target = JSValue;
 
     #[inline(always)]
@@ -412,28 +412,28 @@ impl<'a> Deref for ValueHandle<'a> {
     }
 }
 
-impl<'a> DerefMut for ValueHandle<'a> {
+impl<'a> DerefMut for Value<'a> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-impl<'a> From<ValueHandle<'a>> for JSValue {
+impl<'a> From<Value<'a>> for JSValue {
     #[inline(always)]
-    fn from(value: ValueHandle<'a>) -> Self {
-        unsafe { std::mem::transmute::<ValueHandle<'a>, JSValue>(value) }
+    fn from(value: Value<'a>) -> Self {
+        unsafe { std::mem::transmute::<Value<'a>, JSValue>(value) }
     }
 }
 
-impl<'a> From<JSValue> for ValueHandle<'a> {
+impl<'a> From<JSValue> for Value<'a> {
     #[inline(always)]
     fn from(value: JSValue) -> Self {
-        unsafe { std::mem::transmute::<JSValue, ValueHandle<'a>>(value) }
+        unsafe { std::mem::transmute::<JSValue, Value<'a>>(value) }
     }
 }
 
-impl<'a> std::fmt::Debug for ValueHandle<'a> {
+impl<'a> std::fmt::Debug for Value<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.inner)
     }

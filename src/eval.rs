@@ -11,7 +11,7 @@ use crate::{
     parse::JSParseState,
     runtime::TickStatus,
     stack_frame::ExecMode,
-    value::{JSValue, ValueHandle},
+    value::{JSValue, Value},
 };
 
 #[repr(u8)]
@@ -225,7 +225,6 @@ impl ContextImpl {
     }
 
     /// eval `source` as global type, with global object as `this` binding.
-    #[inline]
     pub fn eval_global(
         &mut self,
         source: &[u8],
@@ -243,7 +242,7 @@ impl ContextImpl {
     }
 
     /// eval `source` as module type, with global object as `this` binding.
-    pub fn eval_module(
+    pub(crate) fn eval_module(
         &mut self,
         source: &[u8],
         filename: &str,
@@ -291,7 +290,7 @@ impl ContextImpl {
                 }
                 PromiseState::Rejected => {
                     promise = None;
-                    Err(ErrorText::from(self, p.result()))
+                    Err(ErrorText::from(self, p.result().into()))
                 }
                 _ => Ok(JSValue::UNDEFINED),
             }
@@ -350,7 +349,7 @@ impl<'a> Context<'a> {
         filename: &str,
         eval_type: EvalType,
         eval_flags: EvalFlags,
-    ) -> Result<ValueHandle<'a>, ErrorText> {
+    ) -> Result<Value<'a>, ErrorText> {
         self.run_wait_inner(source, filename, eval_type, eval_flags)
             .map(|v| v.into())
     }

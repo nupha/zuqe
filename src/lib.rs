@@ -38,7 +38,7 @@ pub use {
     module::ModuleDef,
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, Object},
     runtime::{Runtime, RuntimeImpl},
-    value::{JSValue, ValueHandle},
+    value::{JSValue, Value},
 };
 
 mod stdcls {

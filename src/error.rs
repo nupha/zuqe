@@ -81,15 +81,11 @@ impl ContextImpl {
     #[inline(never)]
     #[cold]
     pub fn throw(&self, obj: JSValue) {
-        // strict debug guard: don't allow to throw null or undefined.
-        // #[cfg(debug_assertions)]
-        // if obj.is_undefined_or_null() {
-        //     panic!("throw a null or undefined value is not recommended");
-        // }
         self.rt_ptr().set_exception(obj);
     }
 
     /// make error object and throw it as current exception.
+    #[inline(never)]
     #[cold]
     pub(crate) fn throw_error_internal(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
         let proto = self.native_error_proto[kind as usize].as_object().copied();
@@ -118,6 +114,7 @@ impl ContextImpl {
 
     /// make error object and throw it as current exception.
     /// old exception will be freed.
+    #[inline(never)]
     #[cold]
     pub fn throw_error(&self, kind: ErrorKind, message: &str) {
         let rt = self.rt_ref();
@@ -194,7 +191,7 @@ impl ContextImpl {
         self.throw_type_error(&format!("{} object expected", name.to_utf8()))
     }
 
-    /// atom is not consumed
+    #[inline(always)]
     pub fn throw_type_error_read_only(&self, atom: Atom) {
         self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8()))
     }
@@ -219,6 +216,7 @@ impl ContextImpl {
         }
     }
 
+    #[inline(never)]
     #[cold]
     fn do_build_backtrace(
         &self,
@@ -311,7 +309,7 @@ impl ContextImpl {
 
     /// build traceback, set it as property of `error_obj`.
     /// if filename/line number is provided, they are defined as property of `error_obj` too.
-    /// `error_obj` is not consumed.
+    #[inline(never)]
     #[cold]
     pub(crate) fn build_backtrace_to(
         &self,
@@ -335,9 +333,9 @@ impl ContextImpl {
     }
 }
 
-pub const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
+pub(crate) const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
 /* only taken into account if filename is provided */
-pub const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
+pub(crate) const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
 
 /* Note: it is important that no exception is returned by this function */
 #[cold]

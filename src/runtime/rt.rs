@@ -229,8 +229,7 @@ impl RuntimeImpl {
     }
 
     /// get current exception value, then reset current_exception to null.
-    #[inline(always)]
-    pub const fn take_exception(&mut self) -> JSValue {
+    pub fn take_exception(&mut self) -> JSValue {
         std::mem::replace(&mut self.cur_exception, JSValue::NULL)
     }
 
