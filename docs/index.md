@@ -1,7 +1,3 @@
-![](intro.md)
-
-[toc]
-
 ![](basic.md)
 ![](module.md)
 ![](native-function.md)
