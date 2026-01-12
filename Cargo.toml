@@ -3,9 +3,11 @@ name = "zuqe"
 version = "0.3.0"
 edition = "2024"
 description = "Zuqe JS Engine - A lightweight JS engine implemented in Rust, designed for embedded systems and general‑purpose use."
-authors = ["John Ray <996351336@qq.com>"]
-license = "Apache-2.0"
 build = "build.rs"
+readme = "README.md"
+authors = ["John Ray <996351336@qq.com>"]
+repository = "https://github.com/nupha/zuqe"
+license = "Apache-2.0"
 
 [features]
 all_unicode = ["unicode-xid", "unicode-normalization"]
