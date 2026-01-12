@@ -1,6 +1,7 @@
 use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
+    Context,
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
     context::{ContextImpl, ContextPtr},
@@ -10,7 +11,7 @@ use crate::{
     parse::JSParseState,
     runtime::TickStatus,
     stack_frame::ExecMode,
-    value::JSValue,
+    value::{JSValue, ValueHandle},
 };
 
 #[repr(u8)]
@@ -255,14 +256,13 @@ impl ContextImpl {
     }
 
     /// run script, handle result value with callback. wait till execution terminates.
-    pub fn run_wait_with<R>(
+    fn run_wait_inner(
         &mut self,
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
         eval_flags: EvalFlags,
-        handle: impl FnOnce(JSValue) -> R,
-    ) -> Result<R, ErrorText> {
+    ) -> Result<JSValue, ErrorText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
         let mut rt = self.rt_ptr();
@@ -336,20 +336,23 @@ impl ContextImpl {
         };
 
         match result {
-            Ok(v) => Ok(handle(v)),
+            Ok(v) => Ok(v),
             Err(e) => Err(e),
         }
     }
+}
 
-    /// run script, wait till execution terminates.
+impl<'a> Context<'a> {
+    /// run script `source`, wait till execution terminates, returns the result value.
     pub fn run_wait(
         &mut self,
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
         eval_flags: EvalFlags,
-    ) -> Result<(), ErrorText> {
-        self.run_wait_with(source, filename, eval_type, eval_flags, |_| {})
+    ) -> Result<ValueHandle<'a>, ErrorText> {
+        self.run_wait_inner(source, filename, eval_type, eval_flags)
+            .map(|v| v.into())
     }
 }
 

@@ -35,11 +35,13 @@ fn main() -> ExitCode {
     let mut rt = Runtime::create().unwrap();
 
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
+
+    // module os has internal gc objects need customized trace & collect.
     rt.gc_set_trace_handler(|tracer| {
         mod_os_gc_trace(tracer);
     });
 
-    // register user defined classes
+    // register native class 'File'
     let class_id_file = JSFile::register(&mut rt).unwrap();
 
     // create context
@@ -53,9 +55,8 @@ fn main() -> ExitCode {
     setup_globals(ctx).unwrap();
 
     let is_module = filename.ends_with(".mjs") || ModuleDef::detect_module(script.as_bytes());
-    let cx = ctx;
 
-    let res = ctx.run_wait_with(
+    match ctx.run_wait(
         script.as_bytes(),
         &filename,
         if is_module {
@@ -64,20 +65,19 @@ fn main() -> ExitCode {
             EvalType::Global
         },
         EvalFlags::empty(),
-        |val| {
-            colorize_println(val.inspect(&cx).unwrap(), GreenFg);
-        },
-    );
-
-    if let Err(text) = res {
-        let mut err_msg = text.message;
-        if let Some(tb) = text.traceback {
-            err_msg = format!("{err_msg}\n{tb}");
+    ) {
+        Ok(val) => {
+            colorize_println(val.inspect(&ctx).unwrap(), GreenFg);
+            ExitCode::SUCCESS
         }
-        colorize_println(err_msg, RedFg);
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
+        Err(e) => {
+            let mut err_msg = e.message;
+            if let Some(tb) = e.traceback {
+                err_msg = format!("{err_msg}\n{tb}");
+            }
+            colorize_println(err_msg, RedFg);
+            ExitCode::FAILURE
+        }
     }
 }
 

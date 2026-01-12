@@ -249,6 +249,7 @@ impl ContextImpl {
 
 /// Handle to context with lifetime
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct Context<'a> {
     gc_ref: GcRef<ContextImpl>,
     _mark: PhantomData<&'a ()>,
@@ -267,6 +268,16 @@ impl<'a> DerefMut for Context<'a> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { self.gc_ref.as_mut() }
+    }
+}
+
+impl<'a> From<&ContextImpl> for Context<'a> {
+    #[inline(always)]
+    fn from(c: &ContextImpl) -> Self {
+        Self {
+            gc_ref: unsafe { gc_lite::GcRef::from_ref_unchecked(c) },
+            _mark: PhantomData,
+        }
     }
 }
 
@@ -350,9 +361,7 @@ impl ContextPtr {
         // Error
         {
             let mut error = self.create_base_object()?;
-            error
-                .install_fields(self, js_error_proto_funcs)
-                .unwrap();
+            error.install_fields(self, js_error_proto_funcs).unwrap();
             self.class_proto[JS_CLASS_ERROR as usize] = error.into();
 
             // standard error objects

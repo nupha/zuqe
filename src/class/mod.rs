@@ -2,7 +2,7 @@ mod class_def;
 mod meta;
 mod user;
 
-pub use user::ClassDef;
+pub use class_def::ClassDef;
 
 pub(crate) use {class_def::*, meta::*, user::*};
 

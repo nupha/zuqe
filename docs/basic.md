@@ -34,12 +34,25 @@ let script = r#"
     greet("Zuqe");
 "#;
 
-ctx.run_wait(
+let res = ctx.run_wait(
     script.as_bytes(), // script content
     "example.js", // filename
     EvalType::Global, // global eval mode
     EvalFlags::empty(),
-)?;
+);
+
+match res {
+  Ok(val) => {
+      println!("eval result: {val:?}");
+  }
+  Err(e) => {
+      let mut err_msg = e.message;
+      if let Some(tb) = e.traceback {
+          err_msg = format!("{err_msg}\n{tb}");
+      }
+      println!("error: {err_msg}");
+  }
+}
 ```
 
 ## 4. Module Loading (Optional)

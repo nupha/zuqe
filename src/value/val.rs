@@ -1,3 +1,8 @@
+use std::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+};
+
 use crate::{
     JS_CLASS_ERROR,
     atom::{Atom, AtomKind},
@@ -385,16 +390,51 @@ impl JSValue {
     }
 }
 
-//
-// constants values
-//
-pub const VALUE_UNDEFINED: JSValue = JSValue::UNDEFINED;
-pub const VALUE_NULL: JSValue = JSValue::NULL;
-pub const VALUE_TRUE: JSValue = JSValue::Bool(true);
-pub const VALUE_FALSE: JSValue = JSValue::Bool(false);
-pub const VALUE_ZERO: JSValue = JSValue::Int(0);
+pub(crate) const HINT_STRING: i32 = 0;
+pub(crate) const HINT_NUMBER: i32 = 1;
+pub(crate) const HINT_NONE: i32 = 2;
+pub(crate) const HINT_FORCE_ORDINARY: i32 = 0x01 << 4; /* don't try Symbol.toPrimitive */
 
-pub const HINT_STRING: i32 = 0;
-pub const HINT_NUMBER: i32 = 1;
-pub const HINT_NONE: i32 = 2;
-pub const HINT_FORCE_ORDINARY: i32 = 0x01 << 4; /* don't try Symbol.toPrimitive */
+/// Value with lifetime
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct ValueHandle<'a> {
+    inner: JSValue,
+    _marker: PhantomData<&'a ()>,
+}
+
+impl<'a> Deref for ValueHandle<'a> {
+    type Target = JSValue;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<'a> DerefMut for ValueHandle<'a> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl<'a> From<ValueHandle<'a>> for JSValue {
+    #[inline(always)]
+    fn from(value: ValueHandle<'a>) -> Self {
+        unsafe { std::mem::transmute::<ValueHandle<'a>, JSValue>(value) }
+    }
+}
+
+impl<'a> From<JSValue> for ValueHandle<'a> {
+    #[inline(always)]
+    fn from(value: JSValue) -> Self {
+        unsafe { std::mem::transmute::<JSValue, ValueHandle<'a>>(value) }
+    }
+}
+
+impl<'a> std::fmt::Debug for ValueHandle<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.inner)
+    }
+}

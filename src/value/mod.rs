@@ -3,4 +3,6 @@ mod primitives;
 mod repr;
 mod val;
 
-pub use {primitives::*, val::*};
+pub use val::{JSValue, ValueHandle};
+
+pub(crate) use {primitives::*, val::*};
