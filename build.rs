@@ -10,26 +10,8 @@ use build_opcodes::gen_opcodes;
 use build_stdclass::{gen_class_payload, gen_std_class_defs};
 use build_tokens::gen_tokens;
 
-fn build_c_alloca() {
-    let mut builder = cc::Build::new();
-
-    #[cfg(debug_assertions)]
-    builder.flag_if_supported("-fstack-clash-protection");
-
-    (if option_env!("CC") == Some("clang") {
-        builder.flag("-flto")
-    } else {
-        &mut builder
-    })
-    .file("alloca.c")
-    .opt_level(2)
-    .compile("alloca");
-}
-
 fn main() {
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
-
-    build_c_alloca();
 
     gen_atoms(&out_path.join("atoms.rs"));
     gen_opcodes(&out_path.join("opcodes.rs"));
