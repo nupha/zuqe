@@ -8,3 +8,4 @@
 ![](native-class.md)
 ![](native-module.md)
 ![](loop.md)
+![](gc.md)

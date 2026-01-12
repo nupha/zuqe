@@ -138,25 +138,6 @@ Common error methods:
 - `ctx.throw_reference_error(message)`
 - `ctx.throw_internal_error(message)`
 
-## 7. Module Registration
-
-Register native functions as module exports using `FieldDef::CALL`:
-
-```rust
-use zuqe::{Context, FieldDef};
-
-const MY_MODULE_ENTRIES: &[FieldDef] = &[
-    FieldDef::CALL("add", 2, js_add_numbers, 0),
-    FieldDef::CALL("divide", 2, js_divide, 0),
-    FieldDef::CALL("print", 0, js_print, 0),
-];
-
-pub fn init_my_module(mut ctx: Context) -> Result<(), i32> {
-    ctx.register_module("myModule", MY_MODULE_ENTRIES)?;
-    Ok(())
-}
-```
-
 ## 8. Setting Global Functions
 
 Attach functions directly to the global object:
@@ -265,3 +246,7 @@ let result = calculate("add", 10, 5); // 15
 ```
 
 This tutorial covered the essentials of creating and using native functions in the zhuque runtime. Native functions provide a powerful way to extend JavaScript with Rust capabilities, enabling you to build sophisticated applications that leverage both languages effectively.
+
+## See Also
+
+- [Native Module](native-module.md) - Learn how to export native functions as module exports

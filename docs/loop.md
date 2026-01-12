@@ -105,6 +105,22 @@ Each tick handler receives the current context and returns a boolean:
 - `true`: Continue ticking (more work pending)
 - `false`: No more work from this handler
 
+Following is the code snippet extracted from example `zjs`, it registers a customized tick handler performed internally module native:
+
+```rust
+pub fn init_mod_os(mut ctx: Context) -> Result<(), i32> {
+    ctx.register_module("os", MOD_OS_ENTRIES)?;
+    ctx.add_tick_handler(|cx| -> bool { js_os_poll(cx) });
+    Ok(())
+}
+```
+
+The tick handler registration design is especially useful for:
+
+- **Asynchronous Event Handling**: Processing events from native APIs
+- **Periodic Tasks**: Running background tasks at regular intervals
+- **I/O Operations**: Handling file descriptor readiness and network events
+
 ## 5. An example of complex loop
 
 Looking at `examples/zjs/main.rs`, here's how a complex application sets up its execution loop:
