@@ -7,12 +7,11 @@ use crate::{
     function::{
         BCFuncPayload, BCFunction, Bytecode, FunctionKind, JSVarRef, js_function_set_properties,
     },
-    object::{JS_PROP_WRITABLE, LazyInit, ObjectPayload, Object},
-    runtime::JS_MAX_LOCAL_VARS,
+    object::{JS_PROP_WRITABLE, LazyInit, Object, ObjectPayload},
     stack_frame::StackFrame,
 };
 
-use super::{ARG_SCOPE_END, FunctionDef, JSVarKindEnum, is_var_in_arg_scope};
+use super::{ARG_SCOPE_END, FunctionDef, JS_MAX_LOCAL_VARS, JSVarKindEnum, is_var_in_arg_scope};
 
 #[derive(Debug)]
 pub struct JSClosureVar {

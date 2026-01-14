@@ -29,9 +29,7 @@ use crate::{
     value::JSValue,
 };
 
-pub const JS_MAX_LOCAL_VARS: u16 = 65535;
-pub const JS_STACK_SIZE_MAX: u16 = 65534;
-pub const JS_DEFAULT_STACK_SIZE: usize = 720 * 1024; // 512 * 1024;
+const STACK_SIZE_BYTES_DEFAULT: usize = 720 * 1024; // 512 * 1024;
 
 /// interrupt returns true to break execution
 pub trait InterruptFn: Fn(&RuntimeImpl) -> bool {}
@@ -130,7 +128,7 @@ impl RuntimeImpl {
 
             context_list: Vec::with_capacity(1),
 
-            stack_size: JS_DEFAULT_STACK_SIZE,
+            stack_size: STACK_SIZE_BYTES_DEFAULT,
             stack_top: 0,
             stack_limit: 0,
             cur_exception: JSValue::NULL,
@@ -220,6 +218,20 @@ impl RuntimeImpl {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
+    }
+
+    const fn update_stack_limit(&mut self) {
+        if self.stack_size == 0 {
+            self.stack_limit = 0; // no limit
+        } else {
+            self.stack_limit = self.stack_top - self.stack_size;
+        }
+    }
+
+    /// set max stack size. 0 for unlimited
+    pub const fn set_stack_size(&mut self, stack_size: usize) {
+        self.stack_size = stack_size;
+        self.update_stack_limit();
     }
 
     /// get current exception value
@@ -327,20 +339,7 @@ pub(crate) fn js_check_stack_overflow(rt: &RuntimeImpl, alloca_size: usize) -> b
     }
 }
 
-const fn update_stack_limit(rt: &mut RuntimeImpl) {
-    if rt.stack_size == 0 {
-        rt.stack_limit = 0; // no limit
-    } else {
-        rt.stack_limit = rt.stack_top - rt.stack_size;
-    }
-}
-
-pub(crate) const fn JS_SetMaxStackSize(rt: &mut RuntimeImpl, stack_size: usize) {
-    rt.stack_size = stack_size;
-    update_stack_limit(rt);
-}
-
 fn JS_UpdateStackTop(rt: &mut RuntimeImpl) {
     rt.stack_top = js_get_stack_pointer() as usize;
-    update_stack_limit(rt);
+    rt.update_stack_limit();
 }

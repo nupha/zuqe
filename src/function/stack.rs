@@ -1,13 +1,15 @@
 use crate::{
     bytecode::{OP_COUNT_FINAL, OpCode, OpcodeFormat, opcode_info_final, opcodes},
     context::ContextImpl,
-    runtime::JS_STACK_SIZE_MAX,
     utils::read_from_ptr,
 };
 
 use super::FunctionDef;
 
-/* compute the maximum stack size needed by the function */
+/// stack array length max
+const STACK_LEN_MAX: u16 = 65534;
+
+/// compute the maximum stack size needed by the function
 struct StackSizeState {
     bc_len: usize,
     stack_level_tab: Vec<u16>,
@@ -32,7 +34,7 @@ fn ss_check(
 
     if stack_len > s.stack_len_max {
         s.stack_len_max = stack_len;
-        if s.stack_len_max > JS_STACK_SIZE_MAX {
+        if s.stack_len_max > STACK_LEN_MAX {
             ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})\0"));
             return Err(-1);
         }
@@ -141,7 +143,7 @@ impl FunctionDef {
 
             if stack_len > s.stack_len_max {
                 s.stack_len_max = stack_len;
-                if s.stack_len_max > JS_STACK_SIZE_MAX {
+                if s.stack_len_max > STACK_LEN_MAX {
                     ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})"));
                     return Err(-1);
                 }

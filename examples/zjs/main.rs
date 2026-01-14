@@ -7,6 +7,7 @@ mod mod_std;
 
 use std::process::ExitCode;
 
+use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use zuqe::{Context, EvalFlags, EvalType, ModuleDef, Runtime};
 
@@ -17,22 +18,77 @@ use crate::{
     mod_std::init_mod_std,
 };
 
+#[derive(Debug, Parser)]
+#[command(version)]
+struct Args {
+    #[arg(short, long, default_value_t = false, help = "load as ES6 module")]
+    module: bool,
+    #[arg(
+        long,
+        default_value_t = String::from("1m"),
+        value_name = "n",
+        help = "set stack size to n"
+    )]
+    stack_size: String,
+    #[arg(required = false, help = "file to execute")]
+    filename: Option<String>,
+}
+
 fn main() -> ExitCode {
     unsafe {
         std::env::set_var("RUST_LOG", "INFO");
     }
     env_logger::init();
 
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() == 1 {
-        println!("argument required");
-        std::process::exit(-1);
-    }
+    let args = Args::parse();
 
-    let filename = args.get(1).unwrap().clone();
-    let script = std::fs::read_to_string(&filename).unwrap();
+    let Some(filename) = args.filename else {
+        colorize_println("filename is required", RedFg);
+        std::process::exit(-1);
+    };
+    let script = match std::fs::read_to_string(&filename) {
+        Ok(s) => s,
+        Err(e) => {
+            colorize_println(format!("can't load file: {e}"), RedFg);
+            std::process::exit(-1);
+        }
+    };
 
     let mut rt = Runtime::create().unwrap();
+
+    let ss = args.stack_size;
+    if true {
+        let i = ss
+            .as_bytes()
+            .iter()
+            .position(|c| !c.is_ascii_digit())
+            .unwrap_or(ss.len());
+
+        let size = if i > 0
+            && let Ok(num) = ss[0..i].parse::<usize>()
+        {
+            if i == ss.len() - 1 {
+                match ss.as_bytes()[i] {
+                    b'k' | b'K' => Some(num << 10),
+                    b'm' | b'M' => Some(num << 20),
+                    b'g' | b'G' => Some(num << 30),
+                    _ => None,
+                }
+            } else if i == ss.len() {
+                Some(num)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(size) = size {
+            rt.set_stack_size(size);
+        } else {
+            colorize_println(format!("invalid stack-size: {ss}"), RedFg);
+            std::process::exit(-1);
+        }
+    }
 
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
@@ -54,7 +110,8 @@ fn main() -> ExitCode {
 
     setup_globals(ctx).unwrap();
 
-    let is_module = filename.ends_with(".mjs") || ModuleDef::detect_module(script.as_bytes());
+    let is_module =
+        args.module || filename.ends_with(".mjs") || ModuleDef::detect_module(script.as_bytes());
 
     match ctx.run_wait(
         script.as_bytes(),

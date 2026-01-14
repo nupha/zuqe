@@ -1,14 +1,15 @@
 use gc_lite::GcTracable;
 
 use crate::{
-    atom::Atom, context::ContextImpl, eval::EvalType, function::FunctionDef,
-    runtime::JS_MAX_LOCAL_VARS, stack_frame::ExecMode,
+    atom::Atom, context::ContextImpl, eval::EvalType, function::FunctionDef, stack_frame::ExecMode,
 };
 
 use super::ARG_SCOPE_INDEX;
 
-pub const DEFINE_GLOBAL_LEX_VAR: u8 = 1 << 7;
-pub const DEFINE_GLOBAL_FUNC_VAR: u8 = 1 << 6;
+pub(super) const JS_MAX_LOCAL_VARS: u16 = 65535;
+
+pub(crate) const DEFINE_GLOBAL_LEX_VAR: u8 = 1 << 7;
+pub(crate) const DEFINE_GLOBAL_FUNC_VAR: u8 = 1 << 6;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]

@@ -135,7 +135,7 @@ For more comprehensive examples, check the [examples](examples/) directory which
 
 ## 📚 Documentation
 
-- **[User Guide](docs/)**: Comprehensive documentation for users
+- **[User Guide](docs/)**:
   - [Basic Usage](docs/basic.md)
   - [Modules](docs/module.md)
   - [Native Functions](docs/native-function.md)
@@ -143,7 +143,8 @@ For more comprehensive examples, check the [examples](examples/) directory which
   - [Native Module](docs/native-module.md)
   - [Running Loop](docs/loop.md)
   - [GC](docs/gc.md)
-- **[Examples](examples/)**: Practical code examples and use cases
+- **[Examples](examples/)**:
+  - [ZJS](docs/zjs.md)
 
 ## 🤝 Contributing
 

@@ -6,13 +6,14 @@ use crate::{
     error::JSResult,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, ObjectPayload, Object,
+        JS_PROP_WRITABLE, JSProperty, Object, ObjectPayload,
     },
-    runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
     utils::unlikely,
     value::JSValue,
 };
+
+use super::JS_MAX_LOCAL_VARS;
 
 impl ContextImpl {
     pub(crate) fn build_rest(&self, first: usize, args: &[JSValue]) -> JSResult {
