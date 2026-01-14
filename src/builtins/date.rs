@@ -1,6 +1,5 @@
 use std::{
     ops::RangeInclusive,
-    os::unix::raw::time_t,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -160,45 +159,77 @@ fn get_timezone_offset(time: i64) -> i32 {
         // range of `time_t`. This is better than truncating values to
         // 32 bits and hopefully provides the same result as 64-bit
         // implementation of localtime_r.
-        if (-(1 as time_t)) < 0 {
-            if time < i32::MIN as i64 {
-                time = i32::MIN as i64;
-            } else if time > i32::MAX as i64 {
-                time = i32::MAX as i64;
-            }
+        let time_t_min: i64 = if cfg!(windows) {
+            i32::MIN as i64
         } else {
-            if time < 0 {
-                time = 0;
-            } else if time > u32::MAX as i64 {
-                time = u32::MAX as i64;
-            }
+            unsafe { libc::INT32_MIN }
+        };
+        let time_t_max: i64 = if cfg!(windows) {
+            i32::MAX as i64
+        } else {
+            unsafe { libc::INT32_MAX }
+        };
+
+        if time < time_t_min {
+            return 0; // invalid time, return no offset
+        } else if time > time_t_max {
+            return 0; // invalid time, return no offset
         }
     }
 
-    let ti: time_t = time as time_t;
+    let ti: libc::time_t = time as libc::time_t;
 
-    #[cfg(windows)]
-    let res = unsafe {
-        let tm = gmtime(&ti);
-        let gm_ti = mktime(tm);
+    #[cfg(any(unix, windows))]
+    unsafe {
+        // Use platform-specific functions to get timezone offset:
+        // get UTC and local time difference
+        let mut gm_tm: libc::tm = std::mem::zeroed();
+        let mut loc_tm: libc::tm = std::mem::zeroed();
 
-        let tm = localtime(&ti);
-        let loc_ti = mktime(tm);
+        let gm_result;
+        let loc_result;
 
-        ((gm_ti - loc_ti) / 60) as i32
-    };
+        #[cfg(unix)]
+        {
+            // Unix/Linux: use gmtime_r and localtime_r
+            gm_result = libc::gmtime_r(&ti, &mut gm_tm as *mut libc::tm).is_null();
+            loc_result = libc::localtime_r(&ti, &mut loc_tm as *mut libc::tm).is_null();
+        }
 
-    #[cfg(unix)]
-    let res = unsafe {
-        let mut tm: libc::tm = std::mem::zeroed();
-        libc::localtime_r(&ti, &mut tm);
-        (-(tm.tm_gmtoff) / 60) as i32
-    };
+        #[cfg(windows)]
+        {
+            // Windows: use _s versions of the functions
+            gm_result = libc::gmtime_s(&mut gm_tm as *mut libc::tm, &ti) != 0;
+            loc_result = libc::localtime_s(&mut loc_tm as *mut libc::tm, &ti) != 0;
+        }
 
-    #[cfg(all(not(unix), not(windows)))]
-    let res = 0;
+        if gm_result || loc_result {
+            return 0; // gmtime or localtime failed
+        }
 
-    res
+        // On Unix systems, use tm_gmtoff if available
+        #[cfg(unix)]
+        {
+            (-(gm_tm.tm_gmtoff) / 60) as i32
+        }
+
+        // On Windows and as fallback, use a simplified approach
+        // This approximates the timezone offset by comparing UTC and local components
+        // Note: This is not as precise as the Unix tm_gmtoff approach
+        #[cfg(windows)]
+        {
+            // For Windows, we use a simplified approach since mktime might not be available
+            // This computes the difference between UTC and local time components
+            let utc_offset_hours = loc_tm.tm_hour - gm_tm.tm_hour;
+            let utc_offset_minutes = (loc_tm.tm_min - gm_tm.tm_min) + (utc_offset_hours * 60);
+            -utc_offset_minutes as i32 // Negative because local time is behind UTC
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        0 // unsupported platform
+    }
 }
 
 fn string_get_digits(s: &[u8]) -> (i64, usize) {
