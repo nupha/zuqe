@@ -306,14 +306,14 @@ impl RuntimeImpl {
         // don't bother shape drop trait to do unregister.
         self.shape_registry.clear();
 
-        // remove gc partition
         let part = self.gc_part();
 
         if let Some(type_shape) = self.gc_heap().type_idx_of::<ShapeImpl>() {
-            // purge all nodes except ShapeImpl
+            // purge all gc objects except ShapeImpl
             self.gc_heap_mut()
                 .sweep_ex(part, true, None, Some(&[type_shape]), true);
         }
+
         // purge all rest nodes
         self.gc_heap_mut().sweep_ex(part, true, None, None, false);
 
@@ -323,7 +323,7 @@ impl RuntimeImpl {
             "should not have live gc nodes"
         );
 
-        self.gc_heap_mut().remove_partition(part)
+        self.gc_heap_mut().remove_partition(part);
 
         // no need
         // self.class_registry.clear();

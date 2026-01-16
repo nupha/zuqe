@@ -224,10 +224,7 @@ impl ContextImpl {
         // free loaded modules
         js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);
         #[cfg(debug_assertions)]
-        {
-            // self.loaded_modules.retain(|w| w.upgrade().is_some());
-            debug_assert!(self.loaded_modules.is_empty());
-        }
+        debug_assert!(self.loaded_modules.is_empty());
 
         self.class_proto.clear();
 

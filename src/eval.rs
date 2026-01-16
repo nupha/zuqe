@@ -278,7 +278,7 @@ impl ContextImpl {
             ErrorText::from(self, exc)
         })?;
 
-        // to set val as gc root - is this nessesary?
+        // set val as gc root - is this nessesary?
         // rt.gc_set_root_value(val, true);
 
         let mut promise = Promise::try_from(val).ok();

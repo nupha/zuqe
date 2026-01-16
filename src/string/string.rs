@@ -424,6 +424,29 @@ impl StringRef {
             }
         }
     }
+
+    /// treat value `other` as string, and concat self with other.
+    pub(crate) fn concat(&self, ctx: &ContextImpl, other: JSValue) -> Result<Self, i32> {
+        let s2 = other.to_string(ctx)?;
+
+        if self.is_empty() {
+            return Ok(s2);
+        } else if s2.is_empty() {
+            return Ok(*self);
+        }
+
+        // concat self, s2
+        let buf = self
+            .content()
+            .to_buf()
+            .and_then(|mut sb| sb.push_content(s2.content()).map(|_| sb))
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+
+        Self::new(ctx.rt_ptr(), StringData::from_buf(buf))
+    }
 }
 
 impl ContextImpl {
@@ -508,8 +531,7 @@ impl ContextImpl {
     }
 }
 
-/// Note: string value `str2` is consumed inside.
-pub fn JS_ConcatString3(
+pub(crate) fn JS_ConcatString3(
     ctx: &ContextImpl,
     str1: &CStr,
     str2: JSValue,
@@ -538,46 +560,6 @@ pub fn JS_ConcatString3(
         })?;
 
     ctx.create_string_with_buf(res_string)
-}
-
-/// op1 and op2 are converted to strings.
-/// For convience, op1 or op2 = JS_EXCEPTION are accepted and return JSValue::EXCEPTION.
-/// op1 and op2 are consumed
-pub fn JS_ConcatString(ctx: &ContextImpl, op1: JSValue, op2: JSValue) -> Result<StringRef, i32> {
-    let p1 = if let JSValue::String(s) = op1 {
-        s
-    } else {
-        op1.to_string(ctx)?
-    };
-
-    let p2 = if let JSValue::String(s) = op2 {
-        s
-    } else {
-        op2.to_string(ctx)?
-    };
-
-    if p1.is_empty() {
-        return Ok(p2);
-    } else if p2.is_empty() {
-        return Ok(p1);
-    }
-
-    // concat p1, p2
-    let buf = p1
-        .content()
-        .to_buf()
-        .and_then(|mut lst| {
-            if let Err(e) = lst.push_content(p2.content()) {
-                Err(e)
-            } else {
-                Ok(lst)
-            }
-        })
-        .map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-    ctx.create_string_with_buf(buf)
 }
 
 impl JSValue {

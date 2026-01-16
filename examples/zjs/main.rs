@@ -30,8 +30,14 @@ struct Args {
         help = "set stack size to n"
     )]
     stack_size: String,
-    #[arg(required = false, help = "file to execute")]
-    filename: Option<String>,
+    #[arg(help = "file to execute")]
+    filename: String,
+    #[arg(
+        allow_hyphen_values = true,
+        trailing_var_arg = true,
+        help = "arguments to pass to script"
+    )]
+    script_args: Vec<String>,
 }
 
 fn main() -> ExitCode {
@@ -42,10 +48,7 @@ fn main() -> ExitCode {
 
     let args = Args::parse();
 
-    let Some(filename) = args.filename else {
-        colorize_println("filename is required", RedFg);
-        std::process::exit(-1);
-    };
+    let filename = args.filename;
     let script = match std::fs::read_to_string(&filename) {
         Ok(s) => s,
         Err(e) => {
@@ -108,7 +111,7 @@ fn main() -> ExitCode {
     init_mod_std(ctx).unwrap();
     init_mod_os(ctx).unwrap();
 
-    setup_globals(ctx).unwrap();
+    setup_globals(ctx, &args.script_args).unwrap();
 
     let is_module =
         args.module || filename.ends_with(".mjs") || ModuleDef::detect_module(script.as_bytes());

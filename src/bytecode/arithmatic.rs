@@ -5,7 +5,6 @@ use crate::{
     context::ContextImpl,
     error::JSResult,
     number::{JSFloat64Union, js_f64_to_i32},
-    string::JS_ConcatString,
     utils::unlikely,
     value::{HINT_NONE, HINT_NUMBER, JSValue},
 };
@@ -428,16 +427,14 @@ impl JSValue {
                 }
 
                 //
-                // conversion
-                // don't change following arm order
+                // conversion - don't change following arm order
                 //
                 (a @ Self::Object(_), b) | (a, b @ Self::Object(_)) => {
                     op1 = a.to_primitive(ctx, HINT_NONE)?;
                     op2 = b.to_primitive(ctx, HINT_NONE)?;
                 }
                 (a @ JSValue::String(_), b) | (a, b @ JSValue::String(_)) => {
-                    // add string
-                    return JS_ConcatString(ctx, a, b).map(JSValue::String);
+                    return a.to_string(ctx)?.concat(ctx, b).map(JSValue::String);
                 }
                 (a, b) => {
                     op1 = a.to_number(ctx)?;

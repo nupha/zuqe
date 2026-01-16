@@ -10,8 +10,8 @@ use crate::{
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
     string::{
-        CharCode, CharCodeDecoder, JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf,
-        StringData, StringImpl, StringRef, Utf16Stream,
+        CharCode, CharCodeDecoder, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringData,
+        StringImpl, StringRef, Utf16Stream,
     },
     value::JSValue,
 };
@@ -99,7 +99,7 @@ fn js_string_concat(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
     let mut s = cc.this().to_string_non_undefined_or_null(ctx)?;
     for a in cc.arguments() {
-        s = JS_ConcatString(ctx, s.into(), *a)?;
+        s = s.concat(ctx, *a)?;
     }
     Ok(s.into())
 }

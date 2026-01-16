@@ -37,7 +37,7 @@ fn js_print(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn setup_globals(ctx: Context) -> Result<(), i32> {
+pub fn setup_globals(ctx: Context, script_args: &[String]) -> Result<(), i32> {
     let mut global = ctx.global_obj();
     let ctx = &ctx;
 
@@ -98,9 +98,18 @@ pub fn setup_globals(ctx: Context) -> Result<(), i32> {
         .unwrap();
 
     {
-        let mut args = Vec::<JSValue>::with_capacity(std::env::args().count());
-        for a in std::env::args().skip(1) {
-            let s = ctx.create_string_from_utf8(a.into_bytes())?;
+        let mut args = Vec::<JSValue>::with_capacity(script_args.len() + 1);
+        args.push(
+            ctx.create_string_from_utf8(
+                std::ffi::OsString::from("zjs")
+                    .to_string_lossy()
+                    .into_owned()
+                    .into_bytes(),
+            )?
+            .into(),
+        );
+        for a in script_args {
+            let s = ctx.create_string_from_utf8(a.as_bytes().to_vec())?;
             args.push(s.into());
         }
         let arr = ctx.create_array_with_values(args)?;

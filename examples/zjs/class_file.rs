@@ -2,28 +2,42 @@ use std::{
     cell::Cell,
     ffi::c_void,
     io::{Read, Write},
-    os::fd::AsRawFd,
 };
+
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 
 use zuqe::{
     CallContext, ClassDef, ClassID, Context, FieldDef, JSResult, JSValue, Object, RuntimeImpl,
 };
 
 #[derive(Debug)]
+#[repr(u8)]
 enum FileDesc {
-    File(std::fs::File),
     Stdin,
     Stdout,
     Stderr,
+    File(std::fs::File),
 }
 
 impl FileDesc {
     pub fn as_raw_fd(&self) -> i32 {
+        #[cfg(unix)]
         match self {
             Self::File(f) => f.as_raw_fd(),
             Self::Stdin => std::io::stdin().as_raw_fd(),
             Self::Stdout => std::io::stdout().as_raw_fd(),
             Self::Stderr => std::io::stderr().as_raw_fd(),
+        }
+
+        #[cfg(windows)]
+        match self {
+            Self::Stdin => 0,
+            Self::Stdout => 1,
+            Self::Stderr => 2,
+            Self::File(f) => f.as_raw_handle() as i32,
         }
     }
 }
