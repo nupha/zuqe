@@ -1,5 +1,5 @@
 use crate::{
-    JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
+    JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
     JS_CLASS_NUMBER, JS_CLASS_REGEXP, JS_CLASS_STRING, atom::Atom, context::ContextImpl,
     number::f64_stringify, object::Object,
 };
@@ -24,7 +24,10 @@ impl JSValue {
             }
 
             Self::String(s) => Ok(s.content().encode_utf8(true).into()),
-            Self::Symbol(a) => Ok(format!("Symbol({})", a.string().content().encode_utf8(false))),
+            Self::Symbol(a) => Ok(format!(
+                "Symbol({})",
+                a.string().content().encode_utf8(false)
+            )),
             Self::Object(o) => o.inspect(ctx),
             Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.func_name.to_utf8())),
 
@@ -54,8 +57,10 @@ impl Object {
                 | JS_CLASS_ERROR
                 | JS_CLASS_BOOLEAN
                 | JS_CLASS_NUMBER
-                | JS_CLASS_DATE
                 | JS_CLASS_REGEXP) => ctx.rt_ptr().class_registry[cid as usize].class_name,
+
+                #[cfg(feature = "builtin_date")]
+                cid @ crate::JS_CLASS_DATE => ctx.rt_ptr().class_registry[cid as usize].class_name,
 
                 _ => Atom::CONST_Object,
             }

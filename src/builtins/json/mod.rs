@@ -1,5 +1,3 @@
-#![cfg(feature = "builtin_json")]
-
 mod class_json;
 mod stringify;
 

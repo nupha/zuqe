@@ -115,7 +115,7 @@ impl ContextPtr {
         }
 
         proto
-            .install_fields(&self, &js_function_proto_funcs)
+            .install_fields(&self, js_function_proto_funcs)
             .unwrap();
 
         let ctor: JSValue = self
@@ -380,19 +380,6 @@ impl ContextPtr {
         self.bind_ctor_proto_ex(ctor, generator_function_proto, 0, JS_PROP_CONFIGURABLE)
             .unwrap();
     }
-
-    // #[deprecated]
-    // pub fn intrinsic_date(mut self) {
-    //     let mut obj: JSValue = self.create_base_object().unwrap().into();
-    //     obj.install_field_defs(&self, &js_date_proto_funcs).unwrap();
-
-    //     let mut ctor = self
-    //         .create_global_constructor_or_func("Date", js_date_constructor, 7, obj, 0)
-    //         .unwrap();
-    //     ctor.install_field_defs(&self, &js_date_funcs).unwrap();
-
-    //     self.class_proto[JS_CLASS_DATE as usize] = obj;
-    // }
 
     pub(super) fn intrinsic_eval(mut self) {
         self.eval_handle.replace(

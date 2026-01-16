@@ -1,13 +1,11 @@
 pub mod array;
 pub mod array_buffer;
 pub mod boolean;
-pub mod date;
 pub mod error;
 pub mod function;
 pub mod generator;
 pub mod global;
 pub mod iterator;
-pub mod json;
 pub mod mapset;
 pub mod math;
 pub mod number;
@@ -19,6 +17,11 @@ pub mod regexp;
 pub mod string;
 pub mod symbol;
 pub mod typed_array;
+
+#[cfg(feature = "builtin_date")]
+pub mod date;
+#[cfg(feature = "builtin_json")]
+pub mod json;
 
 use crate::{error::JSResult, function::CallContext};
 

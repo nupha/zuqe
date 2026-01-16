@@ -1,6 +1,6 @@
 [package]
 name = "zuqe"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 description = "Zuqe JS Engine - A lightweight JS engine implemented in Rust, designed for embedded systems and general‑purpose use."
 build = "build.rs"
@@ -12,9 +12,11 @@ license = "Apache-2.0"
 [features]
 all_unicode = ["unicode-xid", "unicode-normalization"]
 builtin_json = []
+builtin_date = ["libc"]
+
 dump_bytecode = []
 
-default = ["all_unicode", "builtin_json"]
+default = ["all_unicode", "builtin_json", "builtin_date"]
 
 [profile.release]
 overflow-checks = false
@@ -49,19 +51,10 @@ smallvec = "1.13"
 fallible_collections = "0.5"
 gc-lite = "0.3"
 lre = "0.1"
+libc = { version = "0.2", optional = true }
 unicode-xid = { version = "0.2", optional = true }
 unicode-normalization = { version = "0.1", optional = true }
 zerocopy = "0.8"
-
-[target.'cfg(any(unix, windows))'.dependencies]
-libc = "0.2"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.0", features = [
-    "Win32_Foundation",
-    "Win32_System_Console",
-    "Win32_System_Threading",
-] }
 
 [build-dependencies]
 cc = "1.0"
@@ -74,9 +67,16 @@ glob = "0.3"
 colorized = "1.0"
 log = "0.4"
 libc = "0.2"
+clap = { version = "4.5", features = ["derive"] }
 env_logger = { version = "0.9", default-features = false }
 anyhow = { version = "1", default-features = false }
-clap = { version = "4.5", features = ["derive"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61.0", features = [
+    "Win32_Foundation",
+    "Win32_System_Console",
+    "Win32_System_Threading",
+] }
 
 [lib]
 lib = "src/lib.rs"

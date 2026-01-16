@@ -5,10 +5,10 @@ use gc_lite::{GcRef, GcTracable, GcWeak};
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
-    JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION,
-    JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING, JS_CLASS_SYMBOL,
-    JS_CLASS_UINT8C_ARRAY, atom::Atom, class::ClassID, context::ContextImpl, error::JSResult,
-    gcref_wrapper, runtime::RuntimePtr, utils::unlikely, value::JSValue,
+    JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
+    JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
+    atom::Atom, class::ClassID, context::ContextImpl, error::JSResult, gcref_wrapper,
+    runtime::RuntimePtr, utils::unlikely, value::JSValue,
 };
 
 use super::{
@@ -287,7 +287,7 @@ impl ObjectImpl {
             JS_CLASS_DATAVIEW => {}
 
             class_id @ (JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
-            | JS_CLASS_DATE | JS_CLASS_BIG_INT) => {
+            | JS_CLASS_BIG_INT) => {
                 if ctx.rt_ptr().class_registry[class_id as usize]
                     .exotic
                     .is_some()
@@ -296,22 +296,7 @@ impl ObjectImpl {
                 }
             }
 
-            JS_CLASS_C_FUNCTION => {}
-
-            JS_CLASS_REGEXP => {
-                // *(*p).u.regexp.pattern = std::ptr::null_mut();
-                // (*p).u.regexp.bytecode = std::ptr::null_mut();
-                // if !(*ctx.rt)
-                //     .class_array
-                //     .wrapping_add(class_id as usize)
-                //     .as_mut()
-                //     .unwrap()
-                //     .exotic
-                //     .is_null()
-                // {
-                //     (*p). detailed.set_exotic(true);
-                // }
-            }
+            JS_CLASS_C_FUNCTION | JS_CLASS_REGEXP => {}
 
             class_id => {
                 if ctx.rt_ptr().class_registry[class_id as usize]
@@ -777,13 +762,14 @@ impl JSValue {
     }
 }
 
-pub const JS_PROP_INITIAL_SIZE: u32 = 2;
-pub const JS_ARRAY_INITIAL_SIZE: u32 = 2;
+const JS_PROP_INITIAL_SIZE: u32 = 2;
+//pub const JS_ARRAY_INITIAL_SIZE: u32 = 2;
 
-#[cfg(target_pointer_width = "64")]
-pub const JS_PROP_INITIAL_HASH_SIZE: usize = 32;
-#[cfg(not(target_pointer_width = "64"))]
-pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
+pub(crate) const JS_PROP_INITIAL_HASH_SIZE: usize = if cfg!(target_pointer_width = "64") {
+    32
+} else {
+    4
+};
 
 /// Note: all the fields are already sealed except length
 pub fn seal_template_obj(ctx: &ContextImpl, mut obj: JSValue) -> i32 {

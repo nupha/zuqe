@@ -8,6 +8,7 @@ enum PayloadKey {
     None,
     Array,
     Value,
+    #[cfg(feature = "builtin_date")]
     Datetime,
     NativeFunc,
     NativeFuncWithData,
@@ -37,6 +38,7 @@ impl PayloadKey {
             PayloadKey::None => "",
             PayloadKey::Array => "array",
             PayloadKey::Value => "value",
+            #[cfg(feature = "builtin_date")]
             PayloadKey::Datetime => "datetime",
             PayloadKey::NativeFunc => "native_func",
             PayloadKey::NativeFuncWithData => "native_func_with_data",
@@ -73,7 +75,6 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
 
     m.insert(PayloadKey::Array, "crate::builtins::array::ArrayPayload");
     m.insert(PayloadKey::Value, "crate::value::JSValue");
-    m.insert(PayloadKey::Datetime, "crate::builtins::date::Datetime");
     m.insert(PayloadKey::NativeFunc, "crate::function::NFuncPayload");
     m.insert(
         PayloadKey::NativeFuncWithData,
@@ -153,6 +154,9 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         "Box<crate::builtins::generator::AGenPayload>",
     );
 
+    #[cfg(feature = "builtin_date")]
+    m.insert(PayloadKey::Datetime, "crate::builtins::date::Datetime");
+
     m
 });
 
@@ -201,6 +205,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             None,
             None,
         ),
+        #[cfg(feature = "builtin_date")]
         ClassInfo::class_def(
             "Date",
             "DATE",
