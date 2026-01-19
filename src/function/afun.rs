@@ -6,7 +6,7 @@ use crate::{
     class::ClassID,
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
-    function::{AsyncFuncState, BCFunction, BytecodeFunction, Callback, FunctionKind},
+    function::{AsyncState, BCFunction, BytecodeFunction, Callback, FunctionKind},
     object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
@@ -40,7 +40,7 @@ impl AsyncFunction {
         Ok(Some(proto))
     }
 
-    /// hook to run function in async manner, returns a Promise.
+    /// Wrapper to run async function, returns a Promise.
     pub fn class_call(
         mut ctx: Context,
         func_obj: JSValue,
@@ -48,12 +48,11 @@ impl AsyncFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        debug_assert_eq!(
-            func_obj.as_object().unwrap().class_id(),
-            JS_CLASS_ASYNC_FUNCTION
+        debug_assert!(
+            func_obj.as_object_AsyncFunction().is_some(),
+            "must be an async function"
         );
 
-        // create promise and resolving handlers
         func_obj
             .call_async(&mut ctx, this_obj, args, flags)
             .map(|p| p.into())
@@ -70,29 +69,20 @@ impl BCFunction {
         _flags: i32,
     ) -> Result<Promise, i32> {
         let (promise, resolving_funcs) = Promise::create(ctx)?;
-        let mut s =
-            AsyncFuncState::new_with_resolvings(ctx, resolving_funcs, *self, this_obj, args)?;
-        s.run_async_function(ctx);
+
+        // make Async state for execution
+        let mut s = AsyncState::new(ctx, resolving_funcs, *self, this_obj, args)?;
+
+        // IMPORTANT!
+        // During opcode execution loop, GC collection may occur.
+        // Async state is also a GC object, to avoid it being collected,
+        // we temporarily set it as GC root.
+        // When execution completes, remove it from roots.
+        ctx.rt_mut().gc_heap_mut().set_root(s.gc_ref(), true);
+        s.run_async_function(ctx); // <-- GC collection may occur inside
+        ctx.rt_mut().gc_heap_mut().set_root(s.gc_ref(), false);
 
         Ok(promise)
-    }
-}
-
-impl Object {
-    /// if object is a bytecode function, call it in async manner
-    pub fn call_async(
-        &self,
-        ctx: &mut ContextImpl,
-        this_obj: JSValue,
-        args: &[JSValue],
-        flags: i32,
-    ) -> Result<Promise, i32> {
-        if let Some(bcf) = self.as_BCFunction() {
-            bcf.call_async(ctx, this_obj, args, flags)
-        } else {
-            ctx.throw_type_error("not a bytecode function");
-            Err(-1)
-        }
     }
 }
 
@@ -105,8 +95,8 @@ impl JSValue {
         args: &[JSValue],
         flags: i32,
     ) -> Result<Promise, i32> {
-        if let Some(f) = self.as_object_BCFunction() {
-            f.call_async(ctx, this_obj, args, flags)
+        if let Some(bc) = self.as_object_BCFunction() {
+            bc.call_async(ctx, this_obj, args, flags)
         } else {
             ctx.throw_type_error("not a bytecode function");
             Err(-1)
@@ -114,19 +104,19 @@ impl JSValue {
     }
 }
 
-impl AsyncFuncState {
-    pub fn class_call(
+impl AsyncState {
+    pub(crate) fn class_call(
         mut ctx: Context,
         func_obj: JSValue,
-        _this_obj: JSValue,
+        _this: JSValue,
         args: &[JSValue],
         _flags: i32,
     ) -> JSResult {
         let mut o = unsafe { *func_obj.as_object_unchecked() };
         let is_reject = o.class_id() == JS_CLASS_ASYNC_FUNCTION_REJECT;
 
-        let async_state = o.payload_mut().async_function_resolving_mut().unwrap();
-        async_state.set_throw_flag(is_reject);
+        let a_state = o.payload_mut().async_function_resolving_mut().unwrap();
+        a_state.set_throw_flag(is_reject);
 
         if is_reject {
             ctx.throw(if args.is_empty() {
@@ -136,26 +126,25 @@ impl AsyncFuncState {
             });
         } else {
             // return value of await
-            debug_assert!(async_state.frame.cur_sp_offset > 0);
-            async_state.set_return_value(if args.is_empty() {
+            debug_assert!(a_state.frame.cur_sp_offset > 0);
+            a_state.set_return_value(if args.is_empty() {
                 JSValue::UNDEFINED
             } else {
                 args[0]
             });
         }
 
-        async_state.run_async_function(&mut ctx);
+        a_state.run_async_function(&mut ctx);
         Ok(JSValue::UNDEFINED)
     }
 
-    /// run async function associated with `self` state
     fn run_async_function(&mut self, ctx: &mut ContextImpl) {
         let func_ret = self.resume(ctx);
 
         if self.is_completed {
             match func_ret {
                 Ok(val) => {
-                    // normal return
+                    // Normal function return
                     let func = self.resolving_funcs[0]; // resolve 
                     let _ = func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&val));
                 }
@@ -166,25 +155,25 @@ impl AsyncFuncState {
                 }
             }
         } else {
+            // Retrieve value from stack top: SP[-1]
             let value = unsafe {
-                let cur_sp = self.frame.stack_cur_ptr();
-                std::ptr::replace(cur_sp.offset(-1).as_ptr(), JSValue::UNDEFINED)
+                std::ptr::replace(
+                    self.frame.stack_cur_ptr().offset(-1).as_ptr(),
+                    JSValue::UNDEFINED,
+                )
             };
 
-            // await
-            let mut promise = if let Ok(p) = {
-                let cc = CallContext::new_simple(
-                    unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                    ctx.promise_ctor,
-                    std::slice::from_ref(&value),
-                );
-                js_promise_resolve(cc)
-            } {
+            // Handle await expression
+            let mut promise = if let Ok(p) = js_promise_resolve(CallContext::new_simple(
+                unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                ctx.promise_ctor,
+                std::slice::from_ref(&value),
+            )) {
                 Promise::try_from(p).unwrap()
             } else {
                 let exc = ctx.rt_ptr().take_exception();
-                let func = self.resolving_funcs[1];
-                let _ = func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc)); // TODO what to do if exception?
+                let rej = self.resolving_funcs[1];
+                let _ = rej.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc)); // TODO what to do if exception?
                 return;
             };
 
@@ -213,7 +202,7 @@ impl AsyncFuncState {
 
     fn async_function_resolve_create(&self, ctx: &ContextImpl) -> Result<[JSValue; 2], i32> {
         let mut resolving_funcs = [const { JSValue::UNDEFINED }; 2];
-        let state = *self;
+        let state = unsafe { AsyncState::from_ref_unchecked(self) };
 
         for i in 0..2 {
             let func_obj = ctx

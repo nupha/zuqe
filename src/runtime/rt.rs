@@ -17,9 +17,7 @@ use crate::{
     },
     class::{ClassMeta, js_arguments_exotic_methods},
     context::ContextPtr,
-    function::{
-        AsyncFuncState, AsyncFunction, BoundFunction, NFuncPayload, NativeFunctionWithData,
-    },
+    function::{AsyncFunction, AsyncState, BoundFunction, NFuncPayload, NativeFunctionWithData},
     module::{ModuleLoadFn, ModuleNormalizeFn, js_module_ns_exotic_methods},
     object::{ShapeImpl, ShapeRegistry},
     resource::LocalResource,
@@ -202,9 +200,9 @@ impl RuntimeImpl {
             rt.class_registry[JS_CLASS_ASYNC_FUNCTION as usize].call =
                 Some(AsyncFunction::class_call);
             rt.class_registry[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
-                Some(AsyncFuncState::class_call);
+                Some(AsyncState::class_call);
             rt.class_registry[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
-                Some(AsyncFuncState::class_call);
+                Some(AsyncState::class_call);
 
             rt.class_registry[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
                 Some(AsyncGeneratorFunction::class_call);

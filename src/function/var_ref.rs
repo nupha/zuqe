@@ -9,7 +9,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::AsyncFuncState;
+use super::AsyncState;
 
 #[repr(u8)]
 #[derive(Debug, Clone)]
@@ -18,7 +18,7 @@ enum VarRefState {
     Detached { value: JSValue },
     /// reference to a target var
     Bind {
-        async_func: Option<AsyncFuncState>,
+        async_func: Option<AsyncState>,
         var_idx: u16,
         /// raw pointer to var value, to slot var_idx
         pvalue: NonNull<JSValue>,
@@ -74,7 +74,7 @@ impl JSVarRefInner {
         var_idx: u16,
         is_arg: bool,
         pvalue: NonNull<JSValue>,
-        async_func: Option<AsyncFuncState>,
+        async_func: Option<AsyncState>,
     ) -> Self {
         Self {
             state: VarRefState::Bind {
@@ -157,7 +157,7 @@ impl JSVarRefInner {
     }
 
     /// get async function state pointer
-    pub const fn async_func(&self) -> Option<AsyncFuncState> {
+    pub const fn async_func(&self) -> Option<AsyncState> {
         if let VarRefState::Bind { async_func, .. } = &self.state {
             *async_func
         } else {
@@ -188,7 +188,7 @@ impl JSVarRef {
         var_idx: u16,
         is_arg: bool,
         pvalue: NonNull<JSValue>,
-        async_func: Option<AsyncFuncState>,
+        async_func: Option<AsyncState>,
     ) -> Result<Self, i32> {
         let inner = JSVarRefInner::new_bind(var_idx, is_arg, pvalue, async_func);
         let gc_ref = ctx.rt_ptr().gc_alloc(inner).map_err(|_| {
@@ -240,9 +240,9 @@ impl StackFrame {
                 // frames in a cycle.
 
                 let af = self
-                    .async_func
+                    .async_state
                     .upgrade(ctx.rt_ptr().gc_heap())
-                    .map(AsyncFuncState::from);
+                    .map(AsyncState::from);
 
                 debug_assert!(af.is_some());
                 af

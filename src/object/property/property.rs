@@ -258,7 +258,7 @@ pub enum JSProperty {
 }
 
 unsafe impl GcTracable for JSProperty {
-    #[inline(always)]
+    #[inline]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         match self {
             Self::Normal(v) => {
@@ -271,8 +271,7 @@ unsafe impl GcTracable for JSProperty {
             Self::VarRef(vr) => {
                 vr.trace(tracer);
             }
-            Self::LazyInit { .. } => {}
-            Self::Deleted => {}
+            Self::LazyInit { .. } | Self::Deleted => {}
         }
     }
 }

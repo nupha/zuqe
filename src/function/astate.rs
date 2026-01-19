@@ -1,6 +1,6 @@
 use std::{pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTracer};
 
 use crate::{
     context::ContextImpl, error::JSResult, function::BCFunction, gcref_wrapper,
@@ -25,12 +25,12 @@ pub struct AsyncStateImpl {
 }
 
 unsafe impl GcTracable for AsyncStateImpl {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.frame.trace(tracer);
+    #[inline]
+    fn trace(&self, tracer: &mut GcTracer) {
         self.this_val.trace(tracer);
         self.resolving_funcs[0].trace(tracer);
         self.resolving_funcs[1].trace(tracer);
+        self.frame.trace(tracer);
     }
 }
 
@@ -137,15 +137,10 @@ impl AsyncStateImpl {
             return Err(-1);
         }
 
-        // short borrow to avoid conflict
-        let (this_val, arg_list) = {
-            (self.this_val, unsafe {
-                std::slice::from_raw_parts(self.arg_ptr().as_ptr(), self.arg_count())
-            })
-        };
+        let mut ret = self.resume_call(ctx, self.this_val, unsafe {
+            std::slice::from_raw_parts(self.arg_ptr().as_ptr(), self.arg_count())
+        });
 
-        // run async func
-        let mut ret = self.resume_call(ctx, this_val, arg_list);
         let completed = match ret {
             Ok(JSValue::UNDEFINED) => {
                 debug_assert!(self.frame.cur_sp_offset > 0);
@@ -165,9 +160,7 @@ impl AsyncStateImpl {
         };
 
         if completed {
-            // mark end of execution
             self.is_completed = true;
-
             unsafe {
                 // close the closure variables.
                 self.frame.as_mut().get_unchecked_mut().close_var_refs();
@@ -188,12 +181,12 @@ impl AsyncStateImpl {
         let throw_flag = self.throw_flag;
 
         // state has a dedicated stack frame for async function
-        let mut bcf = *self.frame.cur_func.as_object_BCFunction().unwrap();
+        let mut func = *self.frame.cur_func.as_object_BCFunction().unwrap();
         let pc_offset = self.frame.cur_pc_offset;
         let sp_offset = self.frame.cur_sp_offset;
         debug_assert!(sp_offset >= 0);
 
-        let isa = bcf.payload_mut();
+        let isa = func.payload_mut();
         let ret_val = isa.bytecode().run(
             caller_ctx,
             isa.home_object(),
@@ -218,57 +211,41 @@ impl AsyncStateImpl {
 
 /// async execution state.
 /// used to save execution state of an async function or generator.
-#[derive(Debug, Clone, Copy)]
-pub struct AsyncFuncState(GcRef<AsyncStateImpl>);
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(transparent)]
+pub struct AsyncState(GcRef<AsyncStateImpl>);
 
-gcref_wrapper!(AsyncFuncState, AsyncStateImpl);
+gcref_wrapper!(AsyncState, AsyncStateImpl);
 
-impl PartialEq for AsyncFuncState {
-    #[inline(always)]
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl AsyncFuncState {
-    pub fn new_with_resolvings(
+impl AsyncState {
+    pub(crate) fn new(
         ctx: &ContextImpl,
         resolvings: [JSValue; 2],
         bc_func: BCFunction,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {
-        let inner = AsyncStateImpl::new(ctx, resolvings, bc_func, this_obj, args)?;
+        let gc_ref = ctx
+            .rt_ptr()
+            .gc_alloc(AsyncStateImpl::new(
+                ctx, resolvings, bc_func, this_obj, args,
+            )?)
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
 
-        let gc_ref = ctx.rt_ptr().gc_alloc(inner).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-        let mut a_state = Self(gc_ref);
-
-        // setup backref link for StackFrame to its wrapper AsyncState
-        let w = gc_ref.downgrade(ctx.rt_ptr().gc_heap_mut());
+        // setup backref link: StackFrame::async_state => GcWeak<AsyncStateImpl>
         unsafe {
-            a_state.frame.as_mut().get_unchecked_mut().async_func = w;
+            let w = gc_ref.downgrade(ctx.rt_ptr().gc_heap_mut());
+            gc_ref
+                .as_mut()
+                .frame
+                .as_mut()
+                .get_unchecked_mut()
+                .async_state = w;
         }
 
-        Ok(a_state)
-    }
-
-    /// create new AsyncFuncState, register to gc tracking list.
-    #[inline(always)]
-    pub fn new(
-        ctx: &ContextImpl,
-        bc_func: BCFunction,
-        this_obj: JSValue,
-        args: &[JSValue],
-    ) -> Result<Self, i32> {
-        Self::new_with_resolvings(
-            ctx,
-            [const { JSValue::UNDEFINED }; 2],
-            bc_func,
-            this_obj,
-            args,
-        )
+        Ok(Self(gc_ref))
     }
 }

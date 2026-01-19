@@ -2430,8 +2430,12 @@ impl Bytecode {
                         // IMPORTANT!
                         // must sync sp pointer to stack frame sp_offset,
                         // to let gc trace all values of current stack frame.
-                        stack_frame.cur_sp_offset = unsafe { sp.offset_from(sp_base) as _ };
+                        let sp_offset0 =
+                            std::mem::replace(&mut stack_frame.cur_sp_offset, unsafe {
+                                sp.offset_from(sp_base) as _
+                            });
                         caller_ctx.rt_ptr().gc_collect();
+                        stack_frame.cur_sp_offset = sp_offset0;
 
                         gc_counter = 0;
                     }

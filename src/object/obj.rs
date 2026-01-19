@@ -170,10 +170,12 @@ pub struct ObjectImpl {
 }
 
 unsafe impl GcTracable for ObjectImpl {
-    #[inline(always)]
+    #[inline]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.shape.trace(tracer);
-        self.prop_values.iter().for_each(|x| x.trace(tracer));
+        self.prop_values.iter().for_each(|x| {
+            x.trace(tracer);
+        });
         self.payload.trace(tracer);
     }
 }
@@ -385,7 +387,6 @@ impl ObjectImpl {
         }
     }
 
-    /// get object's shape
     #[inline(always)]
     pub const fn shape(&self) -> Option<&ShapeHandle> {
         self.shape.as_ref()
@@ -497,17 +498,11 @@ impl ObjectImpl {
 }
 
 /// An object reference
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
+#[repr(transparent)]
 pub struct Object(pub(crate) GcRef<ObjectImpl>);
 
 gcref_wrapper!(Object, ObjectImpl);
-
-impl PartialEq for Object {
-    #[inline(always)]
-    fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id()
-    }
-}
 
 impl From<Object> for JSValue {
     #[inline(always)]

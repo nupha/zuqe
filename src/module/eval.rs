@@ -480,14 +480,11 @@ impl ModuleDef {
             }
         } else {
             // is bytecode function
-            let func_obj = self.bytecode;
-            debug_assert_eq!(
-                func_obj.as_object().unwrap().class_id(),
-                JS_CLASS_BYTECODE_FUNCTION
-            );
+            let bc = self.bytecode;
+            debug_assert!(bc.as_object_BCFunction().is_some());
 
             // eval bytecode function
-            let promise = func_obj
+            let promise = bc
                 .call_async(ctx, JSValue::UNDEFINED, &[], 0)
                 .map_err(|_| ctx.rt_ptr().take_exception())?;
 

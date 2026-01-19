@@ -1,6 +1,6 @@
 use gc_lite::{GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTracer};
 
-use crate::{object::ShapeImpl, runtime::RuntimeImpl, value::JSValue};
+use crate::{object::ShapeImpl, runtime::RuntimeImpl};
 
 impl RuntimeImpl {
     #[inline(always)]
@@ -86,29 +86,28 @@ impl RuntimeImpl {
         freed
     }
 
-    /// TODO: this should not expose to public
-    pub fn gc_set_root_value(&mut self, val: JSValue, b: bool) {
-        match val {
-            JSValue::Object(o) => {
-                self.gc_heap_mut().set_root(o.gc_ref(), b);
-            }
-            JSValue::String(s) => {
-                if s.rt().is_some() {
-                    self.gc_heap_mut().set_root(s.gc_ref(), b);
-                }
-            }
-            JSValue::Symbol(a) => {
-                a.set_gc_root(b);
-            }
-            JSValue::Module(m) => {
-                self.gc_heap_mut().set_root(m.gc_ref(), b);
-            }
-            JSValue::Bytecode(bc) => {
-                self.gc_heap_mut().set_root(bc.gc_ref(), b);
-            }
-            _ => {}
-        }
-    }
+    // pub(crate) fn gc_set_root_value(&mut self, val: JSValue, b: bool) {
+    //     match val {
+    //         JSValue::Object(o) => {
+    //             self.gc_heap_mut().set_root(o.gc_ref(), b);
+    //         }
+    //         JSValue::String(s) => {
+    //             if s.rt().is_some() {
+    //                 self.gc_heap_mut().set_root(s.gc_ref(), b);
+    //             }
+    //         }
+    //         JSValue::Symbol(a) => {
+    //             a.set_gc_root(b);
+    //         }
+    //         JSValue::Module(m) => {
+    //             self.gc_heap_mut().set_root(m.gc_ref(), b);
+    //         }
+    //         JSValue::Bytecode(bc) => {
+    //             self.gc_heap_mut().set_root(bc.gc_ref(), b);
+    //         }
+    //         _ => {}
+    //     }
+    // }
 
     #[inline(always)]
     pub fn gc_set_trace_handler(&mut self, f: impl Fn(&mut GcTracer) + 'static) {

@@ -143,7 +143,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     );
     m.insert(
         PayloadKey::AsyncFunctionResolving,
-        "crate::function::AsyncFuncState",
+        "crate::function::AsyncState",
     );
     m.insert(
         PayloadKey::AsyncFromSyncIterator,

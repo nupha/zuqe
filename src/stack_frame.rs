@@ -72,9 +72,9 @@ pub struct StackFrame {
     /// Execution attrs of stack frame.
     pub(crate) js_mode: ExecMode,
 
-    /// Weak back-ref to async state,
-    /// only valid if this stack frame is for an AsyncStateImpl
-    pub(crate) async_func: GcWeak<AsyncStateImpl>,
+    /// Weak backref to async state,
+    /// only valid if stack frame is for an AsyncStateImpl
+    pub(crate) async_state: GcWeak<AsyncStateImpl>,
 
     _mark: PhantomPinned,
 }
@@ -117,7 +117,7 @@ impl StackFrame {
             var_base_ptr: std::ptr::null_mut(),
             var_count: 0,
 
-            async_func: GcWeak::default(),
+            async_state: GcWeak::default(),
             var_ref_list: Vec::new(),
             cur_pc_offset: 0,
             cur_sp_offset: 0,
@@ -149,9 +149,9 @@ impl StackFrame {
         unsafe { self.stack_base_ptr().add(self.cur_sp_offset as usize) }
     }
 
-    pub fn stack_values(&self) -> &[JSValue] {
+    pub const fn stack_values(&self) -> &[JSValue] {
         debug_assert!(self.cur_sp_offset >= 0);
-        if self.cur_sp_offset != 0 {
+        if self.cur_sp_offset >= 0 {
             unsafe {
                 let len = self.cur_sp_offset as usize;
                 std::slice::from_raw_parts(self.stack_base_ptr().as_ptr(), len)

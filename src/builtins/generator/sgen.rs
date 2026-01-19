@@ -5,7 +5,7 @@ use crate::{
     builtins::iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     context::{Context, ContextImpl},
     error::JSResult,
-    function::{AsyncFuncState, CallContext, FieldDef, IteratorState},
+    function::{AsyncState, CallContext, FieldDef, IteratorState},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     stack_frame::StackFrame,
     value::JSValue,
@@ -29,7 +29,7 @@ pub const FUNC_RET_INITIAL_YIELD: i32 = 3;
 #[derive(Debug)]
 pub struct GeneratorPayload {
     state: GenState,
-    func_state: AsyncFuncState,
+    func_state: AsyncState,
 }
 
 unsafe impl GcTracable for GeneratorPayload {
@@ -86,8 +86,9 @@ pub fn js_generator_function_call(
     args: &[JSValue],
     _flags: i32,
 ) -> JSResult {
-    let func_state = AsyncFuncState::new(
+    let func_state = AsyncState::new(
         &ctx,
+        [const { JSValue::UNDEFINED }; 2],
         *func_obj.as_object_BCFunction().unwrap(),
         this_obj,
         args,

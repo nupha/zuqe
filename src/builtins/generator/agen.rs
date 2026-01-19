@@ -12,7 +12,7 @@ use crate::{
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::{
-        AsyncFuncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind,
+        AsyncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind,
         NativeFunctionWithData,
     },
     object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
@@ -64,7 +64,7 @@ pub struct AGenPayload {
     state: AGenState,
 
     /// None for state AWAITING_RETURN and COMPLETED
-    func_state: AsyncFuncState,
+    func_state: AsyncState,
 
     /// list of JSAsyncGeneratorRequest.
     /// the queue's element is consumed in resolve() or reject() call.
@@ -360,8 +360,9 @@ impl AsyncGeneratorFunction {
         let mut s = Box::new(AGenPayload {
             generator: RefCell::new(GcWeak::default()),
             state: AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
-            func_state: AsyncFuncState::new(
+            func_state: AsyncState::new(
                 &ctx,
+                [const { JSValue::UNDEFINED }; 2],
                 *func_obj.as_object_BCFunction().unwrap(),
                 this_obj,
                 args,

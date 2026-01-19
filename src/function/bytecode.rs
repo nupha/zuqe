@@ -9,6 +9,7 @@ use crate::{
     error::JSResult,
     eval::EvalType,
     function::{FunctionDef, JSVarRef},
+    gcref_wrapper,
     runtime::RuntimePtr,
     stack_frame::{ExecMode, StackFrame},
     utils::{get_leb128, get_sleb128, read_from_ptr},
@@ -124,11 +125,8 @@ unsafe impl GcTracable for BytecodeImpl {
     #[inline]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.func_name.trace(tracer);
-        // trace const values
         self.consts().iter().for_each(|x| x.trace(tracer));
-        // trace var defs
         self.vardefs().iter().for_each(|x| x.trace(tracer));
-        // trace closure vars
         self.closure_vars().iter().for_each(|x| x.trace(tracer));
 
         // trace atoms in opcodes
@@ -238,7 +236,7 @@ impl BytecodeImpl {
     }
 
     #[inline(always)]
-    pub const fn mode(&self) -> ExecMode {
+    pub(crate) const fn mode(&self) -> ExecMode {
         self.attrs.exec_mode
     }
 
@@ -583,31 +581,10 @@ impl BytecodeImpl {
 }
 
 #[repr(transparent)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Bytecode(GcRef<BytecodeImpl>);
 
-unsafe impl GcTracable for Bytecode {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        tracer.mark(self.0);
-    }
-}
-
-impl std::ops::Deref for Bytecode {
-    type Target = BytecodeImpl;
-
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        unsafe { self.0.as_ref() }
-    }
-}
-
-impl std::ops::DerefMut for Bytecode {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.0.as_mut() }
-    }
-}
+gcref_wrapper!(Bytecode, BytecodeImpl);
 
 impl From<Bytecode> for JSValue {
     #[inline(always)]
@@ -623,16 +600,6 @@ impl std::fmt::Debug for Bytecode {
 }
 
 impl Bytecode {
-    #[inline(always)]
-    pub(crate) const fn from(gc_ref: GcRef<BytecodeImpl>) -> Self {
-        Self(gc_ref)
-    }
-
-    #[inline(always)]
-    pub const fn gc_ref(&self) -> GcRef<BytecodeImpl> {
-        self.0
-    }
-
     pub fn downgrade(&self) -> GcWeak<BytecodeImpl> {
         self.0.downgrade(self.rt().gc_heap_mut())
     }
