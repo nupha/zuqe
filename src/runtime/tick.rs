@@ -38,9 +38,7 @@ impl RuntimeImpl {
             }
         }
 
-        if self.gc_req
-            || (self.gc_threshold > 0 && self.gc_info().memory_used() >= self.gc_threshold)
-        {
+        if self.should_gc() {
             self.gc_collect();
         }
 
@@ -49,5 +47,10 @@ impl RuntimeImpl {
         } else {
             TickStatus::Stop(0)
         })
+    }
+
+    #[inline(always)]
+    fn should_gc(&self) -> bool {
+        self.gc_req || (self.gc_threshold > 0 && self.gc_info().memory_used() >= self.gc_threshold)
     }
 }

@@ -25,15 +25,15 @@ impl ContextImpl {
         let rt = self.rt_ptr();
 
         if let Some(cb) = rt.interrupt_handler.as_ref() {
-            let mut intr = self.interrupt_counter.get();
-            intr -= 1;
-            self.interrupt_counter.set(if intr > 0 {
-                intr
+            let mut counter = self.interrupt_counter.get();
+            counter -= 1;
+            self.interrupt_counter.set(if counter > 0 {
+                counter
             } else {
                 JS_INTERRUPT_COUNTER_INIT
             });
 
-            if intr <= 0 {
+            if counter <= 0 {
                 // call interrupt callback
                 if cb(&rt) {
                     // XXX: should set a specific flag to avoid catching

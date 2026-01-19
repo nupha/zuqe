@@ -13,7 +13,6 @@ license = "Apache-2.0"
 all_unicode = ["unicode-xid", "unicode-normalization"]
 builtin_json = []
 builtin_date = ["libc"]
-
 dump_bytecode = []
 
 default = ["all_unicode", "builtin_json", "builtin_date"]

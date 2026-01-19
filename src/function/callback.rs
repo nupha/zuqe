@@ -164,22 +164,22 @@ impl NFuncPayload {
 
         let ret_val: JSResult = match callback {
             Callback::Func(f) => {
-                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
+                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
                 f(cc)
             }
 
             Callback::Getter(f) => {
                 debug_assert_eq!(sf.arg_count, 0);
-                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
+                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
                 f(cc)
             }
             Callback::Setter(f) => {
                 debug_assert_eq!(sf.arg_count, 1);
-                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
+                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
                 f(cc)
             }
             Callback::IteratorNext(f) => {
-                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
+                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
                 let mut iter_state = IteratorState::NotDone;
                 let mut r = f(cc, &mut iter_state);
                 if r.is_ok() && iter_state != IteratorState::NotParsed {
@@ -196,29 +196,29 @@ impl NFuncPayload {
                     realm_cx.throw_type_error("must be called with new");
                     return Err(-1);
                 }
-                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
+                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
                 f(cc)
             }
             Callback::ConstructorOrFunc(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                     this_obj = JSValue::UNDEFINED;
                 }
-                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
+                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
                 f(cc)
             }
             //
             // LEGACIES
             //
-            Callback::CFunc(f) => unsafe { f(realm_cx, this_obj, sf.args_slice()).err() },
+            Callback::CFunc(f) => unsafe { f(realm_cx, this_obj, sf.arg_values()).err() },
             Callback::CFuncMagic(f) => unsafe {
-                f(realm_cx, this_obj, sf.args_slice(), magic as i32).err()
+                f(realm_cx, this_obj, sf.arg_values(), magic as i32).err()
             },
 
-            Callback::FF(f) => sf.args_slice()[0]
+            Callback::FF(f) => sf.arg_values()[0]
                 .to_f64(realm_cx)
                 .map(|n| JSValue::from(unsafe { f(n) })),
             Callback::FFF(f) => {
-                let args = sf.args_slice();
+                let args = sf.arg_values();
                 let d1 = args[0].to_f64(realm_cx)?;
                 let d2 = args[1].to_f64(realm_cx)?;
 

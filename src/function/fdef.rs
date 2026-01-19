@@ -346,9 +346,9 @@ impl FunctionDef {
 
     #[cfg(feature = "dump_bytecode")]
     pub fn dump_bytecode(&self, ctx: &ContextImpl, pass: i32) {
-        use crate::eval::ExecMode;
+        use crate::stack_frame::ExecMode;
 
-        if !self.attrs.js_mode.contains(ExecMode::STRIP) {
+        if !self.attrs.exec_mode.contains(ExecMode::STRIP) {
             println!("pass {pass}");
 
             crate::bytecode::dump_opcodes(

@@ -83,11 +83,10 @@ unsafe impl GcTracable for StackFrame {
     #[inline]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.cur_func.trace(tracer);
-        // self.local_buf.trace(tracer);
 
-        self.vardefs_slice().iter().for_each(|x| x.trace(tracer));
-        self.args_slice().iter().for_each(|x| x.trace(tracer));
-        self.stack_slice().iter().for_each(|x| x.trace(tracer));
+        self.vardef_values().iter().for_each(|x| x.trace(tracer));
+        self.arg_values().iter().for_each(|x| x.trace(tracer));
+        self.stack_values().iter().for_each(|x| x.trace(tracer));
         self.var_ref_list.iter().for_each(|x| x.trace(tracer));
 
         if let Some(sf) = unsafe { self.prev.cast::<StackFrame>().as_ref() } {
@@ -132,23 +131,6 @@ impl StackFrame {
         self as *const Self as usize
     }
 
-    /// Returns slice of actual argument values for this frame
-    pub const fn args_slice(&self) -> &[JSValue] {
-        if self.arg_real_count == 0 {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(self.arg_base_ptr, self.arg_real_count as usize) }
-        }
-    }
-
-    pub const fn vardefs_slice(&self) -> &[JSValue] {
-        if self.var_count == 0 {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(self.var_base_ptr, self.var_count as usize) }
-        }
-    }
-
     /// Returns the base pointer of the stack in this frame
     #[inline(always)]
     pub const fn stack_base_ptr(&self) -> NonNull<JSValue> {
@@ -162,13 +144,12 @@ impl StackFrame {
     ///
     /// `let stack_top_val = frame.stack_cur_ptr().offset(-1).as_ref();`
     #[inline(always)]
-    pub const fn stack_cur_ptr(&self) -> NonNull<JSValue> {
+    pub(crate) const fn stack_cur_ptr(&self) -> NonNull<JSValue> {
         debug_assert!(self.cur_sp_offset >= 0);
         unsafe { self.stack_base_ptr().add(self.cur_sp_offset as usize) }
     }
 
-    /// stack values slice
-    pub fn stack_slice(&self) -> &[JSValue] {
+    pub fn stack_values(&self) -> &[JSValue] {
         debug_assert!(self.cur_sp_offset >= 0);
         if self.cur_sp_offset != 0 {
             unsafe {
@@ -177,6 +158,23 @@ impl StackFrame {
             }
         } else {
             &[]
+        }
+    }
+
+    /// Returns slice of actual argument values for this frame
+    pub const fn arg_values(&self) -> &[JSValue] {
+        if self.arg_real_count == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(self.arg_base_ptr, self.arg_real_count as usize) }
+        }
+    }
+
+    pub const fn vardef_values(&self) -> &[JSValue] {
+        if self.var_count == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(self.var_base_ptr, self.var_count as usize) }
         }
     }
 

@@ -301,7 +301,7 @@ impl FunctionDef {
         })?);
 
         #[cfg(feature = "dump_bytecode")]
-        if !self.attrs.js_mode.contains(ExecMode::STRIP) {
+        if !self.attrs.exec_mode.contains(ExecMode::STRIP) {
             bc.dump(ctx);
         }
 

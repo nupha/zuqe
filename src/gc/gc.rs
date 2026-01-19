@@ -34,18 +34,16 @@ impl RuntimeImpl {
     }
 
     /// collect garbage.
-    /// TODO: this should not expose to public
-    pub fn gc_collect(&mut self) -> usize {
+    pub(crate) fn gc_collect(&mut self) -> usize {
         let part = self.gc_part;
 
-        // GC: trace & mark
+        //
+        // mark
+        //
         {
             let mut tracer = GcTracer::new();
 
-            // mark roots
             self.gc_heap.mark_roots(part, &mut tracer);
-
-            // mark nodes other than roots
             self.cur_exception.trace(&mut tracer);
             self.shape_registry.trace(&mut tracer);
 
@@ -59,7 +57,7 @@ impl RuntimeImpl {
                 cx.job_list.iter().for_each(|x| x.trace(&mut tracer));
             }
 
-            // mark user defined handler
+            // user defined marks
             if let Some(f) = self.gc_user_trace.as_ref() {
                 f(&mut tracer);
             }
@@ -67,32 +65,24 @@ impl RuntimeImpl {
             tracer.commit_marks(&self.gc_heap);
         }
 
-        // GC: ShapImpl must be freed at last
+        //
+        // sweep
+        //
         let mut freed = 0;
         if let Some(type_shape) = self.gc_heap().type_idx_of::<ShapeImpl>() {
+            // GC: ShapImpl must be freed at last
             freed = self
                 .gc_heap
                 .sweep_ex(part, false, None, Some(&[type_shape]), true);
         }
+
         freed += self.gc_heap.sweep_ex(part, false, None, None, false);
 
-        // O.o debug
-        // #[cfg(debug_assertions)]
-        // if freed > 0 {
-        //     let used = self.gc_info().memory_used();
-        //     println!(
-        //         "[O.o][GC {}] Partition {part:?} collected {freed}, used {used}, threshold->{}",
-        //         if self.gc_req { "req" } else { "threshold" },
-        //         used + (used >> 1)
-        //     );
-        // }
-
-        // GC: update gc threshold for next
+        // update gc threshold
         let used = self.gc_info().memory_used();
         self.gc_threshold = used + (used >> 1); // x1.5 of
 
         self.gc_req = false;
-
         freed
     }
 

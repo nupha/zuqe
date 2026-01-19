@@ -3,12 +3,12 @@
 use crate::{
     atom::Atom,
     bytecode::OpcodeFormat,
-    context::{ContextImpl, ContextPtr, ExecMode},
+    context::{ContextImpl, ContextPtr},
     function::{
-        Bytecode, JSClosureVar, FunctionKind, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
+        Bytecode, FunctionKind, JSClosureVar, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
         PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
-    string::unicode_from_utf8_v0,
+    stack_frame::ExecMode,
     utils::read_from_ptr,
     value::JSValue,
 };
@@ -424,7 +424,7 @@ impl Bytecode {
 
         println!(
             "function: {}{}",
-            if self.func_kind() == FunctionKind::JS_FUNC_GENERATOR {
+            if self.func_kind() == FunctionKind::Generator {
                 "*"
             } else {
                 ""
@@ -534,66 +534,6 @@ impl Bytecode {
         // }
 
         println!();
-    }
-}
-
-pub(super) unsafe fn dump_pc2line(ctx: ContextPtr, buf: *const u8, len: i32, mut line_num: i32) {
-    if len <= 0 {
-        return;
-    }
-
-    println!("{:>5} {:>5}", "PC", "LINE");
-
-    let mut p = buf;
-    let p_end = unsafe { buf.offset(len as isize) };
-    let mut p_next: *const u8 = std::ptr::null_mut();
-    let mut pc = 0;
-
-    while p < p_end {
-        let mut op = *p as i32;
-        p = p.add(1);
-
-        if op == 0 {
-            if let Ok(n) =
-                unicode_from_utf8_v0(p, (p_end as usize - p as usize) as i32, &mut p_next)
-            {
-                pc += n as i32;
-                p = p_next;
-            } else {
-                println!(
-                    "invalid pc2line encode pos={}",
-                    (p as usize - buf as usize) as i32
-                );
-                return;
-            }
-
-            let mut v = if let Ok(n) =
-                unicode_from_utf8_v0(p, (p_end as usize - p as usize) as i32, &mut p_next)
-            {
-                n as i32
-            } else {
-                println!(
-                    "invalid pc2line encode pos={}",
-                    (p as usize - buf as usize) as i32
-                );
-                return;
-            };
-
-            if (v & 1) == 0 {
-                v >>= 1;
-            } else {
-                v = -(v >> 1) - 1;
-            }
-
-            line_num += v;
-            p = p_next;
-        } else {
-            op -= PC2LINE_OP_FIRST;
-            pc += op / PC2LINE_RANGE;
-            line_num += (op % PC2LINE_RANGE) + PC2LINE_BASE;
-        }
-
-        println!("{:5} {:5}", pc, line_num);
     }
 }
 

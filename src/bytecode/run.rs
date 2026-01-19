@@ -45,6 +45,8 @@ use crate::{
     value::JSValue,
 };
 
+const GC_STEP: u32 = 500;
+
 impl Bytecode {
     /// Execute bytecodes.
     ///
@@ -67,10 +69,7 @@ impl Bytecode {
         throwed: bool,    // Indicates if an exception has been thrown
     ) -> JSValue {
         let mode = stack_frame.js_mode;
-
-        // use bytecode's context
-        let mut realm = self.realm().unwrap();
-
+        let mut realm = self.realm().unwrap(); // bytecode's context
         let bytecodes = self.opcodes();
         debug_assert!(
             pc_offset < bytecodes.len(),
@@ -83,10 +82,12 @@ impl Bytecode {
 
         let sp_base = stack_frame.stack_base_ptr().as_ptr();
         let pc_base = bytecodes.as_ptr();
-        // convert index to pointer
-        let (mut pc, mut sp) = unsafe { (pc_base.add(pc_offset), sp_base.add(sp_offset)) };
 
-        // setup current stack frame frist.
+        // convert offset to pointer
+        let mut pc = unsafe { pc_base.add(pc_offset) };
+        let mut sp = unsafe { sp_base.add(sp_offset) };
+
+        // make calling stack frame to be `current`
         caller_ctx
             .rt_ptr()
             .push_stack_frame(NonNull::from_ref(stack_frame));
@@ -272,6 +273,8 @@ impl Bytecode {
             /// exit with return value and is_generator flag
             Done(JSValue, bool),
         }
+
+        let mut gc_counter = 0_u32;
 
         #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
         let mut debug_setting: Option<crate::function::BytecodeDebugSetting> = None;
@@ -1346,7 +1349,7 @@ impl Bytecode {
                         // skip jump offset
                         PC_GO!(4);
 
-                        let res = match op_1 {
+                        let test = match op_1 {
                             JSValue::Int(i) => i != 0,
                             JSValue::Bool(b) => b,
                             JSValue::UNDEFINED | JSValue::NULL => false,
@@ -1359,7 +1362,7 @@ impl Bytecode {
                             }
                         };
 
-                        if b == res {
+                        if b == test {
                             // jump pc
                             pc = unsafe {
                                 pc.offset((read_from_ptr::<i32>(pc.offset(-4)) - 4) as isize)
@@ -2421,6 +2424,19 @@ impl Bytecode {
                     }
                 } // match opcode
 
+                if GC_STEP != 0 {
+                    gc_counter += 1;
+                    if gc_counter >= GC_STEP {
+                        // IMPORTANT!
+                        // must sync sp pointer to stack frame sp_offset,
+                        // to let gc trace all values of current stack frame.
+                        stack_frame.cur_sp_offset = unsafe { sp.offset_from(sp_base) as _ };
+                        caller_ctx.rt_ptr().gc_collect();
+
+                        gc_counter = 0;
+                    }
+                }
+
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
                 if unlikely(debug_setting.map_or(0, |s| s.dump_run) == 2) {
                     let oi = super::opcode_info_final(opcode as u8);
@@ -2465,7 +2481,7 @@ impl Bytecode {
                     }
                 }
             }
-        } // opcodes loop
+        } // restart
     }
 
     #[cold]
