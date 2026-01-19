@@ -1157,7 +1157,7 @@ impl Bytecode {
                     }
                     OpCode::PUT_ARG => {
                         let idx = PC_FETCH!(u16);
-                        *ARG_REF![idx] = SP_VAL!(-1);
+                        *ARG_REF!(idx) = SP_VAL!(-1);
                         SP_GO!(-1);
                     }
                     OpCode::SET_ARG => {

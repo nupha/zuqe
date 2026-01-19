@@ -192,9 +192,7 @@ impl AsyncStateImpl {
             isa.home_object(),
             unsafe {
                 // use dedicated stack frame for async state
-                let sf = self.frame.as_mut().get_unchecked_mut();
-                sf.cur_sp_offset = -1;
-                sf
+                self.frame.as_mut().get_unchecked_mut()
             },
             this_obj,
             JSValue::UNDEFINED,

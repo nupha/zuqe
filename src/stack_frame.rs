@@ -162,11 +162,12 @@ impl StackFrame {
     }
 
     /// Returns slice of actual argument values for this frame
-    pub const fn arg_values(&self) -> &[JSValue] {
-        if self.arg_real_count == 0 {
-            &[]
+    pub fn arg_values(&self) -> &[JSValue] {
+        let n = std::cmp::max(self.arg_real_count, self.arg_count);
+        if n > 0 {
+            unsafe { std::slice::from_raw_parts(self.arg_base_ptr, n as usize) }
         } else {
-            unsafe { std::slice::from_raw_parts(self.arg_base_ptr, self.arg_real_count as usize) }
+            &[]
         }
     }
 
