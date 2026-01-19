@@ -5,22 +5,15 @@
 
 **Zuqe** (pronounced `/zuːk/`, like "zook") is a lightweight JavaScript engine implemented in Rust. It is designed for embedded systems and general‑purpose use, balancing performance, memory safety, and a minimal footprint.
 
-Zuqe is Rust-native, it leverages Rust's philosophy:
-
-- **Memory Safety**: Zero-cost memory safety without garbage collection overhead
-- **Concurrency**: Fearless concurrency for potential multi-threaded execution
-- **Performance**: Compiled machine code with aggressive optimizations
-- **Modern Language**: Good engineering and develope process
-
 Zuqe is named after **朱雀 (Zhuque)**, the Vermilion Bird of Chinese mythology, which represents fire and renewal.
 
 Zuqe is inspired by QuickJS.
 
 ## 🎯 Design Goals
 
-- **Lightweight**: Minimal binary size and low memory overhead
-- **Rust-Native**: Leverages Rust's memory safety and zero-cost abstractions
-- **Embedding-Friendly**: Easy to embed in host applications; Optimized for IoT devices, edge computing, and resource-constrained environments
+- **Lightweight**: Small binary footprint and low memory overhead for IoT devices, edge computing, and resource-constrained environments
+- **Rust-Native**: Leverages Rust's memory safety, zero-cost abstractions and modern toolchain to boost engineering process
+- **Embedding-Friendly**: Easy to embed in and integrate with host applications
 - **Fast Bytecode Execution**: Optimized interpreter with efficient garbage collection
 - **Standards Compliance**: Evolving implementation of modern JavaScript standards
 
