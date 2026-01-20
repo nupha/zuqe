@@ -274,7 +274,10 @@ impl Bytecode {
             Done(JSValue, bool),
         }
 
-        let mut gc_counter = 0_u32;
+        let gc_heap = {
+            let rt = caller_ctx.rt_ref();
+            rt.gc_heap().partition(rt.gc_part()).unwrap()
+        };
 
         #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
         let mut debug_setting: Option<crate::function::BytecodeDebugSetting> = None;
@@ -2424,21 +2427,12 @@ impl Bytecode {
                     }
                 } // match opcode
 
-                if GC_STEP != 0 {
-                    gc_counter += 1;
-                    if gc_counter >= GC_STEP {
-                        // IMPORTANT!
-                        // must sync sp pointer to stack frame sp_offset,
-                        // to let gc trace all values of current stack frame.
-                        let sp_offset0 =
-                            std::mem::replace(&mut stack_frame.cur_sp_offset, unsafe {
-                                sp.offset_from(sp_base) as _
-                            });
-                        caller_ctx.rt_ptr().gc_collect();
-                        stack_frame.cur_sp_offset = sp_offset0;
-
-                        gc_counter = 0;
-                    }
+                if gc_heap.should_gc() {
+                    // IMPORTANT!
+                    // must sync sp pointer to stack frame sp_offset,
+                    // to let gc trace all values of current stack frame.
+                    stack_frame.cur_sp_offset = unsafe { sp.offset_from(sp_base) as _ };
+                    caller_ctx.rt_ptr().gc_collect();
                 }
 
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
