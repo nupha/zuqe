@@ -29,12 +29,12 @@ impl RuntimeImpl {
 
     /// alloc data in gc
     #[inline(always)]
-    pub(crate) fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
+    pub fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         self.gc_heap.alloc(self.gc_part, data)
     }
 
     /// collect garbage.
-    pub(crate) fn gc_collect(&mut self) -> usize {
+    pub fn gc_collect(&mut self) -> usize {
         let part = self.gc_part;
 
         //
