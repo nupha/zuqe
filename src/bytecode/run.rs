@@ -5,7 +5,6 @@ use crate::{
     builtins::{
         generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
         iterator::ObjectIter,
-        regexp::RegExp,
     },
     bytecode::{
         OpCode, SpecialObject,
@@ -1036,14 +1035,24 @@ impl Bytecode {
                     }
                     OpCode::REGEXP => {
                         // [pattern, pre_compiled_id, ^] -> [regexp, ^]
+                        #[cfg(feature = "builtin_regexp")]
                         if let JSValue::Int(re_id) = SP_VAL!(-1) {
                             let re =
                                 Box::new(realm.rt_ptr().regexp_precompiled[re_id as usize].clone());
-                            let regexp = RegExp::from(&realm, JSValue::UNDEFINED, re)
-                                .map_or(JSValue::EXCEPTION, |o| o.into());
+                            let regexp = crate::builtins::regexp::RegExp::from(
+                                &realm,
+                                JSValue::UNDEFINED,
+                                re,
+                            )
+                            .map_or(JSValue::EXCEPTION, |o| o.into());
                             SP_PUT!(-2, regexp);
                             SP_GO!(-1);
-                        };
+                        }
+                        #[cfg(not(feature = "builtin_regexp"))]
+                        {
+                            realm.throw_internal_error("RegExp is not supported");
+                            break State::Exception;
+                        }
                     }
                     OpCode::GET_SUPER => {
                         if let Ok(proto) = SP_REF!(-1).prototype(&realm) {

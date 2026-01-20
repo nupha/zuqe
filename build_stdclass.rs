@@ -14,6 +14,7 @@ enum PayloadKey {
     NativeFuncWithData,
     BcFunction,
     BoundFunction,
+    #[cfg(feature = "builtin_regexp")]
     RegExp,
     ForInIterator,
     ArrayBuffer,
@@ -22,6 +23,7 @@ enum PayloadKey {
     MapSet,
     MapSetIterator,
     ArrayIterator,
+    #[cfg(feature = "builtin_regexp")]
     RegExpStringIterator,
     Generator,
     Proxy,
@@ -44,6 +46,7 @@ impl PayloadKey {
             PayloadKey::NativeFuncWithData => "native_func_with_data",
             PayloadKey::BcFunction => "bc_function",
             PayloadKey::BoundFunction => "bound_function",
+            #[cfg(feature = "builtin_regexp")]
             PayloadKey::RegExp => "regexp",
             PayloadKey::ForInIterator => "for_in_iterator",
             PayloadKey::ArrayBuffer => "array_buffer",
@@ -52,6 +55,7 @@ impl PayloadKey {
             PayloadKey::MapSet => "mapset",
             PayloadKey::MapSetIterator => "mapset_iterator",
             PayloadKey::ArrayIterator => "array_iterator",
+            #[cfg(feature = "builtin_regexp")]
             PayloadKey::RegExpStringIterator => "regexp_string_iterator",
             PayloadKey::Generator => "generator",
             PayloadKey::Proxy => "proxy",
@@ -88,6 +92,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         PayloadKey::BoundFunction,
         "Box<crate::function::BoundFuncObjPayload>",
     );
+    #[cfg(feature = "builtin_regexp")]
     m.insert(
         PayloadKey::RegExp,
         "Box<crate::builtins::regexp::RegExpData>",
@@ -121,6 +126,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         PayloadKey::ArrayIterator,
         "Box<crate::builtins::iterator::ArrayIterPayload>",
     );
+    #[cfg(feature = "builtin_regexp")]
     m.insert(
         PayloadKey::RegExpStringIterator,
         "Box<crate::builtins::regexp::RegExpStringIterPayload>",
@@ -251,6 +257,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             None,
             None,
         ),
+        #[cfg(feature = "builtin_regexp")]
         ClassInfo::class_def(
             "RegExp",
             "REGEXP",
@@ -420,6 +427,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             None,
             None,
         ),
+        #[cfg(feature = "builtin_regexp")]
         ClassInfo::class_def(
             "RegExp_String_Iterator",
             "REGEXP_STRING_ITERATOR",

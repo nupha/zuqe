@@ -69,7 +69,7 @@ impl RuntimeImpl {
         // sweep
         //
         let mut freed = 0;
-        if let Some(type_shape) = self.gc_heap().type_idx_of::<ShapeImpl>() {
+        if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
             // GC: ShapImpl must be freed at last
             freed = self
                 .gc_heap

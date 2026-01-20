@@ -16,6 +16,7 @@ use crate::{
     value::JSValue,
 };
 
+#[cfg(feature = "builtin_regexp")]
 use super::regexp::js_is_regexp;
 
 const MAGIC_INCLUDES: i32 = 1;
@@ -204,6 +205,7 @@ fn js_string_replace(cc: CallContext) -> JSResult {
     let replacement = *cc.arg(1);
 
     if !search.is_undefined_or_null() {
+        #[cfg(feature = "builtin_regexp")]
         if is_replace_all && check_regexp_g_flag(ctx, &search) < 0 {
             return Err(-1);
         }
@@ -576,14 +578,15 @@ fn js_string_repeat(cc: CallContext) -> JSResult {
 fn js_string_includes(cc: CallContext) -> JSResult {
     let cx = cc.ctx();
     let p = cc.this().to_string_non_undefined_or_null(cx)?;
+    let arg0 = cc.arg(0);
 
-    if js_is_regexp(cx, cc.arg(0))? {
+    #[cfg(feature = "builtin_regexp")]
+    if js_is_regexp(cx, arg0)? {
         cx.throw_type_error("regex not supported");
         return Err(-1);
     }
 
-    let pat = cc.arg(0).to_string(cx)?;
-
+    let pat = arg0.to_string(cx)?;
     let mut str_len = p.len();
     let pat_len = pat.len();
 
@@ -646,7 +649,8 @@ fn js_string_includes(cc: CallContext) -> JSResult {
     }
 }
 
-pub fn check_regexp_g_flag(ctx: &ContextImpl, regexp: &JSValue) -> i32 {
+#[cfg(feature = "builtin_regexp")]
+fn check_regexp_g_flag(ctx: &ContextImpl, regexp: &JSValue) -> i32 {
     let ret = if let Ok(b) = js_is_regexp(ctx, regexp) {
         b
     } else {
@@ -681,7 +685,6 @@ pub fn check_regexp_g_flag(ctx: &ContextImpl, regexp: &JSValue) -> i32 {
 }
 
 fn js_string_match(cc: CallContext) -> JSResult {
-    let magic_method = Atom::from_id(cc.magic() as u32); // match, matchAll, search
     let ctx = cc.ctx();
     let this = cc.this();
 
@@ -690,35 +693,46 @@ fn js_string_match(cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let regexp_val = *cc.arg(0);
+    #[cfg(feature = "builtin_regexp")]
+    {
+        let magic_method = Atom::from_id(cc.magic() as u32); // match, matchAll, search
+        let regexp_val = *cc.arg(0);
 
-    if let JSValue::Object(o) = regexp_val {
-        let matcher = o.get_property(ctx, magic_method)?;
-        if magic_method == Atom::CONST_Symbol_matchAll && check_regexp_g_flag(ctx, &regexp_val) < 0
-        {
-            return Err(-1);
-        } else if !matcher.is_undefined_or_null() {
-            return matcher.call(ctx, regexp_val, std::slice::from_ref(this));
+        if let JSValue::Object(o) = regexp_val {
+            let matcher = o.get_property(ctx, magic_method)?;
+            if magic_method == Atom::CONST_Symbol_matchAll
+                && check_regexp_g_flag(ctx, &regexp_val) < 0
+            {
+                return Err(-1);
+            } else if !matcher.is_undefined_or_null() {
+                return matcher.call(ctx, regexp_val, std::slice::from_ref(this));
+            }
         }
+
+        // make RegExp object
+        let mut args = [
+            regexp_val, // used as pattern
+            JSValue::UNDEFINED,
+        ];
+        let mut args_len = 1;
+        if magic_method == Atom::CONST_Symbol_matchAll {
+            args[args_len] = ctx.create_string_from_char('g'.into())?.into();
+            args_len += 1;
+        }
+        let regexp_obj = {
+            let ctor = ctx.regexp_ctor;
+            JS_CallConstructor(ctx, ctor, &args[0..args_len]).err()?
+        };
+
+        let str = JSValue::String(this.to_string_non_undefined_or_null(ctx)?);
+        regexp_obj.invoke(ctx, magic_method, std::slice::from_ref(&str))
     }
 
-    // make RegExp object
-    let mut args = [
-        regexp_val, // used as pattern
-        JSValue::UNDEFINED,
-    ];
-    let mut args_len = 1;
-    if magic_method == Atom::CONST_Symbol_matchAll {
-        args[args_len] = ctx.create_string_from_char('g'.into())?.into();
-        args_len += 1;
+    #[cfg(not(feature = "builtin_regexp"))]
+    {
+        ctx.throw_internal_error("RegExp is not supported");
+        Err(-1)
     }
-    let regexp_obj = {
-        let ctor = ctx.regexp_ctor;
-        JS_CallConstructor(ctx, ctor, &args[0..args_len]).err()?
-    };
-
-    let str = JSValue::String(this.to_string_non_undefined_or_null(ctx)?);
-    regexp_obj.invoke(ctx, magic_method, std::slice::from_ref(&str))
 }
 
 fn js_string_trim(cc: CallContext) -> JSResult {

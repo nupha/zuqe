@@ -16,7 +16,6 @@ mod expr_yield;
 mod function;
 mod obj;
 mod parse;
-mod regexp;
 mod state;
 mod statement;
 mod string;
@@ -26,5 +25,7 @@ mod var;
 
 #[cfg(feature = "builtin_json")]
 mod json;
+#[cfg(feature = "builtin_regexp")]
+mod regexp;
 
 pub use {function::JSParseFunctionEnum, state::JSParseState};

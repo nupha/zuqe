@@ -417,15 +417,29 @@ impl<'s> JSParseState<'s> {
                 TokenKind::Char('=') => {
                     bits |= SKIP_HAS_ASSIGNMENT;
                 }
-                t @ (TokenKind::DIV_ASSIGN | TokenKind::Char('/')) => {
-                    if is_regexp_allowed(last_tok) {
-                        self.buf_ptr = unsafe {
-                            self.buf_ptr
-                                .offset(if t == TokenKind::DIV_ASSIGN { -2 } else { -1 })
-                        };
-                        if self.parse_regexp().is_err() {
-                            let _ = self.ctx.rt_ptr().take_exception(); //clear the exception
-                            break;
+                TokenKind::DIV_ASSIGN | TokenKind::Char('/') => {
+                    if is_regexp_syntax(last_tok) {
+                        #[cfg(feature = "builtin_regexp")]
+                        {
+                            self.buf_ptr = unsafe {
+                                self.buf_ptr
+                                    .offset(if self.token.kind == TokenKind::DIV_ASSIGN {
+                                        -2
+                                    } else {
+                                        -1
+                                    })
+                            };
+
+                            if self.parse_regexp().is_err() {
+                                let _ = self.ctx.rt_ptr().take_exception(); //clear the exception
+                                break;
+                            }
+                        }
+
+                        #[cfg(not(feature = "builtin_regexp"))]
+                        {
+                            self.throw_syntax_error("RegExp is not supported");
+                            return Err(-1);
                         }
                     }
                 }
@@ -504,7 +518,7 @@ pub(super) fn skip_shebang(buf: &[u8]) -> usize {
 
 /// return TRUE if a regexp literal is allowed after token `tok`
 #[inline(always)]
-const fn is_regexp_allowed(tok: TokenKind) -> bool {
+const fn is_regexp_syntax(tok: TokenKind) -> bool {
     // regexp may occur after
     !matches!(
         tok,

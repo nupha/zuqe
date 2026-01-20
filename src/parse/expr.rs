@@ -230,31 +230,44 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
             }
 
-            t @ (TokenKind::DIV_ASSIGN | TokenKind::Char('/')) => {
-                self.buf_ptr = unsafe {
-                    self.buf_ptr
-                        .offset(if t == TokenKind::DIV_ASSIGN { -2 } else { -1 })
-                };
+            TokenKind::DIV_ASSIGN | TokenKind::Char('/') => {
+                #[cfg(feature = "builtin_regexp")]
+                {
+                    self.buf_ptr = unsafe {
+                        self.buf_ptr
+                            .offset(if self.token.kind == TokenKind::DIV_ASSIGN {
+                                -2
+                            } else {
+                                -1
+                            })
+                    };
 
-                // the previous token is '/' or '/=', so no need to free
-                self.parse_regexp()?;
+                    // the previous token is '/' or '/=', so no need to free
+                    self.parse_regexp()?;
 
-                // emit build RegExp opcode
-                let re_id = self.token.data.regexp().unwrap();
-                self.emit_push_const(
-                    Atom::CONST_empty_string
-                        .force_string(&self.ctx)
-                        .unwrap()
-                        .into(),
-                    false,
-                )?;
-                self.emit_push_const(JSValue::Int(re_id as i32), false)?;
-                // we use a specific opcode to be sure the correct
-                // function is called (otherwise the bytecode would have
-                // to be verified by the RegExp constructor)
-                self.emit_op(OpCode::REGEXP);
+                    // emit RegExp opcode
+                    let re_id = self.token.data.regexp().unwrap();
+                    self.emit_push_const(
+                        Atom::CONST_empty_string
+                            .force_string(&self.ctx)
+                            .unwrap()
+                            .into(),
+                        false,
+                    )?;
+                    self.emit_push_const(JSValue::Int(re_id as i32), false)?;
+                    // we use a specific opcode to be sure the correct
+                    // function is called (otherwise the bytecode would have
+                    // to be verified by the RegExp constructor)
+                    self.emit_op(OpCode::REGEXP);
 
-                self.next_token()?;
+                    self.next_token()?;
+                }
+
+                #[cfg(not(feature = "builtin_regexp"))]
+                {
+                    self.throw_syntax_error("RegExp is not supported");
+                    return Err(-1);
+                }
             }
 
             TokenKind::Char('(') => {

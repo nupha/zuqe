@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
-    JS_CLASS_NUMBER, JS_CLASS_REGEXP, JS_CLASS_STRING, atom::Atom, context::ContextImpl,
-    number::f64_stringify, object::Object,
+    JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom, context::ContextImpl, number::f64_stringify,
+    object::Object,
 };
 
 use super::JSValue;
@@ -56,11 +56,17 @@ impl Object {
                 | JS_CLASS_MAPPED_ARGUMENTS
                 | JS_CLASS_ERROR
                 | JS_CLASS_BOOLEAN
-                | JS_CLASS_NUMBER
-                | JS_CLASS_REGEXP) => ctx.rt_ptr().class_registry[cid as usize].class_name,
+                | JS_CLASS_NUMBER) => ctx.rt_ptr().class_registry[cid as usize].class_name,
+
+                #[cfg(feature = "builtin_regexp")]
+                crate::JS_CLASS_REGEXP => {
+                    ctx.rt_ptr().class_registry[crate::JS_CLASS_REGEXP as usize].class_name
+                }
 
                 #[cfg(feature = "builtin_date")]
-                cid @ crate::JS_CLASS_DATE => ctx.rt_ptr().class_registry[cid as usize].class_name,
+                crate::JS_CLASS_DATE => {
+                    ctx.rt_ptr().class_registry[crate::JS_CLASS_DATE as usize].class_name
+                }
 
                 _ => Atom::CONST_Object,
             }

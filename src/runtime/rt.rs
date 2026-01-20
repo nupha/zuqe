@@ -13,7 +13,6 @@ use crate::{
         generator::{AsyncGeneratorFunction, js_generator_function_call},
         promise::{JSHostPromiseRejectionTracker, PromiseResolveFunc},
         proxy::{Proxy, js_proxy_exotic_methods},
-        regexp::RegExpData,
     },
     class::{ClassMeta, js_arguments_exotic_methods},
     context::ContextPtr,
@@ -53,7 +52,8 @@ pub struct RuntimeImpl {
     pub(crate) in_out_of_memory: bool,
 
     /// pre-compiled regexp in parsing state.
-    pub(crate) regexp_precompiled: Vec<RegExpData>,
+    #[cfg(feature = "builtin_regexp")]
+    pub(crate) regexp_precompiled: Vec<crate::builtins::regexp::RegExpData>,
 
     pub(crate) module_normalize_func: Option<ModuleNormalizeFn>,
     pub(crate) module_load_func: Option<ModuleLoadFn>,
@@ -130,7 +130,10 @@ impl RuntimeImpl {
             stack_top: 0,
             stack_limit: 0,
             cur_exception: JSValue::NULL,
+
+            #[cfg(feature = "builtin_regexp")]
             regexp_precompiled: Vec::new(),
+
             in_out_of_memory: false,
             interrupt_handler: None,
 
@@ -306,7 +309,7 @@ impl RuntimeImpl {
 
         let part = self.gc_part();
 
-        if let Some(type_shape) = self.gc_heap().type_idx_of::<ShapeImpl>() {
+        if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
             // purge all gc objects except ShapeImpl
             self.gc_heap_mut()
                 .sweep_ex(part, true, None, Some(&[type_shape]), true);
