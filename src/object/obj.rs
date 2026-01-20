@@ -301,7 +301,7 @@ impl ObjectImpl {
             JS_CLASS_C_FUNCTION => {}
 
             #[cfg(feature = "builtin_regexp")]
-            JS_CLASS_REGEXP => {}
+            crate::JS_CLASS_REGEXP => {}
 
             class_id => {
                 if ctx.rt_ptr().class_registry[class_id as usize]
