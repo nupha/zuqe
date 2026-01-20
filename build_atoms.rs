@@ -152,6 +152,7 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     // #[cfg(feature = "atomics")]
     // "ok",
     //
+    #[cfg(feature = "builtin_json")]
     "toJSON",
     //
     // class names
@@ -164,12 +165,16 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     "Boolean",
     "Symbol",
     "Arguments",
+    #[cfg(feature = "builtin_math")]
     "Math",
+    #[cfg(feature = "builtin_json")]
     "JSON",
+    #[cfg(feature = "builtin_date")]
     "Date",
     "Function",
     "GeneratorFunction",
     "ForInIterPayload",
+    #[cfg(feature = "builtin_regexp")]
     "RegExp",
     "ArrayBuffer",
     "SharedArrayBuffer",
@@ -191,16 +196,24 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     "DataView",
     "BigInt",
     //
+    #[cfg(feature = "builtin_mapset")]
     "Map",
-    "Set",     // Map+1
+    #[cfg(feature = "builtin_mapset")]
+    "Set", // Map+1
+    #[cfg(feature = "builtin_mapset")]
     "WeakMap", // Map+2
+    #[cfg(feature = "builtin_mapset")]
     "WeakSet", // Map+3
+    #[cfg(feature = "builtin_mapset")]
     "Map_Iterator",
+    #[cfg(feature = "builtin_mapset")]
     "Set_Iterator",
     "Array_Iterator",
     "String_Iterator",
+    #[cfg(feature = "builtin_regexp")]
     "RegExp_String_Iterator",
     "Generator",
+    #[cfg(feature = "builtin_proxy")]
     "Proxy",
     "Promise",
     "PromiseResolveFunction",
