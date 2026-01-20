@@ -210,6 +210,8 @@ impl ObjectImpl {
             | ObjectPayload::ASYNC_GENERATOR_FUNCTION(fo) => {
                 Ok(fo.bytecode().realm().unwrap_or(default))
             }
+
+            #[cfg(feature = "builtin_proxy")]
             ObjectPayload::PROXY(px) => {
                 if px.is_revoked() {
                     default.throw_type_error_revoked_proxy();

@@ -1,9 +1,9 @@
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_DATAVIEW,
-    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_PROMISE, JS_CLASS_PROXY,
-    JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
-    JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_PROMISE, JS_CLASS_SET,
+    JS_CLASS_SET_ITERATOR, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_CLASS_WEAKMAP,
+    JS_CLASS_WEAKSET,
     atom::Atom,
     builtins::{global::js_global_props, math::js_math_obj, reflect::js_reflect_obj},
     class::ClassID,
@@ -112,7 +112,8 @@ impl RuntimeImpl {
         ContextBuilder::new()
             .use_classes(&[
                 //proxy
-                JS_CLASS_PROXY,
+                #[cfg(feature = "builtin_proxy")]
+                crate::JS_CLASS_PROXY,
                 // regexp
                 #[cfg(feature = "builtin_regexp")]
                 crate::JS_CLASS_REGEXP,

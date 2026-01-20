@@ -1,8 +1,7 @@
 use crate::{
-    JS_CLASS_PROXY,
     atom::Atom,
     context::ContextImpl,
-    object::{ObjectPayload, Object},
+    object::{Object, ObjectPayload},
     value::JSValue,
 };
 
@@ -37,22 +36,28 @@ impl Object {
                         }
                         p = up;
                     } else {
-                        let r = if p.class_id() == JS_CLASS_PROXY {
-                            // slow case if proxy in the prototype chain
-                            let mut obj1 = p;
-                            'px_proto: loop {
-                                if let Some(o) = obj1.prototype(ctx)? {
-                                    if proto == o {
-                                        break Ok(true);
+                        let r = {
+                            #[cfg(feature = "builtin_proxy")]
+                            if p.class_id() == crate::JS_CLASS_PROXY {
+                                // slow case if proxy in the prototype chain
+                                let mut obj1 = p;
+                                'px_proto: loop {
+                                    if let Some(o) = obj1.prototype(ctx)? {
+                                        if proto == o {
+                                            break Ok(true);
+                                        }
+                                        obj1 = o;
+                                        // must check for timeout to avoid infinite loop
+                                        ctx.poll_interrupts()?;
+                                    } else {
+                                        break 'px_proto Ok(false);
                                     }
-                                    obj1 = o;
-                                    // must check for timeout to avoid infinite loop
-                                    ctx.poll_interrupts()?;
-                                } else {
-                                    break 'px_proto Ok(false);
                                 }
+                            } else {
+                                Ok(false)
                             }
-                        } else {
+
+                            #[cfg(not(feature = "builtin_proxy"))]
                             Ok(false)
                         };
                         break r;

@@ -11,12 +11,19 @@ license = "Apache-2.0"
 
 [features]
 all_unicode = ["unicode-xid", "unicode-normalization"]
+builtin_proxy = []
 builtin_regexp = ["lre"]
 builtin_json = []
 builtin_date = ["libc"]
 dump_bytecode = []
 
-default = ["all_unicode", "builtin_regexp", "builtin_json", "builtin_date"]
+default = [
+    "all_unicode",
+    "builtin_proxy",
+    "builtin_regexp",
+    "builtin_json",
+    "builtin_date",
+]
 
 [profile.release]
 overflow-checks = false

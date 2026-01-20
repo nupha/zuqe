@@ -11,7 +11,6 @@ pub mod math;
 pub mod number;
 pub mod object;
 pub mod promise;
-pub mod proxy;
 pub mod reflect;
 pub mod string;
 pub mod symbol;
@@ -21,6 +20,8 @@ pub mod typed_array;
 pub mod date;
 #[cfg(feature = "builtin_json")]
 pub mod json;
+#[cfg(feature = "builtin_proxy")]
+pub mod proxy;
 #[cfg(feature = "builtin_regexp")]
 pub mod regexp;
 

@@ -378,6 +378,7 @@ impl ObjectImpl {
     pub fn is_function(&self) -> bool {
         match &self.payload {
             ObjectPayload::BYTECODE_FUNCTION(_) => true,
+            #[cfg(feature = "builtin_proxy")]
             ObjectPayload::PROXY(x) => x.is_func(),
             isa => {
                 // check if class proto has exotic call handler
@@ -459,17 +460,26 @@ impl ObjectImpl {
         self.obj_flags.is_constructor()
     }
 
-    /// return Err(-1) for Proxy only
+    /// only Proxy may return Err(-1)
     pub fn prevent_extensions(&mut self, ctx: &ContextImpl) -> Result<bool, i32> {
-        let gc_ref = unsafe { GcRef::from_ref_unchecked(self) };
+        #[cfg(feature = "builtin_proxy")]
+        {
+            Object(unsafe { GcRef::from_ref_unchecked(self) })
+                .as_Proxy_mut()
+                .map_or_else(
+                    || {
+                        self.set_flag_extensible(false);
+                        Ok(true)
+                    },
+                    |p| p.prevent_extensions(ctx),
+                )
+        }
 
-        Object(gc_ref).as_Proxy_mut().map_or_else(
-            || {
-                self.set_flag_extensible(false);
-                Ok(true)
-            },
-            |p| p.prevent_extensions(ctx),
-        )
+        #[cfg(not(feature = "builtin_proxy"))]
+        {
+            self.set_flag_extensible(false);
+            Ok(true)
+        }
     }
 
     fn finalize(&mut self) {

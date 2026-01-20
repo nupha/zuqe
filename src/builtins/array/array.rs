@@ -3,7 +3,7 @@ use gc_lite::{GcRef, GcTracable};
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY,
     atom::Atom,
     context::ContextImpl,
     number::MAX_SAFE_INTEGER,
@@ -483,11 +483,16 @@ impl Object {
     /// return Err if exception (proxy case) or TRUE/FALSE
     pub fn is_array(&self, ctx: &ContextImpl) -> Result<bool, i32> {
         let class_id = self.class_id();
-        if class_id == JS_CLASS_PROXY {
+
+        #[cfg(feature = "builtin_proxy")]
+        if class_id == crate::JS_CLASS_PROXY {
             unsafe { self.as_Proxy_unchecked().is_array(ctx) }
         } else {
             Ok(class_id == JS_CLASS_ARRAY)
         }
+
+        #[cfg(not(feature = "builtin_proxy"))]
+        Ok(class_id == JS_CLASS_ARRAY)
     }
 
     /// if `self` is a fast array, convert it to sparse array,

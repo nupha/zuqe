@@ -26,6 +26,7 @@ enum PayloadKey {
     #[cfg(feature = "builtin_regexp")]
     RegExpStringIterator,
     Generator,
+    #[cfg(feature = "builtin_proxy")]
     Proxy,
     Promise,
     PromiseResolvingFunction,
@@ -58,6 +59,7 @@ impl PayloadKey {
             #[cfg(feature = "builtin_regexp")]
             PayloadKey::RegExpStringIterator => "regexp_string_iterator",
             PayloadKey::Generator => "generator",
+            #[cfg(feature = "builtin_proxy")]
             PayloadKey::Proxy => "proxy",
             PayloadKey::Promise => "promise",
             PayloadKey::PromiseResolvingFunction => "promise_resolving_function",
@@ -135,6 +137,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         PayloadKey::Generator,
         "Box<crate::builtins::generator::GeneratorPayload>",
     );
+    #[cfg(feature = "builtin_proxy")]
     m.insert(
         PayloadKey::Proxy,
         "Box<crate::builtins::proxy::ProxyPayload>",
@@ -442,6 +445,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         //
         // Proxy
         //
+        #[cfg(feature = "builtin_proxy")]
         ClassInfo::class_def(
             "Object", // Proxy class name is Object
             "PROXY",

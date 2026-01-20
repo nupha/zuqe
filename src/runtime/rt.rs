@@ -7,12 +7,11 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS,
     JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
-    JS_CLASS_PROXY, JS_CLASS_STRING, STD_CLASS_DEFS, USER_CLASS_ID_START,
+    JS_CLASS_STRING, STD_CLASS_DEFS, USER_CLASS_ID_START,
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions,
         generator::{AsyncGeneratorFunction, js_generator_function_call},
         promise::{JSHostPromiseRejectionTracker, PromiseResolveFunc},
-        proxy::{Proxy, js_proxy_exotic_methods},
     },
     class::{ClassMeta, js_arguments_exotic_methods},
     context::ContextPtr,
@@ -183,14 +182,17 @@ impl RuntimeImpl {
             rt.class_registry[JS_CLASS_GENERATOR_FUNCTION as usize]
                 .call
                 .replace(js_generator_function_call);
+        }
 
-            // setup Proxy
-            rt.class_registry[JS_CLASS_PROXY as usize]
+        // Proxy
+        #[cfg(feature = "builtin_proxy")]
+        {
+            rt.class_registry[crate::JS_CLASS_PROXY as usize]
                 .exotic
-                .replace(Box::new(js_proxy_exotic_methods));
-            rt.class_registry[JS_CLASS_PROXY as usize]
+                .replace(Box::new(crate::builtins::proxy::js_proxy_exotic_methods));
+            rt.class_registry[crate::JS_CLASS_PROXY as usize]
                 .call
-                .replace(Proxy::class_call);
+                .replace(crate::builtins::proxy::Proxy::class_call);
         }
 
         // setup async related classes
