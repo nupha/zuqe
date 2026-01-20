@@ -1,6 +1,9 @@
 use std::path::Path;
 
 static ATOM_DESCR_DEFS: &[&str] = &[
+    //
+    // KEYWORD BEGIN - DON'T CHANGE ORDER (same order as TOKENS)
+    //
     "null",
     "false",
     "true",
@@ -69,6 +72,7 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     "get",
     "set",
     "of",
+    // KEYWORDS END
     "__proto__",
     "undefined",
     "number",

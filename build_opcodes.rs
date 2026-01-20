@@ -50,7 +50,7 @@ macro_rules! def {
 }
 
 static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
-    let mut ops = vec![
+    let ops = vec![
         DEF!("invalid", 1, 0, 0, "NONE", false),
         DEF!("push_i32", 5, 0, 1, "I32", false),
         DEF!("push_const", 5, 0, 1, "CONST", false),
@@ -234,10 +234,9 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("mul_pow10", 1, 2, 1, "NONE", false),
         DEF!("math_mod", 1, 2, 1, "NONE", false),
         DEF!("nop", 1, 0, 0, "NONE", false),
-    ];
-
-    // temp
-    ops.extend_from_slice(&[
+        //
+        // intermediate
+        //
         def!("enter_scope", 3, 0, 0, "U16"),
         def!("leave_scope", 3, 0, 0, "U16"),
         def!("label", 5, 0, 0, "LABEL"),
@@ -257,83 +256,83 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         def!("get_array_el_opt_chain", 1, 2, 1, "NONE"),
         def!("set_class_name", 5, 1, 1, "U32"),
         def!("line_num", 5, 0, 0, "U32"),
-    ]);
+    ];
 
-    // short
-    ops.extend_from_slice(&[
-        DEF!("push_minus1", 1, 0, 1, "NONE_INT", true),
-        DEF!("push_0", 1, 0, 1, "NONE_INT", true),
-        DEF!("push_1", 1, 0, 1, "NONE_INT", true),
-        DEF!("push_2", 1, 0, 1, "NONE_INT", true),
-        DEF!("push_3", 1, 0, 1, "NONE_INT", true),
-        DEF!("push_4", 1, 0, 1, "NONE_INT", true),
-        DEF!("push_5", 1, 0, 1, "NONE_INT", true),
-        DEF!("push_6", 1, 0, 1, "NONE_INT", true),
-        DEF!("push_7", 1, 0, 1, "NONE_INT", true),
-        DEF!("push_i8", 2, 0, 1, "I8", true),
-        DEF!("push_i16", 3, 0, 1, "I16", true),
-        DEF!("push_const8", 2, 0, 1, "CONST8", true),
-        DEF!("fclosure8", 2, 0, 1, "CONST8", true),
-        DEF!("push_empty_string", 1, 0, 1, "NONE", true),
-        DEF!("get_loc8", 2, 0, 1, "LOC8", true),
-        DEF!("put_loc8", 2, 1, 0, "LOC8", true),
-        DEF!("set_loc8", 2, 1, 1, "LOC8", true),
-        DEF!("get_loc0", 1, 0, 1, "NONE_LOC", true),
-        DEF!("get_loc1", 1, 0, 1, "NONE_LOC", true),
-        DEF!("get_loc2", 1, 0, 1, "NONE_LOC", true),
-        DEF!("get_loc3", 1, 0, 1, "NONE_LOC", true),
-        DEF!("put_loc0", 1, 1, 0, "NONE_LOC", true),
-        DEF!("put_loc1", 1, 1, 0, "NONE_LOC", true),
-        DEF!("put_loc2", 1, 1, 0, "NONE_LOC", true),
-        DEF!("put_loc3", 1, 1, 0, "NONE_LOC", true),
-        DEF!("set_loc0", 1, 1, 1, "NONE_LOC", true),
-        DEF!("set_loc1", 1, 1, 1, "NONE_LOC", true),
-        DEF!("set_loc2", 1, 1, 1, "NONE_LOC", true),
-        DEF!("set_loc3", 1, 1, 1, "NONE_LOC", true),
-        DEF!("get_arg0", 1, 0, 1, "NONE_ARG", true),
-        DEF!("get_arg1", 1, 0, 1, "NONE_ARG", true),
-        DEF!("get_arg2", 1, 0, 1, "NONE_ARG", true),
-        DEF!("get_arg3", 1, 0, 1, "NONE_ARG", true),
-        DEF!("put_arg0", 1, 1, 0, "NONE_ARG", true),
-        DEF!("put_arg1", 1, 1, 0, "NONE_ARG", true),
-        DEF!("put_arg2", 1, 1, 0, "NONE_ARG", true),
-        DEF!("put_arg3", 1, 1, 0, "NONE_ARG", true),
-        DEF!("set_arg0", 1, 1, 1, "NONE_ARG", true),
-        DEF!("set_arg1", 1, 1, 1, "NONE_ARG", true),
-        DEF!("set_arg2", 1, 1, 1, "NONE_ARG", true),
-        DEF!("set_arg3", 1, 1, 1, "NONE_ARG", true),
-        DEF!("get_var_ref0", 1, 0, 1, "NONE_VAR_REF", true),
-        DEF!("get_var_ref1", 1, 0, 1, "NONE_VAR_REF", true),
-        DEF!("get_var_ref2", 1, 0, 1, "NONE_VAR_REF", true),
-        DEF!("get_var_ref3", 1, 0, 1, "NONE_VAR_REF", true),
-        DEF!("put_var_ref0", 1, 1, 0, "NONE_VAR_REF", true),
-        DEF!("put_var_ref1", 1, 1, 0, "NONE_VAR_REF", true),
-        DEF!("put_var_ref2", 1, 1, 0, "NONE_VAR_REF", true),
-        DEF!("put_var_ref3", 1, 1, 0, "NONE_VAR_REF", true),
-        DEF!("set_var_ref0", 1, 1, 1, "NONE_VAR_REF", true),
-        DEF!("set_var_ref1", 1, 1, 1, "NONE_VAR_REF", true),
-        DEF!("set_var_ref2", 1, 1, 1, "NONE_VAR_REF", true),
-        DEF!("set_var_ref3", 1, 1, 1, "NONE_VAR_REF", true),
-        DEF!("get_length", 1, 1, 1, "NONE", true),
-        DEF!("if_false8", 2, 1, 0, "LABEL8", true),
-        DEF!("if_true8", 2, 1, 0, "LABEL8", true),
-        DEF!("goto8", 2, 0, 0, "LABEL8", true),
-        DEF!("goto16", 3, 0, 0, "LABEL16", true),
-        DEF!("call0", 1, 1, 1, "NPOPX", true),
-        DEF!("call1", 1, 1, 1, "NPOPX", true),
-        DEF!("call2", 1, 1, 1, "NPOPX", true),
-        DEF!("call3", 1, 1, 1, "NPOPX", true),
-        DEF!("is_undefined", 1, 1, 1, "NONE", true),
-        DEF!("is_null", 1, 1, 1, "NONE", true),
-        DEF!("typeof_is_undefined", 1, 1, 1, "NONE", true),
-        DEF!("typeof_is_function", 1, 1, 1, "NONE", true),
-    ]);
+    // // short opcodes
+    // ops.extend_from_slice(&[
+    //     DEF!("push_minus1", 1, 0, 1, "NONE_INT", true),
+    //     DEF!("push_0", 1, 0, 1, "NONE_INT", true),
+    //     DEF!("push_1", 1, 0, 1, "NONE_INT", true),
+    //     DEF!("push_2", 1, 0, 1, "NONE_INT", true),
+    //     DEF!("push_3", 1, 0, 1, "NONE_INT", true),
+    //     DEF!("push_4", 1, 0, 1, "NONE_INT", true),
+    //     DEF!("push_5", 1, 0, 1, "NONE_INT", true),
+    //     DEF!("push_6", 1, 0, 1, "NONE_INT", true),
+    //     DEF!("push_7", 1, 0, 1, "NONE_INT", true),
+    //     DEF!("push_i8", 2, 0, 1, "I8", true),
+    //     DEF!("push_i16", 3, 0, 1, "I16", true),
+    //     DEF!("push_const8", 2, 0, 1, "CONST8", true),
+    //     DEF!("fclosure8", 2, 0, 1, "CONST8", true),
+    //     DEF!("push_empty_string", 1, 0, 1, "NONE", true),
+    //     DEF!("get_loc8", 2, 0, 1, "LOC8", true),
+    //     DEF!("put_loc8", 2, 1, 0, "LOC8", true),
+    //     DEF!("set_loc8", 2, 1, 1, "LOC8", true),
+    //     DEF!("get_loc0", 1, 0, 1, "NONE_LOC", true),
+    //     DEF!("get_loc1", 1, 0, 1, "NONE_LOC", true),
+    //     DEF!("get_loc2", 1, 0, 1, "NONE_LOC", true),
+    //     DEF!("get_loc3", 1, 0, 1, "NONE_LOC", true),
+    //     DEF!("put_loc0", 1, 1, 0, "NONE_LOC", true),
+    //     DEF!("put_loc1", 1, 1, 0, "NONE_LOC", true),
+    //     DEF!("put_loc2", 1, 1, 0, "NONE_LOC", true),
+    //     DEF!("put_loc3", 1, 1, 0, "NONE_LOC", true),
+    //     DEF!("set_loc0", 1, 1, 1, "NONE_LOC", true),
+    //     DEF!("set_loc1", 1, 1, 1, "NONE_LOC", true),
+    //     DEF!("set_loc2", 1, 1, 1, "NONE_LOC", true),
+    //     DEF!("set_loc3", 1, 1, 1, "NONE_LOC", true),
+    //     DEF!("get_arg0", 1, 0, 1, "NONE_ARG", true),
+    //     DEF!("get_arg1", 1, 0, 1, "NONE_ARG", true),
+    //     DEF!("get_arg2", 1, 0, 1, "NONE_ARG", true),
+    //     DEF!("get_arg3", 1, 0, 1, "NONE_ARG", true),
+    //     DEF!("put_arg0", 1, 1, 0, "NONE_ARG", true),
+    //     DEF!("put_arg1", 1, 1, 0, "NONE_ARG", true),
+    //     DEF!("put_arg2", 1, 1, 0, "NONE_ARG", true),
+    //     DEF!("put_arg3", 1, 1, 0, "NONE_ARG", true),
+    //     DEF!("set_arg0", 1, 1, 1, "NONE_ARG", true),
+    //     DEF!("set_arg1", 1, 1, 1, "NONE_ARG", true),
+    //     DEF!("set_arg2", 1, 1, 1, "NONE_ARG", true),
+    //     DEF!("set_arg3", 1, 1, 1, "NONE_ARG", true),
+    //     DEF!("get_var_ref0", 1, 0, 1, "NONE_VAR_REF", true),
+    //     DEF!("get_var_ref1", 1, 0, 1, "NONE_VAR_REF", true),
+    //     DEF!("get_var_ref2", 1, 0, 1, "NONE_VAR_REF", true),
+    //     DEF!("get_var_ref3", 1, 0, 1, "NONE_VAR_REF", true),
+    //     DEF!("put_var_ref0", 1, 1, 0, "NONE_VAR_REF", true),
+    //     DEF!("put_var_ref1", 1, 1, 0, "NONE_VAR_REF", true),
+    //     DEF!("put_var_ref2", 1, 1, 0, "NONE_VAR_REF", true),
+    //     DEF!("put_var_ref3", 1, 1, 0, "NONE_VAR_REF", true),
+    //     DEF!("set_var_ref0", 1, 1, 1, "NONE_VAR_REF", true),
+    //     DEF!("set_var_ref1", 1, 1, 1, "NONE_VAR_REF", true),
+    //     DEF!("set_var_ref2", 1, 1, 1, "NONE_VAR_REF", true),
+    //     DEF!("set_var_ref3", 1, 1, 1, "NONE_VAR_REF", true),
+    //     DEF!("get_length", 1, 1, 1, "NONE", true),
+    //     DEF!("if_false8", 2, 1, 0, "LABEL8", true),
+    //     DEF!("if_true8", 2, 1, 0, "LABEL8", true),
+    //     DEF!("goto8", 2, 0, 0, "LABEL8", true),
+    //     DEF!("goto16", 3, 0, 0, "LABEL16", true),
+    //     DEF!("call0", 1, 1, 1, "NPOPX", true),
+    //     DEF!("call1", 1, 1, 1, "NPOPX", true),
+    //     DEF!("call2", 1, 1, 1, "NPOPX", true),
+    //     DEF!("call3", 1, 1, 1, "NPOPX", true),
+    //     DEF!("is_undefined", 1, 1, 1, "NONE", true),
+    //     DEF!("is_null", 1, 1, 1, "NONE", true),
+    //     DEF!("typeof_is_undefined", 1, 1, 1, "NONE", true),
+    //     DEF!("typeof_is_function", 1, 1, 1, "NONE", true),
+    // ]);
 
     ops
 });
 
 pub fn gen_opcodes(outfile: &Path) {
-    let opcode_defs = Lazy::force(&OP_CODES);
+    let opcode_defs = &OP_CODES;
 
     let mut enums = Vec::<String>::with_capacity(512);
     let mut enums_temp = Vec::<String>::with_capacity(512);
@@ -342,7 +341,7 @@ pub fn gen_opcodes(outfile: &Path) {
     let mut info_temp = Vec::<String>::with_capacity(512);
     let mut info_short = Vec::<String>::with_capacity(512);
 
-    let fmts = vec![
+    let fmts = &[
         "NONE",
         "NONE_INT",
         "NONE_LOC",
