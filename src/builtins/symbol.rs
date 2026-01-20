@@ -94,7 +94,6 @@ pub fn js_thisSymbolValue(ctx: &ContextImpl, val: JSValue) -> JSResult {
                     None
                 }
             })
-            // .filter(|v| v.is_symbol())
             .cloned()
             .ok_or_else(|| {
                 ctx.throw_type_error_not_a_symbol();

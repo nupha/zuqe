@@ -163,6 +163,7 @@ pub struct ObjectImpl {
     pub(crate) prop_values: Vec<JSProperty>,
 
     /// this object is weak referenced in state.
+    #[cfg(feature = "builtin_mapset")]
     pub(crate) weak_refs: Vec<GcWeak<ObjectImpl>>,
 
     /// object payload.
@@ -319,6 +320,7 @@ impl ObjectImpl {
             shape,
             prop_values,
             payload,
+            #[cfg(feature = "builtin_mapset")]
             weak_refs: Vec::new(),
         };
 
@@ -489,7 +491,8 @@ impl ObjectImpl {
 
         let mut rt = self.rt();
 
-        // Map Set object remove weak ref
+        // Map Set object remove weakref
+        #[cfg(feature = "builtin_mapset")]
         while let Some(w) = self.weak_refs.pop() {
             if let Some(o) = w.upgrade(rt.gc_heap()) {
                 unsafe {

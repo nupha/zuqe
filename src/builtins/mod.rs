@@ -6,7 +6,6 @@ pub mod function;
 pub mod generator;
 pub mod global;
 pub mod iterator;
-pub mod mapset;
 pub mod math;
 pub mod number;
 pub mod object;
@@ -20,6 +19,8 @@ pub mod typed_array;
 pub mod date;
 #[cfg(feature = "builtin_json")]
 pub mod json;
+#[cfg(feature = "builtin_mapset")]
+pub mod mapset;
 #[cfg(feature = "builtin_proxy")]
 pub mod proxy;
 #[cfg(feature = "builtin_regexp")]

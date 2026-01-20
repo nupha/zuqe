@@ -136,7 +136,7 @@ fn js_reflect_ownKeys(cc: CallContext) -> JSResult {
     }
 }
 
-pub const js_reflect_funcs: &[FieldDef] = &[
+const js_reflect_funcs: &[FieldDef] = &[
     FieldDef::CALL("apply", 3, js_reflect_apply, 0),
     FieldDef::CALL("construct", 2, js_reflect_construct, 0),
     FieldDef::CALL("defineProperty", 3, js_object_defineProperty, 1),

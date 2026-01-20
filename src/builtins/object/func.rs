@@ -1,10 +1,6 @@
 use crate::{
     atom::Atom,
-    builtins::{
-        array::js_array_push,
-        iterator::JSIteratorKindEnum,
-        mapset::{js_map_constructor, js_map_get, js_map_set},
-    },
+    builtins::{array::js_array_push, iterator::JSIteratorKindEnum},
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
@@ -153,17 +149,23 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
     let func = cc.arg(1);
     func.ensure_function(ctx)?;
 
-    let mut groups = if is_map {
-        js_map_constructor(CallContext::new_simple(
-            cc.ctx_ptr(),
-            JSValue::UNDEFINED,
-            &[],
-        ))?
-    } else {
+    let mut groups: JSValue = {
+        #[cfg(feature = "builtin_mapset")]
+        if is_map {
+            crate::builtins::mapset::js_map_constructor(CallContext::new_simple(
+                cc.ctx_ptr(),
+                JSValue::UNDEFINED,
+                &[],
+            ))?
+        } else {
+            ctx.create_base_object_with_proto(None)?.into()
+        }
+
+        #[cfg(not(feature = "builtin_mapset"))]
         ctx.create_base_object_with_proto(None)?.into()
     };
 
-    let global = ctx.global_obj; // clone to avoid borrow too long
+    let global = ctx.global_obj;
 
     for (idx, val) in cc.arg(0).iter(ctx)?.enumerate() {
         if idx >= MAX_SAFE_INTEGER as usize {
@@ -175,18 +177,27 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
         let key = func.call(ctx, global, &[val, JSValue::from(idx as i64)])?;
 
         // get prop value array and key atom
-        let (mut props_arr, key_atom): (JSValue, Atom) = if is_map {
-            (
-                js_map_get(CallContext::new_simple(
-                    cc.ctx_ptr(),
-                    groups,
-                    std::slice::from_ref(&key),
-                ))?,
-                Atom::NULL,
-            )
-        } else {
-            let atom = key.to_atom(ctx)?;
-            (groups.get_property(ctx, atom)?, atom)
+        let (mut props_arr, key_atom): (JSValue, Atom) = {
+            #[cfg(feature = "builtin_mapset")]
+            if is_map {
+                (
+                    crate::builtins::mapset::js_map_get(CallContext::new_simple(
+                        cc.ctx_ptr(),
+                        groups,
+                        std::slice::from_ref(&key),
+                    ))?,
+                    Atom::NULL,
+                )
+            } else {
+                let atom = key.to_atom(ctx)?;
+                (groups.get_property(ctx, atom)?, atom)
+            }
+
+            #[cfg(not(feature = "builtin_mapset"))]
+            {
+                let atom = key.to_atom(ctx)?;
+                (groups.get_property(ctx, atom)?, atom)
+            }
         };
 
         // don't change order
@@ -196,8 +207,9 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
             props_arr = ctx.create_array()?.into();
 
             // set to groups
+            #[cfg(feature = "builtin_mapset")]
             if is_map {
-                js_map_set(CallContext::new(
+                crate::builtins::mapset::js_map_set(CallContext::new(
                     cc.ctx_ptr(),
                     groups,
                     &[key, props_arr],
@@ -207,6 +219,9 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
             } else {
                 groups.define_property_value(ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
             }
+
+            #[cfg(not(feature = "builtin_mapset"))]
+            groups.define_property_value(ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
         }
 
         js_array_push(CallContext::new(

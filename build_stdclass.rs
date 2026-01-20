@@ -20,7 +20,9 @@ enum PayloadKey {
     ArrayBuffer,
     TypedArray,
     DataView,
+    #[cfg(feature = "builtin_mapset")]
     MapSet,
+    #[cfg(feature = "builtin_mapset")]
     MapSetIterator,
     ArrayIterator,
     #[cfg(feature = "builtin_regexp")]
@@ -53,7 +55,9 @@ impl PayloadKey {
             PayloadKey::ArrayBuffer => "array_buffer",
             PayloadKey::TypedArray => "typed_array",
             PayloadKey::DataView => "data_view",
+            #[cfg(feature = "builtin_mapset")]
             PayloadKey::MapSet => "mapset",
+            #[cfg(feature = "builtin_mapset")]
             PayloadKey::MapSetIterator => "mapset_iterator",
             PayloadKey::ArrayIterator => "array_iterator",
             #[cfg(feature = "builtin_regexp")]
@@ -115,10 +119,12 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         PayloadKey::DataView,
         "Box<crate::builtins::typed_array::DataViewPayload>",
     );
+    #[cfg(feature = "builtin_mapset")]
     m.insert(
         PayloadKey::MapSet,
         "Box<crate::builtins::mapset::JSMapState>",
     );
+    #[cfg(feature = "builtin_mapset")]
     m.insert(
         PayloadKey::MapSetIterator,
         "Box<crate::builtins::mapset::JSMapIteratorData>",
@@ -374,6 +380,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         //
         // map set and iterators
         //
+        #[cfg(feature = "builtin_mapset")]
         ClassInfo::class_def(
             "Map",
             "MAP",
@@ -381,6 +388,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             Some("crate::builtins::mapset::MapSet::class_initialize"),
             None,
         ),
+        #[cfg(feature = "builtin_mapset")]
         ClassInfo::class_def(
             "Set",
             "SET",
@@ -388,6 +396,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             Some("crate::builtins::mapset::MapSet::class_initialize"),
             None,
         ),
+        #[cfg(feature = "builtin_mapset")]
         ClassInfo::class_def(
             "WeakMap",
             "WEAKMAP",
@@ -395,6 +404,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             Some("crate::builtins::mapset::MapSet::class_initialize"),
             None,
         ),
+        #[cfg(feature = "builtin_mapset")]
         ClassInfo::class_def(
             "WeakSet",
             "WEAKSET",
@@ -402,6 +412,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             Some("crate::builtins::mapset::MapSet::class_initialize"),
             None,
         ),
+        #[cfg(feature = "builtin_mapset")]
         ClassInfo::class_def(
             "Map_Iterator",
             "MAP_ITERATOR",
@@ -409,6 +420,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             Some("crate::builtins::mapset::MapSet::class_initialize"),
             None,
         ),
+        #[cfg(feature = "builtin_mapset")]
         ClassInfo::class_def(
             "Set_Iterator",
             "SET_ITERATOR",

@@ -1,9 +1,7 @@
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_DATAVIEW,
-    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_PROMISE, JS_CLASS_SET,
-    JS_CLASS_SET_ITERATOR, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_CLASS_WEAKMAP,
-    JS_CLASS_WEAKSET,
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
     builtins::{global::js_global_props, math::js_math_obj, reflect::js_reflect_obj},
     class::ClassID,
@@ -126,12 +124,18 @@ impl RuntimeImpl {
                 JS_CLASS_ASYNC_GENERATOR_FUNCTION,
                 JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
                 // mapset
-                JS_CLASS_MAP,
-                JS_CLASS_SET,
-                JS_CLASS_WEAKMAP,
-                JS_CLASS_WEAKSET,
-                JS_CLASS_MAP_ITERATOR,
-                JS_CLASS_SET_ITERATOR,
+                #[cfg(feature = "builtin_mapset")]
+                crate::JS_CLASS_MAP,
+                #[cfg(feature = "builtin_mapset")]
+                crate::JS_CLASS_SET,
+                #[cfg(feature = "builtin_mapset")]
+                crate::JS_CLASS_WEAKMAP,
+                #[cfg(feature = "builtin_mapset")]
+                crate::JS_CLASS_WEAKSET,
+                #[cfg(feature = "builtin_mapset")]
+                crate::JS_CLASS_MAP_ITERATOR,
+                #[cfg(feature = "builtin_mapset")]
+                crate::JS_CLASS_SET_ITERATOR,
                 // date
                 #[cfg(feature = "builtin_date")]
                 crate::JS_CLASS_DATE,
