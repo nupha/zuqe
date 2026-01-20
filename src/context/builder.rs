@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_DATAVIEW,
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
-    builtins::{global::js_global_props, math::js_math_obj, reflect::js_reflect_obj},
+    builtins::global::js_global_props,
     class::ClassID,
     context::Context,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
@@ -162,14 +162,21 @@ impl RuntimeImpl {
         // setup globals handler
         cb = cb.global(|mut cx, mut gobj| -> Result<(), i32> {
             gobj.install_fields(&cx, js_global_props)?;
+
             // Reflect: lazy init
-            gobj.install_fields(&cx, js_reflect_obj)?;
+            #[cfg(feature = "builtin_reflect")]
+            gobj.install_fields(&cx, crate::builtins::reflect::js_reflect_obj)?;
+
             // JSON: lazy init
             #[cfg(feature = "builtin_json")]
             gobj.install_fields(&cx, crate::builtins::json::js_json_obj)?;
+
             // Math: lazy init
-            cx.init_random_seed();
-            gobj.install_fields(&cx, js_math_obj)?;
+            #[cfg(feature = "builtin_math")]
+            {
+                cx.init_random_seed();
+                gobj.install_fields(&cx, crate::builtins::math::js_math_obj)?;
+            }
 
             Ok(())
         });

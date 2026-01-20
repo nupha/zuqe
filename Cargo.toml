@@ -14,8 +14,10 @@ all_unicode = ["unicode-xid", "unicode-normalization"]
 builtin_proxy = []
 builtin_mapset = []
 builtin_regexp = ["lre"]
+builtin_reflect = []
 builtin_json = []
 builtin_date = ["libc"]
+builtin_math = []
 dump_bytecode = []
 
 default = [
@@ -23,8 +25,10 @@ default = [
     "builtin_mapset",
     "builtin_proxy",
     "builtin_regexp",
+    "builtin_reflect",
     "builtin_json",
     "builtin_date",
+    "builtin_math",
 ]
 
 [profile.release]
