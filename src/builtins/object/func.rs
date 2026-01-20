@@ -205,7 +205,6 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
         if props_arr.is_undefined() {
             // entry is missing, create the entry
             props_arr = ctx.create_array()?.into();
-
             // set to groups
             #[cfg(feature = "builtin_mapset")]
             if is_map {
@@ -219,7 +218,6 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
             } else {
                 groups.define_property_value(ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
             }
-
             #[cfg(not(feature = "builtin_mapset"))]
             groups.define_property_value(ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
         }

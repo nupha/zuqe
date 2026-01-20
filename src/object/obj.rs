@@ -432,27 +432,27 @@ impl ObjectImpl {
         self.flags().extensible()
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn set_flag_fast_array(&mut self, b: bool) {
         self.obj_flags.set_fast_array(b);
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn set_flag_constructor(&mut self, b: bool) {
         self.obj_flags.set_constructor(b);
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn set_flag_extensible(&mut self, b: bool) {
         self.obj_flags.set_extensible(b);
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn set_flag_immutable_prototype(&mut self, b: bool) {
         self.obj_flags.set_immutable_prototype(b);
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn set_flag_uncatchable_error(&mut self, b: bool) {
         self.obj_flags.set_uncatchable_error(b);
     }
@@ -642,6 +642,7 @@ impl Object {
 }
 
 impl JSValue {
+    #[inline]
     pub const fn as_object(&self) -> Option<&Object> {
         if let Self::Object(o) = self {
             Some(o)
@@ -650,6 +651,7 @@ impl JSValue {
         }
     }
 
+    #[inline]
     pub const fn as_object_mut(&mut self) -> Option<&mut Object> {
         if let Self::Object(o) = self {
             Some(o)

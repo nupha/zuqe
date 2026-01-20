@@ -107,60 +107,73 @@ impl RuntimeImpl {
     ///
     /// This also provides a demostration on how to use ContextBuilder to customize a context.
     pub fn create_context_ecma<'a>(&mut self) -> Result<Context<'a>, i32> {
-        ContextBuilder::new()
-            .use_classes(&[
-                //proxy
-                #[cfg(feature = "builtin_proxy")]
-                crate::JS_CLASS_PROXY,
-                // regexp
-                #[cfg(feature = "builtin_regexp")]
-                crate::JS_CLASS_REGEXP,
-                #[cfg(feature = "builtin_regexp")]
-                crate::JS_CLASS_REGEXP_STRING_ITERATOR,
-                // async
-                JS_CLASS_PROMISE,
-                JS_CLASS_ASYNC_FUNCTION,
-                JS_CLASS_ASYNC_GENERATOR,
-                JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-                JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
-                // mapset
-                #[cfg(feature = "builtin_mapset")]
-                crate::JS_CLASS_MAP,
-                #[cfg(feature = "builtin_mapset")]
-                crate::JS_CLASS_SET,
-                #[cfg(feature = "builtin_mapset")]
-                crate::JS_CLASS_WEAKMAP,
-                #[cfg(feature = "builtin_mapset")]
-                crate::JS_CLASS_WEAKSET,
-                #[cfg(feature = "builtin_mapset")]
-                crate::JS_CLASS_MAP_ITERATOR,
-                #[cfg(feature = "builtin_mapset")]
-                crate::JS_CLASS_SET_ITERATOR,
-                // date
-                #[cfg(feature = "builtin_date")]
-                crate::JS_CLASS_DATE,
-                // array buffer & dataview
-                JS_CLASS_ARRAY_BUFFER,
-                JS_CLASS_SHARED_ARRAY_BUFFER,
-                JS_CLASS_DATAVIEW,
-            ])
-            .use_classes(
-                // typed arries
-                &(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).collect::<Vec<_>>(),
-            )
-            .global(|mut cx, mut gobj| -> Result<(), i32> {
-                gobj.install_fields(&cx, js_global_props)?;
-                // Reflect: lazy init
-                gobj.install_fields(&cx, js_reflect_obj)?;
-                // JSON: lazy init
-                #[cfg(feature = "builtin_json")]
-                gobj.install_fields(&cx, crate::builtins::json::js_json_obj)?;
-                // Math: lazy init
-                cx.init_random_seed();
-                gobj.install_fields(&cx, js_math_obj)?;
+        let mut cb = ContextBuilder::new();
 
-                Ok(())
-            })
-            .build(self)
+        cb = cb.use_classes(&[
+            // async
+            JS_CLASS_PROMISE,
+            JS_CLASS_ASYNC_FUNCTION,
+            JS_CLASS_ASYNC_GENERATOR,
+            JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+            JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+            // array buffer & dataview
+            JS_CLASS_ARRAY_BUFFER,
+            JS_CLASS_SHARED_ARRAY_BUFFER,
+            JS_CLASS_DATAVIEW,
+        ]);
+
+        // TypedArray
+        cb = cb.use_classes(&(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).collect::<Vec<_>>());
+
+        // Proxy
+        #[cfg(feature = "builtin_proxy")]
+        {
+            cb = cb.use_class(crate::JS_CLASS_PROXY);
+        }
+
+        // RegExp
+        #[cfg(feature = "builtin_regexp")]
+        {
+            cb = cb.use_classes(&[
+                crate::JS_CLASS_REGEXP,
+                crate::JS_CLASS_REGEXP_STRING_ITERATOR,
+            ]);
+        }
+
+        // Map/Set
+        #[cfg(feature = "builtin_mapset")]
+        {
+            cb = cb.use_classes(&[
+                crate::JS_CLASS_MAP,
+                crate::JS_CLASS_SET,
+                crate::JS_CLASS_WEAKMAP,
+                crate::JS_CLASS_WEAKSET,
+                crate::JS_CLASS_MAP_ITERATOR,
+                crate::JS_CLASS_SET_ITERATOR,
+            ]);
+        }
+
+        // Date
+        #[cfg(feature = "builtin_date")]
+        {
+            cb = cb.use_class(crate::JS_CLASS_DATE);
+        }
+
+        // setup globals handler
+        cb = cb.global(|mut cx, mut gobj| -> Result<(), i32> {
+            gobj.install_fields(&cx, js_global_props)?;
+            // Reflect: lazy init
+            gobj.install_fields(&cx, js_reflect_obj)?;
+            // JSON: lazy init
+            #[cfg(feature = "builtin_json")]
+            gobj.install_fields(&cx, crate::builtins::json::js_json_obj)?;
+            // Math: lazy init
+            cx.init_random_seed();
+            gobj.install_fields(&cx, js_math_obj)?;
+
+            Ok(())
+        });
+
+        cb.build(self)
     }
 }

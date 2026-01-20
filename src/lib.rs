@@ -26,8 +26,6 @@ mod string;
 mod utils;
 mod value;
 
-pub mod builtins;
-
 pub use {
     atom::Atom,
     class::{ClassDef, ClassID},
@@ -45,3 +43,5 @@ mod stdcls {
     include!(concat!(env!("OUT_DIR"), "/std_class_def.rs"));
 }
 pub use stdcls::*;
+
+pub mod builtins;
