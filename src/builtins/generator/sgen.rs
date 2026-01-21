@@ -2,7 +2,6 @@ use gc_lite::GcTracable;
 
 use crate::{
     JS_CLASS_GENERATOR,
-    builtins::iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     context::{Context, ContextImpl},
     error::JSResult,
     function::{AsyncState, CallContext, FieldDef, IteratorState},
@@ -10,6 +9,10 @@ use crate::{
     stack_frame::StackFrame,
     value::JSValue,
 };
+
+pub(crate) const GEN_MAGIC_NEXT: i32 = 0;
+pub(crate) const GEN_MAGIC_RETURN: i32 = 1;
+pub(crate) const GEN_MAGIC_THROW: i32 = 2;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]

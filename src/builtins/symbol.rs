@@ -49,14 +49,14 @@ impl ContextImpl {
     }
 }
 
-/// returned atom is not cloned. caller should clone to keep its reference.
-fn symbol_to_atom(val: JSValue) -> Atom {
-    if let JSValue::Symbol(a) = val {
-        a
-    } else {
-        unreachable!()
-    }
-}
+// /// returned atom is not cloned. caller should clone to keep its reference.
+// fn symbol_to_atom(val: JSValue) -> Atom {
+//     if let JSValue::Symbol(a) = val {
+//         a
+//     } else {
+//         unreachable!()
+//     }
+// }
 
 pub fn js_symbol_constructor(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();

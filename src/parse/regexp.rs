@@ -109,7 +109,7 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        // if RegExp is not supported, raise error here
+        // if regex not supported, raise error here
         // self.throw_syntax_error("RegExp are not supported");
         // return Err(-1);
 

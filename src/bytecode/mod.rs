@@ -11,11 +11,6 @@ pub use operators::*;
 #[cfg(feature = "dump_bytecode")]
 pub(super) use dump::dump_opcodes;
 
-/// get opcode descr for (common only)
-pub fn opcode_info_common(op: u8) -> &'static Opcode {
-    JS_COMMON_OPCODES_INFO.get(op as usize).unwrap()
-}
-
 /// get opcode descr in intermediate phase (common + temp)
 pub fn opcode_info_intermediate(op: u8) -> &'static Opcode {
     if op < OP_COUNT_COMMON {

@@ -4,7 +4,9 @@ use crate::{
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
     atom::Atom,
     builtins::{
-        generator::js_async_iterator_proto_funcs,
+        generator::{
+            GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_async_iterator_proto_funcs,
+        },
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
@@ -62,10 +64,6 @@ impl ContextImpl {
         }
     }
 }
-
-pub const GEN_MAGIC_NEXT: i32 = 0;
-pub const GEN_MAGIC_RETURN: i32 = 1;
-pub const GEN_MAGIC_THROW: i32 = 2;
 
 pub fn js_async_from_sync_iterator_unwrap(cc: CallContext) -> JSResult {
     let done = cc.data(0).to_bool()?;

@@ -20,12 +20,9 @@ use crate::{
 use crate::{
     ClassID, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_GENERATOR,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
-    JS_CLASS_INT32_ARRAY, JS_CLASS_MAP, JS_CLASS_SET, JS_CLASS_STRING, JS_CLASS_UINT8_ARRAY,
-    JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    builtins::{
-        iterator::js_create_array_iterator, mapset::js_create_map_iterator,
-        typed_array::js_create_typed_array_iterator,
-    },
+    JS_CLASS_INT32_ARRAY, JS_CLASS_STRING, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    builtins::{iterator::js_create_array_iterator, typed_array::js_create_typed_array_iterator},
     function::CallbackFn,
 };
 
@@ -559,14 +556,16 @@ const CLASS_ITERATOR_HANDLER: &[(ClassID, CallbackFn, i16)] = &[
         js_create_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
+    #[cfg(feature = "builtin_mapset")]
     (
-        JS_CLASS_MAP,
-        js_create_map_iterator,
+        crate::JS_CLASS_MAP,
+        crate::builtins::mapset::js_create_map_iterator,
         (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2,
     ),
+    #[cfg(feature = "builtin_mapset")]
     (
-        JS_CLASS_SET,
-        js_create_map_iterator,
+        crate::JS_CLASS_SET,
+        crate::builtins::mapset::js_create_map_iterator,
         ((JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2) | 1,
     ),
     (

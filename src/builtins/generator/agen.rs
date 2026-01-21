@@ -5,7 +5,7 @@ use gc_lite::{GcRef, GcTracable, GcWeak};
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     builtins::{
-        iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
+        iterator::js_create_iterator_result,
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
@@ -21,7 +21,10 @@ use crate::{
     value::JSValue,
 };
 
-use super::{FUNC_RET_AWAIT, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR};
+use super::{
+    FUNC_RET_AWAIT, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR, GEN_MAGIC_NEXT, GEN_MAGIC_RETURN,
+    GEN_MAGIC_THROW,
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]

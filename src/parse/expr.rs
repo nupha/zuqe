@@ -265,7 +265,7 @@ impl<'s> JSParseState<'s> {
 
                 #[cfg(not(feature = "builtin_regexp"))]
                 {
-                    self.throw_syntax_error("RegExp is not supported");
+                    self.throw_syntax_error("regex not supported");
                     return Err(-1);
                 }
             }

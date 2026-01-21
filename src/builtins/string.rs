@@ -7,7 +7,7 @@ use crate::{
     builtins::iterator::{JSIteratorKindEnum, js_create_array_iterator},
     context::ContextImpl,
     error::JSResult,
-    function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
+    function::{CallContext, FieldDef, IteratorState},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
     string::{
         CharCode, CharCodeDecoder, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringData,
@@ -15,9 +15,6 @@ use crate::{
     },
     value::JSValue,
 };
-
-#[cfg(feature = "builtin_regexp")]
-use super::regexp::has_match_method;
 
 const MAGIC_INCLUDES: i32 = 1;
 const MAGIC_STARTS_WITH: i32 = 2;
@@ -589,7 +586,7 @@ fn js_string_includes(cc: CallContext) -> JSResult {
     let arg0 = cc.arg(0);
 
     #[cfg(feature = "builtin_regexp")]
-    if has_match_method(cx, arg0)? {
+    if super::regexp::is_regexp(cx, arg0)? {
         cx.throw_type_error("regex not supported");
         return Err(-1);
     }
@@ -658,8 +655,9 @@ fn js_string_includes(cc: CallContext) -> JSResult {
 }
 
 /// ensure regexp `obj` must have g flag.
+#[cfg(feature = "builtin_regexp")]
 fn check_regexp_g_flag(ctx: &ContextImpl, obj: &JSValue) -> Result<(), i32> {
-    if has_match_method(ctx, obj)? {
+    if super::regexp::is_regexp(ctx, obj)? {
         let flags = obj.get_property(ctx, Atom::CONST_flags)?;
         if flags.is_undefined_or_null() {
             ctx.throw_type_error("cannot convert to object");
@@ -672,7 +670,6 @@ fn check_regexp_g_flag(ctx: &ContextImpl, obj: &JSValue) -> Result<(), i32> {
             }
         }
     }
-
     Ok(())
 }
 
@@ -716,9 +713,12 @@ fn js_string_match(cc: CallContext) -> JSResult {
 
     if let JSValue::Object(o) = regexp_val {
         let func = o.get_property(ctx, method_name)?;
+
+        #[cfg(feature = "builtin_regexp")]
         if magic == MAGIC_MATCH_ALL {
             check_regexp_g_flag(ctx, &regexp_val)?;
         }
+
         if !func.is_undefined_or_null() {
             return func.call(ctx, regexp_val, std::slice::from_ref(this));
         }
@@ -738,7 +738,7 @@ fn js_string_match(cc: CallContext) -> JSResult {
         }
         let regexp_obj = {
             let ctor = ctx.regexp_ctor;
-            JS_CallConstructor(ctx, ctor, &args[0..args_len]).err()?
+            crate::function::JS_CallConstructor(ctx, ctor, &args[0..args_len]).err()?
         };
 
         let str = JSValue::String(this.to_string_non_undefined_or_null(ctx)?);
@@ -747,7 +747,7 @@ fn js_string_match(cc: CallContext) -> JSResult {
 
     #[cfg(not(feature = "builtin_regexp"))]
     {
-        ctx.throw_internal_error("RegExp is not supported");
+        ctx.throw_internal_error("regex not supported");
         Err(-1)
     }
 }

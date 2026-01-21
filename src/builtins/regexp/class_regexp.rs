@@ -53,7 +53,7 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
     let pat = *cc.arg(0);
     let mut flags1 = *cc.arg(1);
 
-    let pat_is_regexp = has_match_method(ctx, &pat)?;
+    let pat_is_regexp = is_regexp(ctx, &pat)?;
 
     if cc.this().is_undefined() {
         // called as a function
@@ -136,7 +136,7 @@ fn js_get_regexp<'a>(
     }
 }
 
-pub(crate) fn has_match_method(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i32> {
+pub(crate) fn is_regexp(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(o) = obj {
         let m = {
             #[cfg(feature = "builtin_symbol")]

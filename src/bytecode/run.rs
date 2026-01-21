@@ -1066,7 +1066,7 @@ impl Bytecode {
                         }
                         #[cfg(not(feature = "builtin_regexp"))]
                         {
-                            realm.throw_internal_error("RegExp is not supported");
+                            realm.throw_internal_error("regex not supported");
                             break State::Exception;
                         }
                     }

@@ -94,6 +94,7 @@ unsafe impl GcTracable for ContextImpl {
         self.array_proto_values.trace(tracer);
         self.function_ctor.trace(tracer);
         self.array_ctor.trace(tracer);
+        #[cfg(feature = "builtin_regexp")]
         self.regexp_ctor.trace(tracer);
         self.promise_ctor.trace(tracer);
         self.throw_type_error.trace(tracer);
@@ -129,14 +130,15 @@ impl ContextImpl {
 
             function_ctor: JSValue::NULL,
             array_ctor: JSValue::NULL,
+            #[cfg(feature = "builtin_regexp")]
             regexp_ctor: JSValue::NULL,
             promise_ctor: JSValue::NULL,
 
             class_protos: class_proto,
+            error_protos: [const { JSValue::UNDEFINED }; STD_ERROR_COUNT],
 
             iterator_proto: None,
             async_iterator_proto: None,
-            error_protos: [const { JSValue::UNDEFINED }; STD_ERROR_COUNT],
             array_proto_values: JSValue::UNDEFINED,
             throw_type_error: JSValue::UNDEFINED,
             eval_func: JSValue::UNDEFINED,
@@ -227,14 +229,18 @@ impl ContextImpl {
         #[cfg(debug_assertions)]
         debug_assert!(self.loaded_modules.is_empty());
 
-        self.class_protos.clear();
-
         self.array_shape.take();
         self.function_ctor = JSValue::UNDEFINED;
         self.array_ctor = JSValue::UNDEFINED;
-        self.regexp_ctor = JSValue::UNDEFINED;
+        #[cfg(feature = "builtin_regexp")]
+        {
+            self.regexp_ctor = JSValue::UNDEFINED;
+        }
         self.promise_ctor = JSValue::UNDEFINED;
+
+        self.class_protos.clear();
         self.error_protos = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
+
         self.iterator_proto.take();
         self.async_iterator_proto.take();
         self.array_proto_values = JSValue::UNDEFINED;
