@@ -316,7 +316,7 @@ impl BytecodeFunction {
         new_target: JSValue,
         args: &[JSValue],
         flags: i32,
-    ) -> JSValue {
+    ) -> JSResult {
         let rt = caller_ctx.rt_ptr();
         let bc = self.payload().bytecode();
 
@@ -342,7 +342,7 @@ impl BytecodeFunction {
         // ensure stack has minimal free space.
         if js_check_stack_overflow(&rt, 32) {
             caller_ctx.throw_stack_overflow();
-            return JSValue::EXCEPTION;
+            return Err(-1);
         }
 
         // make local buffer and running bytecodes with it.
@@ -356,7 +356,7 @@ impl BytecodeFunction {
         //
         if sf.local_buf.try_reserve_exact(buf_values_count).is_err() {
             caller_ctx.throw_out_of_memory();
-            return JSValue::EXCEPTION;
+            return Err(-1);
         }
 
         // initialize args section
@@ -403,6 +403,7 @@ impl BytecodeFunction {
             args,
             false,
         )
+        .err()
     }
 
     /// handle `Function` constructor. For example:

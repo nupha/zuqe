@@ -9,7 +9,7 @@ use crate::{
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::build_arg_list,
-    object::{ObjectPayload, Object},
+    object::{Object, ObjectPayload},
     value::JSValue,
 };
 
@@ -151,18 +151,10 @@ pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
 impl Object {
-    /// call `self` object. if object is not callable, returns not function error.
+    /// call `self` object
     #[inline(always)]
     pub fn call(&self, ctx: &ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
-        JS_CallInternal(
-            ctx,
-            JSValue::Object(*self),
-            this_obj,
-            JSValue::UNDEFINED,
-            args,
-            JS_CALL_FLAG_COPY_ARGV,
-        )
-        .err()
+        JSValue::Object(*self).call(ctx, this_obj, args)
     }
 
     /// call function `self.method`
@@ -207,18 +199,56 @@ impl Object {
 }
 
 impl JSValue {
-    /// call `self` value. if value is not callable, returns 'not function error'.
+    /// call `self` value.
     #[inline(always)]
     pub fn call(&self, ctx: &ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
-        JS_CallInternal(
+        self.call_internal(
             ctx,
-            *self,
             this_obj,
             JSValue::UNDEFINED,
             args,
             JS_CALL_FLAG_COPY_ARGV,
         )
-        .err()
+    }
+
+    /// `ctx` is the caller ctx.
+    /// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
+    pub(crate) fn call_internal(
+        &self,
+        ctx: &ContextImpl,
+        this_obj: JSValue,
+        new_target: JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> JSResult {
+        ctx.poll_interrupts()?;
+
+        match self {
+            JSValue::Object(o) => {
+                if let Some(bf) = o.as_BytecodeFunction() {
+                    bf.call(ctx, this_obj, new_target, args, flags)
+                } else {
+                    // non bytecode function (e.g. bound function, native function, async function etc),
+                    // use handler defined on the class.
+                    if let Some(f) = ctx.rt_ptr().class_registry[o.class_id() as usize].call {
+                        f(
+                            unsafe { ContextPtr::from_ref_unchecked(ctx).into() },
+                            *self,
+                            this_obj,
+                            args,
+                            flags,
+                        )
+                    } else {
+                        ctx.throw_type_error("not callable");
+                        Err(-1)
+                    }
+                }
+            }
+            _ => {
+                ctx.throw_type_error("not callable");
+                Err(-1)
+            }
+        }
     }
 
     /// call function `self.method`
@@ -263,8 +293,7 @@ impl JSValue {
     }
 }
 
-/// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
-/// both `this_obj` and `argv` values are not consumed.
+#[deprecated(note = "use JSValue::call_internal() instead")]
 pub(crate) fn JS_CallInternal(
     caller_ctx: &ContextImpl,
     func_obj: JSValue,
@@ -273,37 +302,9 @@ pub(crate) fn JS_CallInternal(
     args: &[JSValue],
     flags: i32,
 ) -> JSValue {
-    if caller_ctx.poll_interrupts().is_err() {
-        return JSValue::EXCEPTION;
-    }
-
-    match func_obj {
-        JSValue::Object(o) => {
-            if let Some(bf) = o.as_BytecodeFunction() {
-                bf.call(caller_ctx, this_obj, new_target, args, flags)
-            } else {
-                // non bytecode function: bound function, native function, async function etc.
-                // use callback defined on the class.
-                if let Some(f) = caller_ctx.rt_ptr().class_registry[o.class_id() as usize].call {
-                    f(
-                        unsafe { ContextPtr::from_ref_unchecked(caller_ctx).into() },
-                        func_obj,
-                        this_obj,
-                        args,
-                        flags,
-                    )
-                    .unwrap_or(JSValue::EXCEPTION)
-                } else {
-                    caller_ctx.throw_type_error("not callable");
-                    JSValue::EXCEPTION
-                }
-            }
-        }
-        _ => {
-            caller_ctx.throw_type_error("not a function");
-            JSValue::EXCEPTION
-        }
-    }
+    func_obj
+        .call_internal(caller_ctx, this_obj, new_target, args, flags)
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 pub(crate) fn JS_CallConstructorInternal(
@@ -328,7 +329,9 @@ pub(crate) fn JS_CallConstructorInternal(
         if let Some(bcf) = o.as_BytecodeFunction() {
             // BYTECODE_FUNCTION
             if bcf.payload().bytecode().attrs.is_derived_class_constructor {
-                JS_CallInternal(ctx, func_obj, JSValue::UNDEFINED, new_target, args, flags)
+                func_obj
+                    .call_internal(ctx, JSValue::UNDEFINED, new_target, args, flags)
+                    .unwrap_or(JSValue::EXCEPTION)
             } else {
                 // legacy constructor behavior
                 let this: JSValue =
@@ -337,13 +340,9 @@ pub(crate) fn JS_CallConstructorInternal(
                     } else {
                         return JSValue::EXCEPTION;
                     };
-
-                let ret = JS_CallInternal(ctx, func_obj, this, new_target, args, flags);
-                if ret.is_object() || ret.is_exception() {
-                    ret
-                } else {
-                    this
-                }
+                func_obj
+                    .call_internal(ctx, this, new_target, args, flags)
+                    .map_or(JSValue::EXCEPTION, |v| if v.is_object() { v } else { this })
             }
         } else {
             // call class exotic handler

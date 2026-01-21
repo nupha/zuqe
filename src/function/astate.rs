@@ -202,7 +202,6 @@ impl AsyncStateImpl {
             args,
             throw_flag,
         );
-
         ret_val.err()
     }
 }

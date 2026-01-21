@@ -29,8 +29,8 @@ use crate::{
     },
     eval::{EvalFlags, EvalType},
     function::{
-        Bytecode, CallContext, FunctionKind, JS_CallConstructorInternal, JS_CallInternal, JSVarRef,
-        build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
+        Bytecode, CallContext, FunctionKind, JS_CallConstructorInternal, JSVarRef, build_arg_list,
+        js_build_arguments, js_build_mapped_arguments, js_function_apply,
     },
     module::{js_dynamic_import, js_import_meta},
     object::{
@@ -43,8 +43,6 @@ use crate::{
     utils::{read_from_ptr, unlikely},
     value::JSValue,
 };
-
-const GC_STEP: u32 = 500;
 
 impl Bytecode {
     /// Execute bytecodes.
@@ -724,28 +722,30 @@ impl Bytecode {
                         stack_frame.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
                         // could have resursive call. tail_call optimization needed.
-                        let ret_val = JS_CallInternal(
+                        let func = unsafe { *call_argv.offset(-1) };
+                        let ret_val = func.call_internal(
                             &realm,
-                            unsafe { *call_argv.offset(-1) },
                             JSValue::UNDEFINED,
                             JSValue::UNDEFINED,
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             0,
                         );
-                        if unlikely(ret_val.is_exception()) {
-                            break State::Exception;
-                        } else if unlikely(opcode == OpCode::TAIL_CALL) {
-                            break State::Done(ret_val, false);
-                        } else {
-                            for i in -1..call_argc as isize {
-                                unsafe {
-                                    *call_argv.offset(i) = JSValue::UNDEFINED;
-                                }
+                        if let Ok(r) = ret_val {
+                            if unlikely(opcode == OpCode::TAIL_CALL) {
+                                break State::Done(r, false);
+                            } else {
+                                // clear stack values: no need so
+                                // for i in -1..call_argc as isize {
+                                //     unsafe {
+                                //         *call_argv.offset(i) = JSValue::UNDEFINED;
+                                //     }
+                                // }
+                                SP_GO!(-(call_argc as i32 + 1));
+                                SP_PUT!(0, r);
+                                SP_GO!(1);
                             }
-                            SP_GO!(-(call_argc as i32 + 1));
-
-                            SP_PUT!(0, ret_val);
-                            SP_GO!(1);
+                        } else {
+                            break State::Exception;
                         }
                     }
                     OpCode::CALL_CONSTRUCTOR => {
@@ -755,9 +755,10 @@ impl Bytecode {
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
                         stack_frame.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
+                        let func = unsafe { *call_argv.offset(-2) };
                         let ret_val = JS_CallConstructorInternal(
                             &realm,
-                            unsafe { *call_argv.offset(-2) },
+                            func,
                             unsafe { *call_argv.offset(-1) },
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             0,
@@ -765,13 +766,13 @@ impl Bytecode {
                         if unlikely(ret_val.is_exception()) {
                             break State::Exception;
                         } else {
-                            for i in -2..call_argc {
-                                unsafe {
-                                    *call_argv.offset(i as isize) = JSValue::UNDEFINED;
-                                }
-                            }
+                            // clear stack values: no need so
+                            // for i in -2..call_argc {
+                            //     unsafe {
+                            //         *call_argv.offset(i as isize) = JSValue::UNDEFINED;
+                            //     }
+                            // }
                             SP_GO!(-(call_argc + 2));
-
                             SP_PUT!(0, ret_val);
                             SP_GO!(1);
                         }
@@ -783,28 +784,28 @@ impl Bytecode {
                         stack_frame.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
                         // could have recursive call.
-                        let ret_val = JS_CallInternal(
+                        let func = unsafe { *call_argv.offset(-1) };
+                        let ret_val = func.call_internal(
                             &realm,
-                            unsafe { *call_argv.offset(-1) },
                             unsafe { *call_argv.offset(-2) },
                             JSValue::UNDEFINED,
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             0,
                         );
-                        if unlikely(ret_val.is_exception()) {
-                            break State::Exception;
-                        }
-
-                        if unlikely(opcode == OpCode::TAIL_CALL_METHOD) {
-                            break State::Done(ret_val, false);
-                        } else {
-                            for i in -2..call_argc as isize {
-                                unsafe { *call_argv.offset(i) = JSValue::UNDEFINED };
+                        if let Ok(r) = ret_val {
+                            if unlikely(opcode == OpCode::TAIL_CALL_METHOD) {
+                                break State::Done(r, false);
+                            } else {
+                                // clear stack values: no need so
+                                // for i in -2..call_argc as isize {
+                                //     unsafe { *call_argv.offset(i) = JSValue::UNDEFINED };
+                                // }
+                                SP_GO!(-(call_argc + 2));
+                                SP_PUT!(0, r);
+                                SP_GO!(1);
                             }
-                            SP_GO!(-(call_argc + 2));
-
-                            SP_PUT!(0, ret_val);
-                            SP_GO!(1);
+                        } else {
+                            break State::Exception;
                         }
                     }
                     OpCode::ARRAY_FROM => {
@@ -982,9 +983,8 @@ impl Bytecode {
                                 Ok(JSValue::UNDEFINED)
                             }
                         } else {
-                            JS_CallInternal(
+                            func_val.call_internal(
                                 &realm,
-                                func_val,
                                 JSValue::UNDEFINED,
                                 JSValue::UNDEFINED,
                                 unsafe {
@@ -992,18 +992,15 @@ impl Bytecode {
                                 },
                                 0,
                             )
-                            .err()
                         };
 
                         // pop and drop values on stack since `func_val` position
-                        {
-                            for i in -1..call_argc as isize {
-                                unsafe {
-                                    *call_argv.offset(i) = JSValue::UNDEFINED;
-                                }
-                            }
-                            sp = unsafe { sp.offset(-call_argc as isize - 1) };
-                        }
+                        // for i in -1..call_argc as isize {
+                        //     unsafe {
+                        //         *call_argv.offset(i) = JSValue::UNDEFINED;
+                        //     }
+                        // }
+                        SP_GO!(-(call_argc + 1)); // sp = unsafe { sp.offset(-call_argc as isize - 1) };
 
                         if let Ok(v) = ret_val {
                             // push result value on stack
