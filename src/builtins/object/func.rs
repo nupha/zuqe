@@ -339,7 +339,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptors(cc: CallContext) -> JSResult {
     let mut res_obj = ctx.create_base_object()?;
 
     obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, pkey| {
-        let atom_value = pkey.atom.string_or_symbol(cx)?;
+        let atom_value = pkey.atom.to_value(cx)?;
         let desc = js_object_getOwnPropertyDescriptor(CallContext::new_simple(
             cc.ctx_ptr(),
             JSValue::UNDEFINED,

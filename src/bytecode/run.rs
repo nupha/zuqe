@@ -271,10 +271,7 @@ impl Bytecode {
             Done(JSValue, bool),
         }
 
-        let gc_heap = {
-            let rt = caller_ctx.rt_ref();
-            rt.gc_heap().partition(rt.gc_part()).unwrap()
-        };
+        let mut rt = caller_ctx.rt_ptr();
 
         #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
         let mut debug_setting: Option<crate::function::BytecodeDebugSetting> = None;
@@ -359,7 +356,7 @@ impl Bytecode {
                         SP_PUT!(
                             0,
                             Atom::from_id(a)
-                                .string_or_symbol(&realm)
+                                .to_value(&realm)
                                 .unwrap_or(JSValue::EXCEPTION)
                         );
                         SP_GO!(1);
@@ -503,7 +500,6 @@ impl Bytecode {
                         }
                     }
                     OpCode::DROP => {
-                        // SP_TAKE!(-1);
                         SP_GO!(-1);
                     }
                     OpCode::NIP => {
@@ -556,7 +552,7 @@ impl Bytecode {
                         SP_GO!(1);
                     }
                     OpCode::INSERT3 => {
-                        // Stack operation: [obj, prop, a, ^] -> [a, obj, prop, a, ^]
+                        // [obj, prop, a, ^] -> [a, obj, prop, a, ^]
                         // Duplicates top value and inserts it under third position
                         // Uses array rotation for efficient stack manipulation
                         unsafe {
@@ -568,7 +564,7 @@ impl Bytecode {
                         SP_GO!(1);
                     }
                     OpCode::INSERT4 => {
-                        // Stack operation: [this, obj, prop, a, ^] -> [a, this, obj, prop, a, ^] where ^ is stack top
+                        // [this, obj, prop, a, ^] -> [a, this, obj, prop, a, ^] where ^ is stack top
                         // Duplicates top value and inserts it under fourth position
                         // Uses array rotation for efficient stack manipulation
                         let lst = unsafe { std::slice::from_raw_parts_mut(sp.offset(-4), 5) };
@@ -577,71 +573,39 @@ impl Bytecode {
                         // After rotation, SP![0] contains the value to duplicate and insert
                         SP_PUT!(-4, SP_VAL!(0));
 
-                        // SP![0] = SP![-1];
-                        // SP![-1] = SP![-2];
-                        // SP![-2] = SP![-3];
-                        // SP![-3] = SP![-4];
-                        // SP![-4] = SP![0].clone();
-
-                        SP_GO!(1); // move sp
+                        SP_GO!(1);
                     }
                     OpCode::ROT3L => {
-                        // Stack operation: [x, a, b, ^] -> [a, b, x, ^] where ^ is stack top
+                        // [x, a, b, ^] -> [a, b, x, ^] where ^ is stack top
                         // Performs a left rotation on top three values
                         // The leftmost value moves to the right, others shift left
                         let lst = unsafe { std::slice::from_raw_parts_mut(sp.offset(-3), 3) };
                         lst.rotate_left(1);
-
-                        // let tmp = SP![-3];
-                        // SP![-3] = SP![-2];
-                        // SP![-2] = SP![-1];
-                        // SP![0] = tmp;
                     }
                     OpCode::ROT4L => {
-                        // Stack operation: [x, a, b, c, ^] -> [a, b, c, x, ^] where ^ is stack top
+                        // [x, a, b, c, ^] -> [a, b, c, x, ^] where ^ is stack top
                         // Performs a left rotation on top four values
                         // The leftmost value moves to the right, others shift left
                         let lst = unsafe { std::slice::from_raw_parts_mut(sp.offset(-4), 4) };
                         lst.rotate_left(1);
-
-                        // let tmp = SP![-4];
-                        // SP![-4] = SP![-3];
-                        // SP![-3] = SP![-2];
-                        // SP![-2] = SP![-1];
-                        // SP![-1] = tmp;
                     }
                     OpCode::ROT5L => {
                         let lst = unsafe { std::slice::from_raw_parts_mut(sp.offset(-5), 5) };
                         lst.rotate_left(1);
-
-                        // let tmp = SP![-5];
-                        // SP![-5] = SP![-4];
-                        // SP![-4] = SP![-3];
-                        // SP![-3] = SP![-2];
-                        // SP![-2] = SP![-1];
-                        // SP![-1] = tmp;
                     }
                     OpCode::ROT3R => {
-                        // Stack operation: [a, b, x, ^] -> [x, a, b, ^] where ^ is stack top
+                        // [a, b, x, ^] -> [x, a, b, ^] where ^ is stack top
                         // Performs a right rotation on top three values
                         // The rightmost value moves to the left, others shift right
                         let lst = unsafe { std::slice::from_raw_parts_mut(sp.offset(-3), 3) };
                         lst.rotate_right(1);
-
-                        // let tmp = SP![-1];
-                        // SP![-1] = SP![-2];
-                        // SP![-2] = SP![-1];
-                        // SP![-3] = tmp;
                     }
                     OpCode::PERM3 => {
-                        // Stack operation: [obj, a, fixed, ^] -> [a, obj, fixed, ^] where ^ is stack top
+                        // [obj, a, fixed, ^] -> [a, obj, fixed, ^] where ^ is stack top
                         // Swaps the second and third values from top, keeping the fixed value in place
                         unsafe {
                             std::ptr::swap(sp.offset(-2), sp.offset(-3));
                         }
-                        // let tmp = SP![-2];
-                        // SP![-2] = SP![-3];
-                        // SP![-3] = tmp;
                     }
                     OpCode::PERM4 => {
                         // [obj, prop, a, fixed, ^] -> [a, obj, prop, fixed, ^]
@@ -649,47 +613,29 @@ impl Bytecode {
                         // The rightmost value moves left, others shift right, fixed value stays in place
                         let lst = unsafe { std::slice::from_raw_parts_mut(sp.offset(-4), 3) };
                         lst.rotate_right(1);
-
-                        // let tmp = SP![-2];
-                        // SP![-2] = SP![-3];
-                        // SP![-3] = SP![-4];
-                        // SP![-4] = tmp;
                     }
                     OpCode::PERM5 => {
-                        // Stack operation: [this, obj, prop, a, fixed, ^] -> [a, this, obj, prop, fixed, ^] where ^ is stack top
+                        // [this, obj, prop, a, fixed, ^] -> [a, this, obj, prop, fixed, ^] where ^ is stack top
                         // Performs a right rotation on four values before the fixed value
                         // The rightmost value moves left, others shift right, fixed value stays in place
                         let lst = unsafe { std::slice::from_raw_parts_mut(sp.offset(-5), 4) };
                         lst.rotate_right(1);
-
-                        // let tmp = SP![-2];
-                        // SP![-2] = SP![-3];
-                        // SP![-3] = SP![-4];
-                        // SP![-4] = SP![-5];
-                        // SP![-5] = tmp;
                     }
                     OpCode::SWAP => {
-                        // Stack operation: [a, b, ^] -> [b, a, ^] where ^ is stack top
+                        // [a, b, ^] -> [b, a, ^] where ^ is stack top
                         // Swaps the top two values on the stack
                         unsafe {
                             std::ptr::swap(sp.offset(-1), sp.offset(-2));
                         }
                     }
                     OpCode::SWAP2 => {
-                        // Stack operation: [a, b, c, d, ^] -> [c, d, a, b, ^] where ^ is stack top
+                        // [a, b, c, d, ^] -> [c, d, a, b, ^] where ^ is stack top
                         // Swaps pairs of values: first with third, second with fourth
                         // Effectively exchanges the top two pairs of values
                         unsafe {
                             std::ptr::swap(sp.offset(-1), sp.offset(-3));
                             std::ptr::swap(sp.offset(-2), sp.offset(-4));
                         }
-
-                        // let tmp1 = SP![-4];
-                        // let tmp2 = SP![-3];
-                        // SP![-4] = SP![-2];
-                        // SP![-3] = SP![-1];
-                        // SP![-2] = tmp1;
-                        // SP![-1] = tmp2;
                     }
                     OpCode::FCLOSURE => {
                         // [^] -> [func_obj, ^]
@@ -881,7 +827,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::CHECK_CTOR => {
-                        if unlikely(new_target.is_undefined()) {
+                        if new_target.is_undefined() {
                             realm.throw_type_error("class constructors must be invoked with 'new'");
                             break State::Exception;
                         }
@@ -1000,7 +946,7 @@ impl Bytecode {
                         //         *call_argv.offset(i) = JSValue::UNDEFINED;
                         //     }
                         // }
-                        SP_GO!(-(call_argc + 1)); // sp = unsafe { sp.offset(-call_argc as isize - 1) };
+                        SP_GO!(-(call_argc + 1));
 
                         if let Ok(v) = ret_val {
                             // push result value on stack
@@ -1034,8 +980,6 @@ impl Bytecode {
                             };
 
                             if let Ok(v) = ret_val {
-                                // SP_VAL!(-2);
-                                // SP_VAL!(-1);
                                 SP_GO!(-2);
                                 SP_PUT!(0, v);
                                 SP_GO!(1);
@@ -1320,10 +1264,7 @@ impl Bytecode {
                                 {
                                     break State::Exception;
                                 } else {
-                                    SP_PUT!(
-                                        0,
-                                        atom.string_or_symbol(&realm).unwrap_or(JSValue::EXCEPTION)
-                                    );
+                                    SP_PUT!(0, atom.to_value(&realm).unwrap_or(JSValue::EXCEPTION));
                                     SP_GO!(1);
                                 }
                             }
@@ -1427,7 +1368,6 @@ impl Bytecode {
                                 realm.throw_internal_error("invalid ret value");
                                 break State::Exception;
                             } else {
-                                // SP_TAKE!(-1);
                                 SP_GO!(-1);
                                 // jump pc
                                 pc = unsafe { pc_base.offset(pos as isize) };
@@ -1489,18 +1429,14 @@ impl Bytecode {
                     }
                     OpCode::ITERATOR_CLOSE => {
                         // [iter_obj, next, catch_offset, ^] -> [^]
-                        // SP_TAKE!(-1); // drop the catch offset (to avoid getting caught by exception)
-                        // SP_TAKE!(-2); // drop the next method
                         SP_GO!(-2);
 
                         // SP[-1] is iter_obj
-                        if let JSValue::Object(o) = SP_VAL!(-1) {
-                            if unlikely(ObjectIter::close_internal(&realm, o, false).is_err()) {
-                                // leave iter_obj in stack
-                                break State::Exception;
-                            } else {
-                                // SP_VAL!(-1);
-                            }
+                        if let JSValue::Object(o) = SP_VAL!(-1)
+                            && unlikely(ObjectIter::close_internal(&realm, o, false).is_err())
+                        {
+                            // leave iter_obj in stack
+                            break State::Exception;
                         }
                         SP_GO!(-1); // pop iter_obj
                     }
@@ -2402,8 +2338,7 @@ impl Bytecode {
                                         // produce a pair object/propname on the stack
                                         SP_PUT!(
                                             0,
-                                            atom.string_or_symbol(&realm)
-                                                .unwrap_or(JSValue::EXCEPTION)
+                                            atom.to_value(&realm).unwrap_or(JSValue::EXCEPTION)
                                         );
                                         SP_GO!(1);
                                     }
@@ -2495,12 +2430,13 @@ impl Bytecode {
                     }
                 } // match opcode
 
-                if gc_heap.should_gc() {
+                if rt.gc_req {
                     // IMPORTANT!
                     // must sync sp pointer to stack frame sp_offset,
                     // to let gc trace all values of current stack frame.
                     stack_frame.cur_sp_offset = unsafe { sp.offset_from(sp_base) as _ };
-                    caller_ctx.rt_ptr().gc_collect();
+
+                    rt.gc_collect();
                 }
 
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]

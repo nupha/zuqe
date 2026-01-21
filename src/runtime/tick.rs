@@ -19,11 +19,11 @@ pub enum TickStatus {
 
 impl RuntimeImpl {
     pub const fn stop(&mut self, code: i32) {
-        self.stop = Some(code);
+        self.stop_flag = Some(code);
     }
 
     pub fn tick(&mut self) -> Result<TickStatus, i32> {
-        if let Some(n) = self.stop.take() {
+        if let Some(n) = self.stop_flag.take() {
             return Ok(TickStatus::Stop(n));
         }
 
@@ -38,7 +38,7 @@ impl RuntimeImpl {
             }
         }
 
-        if self.should_gc() {
+        if self.gc_req || self.gc_part().should_gc() {
             self.gc_collect();
         }
 
@@ -47,10 +47,5 @@ impl RuntimeImpl {
         } else {
             TickStatus::Stop(0)
         })
-    }
-
-    #[inline(always)]
-    fn should_gc(&self) -> bool {
-        self.gc_req || (self.gc_threshold > 0 && self.gc_info().memory_used() >= self.gc_threshold)
     }
 }

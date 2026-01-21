@@ -387,7 +387,7 @@ fn js_proxy_get_own_property(
     let trap_result_obj = method.call(
         cx,
         px.handler,
-        &[px.target.into(), prop.string_or_symbol(cx)?],
+        &[px.target.into(), prop.to_value(cx)?],
     )?;
     if !matches!(trap_result_obj, JSValue::Object(_) | JSValue::UNDEFINED) {
         cx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor ");
@@ -484,7 +484,7 @@ fn js_proxy_define_own_property(
             px.handler,
             &[
                 px.target.into(),
-                prop.string_or_symbol(cx)?,
+                prop.to_value(cx)?,
                 JSPropertyDescriptor {
                     value,
                     getter,
@@ -572,7 +572,7 @@ fn js_proxy_delete_property(ctx: ContextPtr, mut obj: JSValue, atom: Atom) -> Re
         .call(
             &ctx,
             px.handler,
-            &[px.target.into(), atom.string_or_symbol(&ctx)?],
+            &[px.target.into(), atom.to_value(&ctx)?],
         )?
         .to_bool()?;
 
@@ -699,7 +699,7 @@ fn js_proxy_has(ctx: ContextPtr, mut obj: Object, atom: Atom) -> Result<bool, i3
         .call(
             cx,
             px.handler,
-            &[px.target.into(), atom.string_or_symbol(cx)?],
+            &[px.target.into(), atom.to_value(cx)?],
         )?
         .to_bool()?;
 
@@ -738,7 +738,7 @@ fn js_proxy_get(ctx: ContextPtr, obj: JSValue, atom: Atom, receiver: JSValue) ->
     let ret = method.call(
         cx,
         px.handler,
-        &[px.target.into(), atom.string_or_symbol(cx)?, receiver],
+        &[px.target.into(), atom.to_value(cx)?, receiver],
     )?;
 
     if let Some(desc) = px.target.get_own_property(cx, atom)? {
@@ -795,7 +795,7 @@ fn js_proxy_set(
         .call(
             cx,
             s.handler,
-            &[s.target.into(), atom.string_or_symbol(cx)?, value, receiver],
+            &[s.target.into(), atom.to_value(cx)?, value, receiver],
         )?
         .to_bool()?;
 

@@ -339,7 +339,7 @@ impl ContextPtr {
             let a = Atom::from_id(i);
             a.with_utf8(|s| {
                 let str = s.split_once('.').unwrap().1; // skip "Symbol."
-                ctor.define_property_value_str(&self, str, a.string_or_symbol(&self).unwrap(), 0)
+                ctor.define_property_value_str(&self, str, a.to_value(&self).unwrap(), 0)
                     .unwrap();
             });
         }

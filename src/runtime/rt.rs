@@ -1,6 +1,6 @@
 use std::{ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHeap, GcPartitionId, GcTracer};
+use gc_lite::{GcHeap, GcPartition, GcPartitionId, GcTracer};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
@@ -69,16 +69,17 @@ pub struct RuntimeImpl {
 
     /// gc heap
     pub(crate) gc_heap: GcHeap,
-    /// gc partion id
-    pub(crate) gc_part: GcPartitionId,
-    pub(crate) gc_threshold: usize,
+    /// gc partition id
+    pub(crate) gc_part_id: GcPartitionId,
+    /// gc partition
+    pub(crate) gc_part: *mut GcPartition,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
     /// gc request flag
     pub(crate) gc_req: bool,
-    /// tick stop flag
-    pub(crate) stop: Option<i32>,
 
+    /// loop stop flag
+    pub(crate) stop_flag: Option<i32>,
     pub(crate) interrupt_handler: Option<Box<dyn InterruptFn>>,
 
     #[deprecated]
@@ -112,9 +113,15 @@ impl Drop for RuntimeImpl {
 
 impl RuntimeImpl {
     pub(super) fn new() -> Result<Box<Self>, i32> {
-        // create gc heap for this runtime
+        // create gc heap and partition for this runtime
         let mut gc_heap = GcHeap::new();
-        let gc_part = gc_heap.create_partition("runtime".to_string(), None);
+        let gc_part_id = gc_heap.create_partition("runtime".to_string(), None);
+        let gc_part = {
+            let par = gc_heap.partition_mut(gc_part_id).unwrap();
+            par.set_memory_limit(0); // no memory limit
+            par.set_gc_threshold(8); // small threshould to trigger gc ASAP
+            par as *mut GcPartition
+        };
 
         let mut rt = Box::new(Self {
             class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
@@ -143,11 +150,12 @@ impl RuntimeImpl {
             shape_registry: ShapeRegistry::new(),
 
             gc_heap,
+            gc_part_id,
             gc_part,
-            gc_threshold: 256 * 1024,
             gc_user_trace: None,
             gc_req: false,
-            stop: None,
+
+            stop_flag: None,
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,
@@ -244,7 +252,7 @@ impl RuntimeImpl {
     }
 
     /// get current exception value, then reset current_exception to null.
-    pub fn take_exception(&mut self) -> JSValue {
+    pub const fn take_exception(&mut self) -> JSValue {
         std::mem::replace(&mut self.cur_exception, JSValue::NULL)
     }
 
@@ -309,27 +317,25 @@ impl RuntimeImpl {
         // don't bother shape drop trait to do unregister.
         self.shape_registry.clear();
 
-        let part = self.gc_part();
+        let part_id = self.gc_part_id;
 
         if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
             // purge all gc objects except ShapeImpl
-            self.gc_heap_mut()
-                .sweep_ex(part, true, None, Some(&[type_shape]), true);
+            self.gc_heap
+                .sweep_ex(part_id, true, None, Some(&[type_shape]), true);
         }
 
         // purge all rest nodes
-        self.gc_heap_mut().sweep_ex(part, true, None, None, false);
+        self.gc_heap.sweep_ex(part_id, true, None, None, false);
 
         debug_assert_eq!(
-            self.gc_heap().partition_node_iter(part).count(),
+            self.gc_heap().partition_node_iter(part_id).count(),
             0,
             "should not have live gc nodes"
         );
 
-        self.gc_heap_mut().remove_partition(part);
-
-        // no need
-        // self.class_registry.clear();
+        self.gc_part = std::ptr::null_mut();
+        self.gc_heap.remove_partition(part_id);
     }
 }
 

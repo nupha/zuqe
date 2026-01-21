@@ -59,8 +59,15 @@ fn main() -> ExitCode {
 
     let mut rt = Runtime::create().unwrap();
 
-    let ss = args.stack_size;
-    if true {
+    // memory-limit
+    // TODO: should passed in by argument.
+    {
+        rt.gc_set_memory_limit(1024 * 1024);
+    }
+
+    // stack-size
+    {
+        let ss = args.stack_size;
         let i = ss
             .as_bytes()
             .iter()
@@ -108,7 +115,7 @@ fn main() -> ExitCode {
         .create_context_ecma()
         .inspect_err(|_| {
             let e = rt.take_exception();
-            println!("[O.o] {:?}", e);
+            eprintln!("[O.o] {:?}", e);
         })
         .unwrap();
     ctx.use_class(class_id_file).unwrap();

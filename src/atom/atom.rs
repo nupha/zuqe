@@ -227,7 +227,7 @@ impl Atom {
     }
 
     /// Convert atom to String or Symbol value.
-    pub fn string_or_symbol(&self, ctx: &ContextImpl) -> Result<JSValue, i32> {
+    pub fn to_value(&self, ctx: &ContextImpl) -> Result<JSValue, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::String)
@@ -248,7 +248,7 @@ impl Atom {
     /// Force convert atom to String.
     /// If atom is Symbol kind, returns its string descriptor.
     pub fn force_string(&self, ctx: &ContextImpl) -> Result<StringRef, i32> {
-        match self.string_or_symbol(ctx)? {
+        match self.to_value(ctx)? {
             JSValue::String(s) => {
                 debug_assert!(!s.content().is_ident());
                 Ok(s)

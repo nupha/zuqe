@@ -461,7 +461,7 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
         }
 
         unsafe {
-            *sp = prop.string_or_symbol(ctx).unwrap_or(JSValue::EXCEPTION); // value
+            *sp = prop.to_value(ctx).unwrap_or(JSValue::EXCEPTION); // value
             *sp.offset(1) = JSValue::Bool(false); // done flag
         }
     } else {

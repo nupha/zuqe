@@ -291,13 +291,13 @@ impl Object {
             let mut val = JSValue::UNDEFINED;
             match kind {
                 JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
-                    key = pk.atom.string_or_symbol(ctx)?;
+                    key = pk.atom.to_value(ctx)?;
                 }
                 JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
                     val = self.get_property(ctx, pk.atom)?;
                 }
                 JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                    key = pk.atom.string_or_symbol(ctx)?;
+                    key = pk.atom.to_value(ctx)?;
                     val = self.get_property(ctx, pk.atom)?;
                 }
             }

@@ -3,13 +3,8 @@ use gc_lite::{GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, Gc
 use crate::{object::ShapeImpl, runtime::RuntimeImpl};
 
 impl RuntimeImpl {
-    #[inline(always)]
-    pub(crate) const fn gc_part(&self) -> GcPartitionId {
-        self.gc_part
-    }
-
     pub fn gc_set_threshold(&mut self, threshold: usize) {
-        self.gc_heap.set_gc_threshold(self.gc_part, threshold);
+        self.gc_heap.set_gc_threshold(self.gc_part_id, threshold);
     }
 
     #[inline(always)]
@@ -22,20 +17,48 @@ impl RuntimeImpl {
         &mut self.gc_heap
     }
 
+    /// gc partition id
     #[inline(always)]
-    pub fn gc_info(&self) -> &GcPartition {
-        self.gc_heap.partition(self.gc_part).unwrap()
+    pub(crate) const fn gc_part_id(&self) -> GcPartitionId {
+        self.gc_part_id
+    }
+
+    /// gc partition
+    #[inline(always)]
+    pub(crate) const fn gc_part(&self) -> &GcPartition {
+        debug_assert!(!self.gc_part.is_null());
+        unsafe { &*self.gc_part }
+        //self.gc_heap.partition(self.gc_part_id).unwrap()
+    }
+
+    /// gc partition
+    #[inline(always)]
+    pub(crate) const fn gc_part_mut(&mut self) -> &mut GcPartition {
+        debug_assert!(!self.gc_part.is_null());
+        unsafe { &mut *self.gc_part }
+    }
+
+    pub fn gc_memory_limit(&self) -> usize {
+        self.gc_part().memory_limit().unwrap_or(0)
+    }
+
+    pub fn gc_set_memory_limit(&mut self, limit: usize) -> usize {
+        self.gc_part_mut().set_memory_limit(limit)
     }
 
     /// alloc data in gc
-    #[inline(always)]
+    #[inline]
     pub fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
-        self.gc_heap.alloc(self.gc_part, data)
+        let r = self.gc_heap.alloc(self.gc_part_id, data)?;
+        if self.gc_part().should_gc() {
+            self.gc_req = true;
+        }
+        Ok(r)
     }
 
     /// collect garbage.
     pub fn gc_collect(&mut self) -> usize {
-        let part = self.gc_part;
+        let part_id = self.gc_part_id;
 
         //
         // mark
@@ -43,7 +66,7 @@ impl RuntimeImpl {
         {
             let mut tracer = GcTracer::new();
 
-            self.gc_heap.mark_roots(part, &mut tracer);
+            self.gc_heap.mark_roots(part_id, &mut tracer);
             self.cur_exception.trace(&mut tracer);
             self.shape_registry.trace(&mut tracer);
 
@@ -73,14 +96,14 @@ impl RuntimeImpl {
             // GC: ShapImpl must be freed at last
             freed = self
                 .gc_heap
-                .sweep_ex(part, false, None, Some(&[type_shape]), true);
+                .sweep_ex(part_id, false, None, Some(&[type_shape]), true);
         }
 
-        freed += self.gc_heap.sweep_ex(part, false, None, None, false);
+        freed += self.gc_heap.sweep_ex(part_id, false, None, None, false);
 
         // update gc threshold
-        let used = self.gc_info().memory_used();
-        self.gc_threshold = used + (used >> 1); // x1.5 of
+        let used = self.gc_part().memory_used();
+        self.gc_part_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
 
         self.gc_req = false;
         freed

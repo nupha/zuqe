@@ -30,7 +30,7 @@ unsafe impl GcTracable for ImportEntry {
 
 pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult {
     let basename_val: JSValue = if let Some(a) = get_script_or_module_name(ctx, 0) {
-        a.string_or_symbol(ctx)?
+        a.to_value(ctx)?
     } else {
         JSValue::NULL
     };

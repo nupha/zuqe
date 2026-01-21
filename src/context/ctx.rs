@@ -433,7 +433,6 @@ impl RuntimeImpl {
         setup: impl FnOnce(ContextPtr) -> Result<(), i32>,
     ) -> Result<Context<'a>, i32> {
         let inner = ContextImpl::new(self)?;
-
         let gc_ref = self.gc_alloc(inner).map_err(|_| -1)?;
         self.gc_heap_mut().set_root(gc_ref, true);
 

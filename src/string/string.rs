@@ -323,7 +323,7 @@ impl TryFrom<JSValue> for StringRef {
 }
 
 impl StringRef {
-    /// create StringImpl with string content, and atom.
+    /// create StringImpl with string content, and atom desc.
     fn new_internal(
         rt: Option<RuntimePtr>,
         content: StringData,
@@ -333,7 +333,7 @@ impl StringRef {
         if let Some(mut rt) = rt {
             rt.gc_alloc(s)
         } else {
-            LocalResource::gc_alloc(rt.map(|r| r.gc_part()), s)
+            LocalResource::gc_alloc(rt.map(|r| r.gc_part_id()), s)
         }
         .map_err(|_| {
             eprintln!("[O.o] alloc error");

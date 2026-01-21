@@ -46,7 +46,7 @@ impl ContextImpl {
             }
         };
 
-        let v1 = prop.string_or_symbol(self)?;
+        let v1 = prop.to_value(self)?;
         Ok(Some((v0, v1)))
     }
 
