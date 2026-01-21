@@ -79,6 +79,7 @@ fn js_json_parse(cc: CallContext) -> JSResult {
 const js_json_funcs: &[FieldDef] = &[
     FieldDef::CALL("parse", 2, js_json_parse, 0),
     FieldDef::CALL("stringify", 3, js_json_stringify, 0),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "JSON", JS_PROP_CONFIGURABLE),
 ];
 

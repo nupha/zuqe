@@ -50,7 +50,7 @@ impl ContextImpl {
 }
 
 /// returned atom is not cloned. caller should clone to keep its reference.
-pub(crate) fn symbol_to_atom(val: JSValue) -> Atom {
+fn symbol_to_atom(val: JSValue) -> Atom {
     if let JSValue::Symbol(a) = val {
         a
     } else {

@@ -24,9 +24,12 @@ pub enum AtomDescKind {
 #[repr(u8)]
 pub enum AtomKind {
     String = 1,
+    #[cfg(feature = "builtin_symbol")]
     GlobalSymbol,
+    #[cfg(feature = "builtin_symbol")]
     Symbol,
     /// private symbol
+    #[cfg(feature = "builtin_symbol")]
     Private,
 }
 

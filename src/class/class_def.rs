@@ -41,15 +41,19 @@ pub(crate) struct StdClassDef {
 pub(crate) struct ClassFieldsDef {
     pub(crate) fields_init_fd: *mut FunctionDef,
     pub(crate) computed_fields_count: i32,
-    pub(crate) need_brand: bool,
-    pub(crate) brand_push_pos: i32,
     pub(crate) is_static: bool,
+
+    /// class private brand requires Symbol support
+    #[cfg(feature = "builtin_symbol")]
+    pub(crate) need_brand: bool,
+    #[cfg(feature = "builtin_symbol")]
+    pub(crate) brand_push_pos: i32,
 }
 
 impl Drop for ClassFieldsDef {
     fn drop(&mut self) {
         if !self.fields_init_fd.is_null() {
-            drop(Box::from(self.fields_init_fd));
+            let _ = Box::from(self.fields_init_fd);
         }
     }
 }
@@ -58,10 +62,13 @@ impl Default for ClassFieldsDef {
     fn default() -> Self {
         Self {
             fields_init_fd: std::ptr::null_mut(),
-            computed_fields_count: Default::default(),
-            need_brand: Default::default(),
-            brand_push_pos: Default::default(),
-            is_static: Default::default(),
+            computed_fields_count: 0,
+            is_static: false,
+
+            #[cfg(feature = "builtin_symbol")]
+            need_brand: false,
+            #[cfg(feature = "builtin_symbol")]
+            brand_push_pos: 0,
         }
     }
 }

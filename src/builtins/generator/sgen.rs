@@ -216,11 +216,15 @@ pub const js_generator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 1, js_generator_next, GEN_MAGIC_NEXT as _),
     FieldDef::ITERATOR_NEXT("return", 1, js_generator_next, GEN_MAGIC_RETURN as _),
     FieldDef::ITERATOR_NEXT("throw", 1, js_generator_next, GEN_MAGIC_THROW as _),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Generator", JS_PROP_CONFIGURABLE),
 ];
 
-pub const js_generator_function_proto_funcs: &[FieldDef] = &[FieldDef::STR(
-    "[Symbol.toStringTag]",
-    "GeneratorFunction",
-    JS_PROP_CONFIGURABLE,
-)];
+pub const js_generator_function_proto_funcs: &[FieldDef] = &[
+    #[cfg(feature = "builtin_symbol")]
+    FieldDef::STR(
+        "[Symbol.toStringTag]",
+        "GeneratorFunction",
+        JS_PROP_CONFIGURABLE,
+    ),
+];

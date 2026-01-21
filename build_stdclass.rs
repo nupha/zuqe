@@ -211,6 +211,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def("Number", "NUMBER", PayloadKey::Value, None, None),
         ClassInfo::class_def("String", "STRING", PayloadKey::Value, None, None),
         ClassInfo::class_def("Boolean", "BOOLEAN", PayloadKey::Value, None, None),
+        #[cfg(feature = "builtin_symbol")]
         ClassInfo::class_def("Symbol", "SYMBOL", PayloadKey::Value, None, None),
         ClassInfo::class_def("Arguments", "ARGUMENTS", PayloadKey::Array, None, None),
         ClassInfo::class_def(

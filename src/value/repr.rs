@@ -24,6 +24,7 @@ impl JSValue {
             }
 
             Self::String(s) => Ok(s.content().encode_utf8(true).into()),
+            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(a) => Ok(format!(
                 "Symbol({})",
                 a.string().content().encode_utf8(false)
@@ -72,13 +73,17 @@ impl Object {
             }
         };
 
-        // get [Symbol.toStringTag] property
-        let tag =
+        let tag = {
+            #[cfg(feature = "builtin_symbol")]
             if let JSValue::String(s) = self.get_property(ctx, Atom::CONST_Symbol_toStringTag)? {
                 s
             } else {
                 tag_atom.force_string(ctx)?
-            };
+            }
+
+            #[cfg(not(feature = "builtin_symbol"))]
+            tag_atom.force_string(ctx)?
+        };
 
         Ok(format!("[object {tag}]"))
     }

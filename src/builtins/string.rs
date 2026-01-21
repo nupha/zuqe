@@ -17,7 +17,7 @@ use crate::{
 };
 
 #[cfg(feature = "builtin_regexp")]
-use super::regexp::js_is_regexp;
+use super::regexp::has_match_method;
 
 const MAGIC_INCLUDES: i32 = 1;
 const MAGIC_STARTS_WITH: i32 = 2;
@@ -29,12 +29,18 @@ pub fn js_string_constructor(cc: CallContext) -> JSResult {
 
     let str_val = if cc.length() == 0 {
         Atom::CONST_empty_string.force_string(ctx)?
-    } else if let JSValue::Symbol(a) = cc.arg(0)
-        && new_target.is_undefined()
-    {
-        // "Symbol(desc)"
-        JS_ConcatString3(ctx, c"Symbol(", a.string().into(), c")")?
     } else {
+        #[cfg(feature = "builtin_symbol")]
+        if let JSValue::Symbol(a) = cc.arg(0)
+            && new_target.is_undefined()
+        {
+            // "Symbol(desc)"
+            JS_ConcatString3(ctx, c"Symbol(", a.string().into(), c")")?
+        } else {
+            cc.arg(0).to_string(ctx)?
+        }
+
+        #[cfg(not(feature = "builtin_symbol"))]
         cc.arg(0).to_string(ctx)?
     };
 
@@ -206,10 +212,11 @@ fn js_string_replace(cc: CallContext) -> JSResult {
 
     if !search.is_undefined_or_null() {
         #[cfg(feature = "builtin_regexp")]
-        if is_replace_all && check_regexp_g_flag(ctx, &search) < 0 {
-            return Err(-1);
+        if is_replace_all {
+            check_regexp_g_flag(ctx, &search)?;
         }
 
+        #[cfg(feature = "builtin_symbol")]
         if let Some(o) = search.as_object() {
             let replacer = o.get_property(ctx, Atom::CONST_Symbol_replace)?;
             if !replacer.is_undefined_or_null() {
@@ -329,6 +336,7 @@ fn js_string_split(cc: CallContext) -> JSResult {
     let separator = cc.arg(0);
     let limit = *cc.arg(1);
 
+    #[cfg(feature = "builtin_symbol")]
     if !separator.is_undefined_or_null()
         && let Some(o) = separator.as_object()
         && let Some(r) = o.invoke_defined(ctx, Atom::CONST_Symbol_split, &[this, limit])?
@@ -544,28 +552,28 @@ fn js_string_repeat(cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(cx)?;
 
     let repeat: i64 = cc.arg(0).to_i64_saturating(cx)?;
-    if !(0..=2147483647).contains(&repeat) {
+    if !(0..=0x7fffffff).contains(&repeat) {
         cx.throw_range_error("invalid repeat count");
         return Err(-1);
     }
 
-    let n = repeat as usize;
+    let repeat = repeat as usize;
     let len = p.len();
-    if len == 0 || n == 1 {
+    if len == 0 || repeat == 1 {
         return Ok(p.into());
     }
-    if repeat as usize * len > JS_STRING_LEN_MAX {
+    if repeat * len > JS_STRING_LEN_MAX {
         cx.throw_internal_error("string too long");
         return Err(-1);
     }
 
-    let mut res_string = StringBuf::with_capacity(n * len, false).map_err(|_| {
+    let mut res_string = StringBuf::with_capacity(repeat * len, false).map_err(|_| {
         cx.throw_out_of_memory();
         -1
     })?;
 
     let sdata = p.content();
-    for _ in 0..n {
+    for _ in 0..repeat {
         res_string
             .push_chars_iter(sdata.chars().map(|(_, c)| c))
             .unwrap();
@@ -581,7 +589,7 @@ fn js_string_includes(cc: CallContext) -> JSResult {
     let arg0 = cc.arg(0);
 
     #[cfg(feature = "builtin_regexp")]
-    if js_is_regexp(cx, arg0)? {
+    if has_match_method(cx, arg0)? {
         cx.throw_type_error("regex not supported");
         return Err(-1);
     }
@@ -649,42 +657,31 @@ fn js_string_includes(cc: CallContext) -> JSResult {
     }
 }
 
-#[cfg(feature = "builtin_regexp")]
-fn check_regexp_g_flag(ctx: &ContextImpl, regexp: &JSValue) -> i32 {
-    let ret = if let Ok(b) = js_is_regexp(ctx, regexp) {
-        b
-    } else {
-        return -1;
-    };
-
-    if ret {
-        let flags = if let Ok(x) = regexp.get_property(ctx, Atom::CONST_flags) {
-            x
-        } else {
-            return -1;
-        };
+/// ensure regexp `obj` must have g flag.
+fn check_regexp_g_flag(ctx: &ContextImpl, obj: &JSValue) -> Result<(), i32> {
+    if has_match_method(ctx, obj)? {
+        let flags = obj.get_property(ctx, Atom::CONST_flags)?;
         if flags.is_undefined_or_null() {
             ctx.throw_type_error("cannot convert to object");
-            return -1;
-        }
-
-        let flags = if let Ok(s) = flags.to_string(ctx) {
-            s
+            return Err(-1);
         } else {
-            return -1;
-        };
-
-        let idx = flags.index_of_char('g', 0);
-        if idx.is_none() {
-            ctx.throw_type_error("regexp must have the 'g' flag");
-            return -1;
+            let s = flags.to_string(ctx)?;
+            if s.index_of_char('g', 0).is_none() {
+                ctx.throw_type_error("regexp must have the 'g' flag");
+                return Err(-1);
+            }
         }
     }
 
-    0
+    Ok(())
 }
 
+const MAGIC_MATCH: i32 = 1;
+const MAGIC_MATCH_ALL: i32 = 2;
+const MAGIC_MATCH_SEARCH: i32 = 3;
+
 fn js_string_match(cc: CallContext) -> JSResult {
+    let magic = cc.magic();
     let ctx = cc.ctx();
     let this = cc.this();
 
@@ -693,29 +690,49 @@ fn js_string_match(cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    #[cfg(feature = "builtin_regexp")]
-    {
-        let magic_method = Atom::from_id(cc.magic() as u32); // match, matchAll, search
-        let regexp_val = *cc.arg(0);
-
-        if let JSValue::Object(o) = regexp_val {
-            let matcher = o.get_property(ctx, magic_method)?;
-            if magic_method == Atom::CONST_Symbol_matchAll
-                && check_regexp_g_flag(ctx, &regexp_val) < 0
-            {
-                return Err(-1);
-            } else if !matcher.is_undefined_or_null() {
-                return matcher.call(ctx, regexp_val, std::slice::from_ref(this));
+    let method_name: Atom = {
+        #[cfg(feature = "builtin_symbol")]
+        match magic {
+            MAGIC_MATCH => Atom::CONST_Symbol_match,
+            MAGIC_MATCH_ALL => Atom::CONST_Symbol_matchAll,
+            MAGIC_MATCH_SEARCH => Atom::CONST_Symbol_search,
+            _ => {
+                unreachable!();
             }
         }
 
-        // make RegExp object
+        #[cfg(not(feature = "builtin_symbol"))]
+        match magic {
+            MAGIC_MATCH => Atom::new(ctx.rt_ptr(), "match")?,
+            MAGIC_MATCH_ALL => Atom::new(ctx.rt_ptr(), "matchAll")?,
+            MAGIC_MATCH_SEARCH => Atom::new(ctx.rt_ptr(), "search")?,
+            _ => {
+                unreachable!();
+            }
+        }
+    };
+
+    let regexp_val = *cc.arg(0);
+
+    if let JSValue::Object(o) = regexp_val {
+        let func = o.get_property(ctx, method_name)?;
+        if magic == MAGIC_MATCH_ALL {
+            check_regexp_g_flag(ctx, &regexp_val)?;
+        }
+        if !func.is_undefined_or_null() {
+            return func.call(ctx, regexp_val, std::slice::from_ref(this));
+        }
+    }
+
+    // create RegExp instance, invoke method
+    #[cfg(feature = "builtin_regexp")]
+    {
         let mut args = [
-            regexp_val, // used as pattern
-            JSValue::UNDEFINED,
+            regexp_val,         // pattern
+            JSValue::UNDEFINED, // flags
         ];
         let mut args_len = 1;
-        if magic_method == Atom::CONST_Symbol_matchAll {
+        if magic == MAGIC_MATCH_ALL {
             args[args_len] = ctx.create_string_from_char('g'.into())?.into();
             args_len += 1;
         }
@@ -725,7 +742,7 @@ fn js_string_match(cc: CallContext) -> JSResult {
         };
 
         let str = JSValue::String(this.to_string_non_undefined_or_null(ctx)?);
-        regexp_obj.invoke(ctx, magic_method, std::slice::from_ref(&str))
+        regexp_obj.invoke(ctx, method_name, std::slice::from_ref(&str))
     }
 
     #[cfg(not(feature = "builtin_regexp"))]
@@ -956,24 +973,9 @@ pub const js_string_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("includes", 1, js_string_includes, MAGIC_INCLUDES as _),
     FieldDef::CALL("endsWith", 1, js_string_includes, MAGIC_ENDS_WITH as _),
     FieldDef::CALL("startsWith", 1, js_string_includes, MAGIC_STARTS_WITH as _),
-    FieldDef::CALL(
-        "match",
-        1,
-        js_string_match,
-        Atom::CONST_Symbol_match.id() as _,
-    ),
-    FieldDef::CALL(
-        "matchAll",
-        1,
-        js_string_match,
-        Atom::CONST_Symbol_matchAll.id() as _,
-    ),
-    FieldDef::CALL(
-        "search",
-        1,
-        js_string_match,
-        Atom::CONST_Symbol_search.id() as _,
-    ),
+    FieldDef::CALL("match", 1, js_string_match, MAGIC_MATCH as _),
+    FieldDef::CALL("matchAll", 1, js_string_match, MAGIC_MATCH_ALL as _),
+    FieldDef::CALL("search", 1, js_string_match, MAGIC_MATCH_SEARCH as _),
     FieldDef::CALL("split", 2, js_string_split, 0),
     FieldDef::CALL("substring", 2, js_string_substring, 0),
     FieldDef::CALL("substr", 2, js_string_substr, 0),
@@ -994,6 +996,7 @@ pub const js_string_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("toUpperCase", 0, js_string_toLowerCase, 0),
     FieldDef::CALL("toLocaleLowerCase", 0, js_string_toLowerCase, 1),
     FieldDef::CALL("toLocaleUpperCase", 0, js_string_toLowerCase, 0),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::CALL(
         "[Symbol.iterator]",
         0,
@@ -1006,21 +1009,7 @@ pub const js_string_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("normalize", 0, js_string_normalize, 0),
     #[cfg(feature = "all_unicode")]
     FieldDef::CALL("localeCompare", 1, js_string_localeCompare, 0),
-    //
-    // ES6 Annex B 2.3.2 etc.
-    // JS_CFUNC_MAGIC_DEF("anchor", 1, js_string_CreateHTML, magic_string_anchor),
-    // JS_CFUNC_MAGIC_DEF("big", 0, js_string_CreateHTML, magic_string_big),
-    // JS_CFUNC_MAGIC_DEF("blink", 0, js_string_CreateHTML, magic_string_blink),
-    // JS_CFUNC_MAGIC_DEF("bold", 0, js_string_CreateHTML, magic_string_bold),
-    // JS_CFUNC_MAGIC_DEF("fixed", 0, js_string_CreateHTML, magic_string_fixed),
-    // JS_CFUNC_MAGIC_DEF("fontcolor", 1, js_string_CreateHTML, magic_string_fontcolor),
-    // JS_CFUNC_MAGIC_DEF("fontsize", 1, js_string_CreateHTML, magic_string_fontsize),
-    // JS_CFUNC_MAGIC_DEF("italics", 0, js_string_CreateHTML, magic_string_italics),
-    // JS_CFUNC_MAGIC_DEF("link", 1, js_string_CreateHTML, magic_string_link),
-    // JS_CFUNC_MAGIC_DEF("small", 0, js_string_CreateHTML, magic_string_small),
-    // JS_CFUNC_MAGIC_DEF("strike", 0, js_string_CreateHTML, magic_string_strike),
-    // JS_CFUNC_MAGIC_DEF("sub", 0, js_string_CreateHTML, magic_string_sub),
-    // JS_CFUNC_MAGIC_DEF("sup", 0, js_string_CreateHTML, magic_string_sup),
+    // DEBUG: for repl only
     FieldDef::CALL("__quote", 0, js_string__quote, 0),
 ];
 
@@ -1059,6 +1048,7 @@ fn js_string_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResu
 
 pub const js_string_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 0, js_string_iterator_next, 0),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "String Iterator",

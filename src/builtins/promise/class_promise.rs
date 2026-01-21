@@ -383,6 +383,7 @@ pub const js_promise_funcs: &[FieldDef] = &[
     FieldDef::CALL("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
     FieldDef::CALL("race", 1, js_promise_race, 0),
     FieldDef::CALL("withResolvers", 0, js_promise_withResolvers, 0),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
@@ -402,5 +403,6 @@ pub const js_promise_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("then", 2, js_promise_then, 0),
     FieldDef::CALL("catch", 1, js_promise_catch, 0),
     FieldDef::CALL("finally", 1, js_promise_finally, 0),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Promise", JS_PROP_CONFIGURABLE),
 ];

@@ -155,6 +155,7 @@ const js_reflect_funcs: &[FieldDef] = &[
     FieldDef::CALL("preventExtensions", 1, js_object_preventExtensions, 1),
     FieldDef::CALL("set", 3, js_reflect_set, 0),
     FieldDef::CALL("setPrototypeOf", 2, js_reflect_setPrototypeOf, 0),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Reflect", JS_PROP_CONFIGURABLE),
 ];
 

@@ -1085,6 +1085,7 @@ fn js_date_toJSON(cc: CallContext) -> JSResult {
 pub const js_date_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("valueOf", 0, js_date_getTime, 0),
     FieldDef::CALL("toString", 0, get_date_string, 0x13),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::CALL("[Symbol.toPrimitive]", 1, js_date_Symbol_toPrimitive, 0),
     FieldDef::CALL("toUTCString", 0, get_date_string, 0x03),
     FieldDef::ALIAS("toGMTString", "toUTCString"),

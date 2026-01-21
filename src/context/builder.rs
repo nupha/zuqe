@@ -79,7 +79,10 @@ impl ContextBuilder {
             cx.intrinsic_base_number(); // Number
             cx.intrinsic_base_boolean(); // Boolean
             cx.intrinsic_base_string(); // String
-            cx.intrinsic_base_symbol(); // Symbol
+
+            // Symbol
+            #[cfg(feature = "builtin_symbol")]
+            cx.intrinsic_base_symbol();
 
             cx.intrinsic_base_generator(); // Generator
 

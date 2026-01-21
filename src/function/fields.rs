@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
 use crate::{
-    atom::{ATOM_CONST_COUNT, Atom},
+    atom::Atom,
     context::{Context, ContextImpl, ContextPtr},
     function::{
         Callback, CallbackFn, GetterFn, IteratorFn, JSCFunctionFF, JSCFunctionFFF, SetterFn,
@@ -227,7 +227,7 @@ impl Object {
         entries: &'static [FieldDef],
     ) -> Result<(), i32> {
         for entry in entries {
-            let atom = ctx.make_lazy_prop_atom(entry.name)?;
+            let atom = prop_name_to_atom(ctx, entry.name)?;
             self.install_field_entry(ctx, atom, entry)?;
         }
         Ok(())
@@ -244,6 +244,7 @@ impl Object {
 
         match entry.detail {
             FieldDetail::Func { .. } => {
+                #[cfg(feature = "builtin_symbol")]
                 if atom == Atom::CONST_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
@@ -320,7 +321,7 @@ impl Object {
 
             FieldDetail::Alias { name, base } => {
                 // using autoinit for aliases is not safe
-                let name_atom = ctx.make_lazy_prop_atom(name)?;
+                let name_atom = prop_name_to_atom(ctx, name)?;
                 val = match base {
                     -1 => self.get_property(ctx, name_atom)?,
                     0 => ctx.global_obj().get_property(ctx, name_atom)?,
@@ -330,6 +331,7 @@ impl Object {
                     }
                 };
 
+                #[cfg(feature = "builtin_symbol")]
                 if atom == Atom::CONST_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
@@ -360,25 +362,32 @@ impl JSValue {
     }
 }
 
-impl ContextImpl {
-    /// create new or reuse existing atom for lazy init property
-    fn make_lazy_prop_atom(&self, str: &str) -> Result<Atom, i32> {
-        // format [xxxx]
-        if str.starts_with('[') && str.ends_with(']') {
+fn prop_name_to_atom(ctx: &ContextImpl, str: &str) -> Result<Atom, i32> {
+    #[cfg(not(feature = "builtin_symbol"))]
+    debug_assert!(
+        !(str.starts_with('[') && str.ends_with(']')),
+        "can't use prop name '{str}': Symbol is not supported"
+    );
+
+    if str.starts_with('[') && str.ends_with(']') {
+        // check [Symbol.XXX] const atom
+
+        #[cfg(feature = "builtin_symbol")]
+        {
             let name2 = &str[1..str.len() - 1]; // chop heading '[', tailing ']'
 
             // We assume 8 bit non null strings, which is the case for these symbols
-            for i in Atom::CONST_Symbol_toPrimitive.id()..ATOM_CONST_COUNT {
-                let a = Atom::from_id(i);
+            for id in crate::atom::ATOM_CONST_SYMBOL_RANGE {
+                let a = Atom::from_id(id);
                 if a.string().content().eq_str(name2) {
                     return Ok(a);
                 }
             }
-
-            self.throw_internal_error(&format!("unknown atom '{str}'"));
-            return Err(-1);
         }
 
-        Atom::new(self.rt_ptr(), str)
+        ctx.throw_internal_error(&format!("unknown atom '{str}'"));
+        return Err(-1);
     }
+
+    Atom::new(ctx.rt_ptr(), str)
 }

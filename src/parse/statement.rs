@@ -411,7 +411,7 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
 
     if (bits & SKIP_HAS_SEMI) == 0 {
         // parse for/in or for/of
-        return js_parse_for_in_of(s, label_name, is_async);
+        return parse_for_in_of(s, label_name, is_async);
     }
 
     let block_scope_level = s.cur_func().scope_level;
@@ -942,7 +942,7 @@ fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
 
 // XXX: handle IteratorClose when exiting the loop before the
 // enumeration is done
-fn js_parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Result<(), i32> {
+fn parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Result<(), i32> {
     // save current scope label
     let block_scope_level = s.cur_func().scope_level;
 
@@ -1091,6 +1091,7 @@ fn js_parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) ->
     let mut is_for_of = false;
 
     if s.token_is_pseudo_keyword(Atom::CONST_of) {
+        // for...of
         is_for_of = true;
         break_entry.has_iterator = true;
         break_entry.drop_count += 2;

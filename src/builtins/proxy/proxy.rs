@@ -625,8 +625,15 @@ fn js_proxy_get_own_property_names(
 
     for i in 0..len {
         let val = prop_array.get_property_u32(cx, i as u32)?;
+
+        #[cfg(feature = "builtin_symbol")]
         if !matches!(val, JSValue::String(_) | JSValue::Symbol(_)) {
             cx.throw_type_error("proxy: properties must be strings or symbols");
+            return Err(-1);
+        }
+        #[cfg(not(feature = "builtin_symbol"))]
+        if !matches!(val, JSValue::String(_)) {
+            cx.throw_type_error("proxy: properties must be strings");
             return Err(-1);
         }
 

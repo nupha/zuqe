@@ -167,6 +167,7 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     "Number",
     "String",
     "Boolean",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol",
     "Arguments",
     #[cfg(feature = "builtin_math")]
@@ -238,22 +239,36 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     //
     // privates
     //
+    #[cfg(feature = "builtin_symbol")]
     "Private_brand",
     //
     // symbols
     //
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_toPrimitive",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_iterator",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_match",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_matchAll",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_replace",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_search",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_split",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_toStringTag",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_isConcatSpreadable",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_hasInstance",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_species",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_unscopables",
+    #[cfg(feature = "builtin_symbol")]
     "Symbol_asyncIterator",
 ];
 
@@ -339,6 +354,7 @@ pub fn gen_atoms(outfile: &Path) {
     output.push(format!("\n\nimpl Atom {{ {} }}\n\n", consts.join("\n")));
 
     // Symbol_XXX id ranges
+    #[cfg(feature = "builtin_symbol")]
     output.push(format!(
         "pub const ATOM_CONST_SYMBOL_RANGE: core::ops::RangeInclusive<u32> = Atom::CONST_{}.id()..=Atom::CONST_{}.id();",
         ATOM_DESCR_DEFS

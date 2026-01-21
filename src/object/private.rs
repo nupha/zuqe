@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, AtomKind},
+    atom::Atom,
     context::ContextImpl,
     error::{JS_ThrowTypeErrorPrivateNotFound, JSResult},
     object::{JSProperty, Object},
@@ -10,7 +10,7 @@ use crate::{
 use super::JS_PROP_C_W_E;
 
 impl Object {
-    /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
+    /// Check if `self` has own property suggested by `func.<home_object>.<brand>`.
     pub fn check_brand(&self, ctx: &ContextImpl, func: JSValue) -> Result<bool, i32> {
         if let Some(home_obj) = func
             .as_object_BCFunction()
@@ -31,7 +31,7 @@ impl Object {
                 Err(-1)
             }
         } else {
-            // not a function object, or can't find function's home object
+            // Not a function object or can't find function's home object
             ctx.throw_type_error_not_an_object();
             Err(-1)
         }
@@ -75,7 +75,7 @@ impl Object {
         }
     }
 
-    /// Private fields can be added even on non extensible objects or Proxies
+    /// Private fields can be added even on non-extensible objects or Proxies
     pub fn define_private_field(
         &mut self,
         ctx: &ContextImpl,
@@ -100,7 +100,7 @@ impl Object {
 }
 
 impl JSValue {
-    /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
+    /// Check if `self` has own property suggested by `func.<home_object>.<brand>`.
     pub fn check_brand(&self, ctx: &ContextImpl, func: JSValue) -> Result<bool, i32> {
         if let JSValue::Object(ob) = self {
             ob.check_brand(ctx, func)
@@ -110,28 +110,30 @@ impl JSValue {
         }
     }
 
-    /// assign 'home_obj' a symbol as its ident, store that symbol in home_obj.<brand> field.
-    /// if self is an object, then defined a property with the home_obj's symbol as key.
+    /// Assign `home_obj` a symbol as its identifier and store it in `home_obj.<brand>`.
+    /// If `self` is an object, define a property with the home object's symbol as key.
     pub fn add_brand(&mut self, ctx: &ContextImpl, home_obj: JSValue) -> Result<(), i32> {
         if let JSValue::Object(mut home) = home_obj {
-            let brand_sym: JSValue =
-                if let Some((idx, _)) = home.find_shape_property(Atom::CONST_Private_brand) {
-                    if let JSProperty::Normal(val) = home.prop_values.get(idx).unwrap() {
-                        *val
-                    } else {
-                        unreachable!()
-                    }
+            let brand_sym: JSValue = if let Some((idx, _)) =
+                home.find_shape_property(Atom::CONST_Private_brand)
+            {
+                if let JSProperty::Normal(val) = home.prop_values.get(idx).unwrap() {
+                    *val
                 } else {
-                    // the private <brand> prop is not present, add it
-                    let br = ctx.create_symbol_from_atom(Atom::CONST__brand_, AtomKind::Private)?;
-                    home.add_own_property(
-                        ctx,
-                        Atom::CONST_Private_brand,
-                        JS_PROP_C_W_E,
-                        JSProperty::Normal(br),
-                    )?;
-                    br
-                };
+                    unreachable!()
+                }
+            } else {
+                // Private <brand> property not present, adding it
+                let br = ctx
+                    .create_symbol_from_atom(Atom::CONST__brand_, crate::atom::AtomKind::Private)?;
+                home.add_own_property(
+                    ctx,
+                    Atom::CONST_Private_brand,
+                    JS_PROP_C_W_E,
+                    JSProperty::Normal(br),
+                )?;
+                br
+            };
 
             if let Some(ob) = self.as_object_mut() {
                 let brand_atom = brand_sym.to_atom(ctx).unwrap();
@@ -183,7 +185,7 @@ impl JSValue {
         }
     }
 
-    /// Private fields can be added even on non extensible objects or Proxies
+    /// Private fields can be added even on non-extensible objects or Proxies
     pub fn define_private_field(
         &mut self,
         ctx: &ContextImpl,

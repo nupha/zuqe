@@ -2,10 +2,12 @@ mod create;
 mod dump;
 mod obj;
 mod payload;
-mod private;
 mod property;
 mod prototype;
 mod shape;
+
+#[cfg(feature = "builtin_symbol")]
+mod private;
 
 pub use {obj::*, payload::*, property::*, shape::*};
 

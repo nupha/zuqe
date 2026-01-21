@@ -67,15 +67,15 @@ impl ContextImpl {
     pub fn use_classes(&mut self, class_ids: &[ClassID]) -> Result<(), i32> {
         if let Some(mx) = class_ids.iter().max().copied() {
             if self.rt_ptr().class_registry.get(mx as usize).is_some() {
-                let n = self.class_proto.len();
+                let n = self.class_protos.len();
                 if mx as usize >= n {
                     // grow slot
                     let extra = mx as usize - n + 1;
-                    self.class_proto.try_reserve_exact(extra).map_err(|_| {
+                    self.class_protos.try_reserve_exact(extra).map_err(|_| {
                         self.throw_out_of_memory();
                         -1
                     })?;
-                    self.class_proto
+                    self.class_protos
                         .extend(std::iter::repeat_n(JSValue::NULL, extra));
                 }
 
@@ -95,8 +95,8 @@ impl ContextImpl {
                                 class_id,
                             )?;
                             if let Some(proto) = r {
-                                self.class_proto[class_id as usize] = proto.into();
-                            } else if !self.class_proto[class_id as usize].is_object() {
+                                self.class_protos[class_id as usize] = proto.into();
+                            } else if !self.class_protos[class_id as usize].is_object() {
                                 self.throw_internal_error(&format!(
                                     "class ({class_id}) initialization must setup proto object"
                                 ));

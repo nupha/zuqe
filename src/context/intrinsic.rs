@@ -1,8 +1,8 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_GENERATOR,
     JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_STRING,
-    JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
-    atom::{ATOM_CONST_SYMBOL_RANGE, Atom},
+    JS_CLASS_STRING_ITERATOR,
+    atom::Atom,
     builtins::{
         array::{
             js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs,
@@ -19,7 +19,6 @@ use crate::{
             js_string_constructor, js_string_funcs, js_string_iterator_proto_funcs,
             js_string_proto_funcs,
         },
-        symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
     },
     context::ContextPtr,
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
@@ -162,7 +161,7 @@ impl ContextPtr {
                 )
                 .unwrap();
 
-            let err_proto = self.native_error_proto[i]; // <-- this was initialized in core
+            let err_proto = self.error_protos[i]; // <-- this was initialized in core
             self.add_global_constructor(name, func_obj.into(), err_proto);
         }
     }
@@ -189,8 +188,9 @@ impl ContextPtr {
 
         // initialize Array.prototype[Symbol.unscopables]
         // XXX: create auto_initializer
+        #[cfg(feature = "builtin_symbol")]
         {
-            let unscopables = [
+            const unscopables: &[&str] = &[
                 "copyWithin",
                 "entries",
                 "fill",
@@ -238,7 +238,7 @@ impl ContextPtr {
             .unwrap();
 
         self.array_proto_values = array_values;
-        self.class_proto[JS_CLASS_ARRAY_ITERATOR as usize] = array_iter.into();
+        self.class_protos[JS_CLASS_ARRAY_ITERATOR as usize] = array_iter.into();
     }
 
     pub(super) fn intrinsic_base_number(mut self) {
@@ -257,7 +257,7 @@ impl ContextPtr {
             .unwrap();
         ctor.install_fields(&self, js_number_funcs).unwrap();
 
-        self.class_proto[JS_CLASS_NUMBER as usize] = proto;
+        self.class_protos[JS_CLASS_NUMBER as usize] = proto;
     }
 
     pub(super) fn intrinsic_base_boolean(mut self) {
@@ -281,7 +281,7 @@ impl ContextPtr {
         )
         .unwrap();
 
-        self.class_proto[JS_CLASS_BOOLEAN as usize] = bool_obj.into();
+        self.class_protos[JS_CLASS_BOOLEAN as usize] = bool_obj.into();
     }
 
     pub(super) fn intrinsic_base_string(mut self) {
@@ -312,21 +312,30 @@ impl ContextPtr {
             .install_fields(&self, js_string_iterator_proto_funcs)
             .unwrap();
 
-        self.class_proto[JS_CLASS_STRING as usize] = string_obj;
-        self.class_proto[JS_CLASS_STRING_ITERATOR as usize] = string_iter.into();
+        self.class_protos[JS_CLASS_STRING as usize] = string_obj;
+        self.class_protos[JS_CLASS_STRING_ITERATOR as usize] = string_iter.into();
     }
 
+    #[cfg(feature = "builtin_symbol")]
     pub(super) fn intrinsic_base_symbol(mut self) {
         let mut obj = self.create_base_object().unwrap();
-        obj.install_fields(&self, js_symbol_proto_funcs).unwrap();
+        obj.install_fields(&self, crate::builtins::symbol::js_symbol_proto_funcs)
+            .unwrap();
 
         let mut ctor = self
-            .create_global_constructor_or_func("Symbol", js_symbol_constructor, 0, obj.into(), 0)
+            .create_global_constructor_or_func(
+                "Symbol",
+                crate::builtins::symbol::js_symbol_constructor,
+                0,
+                obj.into(),
+                0,
+            )
             .unwrap();
-        ctor.install_fields(&self, js_symbol_funcs).unwrap();
+        ctor.install_fields(&self, crate::builtins::symbol::js_symbol_funcs)
+            .unwrap();
 
         // pre-define builtin Symbol_XXX
-        for i in ATOM_CONST_SYMBOL_RANGE {
+        for i in crate::atom::ATOM_CONST_SYMBOL_RANGE {
             let a = Atom::from_id(i);
             a.with_utf8(|s| {
                 let str = s.split_once('.').unwrap().1; // skip "Symbol."
@@ -335,7 +344,7 @@ impl ContextPtr {
             });
         }
 
-        self.class_proto[JS_CLASS_SYMBOL as usize] = obj.into();
+        self.class_protos[crate::JS_CLASS_SYMBOL as usize] = obj.into();
     }
 
     pub(super) fn intrinsic_base_generator(mut self) {
@@ -346,7 +355,7 @@ impl ContextPtr {
             .unwrap();
         obj.install_fields(&self, js_generator_proto_funcs).unwrap();
         let proto: JSValue = obj.into();
-        self.class_proto[JS_CLASS_GENERATOR as usize] = proto;
+        self.class_protos[JS_CLASS_GENERATOR as usize] = proto;
 
         // generator function prototype
         let mut generator_function = self
@@ -356,7 +365,7 @@ impl ContextPtr {
             .install_fields(&self, js_generator_function_proto_funcs)
             .unwrap();
         let generator_function_proto: JSValue = generator_function.into();
-        self.class_proto[JS_CLASS_GENERATOR_FUNCTION as usize] = generator_function_proto;
+        self.class_protos[JS_CLASS_GENERATOR_FUNCTION as usize] = generator_function_proto;
 
         // generator constructor
         let ctor: JSValue = self

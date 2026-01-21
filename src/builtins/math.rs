@@ -261,7 +261,6 @@ pub const js_math_funcs: &[FieldDef] = &[
     FieldDef::CALL_FF("fround", 1, |a: f64| -> f64 { (a as f32) as f64 }, 0),
     FieldDef::CALL("imul", 2, js_math_imul, 0),
     FieldDef::CALL("clz32", 1, js_math_clz32, 0),
-    FieldDef::STR("[Symbol.toStringTag]", "Math", JS_PROP_CONFIGURABLE),
     FieldDef::FLOAT64("E", std::f64::consts::E, 0),
     FieldDef::FLOAT64("LN10", std::f64::consts::LN_10, 0),
     FieldDef::FLOAT64("LN2", std::f64::consts::LN_2, 0),
@@ -270,6 +269,8 @@ pub const js_math_funcs: &[FieldDef] = &[
     FieldDef::FLOAT64("PI", std::f64::consts::PI, 0),
     FieldDef::FLOAT64("SQRT1_2", std::f64::consts::FRAC_1_SQRT_2, 0),
     FieldDef::FLOAT64("SQRT2", std::f64::consts::SQRT_2, 0),
+    #[cfg(feature = "builtin_symbol")]
+    FieldDef::STR("[Symbol.toStringTag]", "Math", JS_PROP_CONFIGURABLE),
 ];
 
 pub const js_math_obj: &[FieldDef] = &[FieldDef::OBJECT(

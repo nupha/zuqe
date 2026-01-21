@@ -1,5 +1,5 @@
 use crate::{
-    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL,
+    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
     atom::Atom,
     context::ContextImpl,
     error::JSResult,
@@ -16,33 +16,36 @@ impl From<bool> for JSValue {
 
 impl Object {
     /// Coerce object to primitive (non-object) value
-    pub fn to_primitive(self, ctx: &ContextImpl, hint: i32) -> JSResult {
+    pub fn to_primitive(&self, ctx: &ContextImpl, hint: i32) -> JSResult {
         let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;
         let hint = hint & !HINT_FORCE_ORDINARY;
 
-        let this: JSValue = self.into();
+        let this: JSValue = (*self).into();
 
         if !ignore_toPrimitive_method {
-            // try .toPrimitive() method
-            let method = self.get_property(ctx, Atom::CONST_Symbol_toPrimitive)?;
+            // try [Symbol.toPrimitive] method
+            #[cfg(feature = "builtin_symbol")]
+            {
+                let method = self.get_property(ctx, Atom::CONST_Symbol_toPrimitive)?;
 
-            /* ECMA says *If exoticToPrim is not undefined* but tests in
-            test262 use null as a non-callable converter */
-            if !method.is_undefined_or_null() {
-                let hint_val = match hint {
-                    HINT_STRING => Atom::CONST_string,
-                    HINT_NUMBER => Atom::CONST_number,
-                    _ => Atom::CONST_default,
+                /* ECMA says *If exoticToPrim is not undefined* but tests in
+                test262 use null as a non-callable converter */
+                if !method.is_undefined_or_null() {
+                    let hint_val = match hint {
+                        HINT_STRING => Atom::CONST_string,
+                        HINT_NUMBER => Atom::CONST_number,
+                        _ => Atom::CONST_default,
+                    }
+                    .force_string(ctx)?;
+
+                    let ret = method.call(ctx, this, &[hint_val.into()])?;
+                    return if !ret.is_object() {
+                        Ok(ret)
+                    } else {
+                        ctx.throw_type_error("toPrimitive");
+                        Err(-1)
+                    };
                 }
-                .force_string(ctx)?;
-
-                let ret = method.call(ctx, this, &[hint_val.into()])?;
-                return if !ret.is_object() {
-                    Ok(ret)
-                } else {
-                    ctx.throw_type_error("toPrimitive");
-                    Err(-1)
-                };
             }
         }
 
@@ -75,8 +78,7 @@ impl Object {
 }
 
 impl JSValue {
-    /// Coerce value to primitive (non-object) value
-    #[inline]
+    /// Coerce value to primitive value. Primitive is non-object value.
     pub fn to_primitive(&self, ctx: &ContextImpl, hint: i32) -> Result<JSValue, i32> {
         if let Self::Object(o) = self {
             o.to_primitive(ctx, hint)
@@ -107,7 +109,8 @@ pub fn JS_GetPrototypePrimitive(ctx: &ContextImpl, val: &JSValue) -> JSValue {
         JSValue::Int(_) | JSValue::Float64(_) => ctx.class_proto(JS_CLASS_NUMBER),
         JSValue::Bool(_) => ctx.class_proto(JS_CLASS_BOOLEAN),
         JSValue::String(_) => ctx.class_proto(JS_CLASS_STRING),
-        JSValue::Symbol(_) => ctx.class_proto(JS_CLASS_SYMBOL),
+        #[cfg(feature = "builtin_symbol")]
+        JSValue::Symbol(_) => ctx.class_proto(crate::JS_CLASS_SYMBOL),
         _ => None,
     }
     .map_or(JSValue::NULL, JSValue::Object)

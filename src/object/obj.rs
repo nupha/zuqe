@@ -6,9 +6,9 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
-    JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, atom::Atom,
-    class::ClassID, context::ContextImpl, error::JSResult, gcref_wrapper, runtime::RuntimePtr,
-    utils::unlikely, value::JSValue,
+    JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_UINT8C_ARRAY, atom::Atom, class::ClassID,
+    context::ContextImpl, error::JSResult, gcref_wrapper, runtime::RuntimePtr, utils::unlikely,
+    value::JSValue,
 };
 
 use super::{
@@ -289,9 +289,18 @@ impl ObjectImpl {
             }
             JS_CLASS_DATAVIEW => {}
 
-            class_id @ (JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
-            | JS_CLASS_BIG_INT) => {
+            class_id
+            @ (JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_BIG_INT) => {
                 if ctx.rt_ptr().class_registry[class_id as usize]
+                    .exotic
+                    .is_some()
+                {
+                    flags.set_exotic(true);
+                }
+            }
+            #[cfg(feature = "builtin_symbol")]
+            crate::JS_CLASS_SYMBOL => {
+                if ctx.rt_ptr().class_registry[crate::JS_CLASS_SYMBOL as usize]
                     .exotic
                     .is_some()
                 {
@@ -732,6 +741,7 @@ impl JSValue {
             Self::Bool(_) => ctx
                 .create_object(ObjectPayload::BOOLEAN(*self))
                 .map_err(|_| -1),
+            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => ctx
                 .create_object(ObjectPayload::SYMBOL(*self))
                 .map_err(|_| -1),
@@ -815,7 +825,17 @@ pub fn JS_SpeciesConstructor(
         if unlikely(ctor.is_undefined()) {
             Ok(default_constructor)
         } else if let Some(o1) = ctor.as_object() {
-            let species = o1.get_property(ctx, Atom::CONST_Symbol_species)?;
+            let species: JSValue = {
+                #[cfg(feature = "builtin_symbol")]
+                {
+                    o1.get_property(ctx, Atom::CONST_Symbol_species)?
+                }
+                #[cfg(not(feature = "builtin_symbol"))]
+                {
+                    JSValue::UNDEFINED
+                }
+            };
+
             if species.is_undefined_or_null() {
                 Ok(default_constructor)
             } else if unlikely(!species.is_constructor()) {

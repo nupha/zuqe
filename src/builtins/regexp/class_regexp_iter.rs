@@ -74,6 +74,7 @@ fn js_regexp_string_iterator_next(cc: CallContext, state: &mut IteratorState) ->
 
 pub const js_regexp_string_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 0, js_regexp_string_iterator_next, 0),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "RegExp String Iterator",

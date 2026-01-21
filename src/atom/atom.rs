@@ -82,12 +82,18 @@ impl Atom {
             false
         } else {
             let s = self.string();
-            !s.content().is_ident() && {
-                let a = s.atom_info().unwrap();
-                let k = a.kind();
-                (k == AtomKind::Symbol && a.hash() == JS_ATOM_HASH_SYMBOL)
-                    || k == AtomKind::GlobalSymbol
+
+            #[cfg(feature = "builtin_symbol")]
+            {
+                !s.content().is_ident() && {
+                    let a = s.atom_info().unwrap();
+                    let k = a.kind();
+                    (k == AtomKind::Symbol && a.hash() == JS_ATOM_HASH_SYMBOL)
+                        || k == AtomKind::GlobalSymbol
+                }
             }
+            #[cfg(not(feature = "builtin_symbol"))]
+            !s.content().is_ident()
         }
     }
 
@@ -115,7 +121,9 @@ impl Atom {
         } else {
             match self.atom_info().kind() {
                 AtomKind::String => AtomDescKind::JS_ATOM_KIND_STRING,
+                #[cfg(feature = "builtin_symbol")]
                 AtomKind::Symbol | AtomKind::GlobalSymbol => AtomDescKind::JS_ATOM_KIND_SYMBOL,
+                #[cfg(feature = "builtin_symbol")]
                 AtomKind::Private => AtomDescKind::JS_ATOM_KIND_PRIVATE,
             }
         }
@@ -228,7 +236,10 @@ impl Atom {
             let atom_info = s.atom_info().unwrap();
 
             match atom_info.kind() {
-                AtomKind::String | AtomKind::Private => Ok(JSValue::String(s)),
+                AtomKind::String => Ok(JSValue::String(s)),
+                #[cfg(feature = "builtin_symbol")]
+                AtomKind::Private => Ok(JSValue::String(s)),
+                #[cfg(feature = "builtin_symbol")]
                 AtomKind::Symbol | AtomKind::GlobalSymbol => Ok(JSValue::Symbol(*self)),
             }
         }
@@ -242,6 +253,7 @@ impl Atom {
                 debug_assert!(!s.content().is_ident());
                 Ok(s)
             }
+            #[cfg(feature = "builtin_symbol")]
             JSValue::Symbol(a) => {
                 // force symbol to string
                 let s = a.string();
@@ -380,6 +392,7 @@ impl JSValue {
                 JSValue::String(s) => {
                     return s.to_atom(ctx.rt_ptr());
                 }
+                #[cfg(feature = "builtin_symbol")]
                 JSValue::Symbol(a) => {
                     return Ok(a);
                 }

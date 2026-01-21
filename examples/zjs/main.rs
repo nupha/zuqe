@@ -104,7 +104,13 @@ fn main() -> ExitCode {
     let class_id_file = JSFile::register(&mut rt).unwrap();
 
     // create context
-    let mut ctx = rt.create_context_ecma().unwrap();
+    let mut ctx = rt
+        .create_context_ecma()
+        .inspect_err(|_| {
+            let e = rt.take_exception();
+            println!("[O.o] {:?}", e);
+        })
+        .unwrap();
     ctx.use_class(class_id_file).unwrap();
 
     // register native modules

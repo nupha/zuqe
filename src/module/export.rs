@@ -9,8 +9,8 @@ use crate::{
     function::{FieldDef, FieldDetail, JSVarRef},
     module::{ModuleDef, ModuleDefImpl},
     object::{
-        JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, ObjectPayload,
-        Object,
+        JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, Object,
+        ObjectPayload,
     },
     utils::unlikely,
     value::JSValue,
@@ -458,12 +458,14 @@ impl ModuleDef {
             }
         }
 
+        #[cfg(feature = "builtin_symbol")]
         obj.define_property_value(
             ctx,
             Atom::CONST_Symbol_toStringTag,
             Atom::CONST_Module.force_string(ctx)?.into(),
             0,
         )?;
+
         obj.set_flag_extensible(false);
 
         Ok(obj)

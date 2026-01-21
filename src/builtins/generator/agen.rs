@@ -398,7 +398,7 @@ impl AsyncGeneratorFunction {
             "{class_id}"
         );
 
-        if ctx.class_proto[class_id as usize].is_object() {
+        if ctx.class_protos[class_id as usize].is_object() {
             // already initialized
             return Ok(None);
         }
@@ -437,8 +437,8 @@ impl AsyncGeneratorFunction {
             .into();
         ctx.bind_ctor_proto_ex(ctor, agen_func, 0, JS_PROP_CONFIGURABLE)?;
 
-        ctx.class_proto[JS_CLASS_ASYNC_GENERATOR as usize] = agen_proto;
-        ctx.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = agen_func;
+        ctx.class_protos[JS_CLASS_ASYNC_GENERATOR as usize] = agen_proto;
+        ctx.class_protos[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = agen_func;
 
         Ok(None)
     }
@@ -552,21 +552,16 @@ fn js_async_generator_next(cc: CallContext) -> JSResult {
     Ok(promise.into())
 }
 
-fn js_iterator_proto_iterator(cc: CallContext) -> JSResult {
-    Ok(*cc.this())
-}
-
-pub const js_async_iterator_proto_funcs: &[FieldDef] = &[FieldDef::CALL(
-    "[Symbol.asyncIterator]",
-    0,
-    js_iterator_proto_iterator,
-    0,
-)];
+pub const js_async_iterator_proto_funcs: &[FieldDef] = &[
+    #[cfg(feature = "builtin_symbol")]
+    FieldDef::CALL("[Symbol.asyncIterator]", 0, crate::builtins::js_get_this, 0),
+];
 
 pub const js_async_generator_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
     FieldDef::CALL("return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
     FieldDef::CALL("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "AsyncGenerator",
@@ -574,8 +569,11 @@ pub const js_async_generator_proto_funcs: &[FieldDef] = &[
     ),
 ];
 
-pub const js_async_generator_function_proto_funcs: &[FieldDef] = &[FieldDef::STR(
-    "[Symbol.toStringTag]",
-    "AsyncGeneratorFunction",
-    JS_PROP_CONFIGURABLE,
-)];
+pub const js_async_generator_function_proto_funcs: &[FieldDef] = &[
+    #[cfg(feature = "builtin_symbol")]
+    FieldDef::STR(
+        "[Symbol.toStringTag]",
+        "AsyncGeneratorFunction",
+        JS_PROP_CONFIGURABLE,
+    ),
+];

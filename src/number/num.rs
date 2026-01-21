@@ -204,6 +204,7 @@ impl JSValue {
                     val = o.to_number(ctx)?;
                     continue;
                 }
+                #[cfg(feature = "builtin_symbol")]
                 Self::Symbol(_) => {
                     ctx.throw_type_error("cannot convert symbol to number");
                     break Err(-1);

@@ -111,6 +111,7 @@ pub enum JSValue {
     EXCEPTION,
     Float64(f64),
     String(StringRef),
+    #[cfg(feature = "builtin_symbol")]
     Symbol(Atom),
     Module(ModuleDef),
     Object(Object),
@@ -130,6 +131,7 @@ unsafe impl gc_lite::GcTracable for JSValue {
             Self::Object(o) => {
                 o.trace(tracer);
             }
+            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(a) => {
                 a.trace(tracer);
             }
@@ -152,6 +154,7 @@ impl PartialEq for JSValue {
             (Self::Int(i0), Self::Int(i1)) => *i0 == *i1,
             (Self::Float64(f0), Self::Float64(f1)) => f0.eq(f1),
             (Self::String(s0), Self::String(s1)) => s0 == s1,
+            #[cfg(feature = "builtin_symbol")]
             (Self::Symbol(a0), Self::Symbol(a1)) => a0 == a1,
             (Self::Object(l0), Self::Object(r0)) => l0 == r0,
 
@@ -285,6 +288,7 @@ impl JSValue {
         matches!(self, Self::String(_))
     }
 
+    #[cfg(feature = "builtin_symbol")]
     #[inline(always)]
     pub const fn is_symbol(&self) -> bool {
         matches!(self, Self::Symbol(_))
@@ -365,6 +369,7 @@ impl JSValue {
                 || Atom::calc_atom_hash(s.content(), AtomKind::String),
                 |a| a.hash(),
             ),
+            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(a) => a.atom_info().hash(),
             Self::Float64(d) => {
                 let mut d = *d;

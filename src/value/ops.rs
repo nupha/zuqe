@@ -75,18 +75,19 @@ impl Object {
     /// Equivalent to `self instanceof ctor`
     pub fn instance_of(&self, ctx: &ContextImpl, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
+            #[cfg(feature = "builtin_symbol")]
             if let Some(r) =
                 o.invoke_defined(ctx, Atom::CONST_Symbol_hasInstance, &[(*self).into()])?
             {
                 return r.and_then(|v| v.to_bool());
-            } else {
-                // no Symbol.hasInstance method: check legacy way
-                return if o.is_function() {
-                    self.ordinary_instance_of(ctx, ctor)
-                } else {
-                    Ok(false)
-                };
             }
+
+            // no Symbol.hasInstance method: check legacy way
+            return if o.is_function() {
+                self.ordinary_instance_of(ctx, ctor)
+            } else {
+                Ok(false)
+            };
         }
 
         ctx.throw_type_error("invalid 'instanceof' right operand");
@@ -115,6 +116,7 @@ impl JSValue {
             }
             Self::NULL => Atom::CONST_object,
             Self::UNDEFINED => Atom::CONST_undefined,
+            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => Atom::CONST_symbol,
             _ => Atom::CONST_unknown,
         }
@@ -124,21 +126,22 @@ impl JSValue {
     /// Equivalent to `self instanceof ctor`
     pub fn instance_of(&self, ctx: &ContextImpl, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
+            #[cfg(feature = "builtin_symbol")]
             if let Some(r) = o.invoke_defined(
                 ctx,
                 Atom::CONST_Symbol_hasInstance,
                 std::slice::from_ref(self),
             )? {
                 return r.and_then(|v| v.to_bool());
-            } else {
-                // no Symbol.hasInstance method: check legacy way
-                if o.is_function() {
-                    return if let Some(o) = self.as_object() {
-                        o.ordinary_instance_of(ctx, ctor)
-                    } else {
-                        Ok(false)
-                    };
-                }
+            }
+
+            // no Symbol.hasInstance method: check legacy way
+            if o.is_function() {
+                return if let Some(o) = self.as_object() {
+                    o.ordinary_instance_of(ctx, ctor)
+                } else {
+                    Ok(false)
+                };
             }
         }
 

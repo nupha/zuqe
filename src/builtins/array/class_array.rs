@@ -108,6 +108,7 @@ fn JS_ArraySpeciesCreate(ctx: ContextPtr, obj: JSValue, len_val: JSValue) -> JSR
         }
     }
 
+    #[cfg(feature = "builtin_symbol")]
     if let Some(o) = ctor.as_object() {
         let species = o.get_property(&ctx, Atom::CONST_Symbol_species)?;
         ctor = if species.is_null() {
@@ -129,6 +130,7 @@ fn JS_ArraySpeciesCreate(ctx: ContextPtr, obj: JSValue, len_val: JSValue) -> JSR
 }
 
 /// check `obj[Symbol.isConcatSpreabable]` property
+#[cfg(feature = "builtin_symbol")]
 pub fn JS_isConcatSpreadable(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i32> {
     if obj.is_object() {
         let s = obj.get_property(ctx, Atom::CONST_Symbol_isConcatSpreadable)?;
@@ -272,8 +274,15 @@ fn js_array_concat(cc: CallContext) -> JSResult {
 
     for i in -1..cc.length() as i32 {
         let v = if i < 0 { &this } else { cc.arg(i as usize) };
-        let spreadable = JS_isConcatSpreadable(ctx, v)?;
 
+        let spreadable: bool = {
+            #[cfg(feature = "builtin_symbol")]
+            {
+                JS_isConcatSpreadable(ctx, v)?
+            }
+            #[cfg(not(feature = "builtin_symbol"))]
+            false
+        };
         if spreadable {
             let len = v.get_length_prop(ctx)?;
             if n + len > MAX_SAFE_INTEGER {
@@ -1462,6 +1471,7 @@ pub const js_array_proto_funcs: &[FieldDef] = &[
         js_create_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::ALIAS("[Symbol.iterator]", "values"),
     FieldDef::CALL(
         "keys",
@@ -1479,6 +1489,7 @@ pub const js_array_proto_funcs: &[FieldDef] = &[
 
 pub const js_array_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 0, js_array_iterator_next, 0),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "Array Iterator",
@@ -1511,29 +1522,45 @@ fn js_array_from(cc: CallContext) -> JSResult {
 
     let mut k: i64 = 0;
 
-    let it = items.get_property(ctx, Atom::CONST_Symbol_iterator)?;
-    let res: JSValue = if !it.is_undefined() {
-        // `items` has [Symbo.iterator] method
-        let mut arr = if cc.this().is_constructor() {
-            JS_CallConstructor(ctx, *cc.this(), &[]).err()?
-        } else {
-            ctx.create_array()?.into()
-        };
+    let mut res = JSValue::UNDEFINED;
 
-        let iter = items.get_iterator_must(ctx, false)?;
-        let it = ObjectIter::new(ctx, iter, Atom::CONST_next)?;
+    // check and use [Symbol.iterator] method
+    let has_iterator: bool = {
+        #[cfg(feature = "builtin_symbol")]
+        {
+            let it = items.get_property(ctx, Atom::CONST_Symbol_iterator)?;
+            let has = !it.is_undefined();
 
-        for el in it {
-            let mut val = el?;
-            if mapping {
-                val = mapfn.call(ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
+            if has {
+                // `items` has [Symbol.iterator] method
+                let mut arr = if cc.this().is_constructor() {
+                    JS_CallConstructor(ctx, *cc.this(), &[]).err()?
+                } else {
+                    ctx.create_array()?.into()
+                };
+
+                let iter = items.get_iterator_must(ctx, false)?;
+                let it = ObjectIter::new(ctx, iter, Atom::CONST_next)?;
+
+                for el in it {
+                    let mut val = el?;
+                    if mapping {
+                        val = mapfn.call(ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
+                    }
+                    arr.define_property_value_i64(ctx, k, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
+                    k += 1;
+                }
+
+                res = arr;
             }
-            arr.define_property_value_i64(ctx, k, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
-            k += 1;
+            has
         }
 
-        arr
-    } else {
+        #[cfg(not(feature = "builtin_symbol"))]
+        false
+    };
+
+    if !has_iterator {
         let src = items.objectify(ctx)?;
         let len = src.get_length_prop(ctx)?;
         let len_val = JSValue::from(len);
@@ -1553,8 +1580,52 @@ fn js_array_from(cc: CallContext) -> JSResult {
         }
 
         k = len;
-        arr
-    };
+        res = arr;
+    }
+
+    // let res: JSValue = if has_iterator {
+    //     // `items` has [Symbo.iterator] method
+    //     let mut arr = if cc.this().is_constructor() {
+    //         JS_CallConstructor(ctx, *cc.this(), &[]).err()?
+    //     } else {
+    //         ctx.create_array()?.into()
+    //     };
+
+    //     let iter = items.get_iterator_must(ctx, false)?;
+    //     let it = ObjectIter::new(ctx, iter, Atom::CONST_next)?;
+
+    //     for el in it {
+    //         let mut val = el?;
+    //         if mapping {
+    //             val = mapfn.call(ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
+    //         }
+    //         arr.define_property_value_i64(ctx, k, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
+    //         k += 1;
+    //     }
+
+    //     arr
+    // } else {
+    //     let src = items.objectify(ctx)?;
+    //     let len = src.get_length_prop(ctx)?;
+    //     let len_val = JSValue::from(len);
+
+    //     let mut arr = if cc.this().is_constructor() {
+    //         JS_CallConstructor(ctx, *cc.this(), &[len_val]).err()?
+    //     } else {
+    //         ctx.create_array_with_capacity(len as usize)?.into()
+    //     };
+
+    //     for i in 0..len {
+    //         let mut el = src.get_property_i64(ctx, i)?;
+    //         if mapping {
+    //             el = mapfn.call(ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
+    //         }
+    //         arr.define_property_value_i64(ctx, i, el, JS_PROP_C_W_E | JS_PROP_THROW)?;
+    //     }
+
+    //     k = len;
+    //     arr
+    // };
 
     res.set_property(ctx, Atom::CONST_length, JSValue::from(k as u32))?;
     Ok(res)
@@ -1585,6 +1656,7 @@ pub const js_array_funcs: &[FieldDef] = &[
     FieldDef::CALL("isArray", 1, js_array_isArray, 0),
     FieldDef::CALL("from", 1, js_array_from, 0),
     FieldDef::CALL("of", 0, js_array_of, 0),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 

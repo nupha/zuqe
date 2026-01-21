@@ -13,7 +13,7 @@ use crate::{
         operators::{
             js_append_enumerate, js_for_in_next, js_for_in_start, js_has_unscopable,
             js_iterator_get_value_done, js_method_set_properties, js_op_define_class,
-            js_operator_delete, js_operator_in, js_operator_instanceof, js_operator_private_in,
+            js_operator_delete, js_operator_in, js_operator_instanceof,
         },
     },
     class::{
@@ -886,6 +886,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::CHECK_BRAND => {
+                        #[cfg(feature = "builtin_symbol")]
                         if let Ok(b) = SP_REF!(-2).check_brand(&realm, SP_VAL!(-1)) {
                             if unlikely(!b) {
                                 realm.throw_type_error("invalid brand on object");
@@ -894,13 +895,28 @@ impl Bytecode {
                         } else {
                             break State::Exception;
                         }
+
+                        #[cfg(not(feature = "builtin_symbol"))]
+                        {
+                            realm.throw_internal_error("Symbol is not supported");
+                            break State::Exception;
+                        }
                     }
                     OpCode::ADD_BRAND => {
                         // [func_obj, home_obj, ^] -> [^]
-                        let mut func_obj = SP_VAL!(-2);
-                        let home_object = SP_VAL!(-1);
-                        SP_GO!(-2);
-                        if unlikely(func_obj.add_brand(&realm, home_object).is_err()) {
+                        #[cfg(feature = "builtin_symbol")]
+                        {
+                            let mut func_obj = SP_VAL!(-2);
+                            let home_object = SP_VAL!(-1);
+                            SP_GO!(-2);
+                            if unlikely(func_obj.add_brand(&realm, home_object).is_err()) {
+                                break State::Exception;
+                            }
+                        }
+
+                        #[cfg(not(feature = "builtin_symbol"))]
+                        {
+                            realm.throw_internal_error("can't add brand: Symbol is not supported");
                             break State::Exception;
                         }
                     }
@@ -1610,42 +1626,79 @@ impl Bytecode {
                         }
                     }
                     OpCode::PRIVATE_SYMBOL => {
-                        let atom = Atom::from_id(PC_FETCH!(u32));
-                        if let Ok(val) = realm.create_symbol_from_atom(atom, AtomKind::Private) {
-                            SP_PUT!(0, val);
-                            SP_GO!(1);
-                        } else {
+                        #[cfg(feature = "builtin_symbol")]
+                        {
+                            let atom = Atom::from_id(PC_FETCH!(u32));
+                            if let Ok(val) = realm.create_symbol_from_atom(atom, AtomKind::Private)
+                            {
+                                SP_PUT!(0, val);
+                                SP_GO!(1);
+                            } else {
+                                break State::Exception;
+                            }
+                        }
+                        #[cfg(not(feature = "builtin_symbol"))]
+                        {
+                            realm.throw_internal_error("Symbol is not supported");
                             break State::Exception;
                         }
                     }
                     OpCode::GET_PRIVATE_FIELD => {
-                        let op_2 = SP_VAL!(-2);
-                        let op_1 = SP_VAL!(-1);
-                        let val = op_2
-                            .get_private_field(&realm, op_1)
-                            .unwrap_or(JSValue::EXCEPTION);
-                        SP_PUT!(-2, val);
-                        SP_GO!(-1);
+                        #[cfg(feature = "builtin_symbol")]
+                        {
+                            let op_2 = SP_VAL!(-2);
+                            let op_1 = SP_VAL!(-1);
+                            let val = op_2
+                                .get_private_field(&realm, op_1)
+                                .unwrap_or(JSValue::EXCEPTION);
+                            SP_PUT!(-2, val);
+                            SP_GO!(-1);
 
-                        // because has done go(-1), so SP[-1] is orginal SP[-2]
-                        if unlikely(SP_REF!(-1).is_exception()) {
+                            // because has done go(-1), so SP[-1] is orginal SP[-2]
+                            if unlikely(SP_REF!(-1).is_exception()) {
+                                break State::Exception;
+                            }
+                        }
+
+                        #[cfg(not(feature = "builtin_symbol"))]
+                        {
+                            realm.throw_internal_error("Symbol is not supported");
                             break State::Exception;
                         }
                     }
                     OpCode::PUT_PRIVATE_FIELD => {
                         // [this_obj, name, value, ^] -> [^]
-                        let ret = SP_REF!(-3).set_private_field(&realm, SP_VAL!(-1), SP_VAL!(-2));
-                        SP_GO!(-3);
-                        if unlikely(ret.is_err()) {
+                        #[cfg(feature = "builtin_symbol")]
+                        {
+                            let ret =
+                                SP_REF!(-3).set_private_field(&realm, SP_VAL!(-1), SP_VAL!(-2));
+                            SP_GO!(-3);
+                            if unlikely(ret.is_err()) {
+                                break State::Exception;
+                            }
+                        }
+
+                        #[cfg(not(feature = "builtin_symbol"))]
+                        {
+                            realm.throw_internal_error("Symbol is not supported");
                             break State::Exception;
                         }
                     }
                     OpCode::DEFINE_PRIVATE_FIELD => {
                         // [this_obj, name, value, ^] -> [this_obj, ^]
-                        let ret =
-                            SP_REF!(-3).define_private_field(&realm, SP_VAL!(-2), SP_VAL!(-1));
-                        SP_GO!(-2);
-                        if unlikely(ret.is_err()) {
+                        #[cfg(feature = "builtin_symbol")]
+                        {
+                            let ret =
+                                SP_REF!(-3).define_private_field(&realm, SP_VAL!(-2), SP_VAL!(-1));
+                            SP_GO!(-2);
+                            if unlikely(ret.is_err()) {
+                                break State::Exception;
+                            }
+                        }
+
+                        #[cfg(not(feature = "builtin_symbol"))]
+                        {
+                            realm.throw_internal_error("Symbol is not supported");
                             break State::Exception;
                         }
                     }
@@ -2206,10 +2259,17 @@ impl Bytecode {
                         }
                     }
                     OpCode::PRIVATE_IN => {
-                        if unlikely(js_operator_private_in(&realm, sp).is_err()) {
+                        #[cfg(feature = "builtin_symbol")]
+                        if unlikely(crate::bytecode::js_operator_private_in(&realm, sp).is_err()) {
                             break State::Exception;
                         } else {
                             SP_GO!(-1);
+                        }
+
+                        #[cfg(not(feature = "builtin_symbol"))]
+                        {
+                            realm.throw_internal_error("Symbol is not supported");
+                            break State::Exception;
                         }
                     }
                     OpCode::INSTANCEOF => {
@@ -2269,7 +2329,9 @@ impl Bytecode {
                         }
 
                         match SP_REF!(-1) {
-                            JSValue::Int(_) | JSValue::String(_) | JSValue::Symbol(_) => {}
+                            JSValue::Int(_) | JSValue::String(_) => {}
+                            #[cfg(feature = "builtin_symbol")]
+                            JSValue::Symbol(_) => {}
                             _ => {
                                 if let Ok(pk) = SP_REF!(-1).to_propkey(&realm) {
                                     SP_PUT!(-1, pk);

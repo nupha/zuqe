@@ -14,9 +14,9 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
+#[repr(u8)]
 pub enum ErrorKind {
-    Eval = 0,
+    Eval,
     Range,
     Reference,
     Syntax,
@@ -88,7 +88,7 @@ impl ContextImpl {
     #[inline(never)]
     #[cold]
     pub(crate) fn throw_error_internal(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
-        let proto = self.native_error_proto[kind as usize].as_object().copied();
+        let proto = self.error_protos[kind as usize].as_object().copied();
         let exc_val = if let Ok(mut o) = self.create_object_with_proto(proto, ObjectPayload::ERROR)
         {
             let s = self.create_string_from_str(message);

@@ -182,10 +182,17 @@ fn js_typed_array_from(cc: CallContext) -> JSResult {
         }
     }
 
-    let arr: JSValue = if !items
-        .get_property(ctx, Atom::CONST_Symbol_iterator)?
-        .is_undefined()
-    {
+    // [Symbol.iterator]
+    let iterator = {
+        #[cfg(feature = "builtin_symbol")]
+        {
+            items.get_property(ctx, Atom::CONST_Symbol_iterator)?
+        }
+        #[cfg(not(feature = "builtin_symbol"))]
+        JSValue::UNDEFINED
+    };
+
+    let arr: JSValue = if !iterator.is_undefined() {
         // target is enumerable
         let mut fa = ctx.create_array()?;
         for (i, v) in items.iter(ctx)?.enumerate() {
@@ -224,6 +231,7 @@ fn js_typed_array_of(cc: CallContext) -> JSResult {
 pub const js_typed_array_base_funcs: &[FieldDef] = &[
     FieldDef::CALL("from", 1, js_typed_array_from, 0),
     FieldDef::CALL("of", 0, js_typed_array_of, 0),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
@@ -425,7 +433,7 @@ fn js_typed_array_set(cc: CallContext) -> JSResult {
     js_typed_array_set_internal(cc.ctx(), &mut cc.this().clone(), cc.arg(0), &offset)
 }
 
-fn js_create_typed_array_iterator(cc: CallContext) -> JSResult {
+pub(crate) fn js_create_typed_array_iterator(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
     if let Some(ta) = cc.this().as_object_TypedArray() {
         if ta.is_detached() {
@@ -1454,6 +1462,7 @@ pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::ALIAS("[Symbol.iterator]", "values"),
     FieldDef::CALL(
         "keys",
@@ -1467,6 +1476,7 @@ pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16,
     ),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET(
         "[Symbol.toStringTag]",
         Some(js_typed_array_get_toStringTag),

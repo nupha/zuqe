@@ -62,6 +62,7 @@ impl AtomRegistry {
     ) -> Result<Atom, i32> {
         // match for existing atoms, don't register twice for same content.
         let (mut atom_str, hash): (StringRef, u32) = match atom_kind {
+            #[cfg(feature = "builtin_symbol")]
             AtomKind::String | AtomKind::GlobalSymbol => {
                 debug_assert!(!str.content().is_ident());
 
@@ -113,6 +114,61 @@ impl AtomRegistry {
 
                 (ss, hash)
             }
+
+            #[cfg(not(feature = "builtin_symbol"))]
+            AtomKind::String => {
+                debug_assert!(!str.content().is_ident());
+
+                let ss = if let Some(at) = str.atom_info() {
+                    // already registerd as atom
+                    if at.kind() == atom_kind
+                        && (is_const_atom(at.id()) || str.rt().is_some_and(|r| r == rt))
+                    {
+                        return Ok(Atom(at.id()));
+                    }
+
+                    // make new string with same content under given runtime,
+                    // without atom info
+                    str.copy_to_new(rt)?
+                } else {
+                    str
+                };
+
+                let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
+
+                // match registered atoms for hash, type and content
+                match self.atom_hash_lut.entry(hash) {
+                    Entry::Vacant(kv) => {
+                        kv.insert(Vec::with_capacity(1)); // prepare new entry for hash
+                    }
+                    Entry::Occupied(kv) => {
+                        for aid in kv.get() {
+                            let id = aid.get() as u32;
+                            if is_const_atom(id) {
+                                if self.const_atoms[id as usize].atom_info().kind() == atom_kind {
+                                    return Ok(Atom(id));
+                                }
+                            } else {
+                                let d = self.user_atoms[id as usize - ATOM_CONST_COUNT as usize]
+                                    .as_ref()
+                                    .unwrap();
+                                let at = d.str.atom_info().unwrap();
+                                if at.kind() == atom_kind
+                                    && d.str == ss
+                                    && d.str.rt().unwrap() == rt
+                                {
+                                    // found existing atom, reuse it.
+                                    return Ok(Atom(at.id()));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                (ss, hash)
+            }
+
+            #[cfg(feature = "builtin_symbol")]
             AtomKind::Symbol | AtomKind::Private => {
                 // these atom types are distinct, even they have same string content.
                 let ss = if str.content().is_ident() {
@@ -326,26 +382,40 @@ fn load_const_atoms() -> (Vec<AtomDesc>, HashMap<u32, Vec<NonZeroU16>>) {
     let mut p = ATOM_CONST_CAPTIONS.as_ptr();
 
     for i in 1..ATOM_CONST_COUNT {
-        let mut atom_kind = if i == Atom::CONST_Private_brand.id() {
-            AtomKind::Private
-        } else if i >= Atom::CONST_Symbol_toPrimitive.id() {
-            AtomKind::Symbol
-        } else {
+        let mut atom_kind = {
+            #[cfg(feature = "builtin_symbol")]
+            if i == Atom::CONST_Private_brand.id() {
+                AtomKind::Private
+            } else if i >= Atom::CONST_Symbol_toPrimitive.id() {
+                AtomKind::Symbol
+            } else {
+                AtomKind::String
+            }
+
+            #[cfg(not(feature = "builtin_symbol"))]
             AtomKind::String
         };
 
         let cstr = unsafe { CStr::from_ptr(p.cast()) };
         let str = cstr.to_str().unwrap();
-        let hash: u32 = match atom_kind {
-            AtomKind::String | AtomKind::GlobalSymbol => Atom::calc_atom_str_hash(str, atom_kind),
-            AtomKind::Symbol | AtomKind::Private => {
-                if atom_kind == AtomKind::Symbol {
-                    JS_ATOM_HASH_SYMBOL
-                } else {
-                    atom_kind = AtomKind::Symbol;
-                    JS_ATOM_HASH_PRIVATE
+        let hash: u32 = {
+            #[cfg(feature = "builtin_symbol")]
+            match atom_kind {
+                AtomKind::String | AtomKind::GlobalSymbol => {
+                    Atom::calc_atom_str_hash(str, atom_kind)
+                }
+                AtomKind::Symbol | AtomKind::Private => {
+                    if atom_kind == AtomKind::Symbol {
+                        JS_ATOM_HASH_SYMBOL
+                    } else {
+                        atom_kind = AtomKind::Symbol;
+                        JS_ATOM_HASH_PRIVATE
+                    }
                 }
             }
+
+            #[cfg(not(feature = "builtin_symbol"))]
+            Atom::calc_atom_str_hash(str, atom_kind)
         };
 
         let id = unsafe { NonZeroU16::new_unchecked(lst.len() as u16) };

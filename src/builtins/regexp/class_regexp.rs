@@ -4,7 +4,6 @@ use smallvec::SmallVec;
 use crate::{
     JS_CLASS_REGEXP,
     atom::Atom,
-    builtins::js_get_this,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, Callback, FieldDef, JS_CallConstructor, js_function_apply},
@@ -54,7 +53,7 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
     let pat = *cc.arg(0);
     let mut flags1 = *cc.arg(1);
 
-    let pat_is_regexp = js_is_regexp(ctx, &pat)?;
+    let pat_is_regexp = has_match_method(ctx, &pat)?;
 
     if cc.this().is_undefined() {
         // called as a function
@@ -137,9 +136,19 @@ fn js_get_regexp<'a>(
     }
 }
 
-pub fn js_is_regexp(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i32> {
+pub(crate) fn has_match_method(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(o) = obj {
-        let m = o.get_property(ctx, Atom::CONST_Symbol_match)?;
+        let m = {
+            #[cfg(feature = "builtin_symbol")]
+            {
+                o.get_property(ctx, Atom::CONST_Symbol_match)
+            }
+            #[cfg(not(feature = "builtin_symbol"))]
+            {
+                o.get_property_str(ctx, "match")
+            }
+        }?;
+
         if !m.is_undefined() {
             m.to_bool()
         } else {
@@ -918,19 +927,62 @@ pub const js_regexp_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("compile", 2, js_regexp_compile, 0),
     FieldDef::CALL("test", 1, js_regexp_test, 0),
     FieldDef::CALL("toString", 0, js_regexp_toString, 0),
-    FieldDef::CALL("[Symbol.replace]", 2, js_regexp_Symbol_replace, 0),
-    FieldDef::CALL("[Symbol.match]", 1, js_regexp_Symbol_match, 0),
-    FieldDef::CALL("[Symbol.matchAll]", 1, js_regexp_Symbol_matchAll, 0),
-    FieldDef::CALL("[Symbol.search]", 1, js_regexp_Symbol_search, 0),
-    FieldDef::CALL("[Symbol.split]", 2, js_regexp_Symbol_split, 0),
+    FieldDef::CALL(
+        #[cfg(feature = "builtin_symbol")]
+        "[Symbol.replace]",
+        #[cfg(not(feature = "builtin_symbol"))]
+        "replace",
+        2,
+        js_regexp_Symbol_replace,
+        0,
+    ),
+    FieldDef::CALL(
+        #[cfg(feature = "builtin_symbol")]
+        "[Symbol.match]",
+        #[cfg(not(feature = "builtin_symbol"))]
+        "match",
+        1,
+        js_regexp_Symbol_match,
+        0,
+    ),
+    FieldDef::CALL(
+        #[cfg(feature = "builtin_symbol")]
+        "[Symbol.matchAll]",
+        #[cfg(not(feature = "builtin_symbol"))]
+        "matchAll",
+        1,
+        js_regexp_Symbol_matchAll,
+        0,
+    ),
+    FieldDef::CALL(
+        #[cfg(feature = "builtin_symbol")]
+        "[Symbol.search]",
+        #[cfg(not(feature = "builtin_symbol"))]
+        "search",
+        1,
+        js_regexp_Symbol_search,
+        0,
+    ),
+    FieldDef::CALL(
+        #[cfg(feature = "builtin_symbol")]
+        "[Symbol.split]",
+        #[cfg(not(feature = "builtin_symbol"))]
+        "split",
+        2,
+        js_regexp_Symbol_split,
+        0,
+    ),
 ];
 
-pub const js_regexp_funcs: &[FieldDef] = &[FieldDef::GETSET(
-    "[Symbol.species]",
-    Some(js_get_this),
-    None,
-    0,
-)];
+pub const js_regexp_funcs: &[FieldDef] = &[
+    #[cfg(feature = "builtin_symbol")]
+    FieldDef::GETSET(
+        "[Symbol.species]",
+        Some(crate::builtins::js_get_this),
+        None,
+        0,
+    ),
+];
 
 /// Invoke regexp.exec() method or run js_regexp_exec().
 /// result must be object or null.

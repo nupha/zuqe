@@ -531,6 +531,7 @@ impl JSValue {
                 (JSValue::String(a), JSValue::String(b)) => {
                     return Ok(a.partial_cmp(b).unwrap());
                 }
+                #[cfg(feature = "builtin_symbol")]
                 (JSValue::Symbol(a), JSValue::Symbol(b)) => {
                     // compare atom desc content
                     let s1 = a.string();
@@ -572,9 +573,11 @@ impl JSValue {
                 }
 
                 // string is prior to symbol
+                #[cfg(feature = "builtin_symbol")]
                 (JSValue::String(_), JSValue::Symbol(_)) => {
                     return Ok(Ordering::Less);
                 }
+                #[cfg(feature = "builtin_symbol")]
                 (JSValue::Symbol(_), JSValue::String(_)) => {
                     return Ok(Ordering::Greater);
                 }
@@ -676,25 +679,27 @@ fn js_eq(ctx: &ContextImpl, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
                 op2 = o2.to_primitive(ctx, HINT_NONE)?;
             }
 
-            // object vs number/string/boolean/string/symbol
+            // object vs number/string/boolean/string
             (
                 JSValue::Object(o),
-                JSValue::Int(_)
-                | JSValue::Float64(_)
-                | JSValue::Bool(_)
-                | JSValue::String(_)
-                | JSValue::Symbol(_),
+                JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_) | JSValue::String(_),
             ) => {
                 op1 = o.to_primitive(ctx, HINT_NONE)?;
             }
             (
-                JSValue::Int(_)
-                | JSValue::Float64(_)
-                | JSValue::Bool(_)
-                | JSValue::String(_)
-                | JSValue::Symbol(_),
+                JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_) | JSValue::String(_),
                 JSValue::Object(o),
             ) => {
+                op2 = o.to_primitive(ctx, HINT_NONE)?;
+            }
+
+            // object vs symbol
+            #[cfg(feature = "builtin_symbol")]
+            (JSValue::Object(o), JSValue::Symbol(_)) => {
+                op1 = o.to_primitive(ctx, HINT_NONE)?;
+            }
+            #[cfg(feature = "builtin_symbol")]
+            (JSValue::Symbol(_), JSValue::Object(o)) => {
                 op2 = o.to_primitive(ctx, HINT_NONE)?;
             }
 

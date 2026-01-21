@@ -76,14 +76,18 @@ impl PartialOrd for StringImpl {
 
         let r = match (a1.map(|x| x.kind()), a2.map(|x| x.kind())) {
             // symbol-atom vs non-atom: symbol is greater
+            #[cfg(feature = "builtin_symbol")]
             (None, Some(AtomKind::Symbol | AtomKind::GlobalSymbol)) => Ordering::Less,
+            #[cfg(feature = "builtin_symbol")]
             (Some(AtomKind::Symbol | AtomKind::GlobalSymbol), None) => Ordering::Greater,
 
             // symbol-atom vs string-atom: symbol is greater
+            #[cfg(feature = "builtin_symbol")]
             (
                 Some(AtomKind::String | AtomKind::Private),
                 Some(AtomKind::Symbol | AtomKind::GlobalSymbol),
             ) => Ordering::Less,
+            #[cfg(feature = "builtin_symbol")]
             (
                 Some(AtomKind::Symbol | AtomKind::GlobalSymbol),
                 Some(AtomKind::String | AtomKind::Private),
@@ -562,9 +566,11 @@ impl JSValue {
     /// Convert `self` to string or symbol value. (string is preferred)
     pub fn to_string_or_symbol(&self, ctx: &ContextImpl) -> Result<Self, i32> {
         match self {
-            Self::String(_) | Self::Symbol(_) => {
-                Ok(*self) // string or symbol: as-is
+            Self::String(_) => {
+                Ok(*self) // as-is
             }
+            #[cfg(feature = "builtin_symbol")]
+            Self::Symbol(_) => Ok(*self),
 
             Self::Int(i) => ctx
                 .create_string_from_utf8(format!("{}", *i).into_bytes())
@@ -587,9 +593,7 @@ impl JSValue {
                 .to_primitive(ctx, HINT_STRING)
                 .and_then(|s| s.to_string_or_symbol(ctx)),
 
-            Self::Bytecode(_) => ctx
-                .create_string_from_str("[function bytecode]")
-                .map(Self::String),
+            Self::Bytecode(_) => ctx.create_string_from_str("[bytecode]").map(Self::String),
 
             Self::EXCEPTION => {
                 #[cfg(debug_assertions)]
@@ -617,12 +621,14 @@ impl JSValue {
     pub fn to_string(&self, ctx: &ContextImpl) -> Result<StringRef, i32> {
         match self {
             Self::String(s) => Ok(*s),
+            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => {
                 ctx.throw_type_error("cannot convert symbol to string");
                 Err(-1)
             }
             _ => match self.to_string_or_symbol(ctx)? {
                 JSValue::String(s) => Ok(s),
+                #[cfg(feature = "builtin_symbol")]
                 JSValue::Symbol(_) => {
                     ctx.throw_type_error("cannot convert symbol to string");
                     Err(-1)

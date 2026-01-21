@@ -53,8 +53,8 @@ impl RuntimeImpl {
 
             // grow context class prototype array
             for ctx in self.context_list.iter_mut() {
-                ctx.class_proto.try_reserve(extra).map_err(|_| -1)?;
-                ctx.class_proto
+                ctx.class_protos.try_reserve(extra).map_err(|_| -1)?;
+                ctx.class_protos
                     .extend(std::iter::repeat_n(JSValue::NULL, extra));
             }
 
@@ -111,7 +111,7 @@ impl ContextImpl {
     /// get class proto object by `class_id`.
     /// if class proto object is not initialized in this context, returns None.
     pub fn class_proto(&self, class_id: ClassID) -> Option<Object> {
-        self.class_proto
+        self.class_protos
             .get(class_id as usize)
             .and_then(|x| x.as_object())
             .copied()
@@ -122,7 +122,7 @@ impl ContextImpl {
     /// equivelent to call `ctx.class_proto(JS_CLASS_OBJECT).unwrap()`
     #[inline]
     pub fn object_proto(&self) -> Object {
-        debug_assert!(self.class_proto.len() > JS_CLASS_OBJECT as usize);
+        debug_assert!(self.class_protos.len() > JS_CLASS_OBJECT as usize);
         self.class_proto(JS_CLASS_OBJECT).unwrap()
     }
 
@@ -131,7 +131,7 @@ impl ContextImpl {
     /// equivelent to call `ctx.class_proto(JS_CLASS_BYTECODE_FUNCTION).unwrap()`
     #[inline]
     pub fn function_proto(&self) -> Object {
-        debug_assert!(self.class_proto.len() > JS_CLASS_BYTECODE_FUNCTION as usize);
+        debug_assert!(self.class_protos.len() > JS_CLASS_BYTECODE_FUNCTION as usize);
         self.class_proto(JS_CLASS_BYTECODE_FUNCTION).unwrap()
     }
 
@@ -140,7 +140,7 @@ impl ContextImpl {
     /// equivelent to call `ctx.class_proto(JS_ARRAY_FUNCTION).unwrap()`
     #[inline]
     pub fn array_proto(&self) -> Object {
-        debug_assert!(self.class_proto.len() > JS_CLASS_ARRAY as usize);
+        debug_assert!(self.class_protos.len() > JS_CLASS_ARRAY as usize);
         self.class_proto(JS_CLASS_ARRAY).unwrap()
     }
 

@@ -128,7 +128,11 @@ impl<'s> JSParseState<'s> {
             // XXX: would be better to add the code only if needed, maybe in a
             // later pass
             self.emit_op(OpCode::PUSH_FALSE); // will be patched later
-            cd.brand_push_pos = unsafe { (*cd.fields_init_fd).last_opcode_pos };
+
+            #[cfg(feature = "builtin_symbol")]
+            {
+                cd.brand_push_pos = unsafe { (*cd.fields_init_fd).last_opcode_pos };
+            }
 
             let label_add_brand = self.emit_goto(OpCode::IF_FALSE, -1);
 

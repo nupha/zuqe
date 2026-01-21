@@ -4,14 +4,14 @@ use zuqe::{CallContext, Callback, Context, JS_PROP_C_W_E, JSResult, JSValue};
 fn js_print(cc: CallContext) -> JSResult {
     let ctx = cc.context();
     let level = cc.magic();
-    let inspect = level == 100;
+    let inspect = true;
 
     let color = || {
         match level {
-            1 => Colors::CyanFg, // debug
-            2 => Colors::GreenFg,
-            3 => Colors::YellowFg,
-            4 => Colors::RedBg,
+            1 => Colors::CyanFg,   // debug
+            2 => Colors::GreenFg,  // info
+            3 => Colors::YellowFg, // warn
+            4 => Colors::RedFg,    // error
             _ => Colors::WhiteFg,
         }
     };
@@ -51,8 +51,29 @@ pub fn setup_globals(ctx: Context, script_args: &[String]) -> Result<(), i32> {
         console.define_property_value_str(ctx, "log", printfn, JS_PROP_C_W_E)?;
         console.define_property_value_str(
             ctx,
-            "inspect",
-            ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 100)?
+            "debug",
+            ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 1)?
+                .into(),
+            JS_PROP_C_W_E,
+        )?;
+        console.define_property_value_str(
+            ctx,
+            "info",
+            ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 2)?
+                .into(),
+            JS_PROP_C_W_E,
+        )?;
+        console.define_property_value_str(
+            ctx,
+            "warn",
+            ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 3)?
+                .into(),
+            JS_PROP_C_W_E,
+        )?;
+        console.define_property_value_str(
+            ctx,
+            "error",
+            ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 4)?
                 .into(),
             JS_PROP_C_W_E,
         )?;

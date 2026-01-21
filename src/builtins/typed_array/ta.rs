@@ -241,7 +241,7 @@ impl TypedArray {
             ctx.add_global_constructor(name.as_ref(), func_obj, ta_obj.into());
             func_obj.define_property_value_str(&ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
 
-            ctx.class_proto[cid as usize] = ta_obj.into();
+            ctx.class_protos[cid as usize] = ta_obj.into();
         }
 
         Ok(None)
@@ -544,9 +544,17 @@ impl TypedArray {
                     _ => {
                         // source is an enumetable object.
                         // get property from source object and set to new array.
-                        let iter_method = o.get_property(ctx, Atom::CONST_Symbol_iterator)?;
-                        let (enum_obj, count) = if !iter_method.is_undefined_or_null() {
-                            js_array_from_iterator(ctx, o.into(), iter_method)?
+                        let iterator = {
+                            #[cfg(feature = "builtin_symbol")]
+                            {
+                                o.get_property(ctx, Atom::CONST_Symbol_iterator)?
+                            }
+                            #[cfg(not(feature = "builtin_symbol"))]
+                            JSValue::UNDEFINED
+                        };
+
+                        let (enum_obj, count) = if !iterator.is_undefined_or_null() {
+                            js_array_from_iterator(ctx, o.into(), iterator)?
                         } else {
                             let len = o.get_length_prop(ctx)? as usize;
                             (o.into(), len)

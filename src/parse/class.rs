@@ -98,51 +98,60 @@ impl<'s> JSParseState<'s> {
         start_ptr: *const u8,
     ) -> Result<(), i32> {
         if is_private {
-            let fd = unsafe { &mut *self.cur_func_def };
+            #[cfg(feature = "builtin_symbol")]
+            {
+                let fd = unsafe { &mut *self.cur_func_def };
 
-            if let Some(idx) = find_private_class_field(fd, name, fd.scope_level) {
-                let vd = fd.vars.get_mut(idx as usize).unwrap();
-                let var_kind = vd.var_kind();
+                if let Some(idx) = find_private_class_field(fd, name, fd.scope_level) {
+                    let vd = fd.vars.get_mut(idx as usize).unwrap();
+                    let var_kind = vd.var_kind();
 
-                if matches!(
-                    var_kind,
-                    JSVarKindEnum::JS_VAR_PRIVATE_FIELD
-                        | JSVarKindEnum::JS_VAR_PRIVATE_METHOD
-                        | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER
-                ) || var_kind
-                    == if is_set {
-                        JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-                    } else {
-                        JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-                    }
-                    || (var_kind
+                    if matches!(
+                        var_kind,
+                        JSVarKindEnum::JS_VAR_PRIVATE_FIELD
+                            | JSVarKindEnum::JS_VAR_PRIVATE_METHOD
+                            | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER
+                    ) || var_kind
                         == if is_set {
-                            JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-                        } else {
                             JSVarKindEnum::JS_VAR_PRIVATE_SETTER
+                        } else {
+                            JSVarKindEnum::JS_VAR_PRIVATE_GETTER
                         }
-                        && is_static != vd.is_static_private())
-                {
-                    self.throw_syntax_error("private class field is already defined");
-                    return Err(-1);
+                        || (var_kind
+                            == if is_set {
+                                JSVarKindEnum::JS_VAR_PRIVATE_GETTER
+                            } else {
+                                JSVarKindEnum::JS_VAR_PRIVATE_SETTER
+                            }
+                            && is_static != vd.is_static_private())
+                    {
+                        self.throw_syntax_error("private class field is already defined");
+                        return Err(-1);
+                    }
+
+                    vd.set_var_kind(JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER);
+                } else {
+                    add_private_class_field(
+                        self,
+                        fd,
+                        name,
+                        if is_set {
+                            JSVarKindEnum::JS_VAR_PRIVATE_SETTER
+                        } else {
+                            JSVarKindEnum::JS_VAR_PRIVATE_GETTER
+                        },
+                        is_static,
+                    )?;
                 }
 
-                vd.set_var_kind(JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER);
-            } else {
-                add_private_class_field(
-                    self,
-                    fd,
-                    name,
-                    if is_set {
-                        JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-                    } else {
-                        JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-                    },
-                    is_static,
-                )?;
+                cf.need_brand = true;
             }
 
-            cf.need_brand = true;
+            #[cfg(not(feature = "builtin_symbol"))]
+            {
+                self.throw_syntax_error("class can't have private field: Symbol is not supported");
+                return Err(-1);
+            }
         }
 
         // parse getter or setter function
@@ -216,7 +225,6 @@ impl<'s> JSParseState<'s> {
 
         // class item type
         let mut prop_type: i32;
-        let mut is_private: bool;
         let mut start_ptr: *const u8;
 
         // current method function def
@@ -284,7 +292,7 @@ impl<'s> JSParseState<'s> {
                 name = nm;
                 prop_type = pt;
             }
-            is_private = prop_type & PROP_TYPE_PRIVATE != 0;
+            let is_private = prop_type & PROP_TYPE_PRIVATE != 0;
             prop_type &= !PROP_TYPE_PRIVATE;
 
             if (name == Atom::CONST_constructor && !is_static && prop_type != PROP_TYPE_IDENT)
@@ -429,7 +437,17 @@ impl<'s> JSParseState<'s> {
                     };
 
                     if is_private {
-                        class_fields[is_static as usize].need_brand = true;
+                        #[cfg(feature = "builtin_symbol")]
+                        {
+                            class_fields[is_static as usize].need_brand = true;
+                        }
+                        #[cfg(not(feature = "builtin_symbol"))]
+                        {
+                            self.throw_syntax_error(
+                                "class can't have private field: Symbol is not supported",
+                            );
+                            return Err(-1);
+                        }
                     }
 
                     self.parse_function_decl_ex(
@@ -602,22 +620,8 @@ impl<'s> JSParseState<'s> {
         self.parse_expect(TokenKind::Char('{'))?;
 
         let mut class_fields = [
-            // for instance
-            ClassFieldsDef {
-                fields_init_fd: std::ptr::null_mut(),
-                computed_fields_count: 0,
-                need_brand: false,
-                brand_push_pos: 0,
-                is_static: false,
-            },
-            // for static
-            ClassFieldsDef {
-                fields_init_fd: std::ptr::null_mut(),
-                computed_fields_count: 0,
-                need_brand: false,
-                brand_push_pos: 0,
-                is_static: true,
-            },
+            ClassFieldsDef::default(), // for instance
+            ClassFieldsDef::default(), // for static
         ];
 
         // entering class body {
@@ -633,8 +637,9 @@ impl<'s> JSParseState<'s> {
         {
             let cf = &mut class_fields[0];
 
+            #[cfg(feature = "builtin_symbol")]
             if cf.need_brand {
-                // add a private brand to the prototype
+                // add a private brand to the prototype. add brand requires symbol support.
                 self.emit_op(OpCode::DUP);
                 self.emit_op(OpCode::NULL);
                 self.emit_op(OpCode::SWAP);
@@ -670,6 +675,7 @@ impl<'s> JSParseState<'s> {
         // drop the prototype
         self.emit_op(OpCode::DROP);
 
+        #[cfg(feature = "builtin_symbol")]
         if class_fields[1].need_brand {
             // add a private brand to the class
             self.emit_op(OpCode::DUP);

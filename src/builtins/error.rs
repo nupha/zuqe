@@ -30,7 +30,7 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
         proto = if magic < 0 {
             realm.class_proto(JS_CLASS_ERROR).unwrap().into()
         } else {
-            realm.native_error_proto[magic as usize]
+            realm.error_protos[magic as usize]
         };
     }
     debug_assert!(proto.is_object());
@@ -89,7 +89,7 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
 
 pub fn js_aggregate_error_constructor(ctx: &ContextImpl, errors: JSValue) -> JSValue {
     if let Ok(mut obj) = ctx.create_object_with_proto(
-        ctx.native_error_proto[ErrorKind::Aggregate as usize]
+        ctx.error_protos[ErrorKind::Aggregate as usize]
             .as_object()
             .copied(),
         ObjectPayload::ERROR,

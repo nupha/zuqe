@@ -62,6 +62,7 @@ pub fn js_build_arguments(ctx: &ContextImpl, args: &[JSValue]) -> JSValue {
         };
     }
 
+    #[cfg(feature = "builtin_symbol")]
     obj.define_property_value(
         ctx,
         Atom::CONST_Symbol_iterator,
@@ -122,6 +123,7 @@ pub fn js_build_mapped_arguments(
         obj.define_property_value_u32(ctx, i as _, *a, JS_PROP_C_W_E)?;
     }
 
+    #[cfg(feature = "builtin_symbol")]
     obj.define_property_value(
         ctx,
         Atom::CONST_Symbol_iterator,

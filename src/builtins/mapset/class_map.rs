@@ -247,7 +247,7 @@ fn js_map_forEach(cc: CallContext) -> JSResult {
     }
 }
 
-fn js_create_map_iterator(cc: CallContext) -> JSResult {
+pub(crate) fn js_create_map_iterator(cc: CallContext) -> JSResult {
     debug_assert!(matches!(cc.magic() >> 2, 0..=2));
 
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 >> 2) };
@@ -298,7 +298,9 @@ pub const js_map_proto_funcs: &[FieldDef] = &[
         js_create_map_iterator,
         (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2,
     ),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::ALIAS("[Symbol.iterator]", "entries"),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Map", JS_PROP_CONFIGURABLE),
 ];
 
@@ -316,6 +318,7 @@ pub const js_set_proto_funcs: &[FieldDef] = &[
         ((JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2) | 1,
     ),
     FieldDef::ALIAS("keys", "values"),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::ALIAS("[Symbol.iterator]", "values"),
     FieldDef::CALL(
         "entries",
@@ -323,6 +326,7 @@ pub const js_set_proto_funcs: &[FieldDef] = &[
         js_create_map_iterator,
         ((JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2) | 1,
     ),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Set", JS_PROP_CONFIGURABLE),
 ];
 
@@ -331,6 +335,7 @@ pub const js_weakmap_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("get", 1, js_map_get, 2),
     FieldDef::CALL("has", 1, js_map_has, 2),
     FieldDef::CALL("delete", 1, js_map_delete, 2),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "WeakMap", JS_PROP_CONFIGURABLE),
 ];
 
@@ -338,6 +343,7 @@ pub const js_weakset_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("add", 1, js_map_set, 3),
     FieldDef::CALL("has", 1, js_map_has, 3),
     FieldDef::CALL("delete", 1, js_map_delete, 3),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "WeakSet", JS_PROP_CONFIGURABLE),
 ];
 
@@ -387,12 +393,11 @@ fn js_map_groupBy(cc: CallContext) -> JSResult {
 
 pub const js_map_funcs: &[FieldDef] = &[
     FieldDef::CALL("groupBy", 2, js_map_groupBy, 0),
+    #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
-pub const js_set_funcs: &[FieldDef] = &[FieldDef::GETSET(
-    "[Symbol.species]",
-    Some(js_get_this),
-    None,
-    0,
-)];
+pub const js_set_funcs: &[FieldDef] = &[
+    #[cfg(feature = "builtin_symbol")]
+    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
+];
