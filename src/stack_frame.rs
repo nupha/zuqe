@@ -84,8 +84,21 @@ unsafe impl GcTracable for StackFrame {
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.cur_func.trace(tracer);
 
+        // trace arg slots
+        {
+            let n = std::cmp::max(self.arg_real_count, self.arg_count);
+            if n > 0 {
+                let mut p = self.arg_base_ptr;
+                for _ in 0..n {
+                    unsafe {
+                        (&*p).trace(tracer);
+                        p = p.add(1);
+                    }
+                }
+            }
+        }
+
         self.vardef_values().iter().for_each(|x| x.trace(tracer));
-        self.arg_values().iter().for_each(|x| x.trace(tracer));
         self.stack_values().iter().for_each(|x| x.trace(tracer));
         self.var_ref_list.iter().for_each(|x| x.trace(tracer));
 
@@ -161,9 +174,9 @@ impl StackFrame {
         }
     }
 
-    /// Returns slice of actual argument values for this frame
-    pub fn arg_values(&self) -> &[JSValue] {
-        let n = std::cmp::max(self.arg_real_count, self.arg_count);
+    /// Returns slice of actual argument values
+    pub const fn arg_values(&self) -> &[JSValue] {
+        let n = self.arg_real_count;
         if n > 0 {
             unsafe { std::slice::from_raw_parts(self.arg_base_ptr, n as usize) }
         } else {

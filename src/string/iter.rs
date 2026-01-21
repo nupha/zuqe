@@ -108,10 +108,9 @@ impl StringBuf {
                 Self::Ascii(s) => {
                     StringCharIter::from_u8(&s[0..std::cmp::min(range.end, s.len())], range.start)
                 }
-                Self::Utf16(s) => StringCharIter::from_u16(
-                    &s[range.start..std::cmp::min(range.end, s.len())],
-                    range.start,
-                ),
+                Self::Utf16(s) => {
+                    StringCharIter::from_u16(&s[0..std::cmp::min(range.end, s.len())], range.start)
+                }
             }
         }
     }
