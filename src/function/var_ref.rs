@@ -229,7 +229,7 @@ impl StackFrame {
                     self.var_base_ptr.offset(var_idx as isize)
                 })
             },
-            if self.js_mode.contains(ExecMode::ASYNC) {
+            if self.mode.contains(ExecMode::ASYNC) {
                 // The stack frame is detached and may be destroyed at any
                 // time so its reference count must be increased. Calling
                 // close_var_refs() when destroying the stack frame is not

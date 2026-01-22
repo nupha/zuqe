@@ -65,7 +65,7 @@ impl Bytecode {
         args: &[JSValue], // actual calling arguments pass in by caller, not padded length
         throwed: bool,    // Indicates if an exception has been thrown
     ) -> JSValue {
-        let mode = stack_frame.js_mode;
+        let mode = stack_frame.mode;
         let mut realm = self.realm().unwrap(); // bytecode's context
         let bytecodes = self.opcodes();
         debug_assert!(

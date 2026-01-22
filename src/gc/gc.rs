@@ -39,7 +39,7 @@ impl RuntimeImpl {
     }
 
     pub fn gc_memory_limit(&self) -> usize {
-        self.gc_part().memory_limit().unwrap_or(0)
+        self.gc_part().memory_limit()
     }
 
     pub fn gc_set_memory_limit(&mut self, limit: usize) -> usize {

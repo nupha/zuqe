@@ -32,7 +32,7 @@ bitflags::bitflags! {
 /// StackFrame is usually allocated on stack, not heap.
 #[derive(Debug)]
 pub struct StackFrame {
-    /// Pointer to previous stack frame (NULL for first frame)
+    /// Pointer to parent stack frame (NULL means top)
     pub(crate) prev: *mut Pin<Self>,
 
     /// Currently executing function, could be:
@@ -42,35 +42,33 @@ pub struct StackFrame {
     pub(crate) cur_func: JSValue,
 
     /// Buffer storing arguments, local variables, and stack space
-    /// TODO: Replace with Box<[JSValue]> for better memory efficiency
     pub(crate) local_buf: Vec<JSValue>,
 
     /// Arguments array base pointer and count
     /// Points into local_buf (self-referencing)
-    pub(crate) arg_base_ptr: *mut JSValue, // TODO: Consider using *const ?
+    pub(crate) arg_base_ptr: *mut JSValue,
     pub(crate) arg_real_count: u16,
     pub(crate) arg_count: u16, // at least has `length`
 
-    /// Local variables base pointer and count
-    /// Points into local_buf (self-referencing)
+    /// Local variables base pointer, points into local_buf (self-referencing)
+    /// native callback's stack frame don't have var, this pointer is null.
     pub(crate) var_base_ptr: *mut JSValue,
+    /// Local variables count
     pub(crate) var_count: u16,
-
-    /// Program counter offset for bytecode functions
-    /// Position in local_buf relative to pc_base (see Bytecode::bytecode_start)
-    pub(crate) cur_pc_offset: usize,
-
-    /// Stack pointer offset (used for generator functions)
-    /// -1 when function is actively executing
-    /// Position in local_buf relative to stack_base_ptr()
-    /// Use stack_cur_ptr() to get raw pointer to this position
-    pub(crate) cur_sp_offset: i32,
 
     /// List of variable references registered in this frame
     pub(crate) var_ref_list: Vec<JSVarRef>,
 
+    /// Program counter offset for bytecode functions
+    /// Position in local_buf relative to pc_base (see Bytecode::bytecode_start)
+    pub(crate) cur_pc_offset: usize,
+    /// Stack pointer offset (used for generator functions)
+    /// Position in local_buf relative to stack_base_ptr()
+    /// Use stack_cur_ptr() to get raw pointer to this position
+    pub(crate) cur_sp_offset: i32,
+
     /// Execution attrs of stack frame.
-    pub(crate) js_mode: ExecMode,
+    pub(crate) mode: ExecMode,
 
     /// Weak backref to async state,
     /// only valid if stack frame is for an AsyncStateImpl
@@ -84,7 +82,7 @@ unsafe impl GcTracable for StackFrame {
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.cur_func.trace(tracer);
 
-        // trace arg slots
+        // trace args
         {
             let n = std::cmp::max(self.arg_real_count, self.arg_count);
             if n > 0 {
@@ -98,7 +96,7 @@ unsafe impl GcTracable for StackFrame {
             }
         }
 
-        self.vardef_values().iter().for_each(|x| {
+        self.var_values().iter().for_each(|x| {
             x.trace(tracer);
         });
         self.stack_values().iter().for_each(|x| {
@@ -127,7 +125,7 @@ impl StackFrame {
         Self {
             prev: std::ptr::null_mut(),
             cur_func: func_obj,
-            js_mode: mode,
+            mode,
 
             local_buf: Vec::new(),
             arg_base_ptr: std::ptr::null_mut(),
@@ -150,7 +148,8 @@ impl StackFrame {
         self as *const Self as usize
     }
 
-    /// Returns the base pointer of the stack in this frame
+    /// Returns the base pointer of the stack in this frame.
+    /// Stack frame for native callback does not have stack, calling in this case will panic.
     #[inline(always)]
     pub const fn stack_base_ptr(&self) -> NonNull<JSValue> {
         unsafe { NonNull::new(self.var_base_ptr.add(self.var_count as usize)).unwrap() }
@@ -172,29 +171,31 @@ impl StackFrame {
         debug_assert!(self.cur_sp_offset >= 0);
         if self.cur_sp_offset > 0 {
             unsafe {
-                let len = self.cur_sp_offset as usize;
-                std::slice::from_raw_parts(self.stack_base_ptr().as_ptr(), len)
+                std::slice::from_raw_parts(
+                    self.stack_base_ptr().as_ptr(),
+                    self.cur_sp_offset as usize,
+                )
             }
         } else {
             &[]
         }
     }
 
-    /// Returns slice of actual argument values
+    /// Returns *Actual* argument values
     pub const fn arg_values(&self) -> &[JSValue] {
-        let n = self.arg_real_count;
-        if n > 0 {
-            unsafe { std::slice::from_raw_parts(self.arg_base_ptr, n as usize) }
+        if self.arg_real_count > 0 {
+            unsafe { std::slice::from_raw_parts(self.arg_base_ptr, self.arg_real_count as usize) }
         } else {
             &[]
         }
     }
 
-    pub const fn vardef_values(&self) -> &[JSValue] {
-        if self.var_count == 0 {
-            &[]
-        } else {
+    /// Returns local variable values
+    pub const fn var_values(&self) -> &[JSValue] {
+        if self.var_count > 0 {
             unsafe { std::slice::from_raw_parts(self.var_base_ptr, self.var_count as usize) }
+        } else {
+            &[]
         }
     }
 

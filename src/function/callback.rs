@@ -135,32 +135,36 @@ impl NFuncPayload {
 
         let realm_cx = &*realm;
 
-        if args.len() < arg_length as usize {
-            // copy arguments to local buffer
-            sf.local_buf
-                .try_reserve_exact(arg_length as usize)
-                .map_err(|_| {
-                    realm_cx.throw_out_of_memory();
-                    -1
-                })?;
+        sf.arg_count = args.len() as _;
+        sf.arg_real_count = args.len() as _;
+        sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
 
-            // copy pass in args, cloned
-            sf.local_buf.extend(args.iter().copied());
-            // padding with undefined
-            sf.local_buf.extend(std::iter::repeat_n(
-                JSValue::UNDEFINED,
-                arg_length as usize - args.len(),
-            ));
-            debug_assert_eq!(sf.local_buf.len(), arg_length as usize);
+        // if args.len() < arg_length as usize {
+        //     // copy arguments to local buffer
+        //     sf.local_buf
+        //         .try_reserve_exact(arg_length as usize)
+        //         .map_err(|_| {
+        //             realm_cx.throw_out_of_memory();
+        //             -1
+        //         })?;
 
-            sf.arg_count = arg_length as _;
-            sf.arg_real_count = args.len() as _;
-            sf.arg_base_ptr = sf.local_buf.as_mut_ptr();
-        } else {
-            sf.arg_count = args.len() as _;
-            sf.arg_real_count = args.len() as _;
-            sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
-        }
+        //     // copy pass in args, cloned
+        //     sf.local_buf.extend(args.iter().copied());
+        //     // padding with undefined
+        //     sf.local_buf.extend(std::iter::repeat_n(
+        //         JSValue::UNDEFINED,
+        //         arg_length as usize - args.len(),
+        //     ));
+        //     debug_assert_eq!(sf.local_buf.len(), arg_length as usize);
+
+        //     sf.arg_count = arg_length as _;
+        //     sf.arg_real_count = args.len() as _;
+        //     sf.arg_base_ptr = sf.local_buf.as_mut_ptr();
+        // } else {
+        //     sf.arg_count = args.len() as _;
+        //     sf.arg_real_count = args.len() as _;
+        //     sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
+        // }
 
         let ret_val: JSResult = match callback {
             Callback::Func(f) => {

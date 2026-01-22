@@ -218,7 +218,7 @@ impl ContextImpl {
     pub(crate) fn is_strict_mode(&self) -> bool {
         self.rt_ptr()
             .current_stack_frame()
-            .is_some_and(|sf| sf.js_mode.contains(ExecMode::STRICT))
+            .is_some_and(|sf| sf.mode.contains(ExecMode::STRICT))
     }
 
     fn finalize(&mut self) {
