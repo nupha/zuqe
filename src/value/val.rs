@@ -371,6 +371,7 @@ impl JSValue {
             ),
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(a) => a.atom_info().hash(),
+
             Self::Float64(d) => {
                 let mut d = *d;
                 if d.is_nan() {

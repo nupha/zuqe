@@ -18,9 +18,10 @@ use super::AtomRegistry;
 pub struct Atom(pub(super) u32);
 
 unsafe impl GcTracable for Atom {
-    #[inline(always)]
+    #[inline]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         if !self.is_const() && !self.is_null() && !self.is_small_int() {
+            let s = self.desc_string();
             AtomRegistry::with_desc(self.0, |d| {
                 d.string().trace(tracer);
             });
@@ -67,33 +68,67 @@ impl Atom {
 
     /// get atom info
     pub(crate) fn atom_info(&self) -> AtomInfo {
-        AtomRegistry::with_string(self.0, |s| s.atom_info().cloned().unwrap()).unwrap()
+        debug_assert!(
+            !self.is_small_int() && !self.is_null(),
+            "not for small-int-atom or null-atom"
+        );
+
+        let a = AtomRegistry::with_desc(self.0, |d| d.string().atom_info().cloned());
+
+        #[cfg(debug_assertions)]
+        {
+            a.unwrap().unwrap()
+        }
+        #[cfg(not(debug_assertions))]
+        unsafe {
+            a.unwrap_unchecked().unwrap_unchecked()
+        }
     }
 
-    /// get atom description string
-    #[inline(always)]
-    pub(crate) fn string(&self) -> StringRef {
-        AtomRegistry::with_string(self.0, |s| *s).unwrap()
+    /// get descriptor string.
+    /// if atom dont't have string descriptor (i.e. Small int atom), returns None.
+    #[inline]
+    pub(crate) fn desc_string(&self) -> StringRef {
+        debug_assert!(
+            !self.is_small_int() && !self.is_null(),
+            "not for small-int-atom or null-atom"
+        );
+
+        let s = AtomRegistry::with_desc(self.0, |d| *d.string());
+        #[cfg(debug_assertions)]
+        {
+            s.unwrap()
+        }
+        #[cfg(not(debug_assertions))]
+        unsafe {
+            s.unwrap_unchecked()
+        }
     }
 
-    /// test if atom has normal string description
-    pub(crate) fn has_string_desc(&self) -> bool {
+    /// test if atom has *NORMAL* descriptor string.
+    /// 'Normal' means string desc is not for anonymous-symbol or private-symbol.
+    pub(crate) fn is_normal_desc_string(&self) -> bool {
+        debug_assert!(!self.is_null());
+
         if self.is_small_int() {
             false
         } else {
-            let s = self.string();
-
             #[cfg(feature = "builtin_symbol")]
             {
+                let s = self.desc_string();
                 !s.content().is_ident() && {
                     let a = s.atom_info().unwrap();
                     let k = a.kind();
-                    (k == AtomKind::Symbol && a.hash() == JS_ATOM_HASH_SYMBOL)
-                        || k == AtomKind::GlobalSymbol
+                    k == AtomKind::GlobalSymbol
+                        || (k == AtomKind::Symbol && a.hash() == JS_ATOM_HASH_SYMBOL)
                 }
             }
+
             #[cfg(not(feature = "builtin_symbol"))]
-            !s.content().is_ident()
+            {
+                debug_assert!(!self.desc_string().content().is_ident());
+                true
+            }
         }
     }
 
@@ -101,7 +136,7 @@ impl Atom {
     #[cfg(debug_assertions)]
     pub(crate) fn is_alive(&self) -> bool {
         if !self.is_const() && !self.is_null() && !self.is_small_int() {
-            AtomRegistry::with_string(self.0, |_| true).unwrap_or(false)
+            AtomRegistry::with_desc(self.0, |_| true).unwrap_or(false)
         } else {
             true
         }
@@ -109,13 +144,13 @@ impl Atom {
 
     pub fn set_gc_root(&self, b: bool) {
         if !self.is_const() && !self.is_null() && !self.is_small_int() {
-            let s = self.string();
+            let s = self.desc_string();
             s.rt().unwrap().gc_heap_mut().set_root(s.gc_ref(), b);
         }
     }
 
     /// get atom descriptor kind
-    pub(crate) fn kind(&self) -> AtomDescKind {
+    pub(crate) fn desc_kind(&self) -> AtomDescKind {
         if self.is_small_int() {
             AtomDescKind::JS_ATOM_KIND_STRING
         } else {
@@ -147,7 +182,7 @@ impl Atom {
             return Ok(Some(IntOrFloat::Int64(n as _)));
         }
 
-        let s = self.string();
+        let s = self.desc_string();
         let atom_info = s.atom_info().unwrap();
         let content = s.content();
 
@@ -222,6 +257,7 @@ impl Atom {
         Ok(None)
     }
 
+    #[inline]
     pub fn is_numeric_index(&self, ctx: &ContextImpl) -> Result<bool, i32> {
         self.to_numeric_index(ctx).map(|x| x.is_some())
     }
@@ -232,7 +268,7 @@ impl Atom {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::String)
         } else {
-            let s = self.string();
+            let s = self.desc_string();
             let atom_info = s.atom_info().unwrap();
 
             match atom_info.kind() {
@@ -245,33 +281,41 @@ impl Atom {
         }
     }
 
-    /// Force convert atom to String.
-    /// If atom is Symbol kind, returns its string descriptor.
+    /// force convert atom to string value.
+    /// for anonymous symbol, ident convert to empty string value.
     pub fn force_string(&self, ctx: &ContextImpl) -> Result<StringRef, i32> {
-        match self.to_value(ctx)? {
-            JSValue::String(s) => {
-                debug_assert!(!s.content().is_ident());
+        if let Some(n) = self.to_small_int() {
+            ctx.create_string_from_utf8(format!("{n}").into_bytes())
+        } else {
+            let s = self.desc_string();
+            if s.content().is_ident() {
+                Self::CONST_empty_string.force_string(ctx)
+            } else {
                 Ok(s)
             }
-            #[cfg(feature = "builtin_symbol")]
-            JSValue::Symbol(a) => {
-                // force symbol to string
-                let s = a.string();
-                if s.content().is_ident() {
-                    Self::CONST_empty_string.force_string(ctx)
-                } else {
-                    Ok(s)
-                }
-            }
-            _ => {
-                #[cfg(debug_assertions)]
-                unreachable!();
-                #[cfg(not(debug_assertions))]
-                unsafe {
-                    std::hint::unreachable_unchecked();
-                }
-            }
         }
+
+        // match self.to_value(ctx)? {
+        //     JSValue::String(s) => Ok(s),
+        //     #[cfg(feature = "builtin_symbol")]
+        //     JSValue::Symbol(a) => {
+        //         // force symbol to string
+        //         let s = a.desc_string();
+        //         if s.content().is_ident() {
+        //             Self::CONST_empty_string.to_value_string(ctx)
+        //         } else {
+        //             Ok(s)
+        //         }
+        //     }
+        //     _ => {
+        //         #[cfg(debug_assertions)]
+        //         unreachable!();
+        //         #[cfg(not(debug_assertions))]
+        //         unsafe {
+        //             std::hint::unreachable_unchecked();
+        //         }
+        //     }
+        // }
     }
 
     /// if atom can be used as array index, which is an int in range \[0, 2^32-1), returns the int.
@@ -281,7 +325,7 @@ impl Atom {
         } else if let Some(n) = self.to_small_int() {
             Some(n)
         } else {
-            let s = self.string();
+            let s = self.desc_string();
             let atom_info = s.atom_info().unwrap();
 
             if let AtomKind::String = atom_info.kind() {
@@ -305,7 +349,7 @@ impl Atom {
         } else if let Some(n) = self.to_small_int() {
             Some(n as i64)
         } else {
-            let s = self.string();
+            let s = self.desc_string();
             if let AtomKind::String = s.atom_info().unwrap().kind() {
                 return s.content().parse_i64();
             }
@@ -320,7 +364,7 @@ impl Atom {
         } else if let Some(n) = self.to_small_int() {
             f(Cow::Owned(format!("{n}")))
         } else {
-            f(self.string().content().encode_utf8(false))
+            f(self.desc_string().content().encode_utf8(false))
         }
     }
 
@@ -338,8 +382,6 @@ pub const JS_ATOM_HASH_MASK: u32 = (1 << 30) - 1;
 pub const JS_ATOM_TAG_INT: u32 = 1 << 31;
 pub const JS_ATOM_MAX_INT: u32 = JS_ATOM_TAG_INT - 1;
 pub const JS_ATOM_MAX: u32 = u16::MAX as u32 - 1;
-
-pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
 
 impl StringRef {
     /// convert string to atom. if string is not registered as atom yet, do registration.

@@ -98,9 +98,15 @@ unsafe impl GcTracable for StackFrame {
             }
         }
 
-        self.vardef_values().iter().for_each(|x| x.trace(tracer));
-        self.stack_values().iter().for_each(|x| x.trace(tracer));
-        self.var_ref_list.iter().for_each(|x| x.trace(tracer));
+        self.vardef_values().iter().for_each(|x| {
+            x.trace(tracer);
+        });
+        self.stack_values().iter().for_each(|x| {
+            x.trace(tracer);
+        });
+        self.var_ref_list.iter().for_each(|x| {
+            x.trace(tracer);
+        });
 
         if let Some(sf) = unsafe { self.prev.cast::<StackFrame>().as_ref() } {
             sf.trace(tracer);

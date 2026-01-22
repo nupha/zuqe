@@ -27,8 +27,8 @@ pub(crate) struct AtomRegistry {
     /// list of user atom description. None means the slot is unused.
     user_atoms: Vec<Option<AtomDesc>>,
 
-    /// StringImpl hash to atom vec dict.
-    /// Value is list of atom indecies because StringImpl hash may have collison.
+    /// string hash to atom ids dict.
+    /// Value is list of atom indecies because string hash may have collison.
     atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
 }
 
@@ -284,22 +284,15 @@ impl AtomRegistry {
         });
     }
 
-    /// run closure with atom description suggested by atom id.
+    /// run closure with atom descriptor suggested by atom id.
     /// returns None if atom id was not found.
-    #[inline(always)]
     pub(super) fn with_desc<R>(atom_id: u32, f: impl FnOnce(&AtomDesc) -> R) -> Option<R> {
-        LocalResource::with_atoms(|reg| reg.with_desc_internal(atom_id, f))
-    }
-
-    fn with_desc_internal<R>(&self, atom_id: u32, f: impl FnOnce(&AtomDesc) -> R) -> Option<R> {
         debug_assert!(atom_id != 0 && !is_small_int_atom(atom_id));
 
-        if is_const_atom(atom_id) {
-            // const atom
-            Some(f(&self.const_atoms[atom_id as usize]))
-        } else {
-            // user atom
-            if let Some(Some(d)) = self
+        LocalResource::with_atoms(|reg| {
+            if is_const_atom(atom_id) {
+                Some(f(&reg.const_atoms[atom_id as usize]))
+            } else if let Some(Some(d)) = reg
                 .user_atoms
                 .get(atom_id as usize - ATOM_CONST_COUNT as usize)
             {
@@ -307,15 +300,27 @@ impl AtomRegistry {
             } else {
                 None
             }
-        }
+        })
     }
 
-    #[inline]
-    pub(super) fn with_string<R>(atom_id: u32, f: impl FnOnce(&StringRef) -> R) -> Option<R> {
-        debug_assert!(atom_id != 0);
-        debug_assert!(!is_small_int_atom(atom_id));
-        LocalResource::with_atoms(|reg| reg.with_desc_internal(atom_id, |d| f(&d.str)))
-    }
+    // fn with_desc_internal<R>(&self, atom_id: u32, f: impl FnOnce(&AtomDesc) -> R) -> Option<R> {
+    //     debug_assert!(atom_id != 0 && !is_small_int_atom(atom_id));
+
+    //     if is_const_atom(atom_id) {
+    //         // const atom
+    //         Some(f(&self.const_atoms[atom_id as usize]))
+    //     } else {
+    //         // user atom
+    //         if let Some(Some(d)) = self
+    //             .user_atoms
+    //             .get(atom_id as usize - ATOM_CONST_COUNT as usize)
+    //         {
+    //             Some(f(d))
+    //         } else {
+    //             None
+    //         }
+    //     }
+    // }
 
     /// find atom desc by str and type
     fn find_by_str_internal(&self, str: &str, atom_kind: AtomKind) -> Option<AtomDesc> {

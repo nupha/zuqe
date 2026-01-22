@@ -41,7 +41,7 @@ impl PropertyKey {
     pub(crate) fn new(atom: Atom, is_enumerable: bool, is_exotic: bool) -> Self {
         let kind = if let Some(idx) = atom.to_array_index() {
             PropertyKeyKind::ArrayIndex(idx)
-        } else if atom.kind() == AtomDescKind::JS_ATOM_KIND_STRING {
+        } else if atom.desc_kind() == AtomDescKind::JS_ATOM_KIND_STRING {
             PropertyKeyKind::String
         } else {
             PropertyKeyKind::Symbol
@@ -91,7 +91,7 @@ impl Object {
         for (idx, prs) in sh.prop_defs.iter() {
             if !prs.atom.is_null() {
                 let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
-                let kind = prs.atom.kind();
+                let kind = prs.atom.desc_kind();
 
                 if (!enum_only || is_enumerable) && ((flags >> (kind as u8)) & 1 != 0) {
                     // need to raise an exception in case of the module
@@ -153,7 +153,7 @@ impl Object {
 
                 for pk in f(unsafe { ContextPtr::from_ref_unchecked(ctx) }, *self)? {
                     if !has_err {
-                        let atom_kind = pk.atom.kind();
+                        let atom_kind = pk.atom.desc_kind();
                         if (flags >> (atom_kind as u8)) & 1 != 0 {
                             let mut is_enumerable = false;
 

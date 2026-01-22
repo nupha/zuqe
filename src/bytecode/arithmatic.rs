@@ -534,8 +534,8 @@ impl JSValue {
                 #[cfg(feature = "builtin_symbol")]
                 (JSValue::Symbol(a), JSValue::Symbol(b)) => {
                     // compare atom desc content
-                    let s1 = a.string();
-                    let s2 = b.string();
+                    let s1 = a.desc_string();
+                    let s2 = b.desc_string();
                     return Ok(s1.content().partial_cmp(s2.content()).unwrap());
                 }
 

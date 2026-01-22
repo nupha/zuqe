@@ -290,7 +290,7 @@ impl ContextImpl {
                 }
                 PromiseState::Rejected => {
                     promise = None;
-                    Err(ErrorText::from(self, p.result().into()))
+                    Err(ErrorText::from(self, p.result()))
                 }
                 _ => Ok(JSValue::UNDEFINED),
             }
