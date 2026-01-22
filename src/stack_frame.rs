@@ -164,7 +164,7 @@ impl StackFrame {
 
     pub const fn stack_values(&self) -> &[JSValue] {
         debug_assert!(self.cur_sp_offset >= 0);
-        if self.cur_sp_offset >= 0 {
+        if self.cur_sp_offset > 0 {
             unsafe {
                 let len = self.cur_sp_offset as usize;
                 std::slice::from_raw_parts(self.stack_base_ptr().as_ptr(), len)

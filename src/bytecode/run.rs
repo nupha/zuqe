@@ -80,12 +80,13 @@ impl Bytecode {
 
         let cpools = self.consts();
 
+        // convert offset to pointer
         let sp_base = stack_frame.stack_base_ptr().as_ptr();
         let pc_base = bytecodes.as_ptr();
-
-        // convert offset to pointer
         let mut pc = unsafe { pc_base.add(pc_offset) };
         let mut sp = unsafe { sp_base.add(sp_offset) };
+
+        stack_frame.cur_sp_offset = sp_offset as _;
 
         // make calling stack frame to be `current`
         caller_ctx
@@ -94,15 +95,13 @@ impl Bytecode {
 
         if throwed {
             // has thrown current exception, handle it before execution.
-            let (cur_pc, cur_sp) = unsafe {
-                (
-                    pc.offset_from(pc_base) as usize,
-                    sp.offset_from(sp_base) as usize,
-                )
-            };
+            let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
 
-            if let Some((new_pc, new_sp)) = stack_frame.handle_exception(&realm, cur_pc, cur_sp) {
+            if let Some((new_pc, new_sp)) =
+                stack_frame.handle_exception(&realm, cur_pc, stack_frame.cur_sp_offset as usize)
+            {
                 // continue execution: update pc and sp.
+                stack_frame.cur_sp_offset = new_sp as i32;
                 unsafe {
                     pc = pc_base.add(new_pc);
                     sp = sp_base.add(new_sp);
@@ -174,7 +173,10 @@ impl Bytecode {
 
         macro_rules! SP_GO {
             ($step:expr) => {
-                sp = unsafe { sp.offset(($step) as isize) }
+                sp = unsafe {
+                    stack_frame.cur_sp_offset += ($step) as i32;
+                    sp.offset(($step) as isize)
+                }
             };
         }
 
@@ -987,7 +989,7 @@ impl Bytecode {
                                     *call_argv.offset(i) = JSValue::UNDEFINED;
                                 }
                             }
-                            sp = unsafe { sp.offset(-call_argc as isize - 1) };
+                            SP_GO!(-(call_argc + 1));
                         }
 
                         if let Ok(v) = ret_val {
@@ -2144,6 +2146,8 @@ impl Bytecode {
                     | OpCode::OR
                     | OpCode::XOR => {
                         if let Ok(new_sp) = op_binary_logic(&realm, opcode, sp) {
+                            stack_frame.cur_sp_offset =
+                                unsafe { new_sp.offset_from(sp_base) as i32 };
                             sp = new_sp;
                         } else {
                             break State::Exception;
@@ -2428,10 +2432,6 @@ impl Bytecode {
                 } // match opcode
 
                 if gc_heap.should_gc() {
-                    // IMPORTANT!
-                    // must sync sp pointer to stack frame sp_offset,
-                    // to let gc trace all values of current stack frame.
-                    stack_frame.cur_sp_offset = unsafe { sp.offset_from(sp_base) as _ };
                     caller_ctx.rt_ptr().gc_collect();
                 }
 
@@ -2471,6 +2471,9 @@ impl Bytecode {
                     if let Some((pc2, sp2)) =
                         self.exception(&realm, stack_frame, pc, pc_base, sp, sp_base)
                     {
+                        debug_assert_eq!(stack_frame.cur_sp_offset, unsafe {
+                            sp2.offset_from(sp_base) as i32
+                        });
                         pc = pc2;
                         sp = sp2;
                         continue 'restart;
@@ -2503,6 +2506,7 @@ impl Bytecode {
 
         if let Some((new_pc, new_sp)) = stack_frame.handle_exception(ctx, pc_offset, sp_offset) {
             // continue running, update pc and sp pointer, and jump
+            stack_frame.cur_sp_offset = new_sp as i32;
             unsafe { Some((pc_base.add(new_pc), sp_base.add(new_sp))) }
         } else {
             // abort with sp=0, pc unchanged
