@@ -23,6 +23,15 @@ use crate::{
 struct Args {
     #[arg(short, long, default_value_t = false, help = "load as ES6 module")]
     module: bool,
+
+    #[arg(
+        long,
+        default_value_t = String::from("1m"),
+        value_name = "n",
+        help = "set memory limit to n"
+    )]
+    memory_limit: String,
+
     #[arg(
         long,
         default_value_t = String::from("1m"),
@@ -30,14 +39,43 @@ struct Args {
         help = "set stack size to n"
     )]
     stack_size: String,
+
     #[arg(help = "file to execute")]
     filename: String,
+
     #[arg(
         allow_hyphen_values = true,
         trailing_var_arg = true,
         help = "arguments to pass to script"
     )]
     script_args: Vec<String>,
+}
+
+fn parse_byte_size(ss: &str) -> Option<usize> {
+    let i = ss
+        .as_bytes()
+        .iter()
+        .position(|c| !c.is_ascii_digit())
+        .unwrap_or(ss.len());
+
+    if i > 0
+        && let Ok(num) = ss[0..i].parse::<usize>()
+    {
+        if i == ss.len() - 1 {
+            match ss.as_bytes()[i] {
+                b'k' | b'K' => Some(num << 10),
+                b'm' | b'M' => Some(num << 20),
+                b'g' | b'G' => Some(num << 30),
+                _ => None,
+            }
+        } else if i == ss.len() {
+            Some(num)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
 }
 
 fn main() -> ExitCode {
@@ -60,39 +98,20 @@ fn main() -> ExitCode {
     let mut rt = Runtime::create().unwrap();
 
     // memory-limit
-    // TODO: should passed in by argument.
     {
-        rt.gc_set_memory_limit(1024 * 1024);
+        let ss = args.memory_limit;
+        if let Some(size) = parse_byte_size(&ss) {
+            rt.gc_set_memory_limit(size);
+        } else {
+            colorize_println(format!("invalid memory-limit: {ss}"), RedFg);
+            std::process::exit(-1);
+        }
     }
 
     // stack-size
     {
         let ss = args.stack_size;
-        let i = ss
-            .as_bytes()
-            .iter()
-            .position(|c| !c.is_ascii_digit())
-            .unwrap_or(ss.len());
-
-        let size = if i > 0
-            && let Ok(num) = ss[0..i].parse::<usize>()
-        {
-            if i == ss.len() - 1 {
-                match ss.as_bytes()[i] {
-                    b'k' | b'K' => Some(num << 10),
-                    b'm' | b'M' => Some(num << 20),
-                    b'g' | b'G' => Some(num << 30),
-                    _ => None,
-                }
-            } else if i == ss.len() {
-                Some(num)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        if let Some(size) = size {
+        if let Some(size) = parse_byte_size(&ss) {
             rt.set_stack_size(size);
         } else {
             colorize_println(format!("invalid stack-size: {ss}"), RedFg);
