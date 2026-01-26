@@ -145,6 +145,20 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
     let is_promise_any = cc.magic() == PROMISE_MAGIC_any;
     let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, *cc.this())?;
 
+    // IMPORTANT: these values are intermediate, to prevent them be collected (possibally in promise_resolve.call),
+    // we temporarily set them as root, and unset from root at function exit.
+    let mut rt_ptr = ctx.rt_ptr();
+    {
+        let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), true);
+        heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), true);
+    }
+    crate::defer!({
+        let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), false);
+        heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), false);
+    });
+
     let fail_reject = |cx: &ContextImpl| -> JSResult {
         let error = cx.rt_ptr().take_exception();
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&error))?;
@@ -164,9 +178,7 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
     let Ok(mut it) = cc.arg(0).iter(ctx) else {
         return fail_reject(ctx);
     };
-    let mut values: JSValue = if let Ok(a) = ctx.create_array() {
-        a.into()
-    } else {
+    let Ok(arr) = ctx.create_array() else {
         return fail_reject(ctx);
     };
     let mut resolve_element_env: JSValue = if let Ok(a) = ctx.create_array() {
@@ -182,6 +194,32 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
         return fail_reject(ctx);
     }
 
+    // IMPORTANT: these values are intermediate, to prevent them be collected (possibally in promise_resolve.call),
+    // we temporarily set them as root, and unset from root at function exit.
+    let mut rt_ptr = ctx.rt_ptr();
+    {
+        let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(arr.gc_ref(), true);
+        heap.set_root(resolve_element_env.as_object().unwrap().gc_ref(), true);
+        heap.set_root(it.target.gc_ref(), true);
+        if let Some(o) = it.next_method.as_object() {
+            heap.set_root(o.gc_ref(), true);
+        }
+    }
+    let it_target = it.target;
+    let it_next = it.next_method;
+    let a = arr;
+    crate::defer!({
+        let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(a.gc_ref(), false);
+        heap.set_root(resolve_element_env.as_object().unwrap().gc_ref(), false);
+        heap.set_root(it_target.gc_ref(), false);
+        if let Some(o) = it_next.as_object() {
+            heap.set_root(o.gc_ref(), false);
+        }
+    });
+
+    let mut values: JSValue = arr.into();
     let mut index = 0;
 
     while let Some(a) = it.next() {
@@ -306,6 +344,20 @@ pub fn js_promise_race(cc: CallContext) -> JSResult {
 
     let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, *cc.this())?;
 
+    // IMPORTANT: these values are intermediate, to prevent them be collected (possibally in promise_resolve.call),
+    // we temporarily set them as root, and unset from root at function exit.
+    let mut rt_ptr = ctx.rt_ptr();
+    {
+        let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), true);
+        heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), true);
+    }
+    crate::defer!({
+        let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), false);
+        heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), false);
+    });
+
     let fail_reject = |cx: &ContextImpl| -> JSResult {
         let error = cx.rt_ptr().take_exception();
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&error))?;
@@ -324,6 +376,26 @@ pub fn js_promise_race(cc: CallContext) -> JSResult {
             return fail_reject(ctx);
         };
         let this = *cc.this();
+
+        // IMPORTANT: these values are intermediate, to prevent them be collected (possibally in promise_resolve.call),
+        // we must temporaraily set then as root, and unset from root at function exit.
+        let mut rt_ptr = ctx.rt_ptr();
+        {
+            let heap = rt_ptr.gc_heap_mut();
+            heap.set_root(it.target.gc_ref(), true);
+            if let Some(o) = it.next_method.as_object() {
+                heap.set_root(o.gc_ref(), true);
+            }
+        }
+        let it_target = it.target;
+        let it_next = it.next_method;
+        crate::defer!({
+            let heap = rt_ptr.gc_heap_mut();
+            heap.set_root(it_target.gc_ref(), false);
+            if let Some(o) = it_next.as_object() {
+                heap.set_root(o.gc_ref(), false);
+            }
+        });
 
         while let Some(item) = it.next() {
             if let Ok(val) = item {
