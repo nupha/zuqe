@@ -75,6 +75,8 @@ pub struct RuntimeImpl {
     pub(crate) gc_part: *mut GcPartition,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
+    /// gc trace of current running job
+    pub(crate) gc_cur_job_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
     /// gc request flag
     pub(crate) gc_req: bool,
 
@@ -153,6 +155,7 @@ impl RuntimeImpl {
             gc_part_id,
             gc_part,
             gc_user_trace: None,
+            gc_cur_job_trace: None,
             gc_req: false,
 
             stop_flag: None,

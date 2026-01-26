@@ -100,8 +100,10 @@ impl RuntimeImpl {
     pub(crate) fn execute_all_jobs(&mut self) -> Result<(), i32> {
         for ctx in self.context_list.iter() {
             let mut cx = *ctx;
-            while let Some(job) = cx.job_list.pop_front() {
+            while let Some(mut job) = cx.job_list.pop_front() {
+                self.gc_cur_job_trace = job.gc_trace.take();
                 job.run()?;
+                self.gc_cur_job_trace = None;
             }
         }
         Ok(())

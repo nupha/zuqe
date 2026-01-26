@@ -75,11 +75,14 @@ impl RuntimeImpl {
                 sf.trace(&mut tracer);
             }
 
-            // mark jobs
+            // mark pending jobs, and currently running job
             for cx in self.context_list.iter() {
                 cx.job_list.iter().for_each(|x| {
                     x.trace(&mut tracer);
                 });
+            }
+            if let Some(f) = self.gc_cur_job_trace.as_ref() {
+                f(&mut tracer);
             }
 
             // user defined marks
