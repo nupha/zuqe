@@ -75,6 +75,8 @@ pub struct RuntimeImpl {
     pub(crate) gc_threshold: usize,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
+    /// gc trace of current running job
+    pub(crate) gc_cur_job_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
     /// gc request flag
     pub(crate) gc_req: bool,
     /// tick stop flag
@@ -144,6 +146,7 @@ impl RuntimeImpl {
             gc_part,
             gc_threshold: 256 * 1024,
             gc_user_trace: None,
+            gc_cur_job_trace: None,
             gc_req: false,
             stop: None,
 
