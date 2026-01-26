@@ -7,7 +7,7 @@ use crate::{
     atom::Atom,
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
-    object::{JS_SpeciesConstructor, ObjectImpl, Object},
+    object::{JS_SpeciesConstructor, Object, ObjectImpl, ObjectPayload},
     object_cast,
     utils::unlikely,
     value::JSValue,
@@ -46,61 +46,78 @@ object_cast!(
 impl PromiseResolveFunc {
     pub fn class_call(
         mut ctx: Context,
-        mut func_obj: JSValue,
+        func_obj: JSValue,
         _this_val: JSValue,
         args: &[JSValue],
         _flags: i32,
     ) -> JSResult {
-        let resolv = func_obj.as_object_PromiseResolveFunc_mut().unwrap();
-        let isa = resolv.payload_mut();
-        let class_id = isa.class_id();
+        let mut prf = PromiseResolveFunc::try_from(func_obj).unwrap();
+        let class_id = prf.class_id();
 
-        if let Some(s) = isa.promise_resolving_function_mut() {
-            if s.resolved.get() {
-                return Ok(JSValue::UNDEFINED);
-            }
+        let s: &mut PromiseResolvePayload = prf.payload_mut();
+        if s.resolved.get() {
+            return Ok(JSValue::UNDEFINED);
+        }
 
-            s.resolved.set(true);
+        s.resolved.set(true);
 
-            let is_reject = class_id == JS_CLASS_PROMISE_REJECT_FUNCTION;
-            let arg0 = if !args.is_empty() {
-                args[0]
+        let is_reject = class_id == JS_CLASS_PROMISE_REJECT_FUNCTION;
+        let arg0 = if !args.is_empty() {
+            args[0]
+        } else {
+            JSValue::UNDEFINED
+        };
+
+        let mut promise = s.promise;
+        let cx: ContextPtr = ctx.into();
+
+        if is_reject || !arg0.is_object() {
+            promise.fulfill_or_reject(cx, arg0, is_reject);
+            return Ok(JSValue::UNDEFINED);
+        } else if unlikely(arg0.is_same(promise.into())) {
+            promise.reject(cx, {
+                ctx.throw_type_error("promise self resolution");
+                ctx.rt_ptr().take_exception()
+            });
+            return Ok(JSValue::UNDEFINED);
+        } else if let Ok(then) = arg0.get_property(&ctx, Atom::CONST_then) {
+            if !then.is_function() {
+                promise.fulfill_or_reject(cx, arg0, is_reject);
             } else {
-                JSValue::UNDEFINED
-            };
-
-            let cx: ContextPtr = ctx.into();
-
-            if is_reject || !arg0.is_object() {
-                s.promise.fulfill_or_reject(cx, arg0, is_reject);
-                return Ok(JSValue::UNDEFINED);
-            } else if unlikely(arg0.is_same(s.promise.into())) {
-                s.promise.reject(cx, {
-                    ctx.throw_type_error("promise self resolution");
-                    ctx.rt_ptr().take_exception()
-                });
-                return Ok(JSValue::UNDEFINED);
-            } else if let Ok(then) = arg0.get_property(&ctx, Atom::CONST_then) {
-                if !then.is_function() {
-                    s.promise.fulfill_or_reject(cx, arg0, is_reject);
-                } else {
-                    let promise = s.promise;
-                    let cx2 = cx;
-                    ctx.queue_job_with_gc_trace(
-                        move || js_promise_resolve_thenable_job(&cx2, promise, arg0, then),
-                        move |tracer| {
-                            promise.trace(tracer);
-                            arg0.trace(tracer);
-                            then.trace(tracer);
-                        },
-                    );
-                }
-            } else {
-                s.promise.reject(cx, ctx.rt_ptr().take_exception());
+                ctx.queue_job_with_gc_trace(
+                    move || js_promise_resolve_thenable_job(&cx, promise, arg0, then),
+                    move |tracer| {
+                        prf.trace(tracer);
+                        arg0.trace(tracer);
+                        then.trace(tracer);
+                    },
+                );
             }
+        } else {
+            promise.reject(cx, ctx.rt_ptr().take_exception());
         }
 
         Ok(JSValue::UNDEFINED)
+    }
+
+    pub fn payload(&self) -> &PromiseResolvePayload {
+        if let ObjectPayload::PROMISE_RESOLVE_FUNCTION(x)
+        | ObjectPayload::PROMISE_REJECT_FUNCTION(x) = unsafe { self.0.as_ref().payload() }
+        {
+            x
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub fn payload_mut(&mut self) -> &mut PromiseResolvePayload {
+        if let ObjectPayload::PROMISE_RESOLVE_FUNCTION(x)
+        | ObjectPayload::PROMISE_REJECT_FUNCTION(x) = unsafe { self.0.as_mut().payload_mut() }
+        {
+            x
+        } else {
+            unreachable!()
+        }
     }
 }
 
@@ -197,12 +214,13 @@ impl Promise {
                 // add to job list
                 {
                     let is_reject = state == PromiseState::Rejected;
-                    let mut cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
+                    let cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
 
                     ctx.queue_job_with_gc_trace(
                         move || {
+                            let raw = cx.gc_ref();
                             promise_reaction_job(
-                                &mut cx,
+                                unsafe { raw.as_mut() },
                                 action.resolving_funcs,
                                 action.handler,
                                 is_reject,
@@ -276,14 +294,15 @@ impl Promise {
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
         let mut reactions = self.payload_mut().take_reactions();
-        let mut ctx2 = ctx;
+        let ctx2 = ctx;
 
         for act in reactions[is_reject as usize].drain(..) {
             // queue reaction in job list to resolve in next tick
             ctx.queue_job_with_gc_trace(
                 move || {
+                    let raw = ctx2.gc_ref();
                     promise_reaction_job(
-                        &mut ctx2,
+                        unsafe { raw.as_mut() },
                         act.resolving_funcs,
                         act.handler,
                         is_reject,

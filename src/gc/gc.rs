@@ -77,7 +77,9 @@ impl RuntimeImpl {
 
             // mark jobs
             for cx in self.context_list.iter() {
-                cx.job_list.iter().for_each(|x| x.trace(&mut tracer));
+                cx.job_list.iter().for_each(|x| {
+                    x.trace(&mut tracer);
+                });
             }
 
             // user defined marks

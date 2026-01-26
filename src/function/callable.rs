@@ -8,7 +8,7 @@ use crate::{
     context::{Context, ContextImpl},
     error::JSResult,
     function::{CallContext, CallbackFn, js_function_set_properties},
-    object::{ObjectImpl, ObjectPayload, Object},
+    object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
 };
@@ -62,6 +62,14 @@ impl NativeFuncData {
 pub struct NativeFunctionWithData(GcRef<ObjectImpl>);
 
 object_cast!(NativeFunctionWithData, JS_CLASS_C_FUNCTION_DATA);
+
+unsafe impl GcTracable for NativeFunctionWithData {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+        unsafe {
+            self.0.as_ref().trace(tracer);
+        }
+    }
+}
 
 impl NativeFunctionWithData {
     /// Create a C_FUNCTION_DATA class object, which behaves like a native function, with attached data.
