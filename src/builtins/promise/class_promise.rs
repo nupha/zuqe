@@ -150,11 +150,13 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
     let mut rt_ptr = ctx.rt_ptr();
     {
         let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(result_promise.gc_ref(), true);
         heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), true);
         heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), true);
     }
     crate::defer!({
         let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(result_promise.gc_ref(), false);
         heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), false);
         heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), false);
     });
@@ -349,11 +351,13 @@ pub fn js_promise_race(cc: CallContext) -> JSResult {
     let mut rt_ptr = ctx.rt_ptr();
     {
         let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(result_promise.gc_ref(), true);
         heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), true);
         heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), true);
     }
     crate::defer!({
         let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(result_promise.gc_ref(), false);
         heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), false);
         heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), false);
     });
