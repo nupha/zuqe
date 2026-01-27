@@ -113,7 +113,7 @@ impl Array {
                 }
             })
             .unwrap();
-            self.set_prop_slot(0, JSProperty::Normal(JSValue::from(length)));
+            self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::from(length)));
         } else {
             // sparse array
             // Note: prop `length` must be less than u32::MAX
@@ -168,7 +168,7 @@ impl Array {
                 cur_len = length;
             }
 
-            self.set_prop_slot(0, JSProperty::Normal(JSValue::from(cur_len)));
+            self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::from(cur_len)));
 
             if cur_len > length {
                 return if throw {
@@ -218,7 +218,7 @@ impl Array {
             self.shape().unwrap().prop_defs.first().unwrap().flags() & JS_PROP_LENGTH != 0,
             "Array.length property must be index 0"
         );
-        self.set_prop_slot(0, JSProperty::Normal(JSValue::from(len as u32)));
+        self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::from(len as u32)));
 
         Ok(())
     }
@@ -596,7 +596,7 @@ impl Object {
             }
 
             // update `length`
-            self.set_prop_slot(0, JSProperty::Normal(JSValue::Int(new_len as i32)));
+            self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::Int(new_len as i32)));
         }
 
         // add new element to list

@@ -22,9 +22,10 @@ unsafe impl GcTracable for Atom {
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         if !self.is_const() && !self.is_null() && !self.is_small_int() {
             let s = self.desc_string();
-            AtomRegistry::with_desc(self.0, |d| {
-                d.string().trace(tracer);
-            });
+            s.trace(tracer);
+            // AtomRegistry::with_desc(self.0, |d| {
+            //     d.string().trace(tracer);
+            // });
         }
     }
 }

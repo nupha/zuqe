@@ -45,7 +45,7 @@ impl Object {
                     })?;
 
                     // mark property value as deleted
-                    self.set_prop_slot(idx, JSProperty::Deleted);
+                    self.set_prop_slot_non_gc(idx, JSProperty::Deleted);
 
                     if compact {
                         // compact prop values list too

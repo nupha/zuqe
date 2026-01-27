@@ -1,6 +1,7 @@
 use std::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
+    ptr::NonNull,
 };
 
 use crate::{
@@ -95,6 +96,7 @@ mod nb_value {
     }
 }
 
+use gc_lite::{GcHead, GcRef};
 #[cfg(feature = "nan_boxing")]
 pub use nb_value::*;
 
@@ -119,30 +121,34 @@ pub enum JSValue {
 }
 
 unsafe impl gc_lite::GcTracable for JSValue {
-    #[inline]
+    #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        match self {
-            Self::String(s) => {
-                if s.rt().is_some() {
-                    // not string for const atom
-                    s.trace(tracer);
-                }
-            }
-            Self::Object(o) => {
-                o.trace(tracer);
-            }
-            #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(a) => {
-                a.trace(tracer);
-            }
-            Self::Bytecode(b) => {
-                b.trace(tracer);
-            }
-            Self::Module(m) => {
-                m.trace(tracer);
-            }
-            _ => {}
+        if let Some(p) = self.gc_node_ptr() {
+            tracer.mark(unsafe { GcRef::from_head_ptr(p) });
         }
+
+        // match self {
+        //     Self::String(s) => {
+        //         if s.rt().is_some() {
+        //             // not string for const atom
+        //             s.trace(tracer);
+        //         }
+        //     }
+        //     Self::Object(o) => {
+        //         o.trace(tracer);
+        //     }
+        //     #[cfg(feature = "builtin_symbol")]
+        //     Self::Symbol(a) => {
+        //         a.trace(tracer);
+        //     }
+        //     Self::Bytecode(b) => {
+        //         b.trace(tracer);
+        //     }
+        //     Self::Module(m) => {
+        //         m.trace(tracer);
+        //     }
+        //     _ => {}
+        // }
     }
 }
 
@@ -398,11 +404,31 @@ impl JSValue {
     #[inline]
     pub fn is_gc(&self) -> bool {
         match self {
-            Self::Object(_) | Self::Symbol(_) | Self::Bytecode(_) | Self::Module(_) => true,
-            Self::String(s) => {
-                s.rt().is_some() // for non-const atom
-            }
+            Self::Object(_) | Self::Bytecode(_) | Self::Module(_) => true,
+            Self::String(s) if s.rt().is_some() => true,
+            #[cfg(feature = "builtin_symbol")]
+            Self::Symbol(a) if !a.is_const() && !a.is_null() && !a.is_small_int() => true,
             _ => false,
+        }
+    }
+
+    /// get value's gc node raw pointer. returns null if value do not need gc.
+    #[inline]
+    pub fn gc_node_ptr(&self) -> Option<NonNull<GcHead>> {
+        match self {
+            Self::Object(o) => Some(o.gc_ref().head_ptr()),
+            Self::String(s) if s.rt().is_some() => {
+                // non-const atom
+                Some(s.gc_ref().head_ptr())
+            }
+            #[cfg(feature = "builtin_symbol")]
+            Self::Symbol(a) if !a.is_const() && !a.is_null() && !a.is_small_int() => {
+                // non-const string atom
+                Some(a.desc_string().gc_ref().head_ptr())
+            }
+            Self::Bytecode(b) => Some(b.gc_ref().head_ptr()),
+            Self::Module(m) => Some(m.gc_ref().head_ptr()),
+            _ => None,
         }
     }
 }

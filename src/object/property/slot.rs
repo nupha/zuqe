@@ -1,8 +1,12 @@
+use std::ptr::NonNull;
+
+use gc_lite::{GcHead, GcPartitionId, GcRef};
+
 use crate::{
     JS_CLASS_MODULE_NS,
     atom::Atom,
     context::ContextImpl,
-    object::{Object, ObjectImpl},
+    object::{LazyInit, Object, ObjectImpl},
     utils::unlikely,
     value::JSValue,
 };
@@ -59,9 +63,18 @@ impl ObjectImpl {
         }
     }
 
-    /// set property at slot `idx`
+    /// set property at slot `idx` to non-gc
     #[inline(always)]
-    pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
+    pub(crate) fn set_prop_slot_non_gc(&mut self, idx: usize, p: JSProperty) {
+        #[cfg(debug_assertions)]
+        match &p {
+            JSProperty::Normal(v) => debug_assert!(!v.is_gc()),
+            JSProperty::Deleted => {}
+            _ => {
+                panic!("p is gc-aware");
+            }
+        }
+
         #[cfg(debug_assertions)]
         {
             self.prop_values[idx] = p;
@@ -69,6 +82,56 @@ impl ObjectImpl {
         #[cfg(not(debug_assertions))]
         unsafe {
             *self.prop_values.get_unchecked_mut(idx) = p;
+        }
+    }
+
+    /// set property at slot `idx`, and check gc partition.
+    pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
+        let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
+            JSProperty::Normal(val) => [val.gc_node_ptr(), None],
+            JSProperty::GetSet { getter, setter } => [
+                getter.map(|o| o.gc_ref().head_ptr()),
+                setter.map(|o| o.gc_ref().head_ptr()),
+            ],
+            JSProperty::VarRef(vr) => [Some(vr.gc_ref().head_ptr()), None],
+            JSProperty::LazyInit {
+                init_type: LazyInit::ModuleNS(m),
+                ..
+            } => [Some(m.gc_ref().head_ptr()), None],
+            _ => [None, None],
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            self.prop_values[idx] = p;
+        }
+        #[cfg(not(debug_assertions))]
+        unsafe {
+            *self.prop_values.get_unchecked_mut(idx) = p;
+        }
+
+        let mut self_partition = GcPartitionId::NONE;
+        for h in gc_node.into_iter().flatten() {
+            unsafe {
+                if self_partition == GcPartitionId::NONE {
+                    self_partition = GcRef::from_ref_unchecked(self)
+                        .head_ptr()
+                        .as_ref()
+                        .get_partition_id();
+                }
+
+                let pid = h.as_ref().get_partition_id();
+
+                if self_partition != pid
+                    && self
+                        .rt()
+                        .gc_heap()
+                        .check_partition_ancestor(self_partition, pid)
+                {
+                    // promote node to ancestor partition (where self lives in)
+                    self.rt().gc_heap_mut().promote_to(h, self_partition);
+                }
+            }
         }
     }
 
@@ -124,7 +187,7 @@ impl Object {
                 // prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
                 // debug_assert_eq!(prs.flags() & JS_PROP_TMASK, JS_PROP_NORMAL);
 
-                self.set_prop_slot(idx, JSProperty::default());
+                self.set_prop_slot_non_gc(idx, JSProperty::default());
             }
             JS_PROP_VARREF => {
                 // JS_PROP_VARREF is always writable.

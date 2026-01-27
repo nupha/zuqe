@@ -203,8 +203,7 @@ impl Object {
                             None
                         };
                     } else {
-                        arr.set_prop_slot(0, JSProperty::Normal(JSValue::from(idx + 1)));
-                        // arr.prop_values[0] = JSProperty::Normal(JSValue::from(idx + 1));
+                        arr.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::from(idx + 1)));
                     }
                 }
 
