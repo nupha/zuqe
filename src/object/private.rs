@@ -17,9 +17,7 @@ impl Object {
             .and_then(|o| o.payload().home_object())
         {
             if let Some((idx, _)) = home_obj.find_shape_property(Atom::CONST_Private_brand) {
-                let atom = if let JSProperty::Normal(JSValue::Symbol(a)) =
-                    home_obj.prop_values.get(idx).unwrap()
-                {
+                let atom = if let JSProperty::Normal(JSValue::Symbol(a)) = home_obj.prop_slot(idx) {
                     *a
                 } else {
                     ctx.throw_type_error_not_an_object();
@@ -45,7 +43,7 @@ impl Object {
     ) -> Result<(), i32> {
         if let JSValue::Symbol(atom) = name {
             if let Some((idx, _)) = self.find_shape_property(atom) {
-                self.prop_values[idx] = JSProperty::Normal(val);
+                self.set_prop_slot(idx, JSProperty::Normal(val));
                 Ok(())
             } else {
                 JS_ThrowTypeErrorPrivateNotFound(ctx, atom);
@@ -60,7 +58,7 @@ impl Object {
     fn get_private_field(&self, ctx: &ContextImpl, name: JSValue) -> JSResult {
         if let JSValue::Symbol(atom) = name {
             if let Some((idx, _)) = self.find_shape_property(atom) {
-                if let JSProperty::Normal(val) = self.prop_values.get(idx).unwrap() {
+                if let JSProperty::Normal(val) = self.prop_slot(idx) {
                     Ok(*val)
                 } else {
                     unreachable!()
@@ -117,7 +115,7 @@ impl JSValue {
             let brand_sym: JSValue = if let Some((idx, _)) =
                 home.find_shape_property(Atom::CONST_Private_brand)
             {
-                if let JSProperty::Normal(val) = home.prop_values.get(idx).unwrap() {
+                if let JSProperty::Normal(val) = home.prop_slot(idx) {
                     *val
                 } else {
                     unreachable!()

@@ -63,7 +63,7 @@ impl Array {
 
     /// get `length` property value
     pub fn get_length_prop(&self, ctx: &ContextImpl) -> Result<i64, i32> {
-        if let JSProperty::Normal(v) = &self.prop_values[0] {
+        if let JSProperty::Normal(v) = &self.prop_slot(0) {
             v.to_length(ctx)
         } else {
             #[cfg(debug_assertions)]
@@ -113,7 +113,7 @@ impl Array {
                 }
             })
             .unwrap();
-            self.prop_values[0] = JSProperty::Normal(JSValue::from(length));
+            self.set_prop_slot(0, JSProperty::Normal(JSValue::from(length)));
         } else {
             // sparse array
             // Note: prop `length` must be less than u32::MAX
@@ -168,9 +168,7 @@ impl Array {
                 cur_len = length;
             }
 
-            unsafe {
-                *self.prop_values.get_unchecked_mut(0) = JSProperty::Normal(JSValue::from(cur_len));
-            }
+            self.set_prop_slot(0, JSProperty::Normal(JSValue::from(cur_len)));
 
             if cur_len > length {
                 return if throw {
@@ -220,7 +218,7 @@ impl Array {
             self.shape().unwrap().prop_defs.first().unwrap().flags() & JS_PROP_LENGTH != 0,
             "Array.length property must be index 0"
         );
-        self.prop_values[0] = JSProperty::Normal(JSValue::from(len as u32));
+        self.set_prop_slot(0, JSProperty::Normal(JSValue::from(len as u32)));
 
         Ok(())
     }
@@ -571,7 +569,7 @@ impl Object {
         // update the length if necessary. We assume that if the length is
         // not an integer, then if it >= 2^31.
         // Note: check array length to int in advance, to avoid prop_values borrow conflict.
-        let len: Option<i32> = if let JSProperty::Normal(JSValue::Int(n)) = &self.prop_values[0] {
+        let len: Option<i32> = if let JSProperty::Normal(JSValue::Int(n)) = self.prop_slot(0) {
             Some(*n)
         } else {
             #[cfg(debug_assertions)]
@@ -598,7 +596,7 @@ impl Object {
             }
 
             // update `length`
-            self.prop_values[0] = JSProperty::Normal(JSValue::Int(new_len as i32));
+            self.set_prop_slot(0, JSProperty::Normal(JSValue::Int(new_len as i32)));
         }
 
         // add new element to list

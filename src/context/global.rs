@@ -29,8 +29,7 @@ impl ContextImpl {
 
             // XXX: should handle JS_PROP_LAZYINIT properties?
             // XXX: conformance: do these tests in OP_put_var_ref/OP_get_var_ref ?
-            if let JSProperty::Normal(JSValue::UNINITIALIZED) = gvobj.prop_values.get(idx).unwrap()
-            {
+            if let JSProperty::Normal(JSValue::UNINITIALIZED) = gvobj.prop_slot(idx) {
                 JS_ThrowReferenceErrorUninitialized(self, prop);
                 return Err(-1);
             }
@@ -155,7 +154,7 @@ impl ContextImpl {
         if let Some((idx, _)) = gvobj.find_shape_property(prop) {
             // found in global var object
             // XXX: should handle JS_PROP_TMASK properties
-            match &gvobj.prop_values[idx] {
+            match gvobj.prop_slot(idx) {
                 JSProperty::Normal(JSValue::UNINITIALIZED) => {
                     JS_ThrowReferenceErrorUninitialized(self, prop);
                     Err(-1)
@@ -193,10 +192,8 @@ impl ContextImpl {
 
         if let Some((idx, prs_flags)) = gvobj.find_shape_property(prop) {
             // XXX: should handle JS_PROP_LAZYINIT properties?
-            let pr = &mut gvobj.prop_values[idx];
-
             if flag != 1 {
-                match pr {
+                match gvobj.prop_slot(idx) {
                     JSProperty::Normal(JSValue::UNINITIALIZED) => {
                         JS_ThrowReferenceErrorUninitialized(self, prop);
                         return Err(-1);
@@ -210,7 +207,7 @@ impl ContextImpl {
                 }
             }
 
-            *pr = JSProperty::Normal(val);
+            gvobj.set_prop_slot(idx, JSProperty::Normal(val));
             Ok(true)
         } else {
             // not exist

@@ -160,7 +160,7 @@ pub struct ObjectImpl {
     shape: Option<ShapeHandle>,
 
     /// property value slots
-    pub(crate) prop_values: Vec<JSProperty>,
+    pub(super) prop_values: Vec<JSProperty>,
 
     /// this object is weak referenced in state.
     #[cfg(feature = "builtin_mapset")]

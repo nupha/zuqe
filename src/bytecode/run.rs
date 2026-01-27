@@ -1,5 +1,7 @@
 use std::ptr::NonNull;
 
+use gc_lite::GcPartitionId;
+
 use crate::{
     atom::{Atom, AtomKind},
     builtins::{

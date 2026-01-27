@@ -60,11 +60,7 @@ impl Object {
                 if prs_flags & JS_PROP_TMASK == JS_PROP_LAZYINIT {
                     // Instantiate lazy property
                     let o = *self;
-                    unsafe {
-                        self.prop_values
-                            .get_unchecked_mut(idx)
-                            .instantiate(o, idx, o)?;
-                    }
+                    self.prop_slot_mut(idx).instantiate(o, idx, o)?;
                     continue;
                 }
 
@@ -368,7 +364,7 @@ impl Object {
     /// Check if object has 'name' property with non-empty normal string.
     pub fn has_name(&self) -> bool {
         if let Some((idx, _)) = self.find_shape_property(Atom::CONST_name) {
-            if let JSProperty::Normal(JSValue::String(s)) = self.prop_values.get(idx).unwrap() {
+            if let JSProperty::Normal(JSValue::String(s)) = self.prop_slot(idx) {
                 !s.is_empty()
             } else {
                 true

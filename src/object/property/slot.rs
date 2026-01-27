@@ -1,5 +1,9 @@
 use crate::{
-    JS_CLASS_MODULE_NS, atom::Atom, context::ContextImpl, object::Object, utils::unlikely,
+    JS_CLASS_MODULE_NS,
+    atom::Atom,
+    context::ContextImpl,
+    object::{Object, ObjectImpl},
+    utils::unlikely,
     value::JSValue,
 };
 
@@ -8,6 +12,72 @@ use super::{
     JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK,
     JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty,
 };
+
+impl ObjectImpl {
+    /// Grows property values slot.
+    /// Returns error if memory allocation fails.
+    pub(crate) fn grow_prop_slots(&mut self, total_length: usize) -> Result<(), i32> {
+        let len = self.prop_values.len();
+        if total_length > len {
+            let delta = total_length - len;
+            self.prop_values.try_reserve_exact(delta).map_err(|_| -1)?;
+
+            // extend prop values slot
+            for _ in 0..delta {
+                self.add_prop_slot(JSProperty::default());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// get property slot at `idx`.
+    /// in case idx is out of range, behaviour is undefined
+    #[inline(always)]
+    pub(crate) fn prop_slot(&self, idx: usize) -> &JSProperty {
+        #[cfg(debug_assertions)]
+        {
+            &self.prop_values[idx]
+        }
+        #[cfg(not(debug_assertions))]
+        unsafe {
+            self.prop_values.get_unchecked(idx)
+        }
+    }
+
+    /// get property slot at `idx`.
+    /// in case idx is out of range, behaviour is undefined
+    #[inline(always)]
+    pub(crate) fn prop_slot_mut(&mut self, idx: usize) -> &mut JSProperty {
+        #[cfg(debug_assertions)]
+        {
+            &mut self.prop_values[idx]
+        }
+        #[cfg(not(debug_assertions))]
+        unsafe {
+            self.prop_values.get_unchecked_mut(idx)
+        }
+    }
+
+    /// set property at slot `idx`
+    #[inline(always)]
+    pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
+        #[cfg(debug_assertions)]
+        {
+            self.prop_values[idx] = p;
+        }
+        #[cfg(not(debug_assertions))]
+        unsafe {
+            *self.prop_values.get_unchecked_mut(idx) = p;
+        }
+    }
+
+    /// append property slot
+    #[inline(always)]
+    pub(crate) fn add_prop_slot(&mut self, p: JSProperty) {
+        self.prop_values.push(p);
+    }
+}
 
 impl Object {
     /// update value to property slot `idx`, handle 'writable' flag setting.
@@ -29,7 +99,7 @@ impl Object {
                     prs_flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0
                         && flags & JS_PROP_HAS_VALUE != 0,
                 ) {
-                    return if !val.is_same(self.prop_values[idx].value(ctx, JSValue::UNDEFINED)?) {
+                    return if !val.is_same(self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?) {
                         if ctx.throw_type_error_or_false(flags, "property is not configurable") {
                             Err(-1)
                         } else {
@@ -54,8 +124,7 @@ impl Object {
                 // prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
                 // debug_assert_eq!(prs.flags() & JS_PROP_TMASK, JS_PROP_NORMAL);
 
-                // set value slot
-                self.prop_values[idx] = JSProperty::default();
+                self.set_prop_slot(idx, JSProperty::default());
             }
             JS_PROP_VARREF => {
                 // JS_PROP_VARREF is always writable.
@@ -111,7 +180,7 @@ impl Object {
                             f2
                         })?;
 
-                        self.prop_values[idx] = JSProperty::Normal(vref.value());
+                        self.set_prop_slot(idx, JSProperty::Normal(vref.value()));
                     }
                 }
 
@@ -142,7 +211,7 @@ impl Object {
         } else {
             // normal property
             if flags & JS_PROP_HAS_VALUE != 0 {
-                self.prop_values[idx] = JSProperty::Normal(val);
+                self.set_prop_slot(idx, JSProperty::Normal(val));
             }
 
             // update `writable` flag
@@ -197,9 +266,7 @@ impl Object {
             // );
         } else {
             // alreay is getset type
-            if let JSProperty::GetSet { getter, setter } =
-                self.prop_values.get(idx).as_ref().unwrap()
-            {
+            if let JSProperty::GetSet { getter, setter } = self.prop_slot(idx) {
                 if unlikely(
                     prs_flags & JS_PROP_CONFIGURABLE == 0
                         && ((flags & JS_PROP_HAS_GET != 0 && new_getter != *getter)
@@ -223,11 +290,13 @@ impl Object {
             }
         }
 
-        // modify property value
-        self.prop_values[idx] = JSProperty::GetSet {
-            getter: new_getter.or(old_getter),
-            setter: new_setter.or(old_setter),
-        };
+        self.set_prop_slot(
+            idx,
+            JSProperty::GetSet {
+                getter: new_getter.or(old_getter),
+                setter: new_setter.or(old_setter),
+            },
+        );
 
         Ok(true)
     }

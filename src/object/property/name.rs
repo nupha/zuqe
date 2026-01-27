@@ -98,7 +98,7 @@ impl Object {
                     // name space (implicit GetOwnProperty)
                     if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF
                         && flags & (JS_GPN_ENUM_ONLY | JS_GPN_SET_ENUM) != 0
-                        && let JSProperty::VarRef(vref) = self.prop_values.get(idx).unwrap()
+                        && let JSProperty::VarRef(vref) = self.prop_slot(idx)
                         && unlikely(vref.value().is_uninitialized())
                     {
                         JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);

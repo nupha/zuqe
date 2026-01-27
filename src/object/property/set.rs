@@ -79,7 +79,7 @@ impl Object {
                         }
 
                         if unlikely(prs_flags & JS_PROP_WRITABLE != 0) {
-                            cur_obj.prop_values[idx] = JSProperty::Normal(val);
+                            cur_obj.set_prop_slot(idx, JSProperty::Normal(val));
                             return Ok(true);
                         } else {
                             fail_read_only!(prop)
@@ -89,9 +89,7 @@ impl Object {
                     JS_PROP_VARREF if target.is_some_and(|o| cur_obj == o) => {
                         if unlikely(cur_obj.class_id() == JS_CLASS_MODULE_NS) {
                             fail_read_only!(prop)
-                        } else if let Some(JSProperty::VarRef(vref)) =
-                            cur_obj.prop_values.get_mut(idx)
-                        {
+                        } else if let JSProperty::VarRef(vref) = cur_obj.prop_slot_mut(idx) {
                             vref.set_value(val);
                             return Ok(true);
                         } else {
@@ -100,8 +98,7 @@ impl Object {
                     }
 
                     JS_PROP_GETSET => {
-                        let gs = &cur_obj.prop_values[idx];
-                        return if let JSProperty::GetSet { setter, .. } = gs {
+                        return if let JSProperty::GetSet { setter, .. } = cur_obj.prop_slot(idx) {
                             call_setter(ctx, *setter, target.unwrap_or(*self).into(), val, flags)
                         } else {
                             unreachable!()
@@ -110,12 +107,7 @@ impl Object {
 
                     JS_PROP_LAZYINIT => {
                         let this = cur_obj;
-                        unsafe {
-                            cur_obj
-                                .prop_values
-                                .get_unchecked_mut(idx)
-                                .instantiate(this, idx, this)?;
-                        }
+                        cur_obj.prop_slot_mut(idx).instantiate(this, idx, this)?;
                         continue 'shape;
                     }
 

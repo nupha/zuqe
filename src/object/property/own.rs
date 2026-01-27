@@ -13,26 +13,6 @@ use crate::{
     value::JSValue,
 };
 
-impl ObjectImpl {
-    /// Grows property values slot to accommodate more properties.
-    /// Takes a new length and extends the array with undefined values if needed.
-    /// Returns error if memory allocation fails.
-    pub(crate) fn grow_prop_value_slots(&mut self, total_length: usize) -> Result<(), i32> {
-        let len = self.prop_values.len();
-        if total_length > len {
-            let delta = total_length - len;
-            self.prop_values.try_reserve_exact(delta).map_err(|_| -1)?;
-
-            // init extended values
-            for _ in 0..delta {
-                self.prop_values.push(JSProperty::default());
-            }
-        }
-
-        Ok(())
-    }
-}
-
 impl Object {
     /// Add an own property, and grow object's prop value slots.
     /// This method adds the new prop is to shape, it assumes the new prop does not exist in shape yet.
@@ -46,8 +26,7 @@ impl Object {
     ) -> Result<(), i32> {
         let len = self.modify_shape_add_prop(ctx, prop, prop_flags)?;
         debug_assert_eq!(self.prop_values.len(), len);
-
-        self.prop_values[len - 1] = value;
+        self.set_prop_slot(len - 1, value);
         Ok(())
     }
 
@@ -127,11 +106,11 @@ impl Object {
 
             match prs_flags & JS_PROP_TMASK {
                 JS_PROP_NORMAL => {
-                    desc.value = self.prop_values[idx].value(ctx, JSValue::UNDEFINED)?;
+                    desc.value = self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?;
                 }
                 JS_PROP_GETSET => {
                     desc.flags |= JS_PROP_GETSET;
-                    if let JSProperty::GetSet { getter, setter } = &self.prop_values[idx] {
+                    if let JSProperty::GetSet { getter, setter } = self.prop_slot(idx) {
                         desc.getter = getter.map_or(JSValue::UNDEFINED, JSValue::Object);
                         desc.setter = setter.map_or(JSValue::UNDEFINED, JSValue::Object);
                     } else {
@@ -139,7 +118,7 @@ impl Object {
                     }
                 }
                 JS_PROP_VARREF => {
-                    desc.value = self.prop_values[idx].value(ctx, JSValue::UNDEFINED)?;
+                    desc.value = self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?;
                     if unlikely(desc.value.is_uninitialized()) {
                         JS_ThrowReferenceErrorUninitialized(ctx, prop);
                         return Err(-1);
@@ -147,13 +126,8 @@ impl Object {
                 }
                 JS_PROP_LAZYINIT => {
                     // Instantiate lazy object
-                    desc.value = unsafe {
-                        let mut o = *self;
-                        let pr = o.prop_values.get_unchecked_mut(idx);
-
-                        let o = *self;
-                        pr.instantiate(o, idx, o)?
-                    };
+                    let mut o = *self;
+                    o.prop_slot_mut(idx).instantiate(*self, idx, *self)?;
                     continue;
                 }
                 _ => {
@@ -229,7 +203,8 @@ impl Object {
                             None
                         };
                     } else {
-                        arr.prop_values[0] = JSProperty::Normal(JSValue::from(idx + 1));
+                        arr.set_prop_slot(0, JSProperty::Normal(JSValue::from(idx + 1)));
+                        // arr.prop_values[0] = JSProperty::Normal(JSValue::from(idx + 1));
                     }
                 }
 
@@ -243,7 +218,8 @@ impl Object {
             match self.class_id() {
                 JS_CLASS_ARRAY => {
                     // get current `length`
-                    let Ok(arr_len) = self.prop_values[0]
+                    let Ok(arr_len) = self
+                        .prop_slot(0)
                         .value(ctx, JSValue::UNDEFINED)
                         .and_then(|v| v.to_length(ctx))
                     else {

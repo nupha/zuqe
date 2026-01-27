@@ -28,7 +28,7 @@ impl Object {
                 if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
                     match prs_flags & JS_PROP_TMASK {
                         JS_PROP_NORMAL => {
-                            return if let JSProperty::Normal(val) = &cur_obj.prop_values[idx] {
+                            return if let JSProperty::Normal(val) = cur_obj.prop_slot(idx) {
                                 debug_assert!(!val.is_exception());
                                 Ok(*val)
                             } else {
@@ -41,10 +41,9 @@ impl Object {
                             };
                         }
                         JS_PROP_GETSET => {
-                            let pr = &cur_obj.prop_values[idx];
                             return if let JSProperty::GetSet {
                                 getter: Some(fun), ..
-                            } = pr
+                            } = cur_obj.prop_slot(idx)
                             {
                                 fun.call(ctx, this_obj, &[])
                             } else {
@@ -52,8 +51,7 @@ impl Object {
                             };
                         }
                         JS_PROP_VARREF => {
-                            let pr = &cur_obj.prop_values[idx];
-                            let val = pr.value(ctx, this_obj)?;
+                            let val = cur_obj.prop_slot(idx).value(ctx, this_obj)?;
                             return if unlikely(val.is_uninitialized()) {
                                 JS_ThrowReferenceErrorUninitialized(ctx, prop);
                                 Err(-1)
@@ -64,7 +62,7 @@ impl Object {
                         JS_PROP_LAZYINIT => {
                             // instantiate lazy object, and redo
                             let o = cur_obj;
-                            cur_obj.prop_values[idx].instantiate(o, idx, *self)?;
+                            cur_obj.prop_slot_mut(idx).instantiate(o, idx, *self)?;
                             continue 'redo;
                         }
                         _ => unreachable!(),

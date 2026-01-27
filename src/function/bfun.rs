@@ -251,7 +251,7 @@ pub(crate) fn get_func_name(func_obj: Object) -> Option<String> {
     if let Some((idx, prs_flags)) = func_obj.find_shape_property(Atom::CONST_name)
         && prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL
     {
-        if let Some(JSProperty::Normal(JSValue::String(s))) = func_obj.prop_values.get(idx) {
+        if let JSProperty::Normal(JSValue::String(s)) = func_obj.prop_slot(idx) {
             return Some(s.content().encode_utf8(false).into_owned());
         } else {
             #[cfg(debug_assertions)]

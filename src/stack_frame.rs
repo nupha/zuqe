@@ -129,7 +129,8 @@ impl Drop for StackFrame {
             let pid = self.gc_scoped_part_id;
             let mut rt = self.rt();
             let heap = rt.gc_heap_mut();
-            heap.collect_garbage(pid);
+            heap.promote_all(pid);
+            // heap.collect_garbage(pid);
             heap.remove_partition(pid);
         }
     }
@@ -140,7 +141,7 @@ impl StackFrame {
     pub(crate) fn new(func_obj: Object, mode: ExecMode) -> Self {
         Self {
             prev: std::ptr::null_mut(),
-            func_obj: func_obj.into(),
+            func_obj,
             mode,
 
             local_buf: Vec::new(),
