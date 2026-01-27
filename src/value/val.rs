@@ -393,6 +393,18 @@ impl JSValue {
         let tag = unsafe { *<*const _>::from(self).cast::<u8>() };
         h ^ (tag as u32) // XOR
     }
+
+    /// check if value is gc aware
+    #[inline]
+    pub fn is_gc(&self) -> bool {
+        match self {
+            Self::Object(_) | Self::Symbol(_) | Self::Bytecode(_) | Self::Module(_) => true,
+            Self::String(s) => {
+                s.rt().is_some() // for non-const atom
+            }
+            _ => false,
+        }
+    }
 }
 
 pub(crate) const HINT_STRING: i32 = 0;

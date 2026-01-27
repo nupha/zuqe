@@ -98,6 +98,19 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
     let (promise, resolving_funcs) = Promise::create(&ctx)?;
 
+    // To avoid gc collect intermediate resolving_funcs, put it to root temporarily
+    let mut rt_ptr = ctx.rt_ptr();
+    {
+        let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), true);
+        heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), true);
+    }
+    crate::defer!({
+        let heap = rt_ptr.gc_heap_mut();
+        heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), false);
+        heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), false);
+    });
+
     let this_val = cc.this();
     let p = unsafe { this_val.as_object_unchecked() };
 

@@ -806,7 +806,12 @@ impl Bytecode {
                     }
                     OpCode::RETURN => {
                         SP_GO!(-1);
-                        break State::Done(SP_VAL!(0), false);
+                        let ret = SP_VAL!(0);
+
+                        if rt.gc_req && ret.is_gc() {
+                            rt.gc_req = false; // value `ret` is intermediate (not on stack) now. don't gc
+                        }
+                        break State::Done(ret, false);
                     }
                     OpCode::RETURN_UNDEF => {
                         break State::Done(JSValue::UNDEFINED, false);
