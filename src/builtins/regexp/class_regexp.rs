@@ -59,7 +59,7 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
         // called as a function
         if pat_is_regexp && flags1.is_undefined() {
             let ctor = pat.get_property(ctx, Atom::CONST_constructor)?;
-            if ctor.is_same(ctx.current_function()) {
+            if ctor.is_same(ctx.rt_ref().current_function()) {
                 return Ok(pat);
             }
         }

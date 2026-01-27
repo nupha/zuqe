@@ -56,6 +56,16 @@ impl RuntimeImpl {
         Ok(r)
     }
 
+    /// alloc data in gc
+    #[inline]
+    pub fn gc_alloc_legacy<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
+        let r = self.gc_heap.alloc(self.gc_part_id, data)?;
+        if self.gc_part().should_gc() {
+            self.gc_req = true;
+        }
+        Ok(r)
+    }
+
     /// collect garbage.
     pub fn gc_collect(&mut self) -> usize {
         let part_id = self.gc_part_id;

@@ -38,7 +38,7 @@ impl Drop for LocalResource {
 impl LocalResource {
     fn new() -> Self {
         let mut heap = GcHeap::new();
-        let p0 = heap.create_partition("default".to_string(), None);
+        let p0 = heap.create_root_partition(0);
 
         Self {
             runtime_slot: RefCell::new(Vec::with_capacity(1)),

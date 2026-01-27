@@ -79,8 +79,8 @@ impl ContextImpl {
             let cur_func = self
                 .rt_ref()
                 .current_stack_frame()
-                .and_then(|sf| sf.cur_func.as_object_BCFunction())
-                .unwrap(); // <-- Note: current stack function must be a BCFunction object
+                .and_then(|sf| sf.func_obj.as_BCFunction())
+                .unwrap(); // <-- stack function must be a BCFunction object
 
             let bc = cur_func.payload().bytecode();
             let mode = bc.mode();
@@ -206,10 +206,10 @@ impl ContextImpl {
                     this_obj,
                     &rt.current_stack_frame()
                         .unwrap()
-                        .cur_func
-                        .as_object_BCFunction()
+                        .func_obj
+                        .as_BCFunction()
                         .copied()
-                        .unwrap() // <-- current stack frame function must be a BCFunction
+                        .unwrap() // <-- stack function must be a BCFunction
                         .payload()
                         .var_refs,
                     rt.current_stack_frame_mut(),

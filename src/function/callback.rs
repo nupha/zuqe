@@ -96,25 +96,25 @@ unsafe impl GcTracable for NFuncPayload {
 impl NFuncPayload {
     pub fn class_call(
         ctx: Context,
-        func_obj: JSValue,
+        func: JSValue,
         mut this_obj: JSValue,
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
         let mut rt = ctx.rt_ptr();
+        let func_obj = Object::try_from(func).unwrap();
 
-        let (callback, arg_length, magic, realm) = if let ObjectPayload::C_FUNCTION(c) =
-            unsafe { func_obj.as_object_unchecked().payload() }
-        {
-            (
-                c.handler,
-                c.length,
-                c.magic,
-                ContextPtr::from(c.realm.upgrade(rt.gc_heap()).unwrap()),
-            )
-        } else {
-            unreachable!()
-        };
+        let (callback, arg_length, magic, realm) =
+            if let ObjectPayload::C_FUNCTION(c) = func_obj.payload() {
+                (
+                    c.handler,
+                    c.length,
+                    c.magic,
+                    ContextPtr::from(c.realm.upgrade(rt.gc_heap()).unwrap()),
+                )
+            } else {
+                unreachable!()
+            };
 
         // better to always check stack overflow
         if js_check_stack_overflow(&rt, std::mem::size_of::<JSValue>() * arg_length as usize) {
@@ -135,36 +135,32 @@ impl NFuncPayload {
 
         let realm_cx = &*realm;
 
-        sf.arg_count = args.len() as _;
-        sf.arg_real_count = args.len() as _;
-        sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
+        if args.len() < arg_length as usize {
+            // copy arguments to local buffer
+            sf.local_buf
+                .try_reserve_exact(arg_length as usize)
+                .map_err(|_| {
+                    realm_cx.throw_out_of_memory();
+                    -1
+                })?;
 
-        // if args.len() < arg_length as usize {
-        //     // copy arguments to local buffer
-        //     sf.local_buf
-        //         .try_reserve_exact(arg_length as usize)
-        //         .map_err(|_| {
-        //             realm_cx.throw_out_of_memory();
-        //             -1
-        //         })?;
+            // copy pass in args, cloned
+            sf.local_buf.extend(args.iter().copied());
+            // padding with undefined
+            sf.local_buf.extend(std::iter::repeat_n(
+                JSValue::UNDEFINED,
+                arg_length as usize - args.len(),
+            ));
+            debug_assert_eq!(sf.local_buf.len(), arg_length as usize);
 
-        //     // copy pass in args, cloned
-        //     sf.local_buf.extend(args.iter().copied());
-        //     // padding with undefined
-        //     sf.local_buf.extend(std::iter::repeat_n(
-        //         JSValue::UNDEFINED,
-        //         arg_length as usize - args.len(),
-        //     ));
-        //     debug_assert_eq!(sf.local_buf.len(), arg_length as usize);
-
-        //     sf.arg_count = arg_length as _;
-        //     sf.arg_real_count = args.len() as _;
-        //     sf.arg_base_ptr = sf.local_buf.as_mut_ptr();
-        // } else {
-        //     sf.arg_count = args.len() as _;
-        //     sf.arg_real_count = args.len() as _;
-        //     sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
-        // }
+            sf.arg_count = arg_length as _;
+            sf.arg_real_count = args.len() as _;
+            sf.arg_base_ptr = sf.local_buf.as_mut_ptr();
+        } else {
+            sf.arg_count = args.len() as _;
+            sf.arg_real_count = args.len() as _;
+            sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
+        }
 
         let ret_val: JSResult = match callback {
             Callback::Func(f) => {
@@ -229,9 +225,6 @@ impl NFuncPayload {
                 Ok(JSValue::from(unsafe { f(d1, d2) }))
             }
         };
-
-        // THIS IS DONE in defer!()
-        // rt.current_stack_frame = sf.prev;
 
         ret_val
     }

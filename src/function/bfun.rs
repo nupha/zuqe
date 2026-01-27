@@ -245,29 +245,25 @@ impl JSValue {
     }
 }
 
-pub fn get_func_name(func: JSValue) -> Option<String> {
+pub(crate) fn get_func_name(func_obj: Object) -> Option<String> {
     // in order to avoid executing arbitrary code during the stack trace generation,
     // we only look at simple 'name' properties containing a string.
-    if let Some(obj) = func.as_object() {
-        if let Some((idx, prs_flags)) = obj.find_shape_property(Atom::CONST_name)
-            && prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL
-        {
-            if let Some(JSProperty::Normal(JSValue::String(s))) = obj.prop_values.get(idx) {
-                return Some(s.content().encode_utf8(false).into_owned());
-            } else {
-                #[cfg(debug_assertions)]
-                unreachable!();
-                #[cfg(not(debug_assertions))]
-                unsafe {
-                    std::hint::unreachable_unchecked();
-                }
+    if let Some((idx, prs_flags)) = func_obj.find_shape_property(Atom::CONST_name)
+        && prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL
+    {
+        if let Some(JSProperty::Normal(JSValue::String(s))) = func_obj.prop_values.get(idx) {
+            return Some(s.content().encode_utf8(false).into_owned());
+        } else {
+            #[cfg(debug_assertions)]
+            unreachable!();
+            #[cfg(not(debug_assertions))]
+            unsafe {
+                std::hint::unreachable_unchecked();
             }
         }
-
-        None
-    } else {
-        None
     }
+
+    None
 }
 
 /// define `length` and `name` properties on function object `func_obj`

@@ -4,13 +4,15 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcTracable, GcWeak};
+use gc_lite::{GcPartitionId, GcTracable, GcWeak};
 
 use crate::{
+    Object,
     builtins::iterator::ObjectIter,
     context::ContextImpl,
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateImpl, JSVarRef},
+    runtime::RuntimePtr,
     value::JSValue,
 };
 
@@ -28,18 +30,17 @@ bitflags::bitflags! {
     }
 }
 
-/// Represents a call stack frame in JavaScript execution, tracking function state and local variables.
-/// StackFrame is usually allocated on stack, not heap.
+/// A stack frame to execute bytecode or native function,
+/// holding function state, arguments, local variables and stack values.
 #[derive(Debug)]
 pub struct StackFrame {
-    /// Pointer to parent stack frame (NULL means top)
+    /// Raw pointer to parent stack frame (NULL means top)
     pub(crate) prev: *mut Pin<Self>,
 
-    /// Currently executing function, could be:
+    /// Associated function of this stack frame, could be:
     /// - Bytecode Function object
     /// - Native function object
-    /// - undefined, which means stack frame is detached
-    pub(crate) cur_func: JSValue,
+    pub(crate) func_obj: Object,
 
     /// Buffer storing arguments, local variables, and stack space
     pub(crate) local_buf: Vec<JSValue>,
@@ -74,13 +75,16 @@ pub struct StackFrame {
     /// only valid if stack frame is for an AsyncStateImpl
     pub(crate) async_state: GcWeak<AsyncStateImpl>,
 
+    /// gc partitionid for stack frame scoped gc allocs
+    pub(crate) gc_scoped_part_id: GcPartitionId,
+
     _mark: PhantomPinned,
 }
 
 unsafe impl GcTracable for StackFrame {
     #[inline]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.cur_func.trace(tracer);
+        self.func_obj.trace(tracer);
 
         // trace args
         {
@@ -115,16 +119,28 @@ unsafe impl GcTracable for StackFrame {
 impl PartialEq for StackFrame {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id()
+        std::ptr::addr_eq(self, other)
+    }
+}
+
+impl Drop for StackFrame {
+    fn drop(&mut self) {
+        if self.gc_scoped_part_id != GcPartitionId::NONE {
+            let pid = self.gc_scoped_part_id;
+            let mut rt = self.rt();
+            let heap = rt.gc_heap_mut();
+            heap.collect_garbage(pid);
+            heap.remove_partition(pid);
+        }
     }
 }
 
 impl StackFrame {
     /// Create new StackFrame. It's allocated on stack.
-    pub(crate) fn new(func_obj: JSValue, mode: ExecMode) -> Self {
+    pub(crate) fn new(func_obj: Object, mode: ExecMode) -> Self {
         Self {
             prev: std::ptr::null_mut(),
-            cur_func: func_obj,
+            func_obj: func_obj.into(),
             mode,
 
             local_buf: Vec::new(),
@@ -139,13 +155,31 @@ impl StackFrame {
             cur_pc_offset: 0,
             cur_sp_offset: 0,
 
+            gc_scoped_part_id: GcPartitionId::NONE,
+
             _mark: PhantomPinned,
         }
     }
 
+    /// runtime
     #[inline(always)]
-    pub fn id(&self) -> usize {
-        self as *const Self as usize
+    fn rt(&self) -> RuntimePtr {
+        self.func_obj.rt()
+    }
+
+    /// get or initialize scoped gc partition for this stack frame. returns partition id.
+    pub(crate) fn gc_scoped_partition(&mut self) -> GcPartitionId {
+        if self.gc_scoped_part_id == GcPartitionId::NONE {
+            let parent = if let Some(up) = unsafe { self.prev.cast::<StackFrame>().as_mut() } {
+                up.gc_scoped_partition()
+            } else {
+                self.rt().gc_part_id()
+            };
+
+            self.gc_scoped_part_id = self.rt().gc_heap_mut().create_sub_partition(parent);
+        }
+
+        self.gc_scoped_part_id
     }
 
     /// Returns the base pointer of the stack in this frame.
@@ -294,7 +328,6 @@ impl StackFrame {
         }
 
         // switch back to previous stack frame
-        // ctx.rt().cur_stack_frame = self.prev;
         ctx.rt_ptr().pop_stack_frame();
     }
 

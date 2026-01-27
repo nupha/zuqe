@@ -123,7 +123,7 @@ impl ContextImpl {
         let add_backtrace = !rt.in_out_of_memory
             && rt
                 .current_stack_frame()
-                .is_none_or(|sf| sf.cur_func.as_object_BCFunction().is_some());
+                .is_none_or(|sf| sf.func_obj.as_BCFunction().is_some());
 
         self.throw_error_internal(kind, message, add_backtrace);
     }
@@ -259,7 +259,7 @@ impl ContextImpl {
             if backtrace_flags & JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL != 0 {
                 backtrace_flags &= !JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
             } else {
-                let str1 = get_func_name(sf.cur_func).map_or(Cow::Borrowed("<anonymous>"), |x| {
+                let str1 = get_func_name(sf.func_obj).map_or(Cow::Borrowed("<anonymous>"), |x| {
                     if x.is_empty() {
                         Cow::Borrowed("<anonymous>")
                     } else {
@@ -271,11 +271,7 @@ impl ContextImpl {
 
                 let mut backtrace_barrier = false;
 
-                if let Some(bc) = sf
-                    .cur_func
-                    .as_object_BCFunction()
-                    .map(|f| f.payload().bytecode())
-                {
+                if let Some(bc) = sf.func_obj.as_BCFunction().map(|f| f.payload().bytecode()) {
                     backtrace_barrier = bc.attrs.backtrace_barrier;
 
                     if let Some(debug) = bc.debug.as_ref() {

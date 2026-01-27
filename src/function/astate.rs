@@ -181,7 +181,7 @@ impl AsyncStateImpl {
         let throw_flag = self.throw_flag;
 
         // state has a dedicated stack frame for async function
-        let mut func = *self.frame.cur_func.as_object_BCFunction().unwrap();
+        let mut func = *self.frame.func_obj.as_BCFunction().unwrap();
         let pc_offset = self.frame.cur_pc_offset;
         let sp_offset = self.frame.cur_sp_offset;
         debug_assert!(sp_offset >= 0);

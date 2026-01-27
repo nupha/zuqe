@@ -43,7 +43,8 @@ pub struct RuntimeImpl {
     pub(crate) stack_size: usize,  /* in bytes, 0 if no limit */
     pub(crate) stack_limit: usize, /* lower stack limit */
     pub(crate) stack_top: usize,
-    pub(crate) cur_stack_frame: *mut Pin<StackFrame>,
+    /// current stack frame to execute bytecode or native function
+    cur_stack_frame: *mut Pin<StackFrame>,
 
     /// current exception value
     pub(crate) cur_exception: JSValue,
@@ -117,7 +118,7 @@ impl RuntimeImpl {
     pub(super) fn new() -> Result<Box<Self>, i32> {
         // create gc heap and partition for this runtime
         let mut gc_heap = GcHeap::new();
-        let gc_part_id = gc_heap.create_partition("runtime".to_string(), None);
+        let gc_part_id = gc_heap.create_root_partition(0);
         let gc_part = {
             let par = gc_heap.partition_mut(gc_part_id).unwrap();
             par.set_memory_limit(0); // no memory limit
@@ -266,16 +267,23 @@ impl RuntimeImpl {
         self.cur_exception = obj;
     }
 
-    /// get current stack frame
+    /// get stack frame for current running function
     #[inline(always)]
     pub(crate) const fn current_stack_frame(&self) -> Option<&StackFrame> {
         unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref() }
     }
 
-    /// get current stack frame
+    /// get stack frame for current running function
     #[inline(always)]
     pub(crate) const fn current_stack_frame_mut(&mut self) -> Option<&mut StackFrame> {
         unsafe { self.cur_stack_frame.cast::<StackFrame>().as_mut() }
+    }
+
+    /// get current running function
+    pub(crate) fn current_function(&self) -> JSValue {
+        self.current_stack_frame()
+            .map(|s| s.func_obj.into())
+            .unwrap_or(JSValue::UNDEFINED)
     }
 
     /// Pushes a new stack frame onto the execution stack
@@ -313,6 +321,8 @@ impl RuntimeImpl {
     }
 
     fn finalize(&mut self) {
+        debug_assert!(self.cur_stack_frame.is_null());
+
         self.cur_exception = JSValue::UNDEFINED;
         self.context_list.clear();
 

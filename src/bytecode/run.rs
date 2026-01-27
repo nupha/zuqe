@@ -445,7 +445,7 @@ impl Bytecode {
                                 }
                             }
                             SpecialObject::ThisFunc => {
-                                SP_PUT!(0, stack_frame.cur_func);
+                                SP_PUT!(0, stack_frame.func_obj.into());
                                 SP_GO!(1);
                             }
                             SpecialObject::NewTarget => {

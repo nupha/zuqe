@@ -498,7 +498,7 @@ pub(super) fn get_script_or_module_name(ctx: &ContextImpl, n_stack_levels: usize
         .map_or(StackFrameParentIter::EMPTY, |f| f.parent_iter(true))
         .skip(n_stack_levels)
     {
-        if let Some(bcf) = sf.cur_func.as_object_BCFunction() {
+        if let Some(bcf) = sf.func_obj.as_BCFunction() {
             let bc = bcf.payload().bytecode();
             if !bc.is_direct_or_indirect_eval {
                 return bc.debug.as_ref().map(|d| d.filename);
