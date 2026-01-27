@@ -67,25 +67,25 @@ impl ObjectImpl {
     #[inline(always)]
     pub(crate) fn set_prop_slot_non_gc(&mut self, idx: usize, p: JSProperty) {
         #[cfg(debug_assertions)]
-        match &p {
-            JSProperty::Normal(v) => debug_assert!(!v.is_gc()),
-            JSProperty::Deleted => {}
-            _ => {
-                panic!("p is gc-aware");
-            }
-        }
-
-        #[cfg(debug_assertions)]
         {
+            match &p {
+                JSProperty::Normal(v) => debug_assert!(!v.is_gc()),
+                JSProperty::Deleted => {}
+                _ => {
+                    panic!("expect non-gc property");
+                }
+            }
+
             self.prop_values[idx] = p;
         }
+
         #[cfg(not(debug_assertions))]
         unsafe {
             *self.prop_values.get_unchecked_mut(idx) = p;
         }
     }
 
-    /// set property at slot `idx`, and check gc partition.
+    /// set property at slot `idx`, then check and optionally promote gc partition.
     pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
         let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
             JSProperty::Normal(val) => [val.gc_node_ptr(), None],
@@ -110,27 +110,27 @@ impl ObjectImpl {
             *self.prop_values.get_unchecked_mut(idx) = p;
         }
 
+        // check partition
         let mut self_partition = GcPartitionId::NONE;
+        let mut rt = self.rt();
+
         for h in gc_node.into_iter().flatten() {
-            unsafe {
-                if self_partition == GcPartitionId::NONE {
-                    self_partition = GcRef::from_ref_unchecked(self)
+            if self_partition == GcPartitionId::NONE {
+                self_partition = unsafe {
+                    GcRef::from_ref_unchecked(self)
                         .head_ptr()
                         .as_ref()
-                        .get_partition_id();
-                }
+                        .get_partition_id()
+                };
+            }
 
-                let pid = h.as_ref().get_partition_id();
+            let pid = unsafe { h.as_ref().get_partition_id() };
 
-                if self_partition != pid
-                    && self
-                        .rt()
-                        .gc_heap()
-                        .check_partition_ancestor(self_partition, pid)
-                {
-                    // promote node to ancestor partition (where self lives in)
-                    self.rt().gc_heap_mut().promote_to(h, self_partition);
-                }
+            if self_partition != pid && rt.gc_heap().check_partition_ancestor(self_partition, pid) {
+                // promote to ancestor partition (where self lives in)
+                println!("[O.o] gc node {h:p} is referenced from upper partition");
+
+                rt.gc_heap_mut().promote_to(h, self_partition);
             }
         }
     }
