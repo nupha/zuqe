@@ -4,7 +4,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcPartitionId, GcTracable, GcWeak};
+use gc_lite::{GcHead, GcPartitionId, GcTracable, GcWeak};
 
 use crate::{
     Object,
@@ -125,13 +125,10 @@ impl PartialEq for StackFrame {
 
 impl Drop for StackFrame {
     fn drop(&mut self) {
-        if self.gc_scoped_part_id != GcPartitionId::NONE {
-            let pid = self.gc_scoped_part_id;
+        let pid = self.gc_scoped_part_id;
+        if pid != GcPartitionId::NONE {
             let mut rt = self.rt();
-            let heap = rt.gc_heap_mut();
-            heap.promote_all(pid);
-            // heap.collect_garbage(pid);
-            heap.remove_partition(pid);
+            rt.gc_heap_mut().remove_partition(pid);
         }
     }
 }
@@ -342,6 +339,26 @@ impl StackFrame {
             },
             _mark: PhantomData,
         }
+    }
+
+    pub fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {
+        let args_iter = unsafe {
+            std::slice::from_raw_parts(
+                self.arg_base_ptr,
+                std::cmp::max(self.arg_real_count, self.arg_count) as usize,
+            )
+            .iter()
+            .filter_map(|v| v.gc_node_ptr())
+        };
+        let vars_iter = self.var_values().iter().filter_map(|v| v.gc_node_ptr());
+        let stack_iter = self.stack_values().iter().filter_map(|v| v.gc_node_ptr());
+        let var_refs_iter = self.var_ref_list.iter().map(|v| v.gc_ref().head_ptr());
+
+        std::iter::once(self.func_obj.gc_ref().head_ptr())
+            .chain(args_iter)
+            .chain(vars_iter)
+            .chain(stack_iter)
+            .chain(var_refs_iter)
     }
 }
 

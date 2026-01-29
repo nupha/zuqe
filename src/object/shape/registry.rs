@@ -208,6 +208,10 @@ impl ShapeRegistry {
         None
     }
 
+    pub(crate) fn gc_nodes(&self) -> impl Iterator<Item = &GcRef<ShapeImpl>> {
+        self.lut.values().flat_map(|lst| lst.iter())
+    }
+
     pub fn clear(&mut self) {
         self.lut.clear();
     }

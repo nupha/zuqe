@@ -1,6 +1,6 @@
 use gc_lite::{GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTracer};
 
-use crate::{object::ShapeImpl, runtime::RuntimeImpl};
+use crate::{object::ShapeImpl, runtime::RuntimeImpl, stack_frame::StackFrame};
 
 impl RuntimeImpl {
     pub fn gc_set_threshold(&mut self, threshold: usize) {
@@ -25,53 +25,96 @@ impl RuntimeImpl {
 
     /// top gc partition for runtime
     #[inline(always)]
-    pub(crate) const fn gc_part(&self) -> &GcPartition {
+    pub(crate) const fn gc_root_part(&self) -> &GcPartition {
         debug_assert!(!self.gc_part.is_null());
         unsafe { &*self.gc_part }
     }
 
     /// top gc partition for runtime
     #[inline(always)]
-    pub(crate) const fn gc_part_mut(&mut self) -> &mut GcPartition {
+    pub(crate) const fn gc_root_part_mut(&mut self) -> &mut GcPartition {
         debug_assert!(!self.gc_part.is_null());
         unsafe { &mut *self.gc_part }
     }
 
     pub fn gc_memory_limit(&self) -> usize {
-        self.gc_part().memory_limit()
+        self.gc_root_part().memory_limit()
     }
 
     pub fn gc_set_memory_limit(&mut self, limit: usize) -> usize {
-        self.gc_part_mut().set_memory_limit(limit)
+        self.gc_root_part_mut().set_memory_limit(limit)
     }
 
-    /// alloc data in gc root partition
-    #[inline]
-    pub fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
-        let r = self.gc_heap.alloc(self.gc_part_id, data)?;
-        if self.gc_part().should_gc() {
+    /// alloc data in given gc partition
+    pub(crate) fn gc_alloc_in<T: GcTracable>(
+        &mut self,
+        partition_id: GcPartitionId,
+        data: T,
+    ) -> Result<GcRef<T>, (GcError, T)> {
+        let r = self.gc_heap.alloc(partition_id, data)?;
+
+        #[cfg(debug_assertions)] // O.o
+        {
+            if partition_id != GcPartitionId(1) {
+                let ty = self.gc_heap().get_node_type(r.head_ptr());
+                println!(
+                    "[O.o][{partition_id:?}] alloc {:?}, {}",
+                    r.head_ptr(),
+                    ty.type_name
+                );
+            }
+        }
+
+        if self.gc_root_part().should_gc() {
             self.gc_req = true;
         }
         Ok(r)
     }
 
-    /// collect garbage.
-    pub fn gc_collect(&mut self) -> usize {
+    /// alloc data in stack frame scoped gc partition
+    fn gc_alloc_scoped<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
+        let part_id = if let Some(sf) = self.current_stack_frame_mut() {
+            sf.gc_scoped_partition()
+        } else {
+            self.gc_part_id
+        };
+        self.gc_alloc_in(part_id, data)
+    }
+
+    /// alloc data in gc
+    #[inline(always)]
+    pub fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
+        // self.gc_alloc_in(self.gc_part_id)
+        self.gc_alloc_scoped(data)
+    }
+
+    /// collect garbage root.
+    pub(crate) fn gc_collect_root(&mut self) -> usize {
         let part_id = self.gc_part_id;
 
         //
         // mark
         //
         {
-            let mut tracer = GcTracer::new();
+            // self.gc_heap_mut().clear_marks(part_id);
 
-            self.gc_heap.mark_roots(part_id, &mut tracer);
-            self.cur_exception.trace(&mut tracer);
-            self.shape_registry.trace(&mut tracer);
+            let mut tracer = GcTracer::new(self.gc_heap(), part_id);
+            tracer.trace_roots(GcTracer::MARK_FUNC);
+            if let Some(x) = self.cur_exception.gc_node_ptr() {
+                tracer.trace(x, GcTracer::MARK_FUNC);
+            }
+            tracer.trace_iter(
+                self.shape_registry.gc_nodes().map(|x| x.head_ptr()),
+                GcTracer::MARK_FUNC,
+            );
 
-            // mark nodes in stack-frame chain
+            // self.gc_heap.mark_roots(part_id, &mut tracer);
+            // self.cur_exception.trace(&mut tracer);
+            // self.shape_registry.trace(&mut tracer);
+
             if let Some(sf) = self.current_stack_frame() {
-                sf.trace(&mut tracer);
+                tracer.trace_iter(sf.gc_nodes(), GcTracer::MARK_FUNC);
+                //sf.trace(&mut tracer);
             }
 
             // mark pending jobs, and currently running job
@@ -89,7 +132,7 @@ impl RuntimeImpl {
                 f(&mut tracer);
             }
 
-            tracer.commit_marks(&self.gc_heap);
+            tracer.commit();
         }
 
         //
@@ -97,92 +140,98 @@ impl RuntimeImpl {
         //
         let mut freed = 0;
         if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
-            // GC: ShapImpl must be freed at last
-            freed = self
-                .gc_heap
-                .sweep_ex(part_id, false, None, Some(&[type_shape]), true);
+            // Shape must be freed at last
+            freed = self.gc_heap.sweep_with(part_id, |node| {
+                let gctype = node.gc_type_id();
+                if !node.is_marked() {
+                    gctype != type_shape
+                } else {
+                    if gctype != type_shape {
+                        node.set_marked(false); // clear mark
+                    }
+                    false
+                }
+            });
         }
+        freed += self
+            .gc_heap
+            .sweep_with(part_id, GcHeap::SWEEP_UNMARKED_FUNC);
 
-        freed += self.gc_heap.sweep_ex(part_id, false, None, None, false);
+        // let mut freed = 0;
+        // if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
+        //     // GC: ShapImpl must be freed at last
+        //     freed = self
+        //         .gc_heap
+        //         .sweep_ex(part_id, false, None, Some(&[type_shape]), true);
+        // }
+        // freed += self.gc_heap.sweep_ex(part_id, false, None, None, false);
 
         // update gc threshold
-        let used = self.gc_part().memory_used();
-        self.gc_part_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
+        let used = self.gc_root_part().memory_used();
+        self.gc_root_part_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
 
         self.gc_req = false;
         freed
     }
 
-    /// EXPERIMENTAL: alloc data in stack frame scoped gc partition
-    #[inline]
-    pub(crate) fn gc_alloc_scoped<T: GcTracable>(
-        &mut self,
-        data: T,
-    ) -> Result<GcRef<T>, (GcError, T)> {
-        let part_id = if let Some(sf) = self.current_stack_frame_mut() {
-            sf.gc_scoped_partition()
-        } else {
-            self.gc_part_id
-        };
-
-        let r = self.gc_heap.alloc(part_id, data)?;
-        if self.gc_part().should_gc() {
-            self.gc_req = true;
+    pub(crate) fn gc_collect_scoped(&mut self, stack_frame: &StackFrame) -> usize {
+        let part_id = stack_frame.gc_scoped_part_id;
+        if part_id == GcPartitionId::NONE {
+            return 0;
         }
-        Ok(r)
-    }
 
-    /// EXPERIMENTAL: scoped gc
-    pub(crate) fn gc_collect_scoped(&mut self, part_id: GcPartitionId) -> usize {
-        debug_assert!(part_id != GcPartitionId::NONE && part_id != self.gc_part_id);
-
-        //
         // mark
-        //
-        {
-            let mut tracer = GcTracer::new();
+        let mut tr = GcTracer::new(self.gc_heap(), part_id);
+        tr.trace_roots(GcTracer::MARK_FUNC);
+        tr.trace_iter(stack_frame.gc_nodes(), GcTracer::MARK_FUNC);
+        tr.trace_iter(
+            self.shape_registry.gc_nodes().map(|x| x.head_ptr()),
+            GcTracer::MARK_FUNC,
+        );
 
-            self.gc_heap.mark_roots(part_id, &mut tracer);
-
-            // mark nodes in stack-frame chain
-            if let Some(sf) = self.current_stack_frame() {
-                sf.trace(&mut tracer);
-            }
-
-            // mark pending jobs, and currently running job
-            for cx in self.context_list.iter() {
-                cx.job_list.iter().for_each(|x| {
-                    x.trace(&mut tracer);
-                });
-            }
-            if let Some(f) = self.gc_cur_job_trace.as_ref() {
-                f(&mut tracer);
-            }
-
-            // user defined marks
-            if let Some(f) = self.gc_user_trace.as_ref() {
-                f(&mut tracer);
-            }
-
-            tracer.commit_marks(&self.gc_heap);
+        // mark pending jobs, and currently running job
+        for cx in self.context_list.iter() {
+            cx.job_list.iter().for_each(|x| {
+                x.trace(&mut tr);
+            });
+        }
+        if let Some(f) = self.gc_cur_job_trace.as_ref() {
+            f(&mut tr);
         }
 
-        //
+        // user defined marks
+        if let Some(f) = self.gc_user_trace.as_ref() {
+            f(&mut tr);
+        }
+        tr.commit();
+
         // sweep
-        //
-        let mut freed = 0;
-        if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
-            // GC: ShapImpl must be freed at last
-            freed = self
-                .gc_heap
-                .sweep_ex(part_id, false, None, Some(&[type_shape]), true);
-        }
+        let freed = self
+            .gc_heap_mut()
+            .sweep_with(part_id, GcHeap::SWEEP_UNMARKED_FUNC);
 
-        freed += self.gc_heap.sweep_ex(part_id, false, None, None, false);
+        // let mut freed = 0;
+        // if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
+        //     // Shape must be freed at last
+        //     freed = self.gc_heap.sweep_with(part_id, |node| {
+        //         let gctype = node.type_id();
+        //         if !node.is_marked() {
+        //             gctype != type_shape
+        //         } else {
+        //             if gctype != type_shape {
+        //                 node.set_marked(false); // clear mark
+        //             }
+        //             false
+        //         }
+        //     });
+        // }
+        // freed += self
+        //     .gc_heap
+        //     .sweep_with(part_id, GcHeap::SWEEP_UNMARKED_FUNC);
 
         // update gc threshold
-        let used = self.gc_part().memory_used();
-        self.gc_part_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
+        let used = self.gc_root_part().memory_used();
+        self.gc_root_part_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
 
         self.gc_req = false;
         freed

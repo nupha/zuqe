@@ -334,12 +334,15 @@ impl RuntimeImpl {
 
         if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
             // purge all gc objects except ShapeImpl
-            self.gc_heap
-                .sweep_ex(part_id, true, None, Some(&[type_shape]), true);
+            self.gc_heap_mut()
+                .sweep_with(part_id, |node| node.gc_type_id() != type_shape);
+
+            // self.gc_heap
+            //     .sweep_ex(part_id, true, None, Some(&[type_shape]), true);
         }
 
         // purge all rest nodes
-        self.gc_heap.sweep_ex(part_id, true, None, None, false);
+        self.gc_heap_mut().sweep_with(part_id, |_| true);
 
         debug_assert_eq!(
             self.gc_heap().partition_node_iter(part_id).count(),

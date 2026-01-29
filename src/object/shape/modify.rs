@@ -45,7 +45,7 @@ impl ObjectImpl {
         debug_assert_eq!(self.prop_values.len(), old_len);
 
         let new_len = old_len + 1;
-        self.grow_prop_slots(new_len).map_err(|_| {
+        self.try_extend_prop_slot(1).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;

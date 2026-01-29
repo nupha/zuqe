@@ -18,68 +18,36 @@ use super::{
 };
 
 impl ObjectImpl {
-    /// Grows property values slot.
-    /// Returns error if memory allocation fails.
-    pub(crate) fn grow_prop_slots(&mut self, total_length: usize) -> Result<(), i32> {
-        let len = self.prop_values.len();
-        if total_length > len {
-            let delta = total_length - len;
-            self.prop_values.try_reserve_exact(delta).map_err(|_| -1)?;
-
-            // extend prop values slot
-            for _ in 0..delta {
-                self.add_prop_slot(JSProperty::default());
-            }
-        }
-
-        Ok(())
-    }
-
     /// get property slot at `idx`.
     /// in case idx is out of range, behaviour is undefined
     #[inline(always)]
     pub(crate) fn prop_slot(&self, idx: usize) -> &JSProperty {
-        #[cfg(debug_assertions)]
-        {
-            &self.prop_values[idx]
-        }
-        #[cfg(not(debug_assertions))]
-        unsafe {
-            self.prop_values.get_unchecked(idx)
-        }
+        debug_assert!(idx < self.prop_values.len());
+        unsafe { self.prop_values.get_unchecked(idx) }
     }
 
     /// get property slot at `idx`.
     /// in case idx is out of range, behaviour is undefined
     #[inline(always)]
     pub(crate) fn prop_slot_mut(&mut self, idx: usize) -> &mut JSProperty {
-        #[cfg(debug_assertions)]
-        {
-            &mut self.prop_values[idx]
-        }
-        #[cfg(not(debug_assertions))]
-        unsafe {
-            self.prop_values.get_unchecked_mut(idx)
-        }
+        debug_assert!(idx < self.prop_values.len());
+        unsafe { self.prop_values.get_unchecked_mut(idx) }
     }
 
     /// set property at slot `idx` to non-gc
     #[inline(always)]
     pub(crate) fn set_prop_slot_non_gc(&mut self, idx: usize, p: JSProperty) {
-        #[cfg(debug_assertions)]
-        {
-            match &p {
-                JSProperty::Normal(v) => debug_assert!(!v.is_gc()),
-                JSProperty::Deleted => {}
-                _ => {
-                    panic!("expect non-gc property");
-                }
-            }
+        debug_assert!(idx < self.prop_values.len());
 
-            self.prop_values[idx] = p;
+        #[cfg(debug_assertions)]
+        match &p {
+            JSProperty::Normal(v) => debug_assert!(!v.is_gc()),
+            JSProperty::Deleted => {}
+            _ => {
+                panic!("expect non-gc property");
+            }
         }
 
-        #[cfg(not(debug_assertions))]
         unsafe {
             *self.prop_values.get_unchecked_mut(idx) = p;
         }
@@ -87,6 +55,8 @@ impl ObjectImpl {
 
     /// set property at slot `idx`, then check and optionally promote gc partition.
     pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
+        debug_assert!(idx < self.prop_values.len());
+
         let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
             JSProperty::Normal(val) => [val.gc_node_ptr(), None],
             JSProperty::GetSet { getter, setter } => [
@@ -101,44 +71,52 @@ impl ObjectImpl {
             _ => [None, None],
         };
 
-        #[cfg(debug_assertions)]
-        {
-            self.prop_values[idx] = p;
-        }
-        #[cfg(not(debug_assertions))]
         unsafe {
             *self.prop_values.get_unchecked_mut(idx) = p;
         }
 
-        // check partition
-        let mut self_partition = GcPartitionId::NONE;
+        // check partition xref
+        let self_partition = unsafe {
+            GcRef::from_ref_unchecked(self)
+                .head_ptr()
+                .as_ref()
+                .get_partition_id()
+        };
         let mut rt = self.rt();
 
-        for h in gc_node.into_iter().flatten() {
-            if self_partition == GcPartitionId::NONE {
-                self_partition = unsafe {
-                    GcRef::from_ref_unchecked(self)
-                        .head_ptr()
-                        .as_ref()
-                        .get_partition_id()
-                };
-            }
+        for mut node in gc_node.into_iter().flatten() {
+            unsafe {
+                node.as_ref().test_valid();
 
-            let pid = unsafe { h.as_ref().get_partition_id() };
+                if self_partition != node.as_ref().get_partition_id()
+                    && self_partition != node.as_ref().xref_partition()
+                    && rt.gc_heap_mut().set_xref(self_partition, node.as_mut())
+                {
+                    rt.gc_heap_mut().set_root(GcRef::from_head_ptr(node), true);
 
-            if self_partition != pid && rt.gc_heap().check_partition_ancestor(self_partition, pid) {
-                // promote to ancestor partition (where self lives in)
-                println!("[O.o] gc node {h:p} is referenced from upper partition");
-
-                rt.gc_heap_mut().promote_to(h, self_partition);
+                    println!(
+                        "[O.o] xref {self_partition:?} -> {:?}::{node:p}, {}",
+                        node.as_ref().get_partition_id(),
+                        rt.gc_heap().get_node_type(node).type_name
+                    );
+                }
             }
         }
     }
 
-    /// append property slot
+    /// extend property slot
     #[inline(always)]
-    pub(crate) fn add_prop_slot(&mut self, p: JSProperty) {
-        self.prop_values.push(p);
+    pub(crate) fn extend_prop_slot(&mut self, extra: usize) {
+        self.prop_values
+            .extend(std::iter::from_fn(|| Some(JSProperty::default())).take(extra));
+    }
+
+    /// extend property slot.
+    /// Returns error if memory allocation fails.
+    pub(crate) fn try_extend_prop_slot(&mut self, extra: usize) -> Result<(), i32> {
+        self.prop_values.try_reserve_exact(extra).map_err(|_| -1)?;
+        self.extend_prop_slot(extra);
+        Ok(())
     }
 }
 

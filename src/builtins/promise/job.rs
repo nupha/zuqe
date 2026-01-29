@@ -131,9 +131,9 @@ impl RuntimeImpl {
                 }
 
                 if !ctx.job_list.is_empty() {
-                    let mut tracer = GcTracer::new();
-                    ctx.job_list.iter().for_each(|x| x.trace(&mut tracer));
-                    tracer.commit_marks(&self.gc_heap);
+                    let mut tr = GcTracer::new(self.gc_heap(), self.gc_part_id);
+                    ctx.job_list.iter().for_each(|x| x.trace(&mut tr));
+                    tr.commit();
 
                     has_pending = true;
                 }

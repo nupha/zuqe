@@ -270,9 +270,9 @@ impl Bytecode {
     }
 
         enum State {
-            Exception,
             /// exit with return value and is_generator flag
             Done(JSValue, bool),
+            Exception,
         }
 
         let mut rt = caller_ctx.rt_ptr();
@@ -2441,9 +2441,12 @@ impl Bytecode {
                     }
                 } // match opcode
 
-                if rt.gc_req {
-                    rt.gc_collect();
-                }
+                rt.gc_collect_scoped(stack_frame);
+
+                // if rt.gc_req {
+                //     // rt.gc_collect_root();
+                //     rt.gc_collect_scoped(stack_frame);
+                // }
 
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
                 if unlikely(debug_setting.map_or(0, |s| s.dump_run) == 2) {
@@ -2465,9 +2468,17 @@ impl Bytecode {
                 }
             }; // opcodes loop
 
-            // process state
             match state {
                 State::Done(ret_val, is_generator) => {
+                    unsafe {
+                        if let Some(up) = stack_frame.prev.cast::<StackFrame>().as_mut()
+                            && let Some(mut n) = ret_val.gc_node_ptr()
+                        {
+                            rt.gc_heap_mut()
+                                .set_xref(up.gc_scoped_partition(), n.as_mut());
+                        }
+                    }
+
                     stack_frame.handle_exit(
                         &realm,
                         unsafe { pc.offset_from(pc_base) as usize },
@@ -2479,7 +2490,7 @@ impl Bytecode {
 
                 State::Exception => {
                     if let Some((pc2, sp2)) =
-                        self.exception(&realm, stack_frame, pc, pc_base, sp, sp_base)
+                        self.catch_exception(&realm, stack_frame, pc, pc_base, sp, sp_base)
                     {
                         debug_assert_eq!(stack_frame.cur_sp_offset, unsafe {
                             sp2.offset_from(sp_base) as i32
@@ -2495,9 +2506,14 @@ impl Bytecode {
         } // restart
     }
 
+    /// try catch exception.
+    ///
+    /// # Return
+    /// * new sp/pc to continue running
+    /// * None to indicate exception is unchachable, should abort
     #[cold]
     #[inline(never)]
-    fn exception(
+    fn catch_exception(
         &self,
         ctx: &ContextImpl,
         stack_frame: &mut StackFrame,
@@ -2515,11 +2531,12 @@ impl Bytecode {
         };
 
         if let Some((new_pc, new_sp)) = stack_frame.handle_exception(ctx, pc_offset, sp_offset) {
-            // continue running, update pc and sp pointer, and jump
+            // exception was caught.
+            // continue running, set pc/sp to jump
             stack_frame.cur_sp_offset = new_sp as i32;
             unsafe { Some((pc_base.add(new_pc), sp_base.add(new_sp))) }
         } else {
-            // abort with sp=0, pc unchanged
+            // abort with sp=0
             let is_generator = self.func_kind() != FunctionKind::Normal;
             stack_frame.handle_exit(ctx, pc_offset, 0, is_generator);
             None
