@@ -343,26 +343,24 @@ impl StackFrame {
     }
 
     pub fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {
-        let rt = self.rt();
-
         let args_iter = unsafe {
             std::slice::from_raw_parts(
                 self.arg_base_ptr,
                 std::cmp::max(self.arg_real_count, self.arg_count) as usize,
             )
             .iter()
-            .filter_map(move |v| v.gc_node_ptr(rt.deref()))
+            .filter_map(move |v| v.gc_node_ptr())
         };
 
         let vars_iter = self
             .var_values()
             .iter()
-            .filter_map(move |v| v.gc_node_ptr(rt.deref()));
+            .filter_map(move |v| v.gc_node_ptr());
 
         let stack_iter = self
             .stack_values()
             .iter()
-            .filter_map(move |v| v.gc_node_ptr(rt.deref()));
+            .filter_map(move |v| v.gc_node_ptr());
 
         let var_refs_iter = self.var_ref_list.iter().map(|v| v.gc_ref().head_ptr());
 

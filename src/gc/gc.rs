@@ -111,7 +111,7 @@ impl RuntimeImpl {
                 marker_fn,
             );
 
-            if let Some(n) = self.cur_exception.gc_node_ptr(self) {
+            if let Some(n) = self.cur_exception.gc_node_ptr() {
                 tr.trace(n, marker_fn);
             }
             if let Some(sf) = self.current_stack_frame() {

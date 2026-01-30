@@ -17,8 +17,8 @@ impl Object {
             .and_then(|o| o.payload().home_object())
         {
             if let Some((idx, _)) = home_obj.find_shape_property(Atom::CONST_Private_brand) {
-                let atom = if let JSProperty::Normal(JSValue::Symbol(a)) = home_obj.prop_slot(idx) {
-                    *a
+                let atom = if let JSProperty::Normal(JSValue::Symbol(s)) = home_obj.prop_slot(idx) {
+                    Atom::from_id(s.atom_info().unwrap().id())
                 } else {
                     ctx.throw_type_error_not_an_object();
                     return Err(-1);
@@ -41,7 +41,9 @@ impl Object {
         name: JSValue,
         val: JSValue,
     ) -> Result<(), i32> {
-        if let JSValue::Symbol(atom) = name {
+        if let JSValue::Symbol(s) = name {
+            let atom = Atom::from_id(s.atom_info().unwrap().id());
+
             if let Some((idx, _)) = self.find_shape_property(atom) {
                 self.set_prop_slot(ctx, idx, JSProperty::Normal(val));
                 Ok(())
@@ -56,7 +58,9 @@ impl Object {
     }
 
     fn get_private_field(&self, ctx: &ContextImpl, name: JSValue) -> JSResult {
-        if let JSValue::Symbol(atom) = name {
+        if let JSValue::Symbol(s) = name {
+            let atom = Atom::from_id(s.atom_info().unwrap().id());
+
             if let Some((idx, _)) = self.find_shape_property(atom) {
                 if let JSProperty::Normal(val) = self.prop_slot(idx) {
                     Ok(*val)
@@ -80,15 +84,17 @@ impl Object {
         name: JSValue,
         val: JSValue,
     ) -> Result<(), i32> {
-        if let JSValue::Symbol(atom) = name {
-            if self.has_shape_property(atom) {
+        if let JSValue::Symbol(s) = name {
+            let a = Atom::from_id(s.atom_info().unwrap().id());
+
+            if self.has_shape_property(a) {
                 ctx.throw_type_error(&format!(
                     "private class field '{}' already exists",
-                    atom.to_utf8(ctx.rt_ref())
+                    s.content().encode_utf8(false)
                 ));
                 Err(-1)
             } else {
-                self.add_own_property(ctx, atom, JS_PROP_C_W_E, JSProperty::Normal(val))
+                self.add_own_property(ctx, a, JS_PROP_C_W_E, JSProperty::Normal(val))
             }
         } else {
             ctx.throw_type_error_not_a_symbol();

@@ -2470,7 +2470,7 @@ impl Bytecode {
                 State::Done(ret_val, is_generator) => {
                     unsafe {
                         if let Some(up) = stack_frame.prev.cast::<StackFrame>().as_mut()
-                            && let Some(mut n) = ret_val.gc_node_ptr(&rt)
+                            && let Some(mut n) = ret_val.gc_node_ptr()
                         {
                             rt.gc_heap_mut()
                                 .set_xref(up.gc_scoped_partition(), n.as_mut());

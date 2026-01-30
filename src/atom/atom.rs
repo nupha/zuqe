@@ -66,8 +66,7 @@ impl Atom {
 
     /// get atom descriptor.
     pub(super) fn descriptor<'a>(&self, rt: &'a RuntimeImpl) -> &'a AtomDesc {
-        let d = rt.atom_desc(self.id());
-        d.unwrap()
+        rt.atom_desc(self.id()).unwrap()
     }
 
     /// get atom info
@@ -249,13 +248,13 @@ impl Atom {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::String)
         } else {
-            let s = self.desc_string(ctx.rt_ref()).clone();
+            let s = self.desc_string(ctx.rt_ref());
             match s.atom_info().unwrap().kind() {
                 AtomKind::String => Ok(JSValue::String(s)),
                 #[cfg(feature = "builtin_symbol")]
                 AtomKind::Private => Ok(JSValue::String(s)),
                 #[cfg(feature = "builtin_symbol")]
-                AtomKind::Symbol | AtomKind::GlobalSymbol => Ok(JSValue::Symbol(*self)),
+                AtomKind::Symbol | AtomKind::GlobalSymbol => Ok(JSValue::Symbol(s)),
             }
         }
     }
@@ -342,15 +341,13 @@ pub const JS_ATOM_MAX: u32 = u16::MAX as u32 - 1;
 
 impl StringRef {
     /// convert string to atom. if string is not registered as atom yet, do registration.
-    pub(crate) fn to_atom(self, rt: RuntimePtr) -> Result<Atom, i32> {
-        if let Some(a) = self.atom_info()
-            && self.rt().is_none_or(|x| x == rt)
-        {
+    pub(crate) fn to_atom(self, rt: RuntimePtr, kind: AtomKind) -> Result<Atom, i32> {
+        if let Some(a) = self.atom_info() {
             // str already registered as atom
             Ok(Atom::from_id(a.id()))
         } else {
-            // register as string atom
-            Atom::from_string(rt, self, AtomKind::String)
+            // register as atom
+            Atom::from_string(rt, self, kind)
         }
     }
 }
@@ -389,11 +386,11 @@ impl JSValue {
                     return Atom::from_i64(ctx.rt_ptr(), i as i64);
                 }
                 JSValue::String(s) => {
-                    return s.to_atom(ctx.rt_ptr());
+                    return s.to_atom(ctx.rt_ptr(), AtomKind::String);
                 }
                 #[cfg(feature = "builtin_symbol")]
-                JSValue::Symbol(a) => {
-                    return Ok(a);
+                JSValue::Symbol(s) => {
+                    return s.to_atom(ctx.rt_ptr(), AtomKind::Symbol);
                 }
 
                 JSValue::Object(_) | JSValue::Float64(_) => {

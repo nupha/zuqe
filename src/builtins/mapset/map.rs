@@ -129,7 +129,7 @@ impl JSMapState {
             return Err(-1);
         }
 
-        let hash = key.hash(ctx.rt_ref());
+        let hash = key.hash();
 
         let idx = if let Some(lst) = self.lut.get(&hash) {
             lst.iter().find_map(|i| match self.slots.get_mut(*i) {
@@ -192,7 +192,7 @@ impl JSMapState {
     /// find value by key.
     pub fn find(&self, ctx: &ContextImpl, key: JSValue) -> Option<JSValue> {
         let key = MapPair::normalize_key(key);
-        let hash = key.hash(ctx.rt_ref());
+        let hash = key.hash();
 
         if let Some(lst) = self.lut.get(&hash) {
             lst.iter().find_map(|i| match self.slots.get(*i) {
@@ -221,7 +221,7 @@ impl JSMapState {
     /// remove an entry by key.
     pub fn remove(&mut self, ctx: &ContextImpl, key: JSValue) {
         let key = MapPair::normalize_key(key);
-        let hash = key.hash(ctx.rt_ref());
+        let hash = key.hash();
 
         // remove from lut
         let purge_lut = if let Some(lst) = self.lut.get_mut(&hash) {

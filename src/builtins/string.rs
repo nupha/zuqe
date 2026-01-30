@@ -28,16 +28,11 @@ pub fn js_string_constructor(cc: CallContext) -> JSResult {
         Atom::CONST_empty_string.force_string(ctx)?
     } else {
         #[cfg(feature = "builtin_symbol")]
-        if let JSValue::Symbol(a) = cc.arg(0)
+        if let JSValue::Symbol(s) = cc.arg(0)
             && new_target.is_undefined()
         {
             // "Symbol(desc)"
-            JS_ConcatString3(
-                ctx,
-                c"Symbol(",
-                a.desc_string(ctx.rt_ref()).clone().into(),
-                c")",
-            )?
+            JS_ConcatString3(ctx, c"Symbol(", s.clone().into(), c")")?
         } else {
             cc.arg(0).to_string(ctx)?
         }

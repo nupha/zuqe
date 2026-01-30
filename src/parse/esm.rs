@@ -38,7 +38,7 @@ impl<'s> JSParseState<'s> {
         let module_name = self
             .ctx
             .create_string_with_buf(self.token.data.take_string().unwrap())
-            .and_then(|s| s.to_atom(self.ctx.rt_ptr()))?;
+            .and_then(|s| s.to_atom(self.ctx.rt_ptr(), AtomKind::String))?;
 
         self.next_token()?;
         Ok(module_name)

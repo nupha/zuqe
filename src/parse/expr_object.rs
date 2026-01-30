@@ -1,5 +1,5 @@
 use crate::{
-    atom::Atom,
+    atom::{Atom, AtomKind},
     bytecode::{OpCode, OpCodeTemp},
     class::{OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD},
     function::FunctionKind,
@@ -192,7 +192,7 @@ impl<'s> JSParseState<'s> {
                     name.replace(
                         self.ctx
                             .create_string_with_buf(sbuf)
-                            .and_then(|s| s.to_atom(self.ctx.rt_ptr()))?,
+                            .and_then(|s| s.to_atom(self.ctx.rt_ptr(), AtomKind::String))?,
                     );
                     self.next_token()?;
                 }

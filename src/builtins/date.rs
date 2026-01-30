@@ -6,7 +6,7 @@ use std::{
 use gc_lite::GcTracable;
 
 use crate::{
-    atom::Atom,
+    atom::{Atom, AtomKind},
     class::ClassID,
     context::{Context, ContextImpl},
     error::JSResult,
@@ -944,7 +944,7 @@ fn js_date_Symbol_toPrimitive(cc: CallContext) -> JSResult {
     };
 
     let hint: Atom = if let JSValue::String(s) = cc.arg(0) {
-        s.to_atom(cc.ctx().rt_ptr())?
+        s.to_atom(cc.ctx().rt_ptr(), AtomKind::String)?
     } else {
         Atom::CONST_empty_string
     };

@@ -532,10 +532,8 @@ impl JSValue {
                     return Ok(a.partial_cmp(b).unwrap());
                 }
                 #[cfg(feature = "builtin_symbol")]
-                (JSValue::Symbol(a), JSValue::Symbol(b)) => {
-                    // compare atom desc content
-                    let s1 = a.desc_string(ctx.rt_ref());
-                    let s2 = b.desc_string(ctx.rt_ref());
+                (JSValue::Symbol(s1), JSValue::Symbol(s2)) => {
+                    // compare atom descriptor content
                     return Ok(s1.content().partial_cmp(s2.content()).unwrap());
                 }
 

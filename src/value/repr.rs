@@ -25,10 +25,7 @@ impl JSValue {
 
             Self::String(s) => Ok(s.content().encode_utf8(true).into()),
             #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(a) => Ok(format!(
-                "Symbol({})",
-                a.desc_string(ctx.rt_ref()).content().encode_utf8(false)
-            )),
+            Self::Symbol(s) => Ok(format!("Symbol({})", s.content().encode_utf8(false))),
             Self::Object(o) => o.inspect(ctx),
             Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.func_name.to_utf8(ctx.rt_ref()))),
 

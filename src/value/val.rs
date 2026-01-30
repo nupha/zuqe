@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    JS_CLASS_ERROR, RuntimeImpl,
+    JS_CLASS_ERROR,
     atom::{Atom, AtomKind},
     function::Bytecode,
     module::ModuleDef,
@@ -114,7 +114,7 @@ pub enum JSValue {
     Float64(f64),
     String(StringRef),
     #[cfg(feature = "builtin_symbol")]
-    Symbol(Atom), // TODO: use Symbol(StringRef)
+    Symbol(StringRef),
     Module(ModuleDef),
     Object(Object),
     Bytecode(Bytecode),
@@ -123,10 +123,7 @@ pub enum JSValue {
 unsafe impl gc_lite::GcTracable for JSValue {
     #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        let rt_raw = tracer.opaque().cast::<RuntimeImpl>();
-        debug_assert!(!rt_raw.is_null());
-
-        if let Some(p) = self.gc_node_ptr(unsafe { &*rt_raw }) {
+        if let Some(p) = self.gc_node_ptr() {
             tracer.add(unsafe { GcRef::from_head_ptr(p) });
         }
 
@@ -367,7 +364,7 @@ impl JSValue {
     }
 
     /// calc hash of value
-    pub(crate) fn hash(&self, rt: &RuntimeImpl) -> u32 {
+    pub(crate) fn hash(&self) -> u32 {
         let h: u32 = match self {
             Self::Object(o) => hash_usize(o.id()),
             Self::Int(d) => {
@@ -379,7 +376,7 @@ impl JSValue {
                 |a| a.hash(),
             ),
             #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(a) => a.hash(rt),
+            Self::Symbol(s) => s.atom_info().unwrap().hash(),
 
             Self::Float64(d) => {
                 let mut d = *d;
@@ -410,14 +407,17 @@ impl JSValue {
             Self::Object(_) | Self::Bytecode(_) | Self::Module(_) => true,
             Self::String(s) if s.rt().is_some() => true,
             #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(a) if !a.is_const() && !a.is_null() && !a.is_small_int() => true,
+            Self::Symbol(s) => {
+                let aid = s.atom_info().unwrap().id();
+                !crate::atom::is_const_atom(aid) && !crate::atom::is_small_int_atom(aid)
+            }
             _ => false,
         }
     }
 
     /// get value's gc node raw pointer. returns null if value do not need gc.
     #[inline]
-    pub fn gc_node_ptr(&self, rt: &RuntimeImpl) -> Option<NonNull<GcHead>> {
+    pub fn gc_node_ptr(&self) -> Option<NonNull<GcHead>> {
         match self {
             Self::Object(o) => Some(o.gc_ref().head_ptr()),
             Self::String(s) if s.rt().is_some() => {
@@ -425,9 +425,13 @@ impl JSValue {
                 Some(s.gc_ref().head_ptr())
             }
             #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(a) if !a.is_const() && !a.is_null() && !a.is_small_int() => {
-                // non-const string atom
-                Some(a.desc_string(rt).gc_ref().head_ptr())
+            Self::Symbol(s) => {
+                let aid = s.atom_info().unwrap().id();
+                if !crate::atom::is_const_atom(aid) && !crate::atom::is_small_int_atom(aid) {
+                    Some(s.gc_ref().head_ptr())
+                } else {
+                    None
+                }
             }
             Self::Bytecode(b) => Some(b.gc_ref().head_ptr()),
             Self::Module(m) => Some(m.gc_ref().head_ptr()),
