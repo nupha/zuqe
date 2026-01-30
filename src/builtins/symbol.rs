@@ -43,7 +43,7 @@ impl ContextImpl {
             self.throw_type_error("invalid atom");
             Err(-1)
         } else {
-            let s = atom.desc_string();
+            let s = atom.desc_string(self.rt_ref()).clone();
             self.create_symbol(Some(s), atom_kind)
         }
     }
@@ -119,11 +119,11 @@ fn js_symbol_get_description(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
 
     if let JSValue::Symbol(a) = js_thisSymbolValue(ctx, *cc.this())? {
-        let s = a.desc_string();
+        let s = a.desc_string(ctx.rt_ref());
         if s.content().is_ident() {
             Ok(JSValue::UNDEFINED)
         } else {
-            Ok(s.into())
+            Ok(s.clone().into())
         }
     } else {
         unreachable!()
@@ -146,11 +146,11 @@ fn js_symbol_for(cc: CallContext) -> JSResult {
 
 fn js_symbol_keyFor(cc: CallContext) -> JSResult {
     if let JSValue::Symbol(a) = cc.arg(0) {
-        let s = a.desc_string();
+        let s = a.desc_string(cc.ctx().rt_ref());
         if s.atom_info().unwrap().kind() != AtomKind::GlobalSymbol {
             Ok(JSValue::UNDEFINED)
         } else {
-            Ok(JSValue::String(s))
+            Ok(JSValue::String(s.clone()))
         }
     } else {
         cc.ctx().throw_type_error_not_a_symbol();

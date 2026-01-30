@@ -1,5 +1,7 @@
 use std::{ops::Deref, ptr::NonNull};
 
+use gc_lite::GcRef;
+
 use crate::{
     Context,
     atom::Atom,
@@ -197,10 +199,13 @@ impl ContextImpl {
         // }
 
         match self.compile(source, filename, eval_type, eval_flags, scope_idx)? {
-            Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
+            Compiled::GlobalOrIndirect(bc) => {
+                // Note: `bc` is not gc traced now.
+                bc.eval(self, this_obj, &[], None)
+            }
             Compiled::Direct(bc) => {
                 let mut rt = self.rt_ptr();
-
+                // Note: `bc` is not gc traced now.
                 bc.eval(
                     self,
                     this_obj,
@@ -278,9 +283,6 @@ impl ContextImpl {
             ErrorText::from(self, exc)
         })?;
 
-        // set val as gc root - is this nessesary?
-        // rt.gc_set_root_value(val, true);
-
         let mut promise = Promise::try_from(val).ok();
         let mut result = if let Some(p) = promise {
             match p.state() {
@@ -297,6 +299,11 @@ impl ContextImpl {
         } else {
             Ok(val)
         };
+
+        if let Ok(Some(n)) = result.as_ref().map(|v| v.gc_node_ptr(&rt)) {
+            rt.gc_heap_mut()
+                .set_root(unsafe { GcRef::from_head_ptr(n) }, true);
+        }
 
         // tick to finish
         let exit_code = loop {

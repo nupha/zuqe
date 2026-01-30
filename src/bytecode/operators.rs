@@ -110,15 +110,6 @@ pub(super) fn js_op_define_class(
     let bc_val = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
     let bc = match bc_val {
         JSValue::Bytecode(b) => b,
-        #[cfg(debug_assertions)]
-        JSValue::Object(_) => {
-            todo!("[O.o] could this be an function object?");
-            // o.0.detail
-            //     .borrow()
-            //     .func()
-            //     .and_then(|f| f.bytecode.clone())
-            //     .unwrap();
-        }
         _ => unreachable!(),
     };
     debug_assert_eq!(bc.func_kind(), FunctionKind::Normal);
@@ -209,7 +200,7 @@ pub(super) fn js_has_unscopable(ctx: &ContextImpl, obj: JSValue, atom: Atom) -> 
 
 pub(crate) fn js_get_function_name(ctx: &ContextImpl, name: Atom) -> Result<StringRef, i32> {
     let name_str = name.force_string(ctx)?;
-    if name.is_normal_desc_string() {
+    if name.is_normal_desc_string(ctx.rt_ref()) {
         JS_ConcatString3(ctx, c"[", name_str.into(), c"]")
     } else {
         Ok(name_str)

@@ -337,7 +337,7 @@ impl ContextPtr {
         // pre-define builtin Symbol_XXX
         for i in crate::atom::ATOM_CONST_SYMBOL_RANGE {
             let a = Atom::from_id(i);
-            a.with_utf8(|s| {
+            a.with_utf8(self.rt_ref(), |s| {
                 let str = s.split_once('.').unwrap().1; // skip "Symbol."
                 ctor.define_property_value_str(&self, str, a.to_value(&self).unwrap(), 0)
                     .unwrap();

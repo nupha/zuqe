@@ -119,7 +119,7 @@ impl Object {
             !self.has_shape_property(prop),
             "auto init property already exists: {} {:?}",
             prop.id(),
-            prop.to_utf8()
+            prop.to_utf8(ctx.rt_ref())
         );
 
         self.add_own_property(

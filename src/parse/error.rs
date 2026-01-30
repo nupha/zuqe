@@ -48,7 +48,7 @@ impl<'s> JSParseState<'s> {
     pub(super) fn throw_reserved_identifier_error(&self) {
         self.throw_syntax_error(&format!(
             "'{}' is a reserved identifier",
-            self.token.atom().unwrap().to_utf8(),
+            self.token.atom().unwrap().to_utf8(self.ctx.rt_ref()),
         ));
     }
 }

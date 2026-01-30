@@ -119,22 +119,22 @@ impl ResolveExport {
             Self::NotFound => {
                 ctx.throw_syntax_error(&format!(
                     "Could not find export '{}' in module '{}'",
-                    export_name.to_utf8(),
-                    m.module_name.to_utf8(),
+                    export_name.to_utf8(ctx.rt_ref()),
+                    m.module_name.to_utf8(ctx.rt_ref()),
                 ));
             }
             Self::Circular => {
                 ctx.throw_syntax_error(&format!(
                     "circular reference when looking for export '{}' in module '{}'",
-                    export_name.to_utf8(),
-                    m.module_name.to_utf8(),
+                    export_name.to_utf8(ctx.rt_ref()),
+                    m.module_name.to_utf8(ctx.rt_ref()),
                 ));
             }
             Self::Ambiguous => {
                 ctx.throw_syntax_error(&format!(
                     "export '{}' in module '{}' is ambiguous",
-                    export_name.to_utf8(),
-                    m.module_name.to_utf8(),
+                    export_name.to_utf8(ctx.rt_ref()),
+                    m.module_name.to_utf8(ctx.rt_ref()),
                 ));
             }
         }
@@ -162,7 +162,7 @@ impl ModuleDefImpl {
         if unlikely(self.find_export(export_name).is_some()) {
             ctx.throw_syntax_error(&format!(
                 "duplicate exported name '{}'",
-                export_name.to_utf8(),
+                export_name.to_utf8(ctx.rt_ref()),
             ));
             Err(ErrorKind::Syntax as i32)
         } else {
@@ -304,12 +304,12 @@ impl ModuleDef {
             #[cfg(debug_assertions)]
             {
                 debug_assert!(
-                    exp.export_name.is_alive(),
+                    exp.export_name.is_alive(ctx.rt_ref()),
                     "[O.o] local_name {:?} must be alive",
                     exp.local_name
                 );
                 debug_assert!(
-                    exp.export_name.is_alive(),
+                    exp.export_name.is_alive(ctx.rt_ref()),
                     "[O.o] export_name {:?} must be alive",
                     exp.export_name
                 );

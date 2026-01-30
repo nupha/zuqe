@@ -43,7 +43,7 @@ impl Object {
     ) -> Result<(), i32> {
         if let JSValue::Symbol(atom) = name {
             if let Some((idx, _)) = self.find_shape_property(atom) {
-                self.set_prop_slot(idx, JSProperty::Normal(val));
+                self.set_prop_slot(ctx, idx, JSProperty::Normal(val));
                 Ok(())
             } else {
                 JS_ThrowTypeErrorPrivateNotFound(ctx, atom);
@@ -84,7 +84,7 @@ impl Object {
             if self.has_shape_property(atom) {
                 ctx.throw_type_error(&format!(
                     "private class field '{}' already exists",
-                    atom.to_utf8()
+                    atom.to_utf8(ctx.rt_ref())
                 ));
                 Err(-1)
             } else {

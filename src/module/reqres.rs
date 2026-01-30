@@ -144,8 +144,8 @@ fn js_host_resolve_imported_module_atom(
     base_module_name: &Atom,
     module_name1: &Atom,
 ) -> Result<ModuleDef, i32> {
-    let base_cname = base_module_name.to_utf8();
-    let cname = module_name1.to_utf8();
+    let base_cname = base_module_name.to_utf8(ctx.rt_ref());
+    let cname = module_name1.to_utf8(ctx.rt_ref());
     js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)
 }
 

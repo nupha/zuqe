@@ -1,13 +1,8 @@
-use std::{
-    cell::RefCell,
-    ops::{Deref, DerefMut},
-    thread::AccessError,
-};
+use std::{cell::RefCell, ops::DerefMut, thread::AccessError};
 
 use gc_lite::{GcError, GcHeap, GcPartitionId, GcRef, GcTracable};
-use once_cell::unsync::Lazy;
 
-use crate::{atom::AtomRegistry, runtime::RuntimeImpl};
+use crate::runtime::RuntimeImpl;
 
 /// the thread local global resources
 pub(crate) struct LocalResource {
@@ -17,9 +12,6 @@ pub(crate) struct LocalResource {
     /// list of active runtime raw pointers
     #[allow(clippy::vec_box)]
     pub(super) runtime_slot: RefCell<Vec<Box<RuntimeImpl>>>,
-
-    /// atom registry
-    pub(crate) atom_registry: Lazy<RefCell<AtomRegistry>>,
 
     /// gc heap
     pub(crate) gc_heap: RefCell<GcHeap>,
@@ -42,10 +34,6 @@ impl LocalResource {
 
         Self {
             runtime_slot: RefCell::new(Vec::with_capacity(1)),
-            atom_registry: Lazy::new(|| {
-                let reg = AtomRegistry::new();
-                RefCell::new(reg)
-            }),
             gc_heap: RefCell::new(heap),
             gc_default_partition: p0,
         }
@@ -84,20 +72,6 @@ impl LocalResource {
         f: impl FnOnce(&mut Vec<Box<RuntimeImpl>>) -> R,
     ) -> Result<R, AccessError> {
         LOCAL_RESOURCE.try_with(|rcs| f(rcs.runtime_slot.borrow_mut().deref_mut()))
-    }
-
-    pub(crate) fn with_atoms<R>(f: impl FnOnce(&AtomRegistry) -> R) -> R {
-        LOCAL_RESOURCE.with(|rcs| f(rcs.atom_registry.borrow().deref()))
-    }
-
-    pub(crate) fn with_atoms_mut<R>(f: impl FnOnce(&mut AtomRegistry) -> R) -> R {
-        LOCAL_RESOURCE.with(|rcs| f(rcs.atom_registry.borrow_mut().deref_mut()))
-    }
-
-    pub(crate) fn try_with_atoms_mut<R>(
-        f: impl FnOnce(&mut AtomRegistry) -> R,
-    ) -> Result<R, AccessError> {
-        LOCAL_RESOURCE.try_with(|rcs| f(rcs.atom_registry.borrow_mut().deref_mut()))
     }
 }
 

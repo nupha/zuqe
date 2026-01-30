@@ -65,16 +65,17 @@ impl AtomInfo {
     }
 }
 
+/// Atom descriptor
 #[repr(transparent)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(super) struct AtomDesc {
     pub(super) str: StringRef,
 }
 
 impl AtomDesc {
     #[inline(always)]
-    pub const fn string(&self) -> &StringRef {
-        &self.str
+    pub const fn string(&self) -> StringRef {
+        self.str
     }
 
     #[inline(always)]

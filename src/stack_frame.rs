@@ -1,10 +1,11 @@
 use std::{
     marker::{PhantomData, PhantomPinned},
+    ops::Deref,
     pin::Pin,
     ptr::NonNull,
 };
 
-use gc_lite::{GcHead, GcPartitionId, GcTracable, GcWeak};
+use gc_lite::{GcHead, GcPartitionId, GcTracable, GcTracer, GcWeak};
 
 use crate::{
     Object,
@@ -17,7 +18,7 @@ use crate::{
 };
 
 bitflags::bitflags! {
-    /// execution mode
+    /// execution flag
     #[repr(transparent)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     pub(crate) struct ExecMode: u8 {
@@ -25,7 +26,7 @@ bitflags::bitflags! {
         const STRICT = 1 << 0;
         /// strip debug source
         const STRIP  = 1 << 1;
-        /// is dedicated stack frame for async function execution
+        /// use dedicated stack frame for async function execution
         const ASYNC  = 1 << 2;
     }
 }
@@ -83,7 +84,7 @@ pub struct StackFrame {
 
 unsafe impl GcTracable for StackFrame {
     #[inline]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+    fn trace(&self, tracer: &mut GcTracer) {
         self.func_obj.trace(tracer);
 
         // trace args
@@ -159,7 +160,7 @@ impl StackFrame {
         }
     }
 
-    /// runtime
+    /// get runtime
     #[inline(always)]
     fn rt(&self) -> RuntimePtr {
         self.func_obj.rt()
@@ -342,16 +343,27 @@ impl StackFrame {
     }
 
     pub fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {
+        let rt = self.rt();
+
         let args_iter = unsafe {
             std::slice::from_raw_parts(
                 self.arg_base_ptr,
                 std::cmp::max(self.arg_real_count, self.arg_count) as usize,
             )
             .iter()
-            .filter_map(|v| v.gc_node_ptr())
+            .filter_map(move |v| v.gc_node_ptr(rt.deref()))
         };
-        let vars_iter = self.var_values().iter().filter_map(|v| v.gc_node_ptr());
-        let stack_iter = self.stack_values().iter().filter_map(|v| v.gc_node_ptr());
+
+        let vars_iter = self
+            .var_values()
+            .iter()
+            .filter_map(move |v| v.gc_node_ptr(rt.deref()));
+
+        let stack_iter = self
+            .stack_values()
+            .iter()
+            .filter_map(move |v| v.gc_node_ptr(rt.deref()));
+
         let var_refs_iter = self.var_ref_list.iter().map(|v| v.gc_ref().head_ptr());
 
         std::iter::once(self.func_obj.gc_ref().head_ptr())

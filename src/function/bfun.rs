@@ -332,8 +332,7 @@ impl BytecodeFunction {
             bc.mode(),
         );
 
-        let mut this_frame = StackFrame::new(self.into(), js_mode);
-        let sf = &mut this_frame;
+        let mut stack_frame = StackFrame::new(self.into(), js_mode);
 
         // ensure stack has minimal free space.
         if js_check_stack_overflow(&rt, 32) {
@@ -350,7 +349,11 @@ impl BytecodeFunction {
         // | stack space      | <- stack_buf
         // +------------------+
         //
-        if sf.local_buf.try_reserve_exact(buf_values_count).is_err() {
+        if stack_frame
+            .local_buf
+            .try_reserve_exact(buf_values_count)
+            .is_err()
+        {
             caller_ctx.throw_out_of_memory();
             return Err(-1);
         }
@@ -360,37 +363,42 @@ impl BytecodeFunction {
             debug_assert!(arg_copy_num >= args.len());
 
             // copy actual arg values
-            sf.local_buf.extend(args.iter().cloned());
+            stack_frame.local_buf.extend(args.iter().cloned());
             // padding with undefined
-            sf.local_buf.extend(std::iter::repeat_n(
+            stack_frame.local_buf.extend(std::iter::repeat_n(
                 JSValue::UNDEFINED,
                 arg_copy_num - args.len(),
             ));
 
-            sf.arg_count = arg_copy_num as _;
-            sf.arg_real_count = args.len() as _;
-            sf.arg_base_ptr = sf.local_buf.as_mut_ptr()
+            stack_frame.arg_count = arg_copy_num as _;
+            stack_frame.arg_real_count = args.len() as _;
+            stack_frame.arg_base_ptr = stack_frame.local_buf.as_mut_ptr()
         } else {
-            sf.arg_count = args.len() as _;
-            sf.arg_real_count = args.len() as _;
-            sf.arg_base_ptr = args.as_ptr().cast::<JSValue>() as *mut _;
+            stack_frame.arg_count = args.len() as _;
+            stack_frame.arg_real_count = args.len() as _;
+            stack_frame.arg_base_ptr = args.as_ptr().cast::<JSValue>() as *mut _;
         }
 
         // initialize (vars + stack) section
-        sf.local_buf.extend(std::iter::repeat_n(
+        stack_frame.local_buf.extend(std::iter::repeat_n(
             JSValue::UNDEFINED,
             (bc.var_count + bc.stack_size) as usize,
         ));
-        debug_assert_eq!(sf.local_buf.len(), buf_values_count);
+        debug_assert_eq!(stack_frame.local_buf.len(), buf_values_count);
 
-        sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_copy_num as usize) };
-        sf.var_count = bc.var_count;
+        stack_frame.var_base_ptr = unsafe {
+            stack_frame
+                .local_buf
+                .as_mut_ptr()
+                .add(arg_copy_num as usize)
+        };
+        stack_frame.var_count = bc.var_count;
 
         let isa = self.payload_mut();
         bc.run(
             caller_ctx,
             isa.home_object,
-            sf,
+            &mut stack_frame,
             this_obj,
             new_target,
             0,

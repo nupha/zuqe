@@ -123,7 +123,10 @@ impl ContextImpl {
             }
         } else {
             if prs.is_none() && !gobj.flags().extensible() {
-                self.throw_type_error(&format!("cannot define variable '{}' ", prop.to_utf8()));
+                self.throw_type_error(&format!(
+                    "cannot define variable '{}' ",
+                    prop.to_utf8(self.rt_ref())
+                ));
                 return Err(-1);
             }
 
@@ -134,7 +137,10 @@ impl ContextImpl {
                     || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
                         != JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
             {
-                self.throw_type_error(&format!("cannot define variable '{}'", prop.to_utf8()));
+                self.throw_type_error(&format!(
+                    "cannot define variable '{}'",
+                    prop.to_utf8(self.rt_ref())
+                ));
                 return Err(-1);
             }
         }
@@ -207,7 +213,7 @@ impl ContextImpl {
                 }
             }
 
-            gvobj.set_prop_slot(idx, JSProperty::Normal(val));
+            gvobj.set_prop_slot(self, idx, JSProperty::Normal(val));
             Ok(true)
         } else {
             // not exist

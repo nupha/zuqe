@@ -261,7 +261,10 @@ impl<'s> JSParseState<'s> {
 
 #[inline(always)]
 fn js_unsupported_keyword(s: &JSParseState, atom: Atom) -> i32 {
-    s.throw_syntax_error(&format!("unsupported keyword: {}", atom.to_utf8()));
+    s.throw_syntax_error(&format!(
+        "unsupported keyword: {}",
+        atom.to_utf8(s.ctx.rt_ref())
+    ));
     -1
 }
 

@@ -584,7 +584,45 @@ impl BytecodeImpl {
 #[derive(Clone, Copy, PartialEq)]
 pub struct Bytecode(GcRef<BytecodeImpl>);
 
-gcref_wrapper!(Bytecode, BytecodeImpl);
+unsafe impl GcTracable for Bytecode {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+        unsafe {
+            self.0.as_ref().trace(tracer);
+        }
+    }
+}
+
+impl std::ops::Deref for Bytecode {
+    type Target = BytecodeImpl;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl std::ops::DerefMut for Bytecode {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut() }
+    }
+}
+
+impl Bytecode {
+    #[inline(always)]
+    pub(crate) const fn from(r: GcRef<BytecodeImpl>) -> Self {
+        Self(r)
+    }
+
+    #[inline(always)]
+    pub(crate) unsafe fn from_ref_unchecked(o: &BytecodeImpl) -> Self {
+        Self(unsafe { GcRef::from_ref_unchecked(o) })
+    }
+
+    pub fn gc_ref(&self) -> GcRef<BytecodeImpl> {
+        self.0
+    }
+}
+
+//gcref_wrapper!(Bytecode, BytecodeImpl);
 
 impl From<Bytecode> for JSValue {
     #[inline(always)]

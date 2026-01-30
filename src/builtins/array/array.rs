@@ -140,7 +140,7 @@ impl Array {
                     // Need two passes in case one of the property is not  configurable
                     cur_len = length;
                     for (_, prs) in sh.prop_defs.iter() {
-                        if let Some(i) = prs.atom.to_array_index()
+                        if let Some(i) = prs.atom.to_array_index(ctx.rt_ref())
                             && i >= cur_len
                             && (prs.flags() & JS_PROP_CONFIGURABLE == 0)
                         {
@@ -152,7 +152,7 @@ impl Array {
                     for i in (0..propdef_len).rev() {
                         if let Some(prop) = sh.prop_defs.get(i as usize).map(|p| p.atom) {
                             // non-deleted prop
-                            if let Some(idx) = prop.to_array_index()
+                            if let Some(idx) = prop.to_array_index(ctx.rt_ref())
                                 && idx >= cur_len
                             {
                                 let _r = self.delete_property_internal(ctx, prop);

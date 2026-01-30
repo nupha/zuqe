@@ -80,7 +80,12 @@ pub(crate) fn js_map_get(cc: CallContext) -> JSResult {
 
     cc.this()
         .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
-        .map(|r| r.mapset().unwrap().find(key).unwrap_or(JSValue::UNDEFINED))
+        .map(|r| {
+            r.mapset()
+                .unwrap()
+                .find(ctx, key)
+                .unwrap_or(JSValue::UNDEFINED)
+        })
 }
 
 pub(crate) fn js_map_set(cc: CallContext) -> JSResult {
@@ -136,7 +141,7 @@ fn js_map_delete(cc: CallContext) -> JSResult {
         .map(|isa| {
             let s = isa.mapset_mut().unwrap();
 
-            if s.find(key).is_some() {
+            if s.find(ctx, key).is_some() {
                 s.remove(ctx, key);
 
                 if s.is_weak() {
@@ -160,7 +165,7 @@ fn js_map_has(cc: CallContext) -> JSResult {
     let key = *cc.arg(0);
     cc.this()
         .retrive_object_payload(cc.ctx(), JS_CLASS_MAP + cc.magic() as ClassID)
-        .map(|r| r.mapset().unwrap().find(key).is_some().into())
+        .map(|r| r.mapset().unwrap().find(cc.ctx(), key).is_some().into())
 }
 
 fn js_map_clear(cc: CallContext) -> JSResult {

@@ -77,7 +77,7 @@ impl FunctionDef {
                 debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
 
                 if let Ok(sub_bc) = sub_fd.build_bytecode(ctx) {
-                    // strore child function to constant pool
+                    // strore child bytecode to constant pool
                     self.cpool[cpool_idx as usize] = JSValue::Bytecode(sub_bc);
                 } else {
                     has_err = true;

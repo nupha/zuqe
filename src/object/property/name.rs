@@ -38,10 +38,10 @@ unsafe impl GcTracable for PropertyKey {
 }
 
 impl PropertyKey {
-    pub(crate) fn new(atom: Atom, is_enumerable: bool, is_exotic: bool) -> Self {
-        let kind = if let Some(idx) = atom.to_array_index() {
+    pub(crate) fn new(ctx: &ContextImpl, atom: Atom, is_enumerable: bool, is_exotic: bool) -> Self {
+        let kind = if let Some(idx) = atom.to_array_index(ctx.rt_ref()) {
             PropertyKeyKind::ArrayIndex(idx)
-        } else if atom.desc_kind() == AtomDescKind::JS_ATOM_KIND_STRING {
+        } else if atom.desc_kind(ctx.rt_ref()) == AtomDescKind::JS_ATOM_KIND_STRING {
             PropertyKeyKind::String
         } else {
             PropertyKeyKind::Symbol
@@ -91,7 +91,7 @@ impl Object {
         for (idx, prs) in sh.prop_defs.iter() {
             if !prs.atom.is_null() {
                 let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
-                let kind = prs.atom.desc_kind();
+                let kind = prs.atom.desc_kind(ctx.rt_ref());
 
                 if (!enum_only || is_enumerable) && ((flags >> (kind as u8)) & 1 != 0) {
                     // need to raise an exception in case of the module
@@ -105,7 +105,7 @@ impl Object {
                         return Err(-1);
                     }
 
-                    callback(ctx, PropertyKey::new(prs.atom, is_enumerable, false))?;
+                    callback(ctx, PropertyKey::new(ctx, prs.atom, is_enumerable, false))?;
                 }
             }
         }
@@ -153,7 +153,7 @@ impl Object {
 
                 for pk in f(unsafe { ContextPtr::from_ref_unchecked(ctx) }, *self)? {
                     if !has_err {
-                        let atom_kind = pk.atom.desc_kind();
+                        let atom_kind = pk.atom.desc_kind(ctx.rt_ref());
                         if (flags >> (atom_kind as u8)) & 1 != 0 {
                             let mut is_enumerable = false;
 
@@ -164,7 +164,7 @@ impl Object {
                             }
 
                             if is_enumerable || flags & JS_GPN_ENUM_ONLY == 0 {
-                                let isa = if let Some(i) = pk.atom.to_array_index() {
+                                let isa = if let Some(i) = pk.atom.to_array_index(ctx.rt_ref()) {
                                     PropertyKeyKind::ArrayIndex(i)
                                 } else if atom_kind == AtomDescKind::JS_ATOM_KIND_STRING {
                                     PropertyKeyKind::String

@@ -79,7 +79,7 @@ impl Object {
                         }
 
                         if unlikely(prs_flags & JS_PROP_WRITABLE != 0) {
-                            cur_obj.set_prop_slot(idx, JSProperty::Normal(val));
+                            cur_obj.set_prop_slot(ctx, idx, JSProperty::Normal(val));
                             return Ok(true);
                         } else {
                             fail_read_only!(prop)

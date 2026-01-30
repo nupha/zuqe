@@ -8,6 +8,7 @@ use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS,
     JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     JS_CLASS_STRING, STD_CLASS_DEFS, USER_CLASS_ID_START,
+    atom::AtomRegistry,
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions,
         generator::{AsyncGeneratorFunction, js_generator_function_call},
@@ -32,6 +33,8 @@ pub trait InterruptFn: Fn(&RuntimeImpl) -> bool {}
 impl<C> InterruptFn for C where C: Fn(&RuntimeImpl) -> bool {}
 
 pub struct RuntimeImpl {
+    /// atom registry
+    pub(crate) atom_registry: AtomRegistry,
     /// registered classes
     pub(crate) class_registry: Vec<ClassMeta>,
     /// registered shapes
@@ -44,7 +47,10 @@ pub struct RuntimeImpl {
     pub(crate) stack_limit: usize, /* lower stack limit */
     pub(crate) stack_top: usize,
     /// current stack frame to execute bytecode or native function
-    cur_stack_frame: *mut Pin<StackFrame>,
+    pub(crate) cur_stack_frame: *mut Pin<StackFrame>,
+    /// current stack frame depth
+    #[cfg(debug_assertions)]
+    pub(crate) stack_depth: i32,
 
     /// current exception value
     pub(crate) cur_exception: JSValue,
@@ -105,11 +111,7 @@ impl Drop for RuntimeImpl {
             !slot.is_empty()
         }) && !has_live
         {
-            // no runtime alive, clear all user atoms.
-            // SAFETY: use try_with_atom to avoid corrupt in case thread local is destroyed when runtime drop is calling.
-            let _ = LocalResource::try_with_atoms_mut(|reg| {
-                reg.clear_user_atoms();
-            });
+            // no runtime alive
         }
     }
 }
@@ -127,9 +129,13 @@ impl RuntimeImpl {
         };
 
         let mut rt = Box::new(Self {
+            atom_registry: AtomRegistry::new(),
             class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
 
             cur_stack_frame: std::ptr::null_mut(),
+            #[cfg(debug_assertions)]
+            stack_depth: 0,
+
             module_load_opaque: std::ptr::null_mut(),
             sab_funcs: None,
 
@@ -138,6 +144,7 @@ impl RuntimeImpl {
             stack_size: STACK_SIZE_BYTES_DEFAULT,
             stack_top: 0,
             stack_limit: 0,
+
             cur_exception: JSValue::NULL,
 
             #[cfg(feature = "builtin_regexp")]
@@ -164,6 +171,9 @@ impl RuntimeImpl {
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,
         });
+
+        let rt_ptr = rt.as_ref() as *const Self as *mut Self;
+        rt.gc_heap_mut().set_opaque(rt_ptr.cast());
 
         // register builtin classes
         rt.register_builtin_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
@@ -279,6 +289,11 @@ impl RuntimeImpl {
         unsafe { self.cur_stack_frame.cast::<StackFrame>().as_mut() }
     }
 
+    #[cfg(debug_assertions)]
+    pub(crate) const fn stack_depth(&self) -> i32 {
+        self.stack_depth
+    }
+
     /// get current running function
     pub(crate) fn current_function(&self) -> JSValue {
         self.current_stack_frame()
@@ -291,12 +306,14 @@ impl RuntimeImpl {
     /// # Safety
     /// The caller must ensure the frame pointer is valid
     pub(crate) fn push_stack_frame(&mut self, mut stack_frame: NonNull<StackFrame>) {
+        debug_assert!(unsafe { stack_frame.as_ref().prev.is_null() });
         debug_assert_ne!(
             self.cur_stack_frame.cast::<()>(),
             stack_frame.as_ptr().cast::<()>()
         );
 
         if self.cur_stack_frame.is_null() {
+            debug_assert_eq!(self.stack_depth, 0);
             self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
         } else {
             unsafe {
@@ -304,20 +321,34 @@ impl RuntimeImpl {
             }
             self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
         }
+
+        #[cfg(debug_assertions)]
+        {
+            self.stack_depth += 1;
+        }
     }
 
     /// Pops the current stack frame, restore current frame stack to previouse
     pub(crate) fn pop_stack_frame(&mut self) -> *mut Pin<StackFrame> {
-        if self.cur_stack_frame.is_null() {
-            std::ptr::null_mut()
-        } else {
-            let sf = self.cur_stack_frame;
-            unsafe {
-                self.cur_stack_frame = (*sf.cast::<StackFrame>()).prev;
-                (*sf.cast::<StackFrame>()).prev = std::ptr::null_mut();
-            }
-            sf
+        debug_assert!(!self.cur_stack_frame.is_null());
+
+        let sf = self.cur_stack_frame;
+        unsafe {
+            self.cur_stack_frame = (*sf.cast::<StackFrame>()).prev;
+            (*sf.cast::<StackFrame>()).prev = std::ptr::null_mut();
         }
+
+        #[cfg(debug_assertions)]
+        {
+            self.stack_depth -= 1;
+            debug_assert!(self.stack_depth >= 0);
+
+            if self.stack_depth == 0 {
+                debug_assert!(self.cur_stack_frame.is_null());
+            }
+        }
+
+        sf
     }
 
     fn finalize(&mut self) {
@@ -345,7 +376,7 @@ impl RuntimeImpl {
         self.gc_heap_mut().sweep_with(part_id, |_| true);
 
         debug_assert_eq!(
-            self.gc_heap().partition_node_iter(part_id).count(),
+            self.gc_heap().nodes_iter(part_id).count(),
             0,
             "should not have live gc nodes"
         );

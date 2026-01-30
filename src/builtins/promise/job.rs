@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use gc_lite::{GcTracable, GcTracer};
 
 use crate::{context::ContextImpl, error::JSResult, runtime::RuntimeImpl, value::JSValue};
@@ -9,19 +11,17 @@ pub(crate) struct Job {
     gc_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
 }
 
-unsafe impl GcTracable for Job {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        if let Some(f) = self.gc_trace.as_ref() {
-            f(tracer)
-        }
-    }
-}
-
 impl Job {
     #[inline(always)]
     pub fn run(self) -> JSResult {
         (self.run)()
+    }
+
+    #[inline(always)]
+    pub(crate) fn gc_trace(&self, tracer: &mut gc_lite::GcTracer) {
+        if let Some(f) = self.gc_trace.as_ref() {
+            f(tracer)
+        }
     }
 }
 
@@ -107,39 +107,5 @@ impl RuntimeImpl {
             }
         }
         Ok(())
-    }
-
-    /// execute pending jobs in queue.
-    ///
-    /// Returns:
-    /// Some(_): the Context of the executed job.
-    /// None: there is no pending job.
-    /// Err: fail in execute job. ctx is the context of the executed job.
-    #[deprecated]
-    pub(crate) fn execute_jobs(&mut self) -> Result<Option<()>, i32> {
-        let mut has_pending = false;
-
-        //exec context jobs
-        for ctx in self.context_list.iter() {
-            let n = ctx.job_list.len();
-            if n > 0 {
-                // execute first job, then trace pending jobs.
-                // don't change order.
-                let mut cx = *ctx;
-                if let Some(job) = cx.job_list.pop_front() {
-                    job.run()?;
-                }
-
-                if !ctx.job_list.is_empty() {
-                    let mut tr = GcTracer::new(self.gc_heap(), self.gc_part_id);
-                    ctx.job_list.iter().for_each(|x| x.trace(&mut tr));
-                    tr.commit();
-
-                    has_pending = true;
-                }
-            }
-        }
-
-        if has_pending { Ok(Some(())) } else { Ok(None) }
     }
 }

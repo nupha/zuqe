@@ -188,12 +188,12 @@ impl ContextImpl {
     #[cold]
     pub fn throw_type_error_invalid_class(&self, class_id: ClassID) {
         let name = self.rt_ptr().class_registry[class_id as usize].class_name;
-        self.throw_type_error(&format!("{} object expected", name.to_utf8()))
+        self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt_ref())))
     }
 
     #[inline(always)]
     pub fn throw_type_error_read_only(&self, atom: Atom) {
-        self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8()))
+        self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8(self.rt_ref())))
     }
 
     #[inline(always)]
@@ -279,7 +279,7 @@ impl ContextImpl {
                             (sf.cur_pc_offset as u32).wrapping_sub(1), // be u32::MAX when (*sf).cur_pc_offset==0
                         );
 
-                        let atom_str = debug.filename.to_utf8();
+                        let atom_str = debug.filename.to_utf8(self.rt_ref());
 
                         dbuf.write_fmt(format_args!(" ({}", atom_str))
                             .map_err(|_| -1)?;
@@ -351,12 +351,15 @@ pub fn JS_ThrowReferenceErrorUninitialized(ctx: &ContextImpl, name: Atom) {
     if name.is_null() {
         ctx.throw_reference_error("lexical variable is not initialized");
     } else {
-        ctx.throw_reference_error(&format!("{} is not initialized", name.to_utf8()));
+        ctx.throw_reference_error(&format!(
+            "{} is not initialized",
+            name.to_utf8(ctx.rt_ref())
+        ));
     }
 }
 
 pub fn JS_ThrowReferenceErrorNotDefined(ctx: &ContextImpl, name: Atom) {
-    ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8()))
+    ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8(ctx.rt_ref())))
 }
 
 pub fn JS_ThrowReferenceErrorUninitialized2(
@@ -383,12 +386,15 @@ pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &ContextImpl) {
 pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &ContextImpl, atom: Atom) {
     ctx.throw_type_error(&format!(
         "private class field '{}' does not exist",
-        atom.to_utf8()
+        atom.to_utf8(ctx.rt_ref())
     ));
 }
 
 pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &ContextImpl, prop: Atom) {
-    ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8()));
+    ctx.throw_syntax_error(&format!(
+        "redeclaration of '{}'",
+        prop.to_utf8(ctx.rt_ref())
+    ));
 }
 
 /// used to avoid catching interrupt exceptions

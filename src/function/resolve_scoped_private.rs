@@ -77,7 +77,10 @@ impl FunctionDef {
         }
 
         // XXX: no line number info
-        ctx.throw_syntax_error(&format!("undefined private field '{}'", var_name.to_utf8()));
+        ctx.throw_syntax_error(&format!(
+            "undefined private field '{}'",
+            var_name.to_utf8(ctx.rt_ref())
+        ));
         Err(-1)
     }
 

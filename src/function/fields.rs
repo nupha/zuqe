@@ -379,7 +379,7 @@ fn prop_name_to_atom(ctx: &ContextImpl, str: &str) -> Result<Atom, i32> {
             // We assume 8 bit non null strings, which is the case for these symbols
             for id in crate::atom::ATOM_CONST_SYMBOL_RANGE {
                 let a = Atom::from_id(id);
-                if a.desc_string().content().eq_str(name2) {
+                if a.desc_string(ctx.rt_ref()).content().eq_str(name2) {
                     return Ok(a);
                 }
             }

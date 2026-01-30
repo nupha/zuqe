@@ -89,14 +89,26 @@ impl DerefMut for RuntimePtr {
 
 impl From<&RuntimeImpl> for RuntimePtr {
     #[inline(always)]
-    fn from(value: &RuntimeImpl) -> Self {
-        Self(NonNull::from_ref(value))
+    fn from(r: &RuntimeImpl) -> Self {
+        Self(NonNull::from_ref(r))
     }
 }
 
 impl From<&mut RuntimeImpl> for RuntimePtr {
     #[inline(always)]
-    fn from(value: &mut RuntimeImpl) -> Self {
-        Self(NonNull::from_ref(value))
+    fn from(r: &mut RuntimeImpl) -> Self {
+        Self(NonNull::from_ref(r))
+    }
+}
+
+impl RuntimePtr {
+    pub const unsafe fn from_raw(rt: *mut RuntimeImpl) -> Self {
+        debug_assert!(!rt.is_null());
+        Self(unsafe { NonNull::new_unchecked(rt) })
+    }
+
+    #[inline(always)]
+    pub fn as_raw(self) -> NonNull<RuntimeImpl> {
+        self.0
     }
 }

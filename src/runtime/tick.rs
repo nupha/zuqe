@@ -39,7 +39,7 @@ impl RuntimeImpl {
         }
 
         if self.gc_req || self.gc_root_part().should_gc() {
-            self.gc_collect_root();
+            self.gc_collect();
         }
 
         Ok(if need_next_tick {

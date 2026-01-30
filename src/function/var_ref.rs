@@ -3,6 +3,7 @@ use std::ptr::NonNull;
 use gc_lite::{GcHead, GcRef, GcTracable};
 
 use crate::{
+    RuntimeImpl,
     context::ContextImpl,
     gcref_wrapper,
     stack_frame::{ExecMode, StackFrame},
@@ -165,12 +166,12 @@ impl JSVarRefInner {
         }
     }
 
-    pub fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {
+    pub fn gc_nodes(&self, rt: &RuntimeImpl) -> impl Iterator<Item = NonNull<GcHead>> {
         let mut nodes: [Option<NonNull<GcHead>>; 2] = [None; 2];
 
         match self.state {
             VarRefState::Detached { value } => {
-                if let Some(h) = value.gc_node_ptr() {
+                if let Some(h) = value.gc_node_ptr(rt) {
                     nodes[0] = Some(h);
                 }
             }
@@ -182,7 +183,7 @@ impl JSVarRefInner {
                     nodes[i] = Some(a.gc_ref().head_ptr());
                     i += 1;
                 }
-                if let Some(p) = unsafe { pvalue.as_ref().gc_node_ptr() } {
+                if let Some(p) = unsafe { pvalue.as_ref().gc_node_ptr(rt) } {
                     nodes[i] = Some(p);
                 }
             }

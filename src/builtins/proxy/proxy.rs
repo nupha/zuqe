@@ -384,11 +384,7 @@ fn js_proxy_get_own_property(
         return px.target.get_own_property(cx, prop);
     }
 
-    let trap_result_obj = method.call(
-        cx,
-        px.handler,
-        &[px.target.into(), prop.to_value(cx)?],
-    )?;
+    let trap_result_obj = method.call(cx, px.handler, &[px.target.into(), prop.to_value(cx)?])?;
     if !matches!(trap_result_obj, JSValue::Object(_) | JSValue::UNDEFINED) {
         cx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor ");
         return Err(-1);
@@ -569,11 +565,7 @@ fn js_proxy_delete_property(ctx: ContextPtr, mut obj: JSValue, atom: Atom) -> Re
     }
 
     let res = method
-        .call(
-            &ctx,
-            px.handler,
-            &[px.target.into(), atom.to_value(&ctx)?],
-        )?
+        .call(&ctx, px.handler, &[px.target.into(), atom.to_value(&ctx)?])?
         .to_bool()?;
 
     if res && let Some(desc) = px.target.get_own_property(&ctx, atom)? {
@@ -643,7 +635,7 @@ fn js_proxy_get_own_property_names(
             cx.throw_type_error("proxy: duplicate property");
             return Err(-1);
         }
-        tab.push(PropertyKey::new(atom, false, false));
+        tab.push(PropertyKey::new(&ctx, atom, false, false));
     }
 
     // check if there are non configurable properties
@@ -696,11 +688,7 @@ fn js_proxy_has(ctx: ContextPtr, mut obj: Object, atom: Atom) -> Result<bool, i3
     }
 
     let ret = method
-        .call(
-            cx,
-            px.handler,
-            &[px.target.into(), atom.to_value(cx)?],
-        )?
+        .call(cx, px.handler, &[px.target.into(), atom.to_value(cx)?])?
         .to_bool()?;
 
     if !ret {

@@ -32,7 +32,7 @@ impl Object {
             "{:10} ",
             rt.class_registry[self.class_id() as usize]
                 .class_name
-                .to_utf8(),
+                .to_utf8(rt),
         );
 
         if self.flags().is_exotic() && self.flags().is_fast_array() {
@@ -78,7 +78,7 @@ impl Object {
                 };
 
                 // key
-                print!("{}:", prs.atom.to_utf8());
+                print!("{}:", prs.atom.to_utf8(rt));
 
                 // value
                 if let Some(pr) = self.prop_values.get(idx) {

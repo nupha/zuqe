@@ -32,7 +32,12 @@ pub fn js_string_constructor(cc: CallContext) -> JSResult {
             && new_target.is_undefined()
         {
             // "Symbol(desc)"
-            JS_ConcatString3(ctx, c"Symbol(", a.desc_string().into(), c")")?
+            JS_ConcatString3(
+                ctx,
+                c"Symbol(",
+                a.desc_string(ctx.rt_ref()).clone().into(),
+                c")",
+            )?
         } else {
             cc.arg(0).to_string(ctx)?
         }
@@ -65,7 +70,9 @@ fn js_string_at(cc: CallContext) -> JSResult {
 
     if buf_idx < 0 || buf_idx >= buf_len {
         match what {
-            0 => Atom::CONST_empty_string.force_string(cx).map(JSValue::String),
+            0 => Atom::CONST_empty_string
+                .force_string(cx)
+                .map(JSValue::String),
             1 => Ok(JSValue::UNDEFINED),
             2 => Ok(JSValue::Float64(f64::NAN)),
             _ => unreachable!(),

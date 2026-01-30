@@ -7,7 +7,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_LAZYINIT, JS_PROP_NO_EXOTIC, JS_PROP_NORMAL,
         JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, JSPropertyDescriptor, Object,
-        ObjectImpl, get_prop_flags,
+        get_prop_flags,
     },
     utils::unlikely,
     value::JSValue,
@@ -26,7 +26,7 @@ impl Object {
     ) -> Result<(), i32> {
         let len = self.modify_shape_add_prop(ctx, prop, prop_flags)?;
         debug_assert_eq!(self.prop_values.len(), len);
-        self.set_prop_slot(len - 1, value);
+        self.set_prop_slot(ctx, len - 1, value);
         Ok(())
     }
 
@@ -293,7 +293,7 @@ impl Object {
                                     return ret;
                                 }
                             }
-                        } else if let Some(idx) = prop.to_array_index() {
+                        } else if let Some(idx) = prop.to_array_index(ctx.rt_ref()) {
                             // convert fast array to sparse array
                             if self.destruct_fast_array(ctx).is_err() {
                                 return if ctx.can_throw(flags) {
@@ -305,7 +305,7 @@ impl Object {
                                 return ret;
                             }
                         }
-                    } else if let Some(idx) = prop.to_array_index()
+                    } else if let Some(idx) = prop.to_array_index(ctx.rt_ref())
                         && let Some(ret) = update_array_length_fn(*self, idx, arr_len)
                     {
                         return ret;

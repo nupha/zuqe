@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    JS_CLASS_ERROR,
+    JS_CLASS_ERROR, RuntimeImpl,
     atom::{Atom, AtomKind},
     function::Bytecode,
     module::ModuleDef,
@@ -114,7 +114,7 @@ pub enum JSValue {
     Float64(f64),
     String(StringRef),
     #[cfg(feature = "builtin_symbol")]
-    Symbol(Atom),
+    Symbol(Atom), // TODO: use Symbol(StringRef)
     Module(ModuleDef),
     Object(Object),
     Bytecode(Bytecode),
@@ -123,8 +123,11 @@ pub enum JSValue {
 unsafe impl gc_lite::GcTracable for JSValue {
     #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        if let Some(p) = self.gc_node_ptr() {
-            tracer.mark(unsafe { GcRef::from_head_ptr(p) });
+        let rt_raw = tracer.opaque().cast::<RuntimeImpl>();
+        debug_assert!(!rt_raw.is_null());
+
+        if let Some(p) = self.gc_node_ptr(unsafe { &*rt_raw }) {
+            tracer.add(unsafe { GcRef::from_head_ptr(p) });
         }
 
         // match self {
@@ -364,7 +367,7 @@ impl JSValue {
     }
 
     /// calc hash of value
-    pub(crate) fn hash(&self) -> u32 {
+    pub(crate) fn hash(&self, rt: &RuntimeImpl) -> u32 {
         let h: u32 = match self {
             Self::Object(o) => hash_usize(o.id()),
             Self::Int(d) => {
@@ -376,7 +379,7 @@ impl JSValue {
                 |a| a.hash(),
             ),
             #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(a) => a.atom_info().hash(),
+            Self::Symbol(a) => a.hash(rt),
 
             Self::Float64(d) => {
                 let mut d = *d;
@@ -414,7 +417,7 @@ impl JSValue {
 
     /// get value's gc node raw pointer. returns null if value do not need gc.
     #[inline]
-    pub fn gc_node_ptr(&self) -> Option<NonNull<GcHead>> {
+    pub fn gc_node_ptr(&self, rt: &RuntimeImpl) -> Option<NonNull<GcHead>> {
         match self {
             Self::Object(o) => Some(o.gc_ref().head_ptr()),
             Self::String(s) if s.rt().is_some() => {
@@ -424,7 +427,7 @@ impl JSValue {
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(a) if !a.is_const() && !a.is_null() && !a.is_small_int() => {
                 // non-const string atom
-                Some(a.desc_string().gc_ref().head_ptr())
+                Some(a.desc_string(rt).gc_ref().head_ptr())
             }
             Self::Bytecode(b) => Some(b.gc_ref().head_ptr()),
             Self::Module(m) => Some(m.gc_ref().head_ptr()),

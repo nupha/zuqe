@@ -28,14 +28,14 @@ use super::StringBuf;
 /// Maximum length allowed for JavaScript strings (1GB - 1)
 pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 
-/// Bundle of string data, and atom info
+/// String data + atom info
 pub struct StringImpl {
-    /// for empty, ident string or const atom description, this should be None.
+    /// for empty string, ident string or const string, this should be None.
     rt: Option<RuntimePtr>,
     /// string content
     content: StringData,
-    /// if string was registered as atom, this stores the atom info.
-    /// None means the string is not registered as atom.
+    /// if string is used as atom, this stores the atom info.
+    /// None means the string is not an atom.
     atom_info: Option<AtomInfo>,
 }
 
@@ -46,11 +46,10 @@ unsafe impl GcTracable for StringImpl {
 
 impl Drop for StringImpl {
     fn drop(&mut self) {
-        if let Some(atom_info) = &self.atom_info {
-            let atom_id = atom_info.id();
-            if !is_const_atom(atom_id) && !is_small_int_atom(atom_id) {
-                Atom::unregister(atom_id);
-            }
+        if let Some(atom_info) = &self.atom_info
+            && let Some(mut rt) = self.rt()
+        {
+            rt.remove_atom(atom_info);
         }
     }
 }
@@ -184,13 +183,13 @@ impl StringImpl {
         self.content.is_wide()
     }
 
-    /// Returns the atom info associated with this string.
+    /// Returns the atom info associated to this string.
     #[inline(always)]
     pub const fn atom_info(&self) -> Option<&AtomInfo> {
         self.atom_info.as_ref()
     }
 
-    pub fn set_atom_info(&mut self, atom_info: AtomInfo) {
+    pub(crate) fn set_atom_info(&mut self, atom_info: AtomInfo) {
         debug_assert!(self.atom_info.is_none());
         self.atom_info.replace(atom_info);
     }

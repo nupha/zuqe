@@ -223,7 +223,7 @@ impl TypedArray {
             let name = Atom::from_id(
                 Atom::CONST_Uint8ClampedArray.id() + (cid - JS_CLASS_UINT8C_ARRAY) as u32,
             )
-            .to_utf8();
+            .to_utf8(ctx.rt_ref());
 
             let mut ta_obj = ctx.create_base_object_with_proto(Some(proto))?;
             ta_obj.define_property_value_str(&ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;

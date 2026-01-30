@@ -187,7 +187,7 @@ fn js_module_set_import_meta(
     if let JSValue::Module(mut m) = func_val {
         // make module name to absolute url
         let module_name_atom = m.module_name();
-        let module_name = module_name_atom.to_utf8();
+        let module_name = module_name_atom.to_utf8(ctx.rt_ref());
 
         let p = PathBuf::from(module_name);
         let mut normalized = PathBuf::new();

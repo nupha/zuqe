@@ -326,7 +326,7 @@ impl JSValue {
             v @ (Self::NULL | Self::UNDEFINED) => {
                 ctx.throw_type_error(&format!(
                     "cannot read property '{}' of {}",
-                    prop.to_utf8(),
+                    prop.to_utf8(ctx.rt_ref()),
                     if v.is_undefined() {
                         "undefined"
                     } else {

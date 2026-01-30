@@ -191,7 +191,7 @@ impl std::fmt::Display for ObjectImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let rt = self.rt();
         let class_id = self.class_id();
-        let name = rt.class_registry[class_id as usize].class_name.to_utf8();
+        let name = rt.class_registry[class_id as usize].class_name.to_utf8(&rt);
 
         #[cfg(debug_assertions)]
         {

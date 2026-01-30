@@ -145,7 +145,7 @@ fn js_arguments_define_own_property(
     // convert to normal array when redefining an existing numeric field
     if obj.flags().is_fast_array()
         && prop
-            .to_array_index()
+            .to_array_index(ctx.rt_ref())
             .is_some_and(|i| i < obj.fast_array_count())
     {
         obj.destruct_fast_array(&ctx)?;
