@@ -91,8 +91,6 @@ impl RuntimeImpl {
         // mark
         //
         {
-            let mut tr = GcTracer::new(self.gc_heap(), part_id);
-
             let marker_fn = |mut h: NonNull<gc_lite::GcHead>| unsafe {
                 if !h.as_ref().is_marked() {
                     h.as_mut().set_marked(true);
@@ -102,8 +100,7 @@ impl RuntimeImpl {
                 }
             };
 
-            tr.clear_visit_flags();
-            tr.clear_marks();
+            let mut tr = self.gc_heap().tracer(part_id);
 
             tr.trace_roots(marker_fn);
             tr.trace_iter(
@@ -173,9 +170,7 @@ impl RuntimeImpl {
         }
 
         // mark
-        let mut tr = GcTracer::new(self.gc_heap(), part_id);
-        tr.clear_visit_flags();
-        tr.clear_marks();
+        let mut tr = self.gc_heap().tracer(part_id);
 
         tr.trace_roots(GcTracer::MARK_FUNC);
         tr.trace_iter(stack_frame.gc_nodes(), GcTracer::MARK_FUNC);

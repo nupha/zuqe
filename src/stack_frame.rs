@@ -1,6 +1,5 @@
 use std::{
     marker::{PhantomData, PhantomPinned},
-    ops::Deref,
     pin::Pin,
     ptr::NonNull,
 };
