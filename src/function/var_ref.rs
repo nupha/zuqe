@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcHead, GcRef, GcTracable};
+use gc_lite::{GcHead, GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     context::ContextImpl,
@@ -26,21 +26,20 @@ enum VarRefState {
 }
 
 unsafe impl GcTracable for VarRefState {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+    fn trace(&self, tr: GcTraceOp) {
         match self {
             Self::Detached { value } => {
-                value.trace(tracer);
+                value.trace(tr);
             }
             Self::Bind {
                 async_func: Some(a),
                 pvalue,
                 ..
             } => {
+                a.trace(tr);
                 unsafe {
-                    pvalue.as_ref().trace(tracer);
+                    pvalue.as_ref().trace(tr);
                 }
-                a.trace(tracer);
             }
             _ => {}
         }
@@ -54,9 +53,8 @@ pub struct JSVarRefInner {
 }
 
 unsafe impl GcTracable for JSVarRefInner {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.state.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.state.trace(tr);
     }
 }
 
@@ -179,7 +177,7 @@ impl JSVarRefInner {
             } => {
                 let mut i = 0;
                 if let Some(a) = async_func.as_ref() {
-                    nodes[i] = Some(a.gc_ref().head_ptr());
+                    nodes[i] = Some(a.gc_ref().node_ptr());
                     i += 1;
                 }
                 if let Some(p) = unsafe { pvalue.as_ref().gc_node_ptr() } {

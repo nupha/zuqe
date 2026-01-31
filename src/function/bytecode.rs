@@ -1,9 +1,9 @@
 use std::{os::raw::c_void, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTracable, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
-    atom::Atom,
+    atom::{Atom, is_const_atom, is_small_int_atom},
     bytecode::{OpcodeFormat, opcode_info_final},
     context::{ContextImpl, ContextPtr},
     error::JSResult,
@@ -30,9 +30,8 @@ pub struct BytecodeDebugInfo {
 }
 
 unsafe impl GcTracable for BytecodeDebugInfo {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.filename.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.filename.trace(tr);
     }
 }
 
@@ -122,12 +121,11 @@ pub struct BytecodeImpl {
 }
 
 unsafe impl GcTracable for BytecodeImpl {
-    #[inline]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.func_name.trace(tracer);
-        self.consts().iter().for_each(|x| x.trace(tracer));
-        self.vardefs().iter().for_each(|x| x.trace(tracer));
-        self.closure_vars().iter().for_each(|x| x.trace(tracer));
+    fn trace(&self, tr: GcTraceOp) {
+        self.func_name.trace(tr);
+        self.consts().iter().for_each(|x| x.trace(tr));
+        self.vardefs().iter().for_each(|x| x.trace(tr));
+        self.closure_vars().iter().for_each(|x| x.trace(tr));
 
         // trace atoms in opcodes
         let bc = self.opcodes();
@@ -144,16 +142,16 @@ unsafe impl GcTracable for BytecodeImpl {
                     | OpcodeFormat::ATOM_LABEL_U8
                     | OpcodeFormat::ATOM_LABEL_U16
             ) {
-                unsafe {
-                    let id = read_from_ptr::<u32>(bc.as_ptr().add(pos + 1));
-                    let a = Atom::from_id(id);
-                    a.trace(tracer);
+                let id = unsafe { read_from_ptr::<u32>(bc.as_ptr().add(pos + 1)) };
+                if !is_const_atom(id) && !is_small_int_atom(id) {
+                    Atom::from_id(id).trace(tr);
                 }
             }
+
             pos += oi.size as usize;
         }
 
-        self.debug.trace(tracer);
+        self.debug.trace(tr);
     }
 }
 
@@ -584,45 +582,45 @@ impl BytecodeImpl {
 #[derive(Clone, Copy, PartialEq)]
 pub struct Bytecode(GcRef<BytecodeImpl>);
 
-unsafe impl GcTracable for Bytecode {
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        unsafe {
-            self.0.as_ref().trace(tracer);
-        }
-    }
-}
+// unsafe impl GcTracable for Bytecode {
+//     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+//         unsafe {
+//             self.0.as_ref().trace(tracer);
+//         }
+//     }
+// }
 
-impl std::ops::Deref for Bytecode {
-    type Target = BytecodeImpl;
+// impl std::ops::Deref for Bytecode {
+//     type Target = BytecodeImpl;
 
-    fn deref(&self) -> &Self::Target {
-        unsafe { self.0.as_ref() }
-    }
-}
+//     fn deref(&self) -> &Self::Target {
+//         unsafe { self.0.as_ref() }
+//     }
+// }
 
-impl std::ops::DerefMut for Bytecode {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.0.as_mut() }
-    }
-}
+// impl std::ops::DerefMut for Bytecode {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         unsafe { self.0.as_mut() }
+//     }
+// }
 
-impl Bytecode {
-    #[inline(always)]
-    pub(crate) const fn from(r: GcRef<BytecodeImpl>) -> Self {
-        Self(r)
-    }
+// impl Bytecode {
+//     #[inline(always)]
+//     pub(crate) const fn from(r: GcRef<BytecodeImpl>) -> Self {
+//         Self(r)
+//     }
 
-    #[inline(always)]
-    pub(crate) unsafe fn from_ref_unchecked(o: &BytecodeImpl) -> Self {
-        Self(unsafe { GcRef::from_ref_unchecked(o) })
-    }
+//     #[inline(always)]
+//     pub(crate) unsafe fn from_ref_unchecked(o: &BytecodeImpl) -> Self {
+//         Self(unsafe { GcRef::from_ref_unchecked(o) })
+//     }
 
-    pub fn gc_ref(&self) -> GcRef<BytecodeImpl> {
-        self.0
-    }
-}
+//     pub fn gc_ref(&self) -> GcRef<BytecodeImpl> {
+//         self.0
+//     }
+// }
 
-//gcref_wrapper!(Bytecode, BytecodeImpl);
+gcref_wrapper!(Bytecode, BytecodeImpl);
 
 impl From<Bytecode> for JSValue {
     #[inline(always)]

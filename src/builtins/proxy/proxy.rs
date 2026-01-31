@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_PROXY,
@@ -33,10 +33,9 @@ pub struct ProxyPayload {
 }
 
 unsafe impl GcTracable for ProxyPayload {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.target.trace(tracer);
-        self.handler.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.target.trace(tr);
+        self.handler.trace(tr);
     }
 }
 
@@ -257,7 +256,7 @@ impl Proxy {
     /// get proxy payload reference
     #[inline(always)]
     pub(super) fn payload(&self) -> &ProxyPayload {
-        if let ObjectPayload::PROXY(s) = unsafe { self.0.as_ref().payload() } {
+        if let ObjectPayload::PROXY(s) = self.0.payload() {
             s.as_ref()
         } else {
             #[cfg(debug_assertions)]
@@ -272,7 +271,7 @@ impl Proxy {
     /// get proxy payload reference
     #[inline(always)]
     pub(super) fn payload_mut(&mut self) -> &mut ProxyPayload {
-        if let ObjectPayload::PROXY(s) = unsafe { self.0.as_mut().payload_mut() } {
+        if let ObjectPayload::PROXY(s) = self.0.payload_mut() {
             s.as_mut()
         } else {
             #[cfg(debug_assertions)]

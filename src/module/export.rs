@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use gc_lite::GcTracable;
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
     atom::Atom,
@@ -45,14 +45,13 @@ pub(crate) enum ExportType {
 }
 
 unsafe impl GcTracable for ExportType {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+    fn trace(&self, tr: GcTraceOp) {
         if let Self::JS_EXPORT_TYPE_LOCAL {
             var_ref: Some(vref),
             ..
         } = self
         {
-            vref.trace(tracer);
+            vref.trace(tr);
         }
     }
 }
@@ -67,11 +66,10 @@ pub struct ExportEntry {
 }
 
 unsafe impl GcTracable for ExportEntry {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.local_name.trace(tracer);
-        self.export_name.trace(tracer);
-        self.export_type.trace(tracer);
+    fn trace(&self, tr: GcTraceOp<'_>) {
+        self.local_name.trace(tr);
+        self.export_name.trace(tr);
+        self.export_type.trace(tr);
     }
 }
 
@@ -90,8 +88,7 @@ pub(super) enum ResolveExport {
 }
 
 unsafe impl GcTracable for ResolveExport {
-    #[inline]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+    fn trace(&self, tr: GcTraceOp) {
         if let Self::Found {
             export_name,
             local_name,
@@ -99,10 +96,10 @@ unsafe impl GcTracable for ResolveExport {
             module,
         } = self
         {
-            export_name.trace(tracer);
-            local_name.trace(tracer);
-            export_type.trace(tracer);
-            module.trace(tracer);
+            export_name.trace(tr);
+            local_name.trace(tr);
+            export_type.trace(tr);
+            module.trace(tr);
         }
     }
 }

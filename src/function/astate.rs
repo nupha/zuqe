@@ -1,6 +1,6 @@
 use std::{pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTracable, GcTracer};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     context::ContextImpl, error::JSResult, function::BCFunction, gcref_wrapper,
@@ -25,12 +25,11 @@ pub struct AsyncStateImpl {
 }
 
 unsafe impl GcTracable for AsyncStateImpl {
-    #[inline]
-    fn trace(&self, tracer: &mut GcTracer) {
-        self.this_val.trace(tracer);
-        self.resolving_funcs[0].trace(tracer);
-        self.resolving_funcs[1].trace(tracer);
-        self.frame.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.this_val.trace(tr);
+        self.resolving_funcs[0].trace(tr);
+        self.resolving_funcs[1].trace(tr);
+        self.frame.trace(tr);
     }
 }
 
@@ -222,7 +221,7 @@ impl AsyncState {
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {
-        let gc_ref = ctx
+        let mut a_state = ctx
             .rt_ptr()
             .gc_alloc(AsyncStateImpl::new(
                 ctx, resolvings, bc_func, this_obj, args,
@@ -234,15 +233,10 @@ impl AsyncState {
 
         // setup backref link: StackFrame::async_state => GcWeak<AsyncStateImpl>
         unsafe {
-            let w = gc_ref.downgrade(ctx.rt_ptr().gc_heap_mut());
-            gc_ref
-                .as_mut()
-                .frame
-                .as_mut()
-                .get_unchecked_mut()
-                .async_state = w;
+            let w = a_state.downgrade(ctx.rt_ptr().gc_heap_mut());
+            a_state.frame.as_mut().get_unchecked_mut().async_state = w;
         }
 
-        Ok(Self(gc_ref))
+        Ok(Self(a_state))
     }
 }

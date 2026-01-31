@@ -1,4 +1,4 @@
-use gc_lite::GcTracable;
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
     atom::Atom, context::ContextImpl, eval::EvalType, function::FunctionDef, stack_frame::ExecMode,
@@ -71,9 +71,8 @@ pub struct JSVarDef {
 }
 
 unsafe impl GcTracable for JSVarDef {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.var_name.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.var_name.trace(tr);
     }
 }
 

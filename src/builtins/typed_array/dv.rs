@@ -1,4 +1,4 @@
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_DATAVIEW,
@@ -26,9 +26,8 @@ pub struct DataViewPayload {
 }
 
 unsafe impl GcTracable for DataViewPayload {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.buffer.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.buffer.trace(tr);
     }
 }
 
@@ -186,7 +185,7 @@ impl DataView {
 
     #[inline]
     pub fn payload(&self) -> &DataViewPayload {
-        unsafe { self.0.as_ref().payload().data_view().unwrap() }
+        self.0.payload().data_view().unwrap()
     }
 
     /// check if the TypedArray is detached.

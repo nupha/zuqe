@@ -54,20 +54,20 @@ impl ObjectImpl {
     }
 
     /// set property at slot `idx`, then check and optionally promote gc partition.
-    pub(crate) fn set_prop_slot(&mut self, ctx: &ContextImpl, idx: usize, p: JSProperty) {
+    pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
         debug_assert!(idx < self.prop_values.len());
 
         let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
             JSProperty::Normal(val) => [val.gc_node_ptr(), None],
             JSProperty::GetSet { getter, setter } => [
-                getter.map(|o| o.gc_ref().head_ptr()),
-                setter.map(|o| o.gc_ref().head_ptr()),
+                getter.map(|o| o.gc_ref().node_ptr()),
+                setter.map(|o| o.gc_ref().node_ptr()),
             ],
-            JSProperty::VarRef(vr) => [Some(vr.gc_ref().head_ptr()), None],
+            JSProperty::VarRef(vr) => [Some(vr.gc_ref().node_ptr()), None],
             JSProperty::LazyInit {
                 init_type: LazyInit::ModuleNS(m),
                 ..
-            } => [Some(m.gc_ref().head_ptr()), None],
+            } => [Some(m.gc_ref().node_ptr()), None],
             _ => [None, None],
         };
 
@@ -78,7 +78,7 @@ impl ObjectImpl {
         // check partition xref
         let self_partition = unsafe {
             GcRef::from_ref_unchecked(self)
-                .head_ptr()
+                .node_ptr()
                 .as_ref()
                 .get_partition_id()
         };
@@ -217,7 +217,7 @@ impl Object {
                             f2
                         })?;
 
-                        self.set_prop_slot(ctx, idx, JSProperty::Normal(vref.value()));
+                        self.set_prop_slot(idx, JSProperty::Normal(vref.value()));
                     }
                 }
 
@@ -248,7 +248,7 @@ impl Object {
         } else {
             // normal property
             if flags & JS_PROP_HAS_VALUE != 0 {
-                self.set_prop_slot(ctx, idx, JSProperty::Normal(val));
+                self.set_prop_slot(idx, JSProperty::Normal(val));
             }
 
             // update `writable` flag
@@ -328,7 +328,6 @@ impl Object {
         }
 
         self.set_prop_slot(
-            ctx,
             idx,
             JSProperty::GetSet {
                 getter: new_getter.or(old_getter),

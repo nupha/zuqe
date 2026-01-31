@@ -26,7 +26,7 @@ impl Object {
     ) -> Result<(), i32> {
         let len = self.modify_shape_add_prop(ctx, prop, prop_flags)?;
         debug_assert_eq!(self.prop_values.len(), len);
-        self.set_prop_slot(ctx, len - 1, value);
+        self.set_prop_slot(len - 1, value);
         Ok(())
     }
 

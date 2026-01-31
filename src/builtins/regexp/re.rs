@@ -1,6 +1,6 @@
 use std::{cell::Cell, ops::Range, rc::Rc};
 
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 use lre::{Regex, RegexFlags};
 use zerocopy::IntoBytes;
 
@@ -35,10 +35,9 @@ pub struct RegExpStringIterPayload {
 }
 
 unsafe impl GcTracable for RegExpStringIterPayload {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.iterated_string.trace(tracer);
-        self.iterating_regexp.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.iterated_string.trace(tr);
+        self.iterating_regexp.trace(tr);
     }
 }
 
@@ -100,7 +99,7 @@ pub struct RegExpData {
 
 unsafe impl GcTracable for RegExpData {
     #[inline(always)]
-    fn trace(&self, _: &mut gc_lite::GcTracer) {}
+    fn trace(&self, _: GcTraceOp) {}
 }
 
 impl RegExpData {

@@ -1,6 +1,6 @@
 use std::cell::UnsafeCell;
 
-use gc_lite::GcTracable;
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR,
@@ -24,10 +24,9 @@ pub struct ArrayIterPayload {
 }
 
 unsafe impl GcTracable for ArrayIterPayload {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+    fn trace(&self, tr: GcTraceOp) {
         unsafe {
-            (*self.val.get()).trace(tracer);
+            (*self.val.get()).trace(tr);
         }
     }
 }

@@ -3,7 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::GcTracable;
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
     atom::{Atom, AtomKind},
@@ -704,7 +704,7 @@ pub struct Datetime {
 
 unsafe impl GcTracable for Datetime {
     #[inline(always)]
-    fn trace(&self, _: &mut gc_lite::GcTracer) {}
+    fn trace(&self, _: GcTraceOp) {}
 }
 
 impl Datetime {

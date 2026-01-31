@@ -1,4 +1,4 @@
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     atom::Atom,
@@ -84,26 +84,23 @@ pub struct ModuleDefImpl {
 }
 
 unsafe impl GcTracable for ModuleDefImpl {
-    #[inline]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.module_name.trace(tracer);
-        self.dependencies.iter().for_each(|x| x.trace(tracer));
-        self.export_entries.iter().for_each(|x| x.trace(tracer));
-        self.import_entries.iter().for_each(|x| x.trace(tracer));
+    fn trace(&self, tr: GcTraceOp) {
+        self.module_name.trace(tr);
+        self.dependencies.iter().for_each(|x| x.trace(tr));
+        self.export_entries.iter().for_each(|x| x.trace(tr));
+        self.import_entries.iter().for_each(|x| x.trace(tr));
 
-        self.bytecode.trace(tracer);
-        self.async_parent_modules
-            .iter()
-            .for_each(|x| x.trace(tracer));
-        self.promise.trace(tracer);
-        self.resolving_funcs[0].trace(tracer);
-        self.resolving_funcs[1].trace(tracer);
+        self.bytecode.trace(tr);
+        self.async_parent_modules.iter().for_each(|x| x.trace(tr));
+        self.promise.trace(tr);
+        self.resolving_funcs[0].trace(tr);
+        self.resolving_funcs[1].trace(tr);
 
-        self.stack_prev.trace(tracer);
-        self.module_ns.trace(tracer);
-        self.cycle_root.trace(tracer);
-        self.eval_exception.trace(tracer);
-        self.meta_obj.trace(tracer);
+        self.stack_prev.trace(tr);
+        self.module_ns.trace(tr);
+        self.cycle_root.trace(tr);
+        self.eval_exception.trace(tr);
+        self.meta_obj.trace(tr);
     }
 }
 

@@ -1,6 +1,6 @@
 use std::cell::UnsafeCell;
 
-use gc_lite::{GcRef, GcTracable, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
@@ -45,9 +45,8 @@ pub struct TypedArrayPayload {
 }
 
 unsafe impl GcTracable for TypedArrayPayload {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.buffer.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.buffer.trace(tr);
     }
 }
 
@@ -259,12 +258,12 @@ impl TypedArray {
 
     #[inline(always)]
     pub fn payload(&self) -> &TypedArrayPayload {
-        unsafe { self.0.as_ref().payload().typed_array().unwrap() }
+        self.0.payload().typed_array().unwrap()
     }
 
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut TypedArrayPayload {
-        unsafe { self.0.as_mut().payload_mut().typed_array_mut().unwrap() }
+        self.0.payload_mut().typed_array_mut().unwrap()
     }
 
     /// check if the TypedArray is detached.

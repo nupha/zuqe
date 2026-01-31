@@ -45,7 +45,7 @@ impl Object {
             let atom = Atom::from_id(s.atom_info().unwrap().id());
 
             if let Some((idx, _)) = self.find_shape_property(atom) {
-                self.set_prop_slot(ctx, idx, JSProperty::Normal(val));
+                self.set_prop_slot(idx, JSProperty::Normal(val));
                 Ok(())
             } else {
                 JS_ThrowTypeErrorPrivateNotFound(ctx, atom);

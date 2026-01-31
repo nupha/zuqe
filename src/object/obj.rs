@@ -1,6 +1,6 @@
 use std::{fmt::Formatter, ops::Deref};
 
-use gc_lite::{GcRef, GcTracable, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -171,13 +171,12 @@ pub struct ObjectImpl {
 }
 
 unsafe impl GcTracable for ObjectImpl {
-    #[inline]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.shape.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.shape.trace(tr);
         self.prop_values.iter().for_each(|x| {
-            x.trace(tracer);
+            x.trace(tr);
         });
-        self.payload.trace(tracer);
+        self.payload.trace(tr);
     }
 }
 
@@ -358,7 +357,7 @@ impl ObjectImpl {
         self as *const Self as usize
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) const fn rt(&self) -> RuntimePtr {
         self.rt
     }
@@ -502,14 +501,11 @@ impl ObjectImpl {
 
         // Map Set object remove weakref
         #[cfg(feature = "builtin_mapset")]
-        while let Some(w) = self.weak_refs.pop() {
-            if let Some(o) = w.upgrade(rt.gc_heap()) {
-                unsafe {
-                    o.as_mut()
-                        .payload
-                        .mapset_mut()
-                        .unwrap()
-                        .remove_weak_obj(self)
+        {
+            let heap = rt.gc_heap();
+            while let Some(w) = self.weak_refs.pop() {
+                if let Some(mut o) = w.upgrade(heap) {
+                    o.payload.mapset_mut().unwrap().remove_weak_obj(self)
                 }
             }
         }

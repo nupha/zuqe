@@ -672,7 +672,7 @@ pub fn gen_class_payload(outfile: &Path) {
                 arms.join("|")
             ));
 
-            gc_trace_arms.push(format!("{} => {{ x.trace(tracer); }}", arms.join("|")));
+            gc_trace_arms.push(format!("{} => {{ x.trace(tr); }}", arms.join("|")));
         }
     }
 
@@ -701,7 +701,7 @@ pub fn gen_class_payload(outfile: &Path) {
         "\n\n".to_string(),
         format!(
             r#"unsafe impl gc_lite::GcTracable for ObjectPayload {{
-                fn trace(&self, tracer: &mut gc_lite::GcTracer) {{
+                fn trace(&self, tr: gc_lite::GcTraceOp) {{
                     match self {{
                         {},
                         _=>{{ }}

@@ -7,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcRef, GcTracable, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
@@ -85,27 +85,26 @@ pub struct ContextImpl {
 }
 
 unsafe impl GcTracable for ContextImpl {
-    #[inline]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.class_protos.iter().for_each(|x| x.trace(tracer));
-        self.array_shape.trace(tracer);
-        self.iterator_proto.trace(tracer);
-        self.async_iterator_proto.trace(tracer);
-        self.array_proto_values.trace(tracer);
-        self.function_ctor.trace(tracer);
-        self.array_ctor.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.class_protos.iter().for_each(|x| x.trace(tr));
+        self.array_shape.trace(tr);
+        self.iterator_proto.trace(tr);
+        self.async_iterator_proto.trace(tr);
+        self.array_proto_values.trace(tr);
+        self.function_ctor.trace(tr);
+        self.array_ctor.trace(tr);
         #[cfg(feature = "builtin_regexp")]
-        self.regexp_ctor.trace(tracer);
-        self.promise_ctor.trace(tracer);
-        self.throw_type_error.trace(tracer);
-        self.eval_func.trace(tracer);
-        self.global_obj.trace(tracer);
-        self.global_var_obj.trace(tracer);
-        self.error_protos.iter().for_each(|x| x.trace(tracer));
-        self.loaded_modules.iter().for_each(|x| x.trace(tracer));
+        self.regexp_ctor.trace(tr);
+        self.promise_ctor.trace(tr);
+        self.throw_type_error.trace(tr);
+        self.eval_func.trace(tr);
+        self.global_obj.trace(tr);
+        self.global_var_obj.trace(tr);
+        self.error_protos.iter().for_each(|x| x.trace(tr));
+        self.loaded_modules.iter().for_each(|x| x.trace(tr));
 
         // pending jobs
-        self.job_list.iter().for_each(|x| x.gc_trace(tracer));
+        self.job_list.iter().for_each(|x| x.gc_trace(tr));
     }
 }
 
@@ -258,19 +257,19 @@ impl<'a> Deref for Context<'a> {
 
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        unsafe { self.gc_ref.as_ref() }
+        self.gc_ref.deref()
     }
 }
 
 impl<'a> DerefMut for Context<'a> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.gc_ref.as_mut() }
+        self.gc_ref.deref_mut()
     }
 }
 
 impl<'a> From<&ContextImpl> for Context<'a> {
-    #[inline(always)]
+    #[inline]
     fn from(c: &ContextImpl) -> Self {
         Self {
             gc_ref: unsafe { gc_lite::GcRef::from_ref_unchecked(c) },

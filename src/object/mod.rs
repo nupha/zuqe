@@ -16,8 +16,8 @@ macro_rules! gcref_wrapper {
     ($ty:ident, $in_ty:ident) => {
         unsafe impl gc_lite::GcTracable for $ty {
             #[inline(always)]
-            fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-                tracer.add(self.0)
+            fn trace(&self, mut tr: gc_lite::GcTraceOp) {
+                tr.add(self.0)
             }
         }
 
@@ -26,14 +26,14 @@ macro_rules! gcref_wrapper {
 
             #[inline(always)]
             fn deref(&self) -> &Self::Target {
-                unsafe { self.0.as_ref() }
+                std::ops::Deref::deref(&self.0)
             }
         }
 
         impl std::ops::DerefMut for $ty {
             #[inline(always)]
             fn deref_mut(&mut self) -> &mut Self::Target {
-                unsafe { self.0.as_mut() }
+                std::ops::DerefMut::deref_mut(&mut self.0)
             }
         }
 

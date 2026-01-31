@@ -213,7 +213,7 @@ impl ContextImpl {
                 }
             }
 
-            gvobj.set_prop_slot(self, idx, JSProperty::Normal(val));
+            gvobj.set_prop_slot(idx, JSProperty::Normal(val));
             Ok(true)
         } else {
             // not exist

@@ -4,7 +4,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcHead, GcPartitionId, GcTracable, GcTracer, GcWeak};
+use gc_lite::{GcHead, GcPartitionId, GcTracable, GcTraceOp, GcTracer, GcWeak};
 
 use crate::{
     Object,
@@ -35,7 +35,7 @@ bitflags::bitflags! {
 #[derive(Debug)]
 pub struct StackFrame {
     /// Raw pointer to parent stack frame (NULL means top)
-    pub(crate) prev: *mut Pin<Self>,
+    pub(super) prev: *mut Pin<Self>,
 
     /// Associated function of this stack frame, could be:
     /// - Bytecode Function object
@@ -76,43 +76,43 @@ pub struct StackFrame {
     pub(crate) async_state: GcWeak<AsyncStateImpl>,
 
     /// gc partitionid for stack frame scoped gc allocs
-    pub(crate) gc_scoped_part_id: GcPartitionId,
+    pub(crate) gc_scope_id: GcPartitionId,
 
     _mark: PhantomPinned,
 }
 
 unsafe impl GcTracable for StackFrame {
     #[inline]
-    fn trace(&self, tracer: &mut GcTracer) {
-        self.func_obj.trace(tracer);
+    fn trace(&self, mut tr: GcTraceOp) {
+        tr.add(self.func_obj.gc_ref());
 
         // trace args
-        {
-            let n = std::cmp::max(self.arg_real_count, self.arg_count);
-            if n > 0 {
-                let mut p = self.arg_base_ptr;
-                for _ in 0..n {
-                    unsafe {
-                        (&*p).trace(tracer);
-                        p = p.add(1);
+        let cnt = std::cmp::max(self.arg_real_count, self.arg_count);
+        if cnt > 0 {
+            let mut p = self.arg_base_ptr;
+            for _ in 0..cnt {
+                unsafe {
+                    if let Some(h) = (&*p).gc_node_ptr() {
+                        tr.add_node(h);
                     }
+                    p = p.add(1);
                 }
             }
         }
 
-        self.var_values().iter().for_each(|x| {
-            x.trace(tracer);
-        });
-        self.stack_values().iter().for_each(|x| {
-            x.trace(tracer);
-        });
-        self.var_ref_list.iter().for_each(|x| {
-            x.trace(tracer);
-        });
-
-        if let Some(sf) = unsafe { self.prev.cast::<StackFrame>().as_ref() } {
-            sf.trace(tracer);
+        // local vars
+        tr.add_nodes(self.var_values().iter().filter_map(|v| v.gc_node_ptr()));
+        // stack values
+        tr.add_nodes(self.stack_values().iter().filter_map(|v| v.gc_node_ptr()));
+        // varrefs
+        for r in self.var_ref_list.iter() {
+            tr.add_nodes(r.gc_nodes());
         }
+
+        // trace upward along chain
+        // if let Some(sf) = self.parent() {
+        //     sf.trace(tracer);
+        // }
     }
 }
 
@@ -125,8 +125,10 @@ impl PartialEq for StackFrame {
 
 impl Drop for StackFrame {
     fn drop(&mut self) {
-        let pid = self.gc_scoped_part_id;
+        let pid = self.gc_scope_id;
         if pid != GcPartitionId::NONE {
+            println!("[O.o] --- scope {:?}", pid);
+
             let mut rt = self.rt();
             rt.gc_heap_mut().remove_partition(pid);
         }
@@ -153,7 +155,7 @@ impl StackFrame {
             cur_pc_offset: 0,
             cur_sp_offset: 0,
 
-            gc_scoped_part_id: GcPartitionId::NONE,
+            gc_scope_id: GcPartitionId::NONE,
 
             _mark: PhantomPinned,
         }
@@ -165,19 +167,42 @@ impl StackFrame {
         self.func_obj.rt()
     }
 
-    /// get or initialize scoped gc partition for this stack frame. returns partition id.
-    pub(crate) fn gc_scoped_partition(&mut self) -> GcPartitionId {
-        if self.gc_scoped_part_id == GcPartitionId::NONE {
+    /// get parent stack frame
+    #[inline(always)]
+    pub const fn parent(&self) -> Option<&StackFrame> {
+        unsafe { self.prev.cast::<StackFrame>().as_ref() }
+    }
+
+    /// get parent stack frame
+    #[inline(always)]
+    pub const fn parent_mut(&mut self) -> Option<&mut StackFrame> {
+        unsafe { self.prev.cast::<StackFrame>().as_mut() }
+    }
+
+    /// get-exist or lazy-init gc scope for this stack frame.
+    pub(crate) fn init_gc_scope(&mut self) -> GcPartitionId {
+        if self.gc_scope_id == GcPartitionId::NONE {
+            let mut rt = self.rt();
+
             let parent = if let Some(up) = unsafe { self.prev.cast::<StackFrame>().as_mut() } {
-                up.gc_scoped_partition()
+                up.init_gc_scope()
             } else {
-                self.rt().gc_part_id()
+                rt.gc_root_scope
             };
 
-            self.gc_scoped_part_id = self.rt().gc_heap_mut().create_sub_partition(parent);
+            self.gc_scope_id = rt.gc_heap_mut().create_sub_partition(parent);
+
+            println!("[O.o] +++ scope: {parent:?} -> {:?}", self.gc_scope_id);
         }
 
-        self.gc_scoped_part_id
+        self.gc_scope_id
+    }
+
+    /// perform gc collect for scope of this stack frame
+    pub(crate) fn gc_collect(&self) {
+        if self.gc_scope_id != GcPartitionId::NONE {
+            self.rt().gc_collect_in(self.gc_scope_id);
+        }
     }
 
     /// Returns the base pointer of the stack in this frame.
@@ -332,10 +357,16 @@ impl StackFrame {
     /// get stack frame parent iterator
     pub const fn parent_iter(&self, include_self: bool) -> StackFrameParentIter<'_> {
         StackFrameParentIter {
-            stack_frame: if include_self {
-                self as *const StackFrame as _
+            current: if include_self {
+                Some(NonNull::from_ref(self))
             } else {
-                self.prev.cast::<StackFrame>()
+                unsafe {
+                    if !self.prev.is_null() {
+                        Some(NonNull::new_unchecked(self.prev.cast()))
+                    } else {
+                        None
+                    }
+                }
             },
             _mark: PhantomData,
         }
@@ -361,9 +392,9 @@ impl StackFrame {
             .iter()
             .filter_map(move |v| v.gc_node_ptr());
 
-        let var_refs_iter = self.var_ref_list.iter().map(|v| v.gc_ref().head_ptr());
+        let var_refs_iter = self.var_ref_list.iter().map(|v| v.gc_ref().node_ptr());
 
-        std::iter::once(self.func_obj.gc_ref().head_ptr())
+        std::iter::once(self.func_obj.gc_ref().node_ptr())
             .chain(args_iter)
             .chain(vars_iter)
             .chain(stack_iter)
@@ -372,7 +403,7 @@ impl StackFrame {
 }
 
 pub struct StackFrameParentIter<'a> {
-    stack_frame: *mut StackFrame,
+    current: Option<NonNull<StackFrame>>,
     _mark: PhantomData<&'a ()>,
 }
 
@@ -380,9 +411,9 @@ impl<'a> Iterator for StackFrameParentIter<'a> {
     type Item = &'a StackFrame;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(f) = unsafe { self.stack_frame.as_ref() } {
-            self.stack_frame = f.prev.cast::<StackFrame>();
-            Some(f)
+        if let Some(sf) = self.current.take() {
+            self.current.replace(sf);
+            Some(unsafe { sf.as_ref() })
         } else {
             None
         }
@@ -391,7 +422,7 @@ impl<'a> Iterator for StackFrameParentIter<'a> {
 
 impl StackFrameParentIter<'static> {
     pub const EMPTY: Self = Self {
-        stack_frame: std::ptr::null_mut(),
+        current: None,
         _mark: PhantomData,
     };
 }

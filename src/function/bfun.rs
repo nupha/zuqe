@@ -1,4 +1,4 @@
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 use smallvec::SmallVec;
 
 use crate::{
@@ -101,11 +101,10 @@ pub struct BCFuncPayload {
 }
 
 unsafe impl GcTracable for BCFuncPayload {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.bytecode.trace(tracer);
-        self.var_refs.iter().for_each(|x| x.trace(tracer));
-        self.home_object.trace(tracer);
+    fn trace(&self, mut tr: GcTraceOp) {
+        tr.add(self.bytecode.gc_ref());
+        self.var_refs.iter().for_each(|x| x.trace(tr));
+        self.home_object.trace(tr);
     }
 }
 
@@ -168,13 +167,13 @@ impl BCFunction {
     /// get bcfunction payload
     #[inline]
     pub fn payload(&self) -> &BCFuncPayload {
-        unsafe { self.0.as_ref().payload().bc_function().unwrap() }
+        self.0.payload().bc_function().unwrap()
     }
 
     /// get bcfunction payload
     #[inline]
     pub fn payload_mut(&mut self) -> &mut BCFuncPayload {
-        unsafe { self.0.as_mut().payload_mut().bc_function_mut().unwrap() }
+        self.0.payload_mut().bc_function_mut().unwrap()
     }
 
     pub(crate) fn method_set_home_object(&mut self, home_obj: Option<Object>) {
@@ -296,12 +295,12 @@ object_cast!(BytecodeFunction, JS_CLASS_BYTECODE_FUNCTION);
 impl BytecodeFunction {
     #[inline(always)]
     pub fn payload(&self) -> &BCFuncPayload {
-        unsafe { self.0.as_ref().payload().bc_function().unwrap() }
+        self.0.payload().bc_function().unwrap()
     }
 
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut BCFuncPayload {
-        unsafe { self.0.as_mut().payload_mut().bc_function_mut().unwrap() }
+        self.0.payload_mut().bc_function_mut().unwrap()
     }
 
     /// call bytecode function

@@ -1,10 +1,10 @@
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_BOUND_FUNCTION,
     context::Context,
     error::JSResult,
-    object::{ObjectImpl, ObjectPayload, Object},
+    object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
 };
@@ -19,11 +19,10 @@ pub struct BoundFuncObjPayload {
 }
 
 unsafe impl GcTracable for BoundFuncObjPayload {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.func_obj.trace(tracer);
-        self.this_val.trace(tracer);
-        self.bind_args.iter().for_each(|x| x.trace(tracer));
+    fn trace(&self, tr: GcTraceOp) {
+        self.func_obj.trace(tr);
+        self.this_val.trace(tr);
+        self.bind_args.iter().for_each(|x| x.trace(tr));
     }
 }
 

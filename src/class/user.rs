@@ -20,7 +20,7 @@ pub struct OtherPayload {
 
 unsafe impl GcTracable for OtherPayload {
     #[inline(always)]
-    fn trace(&self, _: &mut gc_lite::GcTracer) {}
+    fn trace(&self, _: gc_lite::GcTraceOp) {}
 }
 
 impl OtherPayload {

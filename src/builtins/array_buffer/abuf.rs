@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use gc_lite::{GcRef, GcTracable, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
@@ -105,7 +105,7 @@ pub struct ArrayBufferPayload {
 
 unsafe impl GcTracable for ArrayBufferPayload {
     #[inline(always)]
-    fn trace(&self, _: &mut gc_lite::GcTracer) {}
+    fn trace(&self, _: GcTraceOp) {}
 }
 
 impl ArrayBufferPayload {
@@ -132,10 +132,8 @@ impl ArrayBufferPayload {
     pub fn remove_typed_array_weakref(&mut self, rt: &RuntimeImpl, obj_id: usize) {
         let gcm = rt.gc_heap();
 
-        self.array_list.retain(|w| {
-            w.upgrade(gcm)
-                .is_some_and(|a| unsafe { a.as_ref().id() != obj_id })
-        });
+        self.array_list
+            .retain(|w| w.upgrade(gcm).is_some_and(|a| a.id() != obj_id));
     }
 
     /// get buffer content
@@ -371,13 +369,13 @@ impl ArrayBuffer {
     /// get array buffer payload
     #[inline(always)]
     pub fn payload(&self) -> &ArrayBufferPayload {
-        unsafe { self.0.as_ref().payload().array_buffer().unwrap() }
+        self.0.payload().array_buffer().unwrap()
     }
 
     /// get array buffer payload
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut ArrayBufferPayload {
-        unsafe { self.0.as_mut().payload_mut().array_buffer_mut().unwrap() }
+        self.0.payload_mut().array_buffer_mut().unwrap()
     }
 
     pub fn is_detached(&self) -> bool {

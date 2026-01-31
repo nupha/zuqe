@@ -1,6 +1,6 @@
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, ops::DerefMut, rc::Rc};
 
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
@@ -28,8 +28,8 @@ pub struct PromiseResolvePayload {
 }
 
 unsafe impl GcTracable for PromiseResolvePayload {
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.promise.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.promise.trace(tr);
     }
 }
 
@@ -86,10 +86,10 @@ impl PromiseResolveFunc {
             } else {
                 ctx.queue_job_with_gc_trace(
                     move || js_promise_resolve_thenable_job(&cx, promise, arg0, then),
-                    move |tracer| {
-                        prf.trace(tracer);
-                        arg0.trace(tracer);
-                        then.trace(tracer);
+                    move |tr| {
+                        prf.trace(tr);
+                        arg0.trace(tr);
+                        then.trace(tr);
                     },
                 );
             }
@@ -102,7 +102,7 @@ impl PromiseResolveFunc {
 
     pub fn payload(&self) -> &PromiseResolvePayload {
         if let ObjectPayload::PROMISE_RESOLVE_FUNCTION(x)
-        | ObjectPayload::PROMISE_REJECT_FUNCTION(x) = unsafe { self.0.as_ref().payload() }
+        | ObjectPayload::PROMISE_REJECT_FUNCTION(x) = self.0.payload()
         {
             x
         } else {
@@ -112,7 +112,7 @@ impl PromiseResolveFunc {
 
     pub fn payload_mut(&mut self) -> &mut PromiseResolvePayload {
         if let ObjectPayload::PROMISE_RESOLVE_FUNCTION(x)
-        | ObjectPayload::PROMISE_REJECT_FUNCTION(x) = unsafe { self.0.as_mut().payload_mut() }
+        | ObjectPayload::PROMISE_REJECT_FUNCTION(x) = self.0.payload_mut()
         {
             x
         } else {
@@ -128,11 +128,10 @@ pub(super) struct PromiseReaction {
 }
 
 unsafe impl GcTracable for PromiseReaction {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.resolving_funcs[0].trace(tracer);
-        self.resolving_funcs[1].trace(tracer);
-        self.handler.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.resolving_funcs[0].trace(tr);
+        self.resolving_funcs[1].trace(tr);
+        self.handler.trace(tr);
     }
 }
 
@@ -218,18 +217,19 @@ impl Promise {
 
                     ctx.queue_job_with_gc_trace(
                         move || {
-                            let raw = cx.gc_ref();
+                            let mut raw = cx;
+
                             promise_reaction_job(
-                                unsafe { raw.as_mut() },
+                                raw.deref_mut(),
                                 action.resolving_funcs,
                                 action.handler,
                                 is_reject,
                                 result,
                             )
                         },
-                        move |tracer| {
-                            action.trace(tracer);
-                            result.trace(tracer);
+                        move |tr| {
+                            action.trace(tr);
+                            result.trace(tr);
                         },
                     );
                 }
@@ -300,18 +300,19 @@ impl Promise {
             // queue reaction in job list to resolve in next tick
             ctx.queue_job_with_gc_trace(
                 move || {
-                    let raw = ctx2.gc_ref();
+                    let mut raw = ctx2;
+
                     promise_reaction_job(
-                        unsafe { raw.as_mut() },
+                        raw.deref_mut(),
                         act.resolving_funcs,
                         act.handler,
                         is_reject,
                         value,
                     )
                 },
-                move |tracer| {
-                    value.trace(tracer);
-                    act.trace(tracer);
+                move |tr| {
+                    value.trace(tr);
+                    act.trace(tr);
                 },
             );
         }

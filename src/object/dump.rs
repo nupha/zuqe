@@ -99,7 +99,7 @@ impl Object {
                         JSProperty::LazyInit { realm, opaque, .. } => {
                             print!(
                                 "[autoinit 0x{:x} {:p}]",
-                                unsafe { realm.upgrade(rt.gc_heap()).unwrap().as_ref().id() },
+                                realm.upgrade(rt.gc_heap()).unwrap().id(),
                                 opaque
                             );
                         }

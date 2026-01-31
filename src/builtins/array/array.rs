@@ -1,5 +1,5 @@
 use fallible_collections::{FallibleVec, TryCollect};
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 use smallvec::SmallVec;
 
 use crate::{
@@ -24,11 +24,9 @@ pub(crate) struct ArrayPayload {
 }
 
 unsafe impl GcTracable for ArrayPayload {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        for v in self.values.iter() {
-            v.trace(tracer);
-        }
+    #[inline]
+    fn trace(&self, mut tr: GcTraceOp) {
+        tr.add_nodes(self.values.iter().filter_map(|v| v.gc_node_ptr()));
     }
 }
 
@@ -53,12 +51,12 @@ impl Array {
 
     #[inline(always)]
     pub(crate) fn payload(&self) -> &ArrayPayload {
-        unsafe { self.0.as_ref().payload().array().unwrap() }
+        self.0.payload().array().unwrap()
     }
 
     #[inline(always)]
     pub(crate) fn payload_mut(&mut self) -> &mut ArrayPayload {
-        unsafe { self.0.as_mut().payload_mut().array_mut().unwrap() }
+        self.0.payload_mut().array_mut().unwrap()
     }
 
     /// get `length` property value

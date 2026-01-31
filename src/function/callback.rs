@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcTracable, GcWeak};
+use gc_lite::{GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     atom::Atom,
@@ -90,7 +90,7 @@ pub struct NFuncPayload {
 
 unsafe impl GcTracable for NFuncPayload {
     #[inline(always)]
-    fn trace(&self, _: &mut gc_lite::GcTracer) {}
+    fn trace(&self, _: GcTraceOp) {}
 }
 
 impl NFuncPayload {

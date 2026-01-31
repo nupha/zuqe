@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_C_FUNCTION_DATA,
@@ -22,9 +22,8 @@ pub struct NativeFuncData {
 }
 
 unsafe impl GcTracable for NativeFuncData {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.data.borrow().iter().for_each(|x| x.trace(tracer));
+    fn trace(&self, tr: GcTraceOp) {
+        self.data.borrow().iter().for_each(|x| x.trace(tr));
     }
 }
 
@@ -64,10 +63,8 @@ pub struct NativeFunctionWithData(GcRef<ObjectImpl>);
 object_cast!(NativeFunctionWithData, JS_CLASS_C_FUNCTION_DATA);
 
 unsafe impl GcTracable for NativeFunctionWithData {
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        unsafe {
-            self.0.as_ref().trace(tracer);
-        }
+    fn trace(&self, mut tr: GcTraceOp) {
+        tr.add(self.gc_ref());
     }
 }
 

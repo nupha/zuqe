@@ -4,6 +4,8 @@ use std::{
     ptr::NonNull,
 };
 
+use gc_lite::{GcHead, GcTraceOp};
+
 use crate::{
     JS_CLASS_ERROR,
     atom::{Atom, AtomKind},
@@ -96,7 +98,6 @@ mod nb_value {
     }
 }
 
-use gc_lite::{GcHead, GcRef};
 #[cfg(feature = "nan_boxing")]
 pub use nb_value::*;
 
@@ -122,9 +123,9 @@ pub enum JSValue {
 
 unsafe impl gc_lite::GcTracable for JSValue {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+    fn trace(&self, mut tr: GcTraceOp) {
         if let Some(p) = self.gc_node_ptr() {
-            tracer.add(unsafe { GcRef::from_head_ptr(p) });
+            tr.add_node(p);
         }
 
         // match self {
@@ -419,22 +420,22 @@ impl JSValue {
     #[inline]
     pub fn gc_node_ptr(&self) -> Option<NonNull<GcHead>> {
         match self {
-            Self::Object(o) => Some(o.gc_ref().head_ptr()),
+            Self::Object(o) => Some(o.gc_ref().node_ptr()),
             Self::String(s) if s.rt().is_some() => {
                 // non-const atom
-                Some(s.gc_ref().head_ptr())
+                Some(s.gc_ref().node_ptr())
             }
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => {
                 let aid = s.atom_info().unwrap().id();
                 if !crate::atom::is_const_atom(aid) && !crate::atom::is_small_int_atom(aid) {
-                    Some(s.gc_ref().head_ptr())
+                    Some(s.gc_ref().node_ptr())
                 } else {
                     None
                 }
             }
-            Self::Bytecode(b) => Some(b.gc_ref().head_ptr()),
-            Self::Module(m) => Some(m.gc_ref().head_ptr()),
+            Self::Bytecode(b) => Some(b.gc_ref().node_ptr()),
+            Self::Module(m) => Some(m.gc_ref().node_ptr()),
             _ => None,
         }
     }

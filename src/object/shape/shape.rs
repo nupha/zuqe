@@ -3,7 +3,7 @@ use std::{
     os::raw::c_void,
 };
 
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 use hash_link::HashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimePtr};
@@ -32,10 +32,9 @@ pub struct ShapeImpl {
 }
 
 unsafe impl GcTracable for ShapeImpl {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.proto.trace(tracer);
-        self.prop_defs.iter().for_each(|(_, p)| p.trace(tracer));
+    fn trace(&self, tr: GcTraceOp) {
+        self.proto.trace(tr);
+        self.prop_defs.iter().for_each(|(_, p)| p.trace(tr));
     }
 }
 
@@ -171,8 +170,8 @@ pub struct ShapeHandle(GcRef<ShapeImpl>);
 
 unsafe impl GcTracable for ShapeHandle {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        tracer.mark(self.0);
+    fn trace(&self, mut tr: GcTraceOp) {
+        tr.add(self.0);
     }
 }
 
@@ -207,14 +206,14 @@ impl Deref for ShapeHandle {
 
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        unsafe { self.0.as_ref() }
+        self.0.deref()
     }
 }
 
 impl DerefMut for ShapeHandle {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.0.as_mut() }
+        self.0.deref_mut()
     }
 }
 

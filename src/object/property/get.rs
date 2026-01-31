@@ -22,6 +22,8 @@ impl Object {
         this_obj: JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
+        debug_assert!(self.gc_ref().node_info().test_valid(), "O.o");
+
         for mut cur_obj in self.shape_proto_iter(true) {
             'redo: loop {
                 // 1. search own property (in shape)

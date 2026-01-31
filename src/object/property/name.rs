@@ -1,4 +1,4 @@
-use gc_lite::GcTracable;
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_STRING,
@@ -18,7 +18,7 @@ use super::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_ENUMER
 pub enum PropertyKeyKind {
     String,
     Symbol,
-    /// in range \[0, u32::MAX)
+    /// in range `[0, u32::MAX)`
     ArrayIndex(u32),
 }
 
@@ -31,9 +31,8 @@ pub struct PropertyKey {
 }
 
 unsafe impl GcTracable for PropertyKey {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.atom.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.atom.trace(tr);
     }
 }
 

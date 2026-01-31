@@ -2439,11 +2439,9 @@ impl Bytecode {
                     }
                 } // match opcode
 
-                rt.gc_collect_scoped(stack_frame);
-
+                stack_frame.gc_collect();
                 // if rt.gc_req {
-                //     // rt.gc_collect_root();
-                //     rt.gc_collect_scoped(stack_frame);
+                // stack_frame.gc_collect();
                 // }
 
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
@@ -2469,11 +2467,10 @@ impl Bytecode {
             match state {
                 State::Done(ret_val, is_generator) => {
                     unsafe {
-                        if let Some(up) = stack_frame.prev.cast::<StackFrame>().as_mut()
+                        if let Some(up) = stack_frame.parent_mut()
                             && let Some(mut n) = ret_val.gc_node_ptr()
                         {
-                            rt.gc_heap_mut()
-                                .set_xref(up.gc_scoped_partition(), n.as_mut());
+                            rt.gc_heap_mut().set_xref(up.init_gc_scope(), n.as_mut());
                         }
                     }
 

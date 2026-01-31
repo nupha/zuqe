@@ -1,6 +1,6 @@
 use std::{ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHeap, GcPartition, GcPartitionId, GcTracer};
+use gc_lite::{GcHeap, GcPartition, GcPartitionId, GcTraceOp};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
@@ -77,13 +77,13 @@ pub struct RuntimeImpl {
     /// gc heap
     pub(crate) gc_heap: GcHeap,
     /// gc partition id
-    pub(crate) gc_part_id: GcPartitionId,
+    pub(crate) gc_root_scope: GcPartitionId,
     /// gc partition
     pub(crate) gc_part: *mut GcPartition,
     /// user defined gc trace callback
-    pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
+    pub(crate) gc_user_trace: Option<Box<dyn Fn(GcTraceOp)>>,
     /// gc trace of current running job
-    pub(crate) gc_cur_job_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
+    pub(crate) gc_cur_job_trace: Option<Box<dyn Fn(GcTraceOp)>>,
     /// gc request flag
     pub(crate) gc_req: bool,
 
@@ -160,7 +160,7 @@ impl RuntimeImpl {
             shape_registry: ShapeRegistry::new(),
 
             gc_heap,
-            gc_part_id,
+            gc_root_scope: gc_part_id,
             gc_part,
             gc_user_trace: None,
             gc_cur_job_trace: None,
@@ -306,7 +306,7 @@ impl RuntimeImpl {
     /// # Safety
     /// The caller must ensure the frame pointer is valid
     pub(crate) fn push_stack_frame(&mut self, mut stack_frame: NonNull<StackFrame>) {
-        debug_assert!(unsafe { stack_frame.as_ref().prev.is_null() });
+        debug_assert!(unsafe { stack_frame.as_ref().parent().is_none() });
         debug_assert_ne!(
             self.cur_stack_frame.cast::<()>(),
             stack_frame.as_ptr().cast::<()>()
@@ -361,7 +361,7 @@ impl RuntimeImpl {
         // don't bother shape drop trait to do unregister.
         self.shape_registry.clear();
 
-        let part_id = self.gc_part_id;
+        let part_id = self.gc_root_scope;
 
         if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
             // purge all gc objects except ShapeImpl

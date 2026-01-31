@@ -122,8 +122,8 @@ fn main() -> ExitCode {
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
     // module os has internal gc objects need customized trace & collect.
-    rt.gc_set_trace_handler(|tracer| {
-        mod_os_gc_trace(tracer);
+    rt.gc_set_trace_handler(|tr| {
+        mod_os_gc_trace(tr);
     });
 
     // register native class 'File'

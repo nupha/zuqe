@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     atom::Atom,
@@ -16,13 +16,17 @@ pub(crate) struct ShapeRegistry {
 }
 
 unsafe impl GcTracable for ShapeRegistry {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        for lst in self.lut.values() {
-            lst.iter()
-                .filter(|o| unsafe { o.as_ref().use_count() > 0 })
-                .for_each(|g| tracer.mark(*g));
-        }
+    fn trace(&self, mut tr: GcTraceOp) {
+        tr.add_nodes(
+            self.lut
+                .values()
+                .map(|lst| {
+                    lst.iter()
+                        .filter(|o| o.use_count() > 0)
+                        .map(|g| g.node_ptr())
+                })
+                .flatten(),
+        );
     }
 }
 
@@ -48,7 +52,7 @@ impl ShapeRegistry {
         let sh = shape.gc_ref();
 
         if let Some(lst) = self.lut.get_mut(&hash) {
-            if !lst.iter().any(|s| unsafe { s.as_ref().id() == id }) {
+            if !lst.iter().any(|s| s.id() == id) {
                 lst.push(sh);
             }
         } else {
@@ -64,11 +68,11 @@ impl ShapeRegistry {
         let shape_id = shape.id();
 
         if let Some(lst) = self.lut.get_mut(&hash) {
-            if lst.len() == 1 && unsafe { lst.get_unchecked(0).as_ref().id() } == shape_id {
+            if lst.len() == 1 && unsafe { lst.get_unchecked(0).id() } == shape_id {
                 self.lut.remove(&hash);
             } else {
                 lst.iter()
-                    .position(|s| unsafe { s.as_ref().id() == shape_id })
+                    .position(|s| s.id() == shape_id)
                     .map(|i| lst.swap_remove(i));
             }
         }
@@ -77,7 +81,7 @@ impl ShapeRegistry {
     fn is_registered2(&self, shape_id: usize, shape_hash: u32) -> bool {
         self.lut
             .get(&shape_hash)
-            .is_some_and(|lst| lst.iter().any(|s| unsafe { s.as_ref().id() == shape_id }))
+            .is_some_and(|lst| lst.iter().any(|sh| sh.id() == shape_id))
     }
 
     #[inline(always)]
@@ -91,13 +95,9 @@ impl ShapeRegistry {
         let shape_id = shape.id();
 
         if let Some(lst) = self.lut.get_mut(&hash)
-            && let Some(slot) = lst
-                .iter_mut()
-                .find(|s| unsafe { s.as_ref().id() == shape_id })
+            && let Some(slot) = lst.iter_mut().find(|s| s.id() == shape_id)
         {
-            unsafe {
-                slot.as_mut().use_count += 1;
-            }
+            slot.use_count += 1;
         }
     }
 
@@ -113,18 +113,14 @@ impl ShapeRegistry {
         if let Some(lst) = self.lut.get_mut(&hash) {
             debug_assert!(!lst.is_empty());
 
-            let remove_idx = if let Some((i, slot)) = lst
-                .iter()
-                .enumerate()
-                .find(|(_, s)| unsafe { s.as_ref().id() == shape_id })
+            let remove_idx = if let Some((i, slot)) =
+                lst.iter_mut().enumerate().find(|(_, s)| s.id() == shape_id)
             {
-                unsafe {
-                    if slot.as_ref().use_count == 1 {
-                        i as i32 // remove from lst
-                    } else {
-                        slot.as_mut().use_count -= 1;
-                        -1
-                    }
+                if slot.use_count == 1 {
+                    i as i32 // remove from lst
+                } else {
+                    slot.use_count -= 1;
+                    -1
                 }
             } else {
                 -1
@@ -148,15 +144,14 @@ impl ShapeRegistry {
 
         self.lut.get(&hash).and_then(|lst| {
             lst.iter()
-                .find(|sh| unsafe {
-                    let s = sh.as_ref();
+                .find(|sh| {
                     // no shape props, and proto equals to given
-                    s.prop_defs.count() == 0 && s.proto == proto
+                    sh.prop_defs.count() == 0 && sh.proto == proto
                 })
                 .copied()
-                .map(|s| unsafe {
-                    s.as_mut().use_count += 1; // increase refcount to return
-                    ShapeHandle::from(s)
+                .map(|mut sh| {
+                    sh.use_count += 1; // increase refcount to return
+                    ShapeHandle::from(sh)
                 })
         })
     }
@@ -177,30 +172,23 @@ impl ShapeRegistry {
         let base_len = base_shape.prop_defs.len();
         let ttl_len = base_len + 1;
 
-        if let Some(found) = self.lut.get(&hash).and_then(|lst| {
-            lst.iter().find_map(|sh| {
-                let s = unsafe { sh.as_mut() };
-                if s.proto == base_shape.proto && s.prop_defs.len() == ttl_len {
-                    Some(*sh)
-                } else {
-                    None
-                }
-            })
+        if let Some(mut found) = self.lut.get(&hash).and_then(|lst| {
+            lst.iter()
+                .find(|sh| sh.proto == base_shape.proto && sh.prop_defs.len() == ttl_len)
+                .copied()
         }) && base_shape
             .prop_defs
             .iter()
-            .zip(unsafe { found.as_ref().prop_defs.iter() })
+            .zip(found.prop_defs.iter())
             .all(|((_, a), (_, b))| a == b)
         {
-            let shape = unsafe { found.as_mut() };
-
             // match extra props
-            if shape
+            if found
                 .prop_defs
                 .last()
                 .is_some_and(|pr| pr.atom == prop && pr.flags() == prop_flags)
             {
-                shape.use_count += 1; // increase use count
+                found.use_count += 1; // increase use count
                 return Some(ShapeHandle::from(found));
             }
         }

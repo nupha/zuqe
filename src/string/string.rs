@@ -4,11 +4,11 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_STRING,
-    atom::{Atom, AtomInfo, AtomKind, is_const_atom, is_small_int_atom},
+    atom::{Atom, AtomInfo, AtomKind},
     class::ClassExoticMethods,
     context::{ContextImpl, ContextPtr},
     number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
@@ -41,7 +41,7 @@ pub struct StringImpl {
 
 unsafe impl GcTracable for StringImpl {
     #[inline(always)]
-    fn trace(&self, _: &mut gc_lite::GcTracer) {}
+    fn trace(&self, _: GcTraceOp) {}
 }
 
 impl Drop for StringImpl {
@@ -242,11 +242,9 @@ impl StringImpl {
 pub struct StringRef(GcRef<StringImpl>);
 
 unsafe impl GcTracable for StringRef {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        // Note: String for const atom (w/o rt) must not set mark.
-        if unsafe { self.0.as_ref().rt().is_some() } {
-            tracer.mark(self.0);
+    fn trace(&self, mut tr: GcTraceOp) {
+        if self.0.rt().is_some() {
+            tr.add(self.0);
         }
     }
 }
@@ -256,33 +254,33 @@ impl Deref for StringRef {
 
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        unsafe { self.0.as_ref() }
+        self.0.deref()
     }
 }
 
 impl DerefMut for StringRef {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.0.as_mut() }
+        self.0.deref_mut()
     }
 }
 
 impl PartialEq for StringRef {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
-        unsafe { self.0.as_ref().content() == other.0.as_ref().content() }
+        self.0.content() == other.0.content()
     }
 }
 
 impl std::fmt::Display for StringRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unsafe { write!(f, "{}", self.0.as_ref()) }
+        write!(f, "{}", self.0.deref())
     }
 }
 
 impl std::fmt::Debug for StringRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unsafe { write!(f, "{:?}", self.0.as_ref()) }
+        write!(f, "{:?}", self.0.deref())
     }
 }
 
@@ -332,7 +330,7 @@ impl StringRef {
         if let Some(mut rt) = rt {
             rt.gc_alloc(s)
         } else {
-            LocalResource::gc_alloc(rt.map(|r| r.gc_part_id()), s)
+            LocalResource::gc_alloc(rt.map(|r| r.gc_root_scope_id()), s)
         }
         .map_err(|_| {
             eprintln!("[O.o] alloc error");

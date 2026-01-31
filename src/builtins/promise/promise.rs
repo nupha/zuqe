@@ -1,6 +1,6 @@
 use std::{cell::Cell, rc::Rc};
 
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_PROMISE,
@@ -49,11 +49,10 @@ pub struct PromiseData {
 }
 
 unsafe impl GcTracable for PromiseData {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.reactions[0].iter().for_each(|x| x.trace(tracer));
-        self.reactions[1].iter().for_each(|x| x.trace(tracer));
-        self.result.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.reactions[0].iter().for_each(|x| x.trace(tr));
+        self.reactions[1].iter().for_each(|x| x.trace(tr));
+        self.result.trace(tr);
     }
 }
 
@@ -109,9 +108,8 @@ pub struct Promise(GcRef<ObjectImpl>);
 object_cast!(Promise, JS_CLASS_PROMISE);
 
 unsafe impl GcTracable for Promise {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        tracer.mark(self.0);
+    fn trace(&self, mut tr: GcTraceOp) {
+        tr.add(self.0);
     }
 }
 
@@ -237,7 +235,7 @@ impl Promise {
     /// get Promise payload
     #[inline(always)]
     pub fn payload(&self) -> &PromiseData {
-        if let Some(p) = unsafe { self.0.as_ref().payload().promise() } {
+        if let Some(p) = self.0.payload().promise() {
             p
         } else {
             #[cfg(debug_assertions)]
@@ -252,7 +250,7 @@ impl Promise {
     /// get Promise payload
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut PromiseData {
-        if let Some(p) = unsafe { self.0.as_mut().payload_mut().promise_mut() } {
+        if let Some(p) = self.0.payload_mut().promise_mut() {
             p
         } else {
             #[cfg(debug_assertions)]

@@ -1,4 +1,4 @@
-use gc_lite::GcTracable;
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
     atom::Atom,
@@ -22,9 +22,8 @@ pub struct ImportEntry {
 }
 
 unsafe impl GcTracable for ImportEntry {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.import_name.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.import_name.trace(tr);
     }
 }
 

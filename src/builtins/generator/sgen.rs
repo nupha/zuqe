@@ -1,4 +1,4 @@
-use gc_lite::GcTracable;
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_GENERATOR,
@@ -36,9 +36,8 @@ pub struct GeneratorPayload {
 }
 
 unsafe impl GcTracable for GeneratorPayload {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.func_state.trace(tracer);
+    fn trace(&self, mut tr: GcTraceOp) {
+        tr.add(self.func_state.gc_ref());
     }
 }
 

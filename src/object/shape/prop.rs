@@ -1,4 +1,4 @@
-use gc_lite::GcTracable;
+use gc_lite::{GcTracable, GcTraceOp};
 use hash_link::Hashable;
 
 use crate::{
@@ -14,9 +14,8 @@ pub struct ShapeProperty {
 }
 
 unsafe impl GcTracable for ShapeProperty {
-    #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.atom.trace(tracer);
+    fn trace(&self, tr: GcTraceOp) {
+        self.atom.trace(tr);
     }
 }
 
