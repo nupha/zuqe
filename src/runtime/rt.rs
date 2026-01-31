@@ -172,6 +172,8 @@ impl RuntimeImpl {
             host_promise_rejection_tracker: None,
         });
 
+        rt.init_const_atoms();
+
         let rt_ptr = rt.as_ref() as *const Self as *mut Self;
         rt.gc_heap_mut().set_opaque(rt_ptr.cast());
 

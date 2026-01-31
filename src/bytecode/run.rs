@@ -283,16 +283,14 @@ impl Bytecode {
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
                 {
                     if unlikely(debug_setting.is_none()) {
-                        let b = stack_frame
-                            .cur_func
-                            .as_object()
-                            .and_then(|o| {
-                                o.payload().bc_function().and_then(|f| {
-                                    f.bytecode().debug.as_ref().map(|x| x.debug_setting)
-                                })
-                            })
+                        let mut b = stack_frame
+                            .func_obj
+                            .payload()
+                            .bc_function()
+                            .and_then(|f| f.bytecode().debug.as_ref().map(|x| x.debug_setting))
                             .unwrap_or_default();
 
+                        // b.dump_run = 2; // O.o debug
                         debug_setting.replace(b);
                     }
 

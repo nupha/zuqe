@@ -4,7 +4,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcHead, GcPartitionId, GcTracable, GcTraceOp, GcTracer, GcWeak};
+use gc_lite::{GcHead, GcPartitionId, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     Object,
@@ -82,9 +82,8 @@ pub struct StackFrame {
 }
 
 unsafe impl GcTracable for StackFrame {
-    #[inline]
     fn trace(&self, mut tr: GcTraceOp) {
-        tr.add(self.func_obj.gc_ref());
+        self.func_obj.trace(tr);
 
         // trace args
         let cnt = std::cmp::max(self.arg_real_count, self.arg_count);
@@ -92,9 +91,7 @@ unsafe impl GcTracable for StackFrame {
             let mut p = self.arg_base_ptr;
             for _ in 0..cnt {
                 unsafe {
-                    if let Some(h) = (&*p).gc_node_ptr() {
-                        tr.add_node(h);
-                    }
+                    (&*p).trace(tr);
                     p = p.add(1);
                 }
             }
@@ -105,9 +102,7 @@ unsafe impl GcTracable for StackFrame {
         // stack values
         tr.add_nodes(self.stack_values().iter().filter_map(|v| v.gc_node_ptr()));
         // varrefs
-        for r in self.var_ref_list.iter() {
-            tr.add_nodes(r.gc_nodes());
-        }
+        self.var_ref_list.iter().for_each(|r| r.trace(tr));
 
         // trace upward along chain
         // if let Some(sf) = self.parent() {
@@ -127,8 +122,6 @@ impl Drop for StackFrame {
     fn drop(&mut self) {
         let pid = self.gc_scope_id;
         if pid != GcPartitionId::NONE {
-            println!("[O.o] --- scope {:?}", pid);
-
             let mut rt = self.rt();
             rt.gc_heap_mut().remove_partition(pid);
         }
@@ -191,8 +184,6 @@ impl StackFrame {
             };
 
             self.gc_scope_id = rt.gc_heap_mut().create_sub_partition(parent);
-
-            println!("[O.o] +++ scope: {parent:?} -> {:?}", self.gc_scope_id);
         }
 
         self.gc_scope_id

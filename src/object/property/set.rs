@@ -107,7 +107,15 @@ impl Object {
 
                     JS_PROP_LAZYINIT => {
                         let this = cur_obj;
-                        cur_obj.prop_slot_mut(idx).instantiate(this, idx, this)?;
+                        let val = cur_obj
+                            .prop_slot_mut(idx)
+                            .instantiate_internal(ctx.rt_ref(), this)?;
+                        // modify shape property kind to NORMAL
+                        cur_obj
+                            .modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
+                        // update prop slot value
+                        cur_obj.set_prop_slot(idx, JSProperty::Normal(val));
+
                         continue 'shape;
                     }
 

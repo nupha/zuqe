@@ -1,57 +1,19 @@
 use std::{cell::RefCell, ops::DerefMut, thread::AccessError};
 
-use gc_lite::{GcError, GcHeap, GcPartitionId, GcRef, GcTracable};
-
 use crate::runtime::RuntimeImpl;
 
 /// the thread local global resources
 pub(crate) struct LocalResource {
-    //
-    // DON'T CHANGE FIELD ORDER. THIS IS THE ORDER OF DROP
-    //
     /// list of active runtime raw pointers
     #[allow(clippy::vec_box)]
     pub(super) runtime_slot: RefCell<Vec<Box<RuntimeImpl>>>,
-
-    /// gc heap
-    pub(crate) gc_heap: RefCell<GcHeap>,
-    /// gc default parition
-    pub(crate) gc_default_partition: GcPartitionId,
-}
-
-impl Drop for LocalResource {
-    fn drop(&mut self) {
-        self.gc_heap
-            .borrow_mut()
-            .remove_partition(self.gc_default_partition);
-    }
 }
 
 impl LocalResource {
     fn new() -> Self {
-        let mut heap = GcHeap::new();
-        let p0 = heap.create_root_partition(0);
-
         Self {
             runtime_slot: RefCell::new(Vec::with_capacity(1)),
-            gc_heap: RefCell::new(heap),
-            gc_default_partition: p0,
         }
-    }
-
-    /// alloc a gc object to partition. Partion None means use default partition
-    pub(crate) fn gc_alloc<T: GcTracable>(
-        part_id: Option<GcPartitionId>,
-        obj: T,
-    ) -> Result<GcRef<T>, (GcError, T)> {
-        LOCAL_RESOURCE.with(|rcs| {
-            let mut heap = rcs.gc_heap.borrow_mut();
-
-            let gc_ref = heap.alloc(part_id.unwrap_or(rcs.gc_default_partition), obj)?;
-            // everything allocated in static heap is root obj
-            heap.set_root(gc_ref, true);
-            Ok(gc_ref)
-        })
     }
 
     pub(crate) fn with_runtimes<R>(f: impl FnOnce(&[Box<RuntimeImpl>]) -> R) -> R {

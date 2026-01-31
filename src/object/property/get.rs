@@ -22,7 +22,15 @@ impl Object {
         this_obj: JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
-        debug_assert!(self.gc_ref().node_info().test_valid(), "O.o");
+        debug_assert!(
+            self.gc_ref().node_info().test_valid(),
+            "[O.o] node={self:p}, type={}, flags={:?}",
+            ctx.rt_ref()
+                .gc_heap()
+                .get_node_type(self.gc_ref().node_ptr())
+                .type_name,
+            self.gc_ref().node_info().flags()
+        );
 
         for mut cur_obj in self.shape_proto_iter(true) {
             'redo: loop {
@@ -62,9 +70,18 @@ impl Object {
                             };
                         }
                         JS_PROP_LAZYINIT => {
-                            // instantiate lazy object, and redo
-                            let o = cur_obj;
-                            cur_obj.prop_slot_mut(idx).instantiate(o, idx, *self)?;
+                            // instantiate lazy object
+                            let val = cur_obj
+                                .prop_slot_mut(idx)
+                                .instantiate_internal(ctx.rt_ref(), *self)?;
+                            // modify shape property kind to NORMAL
+                            cur_obj.modify_shape_property_index_flags(ctx, idx, |f| {
+                                f & !JS_PROP_TMASK
+                            })?;
+                            // set value to prop slot
+                            cur_obj.set_prop_slot(idx, JSProperty::Normal(val));
+
+                            // redo to get prop value from slot
                             continue 'redo;
                         }
                         _ => unreachable!(),

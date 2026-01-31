@@ -16,7 +16,6 @@ use crate::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
         ObjectPayload, check_define_prop_flags,
     },
-    resource::LocalResource,
     runtime::RuntimePtr,
     string::{CharCode, StringData},
     utils::unlikely,
@@ -124,10 +123,13 @@ impl std::fmt::Debug for StringImpl {
 }
 
 impl StringImpl {
-    /// create StringImpl with string content, and atom info.
-    const fn new(rt: Option<RuntimePtr>, content: StringData, atom_info: Option<AtomInfo>) -> Self {
+    /// create StringImpl with string data, and atom info.
+    pub(crate) const fn new(
+        rt: Option<RuntimePtr>,
+        content: StringData,
+        atom_info: Option<AtomInfo>,
+    ) -> Self {
         StringImpl {
-            // TODO: remove RuntimePtr lifetime
             rt,
             content,
             atom_info,
@@ -202,9 +204,9 @@ impl StringImpl {
     /// copy content to make a new string, with given rt.
     pub(crate) fn copy_to_new(&self, rt: RuntimePtr) -> Result<StringRef, i32> {
         match self.content() {
-            StringData::Empty => StringRef::new_internal(Some(rt), StringData::Empty, None),
-            StringData::Ident => StringRef::new_internal(Some(rt), StringData::Ident, None),
-            StringData::AsciiStatic(s) => StringRef::from_static(Some(rt), s, None),
+            StringData::Empty => StringRef::new_internal(rt, StringData::Empty, None),
+            StringData::Ident => StringRef::new_internal(rt, StringData::Ident, None),
+            StringData::AsciiStatic(s) => StringRef::from_static(rt, s, None),
             _ => {
                 debug_assert!(self.rt.is_some(), "can't copy const atom description");
                 StringRef::new(self.rt.unwrap(), self.content().clone())
@@ -284,6 +286,12 @@ impl std::fmt::Debug for StringRef {
     }
 }
 
+impl From<GcRef<StringImpl>> for StringRef {
+    fn from(r: GcRef<StringImpl>) -> Self {
+        Self(r)
+    }
+}
+
 impl From<StringRef> for JSValue {
     #[inline(always)]
     fn from(value: StringRef) -> Self {
@@ -320,29 +328,25 @@ impl TryFrom<JSValue> for StringRef {
 }
 
 impl StringRef {
-    /// create StringImpl with string content, and atom desc.
+    /// create String with string data, and atom info.
     fn new_internal(
-        rt: Option<RuntimePtr>,
+        mut rt: RuntimePtr,
         content: StringData,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
-        let s = StringImpl::new(rt, content, atom_info);
-        if let Some(mut rt) = rt {
-            rt.gc_alloc(s)
-        } else {
-            LocalResource::gc_alloc(rt.map(|r| r.gc_root_scope_id()), s)
-        }
-        .map_err(|_| {
-            eprintln!("[O.o] alloc error");
-            -1
-        })
-        .map(Self)
+        let ss = StringImpl::new(Some(rt), content, atom_info);
+        rt.gc_alloc(ss)
+            .map_err(|_| {
+                eprintln!("[O.o] alloc error");
+                -1
+            })
+            .map(Self)
     }
 
     /// create StringImpl with string content
     #[inline(always)]
     pub(crate) fn new(rt: RuntimePtr, content: StringData) -> Result<Self, i32> {
-        Self::new_internal(Some(rt), content, None)
+        Self::new_internal(rt, content, None)
     }
 
     /// Creates a StringImpl from a Rust string slice
@@ -359,7 +363,7 @@ impl StringRef {
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     pub(crate) fn from_str(rt: RuntimePtr, s: &str) -> Result<Self, i32> {
         let sbuf = StringBuf::from_str(s)?;
-        Self::new_internal(Some(rt), StringData::from_buf(sbuf), None)
+        Self::new_internal(rt, StringData::from_buf(sbuf), None)
     }
 
     /// Creates a StringImpl from UTF-8 encoded bytes
@@ -383,7 +387,7 @@ impl StringRef {
     /// static str `s` must be ascii str.
     #[inline(always)]
     pub(crate) fn from_static(
-        rt: Option<RuntimePtr>,
+        rt: RuntimePtr,
         s: &'static str,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {

@@ -4,12 +4,14 @@ use std::{
     num::NonZeroU16,
 };
 
+use gc_lite::GcRef;
+
 use crate::{
     RuntimeImpl,
     atom::{is_const_atom, is_small_int_atom},
     number::parse_u32,
     runtime::RuntimePtr,
-    string::{StringData, StringRef},
+    string::{StringData, StringImpl, StringRef},
     utils::hash_u32_from_base,
 };
 
@@ -43,11 +45,10 @@ impl Drop for AtomRegistry {
 impl AtomRegistry {
     /// create atom registry, setup with const atoms.
     pub(crate) fn new() -> Self {
-        let (const_atoms, lut) = load_const_atoms();
         Self {
-            const_atoms,
+            const_atoms: Vec::new(),
             user_atoms: Vec::with_capacity(128),
-            atom_hash_lut: lut,
+            atom_hash_lut: HashMap::new(),
         }
     }
 
@@ -74,77 +75,183 @@ impl AtomRegistry {
     }
 }
 
-/// build const atoms list and hash lut
-fn load_const_atoms() -> (Vec<AtomDesc>, HashMap<u32, Vec<NonZeroU16>>) {
-    let mut lst = Vec::<AtomDesc>::with_capacity(ATOM_CONST_COUNT as usize + 1);
-    let mut lut = HashMap::<u32, Vec<NonZeroU16>>::with_capacity(ATOM_CONST_COUNT as usize);
+// /// build const atoms list and hash lut
+// fn load_const_atoms(heap: &mut GcHeap) -> (Vec<AtomDesc>, HashMap<u32, Vec<NonZeroU16>>) {
+//     let mut lst = Vec::<AtomDesc>::with_capacity(ATOM_CONST_COUNT as usize + 1);
+//     let mut lut = HashMap::<u32, Vec<NonZeroU16>>::with_capacity(ATOM_CONST_COUNT as usize);
 
-    // slot #0 is unused
-    lst.push(AtomDesc {
-        str: StringRef::from_static(None, "", None).unwrap(),
-    });
+//     // slot #0 is unused
+//     lst.push(AtomDesc {
+//         str: StringRef::from_static(None, "", None).unwrap(),
+//     });
 
-    let mut p = ATOM_CONST_CAPTIONS.as_ptr();
+//     let mut p = ATOM_CONST_CAPTIONS.as_ptr();
 
-    for i in 1..ATOM_CONST_COUNT {
-        let mut atom_kind = {
-            #[cfg(feature = "builtin_symbol")]
-            if i == Atom::CONST_Private_brand.id() {
-                AtomKind::Private
-            } else if i >= Atom::CONST_Symbol_toPrimitive.id() {
-                AtomKind::Symbol
-            } else {
-                AtomKind::String
-            }
+//     for i in 1..ATOM_CONST_COUNT {
+//         let mut atom_kind = {
+//             #[cfg(feature = "builtin_symbol")]
+//             if i == Atom::CONST_Private_brand.id() {
+//                 AtomKind::Private
+//             } else if i >= Atom::CONST_Symbol_toPrimitive.id() {
+//                 AtomKind::Symbol
+//             } else {
+//                 AtomKind::String
+//             }
 
-            #[cfg(not(feature = "builtin_symbol"))]
-            AtomKind::String
-        };
+//             #[cfg(not(feature = "builtin_symbol"))]
+//             AtomKind::String
+//         };
 
-        let cstr = unsafe { CStr::from_ptr(p.cast()) };
-        let str = cstr.to_str().unwrap();
-        let hash: u32 = {
-            #[cfg(feature = "builtin_symbol")]
-            match atom_kind {
-                AtomKind::String | AtomKind::GlobalSymbol => {
-                    Atom::calc_atom_str_hash(str, atom_kind)
-                }
-                AtomKind::Symbol | AtomKind::Private => {
-                    if atom_kind == AtomKind::Symbol {
-                        JS_ATOM_HASH_SYMBOL
-                    } else {
-                        atom_kind = AtomKind::Symbol;
-                        JS_ATOM_HASH_PRIVATE
-                    }
-                }
-            }
+//         let cstr = unsafe { CStr::from_ptr(p.cast()) };
+//         let str = cstr.to_str().unwrap();
+//         let hash: u32 = {
+//             #[cfg(feature = "builtin_symbol")]
+//             match atom_kind {
+//                 AtomKind::String | AtomKind::GlobalSymbol => {
+//                     Atom::calc_atom_str_hash(str, atom_kind)
+//                 }
+//                 AtomKind::Symbol | AtomKind::Private => {
+//                     if atom_kind == AtomKind::Symbol {
+//                         JS_ATOM_HASH_SYMBOL
+//                     } else {
+//                         atom_kind = AtomKind::Symbol;
+//                         JS_ATOM_HASH_PRIVATE
+//                     }
+//                 }
+//             }
 
-            #[cfg(not(feature = "builtin_symbol"))]
-            Atom::calc_atom_str_hash(str, atom_kind)
-        };
+//             #[cfg(not(feature = "builtin_symbol"))]
+//             Atom::calc_atom_str_hash(str, atom_kind)
+//         };
 
-        let id = unsafe { NonZeroU16::new_unchecked(lst.len() as u16) };
+//         let id = unsafe { NonZeroU16::new_unchecked(lst.len() as u16) };
+//         let atom_info = AtomInfo::new(id, atom_kind, hash);
 
-        let str =
-            StringRef::from_static(None, str, Some(AtomInfo::new(id, atom_kind, hash))).unwrap();
-        lst.push(AtomDesc { str });
+//         // let str =
+//         //     StringRef::from_static(None, str, Some(AtomInfo::new(id, atom_kind, hash))).unwrap();
 
-        match lut.entry(hash) {
-            Entry::Vacant(kv) => {
-                kv.insert(vec![id]);
-            }
-            Entry::Occupied(kv) => {
-                kv.into_mut().push(id);
-            }
-        }
+//         let str = {
+//             let ss = StringImpl::new(None, StringData::from_static(str), Some(atom_info));
+//             heap.rt
+//                 .gc_alloc(ss)
+//                 .map_err(|_| {
+//                     eprintln!("[O.o] alloc error");
+//                     -1
+//                 })
+//                 .map(Self)
+//         };
 
-        p = unsafe { p.add(cstr.count_bytes() + 1) };
-    }
+//         lst.push(AtomDesc { str });
 
-    (lst, lut)
-}
+//         match lut.entry(hash) {
+//             Entry::Vacant(kv) => {
+//                 kv.insert(vec![id]);
+//             }
+//             Entry::Occupied(kv) => {
+//                 kv.into_mut().push(id);
+//             }
+//         }
+
+//         p = unsafe { p.add(cstr.count_bytes() + 1) };
+//     }
+
+//     (lst, lut)
+// }
 
 impl RuntimeImpl {
+    /// init atom regisry: load const atoms
+    pub(crate) fn init_const_atoms(&mut self) {
+        debug_assert!(
+            self.atom_registry.const_atoms.is_empty(),
+            "must init atom registry only once"
+        );
+
+        let mut rt_ptr = unsafe { RuntimePtr::from_raw(self) };
+        let root_scope = self.gc_root_scope;
+
+        self.atom_registry
+            .const_atoms
+            .reserve(ATOM_CONST_COUNT as usize + 1);
+
+        self.atom_registry
+            .atom_hash_lut
+            .reserve(ATOM_CONST_COUNT as usize + 64);
+
+        let lst = &mut self.atom_registry.const_atoms;
+        let lut = &mut self.atom_registry.atom_hash_lut;
+
+        // slot #0 is unused, and is not accessable.
+        lst.push(AtomDesc {
+            str: StringRef::from(GcRef::<StringImpl>::dangling()),
+        });
+
+        let mut text = ATOM_CONST_CAPTIONS.as_ptr();
+
+        for i in 1..ATOM_CONST_COUNT {
+            let mut atom_kind = {
+                #[cfg(feature = "builtin_symbol")]
+                if i == Atom::CONST_Private_brand.id() {
+                    AtomKind::Private
+                } else if i >= Atom::CONST_Symbol_toPrimitive.id() {
+                    AtomKind::Symbol
+                } else {
+                    AtomKind::String
+                }
+
+                #[cfg(not(feature = "builtin_symbol"))]
+                AtomKind::String
+            };
+
+            let cstr = unsafe { CStr::from_ptr(text.cast()) };
+            let str = cstr.to_str().unwrap();
+            let hash: u32 = {
+                #[cfg(feature = "builtin_symbol")]
+                match atom_kind {
+                    AtomKind::String | AtomKind::GlobalSymbol => {
+                        Atom::calc_atom_str_hash(str, atom_kind)
+                    }
+                    AtomKind::Symbol | AtomKind::Private => {
+                        if atom_kind == AtomKind::Symbol {
+                            JS_ATOM_HASH_SYMBOL
+                        } else {
+                            atom_kind = AtomKind::Symbol;
+                            JS_ATOM_HASH_PRIVATE
+                        }
+                    }
+                }
+
+                #[cfg(not(feature = "builtin_symbol"))]
+                Atom::calc_atom_str_hash(str, atom_kind)
+            };
+
+            let id = unsafe { NonZeroU16::new_unchecked(lst.len() as u16) };
+            let atom_info = AtomInfo::new(id, atom_kind, hash);
+
+            let str = {
+                let ss =
+                    StringImpl::new(Some(rt_ptr), StringData::from_static(str), Some(atom_info));
+                let s = rt_ptr.gc_alloc_in(root_scope, ss).unwrap();
+                // const atom string is root node.
+                // TODO: alloc const atom string in a dedicated top-level scope.
+                rt_ptr.gc_heap_mut().set_root(s, true);
+
+                StringRef::from(s)
+            };
+            lst.push(AtomDesc { str });
+
+            match lut.entry(hash) {
+                Entry::Vacant(kv) => {
+                    kv.insert(vec![id]);
+                }
+                Entry::Occupied(kv) => {
+                    kv.into_mut().push(id);
+                }
+            }
+
+            text = unsafe { text.add(cstr.count_bytes() + 1) };
+        }
+    }
+
     /// register user atom with string desciptor.
     /// (in case of creating an anonymous symbol, str desc should be ident-type-string)
     /// Same `str` will return the matched existing atom.

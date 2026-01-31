@@ -124,11 +124,10 @@ impl NFuncPayload {
 
         // new stack frame
         let mut stack_frame = StackFrame::new(func_obj, ExecMode::empty());
-        let sf = &mut stack_frame;
 
         // set new stack frame to be the 'current-stack-frame',
         // setup to perform pop stack frame on function exit.
-        rt.push_stack_frame(NonNull::from_ref(sf));
+        rt.push_stack_frame(NonNull::from_ref(&stack_frame));
         defer!({
             rt.pop_stack_frame();
         });
@@ -137,7 +136,8 @@ impl NFuncPayload {
 
         if args.len() < arg_length as usize {
             // copy arguments to local buffer
-            sf.local_buf
+            stack_frame
+                .local_buf
                 .try_reserve_exact(arg_length as usize)
                 .map_err(|_| {
                     realm_cx.throw_out_of_memory();
@@ -145,41 +145,45 @@ impl NFuncPayload {
                 })?;
 
             // copy pass in args, cloned
-            sf.local_buf.extend(args.iter().copied());
+            stack_frame.local_buf.extend(args.iter().copied());
             // padding with undefined
-            sf.local_buf.extend(std::iter::repeat_n(
+            stack_frame.local_buf.extend(std::iter::repeat_n(
                 JSValue::UNDEFINED,
                 arg_length as usize - args.len(),
             ));
-            debug_assert_eq!(sf.local_buf.len(), arg_length as usize);
+            debug_assert_eq!(stack_frame.local_buf.len(), arg_length as usize);
 
-            sf.arg_count = arg_length as _;
-            sf.arg_real_count = args.len() as _;
-            sf.arg_base_ptr = sf.local_buf.as_mut_ptr();
+            stack_frame.arg_count = arg_length as _;
+            stack_frame.arg_real_count = args.len() as _;
+            stack_frame.arg_base_ptr = stack_frame.local_buf.as_mut_ptr();
         } else {
-            sf.arg_count = args.len() as _;
-            sf.arg_real_count = args.len() as _;
-            sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
+            stack_frame.arg_count = args.len() as _;
+            stack_frame.arg_real_count = args.len() as _;
+            stack_frame.arg_base_ptr = args.as_ptr() as *mut JSValue;
         }
 
         let ret_val: JSResult = match callback {
             Callback::Func(f) => {
-                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
+                let cc =
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
                 f(cc)
             }
 
             Callback::Getter(f) => {
-                debug_assert_eq!(sf.arg_count, 0);
-                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
+                debug_assert_eq!(stack_frame.arg_count, 0);
+                let cc =
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
                 f(cc)
             }
             Callback::Setter(f) => {
-                debug_assert_eq!(sf.arg_count, 1);
-                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
+                debug_assert_eq!(stack_frame.arg_count, 1);
+                let cc =
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
                 f(cc)
             }
             Callback::IteratorNext(f) => {
-                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
+                let cc =
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
                 let mut iter_state = IteratorState::NotDone;
                 let mut r = f(cc, &mut iter_state);
                 if r.is_ok() && iter_state != IteratorState::NotParsed {
@@ -196,29 +200,31 @@ impl NFuncPayload {
                     realm_cx.throw_type_error("must be called with new");
                     return Err(-1);
                 }
-                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
+                let cc =
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
                 f(cc)
             }
             Callback::ConstructorOrFunc(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                     this_obj = JSValue::UNDEFINED;
                 }
-                let cc = CallContext::new(realm, this_obj, sf.arg_values(), magic as _, None);
+                let cc =
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
                 f(cc)
             }
             //
             // LEGACIES
             //
-            Callback::CFunc(f) => unsafe { f(realm_cx, this_obj, sf.arg_values()).err() },
+            Callback::CFunc(f) => unsafe { f(realm_cx, this_obj, stack_frame.arg_values()).err() },
             Callback::CFuncMagic(f) => unsafe {
-                f(realm_cx, this_obj, sf.arg_values(), magic as i32).err()
+                f(realm_cx, this_obj, stack_frame.arg_values(), magic as i32).err()
             },
 
-            Callback::FF(f) => sf.arg_values()[0]
+            Callback::FF(f) => stack_frame.arg_values()[0]
                 .to_f64(realm_cx)
                 .map(|n| JSValue::from(unsafe { f(n) })),
             Callback::FFF(f) => {
-                let args = sf.arg_values();
+                let args = stack_frame.arg_values();
                 let d1 = args[0].to_f64(realm_cx)?;
                 let d2 = args[1].to_f64(realm_cx)?;
 

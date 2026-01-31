@@ -421,8 +421,13 @@ impl JSValue {
     pub fn gc_node_ptr(&self) -> Option<NonNull<GcHead>> {
         match self {
             Self::Object(o) => Some(o.gc_ref().node_ptr()),
-            Self::String(s) if s.rt().is_some() => {
-                // non-const atom
+            Self::String(s) => {
+                // if s.rt().is_some() {
+                //     Some(s.gc_ref().node_ptr())
+                // } else {
+                //     None
+                // }
+                debug_assert!(s.rt().is_some(), "O.o");
                 Some(s.gc_ref().node_ptr())
             }
             #[cfg(feature = "builtin_symbol")]

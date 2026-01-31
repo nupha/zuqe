@@ -65,7 +65,7 @@ impl AtomInfo {
     }
 }
 
-/// Atom descriptor
+/// User atom descriptor
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub(super) struct AtomDesc {

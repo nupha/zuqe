@@ -17,16 +17,11 @@ pub(crate) struct ShapeRegistry {
 
 unsafe impl GcTracable for ShapeRegistry {
     fn trace(&self, mut tr: GcTraceOp) {
-        tr.add_nodes(
-            self.lut
-                .values()
-                .map(|lst| {
-                    lst.iter()
-                        .filter(|o| o.use_count() > 0)
-                        .map(|g| g.node_ptr())
-                })
-                .flatten(),
-        );
+        tr.add_nodes(self.lut.values().flat_map(|lst| {
+            lst.iter()
+                .filter(|o| o.use_count() > 0)
+                .map(|g| g.node_ptr())
+        }));
     }
 }
 
