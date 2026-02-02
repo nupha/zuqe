@@ -1,5 +1,7 @@
 use std::ptr::NonNull;
 
+use gc_lite::GcPartitionId;
+
 use crate::{
     atom::{Atom, AtomKind},
     builtins::{
@@ -290,7 +292,7 @@ impl Bytecode {
                             .and_then(|f| f.bytecode().debug.as_ref().map(|x| x.debug_setting))
                             .unwrap_or_default();
 
-                        // b.dump_run = 2; // O.o debug
+                        b.dump_run = 2; // O.o debug
                         debug_setting.replace(b);
                     }
 
@@ -746,6 +748,7 @@ impl Bytecode {
                                 // for i in -2..call_argc as isize {
                                 //     unsafe { *call_argv.offset(i) = JSValue::UNDEFINED };
                                 // }
+
                                 SP_GO!(-(call_argc + 2));
                                 SP_PUT!(0, r);
                                 SP_GO!(1);
@@ -2464,11 +2467,12 @@ impl Bytecode {
 
             match state {
                 State::Done(ret_val, is_generator) => {
-                    unsafe {
-                        if let Some(up) = stack_frame.parent_mut()
-                            && let Some(mut n) = ret_val.gc_node_ptr()
-                        {
-                            rt.gc_heap_mut().set_xref(up.init_gc_scope(), n.as_mut());
+                    // the `stack_frame` will be dropped later, migrate `ret_val` to upper scope
+                    if let Some(up) = stack_frame.parent_mut()
+                        && let Some(n) = ret_val.gc_node_ptr()
+                    {
+                        if unsafe { n.as_ref().xref_partition() } == GcPartitionId::NONE {
+                            rt.gc_heap_mut().set_xref(up.init_gc_scope(), n);
                         }
                     }
 

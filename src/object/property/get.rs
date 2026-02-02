@@ -27,7 +27,7 @@ impl Object {
             "[O.o] node={self:p}, type={}, flags={:?}",
             ctx.rt_ref()
                 .gc_heap()
-                .get_node_type(self.gc_ref().node_ptr())
+                .get_node_gc_type(self.gc_ref().node_ptr())
                 .type_name,
             self.gc_ref().node_info().flags()
         );

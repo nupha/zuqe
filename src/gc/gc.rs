@@ -126,17 +126,17 @@ impl RuntimeImpl {
 
             // user defined trace
             if let Some(f) = self.gc_user_trace.as_ref() {
-                f(tr.op());
+                f(tr.ctx());
             }
 
             if scope == self.gc_root_scope {
                 // currently running job
                 if let Some(f) = self.gc_cur_job_trace.as_ref() {
-                    f(tr.op());
+                    f(tr.ctx());
                 }
             }
 
-            tr.commit_with(marker_fn);
+            tr.commit(marker_fn);
         }
 
         //

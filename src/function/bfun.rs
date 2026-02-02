@@ -393,6 +393,7 @@ impl BytecodeFunction {
         };
         stack_frame.var_count = bc.var_count;
 
+        // Note: return value was properly migrated inside ::run()
         let isa = self.payload_mut();
         bc.run(
             caller_ctx,

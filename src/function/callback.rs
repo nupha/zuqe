@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcPartitionId, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     atom::Atom,
@@ -231,6 +231,16 @@ impl NFuncPayload {
                 Ok(JSValue::from(unsafe { f(d1, d2) }))
             }
         };
+
+        if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr)
+            && unsafe { n.as_ref().get_partition_id() } == stack_frame.gc_scope_id
+        {
+            // `ret_val` was allocated in `stack_frame` scope,
+            // and the `stack_frame` will be dropped at exit,
+            // must migrate `ret_val` to upper scope
+            let up = stack_frame.parent_mut().unwrap();
+            ctx.rt_ptr().gc_heap_mut().set_xref(up.init_gc_scope(), n);
+        }
 
         ret_val
     }
