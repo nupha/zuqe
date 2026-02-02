@@ -8,7 +8,7 @@ use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_STRING,
-    atom::{Atom, AtomInfo, AtomKind},
+    atom::{Atom, AtomInfo, AtomKind, is_const_atom, is_small_int_atom},
     class::ClassExoticMethods,
     context::{ContextImpl, ContextPtr},
     number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
@@ -46,9 +46,12 @@ unsafe impl GcTracable for StringImpl {
 impl Drop for StringImpl {
     fn drop(&mut self) {
         if let Some(atom_info) = &self.atom_info
-            && let Some(mut rt) = self.rt()
+            && {
+                let id = atom_info.id();
+                !is_const_atom(id) && !is_small_int_atom(id)
+            }
         {
-            rt.remove_atom(atom_info);
+            self.rt().unwrap().remove_atom(atom_info);
         }
     }
 }

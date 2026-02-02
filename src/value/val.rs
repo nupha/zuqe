@@ -427,7 +427,7 @@ impl JSValue {
                 // } else {
                 //     None
                 // }
-                debug_assert!(s.rt().is_some(), "O.o");
+                // debug_assert!(s.rt().is_some());
                 Some(s.gc_ref().node_ptr())
             }
             #[cfg(feature = "builtin_symbol")]
