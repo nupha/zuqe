@@ -126,15 +126,24 @@ impl Object {
                 }
                 JS_PROP_LAZYINIT => {
                     // Instantiate lazy object
-                    let mut obj = *self;
-                    let val = obj
+                    let mut this = *self;
+                    let val = this
                         .prop_slot_mut(idx)
-                        .instantiate_internal(ctx.rt_ref(), *self)?;
-                    // modify shape property kind to NORMAL
-                    obj.modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
-                    // update prop slot value
-                    obj.set_prop_slot(idx, JSProperty::Normal(val));
+                        .instantiate(ctx.rt_ref(), *self);
 
+                    // modify shape property kind to NORMAL
+                    this.modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
+                    // update prop slot value
+                    this.set_prop_slot(
+                        idx,
+                        JSProperty::Normal(if let Ok(v) = val {
+                            v
+                        } else {
+                            JSValue::UNDEFINED
+                        }),
+                    );
+
+                    val?;
                     continue;
                 }
                 _ => {

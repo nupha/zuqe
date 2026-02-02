@@ -7,10 +7,7 @@ use crate::{
     error::JSResult,
     function::{FieldDef, FieldDetail},
     module::ModuleDef,
-    object::{
-        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_TMASK, JS_PROP_WRITABLE,
-        Object,
-    },
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_WRITABLE, Object},
     value::JSValue,
 };
 
@@ -73,7 +70,7 @@ impl JSProperty {
     /// `this_obj` is the `this` bind used to call instantiate function.
     ///
     /// Note: will panic if property is not lazy type.
-    pub(super) fn instantiate_internal(&mut self, rt: &RuntimeImpl, this_obj: Object) -> JSResult {
+    pub(super) fn instantiate(&mut self, rt: &RuntimeImpl, this_obj: Object) -> JSResult {
         if let JSProperty::LazyInit {
             realm, init_type, ..
         } = self
@@ -84,45 +81,6 @@ impl JSProperty {
             unreachable!("expect lazy property, but got {:?}", self);
         }
     }
-
-    // /// Instantiate lazy object, and set instantiated value back to the property value slot as normal value,
-    // /// change shape property kind to NORMAL.
-    // ///
-    // /// - `obj` is the object that owns this `self` property.
-    // /// - `this_obj` is the `this` bind used to call instantiate function.
-    // /// - `idx` is the index of the property in the shape.
-    // ///
-    // /// Note: will panic if property is not lazy type.
-    // #[deprecated]
-    // pub(super) fn instantiate(
-    //     &mut self,
-    //     mut obj: Object,
-    //     idx: usize,
-    //     this_obj: Object,
-    // ) -> JSResult {
-    //     if let JSProperty::LazyInit {
-    //         realm, init_type, ..
-    //     } = self
-    //     {
-    //         let realm = ContextPtr::from(realm.upgrade(obj.rt().gc_heap()).unwrap());
-
-    //         // modify shape property kind to NORMAL
-    //         obj.modify_shape_property_index_flags(&realm, idx, |f| f & !JS_PROP_TMASK)?;
-
-    //         let val = init_type.instantiate(&realm, this_obj);
-
-    //         // set instantiated value back
-    //         if let Ok(val) = val {
-    //             *self = JSProperty::Normal(val);
-    //             Ok(val)
-    //         } else {
-    //             *self = JSProperty::Normal(JSValue::UNDEFINED);
-    //             Err(-1)
-    //         }
-    //     } else {
-    //         unreachable!("expect lazy property, but got {:?}", self);
-    //     }
-    // }
 }
 
 impl Object {

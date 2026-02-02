@@ -293,20 +293,6 @@ impl JSValue {
     }
 }
 
-#[deprecated(note = "use JSValue::call_internal() instead")]
-pub(crate) fn JS_CallInternal(
-    caller_ctx: &ContextImpl,
-    func_obj: JSValue,
-    this_obj: JSValue,
-    new_target: JSValue,
-    args: &[JSValue],
-    flags: i32,
-) -> JSValue {
-    func_obj
-        .call_internal(caller_ctx, this_obj, new_target, args, flags)
-        .unwrap_or(JSValue::EXCEPTION)
-}
-
 pub(crate) fn JS_CallConstructorInternal(
     ctx: &ContextImpl,
     func_obj: JSValue,

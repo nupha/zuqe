@@ -84,18 +84,12 @@ impl ObjectImpl {
         };
         let mut rt = self.rt();
 
+        // add cross partition reference
         for node in gc_node.into_iter().flatten() {
-            unsafe {
-                #[cfg(debug_assertions)]
-                node.as_ref().test_valid();
+            #[cfg(debug_assertions)]
+            unsafe { node.as_ref() }.test_valid();
 
-                if self_partition != node.as_ref().get_partition_id()
-                    && self_partition != node.as_ref().xref_partition()
-                {
-                    // add cross partition reference
-                    rt.gc_heap_mut().set_xref(self_partition, node);
-                }
-            }
+            rt.gc_heap_mut().set_xref(self_partition, node);
         }
     }
 

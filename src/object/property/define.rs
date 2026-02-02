@@ -59,15 +59,25 @@ impl Object {
 
                 if prs_flags & JS_PROP_TMASK == JS_PROP_LAZYINIT {
                     // Instantiate lazy property
-                    let this = *self;
-                    let val = self
-                        .prop_slot_mut(idx)
-                        .instantiate_internal(ctx.rt_ref(), this)?;
+                    let val = {
+                        let this = *self;
+                        self.prop_slot_mut(idx)
+                            .instantiate(ctx.rt_ref(), this)
+                    };
+
                     // modify shape property kind to NORMAL
                     self.modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
                     // update prop slot value
-                    self.set_prop_slot(idx, JSProperty::Normal(val));
+                    self.set_prop_slot(
+                        idx,
+                        JSProperty::Normal(if let Ok(v) = val {
+                            v
+                        } else {
+                            JSValue::UNDEFINED
+                        }),
+                    );
 
+                    val?;
                     continue;
                 }
 
