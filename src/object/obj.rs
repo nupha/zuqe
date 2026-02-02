@@ -406,12 +406,20 @@ impl ObjectImpl {
         self.shape.as_ref()
     }
 
-    pub fn set_shape(&mut self, sh: ShapeHandle) {
+    pub fn set_shape(&mut self, shape: ShapeHandle) {
         debug_assert!(
-            self.rt().shape_registry.is_registered(&sh),
+            self.rt().shape_registry.is_registered(&shape),
             "shape must be registered"
         );
-        self.shape.replace(sh);
+
+        // set xref to shape
+        let obj_ref = unsafe { Object::from_ref_unchecked(self) };
+        self.rt().gc_heap_mut().set_xref(
+            obj_ref.gc_ref().node_info().get_partition_id(),
+            shape.gc_ref().node_ptr(),
+        );
+
+        self.shape.replace(shape);
     }
 
     pub const fn take_shape(&mut self) -> Option<ShapeHandle> {
@@ -494,6 +502,21 @@ impl ObjectImpl {
 
     fn finalize(&mut self) {
         // free shape props and props
+
+        // O.o
+        unsafe {
+            let gr = Object::from_ref_unchecked(self).gc_ref();
+            println!(
+                "[O.o] drop object: scope={:?}, xref={:?}, type={}",
+                gr.node_info().get_partition_id(),
+                gr.node_info().xref_partition(),
+                self.rt()
+                    .gc_heap()
+                    .get_node_gc_type(gr.node_ptr())
+                    .type_name,
+            );
+        }
+
         self.shape.take();
         self.prop_values.clear();
 

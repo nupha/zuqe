@@ -54,6 +54,16 @@ impl RuntimeImpl {
             })
     }
 
+    /// get or initialize gc scope for current stack frame.
+    /// if current stack frame has no scope, initialize it.
+    pub(crate) fn current_gc_scope_force(&mut self) -> GcPartitionId {
+        if let Some(sf) = self.current_stack_frame_mut() {
+            sf.init_gc_scope()
+        } else {
+            self.gc_root_scope
+        }
+    }
+
     pub fn gc_memory_limit(&self) -> usize {
         self.gc_root_part().memory_limit()
     }
@@ -145,13 +155,13 @@ impl RuntimeImpl {
         let mut freed = 0;
         if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
             // Shape must be freed at last
-            freed = self.gc_heap.sweep_with(scope, |node| {
+            freed = self.gc_heap.sweep(scope, |node| {
                 let gctype = node.gc_type_id();
                 !node.is_marked() && (gctype != type_shape)
             });
         }
 
-        freed += self.gc_heap.sweep_with(scope, GcHeap::SWEEP_UNMARKED_FUNC);
+        freed += self.gc_heap.sweep(scope, GcHeap::SWEEP_UNMARKED_FUNC);
 
         // update gc threshold
         let used = self.gc_root_part().memory_used();

@@ -86,12 +86,12 @@ impl ShapeImpl {
 
     /// shape property length
     #[inline(always)]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.prop_defs.len()
     }
 
     #[inline(always)]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.prop_defs.len() == 0
     }
 
@@ -169,7 +169,6 @@ impl ShapeImpl {
 pub struct ShapeHandle(GcRef<ShapeImpl>);
 
 unsafe impl GcTracable for ShapeHandle {
-    #[inline(always)]
     fn trace(&self, mut tr: GcTraceOp) {
         tr.add(self.0);
     }
