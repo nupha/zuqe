@@ -129,7 +129,7 @@ impl NFuncPayload {
         // setup to perform pop stack frame on function exit.
         rt.push_stack_frame(NonNull::from_ref(&stack_frame));
         defer!({
-            rt.pop_stack_frame();
+            ctx.rt_ptr().pop_stack_frame();
         });
 
         let realm_cx = &*realm;
@@ -235,11 +235,15 @@ impl NFuncPayload {
         if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr)
             && unsafe { n.as_ref().get_partition_id() } == stack_frame.gc_scope_id
         {
-            // `ret_val` was allocated in `stack_frame` scope,
-            // and the `stack_frame` will be dropped at exit,
+            // `ret_val` was allocated in `stack_frame` scope, the `stack_frame` will be dropped at exit,
             // must migrate `ret_val` to upper scope
-            let up = stack_frame.parent_mut().unwrap();
-            ctx.rt_ptr().gc_heap_mut().set_xref(up.init_gc_scope(), n);
+            let root_scope = rt.gc_root_scope;
+            rt.gc_heap_mut().set_xref(
+                stack_frame
+                    .parent_mut()
+                    .map_or(root_scope, |up| up.init_gc_scope()),
+                n,
+            );
         }
 
         ret_val

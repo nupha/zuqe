@@ -275,7 +275,13 @@ impl RuntimeImpl {
     /// set new obj to current_exception, returns the old exception value.
     /// Note: returned value should be freed by caller
     #[cold]
-    pub(crate) const fn set_exception(&mut self, obj: JSValue) {
+    pub(crate) fn set_exception(&mut self, obj: JSValue) {
+        if let Some(n) = obj.gc_node_ptr() {
+            // migrate obj to root gc scope
+            let root_scope = self.gc_root_scope;
+            self.gc_heap_mut().set_xref(root_scope, n);
+        }
+
         self.cur_exception = obj;
     }
 

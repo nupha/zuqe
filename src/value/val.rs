@@ -422,11 +422,6 @@ impl JSValue {
         match self {
             Self::Object(o) => Some(o.gc_ref().node_ptr()),
             Self::String(s) => {
-                // if s.rt().is_some() {
-                //     Some(s.gc_ref().node_ptr())
-                // } else {
-                //     None
-                // }
                 // debug_assert!(s.rt().is_some());
                 Some(s.gc_ref().node_ptr())
             }
@@ -443,6 +438,11 @@ impl JSValue {
             Self::Module(m) => Some(m.gc_ref().node_ptr()),
             _ => None,
         }
+    }
+
+    #[inline(always)]
+    pub fn gc_node(&self) -> Option<&GcHead> {
+        self.gc_node_ptr().map(|n| unsafe { n.as_ref() })
     }
 }
 

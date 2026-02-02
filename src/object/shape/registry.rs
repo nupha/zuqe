@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcTraceOp, GcWeak};
 
 use crate::{
+    RuntimeImpl,
     atom::Atom,
     object::{
         JS_PROP_INITIAL_HASH_SIZE, Object, ShapeHandle, ShapeImpl, shape::shape_hasher_u32,
@@ -12,17 +13,7 @@ use crate::{
 
 #[derive(Debug)]
 pub(crate) struct ShapeRegistry {
-    pub(super) lut: HashMap<u32, Vec<GcRef<ShapeImpl>>>,
-}
-
-unsafe impl GcTracable for ShapeRegistry {
-    fn trace(&self, mut tr: GcTraceOp) {
-        tr.add_nodes(self.lut.values().flat_map(|lst| {
-            lst.iter()
-                .filter(|o| o.use_count() > 0)
-                .map(|g| g.node_ptr())
-        }));
-    }
+    pub(crate) lut: HashMap<u32, Vec<GcWeak<ShapeImpl>>>,
 }
 
 impl ShapeRegistry {
@@ -32,12 +23,30 @@ impl ShapeRegistry {
         }
     }
 
+    #[deprecated]
+    pub(crate) fn gc_trace(&self, mut tr: GcTraceOp) {
+        let heap_ptr = NonNull::from_ref(tr.heap());
+
+        tr.add_nodes(self.lut.values().flat_map(|lst| {
+            lst.iter()
+                .filter_map(|o| o.upgrade(unsafe { heap_ptr.as_ref() }))
+                .map(|g| g.node_ptr())
+        }));
+    }
+
+    pub fn clear(&mut self) {
+        self.lut.clear();
+    }
+}
+
+impl RuntimeImpl {
     /// register a shape
-    pub(crate) fn register(&mut self, shape: &ShapeHandle) -> Result<(), i32> {
+    pub(crate) fn register_shape(&mut self, shape: &ShapeHandle) -> Result<(), i32> {
         debug_assert!(shape.use_count() > 0);
 
-        if self.lut.len() == self.lut.capacity() {
-            self.lut
+        if self.shape_registry.lut.len() == self.shape_registry.lut.capacity() {
+            self.shape_registry
+                .lut
                 .try_reserve(JS_PROP_INITIAL_HASH_SIZE)
                 .map_err(|_| -1)?;
         }
@@ -45,108 +54,87 @@ impl ShapeRegistry {
         let hash = shape.hash();
         let id = shape.id();
         let sh = shape.gc_ref();
+        let weak = sh.downgrade(self.gc_heap_mut());
 
-        if let Some(lst) = self.lut.get_mut(&hash) {
-            if !lst.iter().any(|s| s.id() == id) {
-                lst.push(sh);
+        const PUSH: usize = usize::MAX;
+        const EXIST: usize = usize::MAX - 1;
+
+        let upsert = self.shape_registry.lut.get(&hash).map(|lst| {
+            let heap = self.gc_heap();
+            let mut idx = PUSH;
+            for (i, w) in lst.iter().enumerate() {
+                if let Some(s) = w.upgrade(heap) {
+                    if s.id() == id {
+                        return EXIST; // already exist
+                    }
+                } else {
+                    idx = i; // reuse the slot - weaked
+                }
             }
-        } else {
-            self.lut.insert(hash, vec![sh]);
+            idx
+        });
+
+        match upsert {
+            Some(PUSH) => {
+                self.shape_registry.lut.get_mut(&hash).unwrap().push(weak);
+            }
+            Some(EXIST) => {}
+            Some(i) => unsafe {
+                *self
+                    .shape_registry
+                    .lut
+                    .get_mut(&hash)
+                    .unwrap()
+                    .get_unchecked_mut(i) = weak;
+            },
+            None => {
+                self.shape_registry.lut.insert(hash, vec![weak]);
+            }
         }
 
         Ok(())
     }
 
     /// unregister a shape
-    pub(super) fn unregister(&mut self, shape: &ShapeHandle) {
+    pub(super) fn unregister_shape(&mut self, shape: &ShapeHandle) {
         let hash = shape.hash();
         let shape_id = shape.id();
 
-        if let Some(lst) = self.lut.get_mut(&hash) {
-            if lst.len() == 1 && unsafe { lst.get_unchecked(0).id() } == shape_id {
-                self.lut.remove(&hash);
-            } else {
-                lst.iter()
-                    .position(|s| s.id() == shape_id)
-                    .map(|i| lst.swap_remove(i));
+        if let Some(mut lst) = self.shape_registry.lut.remove(&hash) {
+            let heap = self.gc_heap_mut();
+            lst.retain(|w| w.upgrade(heap).is_some_and(|s| s.id() != shape_id));
+            if !lst.is_empty() {
+                self.shape_registry.lut.insert(hash, lst);
             }
         }
     }
 
-    fn is_registered2(&self, shape_id: usize, shape_hash: u32) -> bool {
-        self.lut
-            .get(&shape_hash)
-            .is_some_and(|lst| lst.iter().any(|sh| sh.id() == shape_id))
-    }
-
-    #[inline(always)]
-    pub fn is_registered(&self, shape: &ShapeHandle) -> bool {
-        self.is_registered2(shape.id(), shape.hash())
-    }
-
-    /// increase use count
-    pub(super) fn inc_use(&mut self, shape: &ShapeHandle) {
-        let hash = shape.hash();
+    pub fn is_shape_registered(&self, shape: &ShapeHandle) -> bool {
         let shape_id = shape.id();
+        let shape_hash = shape.hash();
 
-        if let Some(lst) = self.lut.get_mut(&hash)
-            && let Some(slot) = lst.iter_mut().find(|s| s.id() == shape_id)
-        {
-            slot.use_count += 1;
-        }
-    }
-
-    /// decrease shape use count.
-    /// when use count reaches zero, unregister the shape.
-    #[inline(always)]
-    pub(super) fn dec_use(&mut self, shape: &ShapeHandle) {
-        self.dec_use2(shape.id(), shape.hash());
-    }
-
-    /// decrease shape use count. when use count reaches zero, unregister the shape.
-    fn dec_use2(&mut self, shape_id: usize, hash: u32) {
-        if let Some(lst) = self.lut.get_mut(&hash) {
-            debug_assert!(!lst.is_empty());
-
-            let remove_idx = if let Some((i, slot)) =
-                lst.iter_mut().enumerate().find(|(_, s)| s.id() == shape_id)
-            {
-                if slot.use_count == 1 {
-                    i as i32 // remove from lst
-                } else {
-                    slot.use_count -= 1;
-                    -1
-                }
-            } else {
-                -1
-            };
-
-            if remove_idx >= 0 {
-                if lst.len() == 1 {
-                    // remove key from lut
-                    self.lut.remove(&hash);
-                } else {
-                    lst.swap_remove(remove_idx as usize);
-                }
-            }
-        }
+        self.shape_registry.lut.get(&shape_hash).is_some_and(|lst| {
+            lst.iter().any(|w| {
+                w.upgrade(self.gc_heap())
+                    .is_some_and(|sh| sh.id() == shape_id)
+            })
+        })
     }
 
     /// find an empty shape matching given prototype.
+    /// Returned shape increase use count by 1.
     /// Return None if not found.
     pub fn find_shape_by_proto(&self, proto: Option<Object>) -> Option<ShapeHandle> {
         let hash = shape_initial_hash(proto.map_or(0, |o| o.id()));
+        let heap = self.gc_heap();
 
-        self.lut.get(&hash).and_then(|lst| {
+        self.shape_registry.lut.get(&hash).and_then(|lst| {
             lst.iter()
-                .find(|sh| {
-                    // no shape props, and proto equals to given
-                    sh.prop_defs.count() == 0 && sh.proto == proto
-                })
-                .copied()
-                .map(|mut sh| {
-                    sh.use_count += 1; // increase refcount to return
-                    ShapeHandle::from(sh)
+                .filter_map(|w| w.upgrade(heap))
+                .find(|sh| sh.proto == proto && sh.prop_defs.count() == 0)
+                .map(|mut s| {
+                    s.use_count += 1; // increase refcount
+                    ShapeHandle::from(s)
                 })
         })
     }
@@ -167,10 +155,12 @@ impl ShapeRegistry {
         let base_len = base_shape.prop_defs.len();
         let ttl_len = base_len + 1;
 
-        if let Some(mut found) = self.lut.get(&hash).and_then(|lst| {
+        let heap = self.gc_heap();
+
+        if let Some(mut found) = self.shape_registry.lut.get(&hash).and_then(|lst| {
             lst.iter()
+                .filter_map(|w| w.upgrade(heap))
                 .find(|sh| sh.proto == base_shape.proto && sh.prop_defs.len() == ttl_len)
-                .copied()
         }) && base_shape
             .prop_defs
             .iter()
@@ -183,19 +173,11 @@ impl ShapeRegistry {
                 .last()
                 .is_some_and(|pr| pr.atom == prop && pr.flags() == prop_flags)
             {
-                found.use_count += 1; // increase use count
+                found.use_count += 1;
                 return Some(ShapeHandle::from(found));
             }
         }
 
         None
-    }
-
-    pub(crate) fn gc_nodes(&self) -> impl Iterator<Item = &GcRef<ShapeImpl>> {
-        self.lut.values().flat_map(|lst| lst.iter())
-    }
-
-    pub fn clear(&mut self) {
-        self.lut.clear();
     }
 }

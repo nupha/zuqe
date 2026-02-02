@@ -351,13 +351,7 @@ impl StackFrame {
             current: if include_self {
                 Some(NonNull::from_ref(self))
             } else {
-                unsafe {
-                    if !self.prev.is_null() {
-                        Some(NonNull::new_unchecked(self.prev.cast()))
-                    } else {
-                        None
-                    }
-                }
+                NonNull::new(self.prev.cast())
             },
             _mark: PhantomData,
         }
@@ -403,8 +397,10 @@ impl<'a> Iterator for StackFrameParentIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(sf) = self.current.take() {
-            self.current.replace(sf);
-            Some(unsafe { sf.as_ref() })
+            unsafe {
+                self.current = NonNull::new(sf.as_ref().prev.cast::<StackFrame>());
+                Some(sf.as_ref())
+            }
         } else {
             None
         }

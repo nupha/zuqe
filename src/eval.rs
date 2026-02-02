@@ -198,7 +198,7 @@ impl ContextImpl {
         //     );
         // }
 
-        match self.compile(source, filename, eval_type, eval_flags, scope_idx)? {
+        let ret_val = match self.compile(source, filename, eval_type, eval_flags, scope_idx)? {
             Compiled::GlobalOrIndirect(bc) => {
                 // Note: `bc` is not gc traced now.
                 bc.eval(self, this_obj, &[], None)
@@ -226,7 +226,36 @@ impl ContextImpl {
                 debug_assert!(m.func_created);
                 m.eval_func(self).map(|p| p.into())
             }
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            if let Ok(v) = ret_val.as_ref() {
+                if let Some(p) = v
+                    .gc_node_ptr()
+                    .map(|n| unsafe { n.as_ref().get_partition_id() })
+                {
+                    debug_assert!(
+                        self.rt_ref()
+                            .gc_heap()
+                            .check_partition_ancestor(self.rt_ref().gc_root_scope, p)
+                    );
+                }
+            } else if let Some(p) = self
+                .rt_ref()
+                .exception()
+                .gc_node_ptr()
+                .map(|n| unsafe { n.as_ref().get_partition_id() })
+            {
+                debug_assert!(
+                    self.rt_ref()
+                        .gc_heap()
+                        .check_partition_ancestor(self.rt_ref().gc_root_scope, p)
+                );
+            }
         }
+
+        ret_val
     }
 
     /// eval `source` as global type, with global object as `this` binding.

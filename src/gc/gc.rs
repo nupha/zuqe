@@ -122,10 +122,7 @@ impl RuntimeImpl {
             // Note: for root scope, Contexts are root nodes, they have been traced in trace_root step.
 
             tr.trace_roots(marker_fn);
-            tr.trace_iter(
-                self.shape_registry.gc_nodes().map(|x| x.node_ptr()),
-                marker_fn,
-            );
+            // self.shape_registry.gc_trace(tr.ctx());
 
             if let Some(n) = self.cur_exception.gc_node_ptr() {
                 tr.trace(n, marker_fn);

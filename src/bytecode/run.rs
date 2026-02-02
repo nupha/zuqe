@@ -808,10 +808,6 @@ impl Bytecode {
                     OpCode::RETURN => {
                         SP_GO!(-1);
                         let ret = SP_VAL!(0);
-
-                        if rt.gc_req && ret.is_gc() {
-                            rt.gc_req = false; // value `ret` is intermediate (not on stack) now. don't gc
-                        }
                         break State::Done(ret, false);
                     }
                     OpCode::RETURN_UNDEF => {
@@ -2467,12 +2463,17 @@ impl Bytecode {
 
             match state {
                 State::Done(ret_val, is_generator) => {
-                    // `stack_frame` will be dropped after exit, migrate `ret_val` to upper scope
-                    if let Some(up) = stack_frame.parent_mut()
-                        && let Some(n) = ret_val.gc_node_ptr()
-                        && unsafe { n.as_ref().xref_partition() } == GcPartitionId::NONE
+                    // `stack_frame` will be dropped after exit,
+                    // migrate `ret_val` to upper scope to prevent be collected.
+                    if let Some(n) = ret_val.gc_node_ptr()
+                        && unsafe { n.as_ref().xref_partition().is_null() }
                     {
-                        rt.gc_heap_mut().set_xref(up.init_gc_scope(), n);
+                        rt.gc_heap_mut().set_xref(
+                            stack_frame
+                                .parent_mut()
+                                .map_or(realm.rt_ref().gc_root_scope, |up| up.init_gc_scope()),
+                            n,
+                        );
                     }
 
                     stack_frame.handle_exit(

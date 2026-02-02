@@ -127,9 +127,7 @@ impl Object {
                 JS_PROP_LAZYINIT => {
                     // Instantiate lazy object
                     let mut this = *self;
-                    let val = this
-                        .prop_slot_mut(idx)
-                        .instantiate(ctx.rt_ref(), *self);
+                    let val = this.prop_slot_mut(idx).instantiate(ctx.rt_ref(), *self);
 
                     // modify shape property kind to NORMAL
                     this.modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
@@ -207,7 +205,7 @@ impl Object {
                     // first prop must be `length`
                     let prs_flags = arr
                         .shape()
-                        .and_then(|sh| sh.prop_defs.first())
+                        .and_then(|sh| sh.prop_defs.first().copied())
                         .map(|p| p.flags())
                         .unwrap(); // <-- prop length must exist.
 

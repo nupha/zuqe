@@ -406,7 +406,7 @@ impl ContextPtr {
                 .add_shape_properties(&[(Atom::CONST_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)]);
 
             // register shape
-            self.rt_ptr().shape_registry.register(&array_shape).unwrap();
+            self.rt_ptr().register_shape(&array_shape).unwrap();
             self.array_shape.replace(array_shape);
         }
 

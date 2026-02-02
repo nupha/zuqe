@@ -251,8 +251,9 @@ impl ContextImpl {
             }
         }
 
-        for sf in self
-            .rt_ptr()
+        let rt = self.rt_ptr();
+
+        for sf in rt
             .current_stack_frame()
             .map_or(StackFrameParentIter::EMPTY, |f| f.parent_iter(true))
         {
@@ -278,10 +279,9 @@ impl ContextImpl {
                         let line_num1 = bc.find_line_num(
                             (sf.cur_pc_offset as u32).wrapping_sub(1), // be u32::MAX when (*sf).cur_pc_offset==0
                         );
+                        let atom_str = debug.filename.to_utf8(&rt);
 
-                        let atom_str = debug.filename.to_utf8(self.rt_ref());
-
-                        dbuf.write_fmt(format_args!(" ({}", atom_str))
+                        dbuf.write_fmt(format_args!(" ({atom_str}"))
                             .map_err(|_| -1)?;
                         if let Some(n) = line_num1 {
                             dbuf.write_fmt(format_args!(":{n}")).map_err(|_| -1)?;

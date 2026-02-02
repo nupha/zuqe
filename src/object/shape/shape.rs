@@ -6,16 +6,12 @@ use std::{
 use gc_lite::{GcRef, GcTracable, GcTraceOp};
 use hash_link::HashList;
 
-use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimePtr};
+use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty};
 
 use super::super::{obj::Object, property::JS_PROP_LENGTH};
 
 #[derive(Debug)]
 pub struct ShapeImpl {
-    /// runtime raw pointer, None indicates the shape impl is dropped.
-    rt: Option<RuntimePtr>,
-
-    /// count of uses
     pub(super) use_count: u32,
 
     /// If true, the shape may have small array index properties 'n' with 0..=u32::MAX;
@@ -38,14 +34,6 @@ unsafe impl GcTracable for ShapeImpl {
     }
 }
 
-impl Drop for ShapeImpl {
-    fn drop(&mut self) {
-        // Note: when ShapeImpl is dropped, set rt to None.
-        // So that ShapeHandle will aware its inner shape was droppped.
-        self.rt.take().unwrap();
-    }
-}
-
 impl ShapeImpl {
     /// create a new empty shape with prototype 'proto' and given capacity.
     fn new(
@@ -60,7 +48,6 @@ impl ShapeImpl {
         }
 
         Ok(Self {
-            rt: Some(ctx.rt_ptr()),
             use_count: 1,
             proto,
             prop_defs: props,
@@ -75,13 +62,19 @@ impl ShapeImpl {
     }
 
     #[inline(always)]
-    const fn rt(&self) -> Option<RuntimePtr> {
-        self.rt
+    pub const fn use_count(&self) -> u32 {
+        self.use_count
     }
 
     #[inline(always)]
-    pub const fn use_count(&self) -> u32 {
-        self.use_count
+    pub fn inc_count(&mut self) {
+        self.use_count += 1;
+    }
+
+    #[inline(always)]
+    pub fn dec_count(&mut self) {
+        debug_assert!(self.use_count > 0);
+        self.use_count -= 1;
     }
 
     /// shape property length
@@ -166,37 +159,12 @@ impl ShapeImpl {
 }
 
 #[repr(transparent)]
+#[derive(PartialEq)]
 pub struct ShapeHandle(GcRef<ShapeImpl>);
 
 unsafe impl GcTracable for ShapeHandle {
     fn trace(&self, mut tr: GcTraceOp) {
         tr.add(self.0);
-    }
-}
-
-impl Drop for ShapeHandle {
-    fn drop(&mut self) {
-        if let Some(mut rt) = self.rt() {
-            rt.shape_registry.dec_use(self);
-        } else {
-            // ShapeImpl was dropped proior to ShapeHandle dropping.
-            // this could be happen when GcRef<ShapeImpl> is dropped by gc collect,
-            // while GcRef<ObjectImpl> which may hold a ShapeHandle is still alive in gc.
-            // This mostly happens in Runtime finalize when collecting all gc objects in a non-determined order.
-        }
-    }
-}
-
-impl Clone for ShapeHandle {
-    fn clone(&self) -> Self {
-        if let Some(mut rt) = self.rt() {
-            rt.shape_registry.inc_use(self)
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!("ShapeImpl was dropped");
-        };
-
-        Self(self.0)
     }
 }
 
@@ -216,9 +184,18 @@ impl DerefMut for ShapeHandle {
     }
 }
 
-impl PartialEq for ShapeHandle {
-    fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id()
+impl Clone for ShapeHandle {
+    fn clone(&self) -> Self {
+        unsafe {
+            self.0.as_ptr().as_mut().inc_count();
+        }
+        Self(self.0)
+    }
+}
+
+impl Drop for ShapeHandle {
+    fn drop(&mut self) {
+        self.0.dec_count();
     }
 }
 
@@ -258,7 +235,7 @@ impl ShapeHandle {
         })?;
 
         let shape = Self::new_internal(ctx, proto, prop_defs)?;
-        ctx.rt_ptr().shape_registry.register(&shape)?;
+        ctx.rt_ptr().register_shape(&shape)?;
 
         Ok(shape)
     }

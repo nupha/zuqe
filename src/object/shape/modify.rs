@@ -13,19 +13,18 @@ impl ObjectImpl {
         f: impl FnOnce(&mut ShapeImpl) -> R,
     ) -> Result<R, i32> {
         let use_count = self.shape().unwrap().use_count();
-        let mut use_shape = if use_count != 1 {
+        let mut use_shape = if use_count > 1 {
             // shape is shared: dup to new
             self.shape().unwrap().dup(ctx)?
         } else {
-            // shape is exclusivly used, use it
+            // shape is non-share, use it
             let sh = self.take_shape().unwrap();
-            ctx.rt_ptr().shape_registry.unregister(&sh);
+            ctx.rt_ptr().unregister_shape(&sh);
             sh
         };
 
         let r = f(&mut use_shape);
-
-        ctx.rt_ptr().shape_registry.register(&use_shape)?;
+        ctx.rt_ptr().register_shape(&use_shape)?;
         self.set_shape(use_shape);
 
         Ok(r)
@@ -52,11 +51,10 @@ impl ObjectImpl {
         debug_assert_eq!(self.prop_values.len(), new_len);
 
         // find shape registry
-        if let Some(found) = ctx.rt_ptr().shape_registry.find_shape_with_extend_prop(
-            self.shape().unwrap(),
-            prop,
-            prop_flags,
-        ) {
+        if let Some(found) =
+            ctx.rt_ptr()
+                .find_shape_with_extend_prop(self.shape().unwrap(), prop, prop_flags)
+        {
             // use existing shape
             debug_assert_eq!(new_len, found.len());
             self.set_shape(found);
@@ -79,14 +77,14 @@ impl ObjectImpl {
                     return Err(-1);
                 }
 
-                ctx.rt_ptr().shape_registry.unregister(&sh);
+                ctx.rt_ptr().unregister_shape(&sh);
                 sh
             };
 
             // shape can be modified now.
             target.add_shape_properties(&[(prop, prop_flags)]);
             // register the shape
-            ctx.rt_ptr().shape_registry.register(&target).unwrap();
+            ctx.rt_ptr().register_shape(&target).unwrap();
             // object uses the shape
             self.set_shape(target);
 

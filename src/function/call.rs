@@ -223,7 +223,7 @@ impl JSValue {
     ) -> JSResult {
         ctx.poll_interrupts()?;
 
-        match self {
+        let ret_val = match self {
             JSValue::Object(o) => {
                 if let Some(bf) = o.as_BytecodeFunction() {
                     bf.call(ctx, this_obj, new_target, args, flags)
@@ -248,7 +248,35 @@ impl JSValue {
                 ctx.throw_type_error("not callable");
                 Err(-1)
             }
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            if let Ok(v) = ret_val.as_ref() {
+                if let Some(p) = v.gc_node().map(|n| n.get_partition_id()) {
+                    debug_assert!(!p.is_null());
+                    debug_assert!(
+                        ctx.rt_ref()
+                            .gc_heap()
+                            .check_partition_ancestor(ctx.rt_ref().gc_root_scope, p)
+                    );
+                }
+            } else if let Some(p) = ctx
+                .rt_ref()
+                .exception()
+                .gc_node()
+                .map(|n| n.get_partition_id())
+            {
+                debug_assert!(!p.is_null());
+                debug_assert!(
+                    ctx.rt_ref()
+                        .gc_heap()
+                        .check_partition_ancestor(ctx.rt_ref().gc_root_scope, p)
+                );
+            }
         }
+
+        ret_val
     }
 
     /// call function `self.method`

@@ -220,7 +220,7 @@ impl ObjectImpl {
         #[cfg(debug_assertions)]
         if let Some(sh) = &shape {
             debug_assert!(
-                ctx.rt_ptr().shape_registry.is_registered(sh),
+                ctx.rt_ptr().is_shape_registered(sh),
                 "shape must be registered when used by object"
             );
         }
@@ -407,15 +407,12 @@ impl ObjectImpl {
     }
 
     pub fn set_shape(&mut self, shape: ShapeHandle) {
-        debug_assert!(
-            self.rt().shape_registry.is_registered(&shape),
-            "shape must be registered"
-        );
+        debug_assert!(self.rt().is_shape_registered(&shape));
 
         // set xref to shape
-        let obj_ref = unsafe { Object::from_ref_unchecked(self) };
+        let obj = unsafe { Object::from_ref_unchecked(self) };
         self.rt().gc_heap_mut().set_xref(
-            obj_ref.gc_ref().node_info().get_partition_id(),
+            obj.gc_ref().node_info().get_partition_id(),
             shape.gc_ref().node_ptr(),
         );
 
@@ -502,21 +499,6 @@ impl ObjectImpl {
 
     fn finalize(&mut self) {
         // free shape props and props
-
-        // O.o
-        unsafe {
-            let gr = Object::from_ref_unchecked(self).gc_ref();
-            println!(
-                "[O.o] drop object: scope={:?}, xref={:?}, type={}",
-                gr.node_info().get_partition_id(),
-                gr.node_info().xref_partition(),
-                self.rt()
-                    .gc_heap()
-                    .get_node_gc_type(gr.node_ptr())
-                    .type_name,
-            );
-        }
-
         self.shape.take();
         self.prop_values.clear();
 
