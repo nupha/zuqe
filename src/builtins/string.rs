@@ -32,7 +32,7 @@ pub fn js_string_constructor(cc: CallContext) -> JSResult {
             && new_target.is_undefined()
         {
             // "Symbol(desc)"
-            JS_ConcatString3(ctx, c"Symbol(", s.clone().into(), c")")?
+            JS_ConcatString3(ctx, c"Symbol(", (*s).into(), c")")?
         } else {
             cc.arg(0).to_string(ctx)?
         }

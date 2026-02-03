@@ -188,15 +188,6 @@ impl Clone for Shape {
     }
 }
 
-impl Drop for Shape {
-    fn drop(&mut self) {
-        self.0.dec_count();
-        if self.use_count() == 0 {
-            self.gc_ref().node_info_mut().unset_xref_partition();
-        }
-    }
-}
-
 impl std::fmt::Debug for Shape {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<Shape {:p}>", self.id() as *const c_void)
@@ -232,8 +223,10 @@ impl Shape {
             -1
         })?;
 
-        let shape = Self::new_internal(ctx, proto, prop_defs)?;
-        ctx.rt_ptr().register_shape(&shape)?;
+        let mut shape = Self::new_internal(ctx, proto, prop_defs)?;
+        ctx.rt_ptr().register_shape(&shape).inspect_err(|_| {
+            shape.dec_count();
+        })?;
 
         Ok(shape)
     }

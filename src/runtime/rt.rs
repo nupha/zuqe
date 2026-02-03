@@ -363,30 +363,28 @@ impl RuntimeImpl {
 
         self.cur_exception = JSValue::UNDEFINED;
         self.context_list.clear();
-
-        // clear all shapes in registry,
-        // don't bother shape drop trait to do unregister.
         self.shape_registry.clear();
 
-        let part_id = self.gc_root_scope;
+        let root_scope_id = self.gc_root_scope;
 
         if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
             // purge all gc objects except ShapeImpl
             self.gc_heap_mut()
-                .sweep(part_id, |node| node.gc_type_id() != type_shape);
+                .sweep(root_scope_id, |node| node.gc_type_id() != type_shape);
         }
 
         // purge all rest nodes
-        self.gc_heap_mut().sweep(part_id, |_| true);
+        self.gc_heap_mut()
+            .sweep(root_scope_id, GcHeap::SWEEP_UNMARKED_FUNC);
 
         debug_assert_eq!(
-            self.gc_heap().nodes_iter(part_id).count(),
+            self.gc_heap().nodes_iter(root_scope_id).count(),
             0,
             "should not have live gc nodes"
         );
 
         self.gc_part = std::ptr::null_mut();
-        self.gc_heap.remove_partition(part_id);
+        self.gc_heap.remove_partition(root_scope_id);
     }
 }
 

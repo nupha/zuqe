@@ -103,32 +103,21 @@ impl RuntimeImpl {
     }
 
     /// collect garbage
-    pub(crate) fn gc_collect_in(&mut self, scope: GcPartitionId) -> usize {
+    pub(crate) fn gc_collect_scope(&mut self, scope: GcPartitionId) -> usize {
         //
         // mark
         //
         {
-            let marker_fn = |mut h: NonNull<GcHead>, _: &GcHeap| unsafe {
-                if !h.as_ref().is_marked() {
-                    h.as_mut().set_marked(true);
-                    true
-                } else {
-                    false
-                }
-            };
-
-            let mut tr = GcTracer::new(NonNull::from_ref(self.gc_heap()), scope);
+            let mut tr = self.gc_heap().tracer(scope);
+            // let mut tr= GcTracer::new(NonNull::from_ref(self.gc_heap()), scope);
 
             // Note: for root scope, Contexts are root nodes, they have been traced in trace_root step.
-
-            tr.trace_roots(marker_fn);
-            // self.shape_registry.gc_trace(tr.ctx());
-
+            tr.trace_roots(GcTracer::MARK_FUNC);
             if let Some(n) = self.cur_exception.gc_node_ptr() {
-                tr.trace(n, marker_fn);
+                tr.trace(n, GcTracer::MARK_FUNC);
             }
             if let Some(sf) = self.current_stack_frame() {
-                tr.trace_iter(sf.gc_nodes(), marker_fn);
+                tr.trace_iter(sf.gc_nodes(), GcTracer::MARK_FUNC);
             }
 
             // user defined trace
@@ -142,8 +131,6 @@ impl RuntimeImpl {
                     f(tr.ctx());
                 }
             }
-
-            tr.commit(marker_fn);
         }
 
         //
@@ -171,7 +158,7 @@ impl RuntimeImpl {
     #[inline]
     pub(crate) fn gc_collect(&mut self) {
         if let Some(sc) = self.current_gc_scope() {
-            self.gc_collect_in(sc);
+            self.gc_collect_scope(sc);
         }
 
         // if let Some(sf) = unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref() } {

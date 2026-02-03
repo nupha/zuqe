@@ -12,6 +12,7 @@ use crate::{
 impl ContextImpl {
     /// create object using `shape` and `payload`.
     /// when failed, `payload` is returned back in Err, caller should free it.
+    #[inline(always)]
     pub(crate) fn create_object_with_shape(
         &self,
         shape: Shape,

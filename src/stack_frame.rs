@@ -123,6 +123,9 @@ impl Drop for StackFrame {
         if !self.gc_scope_id.is_null() {
             let mut rt = self.rt();
 
+            // prune unused nodes
+            rt.gc_collect_scope(self.gc_scope_id);
+            // remove scope and migrate nodes
             rt.gc_heap_mut().remove_partition(self.gc_scope_id);
 
             // GUARD
@@ -216,7 +219,7 @@ impl StackFrame {
     /// perform gc collect for stack frame scope
     pub(crate) fn gc_collect(&self) {
         if !self.gc_scope_id.is_null() {
-            self.rt().gc_collect_in(self.gc_scope_id);
+            self.rt().gc_collect_scope(self.gc_scope_id);
         }
     }
 

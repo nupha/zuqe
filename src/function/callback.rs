@@ -233,17 +233,15 @@ impl NFuncPayload {
         };
 
         if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr)
-            && unsafe { n.as_ref().get_partition_id() } == stack_frame.gc_scope_id
+            && unsafe { n.as_ref().get_partition_id() == stack_frame.gc_scope_id }
         {
             // `ret_val` was allocated in `stack_frame` scope, the `stack_frame` will be dropped at exit,
             // must migrate `ret_val` to upper scope
-            let root_scope = rt.gc_root_scope;
-            rt.gc_heap_mut().set_xref(
-                stack_frame
-                    .parent_mut()
-                    .map_or(root_scope, |up| up.init_gc_scope()),
-                n,
-            );
+            let xref = stack_frame
+                .parent_mut()
+                .map_or(rt.gc_root_scope, |up| up.init_gc_scope());
+
+            rt.gc_heap_mut().set_xref(xref, n);
         }
 
         ret_val

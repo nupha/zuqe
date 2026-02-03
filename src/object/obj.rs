@@ -214,7 +214,7 @@ impl std::fmt::Display for ObjectImpl {
 impl ObjectImpl {
     pub(crate) fn create(
         ctx: &ContextImpl,
-        shape: Option<Shape>,
+        mut shape: Option<Shape>,
         payload: ObjectPayload,
     ) -> Result<Object, ObjectPayload> {
         #[cfg(debug_assertions)]
@@ -223,18 +223,18 @@ impl ObjectImpl {
                 ctx.rt_ptr().is_shape_registered(sh),
                 "shape must be registered when used by object"
             );
+            debug_assert!(sh.use_count() > 0);
         }
-
-        //js_trigger_gc(ctx.rt_mut(), std::mem::size_of::<JSValue>());
 
         // alloc prop value slots, initializing with default value
         let mut prop_values = Vec::<JSProperty>::new();
-        if let Some(sh) = &shape {
+        if let Some(sh) = &mut shape {
             let prop_count = sh.len();
             if prop_values
                 .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
                 .is_err()
             {
+                sh.dec_count();
                 ctx.throw_out_of_memory();
                 return Err(payload);
             };
@@ -346,6 +346,11 @@ impl ObjectImpl {
                 JS_PROP_WRITABLE | JS_PROP_LENGTH,
                 JSProperty::Normal(JSValue::Int(0)),
             )
+            .inspect_err(|_| {
+                if let Some(mut sh0) = obj.shape.take() {
+                    sh0.dec_count();
+                }
+            })
             .unwrap();
         }
 
@@ -409,9 +414,18 @@ impl ObjectImpl {
     pub fn set_shape(&mut self, shape: Shape) {
         debug_assert!(self.rt().is_shape_registered(&shape));
 
-        let mut xref = self.shape.take().map_or(GcPartitionId::NONE, |s| {
-            s.gc_ref().node_info().xref_partition()
-        });
+        // take old shape and check current xref setting
+        let mut xref = if let Some(mut sh0) = self.shape.take() {
+            sh0.dec_count();
+            if sh0.use_count() == 0 {
+                sh0.gc_ref().node_info_mut().unset_xref_partition();
+                GcPartitionId::NONE
+            } else {
+                sh0.gc_ref().node_info().xref_partition()
+            }
+        } else {
+            GcPartitionId::NONE
+        };
 
         if xref.is_null() {
             xref = unsafe {
@@ -428,7 +442,7 @@ impl ObjectImpl {
                 .set_xref(xref, shape.gc_ref().node_ptr());
         }
 
-        self.shape.replace(shape);
+        self.shape = Some(shape);
     }
 
     pub const fn take_shape(&mut self) -> Option<Shape> {
@@ -510,11 +524,10 @@ impl ObjectImpl {
     }
 
     fn finalize(&mut self) {
-        // free shape props and props
-        self.shape.take();
-        self.prop_values.clear();
-
         let mut rt = self.rt();
+
+        // self.shape.take()
+        // self.prop_values.clear();
 
         // Map Set object remove weakref
         #[cfg(feature = "builtin_mapset")]
@@ -528,9 +541,9 @@ impl ObjectImpl {
         }
 
         // call class finalize handler.
-        if let Some(f) = rt.class_registry[self.class_id() as usize].finalize {
+        if let Some(cb) = rt.class_registry[self.class_id() as usize].finalize {
             let id = self.id();
-            f(&mut rt, &self.payload, id);
+            cb(&mut rt, &self.payload, id);
         }
     }
 }

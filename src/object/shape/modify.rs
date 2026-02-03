@@ -24,7 +24,9 @@ impl ObjectImpl {
         };
 
         let r = update_fn(&mut use_shape);
-        ctx.rt_ptr().register_shape(&use_shape)?;
+        ctx.rt_ptr().register_shape(&use_shape).inspect_err(|_| {
+            use_shape.dec_count();
+        })?;
         self.set_shape(use_shape);
 
         Ok(r)
@@ -60,13 +62,18 @@ impl ObjectImpl {
             self.set_shape(found);
             Ok(new_len)
         } else {
-            let mut target = if use_count != 1 {
+            let mut use_shape = if use_count != 1 {
                 // current shape is shared, dup to new without register.
                 let mut sh2 = self.shape().unwrap().dup(ctx)?;
-                sh2.prop_defs.try_reserve(1).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                sh2.prop_defs
+                    .try_reserve(1)
+                    .map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })
+                    .inspect_err(|_| {
+                        sh2.dec_count();
+                    })?;
                 sh2
             } else {
                 // current shape is exclusive, use it.
@@ -82,11 +89,11 @@ impl ObjectImpl {
             };
 
             // shape can be modified now.
-            target.add_shape_properties(&[(prop, prop_flags)]);
+            use_shape.add_shape_properties(&[(prop, prop_flags)]);
             // register the shape
-            ctx.rt_ptr().register_shape(&target).unwrap();
+            ctx.rt_ptr().register_shape(&use_shape).unwrap();
             // object uses the shape
-            self.set_shape(target);
+            self.set_shape(use_shape);
 
             Ok(new_len)
         }

@@ -22,15 +22,7 @@ impl Object {
         this_obj: JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
-        debug_assert!(
-            self.gc_ref().node_info().test_valid(),
-            "[O.o] node={self:p}, type={}, flags={:?}",
-            ctx.rt_ref()
-                .gc_heap()
-                .get_node_gc_type(self.gc_ref().node_ptr())
-                .type_name,
-            self.gc_ref().node_info().flags()
-        );
+        debug_assert!(self.gc_ref().node_info().test_valid(), "[O.o]");
 
         for mut cur_obj in self.shape_proto_iter(true) {
             'redo: loop {

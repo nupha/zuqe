@@ -360,9 +360,8 @@ pub(crate) fn JS_CallConstructorInternal(
 
         flags |= JS_CALL_FLAG_CONSTRUCTOR;
 
-        if let Some(bcf) = o.as_BytecodeFunction() {
-            // BYTECODE_FUNCTION
-            if bcf.payload().bytecode().attrs.is_derived_class_constructor {
+        if let Some(bf) = o.as_BytecodeFunction() {
+            if bf.payload().bytecode().attrs.is_derived_class_constructor {
                 func_obj
                     .call_internal(ctx, JSValue::UNDEFINED, new_target, args, flags)
                     .unwrap_or(JSValue::EXCEPTION)
@@ -378,21 +377,18 @@ pub(crate) fn JS_CallConstructorInternal(
                     .call_internal(ctx, this, new_target, args, flags)
                     .map_or(JSValue::EXCEPTION, |v| if v.is_object() { v } else { this })
             }
+        } else if let Some(cb) = ctx.rt_ptr().class_registry[o.class_id() as usize].call {
+            cb(
+                unsafe { ContextPtr::from_ref_unchecked(ctx).into() },
+                func_obj,
+                new_target,
+                args,
+                flags,
+            )
+            .unwrap_or(JSValue::EXCEPTION)
         } else {
-            // call class exotic handler
-            if let Some(cb) = ctx.rt_ptr().class_registry[o.class_id() as usize].call {
-                cb(
-                    unsafe { ContextPtr::from_ref_unchecked(ctx).into() },
-                    func_obj,
-                    new_target,
-                    args,
-                    flags,
-                )
-                .unwrap_or(JSValue::EXCEPTION)
-            } else {
-                ctx.throw_type_error("not a function");
-                JSValue::EXCEPTION
-            }
+            ctx.throw_type_error("not a function");
+            JSValue::EXCEPTION
         }
     } else {
         ctx.throw_type_error("not a function");
