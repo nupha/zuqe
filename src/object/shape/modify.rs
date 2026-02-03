@@ -10,7 +10,7 @@ impl ObjectImpl {
     pub(crate) fn modify_shape<R>(
         &mut self,
         ctx: &ContextImpl,
-        f: impl FnOnce(&mut ShapeImpl) -> R,
+        update_fn: impl FnOnce(&mut ShapeImpl) -> R,
     ) -> Result<R, i32> {
         let use_count = self.shape().unwrap().use_count();
         let mut use_shape = if use_count > 1 {
@@ -23,7 +23,7 @@ impl ObjectImpl {
             sh
         };
 
-        let r = f(&mut use_shape);
+        let r = update_fn(&mut use_shape);
         ctx.rt_ptr().register_shape(&use_shape)?;
         self.set_shape(use_shape);
 
@@ -130,16 +130,15 @@ impl ObjectImpl {
         index: usize,
         flags_fn: impl FnOnce(u32) -> u32,
     ) -> Result<bool, i32> {
-        let cur_flags = self
+        let flags = self
             .shape()
-            .unwrap()
-            .prop_defs
-            .get(index)
+            .and_then(|s| s.prop_defs.get(index))
             .map(|p| p.flags())
             .unwrap();
-        let new_flags = flags_fn(cur_flags);
 
-        if cur_flags != new_flags {
+        let new_flags = flags_fn(flags);
+
+        if flags != new_flags {
             self.modify_shape(ctx, |sh| {
                 sh.prop_defs.get_mut(index).unwrap().set_flags(new_flags);
                 sh.full_rehash();
@@ -150,41 +149,3 @@ impl ObjectImpl {
         }
     }
 }
-
-// impl ObjectImpl {
-//     /// modify object's shape.
-//     /// An exclusive, unregistered shape is passed to closure as argument
-//     #[inline(always)]
-//     pub(crate) fn modify_shape<R>(
-//         &self,
-//         ctx: &ContextImpl,
-//         f: impl FnOnce(&mut ShapeImpl) -> R,
-//     ) -> Result<R, i32> {
-//         self.modify_shape(ctx, f)
-//     }
-
-//     /// Updates flag of shape property.
-//     /// if object's shape was changed, returns true
-//     #[inline(always)]
-//     pub(crate) fn modify_shape_property_flags(
-//         &self,
-//         ctx: &ContextImpl,
-//         prop: &Atom,
-//         flags_fn: impl FnOnce(u32) -> u32,
-//     ) -> Result<bool, i32> {
-//         self.0.modify_shape_property_flags(ctx, prop, flags_fn)
-//     }
-
-//     /// Updates flag of shape property, by index.
-//     /// if object's shape was changed, returns true
-//     #[inline(always)]
-//     pub(crate) fn modify_shape_property_index_flags(
-//         &self,
-//         ctx: &ContextImpl,
-//         index: usize,
-//         flags_fn: impl FnOnce(u32) -> u32,
-//     ) -> Result<bool, i32> {
-//         self.0
-//             .modify_shape_property_index_flags(ctx, index, flags_fn)
-//     }
-// }

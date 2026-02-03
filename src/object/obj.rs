@@ -1,6 +1,6 @@
 use std::{fmt::Formatter, ops::Deref};
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -14,7 +14,7 @@ use crate::{
 use super::{
     JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE,
     JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty,
-    ObjectPayload, ShapeHandle,
+    ObjectPayload, Shape,
 };
 
 /// TODO: use bitfield instead
@@ -157,7 +157,7 @@ pub struct ObjectImpl {
     obj_flags: ObjectFlags,
 
     /// Shape of object, to denote prototype and property names + flag
-    shape: Option<ShapeHandle>,
+    shape: Option<Shape>,
 
     /// property value slots
     pub(super) prop_values: Vec<JSProperty>,
@@ -214,7 +214,7 @@ impl std::fmt::Display for ObjectImpl {
 impl ObjectImpl {
     pub(crate) fn create(
         ctx: &ContextImpl,
-        shape: Option<ShapeHandle>,
+        shape: Option<Shape>,
         payload: ObjectPayload,
     ) -> Result<Object, ObjectPayload> {
         #[cfg(debug_assertions)]
@@ -402,24 +402,36 @@ impl ObjectImpl {
     }
 
     #[inline(always)]
-    pub const fn shape(&self) -> Option<&ShapeHandle> {
+    pub const fn shape(&self) -> Option<&Shape> {
         self.shape.as_ref()
     }
 
-    pub fn set_shape(&mut self, shape: ShapeHandle) {
+    pub fn set_shape(&mut self, shape: Shape) {
         debug_assert!(self.rt().is_shape_registered(&shape));
 
-        // set xref to shape
-        let obj = unsafe { Object::from_ref_unchecked(self) };
-        self.rt().gc_heap_mut().set_xref(
-            obj.gc_ref().node_info().get_partition_id(),
-            shape.gc_ref().node_ptr(),
-        );
+        let mut xref = self.shape.take().map_or(GcPartitionId::NONE, |s| {
+            s.gc_ref().node_info().xref_partition()
+        });
+
+        if xref.is_null() {
+            xref = unsafe {
+                Object::from_ref_unchecked(self)
+                    .gc_ref()
+                    .node_info()
+                    .xref_partition()
+            }
+        }
+
+        if !xref.is_null() {
+            self.rt()
+                .gc_heap_mut()
+                .set_xref(xref, shape.gc_ref().node_ptr());
+        }
 
         self.shape.replace(shape);
     }
 
-    pub const fn take_shape(&mut self) -> Option<ShapeHandle> {
+    pub const fn take_shape(&mut self) -> Option<Shape> {
         self.shape.take()
     }
 

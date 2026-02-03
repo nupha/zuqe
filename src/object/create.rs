@@ -5,7 +5,7 @@ use crate::{
     atom::Atom,
     class::{ClassID, OtherPayload},
     context::{ContextImpl, ContextPtr},
-    object::{Object, ObjectImpl, ObjectPayload, ShapeHandle},
+    object::{Object, ObjectImpl, ObjectPayload, Shape},
     value::JSValue,
 };
 
@@ -14,7 +14,7 @@ impl ContextImpl {
     /// when failed, `payload` is returned back in Err, caller should free it.
     pub(crate) fn create_object_with_shape(
         &self,
-        shape: ShapeHandle,
+        shape: Shape,
         payload: ObjectPayload,
     ) -> Result<Object, ObjectPayload> {
         ObjectImpl::create(self, Some(shape), payload)
@@ -34,7 +34,7 @@ impl ContextImpl {
             match self.rt_ptr().find_shape_by_proto(proto) {
                 Some(sh) => sh,
                 None => {
-                    if let Ok(sh) = ShapeHandle::new(self, proto, 0) {
+                    if let Ok(sh) = Shape::new(self, proto, 0) {
                         sh
                     } else {
                         return Err(payload);

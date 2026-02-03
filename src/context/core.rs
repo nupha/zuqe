@@ -15,7 +15,7 @@ use crate::{
     context::{ContextPtr, JS_MODE_STRICT},
     error::{ErrorKind, STD_ERROR_NAMES, js_error_proto_funcs},
     function::{BytecodeFunction, Callback, FunctionKind, js_function_proto},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, ObjectPayload, ShapeHandle},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, ObjectPayload, Shape},
     value::JSValue,
 };
 
@@ -106,7 +106,7 @@ impl ContextPtr {
             self.0.borrow_mut().class_proto[JS_CLASS_ARRAY as usize] = array_proto.clone().into();
 
             // 2. make default shape for Array
-            let array_shape = ShapeHandle::new(self, Some(array_proto.clone()), 1).unwrap();
+            let array_shape = Shape::new(self, Some(array_proto.clone()), 1).unwrap();
 
             // define length property, index=0
             array_shape

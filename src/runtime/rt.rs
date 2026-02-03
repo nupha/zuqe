@@ -1,6 +1,6 @@
-use std::{ffi::c_void, pin::Pin, ptr::NonNull};
+use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHeap, GcPartition, GcPartitionId, GcTraceOp};
+use gc_lite::{GcHeap, GcPartition, GcPartitionId, GcTraceOp, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
@@ -18,7 +18,7 @@ use crate::{
     context::ContextPtr,
     function::{AsyncFunction, AsyncState, BoundFunction, NFuncPayload, NativeFunctionWithData},
     module::{ModuleLoadFn, ModuleNormalizeFn, js_module_ns_exotic_methods},
-    object::{ShapeImpl, ShapeRegistry},
+    object::ShapeImpl,
     resource::LocalResource,
     stack_frame::StackFrame,
     string::js_string_exotic_methods,
@@ -37,8 +37,8 @@ pub struct RuntimeImpl {
     pub(crate) atom_registry: AtomRegistry,
     /// registered classes
     pub(crate) class_registry: Vec<ClassMeta>,
-    /// registered shapes
-    pub(crate) shape_registry: ShapeRegistry,
+    /// shape registry
+    pub(crate) shape_registry: HashMap<u32, Vec<GcWeak<ShapeImpl>>>,
 
     //
     // execution stack
@@ -131,6 +131,7 @@ impl RuntimeImpl {
         let mut rt = Box::new(Self {
             atom_registry: AtomRegistry::new(),
             class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
+            shape_registry: HashMap::with_capacity(64),
 
             cur_stack_frame: std::ptr::null_mut(),
             #[cfg(debug_assertions)]
@@ -156,8 +157,6 @@ impl RuntimeImpl {
             module_normalize_func: None,
             module_load_func: None,
             module_async_evaluation_next_timestamp: 0,
-
-            shape_registry: ShapeRegistry::new(),
 
             gc_heap,
             gc_root_scope: gc_part_id,

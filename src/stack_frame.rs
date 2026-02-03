@@ -120,10 +120,34 @@ impl PartialEq for StackFrame {
 
 impl Drop for StackFrame {
     fn drop(&mut self) {
-        let pid = self.gc_scope_id;
-        if pid != GcPartitionId::NONE {
+        if !self.gc_scope_id.is_null() {
             let mut rt = self.rt();
-            rt.gc_heap_mut().remove_partition(pid);
+
+            rt.gc_heap_mut().remove_partition(self.gc_scope_id);
+
+            // GUARD
+            #[cfg(debug_assertions)]
+            {
+                debug_assert!(
+                    rt.gc_heap().partition(self.gc_scope_id).is_none(),
+                    "[O.o] scope must be removed"
+                );
+
+                // ensure no local-shape weakref is alive after scope is closed.
+                let mut chk = rt
+                    .shape_registry
+                    .values()
+                    .flat_map(|lst| lst.iter().flat_map(|s| s.upgrade(&rt.gc_heap)));
+
+                let found = chk.find(|s| s.node_info().get_partition_id() == self.gc_scope_id);
+
+                debug_assert!(
+                    found.is_none(),
+                    "[O.o] shape weakref is still alive: scope={:?}, shape_node={:?}",
+                    self.gc_scope_id,
+                    found.map(|x| x.node_ptr()).map(|p| unsafe { p.as_ref() })
+                );
+            }
         }
     }
 }
@@ -189,9 +213,9 @@ impl StackFrame {
         self.gc_scope_id
     }
 
-    /// perform gc collect for scope of this stack frame
+    /// perform gc collect for stack frame scope
     pub(crate) fn gc_collect(&self) {
-        if self.gc_scope_id != GcPartitionId::NONE {
+        if !self.gc_scope_id.is_null() {
             self.rt().gc_collect_in(self.gc_scope_id);
         }
     }

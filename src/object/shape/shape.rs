@@ -36,11 +36,7 @@ unsafe impl GcTracable for ShapeImpl {
 
 impl ShapeImpl {
     /// create a new empty shape with prototype 'proto' and given capacity.
-    fn new(
-        ctx: &ContextImpl,
-        proto: Option<Object>,
-        props: HashList<ShapeProperty>,
-    ) -> Result<Self, i32> {
+    fn new(proto: Option<Object>, props: HashList<ShapeProperty>) -> Result<Self, i32> {
         //calc shape hash
         let mut hash = shape_initial_hash(proto.map_or(0, |p| p.id()));
         for (_, prs) in props.iter() {
@@ -67,7 +63,7 @@ impl ShapeImpl {
     }
 
     #[inline(always)]
-    pub fn inc_count(&mut self) {
+    pub const fn inc_count(&mut self) {
         self.use_count += 1;
     }
 
@@ -143,7 +139,7 @@ impl ShapeImpl {
 
     /// Duplicate a new shape by coping properties and proto.
     /// The new shape is not registered.
-    pub(crate) fn dup(&self, ctx: &ContextImpl) -> Result<ShapeHandle, i32> {
+    pub(crate) fn dup(&self, ctx: &ContextImpl) -> Result<Shape, i32> {
         // clone properties
         let mut props = HashList::<ShapeProperty>::new();
         props.try_reserve(self.prop_defs.count()).map_err(|_| {
@@ -154,21 +150,21 @@ impl ShapeImpl {
             props.push(*prs);
         }
 
-        ShapeHandle::new_internal(ctx, self.proto, props)
+        Shape::new_internal(ctx, self.proto, props)
     }
 }
 
 #[repr(transparent)]
 #[derive(PartialEq)]
-pub struct ShapeHandle(GcRef<ShapeImpl>);
+pub struct Shape(GcRef<ShapeImpl>);
 
-unsafe impl GcTracable for ShapeHandle {
+unsafe impl GcTracable for Shape {
     fn trace(&self, mut tr: GcTraceOp) {
         tr.add(self.0);
     }
 }
 
-impl Deref for ShapeHandle {
+impl Deref for Shape {
     type Target = ShapeImpl;
 
     #[inline(always)]
@@ -177,35 +173,37 @@ impl Deref for ShapeHandle {
     }
 }
 
-impl DerefMut for ShapeHandle {
+impl DerefMut for Shape {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0.deref_mut()
     }
 }
 
-impl Clone for ShapeHandle {
+impl Clone for Shape {
     fn clone(&self) -> Self {
-        unsafe {
-            self.0.as_ptr().as_mut().inc_count();
-        }
-        Self(self.0)
+        let mut gr = self.gc_ref();
+        gr.inc_count();
+        Self(gr)
     }
 }
 
-impl Drop for ShapeHandle {
+impl Drop for Shape {
     fn drop(&mut self) {
         self.0.dec_count();
+        if self.use_count() == 0 {
+            self.gc_ref().node_info_mut().unset_xref_partition();
+        }
     }
 }
 
-impl std::fmt::Debug for ShapeHandle {
+impl std::fmt::Debug for Shape {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<Shape {:p}>", self.id() as *const c_void)
     }
 }
 
-impl ShapeHandle {
+impl Shape {
     /// create a shape with prototype 'proto' and property capacity.
     /// The new shape is not registered.
     pub(crate) fn new_internal(
@@ -213,9 +211,9 @@ impl ShapeHandle {
         proto: Option<Object>,
         prop_defs: HashList<ShapeProperty>,
     ) -> Result<Self, i32> {
-        let mut rt = ctx.rt_ptr();
-        let sh = rt
-            .gc_alloc(ShapeImpl::new(ctx, proto, prop_defs)?)
+        let sh = ctx
+            .rt_ptr()
+            .gc_alloc(ShapeImpl::new(proto, prop_defs)?)
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1

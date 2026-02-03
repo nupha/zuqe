@@ -72,7 +72,6 @@ impl Object {
                         JS_PROP_LAZYINIT => {
                             // instantiate lazy object
                             let val = cur_obj.prop_slot_mut(idx).instantiate(ctx.rt_ref(), *self);
-
                             // modify shape property kind to NORMAL
                             cur_obj.modify_shape_property_index_flags(ctx, idx, |f| {
                                 f & !JS_PROP_TMASK

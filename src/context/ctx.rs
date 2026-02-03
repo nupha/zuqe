@@ -20,7 +20,7 @@ use crate::{
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, Object, ObjectPayload, ShapeHandle,
+        JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, Object, ObjectPayload, Shape,
     },
     runtime::{RuntimeImpl, RuntimePtr},
     stack_frame::ExecMode,
@@ -32,7 +32,7 @@ pub struct ContextImpl {
     rt: RuntimePtr,
 
     /// Initial shape for Array objects
-    pub(crate) array_shape: Option<ShapeHandle>,
+    pub(crate) array_shape: Option<Shape>,
 
     /// Class prototypes slot.
     /// element could be object or null, default to null.
@@ -400,7 +400,7 @@ impl ContextPtr {
             self.class_protos[JS_CLASS_ARRAY as usize] = array_proto.into();
 
             // 2. make default shape for Array
-            let mut array_shape = ShapeHandle::new(self, Some(array_proto), 1).unwrap();
+            let mut array_shape = Shape::new(self, Some(array_proto), 1).unwrap();
             // define `length` property at #0
             array_shape
                 .add_shape_properties(&[(Atom::CONST_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)]);

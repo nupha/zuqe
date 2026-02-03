@@ -421,10 +421,7 @@ impl JSValue {
     pub fn gc_node_ptr(&self) -> Option<NonNull<GcHead>> {
         match self {
             Self::Object(o) => Some(o.gc_ref().node_ptr()),
-            Self::String(s) => {
-                // debug_assert!(s.rt().is_some());
-                Some(s.gc_ref().node_ptr())
-            }
+            Self::String(s) => Some(s.gc_ref().node_ptr()),
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => {
                 let aid = s.atom_info().unwrap().id();

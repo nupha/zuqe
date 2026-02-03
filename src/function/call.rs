@@ -151,10 +151,80 @@ pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
 impl Object {
+    /// `ctx` is the caller ctx.
+    /// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
+    pub(crate) fn call_internal(
+        &self,
+        ctx: &ContextImpl,
+        this_obj: JSValue,
+        new_target: JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> JSResult {
+        ctx.poll_interrupts()?;
+
+        let ret_val = if let Some(bf) = self.as_BytecodeFunction() {
+            // run bytecode function
+            bf.call(ctx, this_obj, new_target, args, flags)
+        } else if let Some(cb) = unsafe {
+            ctx.rt_ptr()
+                .class_registry
+                .get_unchecked(self.class_id() as usize)
+                .call
+        } {
+            // for non bytecode function (e.g. bound function, native function, async function etc),
+            // check class defined exotic call handler
+            cb(
+                unsafe { ContextPtr::from_ref_unchecked(ctx).into() },
+                JSValue::Object(*self),
+                this_obj,
+                args,
+                flags,
+            )
+        } else {
+            ctx.throw_type_error("not callable");
+            Err(-1)
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            if let Ok(v) = ret_val.as_ref() {
+                if let Some(p) = v.gc_node().map(|n| n.get_partition_id()) {
+                    debug_assert!(!p.is_null());
+                    debug_assert!(
+                        ctx.rt_ref()
+                            .gc_heap()
+                            .check_partition_ancestor(ctx.rt_ref().gc_root_scope, p)
+                    );
+                }
+            } else if let Some(p) = ctx
+                .rt_ref()
+                .exception()
+                .gc_node()
+                .map(|n| n.get_partition_id())
+            {
+                debug_assert!(!p.is_null());
+                debug_assert!(
+                    ctx.rt_ref()
+                        .gc_heap()
+                        .check_partition_ancestor(ctx.rt_ref().gc_root_scope, p)
+                );
+            }
+        }
+
+        ret_val
+    }
+
     /// call `self` object
     #[inline(always)]
     pub fn call(&self, ctx: &ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
-        JSValue::Object(*self).call(ctx, this_obj, args)
+        self.call_internal(
+            ctx,
+            this_obj,
+            JSValue::UNDEFINED,
+            args,
+            JS_CALL_FLAG_COPY_ARGV,
+        )
     }
 
     /// call function `self.method`
@@ -199,18 +269,6 @@ impl Object {
 }
 
 impl JSValue {
-    /// call `self` value.
-    #[inline(always)]
-    pub fn call(&self, ctx: &ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
-        self.call_internal(
-            ctx,
-            this_obj,
-            JSValue::UNDEFINED,
-            args,
-            JS_CALL_FLAG_COPY_ARGV,
-        )
-    }
-
     /// `ctx` is the caller ctx.
     /// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
     pub(crate) fn call_internal(
@@ -221,62 +279,24 @@ impl JSValue {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        ctx.poll_interrupts()?;
-
-        let ret_val = match self {
-            JSValue::Object(o) => {
-                if let Some(bf) = o.as_BytecodeFunction() {
-                    bf.call(ctx, this_obj, new_target, args, flags)
-                } else {
-                    // non bytecode function (e.g. bound function, native function, async function etc),
-                    // use handler defined on the class.
-                    if let Some(f) = ctx.rt_ptr().class_registry[o.class_id() as usize].call {
-                        f(
-                            unsafe { ContextPtr::from_ref_unchecked(ctx).into() },
-                            *self,
-                            this_obj,
-                            args,
-                            flags,
-                        )
-                    } else {
-                        ctx.throw_type_error("not callable");
-                        Err(-1)
-                    }
-                }
-            }
-            _ => {
-                ctx.throw_type_error("not callable");
-                Err(-1)
-            }
-        };
-
-        #[cfg(debug_assertions)]
-        {
-            if let Ok(v) = ret_val.as_ref() {
-                if let Some(p) = v.gc_node().map(|n| n.get_partition_id()) {
-                    debug_assert!(!p.is_null());
-                    debug_assert!(
-                        ctx.rt_ref()
-                            .gc_heap()
-                            .check_partition_ancestor(ctx.rt_ref().gc_root_scope, p)
-                    );
-                }
-            } else if let Some(p) = ctx
-                .rt_ref()
-                .exception()
-                .gc_node()
-                .map(|n| n.get_partition_id())
-            {
-                debug_assert!(!p.is_null());
-                debug_assert!(
-                    ctx.rt_ref()
-                        .gc_heap()
-                        .check_partition_ancestor(ctx.rt_ref().gc_root_scope, p)
-                );
-            }
+        if let Some(o) = self.as_object() {
+            o.call_internal(ctx, this_obj, new_target, args, flags)
+        } else {
+            ctx.throw_type_error("not callable");
+            Err(-1)
         }
+    }
 
-        ret_val
+    /// call `self` value.
+    #[inline(always)]
+    pub fn call(&self, ctx: &ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
+        self.call_internal(
+            ctx,
+            this_obj,
+            JSValue::UNDEFINED,
+            args,
+            JS_CALL_FLAG_COPY_ARGV,
+        )
     }
 
     /// call function `self.method`

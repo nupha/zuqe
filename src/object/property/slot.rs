@@ -75,21 +75,26 @@ impl ObjectImpl {
             *self.prop_values.get_unchecked_mut(idx) = p;
         }
 
-        // check partition xref
-        let self_partition = unsafe {
-            GcRef::from_ref_unchecked(self)
-                .node_ptr()
-                .as_ref()
-                .get_partition_id()
-        };
-        let mut rt = self.rt();
+        if gc_node[0].is_some() || gc_node[1].is_some() {
+            let xref = unsafe {
+                let o = GcRef::from_ref_unchecked(self);
+                let obj_node = o.node_info();
 
-        // add cross partition reference
-        for node in gc_node.into_iter().flatten() {
-            #[cfg(debug_assertions)]
-            unsafe { node.as_ref() }.test_valid();
+                let x = obj_node.xref_partition();
+                if x.is_null() {
+                    obj_node.get_partition_id()
+                } else {
+                    x
+                }
+            };
 
-            rt.gc_heap_mut().set_xref(self_partition, node);
+            let mut rt = self.rt();
+            for node in gc_node.into_iter().flatten() {
+                #[cfg(debug_assertions)]
+                unsafe { node.as_ref() }.test_valid();
+
+                rt.gc_heap_mut().set_xref(xref, node);
+            }
         }
     }
 
