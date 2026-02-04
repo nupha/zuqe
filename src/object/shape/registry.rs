@@ -9,6 +9,11 @@ use crate::{
 impl RuntimeImpl {
     /// register a shape
     pub(crate) fn register_shape(&mut self, shape: &Shape) -> Result<(), i32> {
+        log::trace!(
+            "[shape_register] {:?}, use_count={}",
+            shape.gc_ref().node_info(),
+            shape.use_count()
+        );
         debug_assert!(shape.use_count() > 0);
 
         if self.shape_registry.len() == self.shape_registry.capacity() {
@@ -61,6 +66,12 @@ impl RuntimeImpl {
 
     /// unregister a shape
     pub(super) fn unregister_shape(&mut self, shape: &Shape) {
+        log::trace!(
+            "[shape_unregister] {:?}, use_count={}",
+            shape.gc_ref().node_info(),
+            shape.use_count()
+        );
+
         let hash = shape.hash();
         let shape_id = shape.id();
 

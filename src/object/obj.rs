@@ -421,38 +421,20 @@ impl ObjectImpl {
             );
         }
 
-        // // take old shape and check current xref setting
-        // let mut xref = if let Some(mut sh0) = self.shape.take() {
-        //     #[cfg(debug_assertions)]
-        //     if sh0 == shape {
-        //         debug_assert!(shape.use_count() > 1);
-        //     }
+        let obj = unsafe { Object::from_ref_unchecked(self) };
 
-        //     sh0.dec_count_noop();
-        //     // if sh0.use_count() == 0 {
-        //     //     sh0.gc_ref().node_info_mut().unset_xref_partition();
-        //     //     GcPartitionId::NONE
-        //     // } else {
-        //     //     sh0.gc_ref().node_info().xref_partition()
-        //     // }
-        //     sh0.gc_ref().node_info().xref_partition()
-        // } else {
-        //     GcPartitionId::NONE
-        // };
+        log::trace!(
+            "[object_shape] {:?} : {:?}",
+            obj.gc_ref().node_info(),
+            shape.gc_ref().node_info()
+        );
 
-        // if xref.is_null() {
-        //     xref = unsafe {
-        //         Object::from_ref_unchecked(self)
-        //             .gc_ref()
-        //             .node_info()
-        //             .xref_partition()
-        //     }
-        // }
-        // if !xref.is_null() {
-        //     self.rt()
-        //         .gc_heap_mut()
-        //         .set_xref(xref, shape.gc_ref().node_ptr());
-        // }
+        let obj_scope = obj.gc_ref().node_info().get_partition_id();
+        if obj_scope != shape.gc_ref().node_info().get_partition_id() {
+            self.rt()
+                .gc_heap_mut()
+                .set_xref(obj_scope, shape.gc_ref().node_ptr());
+        }
 
         self.shape.replace(shape);
     }

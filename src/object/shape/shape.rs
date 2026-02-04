@@ -170,6 +170,8 @@ unsafe impl GcTracable for Shape {
 impl Drop for Shape {
     fn drop(&mut self) {
         self.dec_count();
+        log::trace!("[shape_drop] {self:?}, new_use_count={}", self.use_count());
+
         if self.use_count() == 0 {
             self.gc_ref().node_info_mut().unset_xref_partition();
         }
