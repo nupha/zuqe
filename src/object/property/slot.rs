@@ -80,20 +80,26 @@ impl ObjectImpl {
                 let o = GcRef::from_ref_unchecked(self);
                 let obj_node = o.node_info();
 
-                let x = obj_node.xref_partition();
-                if x.is_null() {
-                    obj_node.get_partition_id()
-                } else {
-                    x
-                }
+                // let x = obj_node.xref_partition();
+                // if x.is_null() {
+                //     obj_node.get_partition_id()
+                // } else {
+                //     x
+                // }
+
+                obj_node.get_partition_id()
             };
 
             let mut rt = self.rt();
             for node in gc_node.into_iter().flatten() {
-                #[cfg(debug_assertions)]
-                unsafe { node.as_ref() }.test_valid();
+                unsafe {
+                    #[cfg(debug_assertions)]
+                    node.as_ref().test_valid();
 
-                rt.gc_heap_mut().set_xref(xref, node);
+                    if node.as_ref().get_partition_id() != xref {
+                        rt.gc_heap_mut().set_xref(xref, node);
+                    }
+                }
             }
         }
     }

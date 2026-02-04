@@ -39,6 +39,7 @@ impl RuntimeImpl {
         }
 
         if self.gc_req || self.gc_root_part().should_gc() {
+            log::trace!("[tick_gc_collect]");
             self.gc_collect();
         }
 

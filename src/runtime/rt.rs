@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHeap, GcPartition, GcPartitionId, GcTraceOp, GcWeak};
+use gc_lite::{GcHead, GcHeap, GcPartition, GcPartitionId, GcTraceOp, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
@@ -120,6 +120,10 @@ impl RuntimeImpl {
     pub(super) fn new() -> Result<Box<Self>, i32> {
         // create gc heap and partition for this runtime
         let mut gc_heap = GcHeap::new();
+
+        // set ShapeImpl obj drop at pass 1
+        gc_heap.set_gc_type_drop_order::<ShapeImpl>(1);
+
         let gc_part_id = gc_heap.create_root_partition(0);
         let gc_part = {
             let par = gc_heap.partition_mut(gc_part_id).unwrap();
@@ -359,12 +363,15 @@ impl RuntimeImpl {
     }
 
     fn finalize(&mut self) {
+        log::trace!("[rt_fin]");
+
         debug_assert!(self.cur_stack_frame.is_null());
 
         self.cur_exception = JSValue::UNDEFINED;
         self.context_list.clear();
         self.shape_registry.clear();
 
+        // remove root partition: dealloc all nodes live in it.
         let root_scope_id = self.gc_root_scope;
 
         if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {

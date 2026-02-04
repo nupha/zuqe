@@ -2,9 +2,12 @@
 
 use std::{
     collections::HashSet,
-    io::{Read, Write},
+    io::{Read, Seek, Write},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicI32, Ordering},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicI32, Ordering},
+    },
 };
 
 use serde::Deserialize;
@@ -15,6 +18,57 @@ use zuqe::{
 
 /// counter of "Test262:AsyncTestComplete" messages
 static ASYNC_DONE: AtomicI32 = AtomicI32::new(0);
+
+/// write data both to stderr and file
+struct TeeWriter<A: Write, B: Write> {
+    a: Option<Arc<Mutex<A>>>,
+    b: Option<Arc<Mutex<B>>>,
+}
+
+impl<A: Write, B: Write> TeeWriter<A, B> {
+    fn new(a: Option<A>, b: Option<B>) -> Self {
+        Self {
+            a: a.map(|w| Arc::new(Mutex::new(w))),
+            b: b.map(|w| Arc::new(Mutex::new(w))),
+        }
+    }
+}
+
+impl<A: Write, B: Write> Write for TeeWriter<A, B> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n1 = if let Some(w) = &self.a {
+            Some(w.lock().unwrap().write(buf)?)
+        } else {
+            None
+        };
+        let n2 = if let Some(w) = &self.b {
+            Some(w.lock().unwrap().write(buf)?)
+        } else {
+            None
+        };
+
+        Ok(n1.or(n2).unwrap_or(0))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Some(w) = &self.a {
+            w.lock().unwrap().flush()?;
+        }
+        if let Some(w) = &self.b {
+            w.lock().unwrap().flush()?;
+        }
+        Ok(())
+    }
+}
+
+impl<A: Write, B: Write> Clone for TeeWriter<A, B> {
+    fn clone(&self) -> Self {
+        Self {
+            a: self.a.clone(),
+            b: self.b.clone(),
+        }
+    }
+}
 
 fn js_print(cc: CallContext) -> JSResult {
     let ctx = cc.context();
@@ -515,10 +569,21 @@ pub struct AppConfig {
 }
 
 fn main() {
-    unsafe {
-        std::env::set_var("RUST_LOG", "INFO");
-    }
-    env_logger::init();
+    // create log file
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("test262.log")
+        .unwrap();
+
+    // Box::new(TeeWriter::new(log_file, io::stderr())),
+    let tee = TeeWriter::new(Some(log_file), Option::<std::fs::File>::None);
+
+    env_logger::Builder::new()
+        .filter_level(log::LevelFilter::Trace)
+        .target(env_logger::Target::Pipe(Box::new(tee.clone())))
+        .init();
 
     let mut app_cfg = {
         let mut fp = std::fs::OpenOptions::new()
@@ -625,6 +690,15 @@ fn main() {
             let pat = base_path.join(format!("test/{item}"));
             for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
                 let fname = fname.unwrap();
+
+                if let Some(f) = &tee.a {
+                    let mut fp = f.lock().unwrap();
+                    fp.flush().unwrap();
+                    fp.set_len(0).unwrap();
+                    fp.seek(std::io::SeekFrom::Start(0)).unwrap();
+                    fp.flush().unwrap();
+                }
+
                 if !exclude_tests.contains(&fname) {
                     run_test_file(
                         &fname,

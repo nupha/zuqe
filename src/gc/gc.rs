@@ -104,52 +104,53 @@ impl RuntimeImpl {
 
     /// collect garbage
     pub(crate) fn gc_collect_scope(&mut self, scope: GcPartitionId) -> usize {
-        //
-        // mark
-        //
+        log::trace!("[collect] {scope:?}");
+
+        // 1. mark
         {
             let mut tr = self.gc_heap().tracer(scope);
-            // let mut tr= GcTracer::new(NonNull::from_ref(self.gc_heap()), scope);
 
             // Note: for root scope, Contexts are root nodes, they have been traced in trace_root step.
             tr.trace_roots(GcTracer::MARK_FUNC);
+
+            if let Some(sf) = self.current_stack_frame() {
+                debug_assert_eq!(sf.gc_scope_id, scope);
+                sf.gc_trace(tr.ctx());
+                // tr.trace_iter(sf.gc_nodes(), GcTracer::MARK_FUNC);
+            }
             if let Some(n) = self.cur_exception.gc_node_ptr() {
                 tr.trace(n, GcTracer::MARK_FUNC);
-            }
-            if let Some(sf) = self.current_stack_frame() {
-                tr.trace_iter(sf.gc_nodes(), GcTracer::MARK_FUNC);
             }
 
             // user defined trace
             if let Some(f) = self.gc_user_trace.as_ref() {
                 f(tr.ctx());
             }
-
-            if scope == self.gc_root_scope {
-                // currently running job
-                if let Some(f) = self.gc_cur_job_trace.as_ref() {
-                    f(tr.ctx());
-                }
+            // currently running job
+            if let Some(f) = self.gc_cur_job_trace.as_ref() {
+                f(tr.ctx());
             }
+
+            tr.commit(GcTracer::MARK_FUNC);
         }
 
-        //
-        // sweep
-        //
+        // 2. sweep
         let mut freed = 0;
-        if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
-            // Shape must be freed at last
-            freed = self.gc_heap.sweep(scope, |node| {
-                let gctype = node.gc_type_id();
-                !node.is_marked() && (gctype != type_shape)
-            });
+        {
+            if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
+                // Shape must be freed at last
+                freed = self.gc_heap.sweep(scope, |node| {
+                    !node.is_marked() && (node.gc_type_id() != type_shape)
+                });
+            }
+            freed += self.gc_heap.sweep(scope, GcHeap::SWEEP_UNMARKED_FUNC);
+
+            // update gc threshold
+            let used = self.gc_root_part().memory_used();
+            self.gc_root_part_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
         }
 
-        freed += self.gc_heap.sweep(scope, GcHeap::SWEEP_UNMARKED_FUNC);
-
-        // update gc threshold
-        let used = self.gc_root_part().memory_used();
-        self.gc_root_part_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
+        log::trace!("[collect] {scope:?} done");
 
         self.gc_req = false;
         freed

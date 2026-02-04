@@ -12,6 +12,7 @@ use crate::{
     context::ContextImpl,
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateImpl, JSVarRef},
+    object::ShapeImpl,
     runtime::RuntimePtr,
     value::JSValue,
 };
@@ -81,36 +82,6 @@ pub struct StackFrame {
     _mark: PhantomPinned,
 }
 
-unsafe impl GcTracable for StackFrame {
-    fn trace(&self, mut tr: GcTraceOp) {
-        self.func_obj.trace(tr);
-
-        // trace args
-        let cnt = std::cmp::max(self.arg_real_count, self.arg_count);
-        if cnt > 0 {
-            let mut p = self.arg_base_ptr;
-            for _ in 0..cnt {
-                unsafe {
-                    (&*p).trace(tr);
-                    p = p.add(1);
-                }
-            }
-        }
-
-        // local vars
-        tr.add_nodes(self.var_values().iter().filter_map(|v| v.gc_node_ptr()));
-        // stack values
-        tr.add_nodes(self.stack_values().iter().filter_map(|v| v.gc_node_ptr()));
-        // varrefs
-        self.var_ref_list.iter().for_each(|r| r.trace(tr));
-
-        // trace upward along chain
-        // if let Some(sf) = self.parent() {
-        //     sf.trace(tracer);
-        // }
-    }
-}
-
 impl PartialEq for StackFrame {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
@@ -122,10 +93,6 @@ impl Drop for StackFrame {
     fn drop(&mut self) {
         if !self.gc_scope_id.is_null() {
             let mut rt = self.rt();
-
-            // prune unused nodes
-            rt.gc_collect_scope(self.gc_scope_id);
-            // remove scope and migrate nodes
             rt.gc_heap_mut().remove_partition(self.gc_scope_id);
 
             // GUARD
@@ -384,7 +351,37 @@ impl StackFrame {
         }
     }
 
-    pub fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {
+    pub(crate) fn gc_trace(&self, mut tr: GcTraceOp) {
+        if !self.gc_scope_id.is_null() {
+            self.func_obj.trace(tr);
+
+            // trace args
+            let cnt = std::cmp::max(self.arg_real_count, self.arg_count);
+            if cnt > 0 {
+                let mut p = self.arg_base_ptr;
+                for _ in 0..cnt {
+                    unsafe {
+                        (&*p).trace(tr);
+                        p = p.add(1);
+                    }
+                }
+            }
+
+            // local vars
+            tr.add_nodes(self.var_values().iter().filter_map(|v| v.gc_node_ptr()));
+            // stack values
+            tr.add_nodes(self.stack_values().iter().filter_map(|v| v.gc_node_ptr()));
+            // varrefs
+            self.var_ref_list.iter().for_each(|r| r.trace(tr));
+        }
+
+        // trace upward along chain
+        // if let Some(sf) = self.parent() {
+        //     sf.trace(tracer);
+        // }
+    }
+
+    pub(crate) fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {
         let args_iter = unsafe {
             std::slice::from_raw_parts(
                 self.arg_base_ptr,

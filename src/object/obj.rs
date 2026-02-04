@@ -173,10 +173,10 @@ pub struct ObjectImpl {
 unsafe impl GcTracable for ObjectImpl {
     fn trace(&self, tr: GcTraceOp) {
         self.shape.trace(tr);
-        self.prop_values.iter().for_each(|x| {
-            x.trace(tr);
-        });
         self.payload.trace(tr);
+        for p in self.prop_values.iter() {
+            p.trace(tr);
+        }
     }
 }
 
@@ -234,7 +234,7 @@ impl ObjectImpl {
                 .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
                 .is_err()
             {
-                sh.dec_count();
+                sh.dec_count_noop();
                 ctx.throw_out_of_memory();
                 return Err(payload);
             };
@@ -348,7 +348,7 @@ impl ObjectImpl {
             )
             .inspect_err(|_| {
                 if let Some(mut sh0) = obj.shape.take() {
-                    sh0.dec_count();
+                    sh0.dec_count_noop();
                 }
             })
             .unwrap();
@@ -412,37 +412,49 @@ impl ObjectImpl {
     }
 
     pub fn set_shape(&mut self, shape: Shape) {
-        debug_assert!(self.rt().is_shape_registered(&shape));
-
-        // take old shape and check current xref setting
-        let mut xref = if let Some(mut sh0) = self.shape.take() {
-            sh0.dec_count();
-            if sh0.use_count() == 0 {
-                sh0.gc_ref().node_info_mut().unset_xref_partition();
-                GcPartitionId::NONE
-            } else {
-                sh0.gc_ref().node_info().xref_partition()
-            }
-        } else {
-            GcPartitionId::NONE
-        };
-
-        if xref.is_null() {
-            xref = unsafe {
-                Object::from_ref_unchecked(self)
-                    .gc_ref()
-                    .node_info()
-                    .xref_partition()
-            }
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(self.rt().is_shape_registered(&shape));
+            debug_assert!(
+                self.shape.as_ref().is_none_or(|sh0| *sh0 != shape),
+                "can't set same shape"
+            );
         }
 
-        if !xref.is_null() {
-            self.rt()
-                .gc_heap_mut()
-                .set_xref(xref, shape.gc_ref().node_ptr());
-        }
+        // // take old shape and check current xref setting
+        // let mut xref = if let Some(mut sh0) = self.shape.take() {
+        //     #[cfg(debug_assertions)]
+        //     if sh0 == shape {
+        //         debug_assert!(shape.use_count() > 1);
+        //     }
 
-        self.shape = Some(shape);
+        //     sh0.dec_count_noop();
+        //     // if sh0.use_count() == 0 {
+        //     //     sh0.gc_ref().node_info_mut().unset_xref_partition();
+        //     //     GcPartitionId::NONE
+        //     // } else {
+        //     //     sh0.gc_ref().node_info().xref_partition()
+        //     // }
+        //     sh0.gc_ref().node_info().xref_partition()
+        // } else {
+        //     GcPartitionId::NONE
+        // };
+
+        // if xref.is_null() {
+        //     xref = unsafe {
+        //         Object::from_ref_unchecked(self)
+        //             .gc_ref()
+        //             .node_info()
+        //             .xref_partition()
+        //     }
+        // }
+        // if !xref.is_null() {
+        //     self.rt()
+        //         .gc_heap_mut()
+        //         .set_xref(xref, shape.gc_ref().node_ptr());
+        // }
+
+        self.shape.replace(shape);
     }
 
     pub const fn take_shape(&mut self) -> Option<Shape> {

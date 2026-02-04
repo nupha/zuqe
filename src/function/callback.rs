@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcPartitionId, GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     atom::Atom,

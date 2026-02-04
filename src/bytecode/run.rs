@@ -1,7 +1,5 @@
 use std::ptr::NonNull;
 
-use gc_lite::GcPartitionId;
-
 use crate::{
     atom::{Atom, AtomKind},
     builtins::{
@@ -2436,11 +2434,6 @@ impl Bytecode {
                     }
                 } // match opcode
 
-                stack_frame.gc_collect();
-                // if rt.gc_req {
-                // stack_frame.gc_collect();
-                // }
-
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
                 if unlikely(debug_setting.map_or(0, |s| s.dump_run) == 2) {
                     let oi = super::opcode_info_final(opcode as u8);
@@ -2459,6 +2452,11 @@ impl Bytecode {
                         );
                     }
                 }
+
+                stack_frame.gc_collect();
+                // if rt.gc_req {
+                // stack_frame.gc_collect();
+                // }
             }; // opcodes loop
 
             match state {

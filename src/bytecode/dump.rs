@@ -380,7 +380,7 @@ pub(crate) fn dump_opcodes(
             OpcodeFormat::ARG => {
                 let idx = unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize };
                 print!(
-                    " {idx}:{}",
+                    " {idx}  ; {}",
                     args.get(idx).unwrap().var_name.to_utf8(ctx.rt_ref())
                 );
             }
@@ -781,10 +781,10 @@ pub(super) fn dump_run_instruction(
             let idx = unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize };
             if let Some(vi) = b.get_arg(idx as _) {
                 vi.var_name.with_utf8(ctx.rt_ref(), |s| {
-                    print!(" {idx}:{s}");
+                    print!(" {idx}  ; {s}");
                 });
             } else {
-                print!(" {idx}:?");
+                print!(" {idx}");
             }
         }
 

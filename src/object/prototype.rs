@@ -17,7 +17,6 @@ pub struct ObjectShapeProtoIter<'a> {
 impl<'a> Iterator for ObjectShapeProtoIter<'a> {
     type Item = Object;
 
-    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(o) = self.obj.take() {
             self.obj = o.shape().and_then(|s| s.proto());

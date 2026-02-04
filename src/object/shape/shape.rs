@@ -73,6 +73,9 @@ impl ShapeImpl {
         self.use_count -= 1;
     }
 
+    #[deprecated(note = "remove this")]
+    pub(crate) fn dec_count_noop(&mut self) {}
+
     /// shape property length
     #[inline(always)]
     pub const fn len(&self) -> usize {
@@ -164,6 +167,23 @@ unsafe impl GcTracable for Shape {
     }
 }
 
+impl Drop for Shape {
+    fn drop(&mut self) {
+        self.dec_count();
+        if self.use_count() == 0 {
+            self.gc_ref().node_info_mut().unset_xref_partition();
+        }
+    }
+}
+
+impl Clone for Shape {
+    fn clone(&self) -> Self {
+        let mut gr = self.gc_ref();
+        gr.inc_count();
+        Self(gr)
+    }
+}
+
 impl Deref for Shape {
     type Target = ShapeImpl;
 
@@ -177,14 +197,6 @@ impl DerefMut for Shape {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0.deref_mut()
-    }
-}
-
-impl Clone for Shape {
-    fn clone(&self) -> Self {
-        let mut gr = self.gc_ref();
-        gr.inc_count();
-        Self(gr)
     }
 }
 
@@ -225,7 +237,7 @@ impl Shape {
 
         let mut shape = Self::new_internal(ctx, proto, prop_defs)?;
         ctx.rt_ptr().register_shape(&shape).inspect_err(|_| {
-            shape.dec_count();
+            shape.dec_count_noop();
         })?;
 
         Ok(shape)

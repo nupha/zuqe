@@ -24,9 +24,8 @@ pub(crate) struct ArrayPayload {
 }
 
 unsafe impl GcTracable for ArrayPayload {
-    #[inline]
-    fn trace(&self, mut tr: GcTraceOp) {
-        tr.add_nodes(self.values.iter().filter_map(|v| v.gc_node_ptr()));
+    fn trace(&self, tr: GcTraceOp) {
+        self.values.trace(tr);
     }
 }
 
@@ -205,10 +204,8 @@ impl Array {
 
         let len = values.len();
 
-        // use fast array values
+        // make fast array
         self.payload_mut().values = values;
-
-        // set fast array flag
         self.set_flag_fast_array(true);
 
         // set array length, can't fail

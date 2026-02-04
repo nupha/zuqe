@@ -29,7 +29,7 @@ unsafe impl GcTracable for AsyncStateImpl {
         self.this_val.trace(tr);
         self.resolving_funcs[0].trace(tr);
         self.resolving_funcs[1].trace(tr);
-        self.frame.trace(tr);
+        self.frame.gc_trace(tr);
     }
 }
 

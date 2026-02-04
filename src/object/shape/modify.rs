@@ -25,7 +25,7 @@ impl ObjectImpl {
 
         let r = update_fn(&mut use_shape);
         ctx.rt_ptr().register_shape(&use_shape).inspect_err(|_| {
-            use_shape.dec_count();
+            use_shape.dec_count_noop();
         })?;
         self.set_shape(use_shape);
 
@@ -72,14 +72,14 @@ impl ObjectImpl {
                         -1
                     })
                     .inspect_err(|_| {
-                        sh2.dec_count();
+                        sh2.dec_count_noop();
                     })?;
                 sh2
             } else {
                 // current shape is exclusive, use it.
                 let mut sh = self.take_shape().unwrap();
                 if sh.prop_defs.try_reserve(1).is_err() {
-                    self.set_shape(sh); // restore back
+                    self.set_shape(sh);
                     ctx.throw_out_of_memory();
                     return Err(-1);
                 }
@@ -87,6 +87,8 @@ impl ObjectImpl {
                 ctx.rt_ptr().unregister_shape(&sh);
                 sh
             };
+
+            debug_assert!(!ctx.rt_ptr().is_shape_registered(&use_shape));
 
             // shape can be modified now.
             use_shape.add_shape_properties(&[(prop, prop_flags)]);
