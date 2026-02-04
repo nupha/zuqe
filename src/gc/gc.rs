@@ -135,22 +135,14 @@ impl RuntimeImpl {
         }
 
         // 2. sweep
-        let mut freed = 0;
-        {
-            if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
-                // Shape must be freed at last
-                freed = self.gc_heap.sweep(scope, |node| {
-                    !node.is_marked() && (node.gc_type_id() != type_shape)
-                });
-            }
-            freed += self.gc_heap.sweep(scope, GcHeap::SWEEP_UNMARKED_FUNC);
-
+        let freed = self.gc_heap.sweep(scope, GcHeap::SWEEP_UNMARKED_FUNC);
+        if freed != 0 {
             // update gc threshold
             let used = self.gc_root_part().memory_used();
             self.gc_root_part_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
         }
 
-        log::trace!("[collect] {scope:?} done");
+        log::trace!("[collect] {scope:?} free {freed} bytes");
 
         self.gc_req = false;
         freed
