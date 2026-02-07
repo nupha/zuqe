@@ -46,10 +46,8 @@ unsafe impl GcTracable for StringImpl {
 impl Drop for StringImpl {
     fn drop(&mut self) {
         if let Some(atom_info) = &self.atom_info
-            && {
-                let id = atom_info.id();
-                !is_const_atom(id) && !is_small_int_atom(id)
-            }
+            && !atom_info.is_const()
+            && !atom_info.is_small_int()
         {
             self.rt().unwrap().remove_atom(atom_info);
         }
@@ -306,15 +304,7 @@ impl TryFrom<Object> for StringRef {
     type Error = i32;
 
     fn try_from(obj: Object) -> Result<Self, Self::Error> {
-        if obj.class_id() == JS_CLASS_STRING {
-            if let Some(JSValue::String(s)) = obj.payload().value() {
-                Ok(*s)
-            } else {
-                unreachable!()
-            }
-        } else {
-            Err(-1)
-        }
+        Self::try_from(JSValue::Object(obj))
     }
 }
 
@@ -322,11 +312,7 @@ impl TryFrom<JSValue> for StringRef {
     type Error = i32;
 
     fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        match value {
-            JSValue::String(s) => Ok(s),
-            JSValue::Object(o) => o.try_into(),
-            _ => Err(-1),
-        }
+        value.as_string().copied().ok_or(-1)
     }
 }
 
@@ -397,11 +383,11 @@ impl StringRef {
         Self::new_internal(rt, StringData::from_static(s), atom_info)
     }
 
-    /// convert string to a String instance with content transfered.
+    /// convert String value to String object
     pub fn objectify(self, ctx: &ContextImpl, ctor: JSValue) -> Result<Object, i32> {
         let len = self.len();
         let mut o = ctx
-            .create_object_from_ctor(ctor, ObjectPayload::STRING(self.into()))
+            .create_object_from_ctor(ctor, ObjectPayload::STRING(self))
             .map_err(|_| -1)?;
 
         o.define_property_value(ctx, Atom::CONST_length, JSValue::from(len as u32), 0)?;
@@ -703,13 +689,10 @@ fn string_define_own_property(
 
     if let Some(idx) = prop.to_small_int() {
         let ob = unsafe { this_obj.as_object_unchecked() };
-        if let JSValue::String(p1) = ob.payload().value().unwrap() {
-            let len = p1.len();
-            let nth_char = p1
-                .content()
-                .chars_since(idx as usize)
-                .next()
-                .map(|(_, c)| c);
+        if ob.class_id() == JS_CLASS_STRING {
+            let s = ob.payload().string().unwrap();
+            let len = s.len();
+            let nth_char = s.content().chars_since(idx as usize).next().map(|(_, c)| c);
 
             if idx >= len as u32 {
                 def!();
@@ -749,7 +732,7 @@ pub(crate) const js_string_exotic_methods: ClassExoticMethods = ClassExoticMetho
         |ctx: ContextPtr, obj: JSValue, prop: Atom| -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method for JS_CLASS_STRING object
             if let Some(idx) = prop.to_small_int()
-                && let Some(JSValue::String(s)) = obj.as_object().and_then(|o| o.payload().value())
+                && let Some(s) = obj.as_string()
                 && idx < s.len() as u32
             {
                 let code = s.content().get(idx as usize).unwrap();

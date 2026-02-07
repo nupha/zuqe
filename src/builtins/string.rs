@@ -800,8 +800,9 @@ fn js_string_toString(cc: CallContext) -> Result<JSValue, i32> {
 
 #[inline]
 fn js_thisStringValue(ctx: &ContextImpl, this_val: JSValue) -> Result<StringRef, i32> {
-    StringRef::try_from(this_val).inspect_err(|_| {
+    this_val.as_string().cloned().ok_or_else(|| {
         ctx.throw_type_error("not a string");
+        -1
     })
 }
 

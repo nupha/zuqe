@@ -7,6 +7,8 @@ use once_cell::sync::Lazy;
 enum PayloadKey {
     None,
     Array,
+    String,
+    Bool,
     Value,
     #[cfg(feature = "builtin_date")]
     Datetime,
@@ -42,6 +44,8 @@ impl PayloadKey {
         match self {
             PayloadKey::None => "",
             PayloadKey::Array => "array",
+            PayloadKey::String => "string",
+            PayloadKey::Bool => "bool",
             PayloadKey::Value => "value",
             #[cfg(feature = "builtin_date")]
             PayloadKey::Datetime => "datetime",
@@ -84,6 +88,8 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     let mut m = HashMap::with_capacity(128);
 
     m.insert(PayloadKey::Array, "crate::builtins::array::ArrayPayload");
+    m.insert(PayloadKey::Bool, "bool");
+    m.insert(PayloadKey::String, "crate::string::StringRef");
     m.insert(PayloadKey::Value, "crate::value::JSValue");
     m.insert(PayloadKey::NativeFunc, "crate::function::NFuncPayload");
     m.insert(
@@ -209,10 +215,10 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def("Array", "ARRAY", PayloadKey::Array, None, None),
         ClassInfo::class_def("Error", "ERROR", PayloadKey::None, None, None),
         ClassInfo::class_def("Number", "NUMBER", PayloadKey::Value, None, None),
-        ClassInfo::class_def("String", "STRING", PayloadKey::Value, None, None),
-        ClassInfo::class_def("Boolean", "BOOLEAN", PayloadKey::Value, None, None),
+        ClassInfo::class_def("Boolean", "BOOLEAN", PayloadKey::Bool, None, None),
+        ClassInfo::class_def("String", "STRING", PayloadKey::String, None, None),
         #[cfg(feature = "builtin_symbol")]
-        ClassInfo::class_def("Symbol", "SYMBOL", PayloadKey::Value, None, None),
+        ClassInfo::class_def("Symbol", "SYMBOL", PayloadKey::String, None, None),
         ClassInfo::class_def("Arguments", "ARGUMENTS", PayloadKey::Array, None, None),
         ClassInfo::class_def(
             "Arguments",

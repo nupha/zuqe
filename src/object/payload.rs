@@ -1,6 +1,19 @@
+use std::ptr::NonNull;
+
+use gc_lite::{GcHead, GcPartitionId, GcTracable, GcTracer};
+
 use crate::{context::ContextImpl, object::ObjectImpl, value::JSValue};
 
 include!(concat!(env!("OUT_DIR"), "/class_payload.rs"));
+
+impl ObjectPayload {
+    /// Get directly referenced gc nodes
+    pub fn gc_children(&self, ctx: &ContextImpl) -> Vec<NonNull<GcHead>> {
+        let mut tr = GcTracer::new(ctx.rt_ref().gc_heap(), GcPartitionId::NONE, false);
+        self.trace(tr.ctx());
+        tr.take_traced_nodes().into()
+    }
+}
 
 impl ObjectImpl {
     /// get object's payload.

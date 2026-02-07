@@ -73,9 +73,6 @@ impl ShapeImpl {
         self.use_count -= 1;
     }
 
-    #[deprecated(note = "remove this")]
-    pub(crate) fn dec_count_noop(&mut self) {}
-
     /// shape property length
     #[inline(always)]
     pub const fn len(&self) -> usize {
@@ -109,12 +106,22 @@ impl ShapeImpl {
         hash
     }
 
-    pub(crate) fn add_shape_properties(&mut self, extras: &[(Atom, u32)]) -> usize {
+    pub(crate) fn add_shape_properties(
+        &mut self,
+        ctx: &ContextImpl,
+        extras: &[(Atom, u32)],
+    ) -> usize {
         debug_assert!(!extras.is_empty());
         debug_assert_eq!(self.use_count(), 1);
 
         let old_len = self.len();
         let new_len = old_len + extras.len();
+
+        let self_xref = unsafe {
+            GcRef::<Self>::from_ref_unchecked(self)
+                .node_info()
+                .get_partition_id()
+        };
 
         for (i, (prop, prop_flags)) in extras.iter().enumerate() {
             #[cfg(debug_assertions)]
@@ -132,6 +139,11 @@ impl ShapeImpl {
 
             self.prop_defs.push(prs);
             self.has_small_array_index |= is_small_int;
+
+            // Atom string xref
+            ctx.rt_ptr()
+                .gc_heap_mut()
+                .set_xref(self_xref, prop.descriptor(ctx.rt_ref()).gc_ref().node_ptr());
 
             // update shape hash
             self.hash = shape_hasher_u32(shape_hasher_u32(self.hash, prop.id()), *prop_flags);
@@ -239,10 +251,8 @@ impl Shape {
             -1
         })?;
 
-        let mut shape = Self::new_internal(ctx, proto, prop_defs)?;
-        ctx.rt_ptr().register_shape(&shape).inspect_err(|_| {
-            shape.dec_count_noop();
-        })?;
+        let shape = Self::new_internal(ctx, proto, prop_defs)?;
+        ctx.rt_ptr().register_shape(&shape)?;
 
         Ok(shape)
     }

@@ -9,31 +9,23 @@ use crate::{
 
 pub fn js_boolean_constructor(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
-    let val = JSValue::Bool(cc.arg(0).to_bool().unwrap_or(true));
-
     let new_target = *cc.this();
+    let b = cc.arg(0).to_bool().unwrap_or(true);
+
     if !new_target.is_undefined() {
-        ctx.create_object_from_ctor(new_target, ObjectPayload::BOOLEAN(val))
+        ctx.create_object_from_ctor(new_target, ObjectPayload::BOOLEAN(b))
             .map(JSValue::Object)
             .map_err(|_| -1)
     } else {
-        Ok(val)
+        Ok(b.into())
     }
 }
 
 pub fn js_thisBooleanValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
-    if this_val.is_bool() {
-        Ok(this_val)
-    } else if let Some(d) = this_val
-        .as_object()
-        .and_then(|p| p.payload().value())
-        .and_then(|x| if x.is_bool() { Some(x) } else { None })
-    {
-        Ok(*d)
-    } else {
+    this_val.as_bool().map(JSValue::Bool).ok_or_else(|| {
         ctx.throw_type_error("not a boolean");
-        Err(-1)
-    }
+        -1
+    })
 }
 
 fn js_boolean_toString(cc: CallContext) -> JSResult {

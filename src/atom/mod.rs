@@ -63,4 +63,14 @@ impl AtomInfo {
     pub const fn hash(&self) -> u32 {
         self.hash
     }
+
+    #[inline(always)]
+    pub const fn is_const(&self) -> bool {
+        is_const_atom(self.id())
+    }
+
+    #[inline(always)]
+    pub const fn is_small_int(&self) -> bool {
+        is_small_int_atom(self.id())
+    }
 }

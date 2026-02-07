@@ -6,9 +6,9 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
-    JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_UINT8C_ARRAY, atom::Atom, class::ClassID,
-    context::ContextImpl, error::JSResult, gcref_wrapper, runtime::RuntimePtr, utils::unlikely,
-    value::JSValue,
+    JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, atom::Atom,
+    class::ClassID, context::ContextImpl, error::JSResult, gcref_wrapper, runtime::RuntimePtr,
+    string::StringRef, utils::unlikely, value::JSValue,
 };
 
 use super::{
@@ -212,7 +212,7 @@ impl std::fmt::Display for ObjectImpl {
 }
 
 impl ObjectImpl {
-    pub(crate) fn create(
+    pub(super) fn create(
         ctx: &ContextImpl,
         mut shape: Option<Shape>,
         payload: ObjectPayload,
@@ -234,7 +234,6 @@ impl ObjectImpl {
                 .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
                 .is_err()
             {
-                sh.dec_count_noop();
                 ctx.throw_out_of_memory();
                 return Err(payload);
             };
@@ -257,7 +256,7 @@ impl ObjectImpl {
         flags.set_tmp_mark(false);
         flags.set_htmldda(false);
 
-        let mut add_length_prop = false;
+        let mut array_length_prop = false;
 
         match payload.class_id() {
             JS_CLASS_OBJECT => {}
@@ -279,7 +278,7 @@ impl ObjectImpl {
                 } else {
                     // we are creating the Array proto object.
                     // by this moment, the default shape for array is not initialized yet.
-                    add_length_prop = true;
+                    array_length_prop = true;
                 };
             }
             JS_CLASS_ARGUMENTS | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
@@ -322,23 +321,44 @@ impl ObjectImpl {
             }
         }
 
-        let data = Self {
-            rt: ctx.rt_ptr(),
-            obj_flags: flags,
-            shape,
-            prop_values,
-            payload,
-            #[cfg(feature = "builtin_mapset")]
-            weak_refs: Vec::new(),
+        // assert prop_values contains no gc node
+        #[cfg(debug_assertions)]
+        prop_values.iter().for_each(|p| match p {
+            JSProperty::Normal(v) => {
+                debug_assert!(!v.is_gc())
+            }
+            JSProperty::Deleted => {}
+            _ => {
+                unreachable!("invalid initial prop value")
+            }
+        });
+
+        // get directly referenced gc nodes.
+        let mut gc_children = payload.gc_children(ctx);
+        if let Some(sh) = shape.as_ref() {
+            gc_children.push(sh.gc_ref().node_ptr());
+        }
+
+        let mut obj = {
+            let gc_ref = ctx
+                .rt_ptr()
+                .gc_alloc(Self {
+                    rt: ctx.rt_ptr(),
+                    obj_flags: flags,
+                    shape,
+                    prop_values,
+                    payload,
+                    #[cfg(feature = "builtin_mapset")]
+                    weak_refs: Vec::new(),
+                })
+                .map_err(|(_, mut o)| {
+                    ctx.throw_out_of_memory();
+                    std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::Int(0)))
+                })?;
+            Object(gc_ref)
         };
 
-        let ob_impl = ctx.rt_ptr().gc_alloc(data).map_err(|(_, mut o)| {
-            ctx.throw_out_of_memory();
-            std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::Int(0)))
-        })?;
-        let mut obj = Object(ob_impl);
-
-        if add_length_prop {
+        if array_length_prop {
             // only for the Array prototype object
             obj.add_own_property(
                 ctx,
@@ -346,12 +366,15 @@ impl ObjectImpl {
                 JS_PROP_WRITABLE | JS_PROP_LENGTH,
                 JSProperty::Normal(JSValue::Int(0)),
             )
-            .inspect_err(|_| {
-                if let Some(mut sh0) = obj.shape.take() {
-                    sh0.dec_count_noop();
-                }
-            })
             .unwrap();
+        }
+
+        if !gc_children.is_empty() {
+            // set xref for gc nodes in payload
+            let xref = obj.gc_ref().node_info().get_partition_id();
+            for n in gc_children {
+                ctx.rt_ptr().gc_heap_mut().set_xref(xref, n);
+            }
         }
 
         Ok(obj)
@@ -680,6 +703,33 @@ impl Object {
 }
 
 impl JSValue {
+    /// for String value or String object, returns its StringRef
+    pub fn as_string(&self) -> Option<&StringRef> {
+        match self {
+            Self::String(s) => Some(s),
+            Self::Object(o) if o.class_id() == JS_CLASS_STRING => o.payload().string(),
+            _ => None,
+        }
+    }
+
+    /// for Symbol value or Symbol object, returns its StringRef descriptor
+    pub fn as_symbol(&self) -> Option<&StringRef> {
+        match self {
+            Self::Symbol(s) => Some(s),
+            Self::Object(o) if o.class_id() == JS_CLASS_SYMBOL => o.payload().string(),
+            _ => None,
+        }
+    }
+
+    /// for Boolean value or Boolean object, returns bool
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::Bool(b) => Some(*b),
+            Self::Object(o) => o.payload().bool().copied(),
+            _ => None,
+        }
+    }
+
     #[inline]
     pub const fn as_object(&self) -> Option<&Object> {
         if let Self::Object(o) = self {
@@ -767,13 +817,11 @@ impl JSValue {
             Self::Int(_) | Self::Float64(_) => ctx
                 .create_object(ObjectPayload::NUMBER(*self))
                 .map_err(|_| -1),
-            Self::Bool(_) => ctx
-                .create_object(ObjectPayload::BOOLEAN(*self))
+            Self::Bool(b) => ctx
+                .create_object(ObjectPayload::BOOLEAN(*b))
                 .map_err(|_| -1),
             #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(_) => ctx
-                .create_object(ObjectPayload::SYMBOL(*self))
-                .map_err(|_| -1),
+            Self::Symbol(s) => ctx.create_object(ObjectPayload::SYMBOL(*s)).map_err(|_| -1),
 
             Self::EXCEPTION => {
                 #[cfg(debug_assertions)]

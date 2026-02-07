@@ -80,26 +80,13 @@ pub fn js_symbol_constructor(cc: CallContext) -> JSResult {
 //
 
 pub fn js_thisSymbolValue(ctx: &ContextImpl, val: JSValue) -> JSResult {
-    if val.is_symbol() {
-        Ok(val)
-    } else {
-        // check symbol object
-        val.as_object()
-            .and_then(|o| {
-                if o.class_id() == JS_CLASS_SYMBOL {
-                    let s = o.payload().value();
-                    debug_assert!(s.is_some_and(|v| v.is_symbol()));
-                    s
-                } else {
-                    None
-                }
-            })
-            .cloned()
-            .ok_or_else(|| {
-                ctx.throw_type_error_not_a_symbol();
-                -1
-            })
-    }
+    val.as_symbol()
+        .copied()
+        .map(JSValue::Symbol)
+        .ok_or_else(|| {
+            ctx.throw_type_error_not_a_symbol();
+            -1
+        })
 }
 
 fn js_symbol_toString(cc: CallContext) -> JSResult {

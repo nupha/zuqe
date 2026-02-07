@@ -408,8 +408,10 @@ impl ContextPtr {
             // 2. make default shape for Array
             let mut array_shape = Shape::new(self, Some(array_proto), 1).unwrap();
             // define `length` property at #0
-            array_shape
-                .add_shape_properties(&[(Atom::CONST_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)]);
+            array_shape.add_shape_properties(
+                self,
+                &[(Atom::CONST_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)],
+            );
 
             // register shape
             self.rt_ptr().register_shape(&array_shape).unwrap();
@@ -417,11 +419,6 @@ impl ContextPtr {
         }
 
         Ok(())
-    }
-
-    #[inline(always)]
-    pub fn downgrade(&self) -> GcWeak<ContextImpl> {
-        self.0.downgrade(self.rt_ptr().gc_heap_mut())
     }
 }
 

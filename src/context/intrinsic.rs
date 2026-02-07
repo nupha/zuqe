@@ -264,7 +264,7 @@ impl ContextPtr {
         let mut bool_obj = self
             .create_object_with_proto(
                 self.class_proto(JS_CLASS_OBJECT),
-                ObjectPayload::BOOLEAN(JSValue::Bool(false)),
+                ObjectPayload::BOOLEAN(false),
             )
             .unwrap();
 
