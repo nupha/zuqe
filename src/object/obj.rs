@@ -1,6 +1,6 @@
-use std::{fmt::Formatter, ops::Deref};
+use std::{fmt::Formatter, ops::Deref, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcHead, GcPartitionId, GcRef, GcTracable, GcTraceOp, GcTracer, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -321,24 +321,6 @@ impl ObjectImpl {
             }
         }
 
-        // assert prop_values contains no gc node
-        #[cfg(debug_assertions)]
-        prop_values.iter().for_each(|p| match p {
-            JSProperty::Normal(v) => {
-                debug_assert!(!v.is_gc())
-            }
-            JSProperty::Deleted => {}
-            _ => {
-                unreachable!("invalid initial prop value")
-            }
-        });
-
-        // get directly referenced gc nodes.
-        let mut gc_children = payload.gc_children(ctx);
-        if let Some(sh) = shape.as_ref() {
-            gc_children.push(sh.gc_ref().node_ptr());
-        }
-
         let mut obj = {
             let gc_ref = ctx
                 .rt_ptr()
@@ -369,11 +351,17 @@ impl ObjectImpl {
             .unwrap();
         }
 
-        if !gc_children.is_empty() {
-            // set xref for gc nodes in payload
+        // get directly referenced gc nodes, set xref of obj's children
+        {
             let xref = obj.gc_ref().node_info().get_partition_id();
-            for n in gc_children {
-                ctx.rt_ptr().gc_heap_mut().set_xref(xref, n);
+            let mut tr = GcTracer::new(ctx.rt_ref().gc_heap(), xref, false);
+            obj.trace(tr.ctx());
+
+            let gc_children = tr.take_traced_nodes();
+            if !gc_children.is_empty() {
+                for n in gc_children {
+                    ctx.rt_ptr().gc_heap_mut().set_xref(xref, n);
+                }
             }
         }
 

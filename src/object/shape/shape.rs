@@ -140,10 +140,12 @@ impl ShapeImpl {
             self.prop_defs.push(prs);
             self.has_small_array_index |= is_small_int;
 
-            // Atom string xref
-            ctx.rt_ptr()
-                .gc_heap_mut()
-                .set_xref(self_xref, prop.descriptor(ctx.rt_ref()).gc_ref().node_ptr());
+            if !prop.is_const() && !prop.is_small_int() {
+                // set Atom string gc node xref
+                ctx.rt_ptr()
+                    .gc_heap_mut()
+                    .set_xref(self_xref, prop.descriptor(ctx.rt_ref()).gc_ref().node_ptr());
+            }
 
             // update shape hash
             self.hash = shape_hasher_u32(shape_hasher_u32(self.hash, prop.id()), *prop_flags);

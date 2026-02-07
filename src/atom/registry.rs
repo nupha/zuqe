@@ -109,7 +109,7 @@ impl RuntimeImpl {
 
             let str = {
                 let ss = StringImpl::new(
-                    Some(rt_ptr),
+                    rt_ptr,
                     StringData::from_static(str),
                     Some(AtomInfo::new(
                         unsafe { NonZeroU16::new_unchecked(atom_id as u16) },
@@ -276,9 +276,7 @@ impl RuntimeImpl {
             }
         };
 
-        if desc_str.rt().is_none() {
-            desc_str = desc_str.copy_to_new(self.into())?
-        }
+        desc_str = desc_str.copy_to_new(self.into())?;
 
         if self.atom_registry.atoms_lut.len() == self.atom_registry.atoms_lut.capacity() {
             self.atom_registry

@@ -90,7 +90,8 @@ impl Object {
                         if unlikely(cur_obj.class_id() == JS_CLASS_MODULE_NS) {
                             fail_read_only!(prop)
                         } else if let JSProperty::VarRef(vref) = cur_obj.prop_slot_mut(idx) {
-                            vref.set_value(val);
+                            let xref = self.gc_ref().node_info().get_partition_id();
+                            vref.set_value(ctx, val, xref);
                             return Ok(true);
                         } else {
                             unreachable!()

@@ -41,7 +41,9 @@ impl ObjectImpl {
 
         #[cfg(debug_assertions)]
         match &p {
-            JSProperty::Normal(v) => debug_assert!(!v.is_gc()),
+            JSProperty::Normal(v) => {
+                debug_assert!(!v.is_gc());
+            }
             JSProperty::Deleted => {}
             _ => {
                 panic!("expect non-gc property");
@@ -78,7 +80,7 @@ impl ObjectImpl {
         if gc_node[0].is_some() || gc_node[1].is_some() {
             let xref = unsafe {
                 let o = GcRef::from_ref_unchecked(self);
-                let obj_node = o.node_info();
+                o.node_info().get_partition_id()
 
                 // let x = obj_node.xref_partition();
                 // if x.is_null() {
@@ -86,8 +88,6 @@ impl ObjectImpl {
                 // } else {
                 //     x
                 // }
-
-                obj_node.get_partition_id()
             };
 
             let mut rt = self.rt();
@@ -105,7 +105,7 @@ impl ObjectImpl {
     }
 
     /// extend property slot
-    #[inline(always)]
+    #[inline]
     pub(crate) fn extend_prop_slot(&mut self, extra: usize) {
         self.prop_values
             .extend(std::iter::from_fn(|| Some(JSProperty::default())).take(extra));
@@ -198,7 +198,8 @@ impl Object {
                             };
                         }
                     } else {
-                        vref.set_value(val);
+                        let xref = self.gc_ref().node_info().get_partition_id();
+                        vref.set_value(ctx, val, xref);
                     }
                 }
 

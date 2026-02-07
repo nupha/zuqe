@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcHead, GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcHead, GcPartitionId, GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     context::ContextImpl,
@@ -90,9 +90,9 @@ impl VarRefImpl {
         }
     }
 
-    /// set value of var
+    /// update value of variable
     #[inline]
-    pub(crate) const fn set_value(&mut self, new_value: JSValue) {
+    pub(crate) fn set_value(&mut self, ctx: &ContextImpl, new_value: JSValue, xref: GcPartitionId) {
         match &mut self.state {
             VarRefState::Bind { pvalue, .. } => unsafe {
                 *pvalue.as_mut() = new_value;
@@ -100,6 +100,10 @@ impl VarRefImpl {
             VarRefState::Detached { value } => {
                 *value = new_value;
             }
+        }
+
+        if let Some(n) = new_value.gc_node_ptr() {
+            ctx.rt_ptr().gc_heap_mut().set_xref(xref, n);
         }
     }
 

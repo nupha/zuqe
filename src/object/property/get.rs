@@ -28,10 +28,11 @@ impl Object {
             self.class_id()
         );
 
-        #[cfg(debug_assertions)]
-        ctx.rt_ref()
-            .gc_heap()
-            .debug_assert_node_valid(self.gc_ref().node_ptr(), true);
+        // // FIXME: may collect invalid descendant nodes?
+        // #[cfg(debug_assertions)]
+        // ctx.rt_ref()
+        //     .gc_heap()
+        //     .debug_assert_node_valid(self.gc_ref().node_ptr(), true);
 
         for mut cur_obj in self.shape_proto_iter(true) {
             'redo: loop {

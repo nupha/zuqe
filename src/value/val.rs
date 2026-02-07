@@ -406,7 +406,7 @@ impl JSValue {
     pub fn is_gc(&self) -> bool {
         match self {
             Self::Object(_) | Self::Bytecode(_) | Self::Module(_) => true,
-            Self::String(s) if s.rt().is_some() => true,
+            Self::String(_) => true,
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => {
                 let aid = s.atom_info().unwrap().id();

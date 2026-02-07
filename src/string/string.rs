@@ -30,7 +30,7 @@ pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 /// String data + atom info
 pub struct StringImpl {
     /// for empty string, ident string or const string, this should be None.
-    rt: Option<RuntimePtr>,
+    rt: RuntimePtr,
     /// string content
     content: StringData,
     /// if string is used as atom, this stores the atom info.
@@ -49,7 +49,7 @@ impl Drop for StringImpl {
             && !atom_info.is_const()
             && !atom_info.is_small_int()
         {
-            self.rt().unwrap().remove_atom(atom_info);
+            self.rt().remove_atom(atom_info);
         }
     }
 }
@@ -126,7 +126,7 @@ impl std::fmt::Debug for StringImpl {
 impl StringImpl {
     /// create StringImpl with string data, and atom info.
     pub(crate) const fn new(
-        rt: Option<RuntimePtr>,
+        rt: RuntimePtr,
         content: StringData,
         atom_info: Option<AtomInfo>,
     ) -> Self {
@@ -144,7 +144,7 @@ impl StringImpl {
 
     /// None means this is a const atom description
     #[inline(always)]
-    pub(crate) const fn rt(&self) -> Option<RuntimePtr> {
+    pub(crate) const fn rt(&self) -> RuntimePtr {
         self.rt
     }
 
@@ -208,10 +208,7 @@ impl StringImpl {
             StringData::Empty => StringRef::new_internal(rt, StringData::Empty, None),
             StringData::Ident => StringRef::new_internal(rt, StringData::Ident, None),
             StringData::AsciiStatic(s) => StringRef::from_static(rt, s, None),
-            _ => {
-                debug_assert!(self.rt.is_some(), "can't copy const atom description");
-                StringRef::new(self.rt.unwrap(), self.content().clone())
-            }
+            _ => StringRef::new(self.rt(), self.content().clone()),
         }
     }
 
@@ -246,9 +243,7 @@ pub struct StringRef(GcRef<StringImpl>);
 
 unsafe impl GcTracable for StringRef {
     fn trace(&self, mut tr: GcTraceOp) {
-        if self.0.rt().is_some() {
-            tr.add(self.0);
-        }
+        tr.add(self.0);
     }
 }
 
@@ -323,7 +318,7 @@ impl StringRef {
         content: StringData,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
-        let ss = StringImpl::new(Some(rt), content, atom_info);
+        let ss = StringImpl::new(rt, content, atom_info);
         rt.gc_alloc(ss)
             .map_err(|_| {
                 eprintln!("[O.o] alloc error");

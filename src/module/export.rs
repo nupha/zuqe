@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use gc_lite::{GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     atom::Atom,
@@ -244,7 +244,12 @@ impl ModuleDefImpl {
                     var_ref.is_some(),
                     "exported local entry must have been linked"
                 );
-                var_ref.unwrap().set_value(value);
+                let xref = unsafe {
+                    GcRef::from_ref_unchecked(self)
+                        .node_info()
+                        .get_partition_id()
+                };
+                var_ref.unwrap().set_value(ctx, value, xref);
                 Ok(())
             } else {
                 // not a local export entry
