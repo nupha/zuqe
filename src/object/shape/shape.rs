@@ -172,7 +172,7 @@ impl Drop for Shape {
         self.dec_count();
 
         log::trace!(
-            "[shape_drop] {:?}, new_use_count={}",
+            "[Shape::drop] {:?}, new_use_count={}",
             self.gc_ref().node_info(),
             self.use_count()
         );
@@ -221,15 +221,12 @@ impl Shape {
         proto: Option<Object>,
         prop_defs: HashList<ShapeProperty>,
     ) -> Result<Self, i32> {
-        let sh = ctx
-            .rt_ptr()
-            .gc_alloc(ShapeImpl::new(proto, prop_defs)?)
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+        let shape = ShapeImpl::new(proto, prop_defs)?;
 
-        Ok(Self(sh))
+        ctx.rt_ptr().gc_alloc(shape).map(Self).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })
     }
 
     /// create a shape with prototype 'proto' and property capacity.

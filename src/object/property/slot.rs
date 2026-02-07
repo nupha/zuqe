@@ -94,7 +94,7 @@ impl ObjectImpl {
             for node in gc_node.into_iter().flatten() {
                 unsafe {
                     #[cfg(debug_assertions)]
-                    node.as_ref().test_valid();
+                    rt.gc_heap().debug_assert_node_valid(node, true);
 
                     if node.as_ref().get_partition_id() != xref {
                         rt.gc_heap_mut().set_xref(xref, node);

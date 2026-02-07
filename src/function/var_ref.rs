@@ -47,54 +47,29 @@ unsafe impl GcTracable for VarRefState {
 }
 
 #[derive(Debug)]
-pub struct JSVarRefInner {
+pub struct VarRefImpl {
     state: VarRefState,
     is_arg: bool,
 }
 
-unsafe impl GcTracable for JSVarRefInner {
+unsafe impl GcTracable for VarRefImpl {
     fn trace(&self, tr: GcTraceOp) {
         self.state.trace(tr);
     }
 }
 
-impl JSVarRefInner {
-    /// create a detached var ref
-    const fn new(value: JSValue) -> Self {
-        Self {
-            state: VarRefState::Detached { value },
-            is_arg: false,
-        }
-    }
-
-    /// create a bind var ref
-    const fn new_bind(
-        var_idx: u16,
-        is_arg: bool,
-        pvalue: NonNull<JSValue>,
-        async_func: Option<AsyncState>,
-    ) -> Self {
-        Self {
-            state: VarRefState::Bind {
-                var_idx,
-                pvalue,
-                async_func,
-            },
-            is_arg,
-        }
-    }
-
+impl VarRefImpl {
     #[inline(always)]
-    pub fn id(&self) -> usize {
+    pub(crate) fn id(&self) -> usize {
         self as *const Self as usize
     }
 
     #[inline(always)]
-    pub const fn is_arg(&self) -> bool {
+    pub(crate) const fn is_arg(&self) -> bool {
         self.is_arg
     }
 
-    pub const fn set_arg(&mut self, b: bool) {
+    pub(crate) const fn set_arg(&mut self, b: bool) {
         self.is_arg = b;
     }
 
@@ -108,7 +83,7 @@ impl JSVarRefInner {
 
     /// get value of the var.
     #[inline]
-    pub const fn value(&self) -> JSValue {
+    pub(crate) const fn value(&self) -> JSValue {
         match &self.state {
             VarRefState::Bind { pvalue, .. } => unsafe { *pvalue.as_ref() },
             VarRefState::Detached { value } => *value,
@@ -117,7 +92,7 @@ impl JSVarRefInner {
 
     /// set value of var
     #[inline]
-    pub const fn set_value(&mut self, new_value: JSValue) {
+    pub(crate) const fn set_value(&mut self, new_value: JSValue) {
         match &mut self.state {
             VarRefState::Bind { pvalue, .. } => unsafe {
                 *pvalue.as_mut() = new_value;
@@ -129,7 +104,7 @@ impl JSVarRefInner {
     }
 
     #[inline(always)]
-    pub const fn is_detached(&self) -> bool {
+    pub(crate) const fn is_detached(&self) -> bool {
         matches!(&self.state, VarRefState::Bind { .. })
     }
 
@@ -137,16 +112,15 @@ impl JSVarRefInner {
     /// this makes var ref no longer refer to a local variable.
     /// if has async funtion, free it too.
     /// if `self` is already detached, do nothing.
-    pub const fn detach(&mut self) {
+    pub(crate) const fn detach(&mut self) {
         if let VarRefState::Bind { pvalue, .. } = &self.state {
             let value = unsafe { *pvalue.as_ref() };
-            // change state
             self.state = VarRefState::Detached { value };
         }
     }
 
     /// returns id of target bind var, if state is bind.
-    pub const fn var_idx(&self) -> Option<u16> {
+    pub(crate) const fn var_idx(&self) -> Option<u16> {
         if let VarRefState::Bind { var_idx, .. } = &self.state {
             Some(*var_idx)
         } else {
@@ -155,7 +129,7 @@ impl JSVarRefInner {
     }
 
     /// get async function state pointer
-    pub const fn async_func(&self) -> Option<AsyncState> {
+    pub(crate) const fn async_func(&self) -> Option<AsyncState> {
         if let VarRefState::Bind { async_func, .. } = &self.state {
             *async_func
         } else {
@@ -163,7 +137,7 @@ impl JSVarRefInner {
         }
     }
 
-    pub fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {
+    pub(crate) fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {
         let mut nodes: [Option<NonNull<GcHead>>; 2] = [None; 2];
 
         match self.state {
@@ -191,19 +165,23 @@ impl JSVarRefInner {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct JSVarRef(GcRef<JSVarRefInner>);
+pub struct JSVarRef(GcRef<VarRefImpl>);
 
-gcref_wrapper!(JSVarRef, JSVarRefInner);
+gcref_wrapper!(JSVarRef, VarRefImpl);
 
 impl JSVarRef {
     /// create a detached var ref
-    pub fn new(ctx: &ContextImpl, value: JSValue) -> Result<Self, i32> {
-        let inner = JSVarRefInner::new(value);
-        let gc_ref = ctx.rt_ptr().gc_alloc(inner).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-        Ok(Self(gc_ref))
+    pub(crate) fn new(ctx: &ContextImpl, value: JSValue) -> Result<Self, i32> {
+        ctx.rt_ptr()
+            .gc_alloc(VarRefImpl {
+                state: VarRefState::Detached { value },
+                is_arg: false,
+            })
+            .map(Self)
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })
     }
 
     /// create a bind var ref
@@ -214,17 +192,25 @@ impl JSVarRef {
         pvalue: NonNull<JSValue>,
         async_func: Option<AsyncState>,
     ) -> Result<Self, i32> {
-        let inner = JSVarRefInner::new_bind(var_idx, is_arg, pvalue, async_func);
-        let gc_ref = ctx.rt_ptr().gc_alloc(inner).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-        Ok(Self(gc_ref))
+        ctx.rt_ptr()
+            .gc_alloc(VarRefImpl {
+                state: VarRefState::Bind {
+                    var_idx,
+                    pvalue,
+                    async_func,
+                },
+                is_arg,
+            })
+            .map(Self)
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })
     }
 }
 
 impl StackFrame {
-    /// find VarRef by id and is_arg. if not found, create new.
+    /// find or create VarRef by (var_id, is_arg).
     pub(crate) fn get_var_ref(
         &mut self,
         ctx: &ContextImpl,
@@ -236,7 +222,7 @@ impl StackFrame {
             .var_ref_list
             .iter()
             .find(|v| v.var_idx() == Some(var_idx) && v.is_arg() == is_arg)
-            .cloned()
+            .copied()
         {
             return Ok(vr);
         }
@@ -248,8 +234,10 @@ impl StackFrame {
             is_arg,
             unsafe {
                 NonNull::new_unchecked(if is_arg {
+                    debug_assert!(var_idx < self.arg_count);
                     self.arg_base_ptr.offset(var_idx as isize)
                 } else {
+                    debug_assert!(var_idx < self.var_count);
                     self.var_base_ptr.offset(var_idx as isize)
                 })
             },
@@ -263,13 +251,13 @@ impl StackFrame {
                 // have the advantage of allowing the release of unused stack
                 // frames in a cycle.
 
-                let af = self
+                let a_state = self
                     .async_state
                     .upgrade(ctx.rt_ptr().gc_heap())
                     .map(AsyncState::from);
 
-                debug_assert!(af.is_some());
-                af
+                debug_assert!(a_state.is_some());
+                a_state
             } else {
                 None
             },

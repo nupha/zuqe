@@ -4,8 +4,6 @@ use std::{
     num::NonZeroU16,
 };
 
-use gc_lite::GcRef;
-
 use crate::{
     RuntimeImpl,
     atom::{is_const_atom, is_small_int_atom},
@@ -16,30 +14,21 @@ use crate::{
 };
 
 use super::{
-    ATOM_CONST_CAPTIONS, ATOM_CONST_COUNT, Atom, AtomDesc, AtomInfo, AtomKind,
+    ATOM_CONST_CAPTIONS, ATOM_CONST_COUNT, ATOM_USER_BASE_ID, Atom, AtomInfo, AtomKind,
     JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_MAX_INT, JS_ATOM_TAG_INT,
 };
 
 pub(crate) struct AtomRegistry {
     /// const atom description slots list.
-    /// index #0 is reserved but unused;
-    /// staring from index 1, #1 is for atom 1; #2 is for atom 2; ...
-    pub(super) const_atoms: Vec<AtomDesc>,
+    /// staring from index 0, #0 is for atom 1; #1 is for atom 2; ...
+    pub(super) const_atoms: Vec<StringRef>,
 
     /// list of user atom description. None means the slot is unused.
-    pub(super) user_atoms: Vec<Option<AtomDesc>>,
+    pub(super) user_atoms: Vec<Option<StringRef>>,
 
-    /// string hash to atom ids dict.
-    /// Value is list of atom indecies because string hash may have collison.
-    pub(super) atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
-}
-
-impl Drop for AtomRegistry {
-    fn drop(&mut self) {
-        self.clear_user_atoms();
-        self.clear_const_atoms();
-        self.atom_hash_lut.clear();
-    }
+    /// dict of { atom_hash: [atom_id] },
+    /// slot index = atom_id - 1
+    pub(super) atoms_lut: HashMap<u32, Vec<u16>>,
 }
 
 impl AtomRegistry {
@@ -48,115 +37,10 @@ impl AtomRegistry {
         Self {
             const_atoms: Vec::new(),
             user_atoms: Vec::with_capacity(128),
-            atom_hash_lut: HashMap::new(),
-        }
-    }
-
-    /// clear all const atoms
-    pub(crate) fn clear_const_atoms(&mut self) {
-        self.const_atoms.clear();
-    }
-
-    /// clear all user atoms
-    pub(crate) fn clear_user_atoms(&mut self) {
-        self.user_atoms.clear();
-
-        // purge lut to contain only const atoms
-        let mut remove = Vec::<u32>::with_capacity(self.atom_hash_lut.len());
-        for (k, ids) in self.atom_hash_lut.iter_mut() {
-            ids.retain(|x| x.get() < ATOM_CONST_COUNT as u16);
-            if ids.is_empty() {
-                remove.push(*k);
-            }
-        }
-        for k in remove {
-            self.atom_hash_lut.remove(&k);
+            atoms_lut: HashMap::new(),
         }
     }
 }
-
-// /// build const atoms list and hash lut
-// fn load_const_atoms(heap: &mut GcHeap) -> (Vec<AtomDesc>, HashMap<u32, Vec<NonZeroU16>>) {
-//     let mut lst = Vec::<AtomDesc>::with_capacity(ATOM_CONST_COUNT as usize + 1);
-//     let mut lut = HashMap::<u32, Vec<NonZeroU16>>::with_capacity(ATOM_CONST_COUNT as usize);
-
-//     // slot #0 is unused
-//     lst.push(AtomDesc {
-//         str: StringRef::from_static(None, "", None).unwrap(),
-//     });
-
-//     let mut p = ATOM_CONST_CAPTIONS.as_ptr();
-
-//     for i in 1..ATOM_CONST_COUNT {
-//         let mut atom_kind = {
-//             #[cfg(feature = "builtin_symbol")]
-//             if i == Atom::CONST_Private_brand.id() {
-//                 AtomKind::Private
-//             } else if i >= Atom::CONST_Symbol_toPrimitive.id() {
-//                 AtomKind::Symbol
-//             } else {
-//                 AtomKind::String
-//             }
-
-//             #[cfg(not(feature = "builtin_symbol"))]
-//             AtomKind::String
-//         };
-
-//         let cstr = unsafe { CStr::from_ptr(p.cast()) };
-//         let str = cstr.to_str().unwrap();
-//         let hash: u32 = {
-//             #[cfg(feature = "builtin_symbol")]
-//             match atom_kind {
-//                 AtomKind::String | AtomKind::GlobalSymbol => {
-//                     Atom::calc_atom_str_hash(str, atom_kind)
-//                 }
-//                 AtomKind::Symbol | AtomKind::Private => {
-//                     if atom_kind == AtomKind::Symbol {
-//                         JS_ATOM_HASH_SYMBOL
-//                     } else {
-//                         atom_kind = AtomKind::Symbol;
-//                         JS_ATOM_HASH_PRIVATE
-//                     }
-//                 }
-//             }
-
-//             #[cfg(not(feature = "builtin_symbol"))]
-//             Atom::calc_atom_str_hash(str, atom_kind)
-//         };
-
-//         let id = unsafe { NonZeroU16::new_unchecked(lst.len() as u16) };
-//         let atom_info = AtomInfo::new(id, atom_kind, hash);
-
-//         // let str =
-//         //     StringRef::from_static(None, str, Some(AtomInfo::new(id, atom_kind, hash))).unwrap();
-
-//         let str = {
-//             let ss = StringImpl::new(None, StringData::from_static(str), Some(atom_info));
-//             heap.rt
-//                 .gc_alloc(ss)
-//                 .map_err(|_| {
-//                     eprintln!("[O.o] alloc error");
-//                     -1
-//                 })
-//                 .map(Self)
-//         };
-
-//         lst.push(AtomDesc { str });
-
-//         match lut.entry(hash) {
-//             Entry::Vacant(kv) => {
-//                 kv.insert(vec![id]);
-//             }
-//             Entry::Occupied(kv) => {
-//                 kv.into_mut().push(id);
-//             }
-//         }
-
-//         p = unsafe { p.add(cstr.count_bytes() + 1) };
-//     }
-
-//     (lst, lut)
-// }
 
 impl RuntimeImpl {
     /// init atom regisry: load const atoms
@@ -171,28 +55,27 @@ impl RuntimeImpl {
 
         self.atom_registry
             .const_atoms
-            .reserve(ATOM_CONST_COUNT as usize + 1);
+            .reserve(ATOM_CONST_COUNT as usize);
 
         self.atom_registry
-            .atom_hash_lut
+            .atoms_lut
             .reserve(ATOM_CONST_COUNT as usize + 64);
 
         let lst = &mut self.atom_registry.const_atoms;
-        let lut = &mut self.atom_registry.atom_hash_lut;
-
-        // slot #0 is unused, and is not accessable.
-        lst.push(AtomDesc {
-            str: StringRef::from(GcRef::<StringImpl>::dangling()),
-        });
+        let lut = &mut self.atom_registry.atoms_lut;
 
         let mut text = ATOM_CONST_CAPTIONS.as_ptr();
 
-        for i in 1..ATOM_CONST_COUNT {
+        for idx in 0..ATOM_CONST_COUNT {
+            debug_assert_eq!(idx, lst.len() as u32);
+
+            let atom_id = idx + 1;
+
             let mut atom_kind = {
                 #[cfg(feature = "builtin_symbol")]
-                if i == Atom::CONST_Private_brand.id() {
+                if atom_id == Atom::CONST_Private_brand.id() {
                     AtomKind::Private
-                } else if i >= Atom::CONST_Symbol_toPrimitive.id() {
+                } else if atom_id >= Atom::CONST_Symbol_toPrimitive.id() {
                     AtomKind::Symbol
                 } else {
                     AtomKind::String
@@ -224,12 +107,16 @@ impl RuntimeImpl {
                 Atom::calc_atom_str_hash(str, atom_kind)
             };
 
-            let id = unsafe { NonZeroU16::new_unchecked(lst.len() as u16) };
-            let atom_info = AtomInfo::new(id, atom_kind, hash);
-
             let str = {
-                let ss =
-                    StringImpl::new(Some(rt_ptr), StringData::from_static(str), Some(atom_info));
+                let ss = StringImpl::new(
+                    Some(rt_ptr),
+                    StringData::from_static(str),
+                    Some(AtomInfo::new(
+                        unsafe { NonZeroU16::new_unchecked(atom_id as u16) },
+                        atom_kind,
+                        hash,
+                    )),
+                );
                 let s = rt_ptr.gc_alloc_in(root_scope, ss).unwrap();
                 // const atom string is root node.
                 // TODO: alloc const atom string in a dedicated top-level scope.
@@ -237,14 +124,14 @@ impl RuntimeImpl {
 
                 StringRef::from(s)
             };
-            lst.push(AtomDesc { str });
+            lst.push(str);
 
             match lut.entry(hash) {
                 Entry::Vacant(kv) => {
-                    kv.insert(vec![id]);
+                    kv.insert(vec![atom_id as u16]);
                 }
                 Entry::Occupied(kv) => {
-                    kv.into_mut().push(id);
+                    kv.into_mut().push(atom_id as u16);
                 }
             }
 
@@ -278,23 +165,29 @@ impl RuntimeImpl {
                 let a_reg = &mut self.atom_registry;
 
                 // match registered atoms for hash, type and content
-                match a_reg.atom_hash_lut.entry(hash) {
+                match a_reg.atoms_lut.entry(hash) {
                     Entry::Vacant(kv) => {
                         kv.insert(Vec::with_capacity(1)); // prepare new entry for hash
                     }
                     Entry::Occupied(kv) => {
-                        for aid in kv.get() {
-                            let id = aid.get() as u32;
-                            if is_const_atom(id) {
-                                if a_reg.const_atoms[id as usize].atom_info().kind() == atom_kind {
-                                    return Ok(Atom(id));
+                        for &id in kv.get() {
+                            let atom_id = id as u32;
+                            if is_const_atom(atom_id) {
+                                if a_reg.const_atoms[atom_id as usize - 1]
+                                    .atom_info()
+                                    .unwrap()
+                                    .kind()
+                                    == atom_kind
+                                {
+                                    return Ok(Atom(atom_id));
                                 }
                             } else {
-                                let d = a_reg.user_atoms[id as usize - ATOM_CONST_COUNT as usize]
+                                let ds = a_reg.user_atoms
+                                    [atom_id as usize - ATOM_USER_BASE_ID as usize]
                                     .as_ref()
                                     .unwrap();
-                                let at = d.str.atom_info().unwrap();
-                                if at.kind() == atom_kind && d.str == ss {
+                                let at = ds.atom_info().unwrap();
+                                if at.kind() == atom_kind && ss.eq(ds) {
                                     // found existing atom, reuse it.
                                     return Ok(Atom(at.id()));
                                 }
@@ -339,7 +232,7 @@ impl RuntimeImpl {
                                     return Ok(Atom(id));
                                 }
                             } else {
-                                let d = a_reg.user_atoms[id as usize - ATOM_CONST_COUNT as usize]
+                                let d = a_reg.user_atoms[id as usize - ATOM_USER_BASE_ID as usize]
                                     .as_ref()
                                     .unwrap();
                                 let at = d.str.atom_info().unwrap();
@@ -387,9 +280,9 @@ impl RuntimeImpl {
             desc_str = desc_str.copy_to_new(self.into())?
         }
 
-        if self.atom_registry.atom_hash_lut.len() == self.atom_registry.atom_hash_lut.capacity() {
+        if self.atom_registry.atoms_lut.len() == self.atom_registry.atoms_lut.capacity() {
             self.atom_registry
-                .atom_hash_lut
+                .atoms_lut
                 .try_reserve(16)
                 .map_err(|_| -1)?;
         }
@@ -401,10 +294,7 @@ impl RuntimeImpl {
             .iter()
             .position(|p| p.is_none())
         {
-            (
-                Some(i),
-                NonZeroU16::new(i as u16 + ATOM_CONST_COUNT as u16).unwrap(),
-            )
+            (Some(i), i as u16 + ATOM_USER_BASE_ID as u16)
         } else {
             if self.atom_registry.user_atoms.len() == self.atom_registry.user_atoms.capacity() {
                 self.atom_registry
@@ -414,14 +304,11 @@ impl RuntimeImpl {
             }
             (
                 None,
-                NonZeroU16::new(
-                    self.atom_registry.user_atoms.len() as u16 + ATOM_CONST_COUNT as u16,
-                )
-                .unwrap(),
+                self.atom_registry.user_atoms.len() as u16 + ATOM_USER_BASE_ID as u16,
             )
         };
 
-        match self.atom_registry.atom_hash_lut.entry(hash) {
+        match self.atom_registry.atoms_lut.entry(hash) {
             Entry::Vacant(kv) => {
                 kv.insert(vec![atom_id]);
             }
@@ -430,26 +317,28 @@ impl RuntimeImpl {
             }
         }
 
-        desc_str.set_atom_info(AtomInfo::new(atom_id, atom_kind, hash));
-
-        let d = AtomDesc { str: desc_str };
+        desc_str.set_atom_info(AtomInfo::new(
+            unsafe { NonZeroU16::new_unchecked(atom_id) },
+            atom_kind,
+            hash,
+        ));
 
         if let Some(i) = idx {
-            debug_assert_eq!(i, atom_id.get() as usize - ATOM_CONST_COUNT as usize);
+            debug_assert_eq!(i, atom_id as usize - ATOM_CONST_COUNT as usize - 1);
             debug_assert!(
                 self.atom_registry.user_atoms[i].is_none(),
                 "atom slot {i} is in use"
             );
-            self.atom_registry.user_atoms[i].replace(d);
+            self.atom_registry.user_atoms[i].replace(desc_str);
         } else {
-            self.atom_registry.user_atoms.push(Some(d));
+            self.atom_registry.user_atoms.push(Some(desc_str));
             debug_assert_eq!(
-                self.atom_registry.user_atoms.len() - 1,
-                atom_id.get() as usize - ATOM_CONST_COUNT as usize
+                self.atom_registry.user_atoms.len(),
+                atom_id as usize - ATOM_CONST_COUNT as usize
             );
         }
 
-        Ok(Atom(atom_id.get() as u32))
+        Ok(Atom(atom_id as u32))
     }
 
     /// remove atom from registry.
@@ -462,24 +351,24 @@ impl RuntimeImpl {
 
         debug_assert!(!is_const_atom(atom_id) && !is_small_int_atom(atom_id));
 
-        // Note: AtomDesc for `atom_id` is now a invalid gc pointer.
+        // Note: atom_id associated descriptor string is now an invalid gc pointer.
         if let Some(slot) = a_reg
             .user_atoms
-            .get_mut(atom_id as usize - ATOM_CONST_COUNT as usize)
+            .get_mut(atom_id as usize - ATOM_USER_BASE_ID as usize)
             && slot.take().is_some()
         {
-            let purge = if let Some(ids) = a_reg.atom_hash_lut.get_mut(&atom_hash) {
+            let purge = if let Some(ids) = a_reg.atoms_lut.get_mut(&atom_hash) {
                 if ids.len() == 1 {
-                    debug_assert_eq!(ids[0].get() as u32, atom_id);
+                    debug_assert_eq!(ids[0] as u32, atom_id);
                     true
                 } else {
                     #[cfg(debug_assertions)]
-                    let i = ids.iter().position(|x| x.get() == atom_id as u16).unwrap();
+                    let i = ids.iter().position(|&x| x == atom_id as u16).unwrap();
                     #[cfg(not(debug_assertions))]
                     unsafe {
                         let i = ids
                             .iter()
-                            .position(|x| x.get() == atom_id as u16)
+                            .position(|&x| x == atom_id as u16)
                             .unwrap_unchecked();
                     }
 
@@ -491,58 +380,28 @@ impl RuntimeImpl {
             };
 
             if purge {
-                a_reg.atom_hash_lut.remove(&atom_hash);
+                a_reg.atoms_lut.remove(&atom_hash);
             }
         }
     }
 
-    /// get atom descriptor by atom id.
+    /// get atom descriptor string by atom id.
     /// returns None if atom id is invalid.
-    pub(super) fn atom_desc(&self, atom_id: u32) -> Option<&AtomDesc> {
+    pub(super) fn atom_desc_string(&self, atom_id: u32) -> Option<&StringRef> {
         debug_assert!(
             atom_id != 0 && !is_small_int_atom(atom_id),
             "not for small-int-atom or null-atom"
         );
 
         if is_const_atom(atom_id) {
-            self.atom_registry.const_atoms.get(atom_id as usize)
+            self.atom_registry.const_atoms.get(atom_id as usize - 1)
         } else {
             self.atom_registry
                 .user_atoms
-                .get(atom_id as usize - ATOM_CONST_COUNT as usize)
+                .get(atom_id as usize - ATOM_USER_BASE_ID as usize)
                 .and_then(|d| d.as_ref())
         }
     }
-
-    // /// find atom descriptor by str and kind
-    // pub(super) fn find_atom_desc(&self, str: &str, atom_kind: AtomKind) -> Option<AtomDesc> {
-    //     self.atom_registry
-    //         .atom_hash_lut
-    //         .get(&calc_atom_hash_str(str, atom_kind))
-    //         .and_then(|ids| {
-    //             ids.iter().find_map(|id| {
-    //                 let id = id.get() as u32;
-    //                 if is_const_atom(id) {
-    //                     Some(self.atom_registry.const_atoms[id as usize].clone())
-    //                 } else {
-    //                     // user atom
-    //                     let d = self
-    //                         .atom_registry
-    //                         .user_atoms
-    //                         .get(id as usize - ATOM_CONST_COUNT as usize)
-    //                         .cloned()
-    //                         .flatten()
-    //                         .unwrap();
-
-    //                     if d.atom_info().kind() == atom_kind && d.str.content().eq_str(str) {
-    //                         Some(d)
-    //                     } else {
-    //                         None
-    //                     }
-    //                 }
-    //             })
-    //         })
-    // }
 }
 
 impl Atom {
@@ -589,7 +448,7 @@ impl Atom {
         if (0..JS_ATOM_MAX_INT as i64).contains(&n) {
             Ok(Self::new_small_int(n as u32))
         } else {
-            let s = StringRef::from_utf8(rt.into(), format!("{n}").into_bytes())?;
+            let s = StringRef::from_utf8(rt, format!("{n}").into_bytes())?;
             Self::from_string(rt, s, AtomKind::String)
         }
     }

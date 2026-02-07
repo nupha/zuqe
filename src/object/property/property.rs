@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use gc_lite::{GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
@@ -234,7 +234,7 @@ impl JSPropertyDescriptor {
     }
 }
 
-/// the property content
+/// Property content
 #[repr(u8)]
 #[derive(Debug)]
 pub enum JSProperty {
@@ -249,7 +249,7 @@ pub enum JSProperty {
 
     /// TODO: use Box<PropertyLazy>
     LazyInit {
-        realm: GcWeak<ContextImpl>,
+        realm: ContextPtr,
         init_type: LazyInit,
         opaque: *mut c_void,
     },
@@ -270,7 +270,13 @@ unsafe impl GcTracable for JSProperty {
             Self::VarRef(vr) => {
                 vr.trace(tr);
             }
-            Self::LazyInit { .. } | Self::Deleted => {}
+            Self::LazyInit {
+                realm, init_type, ..
+            } => {
+                realm.trace(tr);
+                init_type.trace(tr);
+            }
+            Self::Deleted => {}
         }
     }
 }

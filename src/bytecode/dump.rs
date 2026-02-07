@@ -761,10 +761,10 @@ pub(super) fn dump_run_instruction(
 
             if let Some(v) = b.get_var(idx as _) {
                 v.var_name.with_utf8(ctx.rt_ref(), |s| {
-                    print!(" {idx}:{s}");
+                    print!(" {idx}  ; {s}");
                 });
             } else {
-                print!(" {idx}:?");
+                print!(" {idx}");
             }
         }
 
@@ -845,7 +845,7 @@ pub(super) fn dump_run_stack(
             if i >= mark_start { mark } else { ' ' },
             // value repr
             {
-                let mut s = format!("{:?}", v.inspect(ctx).unwrap());
+                let mut s = format!("{:?}", v.inspect(ctx).expect("inspect fail"));
                 if !v.is_string() {
                     s = s[1..s.len() - 1].to_string();
                 }

@@ -1,10 +1,12 @@
 use std::ptr::NonNull;
 
+#[cfg(debug_assertions)]
+use gc_lite::GcHead;
 use gc_lite::{
-    GcError, GcHead, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceOp, GcTracer,
+    GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceOp, GcTracer,
 };
 
-use crate::{object::ShapeImpl, runtime::RuntimeImpl};
+use crate::runtime::RuntimeImpl;
 
 impl RuntimeImpl {
     pub fn gc_set_threshold(&mut self, threshold: usize) {
@@ -35,12 +37,6 @@ impl RuntimeImpl {
         unsafe { &mut *self.gc_part }
     }
 
-    #[inline(always)]
-    #[deprecated]
-    pub(crate) const fn gc_root_scope_id(&self) -> GcPartitionId {
-        self.gc_root_scope
-    }
-
     /// get gc scope for current stack frame.
     /// if current stack frame has no scope, or has no stack frame, returns None.
     pub(crate) fn current_gc_scope(&mut self) -> Option<GcPartitionId> {
@@ -52,16 +48,6 @@ impl RuntimeImpl {
                     None
                 }
             })
-    }
-
-    /// get or initialize gc scope for current stack frame.
-    /// if current stack frame has no scope, initialize it.
-    pub(crate) fn current_gc_scope_force(&mut self) -> GcPartitionId {
-        if let Some(sf) = self.current_stack_frame_mut() {
-            sf.init_gc_scope()
-        } else {
-            self.gc_root_scope
-        }
     }
 
     pub fn gc_memory_limit(&self) -> usize {
@@ -153,12 +139,6 @@ impl RuntimeImpl {
         if let Some(sc) = self.current_gc_scope() {
             self.gc_collect_scope(sc);
         }
-
-        // if let Some(sf) = unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref() } {
-        //     self.gc_collect_scoped(sf);
-        // } else {
-        //     self.gc_collect_root();
-        // }
     }
 
     #[inline(always)]

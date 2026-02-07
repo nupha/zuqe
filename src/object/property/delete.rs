@@ -65,30 +65,16 @@ impl Object {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
                                 let cnt = self.fast_array_count();
                                 if idx < cnt {
-                                    if self
-                                        .with_fast_array_values_mut(|lst| -> bool {
-                                            debug_assert_eq!(lst.len(), cnt as usize);
-                                            if idx == lst.len() as u32 - 1 {
-                                                // remove the last.
-                                                // returns true to indicate delete is done.
-                                                lst.pop();
-                                                true
-                                            } else {
-                                                // returns false to
-                                                // suggest convert fast array to sparse array is needed,
-                                                // then delete the property
-                                                false
-                                            }
-                                        })
-                                        .unwrap()
-                                    {
-                                        // early exit for fast array
-                                        return Ok(true);
-                                    } else {
-                                        // convert to sparse array, then do delete
-                                        self.destruct_fast_array(ctx)?;
-                                        continue;
+                                    let arr_data = self.payload_mut().array_mut().unwrap();
+                                    debug_assert_eq!(arr_data.len(), cnt as usize);
+                                    if idx == arr_data.len() as u32 - 1 {
+                                        arr_data.pop();
+                                        return Ok(true); // returns true to indicate delete is done.
                                     }
+
+                                    // convert to sparse array then perform delete again
+                                    self.destruct_fast_array(ctx)?;
+                                    continue;
                                 }
                             }
                             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {

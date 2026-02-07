@@ -64,22 +64,3 @@ impl AtomInfo {
         self.hash
     }
 }
-
-/// User atom descriptor
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub(super) struct AtomDesc {
-    pub(super) str: StringRef,
-}
-
-impl AtomDesc {
-    #[inline(always)]
-    pub const fn string(&self) -> StringRef {
-        self.str
-    }
-
-    #[inline(always)]
-    pub(super) fn atom_info(&self) -> &AtomInfo {
-        self.str.atom_info().unwrap()
-    }
-}

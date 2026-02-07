@@ -1,9 +1,11 @@
+use std::collections::TryReserveError;
+
 use fallible_collections::{FallibleVec, TryCollect};
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcHeap, GcPartitionId, GcRef, GcTracable, GcTraceOp};
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, RuntimeImpl,
     atom::Atom,
     context::ContextImpl,
     number::MAX_SAFE_INTEGER,
@@ -25,13 +27,101 @@ pub(crate) struct ArrayPayload {
 
 unsafe impl GcTracable for ArrayPayload {
     fn trace(&self, tr: GcTraceOp) {
-        self.values.trace(tr);
+        for v in self.values.iter() {
+            v.trace(tr);
+        }
     }
 }
 
 impl ArrayPayload {
     pub const fn new(values: Vec<JSValue>) -> Self {
         Self { values }
+    }
+
+    pub const fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    pub fn values(&self) -> &[JSValue] {
+        &self.values
+    }
+
+    pub fn values_mut(&mut self) -> &mut [JSValue] {
+        &mut self.values
+    }
+
+    pub fn push(
+        &mut self,
+        rt: &mut RuntimeImpl,
+        val: JSValue,
+        xref: GcPartitionId,
+    ) -> Result<(), TryReserveError> {
+        self.values.try_push(val)?;
+
+        if let Some(n) = val.gc_node_ptr() {
+            unsafe {
+                if n.as_ref().get_partition_id() != xref {
+                    rt.gc_heap_mut().set_xref(xref, n);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn reserve(&mut self, extra: usize) -> Result<(), TryReserveError> {
+        self.values.try_reserve(extra)
+    }
+
+    pub fn extend(
+        &mut self,
+        rt: &mut RuntimeImpl,
+        vals: impl Iterator<Item = JSValue>,
+        xref: GcPartitionId,
+    ) {
+        self.values.extend(vals);
+        self.update_values_xref(rt.gc_heap_mut(), xref);
+    }
+
+    pub fn remove(&mut self, index: usize) -> JSValue {
+        self.values.remove(index)
+    }
+
+    pub fn pop(&mut self) -> Option<JSValue> {
+        self.values.pop()
+    }
+
+    pub fn set_nth(
+        &mut self,
+        rt: &mut RuntimeImpl,
+        index: usize,
+        value: JSValue,
+        xref: GcPartitionId,
+    ) {
+        self.values[index] = value;
+        self.update_values_xref(rt.gc_heap_mut(), xref);
+    }
+
+    pub fn replace_values(
+        &mut self,
+        rt: &mut RuntimeImpl,
+        values: Vec<JSValue>,
+        xref: GcPartitionId,
+    ) {
+        self.values = values;
+        self.update_values_xref(rt.gc_heap_mut(), xref);
+    }
+
+    pub(crate) fn update_values_xref(&mut self, heap: &mut GcHeap, xref: GcPartitionId) {
+        for val in self.values.iter() {
+            if let Some(n) = val.gc_node_ptr() {
+                unsafe {
+                    if n.as_ref().get_partition_id() != xref {
+                        heap.set_xref(xref, n);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -103,13 +193,12 @@ impl Array {
 
         if self.is_fast_array() {
             // fast array
-            self.with_fast_array_values_mut(|lst| {
-                let old_len = lst.len() as u32;
-                if length < old_len {
-                    lst.drain(length as usize..old_len as usize);
-                }
-            })
-            .unwrap();
+            let arr_data = self.as_Array_mut().unwrap().payload_mut();
+            let old_len = arr_data.len() as u32;
+            if length < old_len {
+                arr_data.values.drain(length as usize..old_len as usize);
+            }
+
             self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::from(length)));
         } else {
             // sparse array
@@ -180,13 +269,17 @@ impl Array {
         Ok(true)
     }
 
-    /// set values list to Array, make `arr` a fast array.
-    /// Note: for Array and Arguments class objects only.
-    pub(crate) fn reset_fast_array(
+    /// set values to Array and enforce it to be fast array.
+    pub(crate) fn set_fast_array_values(
         &mut self,
         ctx: &ContextImpl,
         values: Vec<JSValue>,
     ) -> Result<(), i32> {
+        debug_assert!(
+            self.shape().unwrap().prop_defs.first().unwrap().flags() & JS_PROP_LENGTH != 0,
+            "Array.length property must be index 0"
+        );
+
         if !self.is_fast_array() {
             // if `self` is sparse array, delete all index properties
             let mut del = SmallVec::<[u32; 64]>::new();
@@ -203,16 +296,13 @@ impl Array {
         }
 
         let len = values.len();
+        let self_xref = self.gc_ref().node_info().get_partition_id();
 
-        // make fast array
-        self.payload_mut().values = values;
+        self.payload_mut()
+            .replace_values(&mut ctx.rt_ptr(), values, self_xref);
         self.set_flag_fast_array(true);
 
         // set array length, can't fail
-        debug_assert!(
-            self.shape().unwrap().prop_defs.first().unwrap().flags() & JS_PROP_LENGTH != 0,
-            "Array.length property must be index 0"
-        );
         self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::from(len as u32)));
 
         Ok(())
@@ -230,55 +320,109 @@ impl Array {
         }
 
         // fast path
-        if let Some(fa) = obj.with_fast_array_values_mut(|lst| -> Result<(), i32> {
-            debug_assert!(lst.len() <= arr_len as usize);
+        if obj.is_fast_array()
+            && let Some(arr_data) = obj.as_Array_mut().map(|a| a.payload_mut())
+        {
+            let length = arr_data.len();
+            debug_assert!(length <= arr_len as usize);
 
             if let Some(cmp) = cmp {
-                let mut slots = Vec::<JSValue>::new();
-                slots.try_reserve_exact(lst.len()).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
-                slots.extend(lst.iter().filter(|x| !x.is_undefined()).cloned());
+                let mut slots = arr_data
+                    .values()
+                    .iter()
+                    .filter(|v| !v.is_undefined())
+                    .copied()
+                    .try_collect::<Vec<JSValue>>()
+                    .map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
 
                 sort_values_by(ctx, &mut slots, cmp)?;
 
-                let slots_len = slots.len();
-                for (i, v) in slots.into_iter().enumerate() {
-                    lst[i] = v;
-                }
-
-                lst.iter_mut()
-                    .skip(slots_len)
-                    .for_each(|x| *x = JSValue::UNDEFINED);
+                arr_data.values.clear();
+                arr_data.values.extend(
+                    slots
+                        .into_iter()
+                        .chain(std::iter::repeat(JSValue::UNDEFINED))
+                        .take(length),
+                );
             } else {
                 let mut slots = Vec::<(JSValue, StringData)>::new();
-                slots.try_reserve_exact(lst.len()).map_err(|_| {
+                slots.try_reserve_exact(length).map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
 
-                for v in lst.iter().filter(|v| !v.is_undefined()) {
-                    let s = v.to_string(ctx)?;
-                    slots.push((*v, s.content().clone()));
+                for v in arr_data.values().iter().filter(|v| !v.is_undefined()) {
+                    slots.push((*v, v.to_string(ctx)?.content().clone()));
                 }
 
                 sort_values_default(&mut slots);
 
-                let slots_len = slots.len();
-                for (i, (v, _)) in slots.into_iter().enumerate() {
-                    lst[i] = v;
-                }
-
-                lst.iter_mut()
-                    .skip(slots_len)
-                    .for_each(|x| *x = JSValue::UNDEFINED);
+                arr_data.values.clear();
+                arr_data.values.extend(
+                    slots
+                        .into_iter()
+                        .map(|(v, _)| v)
+                        .chain(std::iter::repeat(JSValue::UNDEFINED))
+                        .take(length),
+                );
             }
 
-            Ok(())
-        }) {
-            return fa; // early exit for fast array
+            return Ok(()); // early exit for fast array
         }
+
+        // LEGACY
+        // if let Some(fa) = obj.with_fast_array_values_mut(|lst| -> Result<(), i32> {
+        //     debug_assert!(lst.len() <= arr_len as usize);
+
+        //     if let Some(cmp) = cmp {
+        //         let mut slots = Vec::<JSValue>::new();
+        //         slots.try_reserve_exact(lst.len()).map_err(|_| {
+        //             ctx.throw_out_of_memory();
+        //             -1
+        //         })?;
+        //         slots.extend(lst.iter().filter(|x| !x.is_undefined()).cloned());
+
+        //         sort_values_by(ctx, &mut slots, cmp)?;
+
+        //         let slots_len = slots.len();
+        //         for (i, v) in slots.into_iter().enumerate() {
+        //             lst[i] = v;
+        //         }
+
+        //         lst.iter_mut()
+        //             .skip(slots_len)
+        //             .for_each(|x| *x = JSValue::UNDEFINED);
+        //     } else {
+        //         let mut slots = Vec::<(JSValue, StringData)>::new();
+        //         slots.try_reserve_exact(lst.len()).map_err(|_| {
+        //             ctx.throw_out_of_memory();
+        //             -1
+        //         })?;
+
+        //         for v in lst.iter().filter(|v| !v.is_undefined()) {
+        //             let s = v.to_string(ctx)?;
+        //             slots.push((*v, s.content().clone()));
+        //         }
+
+        //         sort_values_default(&mut slots);
+
+        //         let slots_len = slots.len();
+        //         for (i, (v, _)) in slots.into_iter().enumerate() {
+        //             lst[i] = v;
+        //         }
+
+        //         lst.iter_mut()
+        //             .skip(slots_len)
+        //             .for_each(|x| *x = JSValue::UNDEFINED);
+        //     }
+
+        //     Ok(())
+        // }) {
+        //     return fa; // early exit for fast array
+        // }
 
         //
         // slow path: `obj` is sparse array.
@@ -414,23 +558,27 @@ impl ContextImpl {
     pub fn create_array_with_values(&self, values: Vec<JSValue>) -> Result<Array, i32> {
         let len = values.len();
 
-        let mut fa = self
+        let mut arr = self
             .create_object_with_shape(
                 self.array_shape.clone().unwrap(),
-                ObjectPayload::ARRAY(ArrayPayload { values }),
+                ObjectPayload::ARRAY(ArrayPayload::new(values)),
             )
             .map(|o| Array(o.0))
             .map_err(|_| -1)?;
 
-        debug_assert!(fa.flags().is_exotic());
-        debug_assert!(fa.flags().is_fast_array());
+        debug_assert!(arr.flags().is_exotic());
+        debug_assert!(arr.flags().is_fast_array());
 
-        // set array length
         if len > 0 {
-            fa.set_length(self, len as u32, true)?;
+            // set array length
+            arr.set_length(self, len as u32, true)?;
+            // set gc xref
+            let xref = arr.gc_ref().node_info().get_partition_id();
+            arr.payload_mut()
+                .update_values_xref(self.rt_ptr().gc_heap_mut(), xref);
         }
 
-        Ok(fa)
+        Ok(arr)
     }
 
     #[inline]
@@ -500,9 +648,7 @@ impl Object {
 
         if self.is_fast_array() {
             // take array list out
-            let items = self.with_fast_array_values_mut(std::mem::take).unwrap();
-
-            // self.shape_prepare_update(ctx)?;
+            let items = std::mem::take(&mut self.as_Array_mut().unwrap().payload_mut().values);
 
             for (i, v) in items.into_iter().enumerate() {
                 // add_property cannot fail here
@@ -525,28 +671,7 @@ impl Object {
         Ok(())
     }
 
-    /// if object is Array or Argument class, and is fast array, returns values slice.
-    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
-        if self.flags().is_fast_array() {
-            self.payload().array().map(|a| f(&a.values))
-        } else {
-            None
-        }
-    }
-
-    /// if object is Array or Argument class, and is fast array, returns values slice.
-    pub fn with_fast_array_values_mut<R>(
-        &mut self,
-        f: impl FnOnce(&mut Vec<JSValue>) -> R,
-    ) -> Option<R> {
-        if self.flags().is_fast_array() {
-            self.payload_mut().array_mut().map(|a| f(&mut a.values))
-        } else {
-            None
-        }
-    }
-
-    /// Preconditions: 'self' must be of class JS_CLASS_ARRAY, self is fast_array and is extensible.
+    /// Preconditions: 'self' is JS_CLASS_ARRAY, is fast_array and is extensible.
     /// returns Err if fail, true if append successfully, false if can't append due to read-only but flags indicates don't throw exception.
     pub fn add_fast_array_element(
         &mut self,
@@ -554,11 +679,16 @@ impl Object {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        debug_assert!(self.flags().is_fast_array(), "must be a fast array");
+        debug_assert!(self.is_fast_array());
+        debug_assert!(matches!(
+            self.class_id(),
+            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS
+        ));
+        // debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY); // should we prevent class ARGUMENTS?
 
         // extend the array by one
         // XXX: convert to slow array if new_len > u32::MAX elements
-        let new_len = self.with_fast_array_values(|lst| lst.len() + 1).unwrap();
+        let new_len = self.as_Array().unwrap().payload().len() + 1;
 
         // first element in `prop_values` is the array length.
         // update the length if necessary. We assume that if the length is
@@ -588,21 +718,73 @@ impl Object {
                 } else {
                     Ok(false)
                 };
+            } else {
+                // update `length`
+                self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::Int(new_len as i32)));
             }
-
-            // update `length`
-            self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::Int(new_len as i32)));
         }
 
         // add new element to list
-        self.with_fast_array_values_mut(|lst| -> Result<bool, i32> {
-            lst.try_push(val).map_err(|_| {
+        let xref = self.gc_ref().node_info().get_partition_id();
+        self.as_Array_mut()
+            .unwrap()
+            .payload_mut()
+            .push(&mut ctx.rt_ptr(), val, xref)
+            .map(|_| true)
+            .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
-            })?;
-            Ok(true)
-        })
-        .unwrap()
+            })
+
+        ///// LEGACY
+
+        // // extend the array by one
+        // // XXX: convert to slow array if new_len > u32::MAX elements
+        // let new_len = self.with_fast_array_values(|lst| lst.len() + 1).unwrap();
+
+        // // first element in `prop_values` is the array length.
+        // // update the length if necessary. We assume that if the length is
+        // // not an integer, then if it >= 2^31.
+        // // Note: check array length to int in advance, to avoid prop_values borrow conflict.
+        // let len: Option<i32> = if let JSProperty::Normal(JSValue::Int(n)) = self.prop_slot(0) {
+        //     Some(*n)
+        // } else {
+        //     #[cfg(debug_assertions)]
+        //     unreachable!();
+        //     #[cfg(not(debug_assertions))]
+        //     None
+        // };
+
+        // if let Some(arr_len) = len
+        //     && new_len > arr_len as usize
+        // {
+        //     let r = self
+        //         .shape()
+        //         .and_then(|sh| sh.prop_defs.first().map(|p| p.flags()))
+        //         .unwrap();
+
+        //     if unlikely(r & JS_PROP_WRITABLE == 0) {
+        //         return if ctx.can_throw(flags) {
+        //             ctx.throw_type_error("'length' is read-only");
+        //             Err(-1)
+        //         } else {
+        //             Ok(false)
+        //         };
+        //     }
+
+        //     // update `length`
+        //     self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::Int(new_len as i32)));
+        // }
+
+        // // add new element to list
+        // self.with_fast_array_values_mut(|lst| -> Result<bool, i32> {
+        //     lst.try_push(val).map_err(|_| {
+        //         ctx.throw_out_of_memory();
+        //         -1
+        //     })?;
+        //     Ok(true)
+        // })
+        // .unwrap()
     }
 
     /// Get fast array list length:
@@ -612,7 +794,7 @@ impl Object {
     pub(crate) fn fast_array_count(&self) -> u32 {
         if let Some(ap) = self.payload().array() {
             // ARRAY or ARGUMENT
-            ap.values.len() as u32
+            ap.len() as u32
         } else if let Some(ta) = self.payload().typed_array() {
             // typed array or dataview
             ta.count() as _
@@ -625,39 +807,15 @@ impl Object {
 impl JSValue {
     /// check if `self` is an Array object
     /// return Err if exception (proxy case) or TRUE/FALSE
+    #[inline]
     pub fn is_array(&self, ctx: &ContextImpl) -> Result<bool, i32> {
-        if let JSValue::Object(p) = self {
-            p.is_array(ctx)
-        } else {
-            Ok(false)
-        }
+        self.as_object().map_or(Ok(false), |o| o.is_array(ctx))
     }
 
-    /// test if value is fast array (could be one of Array, Argument, TypedArray fast array).
+    /// test if value is fast array object (could be one of Array, Argument, TypedArray fast array).
+    #[inline]
     pub fn is_fast_array(&self) -> bool {
-        if let JSValue::Object(p) = self {
-            p.is_fast_array()
-        } else {
-            false
-        }
-    }
-
-    /// if value is Array or Argument class, and is fast array, returns values slice.
-    #[inline(always)]
-    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
-        self.as_object().and_then(|o| o.with_fast_array_values(f))
-    }
-
-    /// if value is Array or Argument class, and is a fast array,
-    /// run closure with values slice,
-    /// otherwise returns None.
-    #[inline(always)]
-    pub fn with_fast_array_values_mut<R>(
-        &mut self,
-        f: impl FnOnce(&mut Vec<JSValue>) -> R,
-    ) -> Option<R> {
-        self.as_object_mut()
-            .and_then(|o| o.with_fast_array_values_mut(f))
+        self.as_object().is_some_and(|o| o.is_fast_array())
     }
 
     /// coerce value to array length, which is in range \[0, 2^32-1\].

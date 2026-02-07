@@ -1,3 +1,6 @@
+#[cfg(debug_assertions)]
+use gc_lite::GcTracable;
+
 use crate::{
     atom::Atom,
     context::ContextImpl,
@@ -259,7 +262,7 @@ impl FunctionDef {
         debug_assert_eq!(bin.len(), bin_size);
 
         // create bytecode
-        let mut bc_inner = BytecodeImpl::new(
+        let mut bc_impl = BytecodeImpl::new(
             ctx,
             &self,
             bin.into(),
@@ -279,7 +282,7 @@ impl FunctionDef {
 
         if !self.attrs.exec_mode.contains(ExecMode::STRIP) {
             // setup debug info
-            let debug = bc_inner.debug.as_mut().unwrap();
+            let debug = bc_impl.debug.as_mut().unwrap();
 
             debug.line_num = self.line_num;
             debug.filename = std::mem::replace(&mut self.filename, Atom::NULL);
@@ -292,13 +295,17 @@ impl FunctionDef {
             }
         } else {
             // no debug info
-            bc_inner.debug.take();
+            bc_impl.debug.take();
         }
 
-        let bc = Bytecode::from(ctx.rt_ptr().gc_alloc(bc_inner).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?);
+        let bc = ctx
+            .rt_ptr()
+            .gc_alloc(bc_impl)
+            .map(Bytecode::from)
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
 
         #[cfg(feature = "dump_bytecode")]
         if !self.attrs.exec_mode.contains(ExecMode::STRIP) {

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     marker::{PhantomData, PhantomPinned},
     pin::Pin,
     ptr::NonNull,
@@ -12,7 +13,6 @@ use crate::{
     context::ContextImpl,
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateImpl, JSVarRef},
-    object::ShapeImpl,
     runtime::RuntimePtr,
     value::JSValue,
 };
@@ -43,6 +43,13 @@ pub struct StackFrame {
     /// - Native function object
     pub(crate) func_obj: Object,
 
+    /// Execution mode
+    pub(crate) mode: ExecMode,
+
+    /// Weak backref to async state,
+    /// only valid if stack frame is dedicated for an AsyncStateImpl
+    pub(crate) async_state: GcWeak<AsyncStateImpl>,
+
     /// Buffer storing arguments, local variables, and stack space
     pub(crate) local_buf: Vec<JSValue>,
 
@@ -68,13 +75,6 @@ pub struct StackFrame {
     /// Position in local_buf relative to stack_base_ptr()
     /// Use stack_cur_ptr() to get raw pointer to this position
     pub(crate) cur_sp_offset: i32,
-
-    /// Execution attrs of stack frame.
-    pub(crate) mode: ExecMode,
-
-    /// Weak backref to async state,
-    /// only valid if stack frame is for an AsyncStateImpl
-    pub(crate) async_state: GcWeak<AsyncStateImpl>,
 
     /// gc partitionid for stack frame scoped gc allocs
     pub(crate) gc_scope_id: GcPartitionId,
@@ -127,8 +127,10 @@ impl StackFrame {
     pub(crate) fn new(func_obj: Object, mode: ExecMode) -> Self {
         Self {
             prev: std::ptr::null_mut(),
+
             func_obj,
             mode,
+            async_state: GcWeak::default(),
 
             local_buf: Vec::new(),
             arg_base_ptr: std::ptr::null_mut(),
@@ -137,7 +139,6 @@ impl StackFrame {
             var_base_ptr: std::ptr::null_mut(),
             var_count: 0,
 
-            async_state: GcWeak::default(),
             var_ref_list: Vec::new(),
             cur_pc_offset: 0,
             cur_sp_offset: 0,
@@ -184,6 +185,7 @@ impl StackFrame {
     }
 
     /// perform gc collect for stack frame scope
+    #[inline(always)]
     pub(crate) fn gc_collect(&self) {
         if !self.gc_scope_id.is_null() {
             self.rt().gc_collect_scope(self.gc_scope_id);

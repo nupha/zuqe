@@ -110,6 +110,12 @@ unsafe impl GcTracable for ContextImpl {
 
 impl Drop for ContextImpl {
     fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        unsafe {
+            let r = GcRef::<ContextImpl>::from_ref_unchecked(self);
+            log::trace!("[ContextImpl::drop] {:?}", r.node_info());
+        }
+
         self.finalize();
     }
 }

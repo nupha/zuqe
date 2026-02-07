@@ -1,6 +1,6 @@
 use std::{fmt::Formatter, ops::Deref};
 
-use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -173,10 +173,10 @@ pub struct ObjectImpl {
 unsafe impl GcTracable for ObjectImpl {
     fn trace(&self, tr: GcTraceOp) {
         self.shape.trace(tr);
-        self.payload.trace(tr);
         for p in self.prop_values.iter() {
             p.trace(tr);
         }
+        self.payload.trace(tr);
     }
 }
 
@@ -322,7 +322,7 @@ impl ObjectImpl {
             }
         }
 
-        let obj = Self {
+        let data = Self {
             rt: ctx.rt_ptr(),
             obj_flags: flags,
             shape,
@@ -332,7 +332,7 @@ impl ObjectImpl {
             weak_refs: Vec::new(),
         };
 
-        let ob_impl = ctx.rt_ptr().gc_alloc(obj).map_err(|(_, mut o)| {
+        let ob_impl = ctx.rt_ptr().gc_alloc(data).map_err(|(_, mut o)| {
             ctx.throw_out_of_memory();
             std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::Int(0)))
         })?;
@@ -384,68 +384,17 @@ impl ObjectImpl {
         self.payload.class_id()
     }
 
-    /// Test if object `self` can be called like a function, that means value is a:
-    ///
-    /// - bytecode functions
-    /// - native function
-    /// - Proxy objects that wrapping a function
-    /// - Objects of native class which has `call` handler
-    pub fn is_function(&self) -> bool {
-        match &self.payload {
-            ObjectPayload::BYTECODE_FUNCTION(_) => true,
-            #[cfg(feature = "builtin_proxy")]
-            ObjectPayload::PROXY(x) => x.is_func(),
-            isa => {
-                // check if class proto has exotic call handler
-                self.rt()
-                    .class_registry
-                    .get(isa.class_id() as usize)
-                    .and_then(|c| c.call)
-                    .is_some()
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub const fn shape(&self) -> Option<&Shape> {
-        self.shape.as_ref()
-    }
-
-    pub fn set_shape(&mut self, shape: Shape) {
-        #[cfg(debug_assertions)]
-        {
-            debug_assert!(self.rt().is_shape_registered(&shape));
-            debug_assert!(
-                self.shape.as_ref().is_none_or(|sh0| *sh0 != shape),
-                "can't set same shape"
-            );
-        }
-
-        let obj = unsafe { Object::from_ref_unchecked(self) };
-
-        log::trace!(
-            "[object_shape] {:?} : {:?}",
-            obj.gc_ref().node_info(),
-            shape.gc_ref().node_info()
-        );
-
-        let obj_scope = obj.gc_ref().node_info().get_partition_id();
-        if obj_scope != shape.gc_ref().node_info().get_partition_id() {
-            self.rt()
-                .gc_heap_mut()
-                .set_xref(obj_scope, shape.gc_ref().node_ptr());
-        }
-
-        self.shape.replace(shape);
-    }
-
-    pub const fn take_shape(&mut self) -> Option<Shape> {
-        self.shape.take()
-    }
-
     /// Get object class name atom.
+    #[inline(always)]
     pub fn class_name(&self) -> &Atom {
-        &self.rt.class_registry[self.class_id() as usize].class_name
+        debug_assert!((self.class_id() as usize) < self.rt.class_registry.len());
+        unsafe {
+            &self
+                .rt
+                .class_registry
+                .get_unchecked(self.class_id() as usize)
+                .class_name
+        }
     }
 
     /// Get object flags
@@ -495,6 +444,66 @@ impl ObjectImpl {
         self.obj_flags.is_constructor()
     }
 
+    /// Test if object `self` can be called like a function, that means value is a:
+    ///
+    /// - bytecode functions
+    /// - native function
+    /// - Proxy objects that wrapping a function
+    /// - Objects of native class which has `call` handler
+    pub fn is_function(&self) -> bool {
+        match &self.payload {
+            ObjectPayload::BYTECODE_FUNCTION(_) => true,
+            #[cfg(feature = "builtin_proxy")]
+            ObjectPayload::PROXY(x) => x.is_func(),
+            isa => {
+                // check if class proto has exotic call handler
+                self.rt()
+                    .class_registry
+                    .get(isa.class_id() as usize)
+                    .and_then(|c| c.call)
+                    .is_some()
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub const fn shape(&self) -> Option<&Shape> {
+        self.shape.as_ref()
+    }
+
+    #[inline(always)]
+    pub const fn take_shape(&mut self) -> Option<Shape> {
+        self.shape.take()
+    }
+
+    pub fn set_shape(&mut self, shape: Shape) {
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(self.rt().is_shape_registered(&shape));
+            debug_assert!(
+                self.shape.as_ref().is_none_or(|sh0| *sh0 != shape),
+                "can't set same shape"
+            );
+        }
+
+        let obj = unsafe { Object::from_ref_unchecked(self) };
+
+        log::trace!(
+            "[object_shape] {:?} : {:?}",
+            obj.gc_ref().node_info(),
+            shape.gc_ref().node_info()
+        );
+
+        let obj_scope = obj.gc_ref().node_info().get_partition_id();
+        if obj_scope != shape.gc_ref().node_info().get_partition_id() {
+            self.rt()
+                .gc_heap_mut()
+                .set_xref(obj_scope, shape.gc_ref().node_ptr());
+        }
+
+        self.shape.replace(shape);
+    }
+
     /// only Proxy may return Err(-1)
     pub fn prevent_extensions(&mut self, ctx: &ContextImpl) -> Result<bool, i32> {
         #[cfg(feature = "builtin_proxy")]
@@ -520,8 +529,8 @@ impl ObjectImpl {
     fn finalize(&mut self) {
         let mut rt = self.rt();
 
-        // self.shape.take()
-        // self.prop_values.clear();
+        self.shape.take();
+        self.prop_values.clear();
 
         // Map Set object remove weakref
         #[cfg(feature = "builtin_mapset")]

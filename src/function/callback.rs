@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
     atom::Atom,
@@ -81,16 +81,18 @@ impl PartialEq for Callback {
 }
 
 #[derive(Debug, Clone)]
-pub struct NFuncPayload {
-    pub handler: Callback,
-    pub realm: GcWeak<ContextImpl>,
-    pub length: u8,
-    pub magic: i16,
+pub(crate) struct NFuncPayload {
+    pub(crate) callback: Callback,
+    pub(crate) realm: ContextPtr, // GcWeak<ContextImpl>,
+    pub(crate) length: u8,
+    pub(crate) magic: i16,
 }
 
 unsafe impl GcTracable for NFuncPayload {
     #[inline(always)]
-    fn trace(&self, _: GcTraceOp) {}
+    fn trace(&self, tr: GcTraceOp) {
+        self.realm.trace(tr);
+    }
 }
 
 impl NFuncPayload {
@@ -104,14 +106,14 @@ impl NFuncPayload {
         let mut rt = ctx.rt_ptr();
         let func_obj = Object::try_from(func).unwrap();
 
+        #[cfg(debug_assertions)]
+        ctx.rt_ref()
+            .gc_heap()
+            .debug_assert_node_valid(func_obj.gc_ref().node_ptr(), true);
+
         let (callback, arg_length, magic, realm) =
             if let ObjectPayload::C_FUNCTION(c) = func_obj.payload() {
-                (
-                    c.handler,
-                    c.length,
-                    c.magic,
-                    ContextPtr::from(c.realm.upgrade(rt.gc_heap()).unwrap()),
-                )
+                (c.callback, c.length, c.magic, c.realm)
             } else {
                 unreachable!()
             };
@@ -257,7 +259,7 @@ impl ObjectImpl {
     /// Matches both the callback pointer and magic.
     pub fn match_native_callback(&self, callback: Callback, magic: i32) -> bool {
         if let ObjectPayload::C_FUNCTION(cfunc) = self.payload() {
-            cfunc.magic == magic as i16 && callback.eq(&cfunc.handler)
+            cfunc.magic == magic as i16 && callback.eq(&cfunc.callback)
         } else {
             false
         }
@@ -291,10 +293,10 @@ impl ContextImpl {
             .create_object_with_proto(
                 proto,
                 ObjectPayload::C_FUNCTION(NFuncPayload {
-                    handler: call,
+                    callback: call,
                     length,
                     magic,
-                    realm: unsafe { ContextPtr::from_ref_unchecked(self).downgrade() },
+                    realm: unsafe { ContextPtr::from_ref_unchecked(self) },
                 }),
             )
             .map_err(|_| -1)?;

@@ -46,20 +46,28 @@ pub fn js_build_arguments(ctx: &ContextImpl, args: &[JSValue]) -> JSValue {
     )
     .unwrap();
 
-    if !args.is_empty() {
+    if !args.is_empty() && obj.is_fast_array() {
         // initialize fast array values
-        if obj
-            .with_fast_array_values_mut(|lst| -> Result<(), i32> {
-                lst.try_reserve_exact(args.len()).map_err(|_| -1)?;
-                lst.extend(args.iter().cloned());
-                Ok(())
-            })
-            .unwrap()
-            .is_err()
-        {
+        let xref = obj.gc_ref().node_info().get_partition_id();
+        let arr_data = obj.as_Array_mut().unwrap().payload_mut();
+        if arr_data.reserve(args.len()).is_err() {
             ctx.throw_out_of_memory();
             return JSValue::EXCEPTION;
-        };
+        }
+        arr_data.extend(&mut ctx.rt_ptr(), args.iter().copied(), xref);
+
+        // if obj
+        //     .with_fast_array_values_mut(|lst| -> Result<(), i32> {
+        //         lst.try_reserve_exact(args.len()).map_err(|_| -1)?;
+        //         lst.extend(args.iter().cloned());
+        //         Ok(())
+        //     })
+        //     .unwrap()
+        //     .is_err()
+        // {
+        //     ctx.throw_out_of_memory();
+        //     return JSValue::EXCEPTION;
+        // };
     }
 
     #[cfg(feature = "builtin_symbol")]
@@ -109,12 +117,11 @@ pub fn js_build_mapped_arguments(
     )?;
 
     for i in 0..arg_count {
-        let vref = sf.get_var_ref(ctx, i as _, true)?;
         obj.add_own_property(
             ctx,
             Atom::new_small_int(i as u32),
             JS_PROP_C_W_E | JS_PROP_VARREF,
-            JSProperty::VarRef(vref),
+            JSProperty::VarRef(sf.get_var_ref(ctx, i as _, true)?),
         )?;
     }
 
@@ -144,37 +151,51 @@ pub fn js_build_mapped_arguments(
 
 // XXX: should use ValueArray
 pub fn build_arg_list(ctx: &ContextImpl, array_arg: JSValue) -> Result<Box<[JSValue]>, i32> {
-    if unlikely(!array_arg.is_object()) {
+    let Some(array_arg) = array_arg.as_object().copied() else {
         ctx.throw_type_error_not_an_object();
-        Err(-1)
-    } else {
-        let len = array_arg.get_length_prop(ctx)? as u32;
-        if len > JS_MAX_LOCAL_VARS as u32 {
-            ctx.throw_internal_error("too many arguments");
-            return Err(-1);
-        }
+        return Err(-1);
+    };
 
-        let mut tab = Vec::<JSValue>::new();
-        tab.try_reserve_exact(len as usize).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-
-        if unsafe { array_arg.as_object_unchecked() }
-            .with_fast_array_values(|a| {
-                if a.len() == len as usize {
-                    // fast array: clone values
-                    tab.extend(a.iter().cloned());
-                }
-            })
-            .is_none()
-        {
-            // slow array
-            for i in 0..len {
-                tab.push(array_arg.get_property_u32(ctx, i)?);
-            }
-        }
-
-        Ok(tab.into_boxed_slice())
+    let length = array_arg.get_length_prop(ctx)? as u32;
+    if length > JS_MAX_LOCAL_VARS as u32 {
+        ctx.throw_internal_error("too many arguments");
+        return Err(-1);
     }
+
+    let mut lst = Vec::<JSValue>::new();
+    lst.try_reserve_exact(length as usize).map_err(|_| {
+        ctx.throw_out_of_memory();
+        -1
+    })?;
+
+    if array_arg.is_fast_array()
+        && let Some(arr_data) = array_arg.payload().array()
+    {
+        // fast array
+        debug_assert_eq!(arr_data.len(), length as usize);
+        lst.extend(arr_data.values().iter().copied());
+    } else {
+        // slow path
+        for i in 0..length {
+            lst.push(array_arg.get_property_u32(ctx, i)?);
+        }
+    }
+
+    // LEGACY
+    // if array_arg
+    //     .with_fast_array_values(|a| {
+    //         if a.len() == len as usize {
+    //             // fast array: clone values
+    //             tab.extend(a.iter().cloned());
+    //         }
+    //     })
+    //     .is_none()
+    // {
+    //     // slow array
+    //     for i in 0..len {
+    //         tab.push(array_arg.get_property_u32(ctx, i)?);
+    //     }
+    // }
+
+    Ok(lst.into_boxed_slice())
 }

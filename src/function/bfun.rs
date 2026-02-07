@@ -101,10 +101,12 @@ pub struct BCFuncPayload {
 }
 
 unsafe impl GcTracable for BCFuncPayload {
-    fn trace(&self, mut tr: GcTraceOp) {
-        tr.add(self.bytecode.gc_ref());
-        self.var_refs.iter().for_each(|x| x.trace(tr));
+    fn trace(&self, tr: GcTraceOp) {
+        self.bytecode.trace(tr);
         self.home_object.trace(tr);
+        for vr in self.var_refs.iter() {
+            vr.trace(tr);
+        }
     }
 }
 
@@ -199,10 +201,7 @@ impl ObjectImpl {
     /// return realm context of the function object
     pub(crate) fn realm(&self, default: ContextPtr) -> Result<ContextPtr, i32> {
         match self.payload() {
-            ObjectPayload::C_FUNCTION(cfunc) => Ok(cfunc
-                .realm
-                .upgrade(default.rt_ptr().gc_heap())
-                .map_or(default, ContextPtr::from)),
+            ObjectPayload::C_FUNCTION(cfunc) => Ok(cfunc.realm),
             ObjectPayload::BYTECODE_FUNCTION(fo)
             | ObjectPayload::GENERATOR_FUNCTION(fo)
             | ObjectPayload::ASYNC_FUNCTION(fo)

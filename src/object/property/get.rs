@@ -22,7 +22,16 @@ impl Object {
         this_obj: JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
-        debug_assert!(self.gc_ref().node_info().test_valid(), "[O.o]");
+        log::trace!(
+            "[get_property_internal] {:?}, class_id={}",
+            self.gc_ref().node_info(),
+            self.class_id()
+        );
+
+        #[cfg(debug_assertions)]
+        ctx.rt_ref()
+            .gc_heap()
+            .debug_assert_node_valid(self.gc_ref().node_ptr(), true);
 
         for mut cur_obj in self.shape_proto_iter(true) {
             'redo: loop {
@@ -63,7 +72,7 @@ impl Object {
                         }
                         JS_PROP_LAZYINIT => {
                             // instantiate lazy object
-                            let val = cur_obj.prop_slot_mut(idx).instantiate(ctx.rt_ref(), *self);
+                            let val = cur_obj.prop_slot_mut(idx).instantiate(ctx, *self);
                             // modify shape property kind to NORMAL
                             cur_obj.modify_shape_property_index_flags(ctx, idx, |f| {
                                 f & !JS_PROP_TMASK
@@ -176,17 +185,11 @@ impl Object {
 
         match self.class_id() {
             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                if let Some(el) = self
-                    .with_fast_array_values(|lst| {
-                        if idx < lst.len() {
-                            Some(lst[idx]) // return element value
-                        } else {
-                            None // try slow path later
-                        }
-                    })
-                    .flatten()
-                {
-                    return Some(Ok(el));
+                if self.is_fast_array() {
+                    let arr_data = self.payload().array().unwrap();
+                    if let Some(&el) = arr_data.values().get(idx) {
+                        return Some(Ok(el));
+                    }
                 }
             }
 

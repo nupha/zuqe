@@ -278,42 +278,37 @@ pub(super) unsafe fn js_append_enumerate(ctx: &ContextImpl, sp: *mut JSValue) ->
 
     let it = src.iter(ctx)?;
 
-    let is_sparse_array = if is_array_iterator
+    let mut fast_done = false;
+    if is_array_iterator
         && it
             .next_method
             .match_native_callback(Callback::IteratorNext(js_array_iterator_next), 0)
     {
         // fast path: fast array
-        src.with_fast_array_values(|lst| -> Result<bool, i32> {
-            if lst.len() == len {
-                // `src` is a fast array
-                for v in lst {
-                    dest.define_property_value_u32(ctx, pos as _, *v, JS_PROP_C_W_E)?;
-                    pos += 1;
-                }
-                Ok(false) // early exit for fast path (don't go slow path)
-            } else {
-                Ok(true) // try slow path
+        if src.is_fast_array()
+            && let Some(arr_data) = src.as_object_Array().map(|a| a.payload())
+            && arr_data.len() == len
+        {
+            for v in arr_data.values() {
+                dest.define_property_value_u32(ctx, pos as _, *v, JS_PROP_C_W_E)?;
+                pos += 1;
             }
-        })
-        .unwrap_or(Ok(true))?
-    } else {
-        true
-    };
+            fast_done = true;
+        }
+    }
 
-    if is_sparse_array {
-        // slow path for sparse array, use iterator
+    if !fast_done {
+        // slow path: use iterator for sparse array
         for value in it {
             dest.define_property_value_u32(ctx, pos as _, value?, JS_PROP_C_W_E)?;
             pos += 1;
         }
     }
 
-    // update end index to SP[-2]
+    // put end index (pos) to SP[-2]
     unsafe {
         std::ptr::replace(sp.offset(-2), JSValue::Int(pos));
     }
-
     Ok(())
 }
 

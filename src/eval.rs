@@ -330,8 +330,7 @@ impl ContextImpl {
         };
 
         if let Ok(Some(n)) = result.as_ref().map(|v| v.gc_node_ptr()) {
-            rt.gc_heap_mut()
-                .set_root(unsafe { GcRef::from_head_ptr(n) }, true);
+            rt.gc_heap_mut().set_root_node(n, true);
         }
 
         // tick to finish

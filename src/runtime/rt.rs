@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHead, GcHeap, GcPartition, GcPartitionId, GcTraceOp, GcWeak};
+use gc_lite::{GcHeap, GcPartition, GcPartitionId, GcTraceOp, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
@@ -363,7 +363,7 @@ impl RuntimeImpl {
     }
 
     fn finalize(&mut self) {
-        log::trace!("[rt_fin]");
+        log::trace!("[rt_fin] {self:p}");
 
         debug_assert!(self.cur_stack_frame.is_null());
 
@@ -373,25 +373,23 @@ impl RuntimeImpl {
 
         // remove root partition: dealloc all nodes live in it.
         let root_scope_id = self.gc_root_scope;
-
-        if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
-            // purge all gc objects except ShapeImpl
-            self.gc_heap_mut()
-                .sweep(root_scope_id, |node| node.gc_type_id() != type_shape);
-        }
-
-        // purge all rest nodes
-        self.gc_heap_mut()
-            .sweep(root_scope_id, GcHeap::SWEEP_UNMARKED_FUNC);
-
-        debug_assert_eq!(
-            self.gc_heap().nodes_iter(root_scope_id).count(),
-            0,
-            "should not have live gc nodes"
-        );
-
         self.gc_part = std::ptr::null_mut();
-        self.gc_heap.remove_partition(root_scope_id);
+        self.gc_heap_mut().remove_partition(root_scope_id);
+
+        // if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
+        //     // purge all gc objects except ShapeImpl
+        //     self.gc_heap_mut()
+        //         .sweep(root_scope_id, |node| node.gc_dtype() != type_shape);
+        // }
+        // // purge all rest nodes
+        // self.gc_heap_mut()
+        //     .sweep(root_scope_id, GcHeap::SWEEP_UNMARKED_FUNC);
+
+        // debug_assert_eq!(
+        //     self.gc_heap().nodes_iter(root_scope_id).count(),
+        //     0,
+        //     "should not have live gc nodes"
+        // );
     }
 }
 

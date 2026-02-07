@@ -27,6 +27,13 @@ pub enum StringData {
     Ident,
 }
 
+#[cfg(debug_assertions)]
+impl Drop for StringData {
+    fn drop(&mut self) {
+        log::trace!("StringData::drop() {self:?}");
+    }
+}
+
 impl PartialEq for StringData {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

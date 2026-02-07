@@ -1,4 +1,4 @@
-use gc_lite::{GcPartitionId, GcTracable, GcTraceOp};
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
@@ -228,7 +228,7 @@ impl FunctionDef {
 
 impl Bytecode {
     /// Create function (a.k.a. closure) with `self` Bytecode and captured variables.
-    pub fn make_closure(
+    pub(crate) fn make_closure(
         &self,
         ctx: &ContextImpl,
         cur_var_refs: &[JSVarRef],

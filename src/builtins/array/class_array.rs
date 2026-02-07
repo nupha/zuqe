@@ -146,7 +146,7 @@ pub fn JS_isConcatSpreadable(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i
 
 fn js_array_at(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
-    let obj: JSValue = cc.this().objectify(ctx)?.into();
+    let obj = cc.this().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
 
     let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
@@ -154,19 +154,36 @@ fn js_array_at(cc: CallContext) -> JSResult {
         idx += len;
     }
 
-    let ret: JSValue = if idx < 0 || idx >= len {
-        JSValue::UNDEFINED // bad index
-    } else if let Some(val) = obj
-        .with_fast_array_values(|lst| lst.get(idx as usize).cloned())
-        .flatten()
-    {
-        // fast array element
-        val
+    let ret = if (0..len).contains(&idx) {
+        let mut val: Option<JSValue> = if obj.is_fast_array()
+            && let Some(a) = obj.payload().array()
+        {
+            a.values().get(idx as usize).copied()
+        } else {
+            None
+        };
+        if val.is_none() {
+            val = obj.try_get_property_i64(ctx, idx)?;
+        }
+        val.unwrap_or(JSValue::UNDEFINED)
     } else {
-        // sparse array
-        obj.try_get_property_i64(ctx, idx)?
-            .unwrap_or(JSValue::UNDEFINED)
+        JSValue::UNDEFINED
     };
+
+    // LEGACY
+    // let ret: JSValue = if idx < 0 || idx >= len {
+    //     JSValue::UNDEFINED // bad index
+    // } else if let Some(val) = obj
+    //     .with_fast_array_values(|lst| lst.get(idx as usize).cloned())
+    //     .flatten()
+    // {
+    //     // fast array element
+    //     val
+    // } else {
+    //     // sparse array
+    //     obj.try_get_property_i64(ctx, idx)?
+    //         .unwrap_or(JSValue::UNDEFINED)
+    // };
 
     Ok(ret)
 }
@@ -189,16 +206,23 @@ fn js_array_with(cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let new_lst = if let Some(dst) = obj.with_fast_array_values(|src| {
+    let new_lst = if obj.is_fast_array()
+        && let Some(src) = obj.as_Array().map(|a| a.payload())
+    {
         // `this` is fast array: copy list
         debug_assert_eq!(src.len(), len as usize);
-        src.iter().cloned().try_collect::<Vec<JSValue>>()
-    }) {
-        let mut dst = dst.map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-        // modified element
+
+        let mut dst = src
+            .values()
+            .iter()
+            .copied()
+            .try_collect::<Vec<JSValue>>()
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+
+        // modify element
         dst[idx as usize] = *cc.arg(1);
         dst
     } else {
@@ -250,6 +274,68 @@ fn js_array_with(cc: CallContext) -> JSResult {
         }
         dst
     };
+
+    // let new_lst = if let Some(dst) = obj.with_fast_array_values(|src| {
+    //     // `this` is fast array: copy list
+    //     debug_assert_eq!(src.len(), len as usize);
+    //     src.iter().cloned().try_collect::<Vec<JSValue>>()
+    // }) {
+    //     let mut dst = dst.map_err(|_| {
+    //         ctx.throw_out_of_memory();
+    //         -1
+    //     })?;
+    //     // modified element
+    //     dst[idx as usize] = *cc.arg(1);
+    //     dst
+    // } else {
+    //     // slow path
+    //     let mut dst = Vec::<JSValue>::new();
+    //     dst.try_reserve_exact(len as usize).map_err(|_| {
+    //         ctx.throw_out_of_memory();
+    //         -1
+    //     })?;
+
+    //     for i in 0..idx {
+    //         match obj.try_get_property_i64(ctx, i) {
+    //             Ok(Some(v)) => {
+    //                 dst.push(v);
+    //             }
+    //             Ok(None) => {
+    //                 dst.push(JSValue::UNDEFINED);
+    //             }
+    //             Err(_) => {
+    //                 // fill rest with undefined
+    //                 for _ in i..len {
+    //                     dst.push(JSValue::UNDEFINED);
+    //                 }
+    //                 return Err(-1);
+    //             }
+    //         }
+    //     }
+
+    //     // the modified element
+    //     dst.push(*cc.arg(1));
+
+    //     // idx+1..end
+    //     for i in (idx + 1)..len {
+    //         match obj.try_get_property_i64(ctx, i) {
+    //             Ok(Some(v)) => {
+    //                 dst.push(v);
+    //             }
+    //             Ok(None) => {
+    //                 dst.push(JSValue::UNDEFINED);
+    //             }
+    //             Err(_) => {
+    //                 // fill rest with undefined
+    //                 for _ in i..len {
+    //                     dst.push(JSValue::UNDEFINED);
+    //                 }
+    //                 return Err(-1);
+    //             }
+    //         }
+    //     }
+    //     dst
+    // };
 
     debug_assert_eq!(new_lst.len(), len as usize);
 
@@ -595,12 +681,11 @@ fn js_array_find(cc: CallContext) -> JSResult {
 
 fn js_array_indexOf(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
-    let obj: JSValue = cc.this().objectify(ctx)?.into();
-    let len = obj.get_length_prop(ctx)?;
+    let this = cc.this().objectify(ctx)?;
+    let len = this.get_length_prop(ctx)?;
 
-    let mut res = -1;
     if len > 0 {
-        let mut n = if cc.length() > 1 {
+        let start = if cc.length() > 1 {
             cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
         } else {
             0
@@ -608,37 +693,31 @@ fn js_array_indexOf(cc: CallContext) -> JSResult {
 
         let target = *cc.arg(0);
 
-        // try fast array
-        let found = obj
-            .with_fast_array_values(|lst| {
-                let start = n as usize;
-                for (i, el) in lst[start..].iter().enumerate() {
-                    if target.strict_eq_with_mode(*el, StrictEqMode::JS_EQ_STRICT) {
-                        return Some(start + i); // found
-                    }
-                }
-                None
+        // fast path: fast array
+        if this.is_fast_array()
+            && let Some((i, _)) = this.payload().array().and_then(|a| {
+                a.values()
+                    .iter()
+                    .enumerate()
+                    .skip(start as usize)
+                    .find(|(_, v)| target.strict_eq_with_mode(**v, StrictEqMode::JS_EQ_STRICT))
             })
-            .flatten();
-
-        if let Some(i) = found {
+        {
             return Ok(JSValue::from(i as u32));
         }
 
-        // try properties
-        while n < len {
-            if let Some(v) = obj.try_get_property_i64(ctx, n)? {
-                let b = target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT);
-                if b {
-                    res = n;
-                    break;
-                }
+        // slow path
+        for i in start..len {
+            if this
+                .try_get_property_i64(ctx, i)?
+                .is_some_and(|v| target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT))
+            {
+                return Ok(JSValue::from(i as u32));
             }
-            n += 1;
         }
     }
 
-    Ok(JSValue::from(res))
+    Ok(JSValue::Int(-1)) // -1 means not found
 }
 
 pub(crate) fn js_array_lastIndexOf(cc: CallContext) -> JSResult {
@@ -678,48 +757,40 @@ fn js_array_includes(cc: CallContext) -> JSResult {
     let length = obj.get_length_prop(ctx)?;
     let target = cc.arg(0);
 
-    let mut res = false;
-
     if length > 0 {
-        let mut n = if cc.length() > 1 {
+        let start = if cc.length() > 1 {
             cc.arg(1).to_i64_clamp(ctx, 0, length, length)?
         } else {
             0
         };
 
-        if let Some(found) = obj.with_fast_array_values(|lst| {
-            let start = n as usize;
-            for el in &lst[start..] {
-                if target.strict_eq_with_mode(*el, StrictEqMode::JS_EQ_SAME_VALUE_ZERO) {
-                    return true;
-                }
+        // fast path: fast array
+        if obj.is_fast_array()
+            && let Some(arr_data) = obj.payload().array()
+        {
+            if arr_data
+                .values()
+                .iter()
+                .skip(start as usize)
+                .any(|&el| target.strict_eq_with_mode(el, StrictEqMode::JS_EQ_SAME_VALUE_ZERO))
+            {
+                return Ok(JSValue::Bool(true));
+            } else if target.is_undefined() && arr_data.len() < length as usize {
+                // fast array has less elements than prop `length` suggests includes `undefined`
+                return Ok(JSValue::Bool(true));
             }
-
-            if target.is_undefined() && lst.len() < length as usize {
-                // fast array has less elements than prop `length` suggests
-                // includes `undefined`
-                true
-            } else {
-                false
-            }
-        }) {
-            // early exit for fast array
-            return Ok(JSValue::Bool(found));
         }
 
-        // sparse array
-        while n < length {
-            let val = obj.get_property_i64(ctx, n)?;
-            let b = target.strict_eq_with_mode(val, StrictEqMode::JS_EQ_SAME_VALUE_ZERO);
-            if b {
-                res = true;
-                break;
+        // slow path: sparse array
+        for i in start..length {
+            let val = obj.get_property_i64(ctx, i)?;
+            if target.strict_eq_with_mode(val, StrictEqMode::JS_EQ_SAME_VALUE_ZERO) {
+                return Ok(JSValue::Bool(true));
             }
-            n += 1;
         }
     }
 
-    Ok(JSValue::Bool(res))
+    Ok(JSValue::Bool(false)) // not found
 }
 
 pub(crate) fn js_array_join(cc: CallContext) -> JSResult {
@@ -788,45 +859,69 @@ pub(crate) fn js_array_toString(cc: CallContext) -> JSResult {
 pub(crate) fn js_array_pop(cc: CallContext) -> JSResult {
     let shift = cc.magic() == 1;
     let cx = cc.ctx();
+    let mut this = cc.this().objectify(cx)?;
 
-    let mut obj = cc.this().objectify(cx)?;
-    let arr_len = obj.get_length_prop(cx)?;
+    let length = this.get_length_prop(cx)?;
 
     let mut res = JSValue::UNDEFINED;
     let mut new_len = 0;
 
-    if arr_len > 0 {
-        new_len = arr_len - 1;
+    if length > 0 {
+        new_len = length - 1;
 
-        if let Some(r) = obj
-            .with_fast_array_values_mut(|lst| {
-                if lst.len() == arr_len as usize {
-                    Some(if shift {
-                        lst.remove(0)
-                    } else {
-                        lst.pop().unwrap()
-                    })
-                } else {
-                    None
-                }
-            })
-            .flatten()
+        res = if this.is_fast_array()
+            && let Some(arr_data) = this.payload_mut().array_mut()
         {
-            // fast array pop/shift
-            res = r;
+            // fast array
+            debug_assert_eq!(arr_data.len(), length as usize);
+            if shift {
+                arr_data.remove(0)
+            } else {
+                arr_data.pop().unwrap()
+            }
         } else {
             // slow path
-            if shift {
-                res = obj.get_property_i64(cx, 0)?;
-                copy_sub_array(cx, &mut obj, 0, 1, arr_len as usize - 1, 1)?;
+            let val = if shift {
+                let v = this.get_property_i64(cx, 0)?;
+                copy_sub_array(cx, &mut this, 0, 1, length as usize - 1, 1)?;
+                v
             } else {
-                res = obj.get_property_i64(cx, new_len)?;
-            }
-            obj.delete_property_i64(cx, new_len, JS_PROP_THROW)?;
-        }
+                this.get_property_i64(cx, new_len)?
+            };
+            this.delete_property_i64(cx, new_len, JS_PROP_THROW)?;
+            val
+        };
+
+        // LEGACY
+        // if let Some(r) = obj
+        //     .with_fast_array_values_mut(|lst| {
+        //         if lst.len() == arr_len as usize {
+        //             Some(if shift {
+        //                 lst.remove(0)
+        //             } else {
+        //                 lst.pop().unwrap()
+        //             })
+        //         } else {
+        //             None
+        //         }
+        //     })
+        //     .flatten()
+        // {
+        //     // fast array pop/shift
+        //     res = r;
+        // } else {
+        //     // slow path
+        //     if shift {
+        //         res = obj.get_property_i64(cx, 0)?;
+        //         copy_sub_array(cx, &mut obj, 0, 1, arr_len as usize - 1, 1)?;
+        //     } else {
+        //         res = obj.get_property_i64(cx, new_len)?;
+        //     }
+        //     obj.delete_property_i64(cx, new_len, JS_PROP_THROW)?;
+        // }
     }
 
-    obj.set_property(cx, Atom::CONST_length, JSValue::from(new_len))?;
+    this.set_property(cx, Atom::CONST_length, JSValue::from(new_len))?;
     Ok(res)
 }
 
@@ -860,26 +955,20 @@ pub(crate) fn js_array_push(cc: CallContext) -> JSResult {
 
 fn js_array_reverse(cc: CallContext) -> JSResult {
     let cx = cc.ctx();
-    let mut obj: JSValue = cc.this().objectify(cx)?.into();
-    let len = obj.get_length_prop(cx)?;
+    let mut this = cc.this().objectify(cx)?;
+    let len = this.get_length_prop(cx)?;
 
     if len <= 1 {
-        return Ok(obj);
+        return Ok(this.into());
     }
 
-    // try fast array
-    let done = obj
-        .with_fast_array_values_mut(|lst| {
-            if lst.len() == len as usize {
-                lst.reverse();
-                true
-            } else {
-                false
-            }
-        })
-        .unwrap_or(false);
-    if done {
-        return Ok(obj); // fast array, done
+    // fast array
+    if this.is_fast_array()
+        && let Some(arr_data) = this.as_Array_mut().map(|a| a.payload_mut())
+        && arr_data.len() == len as usize
+    {
+        arr_data.values_mut().reverse();
+        return Ok(this.into()); // fast path exit
     }
 
     // slow array
@@ -889,7 +978,7 @@ fn js_array_reverse(cc: CallContext) -> JSResult {
     let mut hval = JSValue::UNDEFINED;
 
     while l < h {
-        let l_present = match obj.try_get_property_i64(cx, l)? {
+        let l_present = match this.try_get_property_i64(cx, l)? {
             Some(v) => {
                 lval = v;
                 true
@@ -897,7 +986,7 @@ fn js_array_reverse(cc: CallContext) -> JSResult {
             None => false,
         };
 
-        let h_present = match obj.try_get_property_i64(cx, h)? {
+        let h_present = match this.try_get_property_i64(cx, h)? {
             Some(v) => {
                 hval = v;
                 true
@@ -906,17 +995,17 @@ fn js_array_reverse(cc: CallContext) -> JSResult {
         };
 
         if h_present {
-            obj.set_property_i64(cx, l, hval)?;
+            this.set_property_i64(cx, l, hval)?;
 
             if l_present {
-                obj.set_property_i64(cx, h, lval)?;
+                this.set_property_i64(cx, h, lval)?;
                 lval = JSValue::UNDEFINED;
             } else {
-                obj.delete_property_i64(cx, h, JS_PROP_THROW)?;
+                this.delete_property_i64(cx, h, JS_PROP_THROW)?;
             }
         } else if l_present {
-            obj.delete_property_i64(cx, l, JS_PROP_THROW)?;
-            obj.set_property_i64(cx, h, lval)?;
+            this.delete_property_i64(cx, l, JS_PROP_THROW)?;
+            this.set_property_i64(cx, h, lval)?;
             lval = JSValue::UNDEFINED;
         }
 
@@ -924,57 +1013,60 @@ fn js_array_reverse(cc: CallContext) -> JSResult {
         h -= 1;
     }
 
-    Ok(obj)
+    Ok(this.into())
 }
 
 fn js_array_toReversed(cc: CallContext) -> JSResult {
-    let cx = cc.ctx();
+    let ctx = cc.ctx();
+    let this = cc.this().objectify(ctx)?;
 
-    let this = cc.this().objectify(cx)?;
     let len = {
-        let n = this.get_length_prop(cx)?;
+        let n = this.get_length_prop(ctx)?;
         if n > u32::MAX as i64 {
-            cx.throw_range_error("invalid array length");
+            ctx.throw_range_error("invalid array length");
             return Err(-1);
         } else {
             n as u32
         }
     };
 
-    let fa = if len > 0 {
-        if this.flags().is_fast_array() {
-            // fast array
-            let rlst = this
-                .with_fast_array_values(|lst| lst.iter().rev().cloned().try_collect::<Vec<_>>())
-                .unwrap()
+    // make new array values list
+    let new_lst: Vec<JSValue> = if len > 0 {
+        if this.is_fast_array()
+            && let Some(arr_data) = this.payload().array()
+        {
+            // fast path
+            arr_data
+                .values()
+                .iter()
+                .rev()
+                .copied()
+                .try_collect::<Vec<JSValue>>()
                 .map_err(|_| {
-                    cx.throw_out_of_memory();
+                    ctx.throw_out_of_memory();
                     -1
-                })?;
-            cx.create_array_with_values(rlst)
+                })?
         } else {
-            // sparse array
-            let mut rlst = Vec::<JSValue>::new();
-            rlst.try_reserve_exact(len as usize).map_err(|_| {
-                cx.throw_out_of_memory();
+            // slow path
+            let mut lst = Vec::<JSValue>::new();
+            lst.try_reserve_exact(len as usize).map_err(|_| {
+                ctx.throw_out_of_memory();
                 -1
             })?;
-
             // Query order is observable; test262 expects descending order.
             for i in (0..len).rev() {
-                rlst.push(
-                    this.try_get_property_i64(cx, i as i64)?
+                lst.push(
+                    this.try_get_property_i64(ctx, i as i64)?
                         .unwrap_or(JSValue::UNDEFINED),
                 );
             }
-            cx.create_array_with_values(rlst)
+            lst
         }
     } else {
-        // empty array
-        cx.create_array()
+        Vec::new()
     };
 
-    fa.map(|a| a.into())
+    ctx.create_array_with_values(new_lst).map(JSValue::from)
 }
 
 fn js_array_sort(cc: CallContext) -> JSResult {
@@ -1007,36 +1099,39 @@ fn js_array_toSorted(cc: CallContext) -> JSResult {
         }
     };
 
-    let obj = cc.this().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+    let this = cc.this().objectify(ctx)?;
+    let len = this.get_length_prop(ctx)?;
     if len > u32::MAX as i64 {
         ctx.throw_range_error("invalid array length");
         return Err(-1);
     }
 
     let new_lst: Vec<JSValue> = if len > 0 {
-        if let Some(dst) = obj.with_fast_array_values(|src| {
-            // `this` is fast array
-            debug_assert_eq!(src.len(), len as usize);
-            src.iter().cloned().try_collect::<Vec<JSValue>>()
-        }) {
-            // fast path
-            dst.map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?
+        if this.is_fast_array()
+            && let Some(arr_data) = this.payload().array()
+        {
+            debug_assert_eq!(arr_data.len(), len as usize);
+            arr_data
+                .values()
+                .iter()
+                .copied()
+                .try_collect::<Vec<JSValue>>()
+                .map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?
         } else {
             // slow path
-            let mut dst = Vec::<JSValue>::new();
-            dst.try_reserve_exact(len as usize).map_err(|_| {
+            let mut lst = Vec::<JSValue>::new();
+            lst.try_reserve_exact(len as usize).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
             for i in 0..len {
-                let v = obj.try_get_property_i64(ctx, i)?;
-                dst.push(v.unwrap_or(JSValue::UNDEFINED));
+                let v = this.try_get_property_i64(ctx, i)?;
+                lst.push(v.unwrap_or(JSValue::UNDEFINED));
             }
-            dst
+            lst
         }
     } else {
         Vec::new()
@@ -1089,62 +1184,46 @@ pub(crate) fn js_array_slice(cc: CallContext) -> JSResult {
 
     // make return Array
     let len_val = JSValue::from(count);
-    let mut arr = JS_ArraySpeciesCreate(cc.ctx_ptr(), obj.into(), len_val)?;
+    let mut res_arr = JS_ArraySpeciesCreate(cc.ctx_ptr(), obj.into(), len_val)?;
 
     let mut k = start;
     let mut n = 0;
 
     // Special case fast arrays
-    if arr.is_fast_array()
-        && let Some(r) = obj.with_fast_array_values(|lst| -> Result<(), i32> {
-            // fast code
-            let items = lst
-                .iter()
-                .skip(start as usize)
-                .take(count as usize)
-                .cloned()
-                .try_collect::<Vec<_>>()
-                .map_err(|_| {
-                    cx.throw_out_of_memory();
-                    -1
-                })?;
-            if !items.is_empty() {
-                n = items.len() as i64;
-                k += n;
-                arr.as_object_Array_mut()
-                    .unwrap()
-                    .reset_fast_array(cx, items)?;
-            }
-
-            // generic code
-            // let len = lst.len() as i64;
-            // while k < end && k < len {
-            //     arr.define_property_value_i64(
-            //         ctx,
-            //         n,
-            //         lst[k as usize].clone(),
-            //         JS_PROP_C_W_E | JS_PROP_THROW,
-            //     )?;
-            //     k += 1;
-            //     n += 1;
-            // }
-
-            Ok(())
-        })
+    if let Some(arr1) = res_arr.as_object_Array_mut()
+        && arr1.is_fast_array()
+        && obj.is_fast_array()
+        && let Some(arr_data) = obj.payload_mut().array_mut()
     {
-        r?;
+        let lst = arr_data
+            .values()
+            .iter()
+            .skip(start as usize)
+            .take(count as usize)
+            .copied()
+            .try_collect::<Vec<_>>()
+            .map_err(|_| {
+                cx.throw_out_of_memory();
+                -1
+            })?;
+
+        if !lst.is_empty() {
+            n = lst.len() as i64;
+            k += n;
+            arr1.set_fast_array_values(cx, lst)?;
+        }
     }
 
     // Copy the remaining elements if any (handle case of inherited properties)
     while k < end {
         if let Some(v) = obj.try_get_property_i64(cx, k)? {
-            arr.define_property_value_i64(cx, n, v, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            res_arr.define_property_value_i64(cx, n, v, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }
         k += 1;
         n += 1;
     }
 
-    arr.set_property(cx, Atom::CONST_length, JSValue::from(n))?;
+    res_arr.set_property(cx, Atom::CONST_length, JSValue::from(n))?;
 
     if is_splice {
         let new_len = len + item_count as i64 - del_count;
@@ -1174,13 +1253,13 @@ pub(crate) fn js_array_slice(cc: CallContext) -> JSResult {
         obj.set_property(cx, Atom::CONST_length, JSValue::from(new_len))?;
     }
 
-    Ok(arr)
+    Ok(res_arr)
 }
 
 fn js_array_toSpliced(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
 
-    let obj = cc.this().objectify(ctx)?;
+    let mut obj = cc.this().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
 
     let start = if cc.length() > 0 {
@@ -1208,72 +1287,124 @@ fn js_array_toSpliced(cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    // create result array
-    let mut res_arr = ctx.create_array_with_capacity(std::cmp::max(new_len, 0) as usize)?;
-    if new_len <= 0 {
-        return Ok(res_arr.into());
+    let mut new_lst = Vec::<JSValue>::new();
+    new_lst
+        .try_reserve_exact(std::cmp::max(new_len, 0) as usize)
+        .map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+
+    if new_len > 0 {
+        if obj.is_fast_array()
+            && let Some(arr_data) = obj.as_Array_mut().map(|a| a.payload_mut())
+            && arr_data.len() == len as usize
+        {
+            // fast array
+            new_lst.extend(arr_data.values().iter().take(start as usize));
+            for j in 0..add {
+                new_lst.push(*cc.arg((2 + j) as usize));
+            }
+            new_lst.extend(arr_data.values().iter().skip((start + del) as usize));
+        } else {
+            // slow path: sparse array
+            for i in 0..start {
+                obj.try_get_property_i64(ctx, i).inspect_err(|_| {
+                    // error: fill rest with undefined
+                    new_lst.extend(std::iter::repeat_n(
+                        JSValue::UNDEFINED,
+                        (new_len - i) as usize,
+                    ));
+                })?;
+            }
+
+            for i in 0..add {
+                new_lst.push(*cc.arg((2 + i) as usize));
+            }
+
+            for i in (start + del)..len {
+                obj.try_get_property_i64(ctx, i).inspect_err(|_| {
+                    // error: fill rest with undefined
+                    new_lst.extend(std::iter::repeat_n(
+                        JSValue::UNDEFINED,
+                        (new_len - i) as usize,
+                    ));
+                })?;
+            }
+        }
     }
 
-    res_arr
-        .with_fast_array_values_mut(|new_lst| -> Result<(), i32> {
-            macro_rules! error {
-                ($i:expr) => {
-                    // fill rest with undefined, because array finalize will free elements too.
-                    for _ in $i..new_len {
-                        new_lst.push(JSValue::UNDEFINED);
-                    }
-                    return Err(-1);
-                };
-            }
-
-            // fast path
-            if !obj
-                .with_fast_array_values(|lst| {
-                    if lst.len() == len as usize {
-                        for v in &lst[..start as usize] {
-                            new_lst.push(*v);
-                        }
-                        for j in 0..add {
-                            new_lst.push(*cc.arg((2 + j) as usize));
-                        }
-                        for v in &lst[(start + del) as usize..] {
-                            new_lst.push(*v);
-                        }
-
-                        true
-                    } else {
-                        false
-                    }
-                })
-                .unwrap_or(false)
-            {
-                // slow path: sparse array
-                for i in 0..start {
-                    if let Ok(val) = obj.try_get_property_i64(ctx, i) {
-                        new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
-                    } else {
-                        error!(i);
-                    }
-                }
-
-                for i in 0..add {
-                    new_lst.push(*cc.arg((2 + i) as usize));
-                }
-                for i in (start + del)..len {
-                    if let Ok(val) = obj.try_get_property_i64(ctx, i) {
-                        new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
-                    } else {
-                        error!(i);
-                    }
-                }
-            }
-
-            Ok(())
-        })
-        .unwrap()?;
-
-    res_arr.set_property(ctx, Atom::CONST_length, JSValue::from(new_len))?;
+    // create result array (will update gc xref inside)
+    let res_arr = ctx.create_array_with_values(new_lst)?;
     Ok(res_arr.into())
+
+    // LEGACY
+    // // create result array
+    // let mut res_arr = ctx.create_array_with_capacity(std::cmp::max(new_len, 0) as usize)?;
+    // if new_len <= 0 {
+    //     return Ok(res_arr.into());
+    // }
+
+    // res_arr
+    //     .with_fast_array_values_mut(|new_lst| -> Result<(), i32> {
+    //         macro_rules! error {
+    //             ($i:expr) => {
+    //                 // fill rest with undefined, because array finalize will free elements too.
+    //                 for _ in $i..new_len {
+    //                     new_lst.push(JSValue::UNDEFINED);
+    //                 }
+    //                 return Err(-1);
+    //             };
+    //         }
+
+    //         // fast path
+    //         if !obj
+    //             .with_fast_array_values(|lst| {
+    //                 if lst.len() == len as usize {
+    //                     for v in &lst[..start as usize] {
+    //                         new_lst.push(*v);
+    //                     }
+    //                     for j in 0..add {
+    //                         new_lst.push(*cc.arg((2 + j) as usize));
+    //                     }
+    //                     for v in &lst[(start + del) as usize..] {
+    //                         new_lst.push(*v);
+    //                     }
+
+    //                     true
+    //                 } else {
+    //                     false
+    //                 }
+    //             })
+    //             .unwrap_or(false)
+    //         {
+    //             // slow path: sparse array
+    //             for i in 0..start {
+    //                 if let Ok(val) = obj.try_get_property_i64(ctx, i) {
+    //                     new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
+    //                 } else {
+    //                     error!(i);
+    //                 }
+    //             }
+
+    //             for i in 0..add {
+    //                 new_lst.push(*cc.arg((2 + i) as usize));
+    //             }
+    //             for i in (start + del)..len {
+    //                 if let Ok(val) = obj.try_get_property_i64(ctx, i) {
+    //                     new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
+    //                 } else {
+    //                     error!(i);
+    //                 }
+    //             }
+    //         }
+
+    //         Ok(())
+    //     })
+    //     .unwrap()?;
+
+    // res_arr.set_property(ctx, Atom::CONST_length, JSValue::from(new_len))?;
+    // Ok(res_arr.into())
 }
 
 fn js_array_copyWithin(cc: CallContext) -> JSResult {
@@ -1679,27 +1810,49 @@ fn copy_sub_array(
     let mut to_pos = to_pos;
     let mut count = count;
 
-    if obj.flags().is_fast_array() && obj.class_id() == JS_CLASS_ARRAY {
-        let done_count = obj
-            .with_fast_array_values_mut(|lst| {
-                let len = lst.len();
-                for i in 0..count {
-                    let (from, to) = if dir < 0 {
-                        (start_pos + count - i - 1, to_pos + count - i - 1)
-                    } else {
-                        (start_pos + i, to_pos + i)
-                    };
+    // not for class ARGUMENTS
+    if obj.is_fast_array() && obj.class_id() == JS_CLASS_ARRAY {
+        let arr_data = obj.payload_mut().array_mut().unwrap();
+        let len = arr_data.len();
+        let lst = arr_data.values_mut();
+        let mut done_count = count;
 
-                    if from < len && to < len {
-                        lst[to] = lst[from];
-                    } else {
-                        return i;
-                    }
-                }
+        for i in 0..count {
+            let (from, to) = if dir < 0 {
+                (start_pos + count - i - 1, to_pos + count - i - 1)
+            } else {
+                (start_pos + i, to_pos + i)
+            };
 
-                count
-            })
-            .unwrap();
+            if from < len && to < len {
+                lst[to] = lst[from];
+            } else {
+                done_count = i;
+                break;
+            }
+        }
+
+        // LEGACY
+        // let done_count = obj
+        //     .with_fast_array_values_mut(|lst| {
+        //         let len = lst.len();
+        //         for i in 0..count {
+        //             let (from, to) = if dir < 0 {
+        //                 (start_pos + count - i - 1, to_pos + count - i - 1)
+        //             } else {
+        //                 (start_pos + i, to_pos + i)
+        //             };
+
+        //             if from < len && to < len {
+        //                 lst[to] = lst[from];
+        //             } else {
+        //                 return i;
+        //             }
+        //         }
+
+        //         count
+        //     })
+        //     .unwrap();
 
         if done_count == count {
             return Ok(()); // early exit for fast path

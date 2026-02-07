@@ -317,7 +317,8 @@ pub fn gen_atoms(outfile: &Path) {
     output.push("".into());
 
     output.push(format!(
-        "/// count of builtin const atoms\npub const ATOM_CONST_COUNT:u32={};",
+        "pub const ATOM_CONST_COUNT:u32={};\npub const ATOM_USER_BASE_ID:u32={};",
+        ATOM_DESCR_DEFS.len(),
         ATOM_DESCR_DEFS.len() + 1
     ));
 

@@ -61,8 +61,7 @@ impl Object {
                     // Instantiate lazy property
                     let val = {
                         let this = *self;
-                        self.prop_slot_mut(idx)
-                            .instantiate(ctx.rt_ref(), this)
+                        self.prop_slot_mut(idx).instantiate(ctx, this)
                     };
 
                     // modify shape property kind to NORMAL
@@ -120,7 +119,7 @@ impl Object {
                     JS_CLASS_ARRAY => {
                         if let Some(idx) = prop.to_small_int() {
                             let idx = idx as usize;
-                            let array_len = self.with_fast_array_values(|lst| lst.len()).unwrap();
+                            let array_len = self.payload().array().unwrap().len();
 
                             if idx < array_len {
                                 // update value in list
@@ -134,10 +133,13 @@ impl Object {
                                     continue; // redo_prop_update
                                 }
                                 if flags & JS_PROP_HAS_VALUE != 0 {
-                                    self.with_fast_array_values_mut(|lst| {
-                                        lst[idx] = val;
-                                    })
-                                    .unwrap();
+                                    let xref = self.gc_ref().node_info().get_partition_id();
+                                    self.payload_mut().array_mut().unwrap().set_nth(
+                                        &mut ctx.rt_ptr(),
+                                        idx,
+                                        val,
+                                        xref,
+                                    );
                                 }
                                 return Ok(true);
                             }

@@ -1,7 +1,8 @@
 use std::ptr::NonNull;
 
+use gc_lite::{GcTracable, GcTraceOp};
+
 use crate::{
-    RuntimeImpl,
     atom::Atom,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
@@ -22,6 +23,14 @@ pub enum LazyInit {
     Prop(NonNull<FieldDef>),
     /// Build module namespace object
     ModuleNS(ModuleDef),
+}
+
+unsafe impl GcTracable for LazyInit {
+    fn trace(&self, tr: GcTraceOp) {
+        if let Self::ModuleNS(ns) = self {
+            ns.trace(tr);
+        }
+    }
 }
 
 impl LazyInit {
@@ -70,12 +79,11 @@ impl JSProperty {
     /// `this_obj` is the `this` bind used to call instantiate function.
     ///
     /// Note: will panic if property is not lazy type.
-    pub(super) fn instantiate(&mut self, rt: &RuntimeImpl, this_obj: Object) -> JSResult {
+    pub(super) fn instantiate(&mut self, _ctx: &ContextImpl, this_obj: Object) -> JSResult {
         if let JSProperty::LazyInit {
             realm, init_type, ..
         } = self
         {
-            let realm = ContextPtr::from(realm.upgrade(rt.gc_heap()).unwrap());
             init_type.instantiate(&realm, this_obj)
         } else {
             unreachable!("expect lazy property, but got {:?}", self);
@@ -105,7 +113,7 @@ impl Object {
             (flags & JS_PROP_C_W_E) | JS_PROP_LAZYINIT,
             JSProperty::LazyInit {
                 init_type: lazy_init,
-                realm: unsafe { ContextPtr::from_ref_unchecked(ctx).downgrade() },
+                realm: unsafe { ContextPtr::from_ref_unchecked(ctx) },
                 opaque: std::ptr::null_mut(),
             },
         )

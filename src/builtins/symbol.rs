@@ -34,7 +34,7 @@ impl ContextImpl {
             atom_kind,
         )?;
 
-        let sym = JSValue::Symbol(atom.desc_string(self.rt_ref()));
+        let sym = JSValue::Symbol(*atom.descriptor(self.rt_ref()));
         Ok(sym)
     }
 
@@ -43,7 +43,7 @@ impl ContextImpl {
             self.throw_type_error("invalid atom");
             Err(-1)
         } else {
-            let s = atom.desc_string(self.rt_ref());
+            let s = *atom.descriptor(self.rt_ref());
             self.create_symbol(Some(s), atom_kind)
         }
     }

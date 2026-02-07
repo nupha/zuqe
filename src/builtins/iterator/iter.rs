@@ -229,7 +229,7 @@ impl<'a> ObjectIter<'a> {
         args: &[JSValue],
     ) -> Result<(JSValue, IteratorState), i32> {
         if let Some(ObjectPayload::C_FUNCTION(nfun)) = method.as_object().map(|o| o.payload())
-            && let Callback::IteratorNext(f) = nfun.handler
+            && let Callback::IteratorNext(f) = nfun.callback
         {
             // fast path for the built-in iterators,
             // avoid creating the intermediate result object

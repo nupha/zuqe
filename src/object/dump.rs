@@ -35,19 +35,19 @@ impl Object {
                 .to_utf8(rt),
         );
 
-        if self.flags().is_exotic() && self.flags().is_fast_array() {
+        if self.flags().is_exotic() && self.is_fast_array() {
             print!("[ ");
 
             match self.class_id() {
                 JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                    self.with_fast_array_values(|lst| {
-                        for (i, v) in lst.iter().enumerate() {
+                    if let Some(arr_data) = self.payload().array() {
+                        for (i, &el) in arr_data.values().iter().enumerate() {
                             if i != 0 {
                                 print!(", ");
                             }
-                            print!("{v:?}");
+                            print!("{el:?}");
                         }
-                    });
+                    }
                 }
                 class_id @ (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
                     // 1, 2, 4, 8
@@ -97,11 +97,7 @@ impl Object {
                             print!("[varref {:p}", vref.value_ptr())
                         }
                         JSProperty::LazyInit { realm, opaque, .. } => {
-                            print!(
-                                "[autoinit 0x{:x} {:p}]",
-                                realm.upgrade(rt.gc_heap()).unwrap().id(),
-                                opaque
-                            );
+                            print!("[autoinit 0x{:x} {:p}]", realm.id(), opaque);
                         }
                         JSProperty::Deleted => {}
                     }

@@ -1,6 +1,6 @@
 use std::{os::raw::c_void, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     atom::{Atom, is_const_atom, is_small_int_atom},
@@ -91,7 +91,7 @@ pub struct BytecodeImpl {
     rt: RuntimePtr,
 
     pub(crate) func_name: Atom,
-    realm: GcWeak<ContextImpl>,
+    realm: ContextPtr, // GcWeak<ContextImpl>,
 
     pub(crate) attrs: BytecodeAttrs,
 
@@ -174,7 +174,7 @@ impl BytecodeImpl {
             rt: ctx.rt_ptr(),
 
             func_name: fd.func_name,
-            realm: unsafe { ContextPtr::from_ref_unchecked(ctx).downgrade() },
+            realm: unsafe { ContextPtr::from_ref_unchecked(ctx) },
 
             attrs: BytecodeAttrs {
                 need_home_object: fd.attrs.need_home_object || fd.home_object_var_idx.is_some(),
@@ -216,11 +216,10 @@ impl BytecodeImpl {
         self.rt
     }
 
-    /// get bytecode realm context, returns None if the context is gone.
-    pub(crate) fn realm(&self) -> Option<ContextPtr> {
-        self.realm
-            .upgrade(self.rt().gc_heap())
-            .map(ContextPtr::from)
+    /// get bytecode realm context
+    #[inline(always)]
+    pub(crate) const fn realm(&self) -> Option<ContextPtr> {
+        Some(self.realm)
     }
 
     #[inline(always)]
@@ -636,10 +635,6 @@ impl std::fmt::Debug for Bytecode {
 }
 
 impl Bytecode {
-    pub fn downgrade(&self) -> GcWeak<BytecodeImpl> {
-        self.0.downgrade(self.rt().gc_heap_mut())
-    }
-
     /// Evaluate Bytecode.
     ///
     /// Internally, it will create a function object with the bytecode, then eval the function.

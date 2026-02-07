@@ -108,9 +108,7 @@ impl Object {
                     JS_PROP_LAZYINIT => {
                         let val = {
                             let this = cur_obj;
-                            cur_obj
-                                .prop_slot_mut(idx)
-                                .instantiate(ctx.rt_ref(), this)
+                            cur_obj.prop_slot_mut(idx).instantiate(ctx, this)
                         };
 
                         // modify shape property kind to NORMAL
@@ -313,89 +311,158 @@ impl Object {
         match self.class_id() {
             JS_CLASS_ARRAY => {
                 if self.flags().extensible() {
+                    let self_xref = self.gc_ref().node_info().get_partition_id();
                     let this = *self;
 
-                    let ret = self
-                        .with_fast_array_values_mut(|lst| -> Option<Result<bool, i32>> {
-                            match idx.cmp(&lst.len()) {
-                                std::cmp::Ordering::Less => {
-                                    // update existing
-                                    unsafe {
-                                        *lst.get_unchecked_mut(idx) = val;
-                                    }
-                                    Some(Ok(true))
-                                }
-                                std::cmp::Ordering::Equal => {
-                                    // add an element to list
+                    if self.is_fast_array()
+                        && let Some(arr_data) = self.payload_mut().array_mut()
+                    {
+                        match idx.cmp(&arr_data.len()) {
+                            std::cmp::Ordering::Less => {
+                                // update existing
+                                arr_data.set_nth(&mut ctx.rt_ptr(), idx, val, self_xref);
+                                return Some(Ok(true)); // fast array exit
+                            }
+                            std::cmp::Ordering::Equal => {
+                                // add an element to list
 
-                                    // Hint: 遵照js规范，
-                                    // 即使Array，它的原型链上可能还链接着其他对象。这些原型对象也可能具有数字索引的属性。
-                                    // 因此，在向当前数组添加新元素时，必须确保原型链上没有定义同名的属性（即相同的索引），
-                                    // 否则会违反 JavaScript 的属性查找规则。
+                                // Hint: 遵照js规范，
+                                // 即使Array，它的原型链上可能还链接着其他对象。这些原型对象也可能具有数字索引的属性。
+                                // 因此，在向当前数组添加新元素时，必须确保原型链上没有定义同名的属性（即相同的索引），
+                                // 否则会违反 JavaScript 的属性查找规则。
 
-                                    // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
-                                    let mut up = this.shape().unwrap().proto;
+                                // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
+                                let mut up = this.shape().unwrap().proto;
 
-                                    while let Some(p) = up {
-                                        let sh1 = p.shape().unwrap();
-                                        match p.class_id() {
-                                            JS_CLASS_ARRAY => {
-                                                if !p.flags().is_fast_array() {
-                                                    return None;
-                                                }
-                                            }
-                                            JS_CLASS_OBJECT => {
-                                                if sh1.has_small_array_index {
-                                                    return None;
-                                                }
-                                            }
-                                            _ => {
+                                while let Some(p) = up {
+                                    let sh1 = p.shape().unwrap();
+                                    match p.class_id() {
+                                        JS_CLASS_ARRAY => {
+                                            if !p.flags().is_fast_array() {
                                                 return None;
                                             }
                                         }
-                                        up = sh1.proto;
+                                        JS_CLASS_OBJECT => {
+                                            if sh1.has_small_array_index {
+                                                return None;
+                                            }
+                                        }
+                                        _ => {
+                                            return None;
+                                        }
                                     }
+                                    up = sh1.proto;
+                                }
 
-                                    Some(Ok(false)) // <-- indicated to append element
-                                }
-                                std::cmp::Ordering::Greater => {
-                                    // go slow path, destruct to sparse array
-                                    None
-                                }
+                                // append element
+                                return Some(self.add_fast_array_element(ctx, val, flags));
                             }
-                        })
-                        .flatten();
-
-                    if let Some(Ok(false)) = ret {
-                        // append element
-                        Some(self.add_fast_array_element(ctx, val, flags))
+                            std::cmp::Ordering::Greater => {
+                                // fall to slow path, destruct to sparse array
+                                return None;
+                            }
+                        }
                     } else {
-                        ret
+                        return None;
                     }
+
+                    // let ret = self
+                    //     .with_fast_array_values_mut(|lst| -> Option<Result<bool, i32>> {
+                    //         match idx.cmp(&lst.len()) {
+                    //             std::cmp::Ordering::Less => {
+                    //                 // update existing
+                    //                 unsafe {
+                    //                     *lst.get_unchecked_mut(idx) = val;
+                    //                 }
+                    //                 Some(Ok(true))
+                    //             }
+                    //             std::cmp::Ordering::Equal => {
+                    //                 // add an element to list
+
+                    //                 // Hint: 遵照js规范，
+                    //                 // 即使Array，它的原型链上可能还链接着其他对象。这些原型对象也可能具有数字索引的属性。
+                    //                 // 因此，在向当前数组添加新元素时，必须确保原型链上没有定义同名的属性（即相同的索引），
+                    //                 // 否则会违反 JavaScript 的属性查找规则。
+
+                    //                 // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
+                    //                 let mut up = this.shape().unwrap().proto;
+
+                    //                 while let Some(p) = up {
+                    //                     let sh1 = p.shape().unwrap();
+                    //                     match p.class_id() {
+                    //                         JS_CLASS_ARRAY => {
+                    //                             if !p.flags().is_fast_array() {
+                    //                                 return None;
+                    //                             }
+                    //                         }
+                    //                         JS_CLASS_OBJECT => {
+                    //                             if sh1.has_small_array_index {
+                    //                                 return None;
+                    //                             }
+                    //                         }
+                    //                         _ => {
+                    //                             return None;
+                    //                         }
+                    //                     }
+                    //                     up = sh1.proto;
+                    //                 }
+
+                    //                 Some(Ok(false)) // <-- indicated to append element
+                    //             }
+                    //             std::cmp::Ordering::Greater => {
+                    //                 // go slow path, destruct to sparse array
+                    //                 None
+                    //             }
+                    //         }
+                    //     })
+                    //     .flatten();
+
+                    // if let Some(Ok(false)) = ret {
+                    //     // append element
+                    //     Some(self.add_fast_array_element(ctx, val, flags))
+                    // } else {
+                    //     ret
+                    // }
                 } else {
                     None
                 }
             }
 
             JS_CLASS_ARGUMENTS => {
-                if self
-                    .with_fast_array_values_mut(|lst| -> bool {
-                        if idx < lst.len() {
-                            unsafe {
-                                *lst.get_unchecked_mut(idx) = val;
-                            }
-                            true
-                        } else {
-                            false
-                        }
-                    })
-                    .unwrap()
+                let self_xref = self.gc_ref().node_info().get_partition_id();
+
+                if self.is_fast_array()
+                    && let Some(arr_data) = self.payload_mut().array_mut()
                 {
-                    // early exit for fast array
-                    Some(Ok(true))
+                    if idx < arr_data.len() {
+                        arr_data.set_nth(&mut ctx.rt_ptr(), idx, val, self_xref);
+                        Some(Ok(true))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
+
+                // LEGACY
+                // if self
+                //     .with_fast_array_values_mut(|lst| -> bool {
+                //         if idx < lst.len() {
+                //             unsafe {
+                //                 *lst.get_unchecked_mut(idx) = val;
+                //             }
+                //             true
+                //         } else {
+                //             false
+                //         }
+                //     })
+                //     .unwrap()
+                // {
+                //     // early exit for fast array
+                //     Some(Ok(true))
+                // } else {
+                //     None
+                // }
             }
 
             //
