@@ -90,7 +90,7 @@ impl VarRefImpl {
         }
     }
 
-    /// update value of variable
+    /// update value of variable, update gc cross reference
     #[inline]
     pub(crate) fn set_value(&mut self, ctx: &ContextImpl, new_value: JSValue, xref: GcPartitionId) {
         match &mut self.state {

@@ -36,7 +36,7 @@ impl AtomRegistry {
     pub(crate) fn new() -> Self {
         Self {
             const_atoms: Vec::new(),
-            user_atoms: Vec::with_capacity(128),
+            user_atoms: Vec::new(),
             atoms_lut: HashMap::new(),
         }
     }
@@ -321,6 +321,10 @@ impl RuntimeImpl {
             hash,
         ));
 
+        let xref = self.current_gc_scope().unwrap_or(self.gc_root_scope);
+        self.gc_heap_mut()
+            .set_xref(xref, desc_str.gc_ref().node_ptr());
+
         if let Some(i) = idx {
             debug_assert_eq!(i, atom_id as usize - ATOM_CONST_COUNT as usize - 1);
             debug_assert!(
@@ -345,9 +349,9 @@ impl RuntimeImpl {
     pub(crate) fn remove_atom(&mut self, atom_info: &AtomInfo) {
         let atom_id = atom_info.id();
         let atom_hash = atom_info.hash();
-        let a_reg = &mut self.atom_registry;
-
         debug_assert!(!is_const_atom(atom_id) && !is_small_int_atom(atom_id));
+
+        let a_reg = &mut self.atom_registry;
 
         // Note: atom_id associated descriptor string is now an invalid gc pointer.
         if let Some(slot) = a_reg
@@ -360,15 +364,18 @@ impl RuntimeImpl {
                     debug_assert_eq!(ids[0] as u32, atom_id);
                     true
                 } else {
-                    #[cfg(debug_assertions)]
-                    let i = ids.iter().position(|&x| x == atom_id as u16).unwrap();
-                    #[cfg(not(debug_assertions))]
-                    unsafe {
-                        let i = ids
-                            .iter()
-                            .position(|&x| x == atom_id as u16)
-                            .unwrap_unchecked();
-                    }
+                    let i = {
+                        #[cfg(debug_assertions)]
+                        {
+                            ids.iter().position(|&x| x == atom_id as u16).unwrap()
+                        }
+                        #[cfg(not(debug_assertions))]
+                        unsafe {
+                            ids.iter()
+                                .position(|&x| x == atom_id as u16)
+                                .unwrap_unchecked()
+                        }
+                    };
 
                     ids.swap_remove(i);
                     false

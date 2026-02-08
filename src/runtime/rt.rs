@@ -78,8 +78,6 @@ pub struct RuntimeImpl {
     pub(crate) gc_heap: GcHeap,
     /// gc partition id
     pub(crate) gc_root_scope: GcPartitionId,
-    /// gc partition
-    pub(crate) gc_part: *mut GcPartition,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn Fn(GcTraceOp)>>,
     /// gc trace of current running job
@@ -125,12 +123,11 @@ impl RuntimeImpl {
         gc_heap.set_gc_type_drop_order::<ShapeImpl>(1);
 
         let gc_part_id = gc_heap.create_root_partition(0);
-        let gc_part = {
+        {
             let par = gc_heap.partition_mut(gc_part_id).unwrap();
             par.set_memory_limit(0); // no memory limit
             par.set_gc_threshold(8); // small threshould to trigger gc ASAP
-            par as *mut GcPartition
-        };
+        }
 
         let mut rt = Box::new(Self {
             atom_registry: AtomRegistry::new(),
@@ -164,7 +161,6 @@ impl RuntimeImpl {
 
             gc_heap,
             gc_root_scope: gc_part_id,
-            gc_part,
             gc_user_trace: None,
             gc_cur_job_trace: None,
             gc_req: false,
@@ -373,7 +369,6 @@ impl RuntimeImpl {
 
         // remove root partition: dealloc all nodes live in it.
         let root_scope_id = self.gc_root_scope;
-        self.gc_part = std::ptr::null_mut();
         self.gc_heap_mut().remove_partition(root_scope_id);
 
         // if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {

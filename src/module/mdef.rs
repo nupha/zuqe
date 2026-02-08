@@ -92,15 +92,15 @@ unsafe impl GcTracable for ModuleDefImpl {
 
         self.bytecode.trace(tr);
         self.async_parent_modules.iter().for_each(|x| x.trace(tr));
-        self.promise.trace(tr);
+        self.promise.map(|x| x.trace(tr));
         self.resolving_funcs[0].trace(tr);
         self.resolving_funcs[1].trace(tr);
 
-        self.stack_prev.trace(tr);
-        self.module_ns.trace(tr);
-        self.cycle_root.trace(tr);
-        self.eval_exception.trace(tr);
-        self.meta_obj.trace(tr);
+        self.stack_prev.map(|x| x.trace(tr));
+        self.module_ns.map(|x| x.trace(tr));
+        self.cycle_root.map(|x| x.trace(tr));
+        self.eval_exception.map(|x| x.trace(tr));
+        self.meta_obj.map(|x| x.trace(tr));
     }
 }
 

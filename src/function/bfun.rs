@@ -103,7 +103,7 @@ pub struct BCFuncPayload {
 unsafe impl GcTracable for BCFuncPayload {
     fn trace(&self, tr: GcTraceOp) {
         self.bytecode.trace(tr);
-        self.home_object.trace(tr);
+        self.home_object.map(|x| x.trace(tr));
         for vr in self.var_refs.iter() {
             vr.trace(tr);
         }

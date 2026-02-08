@@ -1,9 +1,8 @@
 use std::ptr::NonNull;
 
-#[cfg(debug_assertions)]
-use gc_lite::GcHead;
 use gc_lite::{
-    GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceOp, GcTracer,
+    GcError, GcHead, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceOp,
+    GcTraceRestrict, GcTracer,
 };
 
 use crate::runtime::RuntimeImpl;
@@ -24,17 +23,16 @@ impl RuntimeImpl {
     }
 
     /// top gc partition for runtime
-    #[inline(always)]
-    pub(crate) const fn gc_root_part(&self) -> &GcPartition {
-        debug_assert!(!self.gc_part.is_null());
-        unsafe { &*self.gc_part }
+    #[inline]
+    pub(crate) fn gc_root_part(&self) -> &GcPartition {
+        self.gc_heap().partition(self.gc_root_scope).unwrap()
     }
 
     /// top gc partition for runtime
-    #[inline(always)]
-    pub(crate) const fn gc_root_part_mut(&mut self) -> &mut GcPartition {
-        debug_assert!(!self.gc_part.is_null());
-        unsafe { &mut *self.gc_part }
+    #[inline]
+    pub(crate) fn gc_root_part_mut(&mut self) -> &mut GcPartition {
+        let pid = self.gc_root_scope;
+        self.gc_heap_mut().partition_mut(pid).unwrap()
     }
 
     /// get gc scope for current stack frame.
@@ -66,12 +64,6 @@ impl RuntimeImpl {
     ) -> Result<GcRef<T>, (GcError, T)> {
         let r = self.gc_heap_mut().alloc(scope_id, data)?;
 
-        // #[cfg(debug_assertions)] // O.o
-        // {
-        //     let ty = self.gc_heap().get_node_type(r.node_ptr());
-        //     println!("[O.o][{scope_id:?}] alloc {r:?}, {}", ty.type_name);
-        // }
-
         if self.gc_root_part().should_gc() {
             self.gc_req = true;
         }
@@ -89,23 +81,27 @@ impl RuntimeImpl {
     }
 
     /// collect garbage
-    pub(crate) fn gc_collect_scope(&mut self, scope: GcPartitionId) -> usize {
-        log::trace!("[collect] {scope:?}");
+    pub(crate) fn gc_collect_in(&mut self, partition_id: GcPartitionId) -> usize {
+        log::trace!("[collect] {partition_id:?}");
+
+        let mark_func = |mut h: NonNull<GcHead>, _: &GcHeap| unsafe {
+            h.as_mut().set_marked(true);
+        };
 
         // 1. mark
         {
-            let mut tr = self.gc_heap().tracer(scope);
+            let mut tr = GcTracer::new(self.gc_heap(), GcTraceRestrict::No, true);
 
             // Note: for root scope, Contexts are root nodes, they have been traced in trace_root step.
-            tr.trace_roots(GcTracer::MARK_FUNC);
+            tr.trace_roots(partition_id, mark_func);
 
             if let Some(sf) = self.current_stack_frame() {
-                debug_assert_eq!(sf.gc_scope_id, scope);
-                sf.gc_trace(tr.ctx());
+                debug_assert_eq!(sf.gc_scope_id, partition_id);
+                sf.trace(tr.ctx());
                 // tr.trace_iter(sf.gc_nodes(), GcTracer::MARK_FUNC);
             }
             if let Some(n) = self.cur_exception.gc_node_ptr() {
-                tr.trace(n, GcTracer::MARK_FUNC);
+                tr.trace(n, mark_func);
             }
 
             // user defined trace
@@ -117,18 +113,21 @@ impl RuntimeImpl {
                 f(tr.ctx());
             }
 
-            tr.commit(GcTracer::MARK_FUNC);
+            tr.commit(mark_func);
         }
 
         // 2. sweep
-        let freed = self.gc_heap.sweep(scope, GcHeap::SWEEP_UNMARKED_FUNC);
+        let freed = self
+            .gc_heap
+            .sweep(partition_id, GcHeap::SWEEP_UNMARKED_FUNC);
+
         if freed != 0 {
             // update gc threshold
             let used = self.gc_root_part().memory_used();
             self.gc_root_part_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
         }
 
-        log::trace!("[collect] {scope:?} free {freed} bytes");
+        log::trace!("[collect] {partition_id:?} free {freed} bytes");
 
         self.gc_req = false;
         freed
@@ -137,7 +136,7 @@ impl RuntimeImpl {
     #[inline]
     pub(crate) fn gc_collect(&mut self) {
         if let Some(sc) = self.current_gc_scope() {
-            self.gc_collect_scope(sc);
+            self.gc_collect_in(sc);
         }
     }
 

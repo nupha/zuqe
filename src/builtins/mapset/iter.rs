@@ -27,7 +27,7 @@ pub struct JSMapIteratorData {
 
 unsafe impl GcTracable for JSMapIteratorData {
     fn trace(&self, tr: GcTraceOp) {
-        self.obj.trace(tr);
+        self.obj.map(|x| x.trace(tr));
     }
 }
 

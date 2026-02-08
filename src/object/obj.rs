@@ -1,6 +1,6 @@
-use std::{fmt::Formatter, ops::Deref, ptr::NonNull};
+use std::{fmt::Formatter, ops::Deref};
 
-use gc_lite::{GcHead, GcPartitionId, GcRef, GcTracable, GcTraceOp, GcTracer, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -172,7 +172,7 @@ pub struct ObjectImpl {
 
 unsafe impl GcTracable for ObjectImpl {
     fn trace(&self, tr: GcTraceOp) {
-        self.shape.trace(tr);
+        self.shape.as_ref().map(|x| x.trace(tr));
         for p in self.prop_values.iter() {
             p.trace(tr);
         }
@@ -223,7 +223,7 @@ impl ObjectImpl {
                 ctx.rt_ptr().is_shape_registered(sh),
                 "shape must be registered when used by object"
             );
-            debug_assert!(sh.use_count() > 0);
+            debug_assert!(sh.gc_ref().node_info().ref_count() > 0);
         }
 
         // alloc prop value slots, initializing with default value
@@ -353,14 +353,11 @@ impl ObjectImpl {
 
         // get directly referenced gc nodes, set xref of obj's children
         {
-            let xref = obj.gc_ref().node_info().get_partition_id();
-            let mut tr = GcTracer::new(ctx.rt_ref().gc_heap(), xref, false);
-            obj.trace(tr.ctx());
-
-            let gc_children = tr.take_traced_nodes();
+            let gc_children = obj.gc_ref().gc_children(ctx.rt_ref().gc_heap());
             if !gc_children.is_empty() {
+                let obj_partition = obj.gc_ref().node_info().get_partition_id();
                 for n in gc_children {
-                    ctx.rt_ptr().gc_heap_mut().set_xref(xref, n);
+                    ctx.rt_ptr().gc_heap_mut().set_xref(obj_partition, n);
                 }
             }
         }
@@ -499,17 +496,17 @@ impl ObjectImpl {
 
         let obj = unsafe { Object::from_ref_unchecked(self) };
 
-        log::trace!(
-            "[object_shape] {:?} : {:?}",
-            obj.gc_ref().node_info(),
-            shape.gc_ref().node_info()
-        );
+        // log::trace!(
+        //     "[object_shape] {:?} : {:?}",
+        //     obj.gc_ref().node_info(),
+        //     shape.gc_ref().node_info()
+        // );
 
-        let obj_scope = obj.gc_ref().node_info().get_partition_id();
-        if obj_scope != shape.gc_ref().node_info().get_partition_id() {
+        let obj_xref = obj.gc_ref().node_info().get_partition_id();
+        if obj_xref != shape.gc_ref().node_info().get_partition_id() {
             self.rt()
                 .gc_heap_mut()
-                .set_xref(obj_scope, shape.gc_ref().node_ptr());
+                .set_xref(obj_xref, shape.gc_ref().node_ptr());
         }
 
         self.shape.replace(shape);

@@ -55,7 +55,7 @@ impl ObjectImpl {
         }
     }
 
-    /// set property at slot `idx`, then check and optionally promote gc partition.
+    /// set property at slot `idx`, and check gc cross reference
     pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
         debug_assert!(idx < self.prop_values.len());
 
@@ -94,7 +94,7 @@ impl ObjectImpl {
             for node in gc_node.into_iter().flatten() {
                 unsafe {
                     #[cfg(debug_assertions)]
-                    rt.gc_heap().debug_assert_node_valid(node, true);
+                    node.as_ref().debug_assert_node_tree_valid(rt.gc_heap());
 
                     if node.as_ref().get_partition_id() != xref {
                         rt.gc_heap_mut().set_xref(xref, node);

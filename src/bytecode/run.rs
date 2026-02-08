@@ -1,6 +1,4 @@
-use std::{collections::HashSet, ptr::NonNull};
-
-use gc_lite::{GcPartitionId, GcTracer};
+use std::ptr::NonNull;
 
 use crate::{
     atom::{Atom, AtomKind},
@@ -1061,11 +1059,6 @@ impl Bytecode {
                         // [val, ^] -> [^]
                         let atom = Atom::from_id(PC_FETCH!(u32));
 
-                        #[cfg(debug_assertions)]
-                        if let Some(n) = SP_VAL!(-1).gc_node_ptr() {
-                            realm.rt_ref().gc_heap().debug_assert_node_valid(n, true);
-                        }
-
                         let res = realm.set_global_var(
                             atom,
                             SP_VAL!(-1),
@@ -1124,8 +1117,8 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
 
                         #[cfg(debug_assertions)]
-                        if let Some(n) = VAR_REF!(idx).gc_node_ptr() {
-                            realm.rt_ref().gc_heap().debug_assert_node_valid(n, true);
+                        if let Some(n) = VAR_REF!(idx).gc_node() {
+                            n.debug_assert_node_tree_valid(rt.gc_heap());
                         }
 
                         SP_PUT!(0, *VAR_REF!(idx));

@@ -12,8 +12,6 @@ use super::super::{obj::Object, property::JS_PROP_LENGTH};
 
 #[derive(Debug)]
 pub struct ShapeImpl {
-    pub(super) use_count: u32,
-
     /// If true, the shape may have small array index properties 'n' with 0..=u32::MAX;
     /// If false, the shape is guaranteed not to have small array index properties
     pub has_small_array_index: bool,
@@ -29,7 +27,9 @@ pub struct ShapeImpl {
 
 unsafe impl GcTracable for ShapeImpl {
     fn trace(&self, tr: GcTraceOp) {
-        self.proto.trace(tr);
+        if let Some(x) = self.proto {
+            x.trace(tr);
+        }
         self.prop_defs.iter().for_each(|(_, p)| p.trace(tr));
     }
 }
@@ -44,7 +44,6 @@ impl ShapeImpl {
         }
 
         Ok(Self {
-            use_count: 1,
             proto,
             prop_defs: props,
             has_small_array_index: false,
@@ -55,22 +54,6 @@ impl ShapeImpl {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
-    }
-
-    #[inline(always)]
-    pub const fn use_count(&self) -> u32 {
-        self.use_count
-    }
-
-    #[inline(always)]
-    pub const fn inc_count(&mut self) {
-        self.use_count += 1;
-    }
-
-    #[inline(always)]
-    pub fn dec_count(&mut self) {
-        debug_assert!(self.use_count > 0);
-        self.use_count -= 1;
     }
 
     /// shape property length
@@ -112,7 +95,10 @@ impl ShapeImpl {
         extras: &[(Atom, u32)],
     ) -> usize {
         debug_assert!(!extras.is_empty());
-        debug_assert_eq!(self.use_count(), 1);
+        debug_assert_eq!(
+            unsafe { GcRef::from_ref_unchecked(self).node_info().ref_count() },
+            1
+        );
 
         let old_len = self.len();
         let new_len = old_len + extras.len();
@@ -183,15 +169,9 @@ unsafe impl GcTracable for Shape {
 
 impl Drop for Shape {
     fn drop(&mut self) {
-        self.dec_count();
+        if self.gc_ref().node_info_mut().dec_ref() == 0 {
+            log::debug!("shape {:?} use_count=0", self.gc_ref().node_info(),);
 
-        log::trace!(
-            "[Shape::drop] {:?}, new_use_count={}",
-            self.gc_ref().node_info(),
-            self.use_count()
-        );
-
-        if self.use_count() == 0 {
             self.gc_ref().node_info_mut().unset_xref_partition();
         }
     }
@@ -200,7 +180,7 @@ impl Drop for Shape {
 impl Clone for Shape {
     fn clone(&self) -> Self {
         let mut gr = self.gc_ref();
-        gr.inc_count();
+        gr.node_info_mut().inc_ref();
         Self(gr)
     }
 }
@@ -237,10 +217,17 @@ impl Shape {
     ) -> Result<Self, i32> {
         let shape = ShapeImpl::new(proto, prop_defs)?;
 
-        ctx.rt_ptr().gc_alloc(shape).map(Self).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })
+        ctx.rt_ptr()
+            .gc_alloc(shape)
+            .map(|mut s| {
+                let _n = s.node_info_mut().inc_ref();
+                debug_assert_eq!(_n, 1);
+                Self(s)
+            })
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })
     }
 
     /// create a shape with prototype 'proto' and property capacity.

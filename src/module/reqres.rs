@@ -16,7 +16,7 @@ pub struct ModuleDependency {
 unsafe impl GcTracable for ModuleDependency {
     fn trace(&self, tr: GcTraceOp) {
         self.module_name.trace(tr);
-        self.module.trace(tr);
+        self.module.map(|x| x.trace(tr));
     }
 }
 

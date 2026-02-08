@@ -87,9 +87,9 @@ pub struct ContextImpl {
 unsafe impl GcTracable for ContextImpl {
     fn trace(&self, tr: GcTraceOp) {
         self.class_protos.iter().for_each(|x| x.trace(tr));
-        self.array_shape.trace(tr);
-        self.iterator_proto.trace(tr);
-        self.async_iterator_proto.trace(tr);
+        self.array_shape.as_ref().map(|x| x.trace(tr));
+        self.iterator_proto.map(|x| x.trace(tr));
+        self.async_iterator_proto.map(|x| x.trace(tr));
         self.array_proto_values.trace(tr);
         self.function_ctor.trace(tr);
         self.array_ctor.trace(tr);

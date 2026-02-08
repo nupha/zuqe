@@ -858,7 +858,7 @@ pub(super) fn dump_run_stack(
             },
             // scope
             if let Some(h) = v.gc_node_ptr() {
-                format!("@{:?}", unsafe { h.as_ref().get_partition_id() })
+                format!("{h:p}@{:?}", unsafe { h.as_ref().get_partition_id() })
             } else {
                 "".to_string()
             }

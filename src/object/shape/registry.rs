@@ -9,12 +9,7 @@ use crate::{
 impl RuntimeImpl {
     /// register a shape
     pub(crate) fn register_shape(&mut self, shape: &Shape) -> Result<(), i32> {
-        log::trace!(
-            "[shape_register] {:?}, use_count={}",
-            shape.gc_ref().node_info(),
-            shape.use_count()
-        );
-        debug_assert!(shape.use_count() > 0);
+        debug_assert!(shape.gc_ref().node_info().ref_count() > 0);
 
         if self.shape_registry.len() == self.shape_registry.capacity() {
             self.shape_registry
@@ -66,12 +61,6 @@ impl RuntimeImpl {
 
     /// unregister a shape
     pub(super) fn unregister_shape(&mut self, shape: &Shape) {
-        log::trace!(
-            "[shape_unregister] {:?}, use_count={}",
-            shape.gc_ref().node_info(),
-            shape.use_count()
-        );
-
         let hash = shape.hash();
         let shape_id = shape.id();
 
@@ -108,7 +97,7 @@ impl RuntimeImpl {
                 .filter_map(|w| w.upgrade(heap))
                 .find(|sh| sh.proto == proto && sh.prop_defs.count() == 0)
                 .map(|mut s| {
-                    s.use_count += 1; // increase refcount
+                    s.node_info_mut().inc_ref();
                     Shape::from(s)
                 })
         })
@@ -148,7 +137,7 @@ impl RuntimeImpl {
                 .last()
                 .is_some_and(|pr| pr.atom == prop && pr.flags() == prop_flags)
             {
-                found.use_count += 1;
+                found.node_info_mut().inc_ref();
                 return Some(Shape::from(found));
             }
         }

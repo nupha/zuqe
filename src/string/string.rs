@@ -45,11 +45,11 @@ unsafe impl GcTracable for StringImpl {
 
 impl Drop for StringImpl {
     fn drop(&mut self) {
-        if let Some(atom_info) = &self.atom_info
-            && !atom_info.is_const()
-            && !atom_info.is_small_int()
+        if let Some(a) = &self.atom_info
+            && !a.is_const()
+            && !a.is_small_int()
         {
-            self.rt().remove_atom(atom_info);
+            self.rt().remove_atom(a);
         }
     }
 }
@@ -187,6 +187,7 @@ impl StringImpl {
     }
 
     /// Returns the atom info associated to this string.
+    /// If string is not an Atom, returns None.
     #[inline(always)]
     pub const fn atom_info(&self) -> Option<&AtomInfo> {
         self.atom_info.as_ref()
@@ -208,7 +209,7 @@ impl StringImpl {
             StringData::Empty => StringRef::new_internal(rt, StringData::Empty, None),
             StringData::Ident => StringRef::new_internal(rt, StringData::Ident, None),
             StringData::AsciiStatic(s) => StringRef::from_static(rt, s, None),
-            _ => StringRef::new(self.rt(), self.content().clone()),
+            _ => StringRef::new(self.rt(), StringData::new(self.content())),
         }
     }
 
@@ -242,6 +243,7 @@ impl StringImpl {
 pub struct StringRef(GcRef<StringImpl>);
 
 unsafe impl GcTracable for StringRef {
+    #[inline(always)]
     fn trace(&self, mut tr: GcTraceOp) {
         tr.add(self.0);
     }

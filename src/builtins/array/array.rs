@@ -115,11 +115,7 @@ impl ArrayPayload {
     pub(crate) fn update_values_xref(&mut self, heap: &mut GcHeap, xref: GcPartitionId) {
         for val in self.values.iter() {
             if let Some(n) = val.gc_node_ptr() {
-                unsafe {
-                    if n.as_ref().get_partition_id() != xref {
-                        heap.set_xref(xref, n);
-                    }
-                }
+                heap.set_xref(xref, n);
             }
         }
     }
@@ -355,7 +351,7 @@ impl Array {
                 })?;
 
                 for v in arr_data.values().iter().filter(|v| !v.is_undefined()) {
-                    slots.push((*v, v.to_string(ctx)?.content().clone()));
+                    slots.push((*v, StringData::new(v.to_string(ctx)?.content())));
                 }
 
                 sort_values_default(&mut slots);
@@ -475,7 +471,7 @@ impl Array {
                         undefined_count += 1;
                     } else {
                         let s = v.to_string(ctx)?;
-                        slots.push((v, s.content().clone()));
+                        slots.push((v, StringData::new(s.content())));
                     }
                 } else if first_missing.is_none() {
                     first_missing.replace(i as usize);

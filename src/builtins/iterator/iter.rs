@@ -56,7 +56,7 @@ pub struct ForInIterPayload {
 
 unsafe impl GcTracable for ForInIterPayload {
     fn trace(&self, tr: GcTraceOp) {
-        self.obj.trace(tr);
+        self.obj.map(|o| o.trace(tr));
         self.prop_enums.iter().for_each(|x| x.trace(tr));
     }
 }

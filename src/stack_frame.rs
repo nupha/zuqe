@@ -82,6 +82,36 @@ pub struct StackFrame {
     _mark: PhantomPinned,
 }
 
+unsafe impl GcTracable for StackFrame {
+    fn trace(&self, mut tr: GcTraceOp) {
+        self.func_obj.trace(tr);
+
+        // trace args
+        let cnt = std::cmp::max(self.arg_real_count, self.arg_count);
+        if cnt > 0 {
+            let mut p = self.arg_base_ptr;
+            for _ in 0..cnt {
+                unsafe {
+                    (&*p).trace(tr);
+                    p = p.add(1);
+                }
+            }
+        }
+
+        // local vars
+        tr.add_nodes(self.var_values().iter().filter_map(|v| v.gc_node_ptr()));
+        // stack values
+        tr.add_nodes(self.stack_values().iter().filter_map(|v| v.gc_node_ptr()));
+        // varrefs
+        self.var_ref_list.iter().for_each(|r| r.trace(tr));
+
+        // trace upward along chain
+        // if let Some(sf) = self.parent() {
+        //     sf.trace(tracer);
+        // }
+    }
+}
+
 impl PartialEq for StackFrame {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
@@ -103,7 +133,7 @@ impl Drop for StackFrame {
                     "[O.o] scope must be removed"
                 );
 
-                // ensure no local-shape weakref is alive after scope is closed.
+                // ensure no local shape weakref is alive after scope is closed.
                 let mut chk = rt
                     .shape_registry
                     .values()
@@ -188,7 +218,7 @@ impl StackFrame {
     #[inline(always)]
     pub(crate) fn gc_collect(&self) {
         if !self.gc_scope_id.is_null() {
-            self.rt().gc_collect_scope(self.gc_scope_id);
+            self.rt().gc_collect_in(self.gc_scope_id);
         }
     }
 
@@ -351,36 +381,6 @@ impl StackFrame {
             },
             _mark: PhantomData,
         }
-    }
-
-    pub(crate) fn gc_trace(&self, mut tr: GcTraceOp) {
-        if !self.gc_scope_id.is_null() {
-            self.func_obj.trace(tr);
-
-            // trace args
-            let cnt = std::cmp::max(self.arg_real_count, self.arg_count);
-            if cnt > 0 {
-                let mut p = self.arg_base_ptr;
-                for _ in 0..cnt {
-                    unsafe {
-                        (&*p).trace(tr);
-                        p = p.add(1);
-                    }
-                }
-            }
-
-            // local vars
-            tr.add_nodes(self.var_values().iter().filter_map(|v| v.gc_node_ptr()));
-            // stack values
-            tr.add_nodes(self.stack_values().iter().filter_map(|v| v.gc_node_ptr()));
-            // varrefs
-            self.var_ref_list.iter().for_each(|r| r.trace(tr));
-        }
-
-        // trace upward along chain
-        // if let Some(sf) = self.parent() {
-        //     sf.trace(tracer);
-        // }
     }
 
     pub(crate) fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {

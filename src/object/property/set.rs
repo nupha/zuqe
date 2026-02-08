@@ -686,7 +686,7 @@ fn call_setter(
     flags: u32,
 ) -> Result<bool, i32> {
     if let Some(func) = setter {
-        JSValue::Object(func).call(ctx, this_obj, std::slice::from_ref(&val))?;
+        func.call(ctx, this_obj, std::slice::from_ref(&val))?;
         Ok(true)
     } else if unlikely(ctx.can_throw(flags)) {
         ctx.throw_type_error("no setter for property");

@@ -72,11 +72,13 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
         if flags1.is_undefined() {
             Some(re)
         } else {
-            pattern = re.pattern.clone();
+            pattern = StringData::new(&re.pattern);
             flags_str = if flags1.is_undefined() {
-                re.flags_str.clone()
+                StringData::new(&re.flags_str)
             } else {
-                flags1.to_string(ctx).map(|s| s.content().clone())?
+                flags1
+                    .to_string(ctx)
+                    .map(|s| StringData::new(s.content()))?
             };
             None
         }
@@ -91,10 +93,10 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
         }
 
         if !pat_str.is_undefined() {
-            pattern = pat_str.to_string(ctx)?.content().clone();
+            pattern = StringData::new(pat_str.to_string(ctx)?.content());
         }
         if !flags1.is_undefined() {
-            flags_str = flags1.to_string(ctx)?.content().clone();
+            flags_str = StringData::new(flags1.to_string(ctx)?.content());
         }
 
         None
@@ -357,22 +359,22 @@ fn js_regexp_compile(cc: CallContext) -> JSResult {
             return Err(-1);
         }
 
-        pattern = re1.pattern.clone();
+        pattern = StringData::new(&re1.pattern);
         flags_str = if flags1.is_undefined() {
-            re1.flags_str.clone()
+            StringData::new(&re1.flags_str)
         } else {
-            flags1.to_string(ctx)?.content().clone()
+            StringData::new(flags1.to_string(ctx)?.content())
         }
     } else {
         pattern = if pattern1.is_undefined() {
             StringData::Empty
         } else {
-            pattern1.to_string(ctx)?.content().clone()
+            StringData::new(pattern1.to_string(ctx)?.content())
         };
         flags_str = if flags1.is_undefined() {
             StringData::Empty
         } else {
-            flags1.to_string(ctx)?.content().clone()
+            StringData::new(flags1.to_string(ctx)?.content())
         };
     }
 
@@ -529,7 +531,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
     let rep = *cc.arg(1);
     let rep_is_func = rep.is_function();
     let rep_str: Option<StringData> = if !rep_is_func {
-        Some(rep.to_string(ctx)?.content().clone())
+        Some(StringData::new(rep.to_string(ctx)?.content()))
     } else {
         None
     };
@@ -648,7 +650,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
                 |n| {
                     let v = captures.get(n).unwrap();
                     if !v.is_undefined() {
-                        Ok(Some(v.to_string(ctx)?.content().clone()))
+                        Ok(Some(StringData::new(v.to_string(ctx)?.content())))
                     } else {
                         Ok(None)
                     }
@@ -658,7 +660,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
                 |name| {
                     let val = named_dict.as_ref().unwrap().get_property_str(ctx, name)?;
                     if !val.is_undefined() {
-                        Ok(Some(val.to_string(ctx)?.content().clone()))
+                        Ok(Some(StringData::new(val.to_string(ctx)?.content())))
                     } else {
                         Ok(None)
                     }
@@ -673,25 +675,26 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
             StringData::from_buf(t)
         } else {
             // replacement is function
-            js_function_apply(CallContext::new(
-                cc.ctx_ptr(),
-                rep,
-                &[JSValue::UNDEFINED, {
-                    // make arguments: captures + extras
-                    let mut aa = captures;
-                    aa.push(JSValue::Int(index as i32));
-                    aa.push(str.into());
-                    if !named_captures.is_undefined() {
-                        aa.push(named_captures);
-                    }
-                    ctx.create_array_with_values(aa)?.into()
-                }],
-                0,
-                None,
-            ))?
-            .to_string(ctx)?
-            .content()
-            .clone()
+            StringData::new(
+                js_function_apply(CallContext::new(
+                    cc.ctx_ptr(),
+                    rep,
+                    &[JSValue::UNDEFINED, {
+                        // make arguments: captures + extras
+                        let mut aa = captures;
+                        aa.push(JSValue::Int(index as i32));
+                        aa.push(str.into());
+                        if !named_captures.is_undefined() {
+                            aa.push(named_captures);
+                        }
+                        ctx.create_array_with_values(aa)?.into()
+                    }],
+                    0,
+                    None,
+                ))?
+                .to_string(ctx)?
+                .content(),
+            )
         };
 
         if pos <= index {

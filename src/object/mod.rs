@@ -52,6 +52,11 @@ macro_rules! gcref_wrapper {
             pub(crate) const fn gc_ref(&self) -> GcRef<$in_ty> {
                 self.0
             }
+
+            #[inline(always)]
+            pub(crate) fn gc_node(&self) -> &gc_lite::GcHead {
+                unsafe { self.0.node_ptr().as_ref() }
+            }
         }
     };
 }

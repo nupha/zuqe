@@ -151,7 +151,7 @@ unsafe impl GcTracable for BytecodeImpl {
             pos += oi.size as usize;
         }
 
-        self.debug.trace(tr);
+        self.debug.as_ref().map(|x| x.trace(tr));
     }
 }
 

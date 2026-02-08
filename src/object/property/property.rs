@@ -264,8 +264,12 @@ unsafe impl GcTracable for JSProperty {
                 v.trace(tr);
             }
             Self::GetSet { getter, setter } => {
-                getter.trace(tr);
-                setter.trace(tr);
+                if let Some(o) = getter {
+                    o.trace(tr);
+                }
+                if let Some(o) = setter {
+                    o.trace(tr);
+                }
             }
             Self::VarRef(vr) => {
                 vr.trace(tr);

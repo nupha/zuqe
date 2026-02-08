@@ -83,7 +83,7 @@ impl PartialEq for Callback {
 #[derive(Debug, Clone)]
 pub(crate) struct NFuncPayload {
     pub(crate) callback: Callback,
-    pub(crate) realm: ContextPtr, // GcWeak<ContextImpl>,
+    pub(crate) realm: ContextPtr,
     pub(crate) length: u8,
     pub(crate) magic: i16,
 }
@@ -107,9 +107,9 @@ impl NFuncPayload {
         let func_obj = Object::try_from(func).unwrap();
 
         #[cfg(debug_assertions)]
-        ctx.rt_ref()
-            .gc_heap()
-            .debug_assert_node_valid(func_obj.gc_ref().node_ptr(), true);
+        func_obj
+            .gc_node()
+            .debug_assert_node_tree_valid(rt.gc_heap());
 
         let (callback, arg_length, magic, realm) =
             if let ObjectPayload::C_FUNCTION(c) = func_obj.payload() {

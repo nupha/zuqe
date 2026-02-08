@@ -101,7 +101,7 @@ impl ContextImpl {
                 self.throw_out_of_memory();
                 -1
             })?;
-            jsc.gap = self.create_string_with_buf(b)?.content().clone();
+            jsc.gap = StringData::new(self.create_string_with_buf(b)?.content());
         } else {
             jsc.gap = StringData::Empty;
         }
