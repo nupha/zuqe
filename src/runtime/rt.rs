@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHeap, GcPartition, GcPartitionId, GcTraceOp, GcWeak};
+use gc_lite::{GcHeap, GcPartitionId, GcTraceOp, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
@@ -116,11 +116,11 @@ impl Drop for RuntimeImpl {
 
 impl RuntimeImpl {
     pub(super) fn new() -> Result<Box<Self>, i32> {
+        // ShapeImpl obj drop at pass 1
+        GcHeap::set_gc_type_drop_pass::<ShapeImpl>(1);
+
         // create gc heap and partition for this runtime
         let mut gc_heap = GcHeap::new();
-
-        // set ShapeImpl obj drop at pass 1
-        gc_heap.set_gc_type_drop_order::<ShapeImpl>(1);
 
         let gc_part_id = gc_heap.create_root_partition(0);
         {

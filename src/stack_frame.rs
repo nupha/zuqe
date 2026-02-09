@@ -143,6 +143,9 @@ impl Drop for StackFrame {
                     {
                         |n| {
                             println!("[O.o] dispose node {n:?}");
+                            if let Some(ss) = n.gc_ref::<crate::string::StringImpl>() {
+                                println!("[O.o]       {:?}", ss.content());
+                            }
                         }
                     }
                     #[cfg(not(debug_assertions))]

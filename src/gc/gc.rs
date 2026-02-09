@@ -1,8 +1,6 @@
-use std::ptr::NonNull;
-
 use gc_lite::{
-    GcError, GcHead, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceOp,
-    GcTraceRestrict, GcTracer,
+    GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceOp, GcTraceRestrict,
+    GcTracer,
 };
 
 use crate::runtime::RuntimeImpl;
