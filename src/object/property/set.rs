@@ -90,7 +90,7 @@ impl Object {
                         if unlikely(cur_obj.class_id() == JS_CLASS_MODULE_NS) {
                             fail_read_only!(prop)
                         } else if let JSProperty::VarRef(vref) = cur_obj.prop_slot_mut(idx) {
-                            let xref = self.gc_ref().node_info().get_partition_id();
+                            let xref = self.gc_ref().node_info().scope_id();
                             vref.set_value(ctx, val, xref);
                             return Ok(true);
                         } else {
@@ -312,7 +312,7 @@ impl Object {
         match self.class_id() {
             JS_CLASS_ARRAY => {
                 if self.flags().extensible() {
-                    let self_xref = self.gc_ref().node_info().get_partition_id();
+                    let self_xref = self.gc_ref().node_info().scope_id();
                     let this = *self;
 
                     if self.is_fast_array()
@@ -430,7 +430,7 @@ impl Object {
             }
 
             JS_CLASS_ARGUMENTS => {
-                let self_xref = self.gc_ref().node_info().get_partition_id();
+                let self_xref = self.gc_ref().node_info().scope_id();
 
                 if self.is_fast_array()
                     && let Some(arr_data) = self.payload_mut().array_mut()

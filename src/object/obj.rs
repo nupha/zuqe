@@ -172,7 +172,9 @@ pub struct ObjectImpl {
 
 unsafe impl GcTracable for ObjectImpl {
     fn trace(&self, tr: GcTraceOp) {
-        self.shape.as_ref().map(|x| x.trace(tr));
+        if let Some(x) = self.shape.as_ref() {
+            x.trace(tr)
+        }
         for p in self.prop_values.iter() {
             p.trace(tr);
         }
@@ -355,9 +357,9 @@ impl ObjectImpl {
         {
             let gc_children = obj.gc_ref().gc_children(ctx.rt_ref().gc_heap());
             if !gc_children.is_empty() {
-                let obj_partition = obj.gc_ref().node_info().get_partition_id();
+                let obj_scope = obj.gc_ref().node_info().scope_id();
                 for n in gc_children {
-                    ctx.rt_ptr().gc_heap_mut().set_xref(obj_partition, n);
+                    ctx.rt_ptr().gc_heap_mut().set_xref(obj_scope, n);
                 }
             }
         }
@@ -496,14 +498,8 @@ impl ObjectImpl {
 
         let obj = unsafe { Object::from_ref_unchecked(self) };
 
-        // log::trace!(
-        //     "[object_shape] {:?} : {:?}",
-        //     obj.gc_ref().node_info(),
-        //     shape.gc_ref().node_info()
-        // );
-
-        let obj_xref = obj.gc_ref().node_info().get_partition_id();
-        if obj_xref != shape.gc_ref().node_info().get_partition_id() {
+        let obj_xref = obj.gc_ref().node_info().scope_id();
+        if obj_xref != shape.gc_ref().node_info().scope_id() {
             self.rt()
                 .gc_heap_mut()
                 .set_xref(obj_xref, shape.gc_ref().node_ptr());

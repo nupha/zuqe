@@ -106,7 +106,7 @@ impl ShapeImpl {
         let self_xref = unsafe {
             GcRef::<Self>::from_ref_unchecked(self)
                 .node_info()
-                .get_partition_id()
+                .scope_id()
         };
 
         for (i, (prop, prop_flags)) in extras.iter().enumerate() {

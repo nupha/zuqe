@@ -3,29 +3,15 @@ use crate::{
     atom::Atom,
     builtins::array::ArrayPayload,
     context::ContextImpl,
-    error::JSResult,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
         JS_PROP_WRITABLE, JSProperty, Object, ObjectPayload,
     },
     stack_frame::StackFrame,
-    utils::unlikely,
     value::JSValue,
 };
 
 use super::JS_MAX_LOCAL_VARS;
-
-impl ContextImpl {
-    pub(crate) fn build_rest(&self, first: usize, args: &[JSValue]) -> JSResult {
-        let mut arr = self.create_array()?;
-        if !args.is_empty() {
-            for (i, v) in args.iter().enumerate().skip(first) {
-                arr.define_property_value_u32(self, (i - first) as u32, *v, JS_PROP_C_W_E)?;
-            }
-        }
-        Ok(arr.into())
-    }
-}
 
 pub fn js_build_arguments(ctx: &ContextImpl, args: &[JSValue]) -> JSValue {
     let mut obj = if let Ok(o) = ctx.create_object_with_proto(
@@ -48,7 +34,7 @@ pub fn js_build_arguments(ctx: &ContextImpl, args: &[JSValue]) -> JSValue {
 
     if !args.is_empty() && obj.is_fast_array() {
         // initialize fast array values
-        let xref = obj.gc_ref().node_info().get_partition_id();
+        let xref = obj.gc_ref().node_info().scope_id();
         let arr_data = obj.as_Array_mut().unwrap().payload_mut();
         if arr_data.reserve(args.len()).is_err() {
             ctx.throw_out_of_memory();

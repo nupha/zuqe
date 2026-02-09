@@ -84,16 +84,12 @@ impl RuntimeImpl {
     pub(crate) fn gc_collect_in(&mut self, partition_id: GcPartitionId) -> usize {
         log::trace!("[collect] {partition_id:?}");
 
-        let mark_func = |mut h: NonNull<GcHead>, _: &GcHeap| unsafe {
-            h.as_mut().set_marked(true);
-        };
-
         // 1. mark
         {
             let mut tr = GcTracer::new(self.gc_heap(), GcTraceRestrict::No, true);
 
             // Note: for root scope, Contexts are root nodes, they have been traced in trace_root step.
-            tr.trace_roots(partition_id, mark_func);
+            tr.trace_roots(partition_id, GcTracer::MARK_FUNC);
 
             if let Some(sf) = self.current_stack_frame() {
                 debug_assert_eq!(sf.gc_scope_id, partition_id);
@@ -101,7 +97,7 @@ impl RuntimeImpl {
                 // tr.trace_iter(sf.gc_nodes(), GcTracer::MARK_FUNC);
             }
             if let Some(n) = self.cur_exception.gc_node_ptr() {
-                tr.trace(n, mark_func);
+                tr.trace(n, GcTracer::MARK_FUNC);
             }
 
             // user defined trace
@@ -113,13 +109,22 @@ impl RuntimeImpl {
                 f(tr.ctx());
             }
 
-            tr.commit(mark_func);
+            tr.commit(GcTracer::MARK_FUNC);
         }
 
         // 2. sweep
         let freed = self
             .gc_heap
-            .sweep(partition_id, GcHeap::SWEEP_UNMARKED_FUNC);
+            .sweep(partition_id, GcHeap::SWEEP_UNMARKED_FUNC, {
+                #[cfg(debug_assertions)]
+                {
+                    |n| {
+                        println!("[O.o][collect] dispose node {n:?}");
+                    }
+                }
+                #[cfg(not(debug_assertions))]
+                GcHeap::DUMMY_DISPOSE_CALLBACK
+            });
 
         if freed != 0 {
             // update gc threshold

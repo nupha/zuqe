@@ -190,7 +190,7 @@ impl ModuleDef {
                 if imp.import_name == Atom::CONST__star_ {
                     // name space import
                     let val = reqm.ns(ctx)?;
-                    let xref = self.gc_ref().node_info().get_partition_id();
+                    let xref = self.gc_ref().node_info().scope_id();
                     md_func.payload_mut().var_refs[import_var_idx as usize].set_value(
                         ctx,
                         val.into(),
@@ -215,8 +215,7 @@ impl ModuleDef {
                                         let val = m2.ns(ctx)?;
                                         let vref = {
                                             let mut vr = js_create_module_var(ctx, true)?;
-                                            let xref =
-                                                md_func.gc_ref().node_info().get_partition_id();
+                                            let xref = md_func.gc_ref().node_info().scope_id();
                                             vr.set_value(ctx, val.into(), xref);
                                             vr
                                         };

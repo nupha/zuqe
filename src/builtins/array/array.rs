@@ -42,6 +42,10 @@ impl ArrayPayload {
         self.values.len()
     }
 
+    pub fn reserve(&mut self, extra: usize) -> Result<(), TryReserveError> {
+        self.values.try_reserve(extra)
+    }
+
     pub fn values(&self) -> &[JSValue] {
         &self.values
     }
@@ -60,17 +64,13 @@ impl ArrayPayload {
 
         if let Some(n) = val.gc_node_ptr() {
             unsafe {
-                if n.as_ref().get_partition_id() != xref {
+                if n.as_ref().scope_id() != xref {
                     rt.gc_heap_mut().set_xref(xref, n);
                 }
             }
         }
 
         Ok(())
-    }
-
-    pub fn reserve(&mut self, extra: usize) -> Result<(), TryReserveError> {
-        self.values.try_reserve(extra)
     }
 
     pub fn extend(
@@ -112,7 +112,7 @@ impl ArrayPayload {
         self.update_values_xref(rt.gc_heap_mut(), xref);
     }
 
-    pub(crate) fn update_values_xref(&mut self, heap: &mut GcHeap, xref: GcPartitionId) {
+    fn update_values_xref(&mut self, heap: &mut GcHeap, xref: GcPartitionId) {
         for val in self.values.iter() {
             if let Some(n) = val.gc_node_ptr() {
                 heap.set_xref(xref, n);
@@ -292,7 +292,7 @@ impl Array {
         }
 
         let len = values.len();
-        let self_xref = self.gc_ref().node_info().get_partition_id();
+        let self_xref = self.gc_ref().node_info().scope_id();
 
         self.payload_mut()
             .replace_values(&mut ctx.rt_ptr(), values, self_xref);
@@ -351,7 +351,7 @@ impl Array {
                 })?;
 
                 for v in arr_data.values().iter().filter(|v| !v.is_undefined()) {
-                    slots.push((*v, StringData::new(v.to_string(ctx)?.content())));
+                    slots.push((*v, v.to_string(ctx)?.content().clone()));
                 }
 
                 sort_values_default(&mut slots);
@@ -471,7 +471,7 @@ impl Array {
                         undefined_count += 1;
                     } else {
                         let s = v.to_string(ctx)?;
-                        slots.push((v, StringData::new(s.content())));
+                        slots.push((v, s.content().clone()));
                     }
                 } else if first_missing.is_none() {
                     first_missing.replace(i as usize);
@@ -569,7 +569,7 @@ impl ContextImpl {
             // set array length
             arr.set_length(self, len as u32, true)?;
             // set gc xref
-            let xref = arr.gc_ref().node_info().get_partition_id();
+            let xref = arr.gc_ref().node_info().scope_id();
             arr.payload_mut()
                 .update_values_xref(self.rt_ptr().gc_heap_mut(), xref);
         }
@@ -669,7 +669,7 @@ impl Object {
 
     /// Preconditions: 'self' is JS_CLASS_ARRAY, is fast_array and is extensible.
     /// returns Err if fail, true if append successfully, false if can't append due to read-only but flags indicates don't throw exception.
-    pub fn add_fast_array_element(
+    pub(crate) fn add_fast_array_element(
         &mut self,
         ctx: &ContextImpl,
         val: JSValue,
@@ -721,7 +721,7 @@ impl Object {
         }
 
         // add new element to list
-        let xref = self.gc_ref().node_info().get_partition_id();
+        let xref = self.gc_ref().node_info().scope_id();
         self.as_Array_mut()
             .unwrap()
             .payload_mut()

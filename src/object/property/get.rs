@@ -22,12 +22,6 @@ impl Object {
         this_obj: JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
-        log::trace!(
-            "[get_property_internal] {:?}, class_id={}",
-            self.gc_ref().node_info(),
-            self.class_id()
-        );
-
         // // FIXME: may collect invalid descendant nodes?
         // #[cfg(debug_assertions)]
         // ctx.rt_ref()

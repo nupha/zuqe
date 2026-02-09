@@ -134,7 +134,6 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     m.insert(
         PayloadKey::MapSetIterator,
         "Box<crate::builtins::mapset::JSMapIteratorData>",
-        // "std::cell::RefCell<Box<crate::builtins::mapset::JSMapIteratorData>>",
     );
     m.insert(
         PayloadKey::ArrayIterator,

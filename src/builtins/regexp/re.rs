@@ -7,6 +7,7 @@ use zerocopy::IntoBytes;
 use crate::{
     JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     atom::Atom,
+    builtins::array::Array,
     class::ClassID,
     context::{Context, ContextImpl},
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
@@ -345,20 +346,20 @@ pub(super) fn make_regexp_capture_array(
     text: StringRef,
     range_and_name: &[(Option<Range<usize>>, Option<String>)],
     with_indices: bool,
-) -> Result<(JSValue, usize), i32> {
+) -> Result<(Array, usize), i32> {
     let mut items = Vec::<JSValue>::new();
     items.try_reserve(range_and_name.len()).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
 
-    let mut indices = if with_indices {
-        let mut lst = Vec::<JSValue>::new();
+    let mut indices: Option<(Vec<JSValue>, Option<Object>)> = if with_indices {
+        let mut lst = Vec::new();
         lst.try_reserve(range_and_name.len()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
-        Some((lst, JSValue::UNDEFINED))
+        Some((lst, None))
     } else {
         None
     };
@@ -401,10 +402,13 @@ pub(super) fn make_regexp_capture_array(
             idxlst.push(idx);
 
             if let Some(n) = name {
-                if idxgroup.is_undefined() {
-                    *idxgroup = ctx.create_base_object_with_proto(None)?.into();
+                if let Some(g) = idxgroup {
+                    g.define_property_value_str(ctx, n, idx, prop_flags)?;
+                } else {
+                    let mut g = ctx.create_base_object_with_proto(None)?;
+                    g.define_property_value_str(ctx, n, idx, prop_flags)?;
+                    idxgroup.replace(g);
                 }
-                idxgroup.define_property_value_str(ctx, n, idx, prop_flags)?;
             }
         }
     }
@@ -422,10 +426,14 @@ pub(super) fn make_regexp_capture_array(
 
     if let Some((idx_lst, idx_grp)) = indices {
         let mut indices = ctx.create_array_with_values(idx_lst)?;
-        indices.define_property_value(ctx, Atom::CONST_groups, idx_grp, prop_flags)?;
-
+        indices.define_property_value(
+            ctx,
+            Atom::CONST_groups,
+            idx_grp.map_or(JSValue::UNDEFINED, JSValue::Object),
+            prop_flags,
+        )?;
         res.define_property_value(ctx, Atom::CONST_indices, indices.into(), prop_flags)?;
     }
 
-    Ok((res.into(), last_index))
+    Ok((res, last_index))
 }

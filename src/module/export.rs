@@ -244,11 +244,7 @@ impl ModuleDefImpl {
                     var_ref.is_some(),
                     "exported local entry must have been linked"
                 );
-                let xref = unsafe {
-                    GcRef::from_ref_unchecked(self)
-                        .node_info()
-                        .get_partition_id()
-                };
+                let xref = unsafe { GcRef::from_ref_unchecked(self).node_info().scope_id() };
                 var_ref.unwrap().set_value(ctx, value, xref);
                 Ok(())
             } else {

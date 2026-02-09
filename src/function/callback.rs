@@ -235,7 +235,7 @@ impl NFuncPayload {
         };
 
         if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr)
-            && unsafe { n.as_ref().get_partition_id() == stack_frame.gc_scope_id }
+            && unsafe { n.as_ref().scope_id() == stack_frame.gc_scope_id }
         {
             // `ret_val` was allocated in `stack_frame` scope, the `stack_frame` will be dropped at exit,
             // must migrate `ret_val` to upper scope

@@ -231,10 +231,7 @@ impl ContextImpl {
         #[cfg(debug_assertions)]
         {
             if let Ok(v) = ret_val.as_ref() {
-                if let Some(p) = v
-                    .gc_node_ptr()
-                    .map(|n| unsafe { n.as_ref().get_partition_id() })
-                {
+                if let Some(p) = v.gc_node_ptr().map(|n| unsafe { n.as_ref().scope_id() }) {
                     debug_assert!(
                         self.rt_ref()
                             .gc_heap()
@@ -245,7 +242,7 @@ impl ContextImpl {
                 .rt_ref()
                 .exception()
                 .gc_node_ptr()
-                .map(|n| unsafe { n.as_ref().get_partition_id() })
+                .map(|n| unsafe { n.as_ref().scope_id() })
             {
                 debug_assert!(
                     self.rt_ref()

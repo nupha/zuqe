@@ -577,7 +577,6 @@ fn main() {
         .open("test262.log")
         .unwrap();
 
-    // Box::new(TeeWriter::new(log_file, io::stderr())),
     let tee = TeeWriter::new(Some(log_file), Option::<std::fs::File>::None);
 
     env_logger::Builder::new()
@@ -687,21 +686,25 @@ fn main() {
             .filter(|lst| !lst.is_empty());
 
         for item in tests {
-            let pat = base_path.join(format!("test/{item}"));
-            for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
-                let fname = fname.unwrap();
+            for path in
+                glob::glob(base_path.join(format!("test/{item}")).to_str().unwrap()).unwrap()
+            {
+                let file_name = path.unwrap();
 
-                if let Some(f) = &tee.a {
-                    let mut fp = f.lock().unwrap();
-                    fp.flush().unwrap();
-                    fp.set_len(0).unwrap();
-                    fp.seek(std::io::SeekFrom::Start(0)).unwrap();
-                    fp.flush().unwrap();
-                }
+                if !exclude_tests.contains(&file_name) {
+                    if let Some(f) = &tee.a {
+                        // truncate log file
+                        let mut fp = f.lock().unwrap();
+                        fp.flush().unwrap();
+                        fp.set_len(0).unwrap();
+                        fp.seek(std::io::SeekFrom::Start(0)).unwrap();
+                        fp.flush().unwrap();
+                    }
 
-                if !exclude_tests.contains(&fname) {
+                    println!("{}", file_name.to_str().unwrap());
+
                     run_test_file(
-                        &fname,
+                        &file_name,
                         &harness_path,
                         excludes.as_deref(),
                         &mut outf,

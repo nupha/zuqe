@@ -12,7 +12,7 @@ use super::{CharCode, CharCodeDecoder, StringBuf, StringCharIter, s16_into_s8, u
 
 /// read-only string content.
 #[repr(u8)]
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub enum StringData {
     #[default]
     Empty,
@@ -30,13 +30,7 @@ pub enum StringData {
 #[cfg(debug_assertions)]
 impl Drop for StringData {
     fn drop(&mut self) {
-        log::trace!("StringData::drop() {self:?}");
-    }
-}
-
-impl Clone for StringData {
-    fn clone(&self) -> Self {
-        Self::new(self)
+        log::trace!("StringData::drop() {}", self.encode_utf8(false));
     }
 }
 
@@ -218,22 +212,6 @@ impl std::fmt::Debug for StringData {
 }
 
 impl StringData {
-    pub fn new(sd: &StringData) -> Self {
-        match sd {
-            Self::Empty => Self::Empty,
-            Self::Ident => Self::Ident,
-            Self::AsciiStatic(s) => Self::AsciiStatic(*s),
-            Self::Ascii(d) => {
-                let data = d.clone();
-                Self::Ascii(data)
-            }
-            Self::Utf16(d) => {
-                let data = d.clone();
-                Self::Utf16(data)
-            }
-        }
-    }
-
     #[inline(always)]
     pub const fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)

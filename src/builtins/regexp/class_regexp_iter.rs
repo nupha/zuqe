@@ -24,48 +24,42 @@ fn js_regexp_string_iterator_next(cc: CallContext, state: &mut IteratorState) ->
         // initialize state
         *state = IteratorState::NotDone;
 
-        match regexp_exec(cc.ctx_ptr(), it.regexp().into(), it.string())? {
-            JSValue::Object(mat) => {
-                if it.is_global() {
-                    let str = mat
-                        .get_property_i64(ctx, 0)
-                        .and_then(|x| x.to_string(ctx))?;
+        if let Some(mat) = regexp_exec(ctx, it.regexp().into(), it.string())? {
+            if it.is_global() {
+                let str = mat
+                    .get_property_i64(ctx, 0)
+                    .and_then(|x| x.to_string(ctx))?;
 
-                    if str.is_empty() {
-                        // if matched is empty, advance index to next char
-                        let last_index = it
-                            .regexp()
-                            .get_property(ctx, Atom::CONST_lastIndex)
-                            .and_then(|v| v.to_length(ctx))
-                            .inspect_err(|_| {
-                                *state = IteratorState::NotDone;
-                            })?;
+                if str.is_empty() {
+                    // if matched is empty, advance index to next char
+                    let last_index = it
+                        .regexp()
+                        .get_property(ctx, Atom::CONST_lastIndex)
+                        .and_then(|v| v.to_length(ctx))
+                        .inspect_err(|_| {
+                            *state = IteratorState::NotDone;
+                        })?;
 
-                        let next_index = it
-                            .string()
-                            .index_of_next_i64(last_index, it.is_unicode())
-                            .unwrap_or(last_index + 1);
+                    let next_index = it
+                        .string()
+                        .index_of_next_i64(last_index, it.is_unicode())
+                        .unwrap_or(last_index + 1);
 
-                        it.regexp()
-                            .set_property(ctx, Atom::CONST_lastIndex, JSValue::from(next_index))
-                            .inspect_err(|_| {
-                                *state = IteratorState::NotDone;
-                            })?;
-                    }
-                } else {
-                    it.set_done(true);
+                    it.regexp()
+                        .set_property(ctx, Atom::CONST_lastIndex, JSValue::from(next_index))
+                        .inspect_err(|_| {
+                            *state = IteratorState::NotDone;
+                        })?;
                 }
-
-                Ok(mat.into())
-            }
-            JSValue::NULL => {
+            } else {
                 it.set_done(true);
-                *state = IteratorState::Done;
-                Ok(JSValue::UNDEFINED)
             }
-            _ => {
-                unreachable!()
-            }
+
+            Ok(mat.into())
+        } else {
+            it.set_done(true);
+            *state = IteratorState::Done;
+            Ok(JSValue::UNDEFINED)
         }
     } else {
         unreachable!()

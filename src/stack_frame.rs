@@ -5,7 +5,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcHead, GcPartitionId, GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcHead, GcHeap, GcPartitionId, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     Object,
@@ -123,7 +123,32 @@ impl Drop for StackFrame {
     fn drop(&mut self) {
         if !self.gc_scope_id.is_null() {
             let mut rt = self.rt();
-            rt.gc_heap_mut().remove_partition(self.gc_scope_id);
+
+            rt.gc_heap_mut().remove_partition(
+                self.gc_scope_id,
+                {
+                    #[cfg(debug_assertions)]
+                    {
+                        |n, scope| {
+                            println!("[O.o] migrate node {n:?} -> {scope:?}");
+                        }
+                    }
+                    #[cfg(not(debug_assertions))]
+                    {
+                        GcHeap::DUMMY_MIGRATE_CALLBACK
+                    }
+                },
+                {
+                    #[cfg(debug_assertions)]
+                    {
+                        |n| {
+                            println!("[O.o] dispose node {n:?}");
+                        }
+                    }
+                    #[cfg(not(debug_assertions))]
+                    GcHeap::DUMMY_DISPOSE_CALLBACK
+                },
+            );
 
             // GUARD
             #[cfg(debug_assertions)]
@@ -139,7 +164,7 @@ impl Drop for StackFrame {
                     .values()
                     .flat_map(|lst| lst.iter().flat_map(|s| s.upgrade(&rt.gc_heap)));
 
-                let found = chk.find(|s| s.node_info().get_partition_id() == self.gc_scope_id);
+                let found = chk.find(|s| s.node_info().scope_id() == self.gc_scope_id);
 
                 debug_assert!(
                     found.is_none(),

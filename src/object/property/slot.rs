@@ -80,7 +80,7 @@ impl ObjectImpl {
         if gc_node[0].is_some() || gc_node[1].is_some() {
             let xref = unsafe {
                 let o = GcRef::from_ref_unchecked(self);
-                o.node_info().get_partition_id()
+                o.node_info().scope_id()
 
                 // let x = obj_node.xref_partition();
                 // if x.is_null() {
@@ -96,7 +96,7 @@ impl ObjectImpl {
                     #[cfg(debug_assertions)]
                     node.as_ref().debug_assert_node_tree_valid(rt.gc_heap());
 
-                    if node.as_ref().get_partition_id() != xref {
+                    if node.as_ref().scope_id() != xref {
                         rt.gc_heap_mut().set_xref(xref, node);
                     }
                 }
@@ -198,7 +198,7 @@ impl Object {
                             };
                         }
                     } else {
-                        let xref = self.gc_ref().node_info().get_partition_id();
+                        let xref = self.gc_ref().node_info().scope_id();
                         vref.set_value(ctx, val, xref);
                     }
                 }

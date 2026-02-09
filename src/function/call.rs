@@ -189,7 +189,7 @@ impl Object {
         #[cfg(debug_assertions)]
         {
             if let Ok(v) = ret_val.as_ref() {
-                if let Some(p) = v.gc_node().map(|n| n.get_partition_id()) {
+                if let Some(p) = v.gc_node().map(|n| n.scope_id()) {
                     debug_assert!(!p.is_null());
                     debug_assert!(
                         ctx.rt_ref()
@@ -197,12 +197,7 @@ impl Object {
                             .check_partition_ancestor(ctx.rt_ref().gc_root_scope, p)
                     );
                 }
-            } else if let Some(p) = ctx
-                .rt_ref()
-                .exception()
-                .gc_node()
-                .map(|n| n.get_partition_id())
-            {
+            } else if let Some(p) = ctx.rt_ref().exception().gc_node().map(|n| n.scope_id()) {
                 debug_assert!(!p.is_null());
                 debug_assert!(
                     ctx.rt_ref()
@@ -287,7 +282,6 @@ impl JSValue {
         }
     }
 
-    /// call `self` value.
     #[inline(always)]
     pub fn call(&self, ctx: &ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
         self.call_internal(
@@ -422,12 +416,15 @@ pub(crate) fn js_function_apply(cc: CallContext) -> JSResult {
     let array_arg = *cc.arg(1);
 
     if array_arg.is_undefined_or_null() && cc.magic() != 2 {
+        // magic: 0/1 normal or constructor apply
         this_val.call(ctx, this_arg, &[])
     } else {
         let arg_list = build_arg_list(ctx, array_arg)?;
         if cc.magic() & 1 != 0 {
+            // magic: 1 constructor apply
             JS_CallConstructor2(ctx, this_val, this_arg, arg_list.as_ref()).err()
         } else {
+            // magic: 0/2 normal or Reflect.apply
             this_val.call(ctx, this_arg, arg_list.as_ref())
         }
     }

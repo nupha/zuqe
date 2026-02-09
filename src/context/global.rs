@@ -192,14 +192,14 @@ impl ContextImpl {
     /// * 0: normal variable write
     /// * 1: initialize lexical variable
     /// * 2: normal variable write, strict check was done before
-    pub fn set_global_var(&self, prop: Atom, val: JSValue, flag: u32) -> Result<bool, i32> {
+    pub(crate) fn set_global_var(&self, prop: Atom, val: JSValue, flag: u8) -> Result<bool, i32> {
         // no exotic behavior is possible in global_var_obj
-        let mut gvobj = self.global_var_obj();
+        let mut gv = self.global_var_obj();
 
-        if let Some((idx, prs_flags)) = gvobj.find_shape_property(prop) {
+        if let Some((idx, prs_flags)) = gv.find_shape_property(prop) {
             // XXX: should handle JS_PROP_LAZYINIT properties?
             if flag != 1 {
-                match gvobj.prop_slot(idx) {
+                match gv.prop_slot(idx) {
                     JSProperty::Normal(JSValue::UNINITIALIZED) => {
                         JS_ThrowReferenceErrorUninitialized(self, prop);
                         return Err(-1);
@@ -213,7 +213,7 @@ impl ContextImpl {
                 }
             }
 
-            gvobj.set_prop_slot(idx, JSProperty::Normal(val));
+            gv.set_prop_slot(idx, JSProperty::Normal(val));
             Ok(true)
         } else {
             // not exist

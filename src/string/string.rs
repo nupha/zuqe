@@ -8,7 +8,7 @@ use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_STRING,
-    atom::{Atom, AtomInfo, AtomKind, is_const_atom, is_small_int_atom},
+    atom::{Atom, AtomInfo, AtomKind},
     class::ClassExoticMethods,
     context::{ContextImpl, ContextPtr},
     number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
@@ -209,7 +209,7 @@ impl StringImpl {
             StringData::Empty => StringRef::new_internal(rt, StringData::Empty, None),
             StringData::Ident => StringRef::new_internal(rt, StringData::Ident, None),
             StringData::AsciiStatic(s) => StringRef::from_static(rt, s, None),
-            _ => StringRef::new(self.rt(), StringData::new(self.content())),
+            _ => StringRef::new(self.rt(), self.content().clone()),
         }
     }
 
@@ -314,59 +314,45 @@ impl TryFrom<JSValue> for StringRef {
 }
 
 impl StringRef {
-    /// create String with string data, and atom info.
+    /// create String with string data, and optional atom info.
     fn new_internal(
         mut rt: RuntimePtr,
         content: StringData,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
-        let ss = StringImpl::new(rt, content, atom_info);
-        rt.gc_alloc(ss)
+        let s = StringImpl::new(rt, content, atom_info);
+        let ss = rt
+            .gc_alloc(s)
             .map_err(|_| {
                 eprintln!("[O.o] alloc error");
                 -1
             })
-            .map(Self)
+            .map(Self)?;
+
+        // O.o
+        #[cfg(debug_assertions)]
+        {
+            let t = format!("[StringImpl] {}", ss.encode_utf8(true));
+            ss.gc_ref().node_info_mut().debug_set_dbg_string(t.into());
+        }
+
+        Ok(ss)
     }
 
-    /// create StringImpl with string content
     #[inline(always)]
     pub(crate) fn new(rt: RuntimePtr, content: StringData) -> Result<Self, i32> {
         Self::new_internal(rt, content, None)
     }
 
-    /// Creates a StringImpl from a Rust string slice
-    ///
-    /// Efficiently creates a string from UTF-8 encoded Rust str.
-    /// The string content is copied to ensure JavaScript string immutability.
-    ///
-    /// # Arguments
-    /// * `rt` - JavaScript runtime for memory allocation
-    /// * `str` - Source Rust string slice
-    ///
-    /// # Returns
-    /// * `Ok(Box<StringImpl>)` - Newly created string
-    /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
+    #[inline]
     pub(crate) fn from_str(rt: RuntimePtr, s: &str) -> Result<Self, i32> {
         let sbuf = StringBuf::from_str(s)?;
         Self::new_internal(rt, StringData::from_buf(sbuf), None)
     }
 
-    /// Creates a StringImpl from UTF-8 encoded bytes
-    ///
-    /// Handles both ASCII and non-ASCII content:
-    /// - ASCII content is stored as-is in UTF-8 format
-    /// - Non-ASCII content is converted to UTF-16 for better Unicode support
-    ///
-    /// # Arguments
-    /// * `rt` - JavaScript runtime for memory allocation
-    /// * `data` - UTF-8 encoded byte vector
-    ///
-    /// # Returns
-    /// * `Ok(Box<StringImpl>)` - Newly created string
-    /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    pub(crate) fn from_utf8(rt: RuntimePtr, bytes: Vec<u8>) -> Result<Self, i32> {
-        let data = StringData::from_buf(StringBuf::from_utf8(bytes).map_err(|_| -1)?);
+    #[inline]
+    pub(crate) fn from_utf8(rt: RuntimePtr, utf8_bytes: Vec<u8>) -> Result<Self, i32> {
+        let data = StringData::from_buf(StringBuf::from_utf8(utf8_bytes).map_err(|_| -1)?);
         Self::new(rt, data)
     }
 

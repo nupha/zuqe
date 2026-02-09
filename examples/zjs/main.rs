@@ -5,7 +5,7 @@ mod global;
 mod mod_os;
 mod mod_std;
 
-use std::process::ExitCode;
+use std::{io::Write, process::ExitCode};
 
 use clap::Parser;
 use colorized::{Colors::*, colorize_println};
@@ -17,6 +17,45 @@ use crate::{
     mod_os::{init_mod_os, mod_os_gc_trace},
     mod_std::init_mod_std,
 };
+
+/// write data both to stderr and file
+struct TeeWriter<A: Write, B: Write> {
+    a: Option<A>,
+    b: Option<B>,
+}
+
+impl<A: Write, B: Write> TeeWriter<A, B> {
+    fn new(a: Option<A>, b: Option<B>) -> Self {
+        Self { a, b }
+    }
+}
+
+impl<A: Write, B: Write> Write for TeeWriter<A, B> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Some(w) = &mut self.a {
+            Some(w.write_all(buf)?)
+        } else {
+            None
+        };
+        if let Some(w) = &mut self.b {
+            Some(w.write_all(buf)?)
+        } else {
+            None
+        };
+
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Some(w) = &mut self.a {
+            w.flush()?;
+        }
+        if let Some(w) = &mut self.b {
+            w.flush()?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Parser)]
 #[command(version)]
@@ -79,10 +118,19 @@ fn parse_byte_size(ss: &str) -> Option<usize> {
 }
 
 fn main() -> ExitCode {
-    unsafe {
-        std::env::set_var("RUST_LOG", "INFO");
-    }
-    env_logger::init();
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("debug.log")
+        .unwrap();
+
+    let tee = TeeWriter::new(Some(log_file), Some(std::io::stderr()));
+
+    env_logger::Builder::new()
+        .filter_level(log::LevelFilter::Trace)
+        .target(env_logger::Target::Pipe(Box::new(tee)))
+        .init();
 
     let args = Args::parse();
 

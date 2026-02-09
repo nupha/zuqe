@@ -1,5 +1,7 @@
 use std::ptr::NonNull;
 
+use fallible_collections::TryCollect;
+
 use crate::{
     atom::{Atom, AtomKind},
     builtins::{
@@ -496,15 +498,24 @@ impl Bytecode {
                         }
                     }
                     OpCode::REST => {
-                        let first = PC_FETCH!(u16);
-                        SP_PUT!(
-                            0,
-                            realm
-                                .build_rest(first as _, args)
-                                .unwrap_or(JSValue::EXCEPTION)
-                        );
-                        SP_GO!(1);
-                        if unlikely(SP_REF!(-1).is_exception()) {
+                        let start = PC_FETCH!(u16);
+
+                        if let Ok(arr) = args
+                            .iter()
+                            .skip(start as usize)
+                            .copied()
+                            .try_collect::<Vec<_>>()
+                            .map_err(|_| {
+                                realm.throw_out_of_memory();
+                                -1
+                            })
+                            .and_then(|vv| realm.create_array_with_values(vv))
+                        {
+                            SP_PUT!(0, JSValue::from(arr));
+                            SP_GO!(1);
+                        } else {
+                            SP_PUT!(0, JSValue::EXCEPTION);
+                            SP_GO!(1);
                             break State::Exception;
                         }
                     }
@@ -770,17 +781,16 @@ impl Bytecode {
 
                         let mut list = Vec::<JSValue>::new();
                         if list.try_reserve_exact(call_argc as usize).is_ok() {
-                            // collect elements
+                            // add elements
                             let call_argv = unsafe { sp.offset(-call_argc as isize) };
-                            for i in 0..call_argc as isize {
-                                let val = unsafe { *call_argv.offset(i) };
+                            for i in 0..call_argc as usize {
+                                let val = unsafe { *call_argv.add(i) };
                                 list.push(val);
                             }
 
-                            // create array with collected elements
+                            // create array with elements
                             if let Ok(arr) = realm.create_array_with_values(list) {
                                 SP_GO!(-call_argc);
-                                // push array on stack top
                                 SP_PUT!(0, JSValue::from(arr));
                                 SP_GO!(1);
                             } else {
@@ -792,6 +802,8 @@ impl Bytecode {
                         }
                     }
                     OpCode::APPLY => {
+                        // Function.apply(arg1, arg2)
+                        // [this_val, arg1, arg2, ^] -> [ret_val, ^]
                         let magic = PC_FETCH!(u16) as i32;
 
                         let op_3 = SP_VAL!(-3);
@@ -1071,8 +1083,9 @@ impl Bytecode {
                         }
                     }
                     OpCode::PUT_VAR_STRICT => {
+                        // [bool, val, ^] -> [^]
                         let atom = Atom::from_id(PC_FETCH!(u32));
-                        // SP[-2] is TRUE or FALSE
+
                         if let JSValue::Bool(false) = SP_VAL!(-2) {
                             JS_ThrowReferenceErrorNotDefined(&realm, atom);
                             break State::Exception;
@@ -2032,16 +2045,15 @@ impl Bytecode {
                         }
                     }
                     OpCode::APPEND => {
-                        // [obj, start_pos, src, ^] -> [obj, end_pos, ^]
+                        // [dest, start_pos, src, ^] -> [dest, end_pos, ^]
                         // all elements from `src` are appended to `dest` array, staring from `start_pos` index
-                        // 操作完成后, `SP[-3]`数组中加入了来自`SP[-1]`的全部元素，
-                        // `SP[-1]`没有变化，`SP[-2]`更新为结束位置index。
-                        if unlikely(unsafe { js_append_enumerate(&realm, sp).is_err() }) {
-                            break State::Exception;
-                        } else {
+                        // after operation, end_pos of dest array if put to stack top
+                        if unsafe { js_append_enumerate(&realm, sp).is_ok() } {
                             // pop `src`
                             // SP_TAKE!(-1);
                             SP_GO!(-1);
+                        } else {
+                            break State::Exception;
                         }
                     }
                     OpCode::COPY_DATA_PROPERTIES => {
@@ -2486,16 +2498,22 @@ impl Bytecode {
                     }
                 }
 
-                stack_frame.gc_collect();
-                // if rt.gc_req {
-                // stack_frame.gc_collect();
-                // }
+                #[cfg(debug_assertions)]
+                {
+                    // perform garbage collect after each opcode execution to strictly ensure gc is correct.
+                    stack_frame.gc_collect();
+                }
+                #[cfg(not(debug_assertions))]
+                if rt.gc_req {
+                    // perform garbage collect when needed
+                    stack_frame.gc_collect();
+                }
             }; // opcodes loop
 
             match state {
                 State::Done(ret_val, is_generator) => {
                     // `stack_frame` will be dropped after exit,
-                    // migrate `ret_val` to upper scope to prevent be collected.
+                    // migrate `ret_val` to upper gc scope to prevent it being gc'ed unexpectedly.
                     if let Some(n) = ret_val.gc_node_ptr()
                         && unsafe { n.as_ref().xref_partition().is_null() }
                     {

@@ -369,16 +369,11 @@ impl RuntimeImpl {
 
         // remove root partition: dealloc all nodes live in it.
         let root_scope_id = self.gc_root_scope;
-        self.gc_heap_mut().remove_partition(root_scope_id);
-
-        // if let Some(type_shape) = self.gc_heap().type_id_of::<ShapeImpl>() {
-        //     // purge all gc objects except ShapeImpl
-        //     self.gc_heap_mut()
-        //         .sweep(root_scope_id, |node| node.gc_dtype() != type_shape);
-        // }
-        // // purge all rest nodes
-        // self.gc_heap_mut()
-        //     .sweep(root_scope_id, GcHeap::SWEEP_UNMARKED_FUNC);
+        self.gc_heap_mut().remove_partition(
+            root_scope_id,
+            GcHeap::DUMMY_MIGRATE_CALLBACK,
+            GcHeap::DUMMY_DISPOSE_CALLBACK,
+        );
 
         // debug_assert_eq!(
         //     self.gc_heap().nodes_iter(root_scope_id).count(),

@@ -43,61 +43,58 @@ impl ContextBuilder {
     }
 
     pub fn build<'a>(self, rt: &mut RuntimeImpl) -> Result<Context<'a>, i32> {
-        rt.create_context_raw(|mut cx| {
+        rt.create_context_raw(|mut ctx| {
             //
             // make global namespace - this must come first.
             //
-            let mut gobj = cx.create_base_object()?;
-
+            let mut gobj = ctx.create_base_object()?;
             // define name `globalThis` and `global`
             gobj.define_property_value(
-                &cx,
+                &ctx,
                 Atom::CONST_globalThis,
                 gobj.into(),
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )?;
             gobj.define_property_value(
-                &cx,
+                &ctx,
                 Atom::CONST_global,
                 gobj.into(),
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )?;
+            ctx.global_obj = gobj.into();
 
             // make global var object
-            let gvobj = cx.create_base_object_with_proto(None)?;
-            // save to ctx
-            cx.global_obj = gobj.into();
-            cx.global_var_obj = gvobj.into();
+            ctx.global_var_obj = ctx.create_base_object_with_proto(None)?.into();
 
             //
             // init intrinsic base classes
             //
-            cx.intrinsic_base_object(); // Object
-            cx.intrinsic_base_function(); // Function
-            cx.intrinsic_base_errors(); // Error
-            cx.intrinsic_base_array(); // Array
-            cx.intrinsic_base_number(); // Number
-            cx.intrinsic_base_boolean(); // Boolean
-            cx.intrinsic_base_string(); // String
+            ctx.intrinsic_base_object(); // Object
+            ctx.intrinsic_base_function(); // Function
+            ctx.intrinsic_base_errors(); // Error
+            ctx.intrinsic_base_array(); // Array
+            ctx.intrinsic_base_number(); // Number
+            ctx.intrinsic_base_boolean(); // Boolean
+            ctx.intrinsic_base_string(); // String
 
             // Symbol
             #[cfg(feature = "builtin_symbol")]
-            cx.intrinsic_base_symbol();
+            ctx.intrinsic_base_symbol();
 
-            cx.intrinsic_base_generator(); // Generator
+            ctx.intrinsic_base_generator(); // Generator
 
-            cx.intrinsic_eval(); // `eval()` function
+            ctx.intrinsic_eval(); // `eval()` function
 
             //
             // init user classes
             //
-            cx.use_classes(&self.use_classes)?;
+            ctx.use_classes(&self.use_classes)?;
 
             //
             // setup global
             //
             if let Some(f) = self.setup_global {
-                f(cx.into(), gobj)?
+                f(ctx.into(), gobj)?
             }
 
             Ok(())
