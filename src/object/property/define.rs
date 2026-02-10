@@ -133,7 +133,7 @@ impl Object {
                                     continue; // redo_prop_update
                                 }
                                 if flags & JS_PROP_HAS_VALUE != 0 {
-                                    let xref = self.gc_ref().node_info().scope_id();
+                                    let xref = self.gc_node().scope_id();
                                     self.payload_mut().array_mut().unwrap().set_nth(
                                         &mut ctx.rt_ptr(),
                                         idx,

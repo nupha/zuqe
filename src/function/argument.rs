@@ -34,7 +34,7 @@ pub fn js_build_arguments(ctx: &ContextImpl, args: &[JSValue]) -> JSValue {
 
     if !args.is_empty() && obj.is_fast_array() {
         // initialize fast array values
-        let xref = obj.gc_ref().node_info().scope_id();
+        let xref = obj.gc_node().scope_id();
         let arr_data = obj.as_Array_mut().unwrap().payload_mut();
         if arr_data.reserve(args.len()).is_err() {
             ctx.throw_out_of_memory();

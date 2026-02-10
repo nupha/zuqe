@@ -365,10 +365,10 @@ impl ObjectImpl {
 
         // get directly referenced gc nodes, set xref of obj's children
         {
-            let gc_children = obj.gc_ref().gc_children(ctx.rt_ref().gc_heap());
-            if !gc_children.is_empty() {
-                let obj_scope = obj.gc_ref().node_info().scope_id();
-                for n in gc_children {
+            let children = obj.gc_node().gc_children(ctx.rt_ref().gc_heap());
+            if !children.is_empty() {
+                let obj_scope = obj.gc_node().scope_id();
+                for n in children {
                     ctx.rt_ptr().gc_heap_mut().set_xref(obj_scope, n);
                 }
             }
@@ -508,7 +508,7 @@ impl ObjectImpl {
 
         let obj = unsafe { Object::from_ref_unchecked(self) };
 
-        let obj_xref = obj.gc_ref().node_info().scope_id();
+        let obj_xref = obj.gc_node().scope_id();
         if obj_xref != shape.gc_ref().node_info().scope_id() {
             self.rt()
                 .gc_heap_mut()

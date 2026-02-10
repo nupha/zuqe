@@ -287,7 +287,7 @@ impl Array {
         }
 
         let len = values.len();
-        let self_xref = self.gc_ref().node_info().scope_id();
+        let self_xref = self.gc_node().scope_id();
 
         self.payload_mut()
             .replace_values(&mut ctx.rt_ptr(), values, self_xref);
@@ -564,7 +564,7 @@ impl ContextImpl {
             // set array length
             arr.set_length(self, len as u32, true)?;
             // set gc xref
-            let xref = arr.gc_ref().node_info().scope_id();
+            let xref = arr.gc_node().scope_id();
             arr.payload_mut()
                 .update_values_xref(self.rt_ptr().gc_heap_mut(), xref);
         }

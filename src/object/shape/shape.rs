@@ -229,12 +229,6 @@ impl Shape {
             .map(|mut s| {
                 let _n = s.node_info_mut().inc_ref();
                 debug_assert_eq!(_n, 1);
-
-                // O.o
-                if s.node_info().scope_id().0 == 3 {
-                    println!("[O.o] alloc shape in scope 3.");
-                }
-
                 Self(s)
             })
             .map_err(|_| {
