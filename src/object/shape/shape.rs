@@ -171,7 +171,7 @@ unsafe impl GcTracable for Shape {
 impl Drop for Shape {
     fn drop(&mut self) {
         if self.gc_ref().node_info_mut().dec_ref() == 0 {
-            self.gc_ref().node_info_mut().unset_xref_partition();
+            self.gc_ref().node_info_mut().unset_xref();
         }
     }
 }
@@ -220,7 +220,7 @@ impl Shape {
         ctx.rt_ptr()
             .gc_alloc_in(
                 if scope.is_null() {
-                    ctx.rt_ptr().gc_current_scope()
+                    ctx.rt_ptr().gc_current_scope(true).unwrap()
                 } else {
                     scope
                 },

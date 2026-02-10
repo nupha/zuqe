@@ -7,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
@@ -437,13 +437,13 @@ impl RuntimeImpl {
     ) -> Result<Context<'a>, i32> {
         let inner = ContextImpl::new(self)?;
         let gc_ref = self.gc_alloc(inner).map_err(|_| -1)?;
-        self.gc_heap_mut().set_root(gc_ref, true);
 
+        // setup context and make it be root node.
+        // in case error, ContextImpl node will be purged in mark-sweep.
         let mut ctx = ContextPtr(gc_ref);
-        ctx.init_core_objects()?;
-        setup(ctx)?;
+        ctx.init_core_objects().and_then(|_| setup(ctx))?;
 
-        // register context
+        self.gc_heap_mut().set_root(gc_ref, true);
         self.context_list.push(ctx);
 
         Ok(Context {

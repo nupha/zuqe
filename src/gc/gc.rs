@@ -33,33 +33,20 @@ impl RuntimeImpl {
         self.gc_heap_mut().partition_mut(pid).unwrap()
     }
 
-    /// get gc scope for current stack frame.
-    /// if current stack frame has no scope, or has no stack frame, returns None.
-    pub(crate) fn current_gc_scope(&mut self) -> Option<GcPartitionId> {
-        self.current_stack_frame()
-            .map_or(Some(self.gc_root_scope), |sf| {
-                if sf.gc_scope_id != GcPartitionId::NONE {
-                    Some(sf.gc_scope_id)
-                } else {
-                    None
-                }
-            })
-    }
-
-    pub fn gc_memory_limit(&self) -> usize {
-        self.gc_root_part().memory_limit()
-    }
-
-    pub fn gc_set_memory_limit(&mut self, limit: usize) -> usize {
-        self.gc_root_part_mut().set_memory_limit(limit)
-    }
-
-    /// get gc scope for current stack frame. if current stack frame does not have gc scope, initialize first.
-    pub(crate) fn gc_current_scope(&mut self) -> GcPartitionId {
+    /// Get gc scope of current running state.
+    /// if current stack frame does not have gc scope and auto_init=true, then initialize and return.
+    /// if not curent stack frame, returns root scope.
+    pub(crate) fn gc_current_scope(&mut self, auto_init: bool) -> Option<GcPartitionId> {
         if let Some(sf) = self.current_stack_frame_mut() {
-            sf.init_gc_scope()
+            if !sf.gc_scope_id.is_null() {
+                Some(sf.gc_scope_id)
+            } else if auto_init {
+                Some(sf.init_gc_scope())
+            } else {
+                None
+            }
         } else {
-            self.gc_root_scope
+            Some(self.gc_root_scope)
         }
     }
 
@@ -80,7 +67,7 @@ impl RuntimeImpl {
     /// alloc data in gc
     #[inline]
     pub fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
-        let pid = self.gc_current_scope();
+        let pid = self.gc_current_scope(true).unwrap();
         self.gc_alloc_in(pid, data)
     }
 
@@ -124,7 +111,7 @@ impl RuntimeImpl {
                 #[cfg(debug_assertions)]
                 {
                     |_, n| {
-                        log::debug!("[collect][{partition_id:?}] dispose {n:?}");
+                        log::debug!("[sweep][{partition_id:?}] purge {n:?}");
                     }
                 }
                 #[cfg(not(debug_assertions))]
@@ -145,8 +132,8 @@ impl RuntimeImpl {
 
     #[inline]
     pub(crate) fn gc_collect(&mut self) {
-        if let Some(sc) = self.current_gc_scope() {
-            self.gc_collect_in(sc);
+        if let Some(p) = self.gc_current_scope(false) {
+            self.gc_collect_in(p);
         }
     }
 
@@ -165,5 +152,13 @@ impl RuntimeImpl {
     #[inline(always)]
     pub const fn gc_has_request(&self) -> bool {
         self.gc_req
+    }
+
+    pub fn gc_memory_limit(&self) -> usize {
+        self.gc_root_part().memory_limit()
+    }
+
+    pub fn gc_set_memory_limit(&mut self, limit: usize) -> usize {
+        self.gc_root_part_mut().set_memory_limit(limit)
     }
 }

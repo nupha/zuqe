@@ -321,7 +321,7 @@ impl RuntimeImpl {
             hash,
         ));
 
-        let xref = self.current_gc_scope().unwrap_or(self.gc_root_scope);
+        let xref = self.gc_current_scope(false).unwrap_or(self.gc_root_scope);
         self.gc_heap_mut()
             .set_xref(xref, desc_str.gc_ref().node_ptr());
 
