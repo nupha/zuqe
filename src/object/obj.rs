@@ -198,9 +198,9 @@ impl std::fmt::Display for ObjectImpl {
         {
             write!(
                 f,
-                "[{name} {:p} shape={:p} proto={}]",
-                self.id() as *const std::ffi::c_void,
-                self.shape().map_or(0, |s| s.id()) as *const std::ffi::c_void,
+                "[{name} {:?} shape={:?} proto={}]",
+                unsafe { Object::from_ref_unchecked(self).gc_ref() },
+                self.shape().map(|s| s.gc_ref().node_ptr()),
                 self.shape()
                     .and_then(|s| s.proto())
                     .map_or("<null>".to_string(), |x| x.to_string())
@@ -245,8 +245,6 @@ impl ObjectImpl {
             }
         }
 
-        let shape_id = shape.as_ref().map(|s| s.id());
-
         let mut flags = ObjectFlags::default();
         flags.set_extensible(true);
         flags.set_free_mark(false);
@@ -269,19 +267,19 @@ impl ObjectImpl {
             | JS_CLASS_ASYNC_GENERATOR_FUNCTION => {}
 
             JS_CLASS_ARRAY => {
-                debug_assert!(shape_id.is_some());
+                debug_assert!(shape.is_some());
 
                 flags.set_exotic(true);
                 flags.set_fast_array(true);
 
-                if shape_id.unwrap() == ctx.array_shape.as_ref().map_or(usize::MAX, |sh| sh.id()) {
+                if ctx.array_shape == shape {
                     // set length property to 0
                     prop_values[0] = JSProperty::Normal(JSValue::Int(0));
                 } else {
                     // we are creating the Array proto object.
                     // by this moment, the default shape for array is not initialized yet.
                     array_length_prop = true;
-                };
+                }
             }
             JS_CLASS_ARGUMENTS | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
                 flags.set_exotic(true);

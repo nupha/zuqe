@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, DerefMut},
-    os::raw::c_void,
-};
+use std::ops::{Deref, DerefMut};
 
 use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceOp};
 use hash_link::HashList;
@@ -12,17 +9,15 @@ use super::super::{obj::Object, property::JS_PROP_LENGTH};
 
 #[derive(Debug)]
 pub struct ShapeImpl {
-    /// If true, the shape may have small array index properties 'n' with 0..=u32::MAX;
-    /// If false, the shape is guaranteed not to have small array index properties
-    pub has_small_array_index: bool,
-
     /// cached shape hash value
-    pub hash: u32,
-
+    pub(crate) hash: u32,
+    /// prototype object
     pub(crate) proto: Option<Object>,
-
     /// shape properties
     pub(crate) prop_defs: HashList<ShapeProperty>,
+    /// If true, the shape may have small array index properties 'n' with 0..=u32::MAX;
+    /// If false, the shape is guaranteed not to have small array index properties
+    pub(crate) has_small_array_index: bool,
 }
 
 unsafe impl GcTracable for ShapeImpl {
@@ -35,7 +30,7 @@ unsafe impl GcTracable for ShapeImpl {
 }
 
 impl ShapeImpl {
-    /// create a new empty shape with prototype 'proto' and given capacity.
+    /// create an empty shape with prototype 'proto'.
     fn new(proto: Option<Object>, props: HashList<ShapeProperty>) -> Result<Self, i32> {
         //calc shape hash
         let mut hash = shape_initial_hash(proto.map_or(0, |p| p.id()));
@@ -51,11 +46,6 @@ impl ShapeImpl {
         })
     }
 
-    #[inline(always)]
-    pub fn id(&self) -> usize {
-        self as *const Self as usize
-    }
-
     /// shape property length
     #[inline(always)]
     pub const fn len(&self) -> usize {
@@ -67,7 +57,7 @@ impl ShapeImpl {
         self.prop_defs.len() == 0
     }
 
-    /// get shape proto
+    /// shape proto object
     #[inline(always)]
     pub const fn proto(&self) -> Option<Object> {
         self.proto
@@ -202,7 +192,7 @@ impl DerefMut for Shape {
 
 impl std::fmt::Debug for Shape {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<Shape {:p}>", self.id() as *const c_void)
+        write!(f, "<Shape {:?}>", self.gc_ref())
     }
 }
 
@@ -213,16 +203,16 @@ impl Shape {
         ctx: &ContextImpl,
         proto: Option<Object>,
         prop_defs: HashList<ShapeProperty>,
-        scope: GcPartitionId,
+        scope_id: GcPartitionId,
     ) -> Result<Self, i32> {
         let shape = ShapeImpl::new(proto, prop_defs)?;
 
         ctx.rt_ptr()
             .gc_alloc_in(
-                if scope.is_null() {
+                if scope_id.is_null() {
                     ctx.rt_ptr().gc_current_scope(true).unwrap()
                 } else {
-                    scope
+                    scope_id
                 },
                 shape,
             )
@@ -245,7 +235,7 @@ impl Shape {
         ctx: &ContextImpl,
         proto: Option<Object>,
         prop_cap: i32,
-        scope: GcPartitionId,
+        scope_id: GcPartitionId,
     ) -> Result<Self, i32> {
         let mut prop_defs = HashList::<ShapeProperty>::new();
         prop_defs.try_reserve(prop_cap as _).map_err(|_| {
@@ -253,7 +243,7 @@ impl Shape {
             -1
         })?;
 
-        let shape = Self::new_internal(ctx, proto, prop_defs, scope)?;
+        let shape = Self::new_internal(ctx, proto, prop_defs, scope_id)?;
         ctx.rt_ptr().register_shape(&shape)?;
         Ok(shape)
     }
@@ -276,7 +266,7 @@ pub(super) const fn shape_hasher_u32(h: u32, val: u32) -> u32 {
     h.wrapping_add(val).wrapping_mul(0x9e3779b9)
 }
 
-pub const fn shape_initial_hash(proto_id: usize) -> u32 {
+pub(crate) const fn shape_initial_hash(proto_id: usize) -> u32 {
     let mut h = shape_hasher_u32(1, proto_id as u32);
     if std::mem::size_of::<usize>() > 4 {
         h = shape_hasher_u32(h, ((proto_id as u64) >> 32) as u32);

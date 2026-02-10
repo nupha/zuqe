@@ -6,10 +6,6 @@ use gc_lite::{
 use crate::runtime::RuntimeImpl;
 
 impl RuntimeImpl {
-    pub fn gc_set_threshold(&mut self, threshold: usize) {
-        self.gc_heap.set_gc_threshold(self.gc_root_scope, threshold);
-    }
-
     #[inline(always)]
     pub(crate) const fn gc_heap(&self) -> &GcHeap {
         &self.gc_heap
@@ -20,15 +16,15 @@ impl RuntimeImpl {
         &mut self.gc_heap
     }
 
-    /// top gc partition for runtime
+    /// get gc top-level scope
     #[inline]
-    pub(crate) fn gc_root_part(&self) -> &GcPartition {
+    pub(crate) fn gc_top_scope(&self) -> &GcPartition {
         self.gc_heap().partition(self.gc_root_scope).unwrap()
     }
 
     /// top gc partition for runtime
     #[inline]
-    pub(crate) fn gc_root_part_mut(&mut self) -> &mut GcPartition {
+    pub(crate) fn gc_top_scope_mut(&mut self) -> &mut GcPartition {
         let pid = self.gc_root_scope;
         self.gc_heap_mut().partition_mut(pid).unwrap()
     }
@@ -58,13 +54,17 @@ impl RuntimeImpl {
     ) -> Result<GcRef<T>, (GcError, T)> {
         let r = self.gc_heap_mut().alloc(scope_id, data)?;
 
-        if self.gc_root_part().should_gc() {
+        // trace data's children nodes to mark possible cross reference
+        // for n in r.node_info().gc_children(self.gc_heap()) {
+        //     self.gc_heap_mut().set_xref(scope_id, n);
+        // }
+
+        if self.gc_top_scope().should_gc() {
             self.gc_req = true;
         }
         Ok(r)
     }
 
-    /// alloc data in gc
     #[inline]
     pub fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         let pid = self.gc_current_scope(true).unwrap();
@@ -120,8 +120,8 @@ impl RuntimeImpl {
 
         if freed != 0 {
             // update gc threshold
-            let used = self.gc_root_part().memory_used();
-            self.gc_root_part_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
+            let used = self.gc_top_scope().memory_used();
+            self.gc_top_scope_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
         }
 
         log::trace!("[collect] {partition_id:?} free {freed} bytes");
@@ -155,10 +155,14 @@ impl RuntimeImpl {
     }
 
     pub fn gc_memory_limit(&self) -> usize {
-        self.gc_root_part().memory_limit()
+        self.gc_top_scope().memory_limit()
     }
 
     pub fn gc_set_memory_limit(&mut self, limit: usize) -> usize {
-        self.gc_root_part_mut().set_memory_limit(limit)
+        self.gc_top_scope_mut().set_memory_limit(limit)
+    }
+
+    pub fn gc_set_threshold(&mut self, threshold: usize) {
+        self.gc_heap.set_gc_threshold(self.gc_root_scope, threshold);
     }
 }

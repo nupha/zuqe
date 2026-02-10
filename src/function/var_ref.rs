@@ -60,17 +60,8 @@ unsafe impl GcTracable for VarRefImpl {
 
 impl VarRefImpl {
     #[inline(always)]
-    pub(crate) fn id(&self) -> usize {
-        self as *const Self as usize
-    }
-
-    #[inline(always)]
     pub(crate) const fn is_arg(&self) -> bool {
         self.is_arg
-    }
-
-    pub(crate) const fn set_arg(&mut self, b: bool) {
-        self.is_arg = b;
     }
 
     /// get raw pointer to value
@@ -105,11 +96,6 @@ impl VarRefImpl {
         if let Some(n) = new_value.gc_node_ptr() {
             ctx.rt_ptr().gc_heap_mut().set_xref(xref, n);
         }
-    }
-
-    #[inline(always)]
-    pub(crate) const fn is_detached(&self) -> bool {
-        matches!(&self.state, VarRefState::Bind { .. })
     }
 
     /// detach bind var ref as detached var ref, duplicate var value as detached value.

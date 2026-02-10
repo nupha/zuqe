@@ -18,8 +18,8 @@ impl RuntimeImpl {
         }
 
         let hash = shape.hash();
-        let id = shape.id();
-        let weak = shape.gc_ref().downgrade(self.gc_heap_mut());
+        let shape = shape.gc_ref();
+        let weak = shape.downgrade(self.gc_heap_mut());
 
         const APPEND: usize = usize::MAX;
         const EXIST: usize = usize::MAX - 1;
@@ -29,7 +29,7 @@ impl RuntimeImpl {
             let mut idx = APPEND;
             for (i, w) in lst.iter().enumerate() {
                 if let Some(s) = w.upgrade(heap) {
-                    if s.id() == id {
+                    if s == shape {
                         return EXIST; // already exist
                     }
                 } else {
@@ -62,11 +62,11 @@ impl RuntimeImpl {
     /// unregister a shape
     pub(super) fn unregister_shape(&mut self, shape: &Shape) {
         let hash = shape.hash();
-        let shape_id = shape.id();
+        let shape = shape.gc_ref();
 
         if let Some(mut lst) = self.shape_registry.remove(&hash) {
             let heap = self.gc_heap_mut();
-            lst.retain(|w| w.upgrade(heap).is_some_and(|s| s.id() != shape_id));
+            lst.retain(|w| w.upgrade(heap).is_some_and(|s| s != shape));
             if !lst.is_empty() {
                 self.shape_registry.insert(hash, lst);
             }
@@ -74,14 +74,12 @@ impl RuntimeImpl {
     }
 
     pub fn is_shape_registered(&self, shape: &Shape) -> bool {
-        let shape_id = shape.id();
         let shape_hash = shape.hash();
+        let shape = shape.gc_ref();
 
         self.shape_registry.get(&shape_hash).is_some_and(|lst| {
-            lst.iter().any(|w| {
-                w.upgrade(self.gc_heap())
-                    .is_some_and(|sh| sh.id() == shape_id)
-            })
+            lst.iter()
+                .any(|w| w.upgrade(self.gc_heap()).is_some_and(|sh| sh == shape))
         })
     }
 

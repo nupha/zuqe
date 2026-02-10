@@ -19,16 +19,16 @@ use super::{
 };
 
 pub(crate) struct AtomRegistry {
-    /// const atom description slots list.
-    /// staring from index 0, #0 is for atom 1; #1 is for atom 2; ...
-    pub(super) const_atoms: Vec<StringRef>,
+    /// const atom descriptor slots.
+    /// staring from index 0. #0 is for atom 1; #1 is for atom 2; ...
+    const_atoms: Vec<StringRef>,
 
-    /// list of user atom description. None means the slot is unused.
-    pub(super) user_atoms: Vec<Option<StringRef>>,
+    /// user atom descriptor slots. None means the slot is unused.
+    user_atoms: Vec<Option<StringRef>>,
 
-    /// dict of { atom_hash: [atom_id] },
+    /// atom hash lookup table, is dict { atom_hash: [atom_id] },
     /// slot index = atom_id - 1
-    pub(super) atoms_lut: HashMap<u32, Vec<u16>>,
+    hash_lut: HashMap<u32, Vec<u16>>,
 }
 
 impl AtomRegistry {
@@ -37,7 +37,7 @@ impl AtomRegistry {
         Self {
             const_atoms: Vec::new(),
             user_atoms: Vec::new(),
-            atoms_lut: HashMap::new(),
+            hash_lut: HashMap::new(),
         }
     }
 }
@@ -58,11 +58,11 @@ impl RuntimeImpl {
             .reserve(ATOM_CONST_COUNT as usize);
 
         self.atom_registry
-            .atoms_lut
+            .hash_lut
             .reserve(ATOM_CONST_COUNT as usize + 64);
 
         let lst = &mut self.atom_registry.const_atoms;
-        let lut = &mut self.atom_registry.atoms_lut;
+        let lut = &mut self.atom_registry.hash_lut;
 
         let mut text = ATOM_CONST_CAPTIONS.as_ptr();
 
@@ -165,7 +165,7 @@ impl RuntimeImpl {
                 let a_reg = &mut self.atom_registry;
 
                 // match registered atoms for hash, type and content
-                match a_reg.atoms_lut.entry(hash) {
+                match a_reg.hash_lut.entry(hash) {
                     Entry::Vacant(kv) => {
                         kv.insert(Vec::with_capacity(1)); // prepare new entry for hash
                     }
@@ -278,9 +278,9 @@ impl RuntimeImpl {
 
         desc_str = desc_str.copy_to_new(self.into())?;
 
-        if self.atom_registry.atoms_lut.len() == self.atom_registry.atoms_lut.capacity() {
+        if self.atom_registry.hash_lut.len() == self.atom_registry.hash_lut.capacity() {
             self.atom_registry
-                .atoms_lut
+                .hash_lut
                 .try_reserve(16)
                 .map_err(|_| -1)?;
         }
@@ -306,7 +306,7 @@ impl RuntimeImpl {
             )
         };
 
-        match self.atom_registry.atoms_lut.entry(hash) {
+        match self.atom_registry.hash_lut.entry(hash) {
             Entry::Vacant(kv) => {
                 kv.insert(vec![atom_id]);
             }
@@ -359,7 +359,7 @@ impl RuntimeImpl {
             .get_mut(atom_id as usize - ATOM_USER_BASE_ID as usize)
             && slot.take().is_some()
         {
-            let purge = if let Some(ids) = a_reg.atoms_lut.get_mut(&atom_hash) {
+            let purge = if let Some(ids) = a_reg.hash_lut.get_mut(&atom_hash) {
                 if ids.len() == 1 {
                     debug_assert_eq!(ids[0] as u32, atom_id);
                     true
@@ -385,7 +385,7 @@ impl RuntimeImpl {
             };
 
             if purge {
-                a_reg.atoms_lut.remove(&atom_hash);
+                a_reg.hash_lut.remove(&atom_hash);
             }
         }
     }
