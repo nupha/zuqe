@@ -9,7 +9,7 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     error::JSResult,
     eval::{EvalFlags, EvalType},
-    function::{Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, JSVarRef},
+    function::{Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, VarRef},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ObjectImpl,
         ObjectPayload,
@@ -92,7 +92,7 @@ pub struct BCFuncPayload {
     bytecode: Bytecode,
 
     /// closure variable references
-    pub(crate) var_refs: Vec<JSVarRef>,
+    pub(crate) var_refs: Vec<VarRef>,
 
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
@@ -103,7 +103,9 @@ pub struct BCFuncPayload {
 unsafe impl GcTracable for BCFuncPayload {
     fn trace(&self, tr: GcTraceOp) {
         self.bytecode.trace(tr);
-        self.home_object.map(|x| x.trace(tr));
+        if let Some(x) = self.home_object {
+            x.trace(tr)
+        }
         for vr in self.var_refs.iter() {
             vr.trace(tr);
         }
@@ -111,7 +113,7 @@ unsafe impl GcTracable for BCFuncPayload {
 }
 
 impl BCFuncPayload {
-    pub fn new(bytecode: Bytecode, var_refs: Vec<JSVarRef>) -> Box<Self> {
+    pub fn new(bytecode: Bytecode, var_refs: Vec<VarRef>) -> Box<Self> {
         Box::new(Self {
             bytecode,
             var_refs,

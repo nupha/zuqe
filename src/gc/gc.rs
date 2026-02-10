@@ -54,6 +54,15 @@ impl RuntimeImpl {
         self.gc_root_part_mut().set_memory_limit(limit)
     }
 
+    /// get gc scope for current stack frame. if current stack frame does not have gc scope, initialize first.
+    pub(crate) fn gc_current_scope(&mut self) -> GcPartitionId {
+        if let Some(sf) = self.current_stack_frame_mut() {
+            sf.init_gc_scope()
+        } else {
+            self.gc_root_scope
+        }
+    }
+
     /// alloc data in given gc scope
     pub(crate) fn gc_alloc_in<T: GcTracable>(
         &mut self,
@@ -69,13 +78,10 @@ impl RuntimeImpl {
     }
 
     /// alloc data in gc
+    #[inline]
     pub fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
-        let part_id = if let Some(sf) = self.current_stack_frame_mut() {
-            sf.init_gc_scope()
-        } else {
-            self.gc_root_scope
-        };
-        self.gc_alloc_in(part_id, data)
+        let pid = self.gc_current_scope();
+        self.gc_alloc_in(pid, data)
     }
 
     /// collect garbage
@@ -87,6 +93,7 @@ impl RuntimeImpl {
             let mut tr = GcTracer::new(self.gc_heap(), GcTraceRestrict::No, true);
 
             // Note: for root scope, Contexts are root nodes, they have been traced in trace_root step.
+
             tr.trace_roots(partition_id, GcTracer::MARK_FUNC);
 
             if let Some(sf) = self.current_stack_frame() {
@@ -116,8 +123,8 @@ impl RuntimeImpl {
             .sweep(partition_id, GcHeap::SWEEP_UNMARKED_FUNC, {
                 #[cfg(debug_assertions)]
                 {
-                    |n| {
-                        println!("[O.o][collect] dispose node {n:?}");
+                    |_, n| {
+                        log::debug!("[collect][{partition_id:?}] dispose {n:?}");
                     }
                 }
                 #[cfg(not(debug_assertions))]

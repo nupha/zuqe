@@ -3,7 +3,7 @@ use std::{
     os::raw::c_void,
 };
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceOp};
 use hash_link::HashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty};
@@ -141,6 +141,7 @@ impl ShapeImpl {
     }
 
     /// Duplicate a new shape by coping properties and proto.
+    /// The new shape is allocated in current gc scope.
     /// The new shape is not registered.
     pub(crate) fn dup(&self, ctx: &ContextImpl) -> Result<Shape, i32> {
         // clone properties
@@ -153,7 +154,7 @@ impl ShapeImpl {
             props.push(*prs);
         }
 
-        Shape::new_internal(ctx, self.proto, props)
+        Shape::new_internal(ctx, self.proto, props, GcPartitionId::NONE)
     }
 }
 
@@ -170,8 +171,6 @@ unsafe impl GcTracable for Shape {
 impl Drop for Shape {
     fn drop(&mut self) {
         if self.gc_ref().node_info_mut().dec_ref() == 0 {
-            log::debug!("shape {:?} use_count=0", self.gc_ref().node_info(),);
-
             self.gc_ref().node_info_mut().unset_xref_partition();
         }
     }
@@ -214,14 +213,28 @@ impl Shape {
         ctx: &ContextImpl,
         proto: Option<Object>,
         prop_defs: HashList<ShapeProperty>,
+        scope: GcPartitionId,
     ) -> Result<Self, i32> {
         let shape = ShapeImpl::new(proto, prop_defs)?;
 
         ctx.rt_ptr()
-            .gc_alloc(shape)
+            .gc_alloc_in(
+                if scope.is_null() {
+                    ctx.rt_ptr().gc_current_scope()
+                } else {
+                    scope
+                },
+                shape,
+            )
             .map(|mut s| {
                 let _n = s.node_info_mut().inc_ref();
                 debug_assert_eq!(_n, 1);
+
+                // O.o
+                if s.node_info().scope_id().0 == 3 {
+                    println!("[O.o] alloc shape in scope 3.");
+                }
+
                 Self(s)
             })
             .map_err(|_| {
@@ -231,18 +244,23 @@ impl Shape {
     }
 
     /// create a shape with prototype 'proto' and property capacity.
+    /// alloc shape in expected scope (if given scope is null, then use current scope).
     /// new shape is not registered,
     /// new shape is added to GC, new shape is registered.
-    pub fn new(ctx: &ContextImpl, proto: Option<Object>, prop_cap: i32) -> Result<Self, i32> {
+    pub(crate) fn new(
+        ctx: &ContextImpl,
+        proto: Option<Object>,
+        prop_cap: i32,
+        scope: GcPartitionId,
+    ) -> Result<Self, i32> {
         let mut prop_defs = HashList::<ShapeProperty>::new();
         prop_defs.try_reserve(prop_cap as _).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
 
-        let shape = Self::new_internal(ctx, proto, prop_defs)?;
+        let shape = Self::new_internal(ctx, proto, prop_defs, scope)?;
         ctx.rt_ptr().register_shape(&shape)?;
-
         Ok(shape)
     }
 

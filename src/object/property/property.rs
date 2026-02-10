@@ -7,7 +7,7 @@ use crate::{
     atom::Atom,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
-    function::JSVarRef,
+    function::VarRef,
     object::{LazyInit, Object},
     utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
@@ -239,7 +239,7 @@ impl JSPropertyDescriptor {
 #[derive(Debug)]
 pub enum JSProperty {
     Normal(JSValue),
-    VarRef(JSVarRef),
+    VarRef(VarRef),
 
     /// TODO: use Box<PropertyGetSet>
     GetSet {

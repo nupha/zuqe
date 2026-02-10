@@ -1,4 +1,5 @@
 use fallible_collections::TryCollect;
+use gc_lite::GcPartitionId;
 
 use crate::{
     JS_CLASS_ARRAY,
@@ -967,7 +968,7 @@ fn js_array_reverse(cc: CallContext) -> JSResult {
         && let Some(arr_data) = this.as_Array_mut().map(|a| a.payload_mut())
         && arr_data.len() == len as usize
     {
-        arr_data.values_mut().reverse();
+        arr_data.reverse();
         return Ok(this.into()); // fast path exit
     }
 
@@ -1814,7 +1815,6 @@ fn copy_sub_array(
     if obj.is_fast_array() && obj.class_id() == JS_CLASS_ARRAY {
         let arr_data = obj.payload_mut().array_mut().unwrap();
         let len = arr_data.len();
-        let lst = arr_data.values_mut();
         let mut done_count = count;
 
         for i in 0..count {
@@ -1825,7 +1825,13 @@ fn copy_sub_array(
             };
 
             if from < len && to < len {
-                lst[to] = lst[from];
+                let val = arr_data.values()[from];
+                arr_data.set_nth(
+                    &mut ctx.rt_ptr(),
+                    to,
+                    val,
+                    val.gc_node().map_or(GcPartitionId::NONE, |x| x.scope_id()),
+                );
             } else {
                 done_count = i;
                 break;

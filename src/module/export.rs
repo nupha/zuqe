@@ -6,7 +6,7 @@ use crate::{
     atom::Atom,
     context::{ContextImpl, ContextPtr},
     error::ErrorKind,
-    function::{FieldDef, FieldDetail, JSVarRef},
+    function::{FieldDef, FieldDetail, VarRef},
     module::{ModuleDef, ModuleDefImpl},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, Object,
@@ -19,7 +19,7 @@ use crate::{
 #[derive(Debug, Clone)]
 enum ExportedNameKind {
     EXPORTED_NAME_AMBIGUOUS,
-    EXPORTED_NAME_NORMAL(JSVarRef),
+    EXPORTED_NAME_NORMAL(VarRef),
     EXPORTED_NAME_NS(ModuleDef),
 }
 
@@ -37,7 +37,7 @@ pub(crate) enum ExportType {
     JS_EXPORT_TYPE_LOCAL {
         var_idx: u16,
         /// None means var ref is not linked yet.
-        var_ref: Option<JSVarRef>,
+        var_ref: Option<VarRef>,
     },
 
     /// indirect export with req_module_idx

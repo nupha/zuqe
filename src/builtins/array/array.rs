@@ -46,12 +46,13 @@ impl ArrayPayload {
         self.values.try_reserve(extra)
     }
 
+    #[inline(always)]
     pub fn values(&self) -> &[JSValue] {
         &self.values
     }
 
-    pub fn values_mut(&mut self) -> &mut [JSValue] {
-        &mut self.values
+    pub fn reverse(&mut self) {
+        self.values.reverse();
     }
 
     pub fn push(
@@ -61,15 +62,9 @@ impl ArrayPayload {
         xref: GcPartitionId,
     ) -> Result<(), TryReserveError> {
         self.values.try_push(val)?;
-
         if let Some(n) = val.gc_node_ptr() {
-            unsafe {
-                if n.as_ref().scope_id() != xref {
-                    rt.gc_heap_mut().set_xref(xref, n);
-                }
-            }
+            rt.gc_heap_mut().set_xref(xref, n);
         }
-
         Ok(())
     }
 
@@ -721,7 +716,7 @@ impl Object {
         }
 
         // add new element to list
-        let xref = self.gc_ref().node_info().scope_id();
+        let xref = self.gc_node().scope_id();
         self.as_Array_mut()
             .unwrap()
             .payload_mut()

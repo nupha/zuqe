@@ -8,7 +8,7 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     error::JSResult,
     eval::EvalType,
-    function::{FunctionDef, JSVarRef},
+    function::{FunctionDef, VarRef},
     gcref_wrapper,
     runtime::RuntimePtr,
     stack_frame::{ExecMode, StackFrame},
@@ -644,7 +644,7 @@ impl Bytecode {
         &self,
         ctx: &ContextImpl,
         this_obj: JSValue,
-        var_refs: &[JSVarRef],
+        var_refs: &[VarRef],
         parent_frame: Option<&mut StackFrame>,
     ) -> JSResult {
         self.make_closure(ctx, var_refs, parent_frame, None)

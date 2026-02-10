@@ -322,7 +322,7 @@ impl Object {
                             std::cmp::Ordering::Less => {
                                 // update existing
                                 arr_data.set_nth(&mut ctx.rt_ptr(), idx, val, self_xref);
-                                return Some(Ok(true)); // fast array exit
+                                Some(Ok(true)) // fast array exit
                             }
                             std::cmp::Ordering::Equal => {
                                 // add an element to list

@@ -324,7 +324,7 @@ impl ObjectImpl {
         }
 
         let mut obj = {
-            let gc_ref = ctx
+            let mut gc_ref = ctx
                 .rt_ptr()
                 .gc_alloc(Self {
                     rt: ctx.rt_ptr(),
@@ -339,6 +339,16 @@ impl ObjectImpl {
                     ctx.throw_out_of_memory();
                     std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::Int(0)))
                 })?;
+
+            #[cfg(debug_assertions)]
+            {
+                let cid = gc_ref.class_id();
+                let cname = gc_ref.class_name().to_utf8(ctx.rt_ref());
+                gc_ref
+                    .node_info_mut()
+                    .debug_set_dbg_string(format!("[ObjectImpl] class={} ({cname})", cid).into());
+            }
+
             Object(gc_ref)
         };
 

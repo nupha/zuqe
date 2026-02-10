@@ -1,18 +1,17 @@
 use std::{
-    collections::HashSet,
     marker::{PhantomData, PhantomPinned},
     pin::Pin,
     ptr::NonNull,
 };
 
-use gc_lite::{GcHead, GcHeap, GcPartitionId, GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcHead, GcPartitionId, GcTracable, GcTraceOp, GcWeak};
 
 use crate::{
     Object,
     builtins::iterator::ObjectIter,
     context::ContextImpl,
     error::{JS_IsUncatchableError, is_backtrace_needed},
-    function::{AsyncStateImpl, JSVarRef},
+    function::{AsyncStateImpl, VarRef},
     runtime::RuntimePtr,
     value::JSValue,
 };
@@ -66,7 +65,7 @@ pub struct StackFrame {
     pub(crate) var_count: u16,
 
     /// List of variable references registered in this frame
-    pub(crate) var_ref_list: Vec<JSVarRef>,
+    pub(crate) var_ref_list: Vec<VarRef>,
 
     /// Program counter offset for bytecode functions
     /// Position in local_buf relative to pc_base (see Bytecode::bytecode_start)
@@ -124,13 +123,23 @@ impl Drop for StackFrame {
         if !self.gc_scope_id.is_null() {
             let mut rt = self.rt();
 
+            debug_assert!(
+                rt.gc_heap()
+                    .partition(self.gc_scope_id)
+                    .unwrap()
+                    .children()
+                    .is_empty()
+            );
+
             rt.gc_heap_mut().remove_partition(
                 self.gc_scope_id,
                 {
                     #[cfg(debug_assertions)]
                     {
-                        |n, scope| {
-                            println!("[O.o] migrate node {n:?} -> {scope:?}");
+                        |_, n, scope| {
+                            if n.scope_id() == self.gc_scope_id {
+                                log::debug!("[O.o] migrate node {n:?} -> {scope:?}");
+                            }
                         }
                     }
                     #[cfg(not(debug_assertions))]
@@ -141,11 +150,8 @@ impl Drop for StackFrame {
                 {
                     #[cfg(debug_assertions)]
                     {
-                        |n| {
-                            println!("[O.o] dispose node {n:?}");
-                            if let Some(ss) = n.gc_ref::<crate::string::StringImpl>() {
-                                println!("[O.o]       {:?}", ss.content());
-                            }
+                        |_, n| {
+                            log::debug!("[remove_partition][{:?}] purge {n:?}", self.gc_scope_id,);
                         }
                     }
                     #[cfg(not(debug_assertions))]

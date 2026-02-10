@@ -169,11 +169,11 @@ impl VarRefImpl {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct JSVarRef(GcRef<VarRefImpl>);
+pub struct VarRef(GcRef<VarRefImpl>);
 
-gcref_wrapper!(JSVarRef, VarRefImpl);
+gcref_wrapper!(VarRef, VarRefImpl);
 
-impl JSVarRef {
+impl VarRef {
     /// create a detached var ref
     pub(crate) fn new(ctx: &ContextImpl, value: JSValue) -> Result<Self, i32> {
         ctx.rt_ptr()
@@ -220,7 +220,7 @@ impl StackFrame {
         ctx: &ContextImpl,
         var_idx: u16,
         is_arg: bool,
-    ) -> Result<JSVarRef, i32> {
+    ) -> Result<VarRef, i32> {
         // search existing var refs
         if let Some(vr) = self
             .var_ref_list
@@ -232,7 +232,7 @@ impl StackFrame {
         }
 
         // make new VarRef bind to target var_idx
-        let vref = JSVarRef::new_bind(
+        let vref = VarRef::new_bind(
             ctx,
             var_idx,
             is_arg,
@@ -251,7 +251,7 @@ impl StackFrame {
                 // close_var_refs() when destroying the stack frame is not
                 // possible because it would change the graph between the GC
                 // objects. Another solution could be to temporarily detach
-                // the JSVarRef of async functions during the GC. It would
+                // the VarRef of async functions during the GC. It would
                 // have the advantage of allowing the release of unused stack
                 // frames in a cycle.
 

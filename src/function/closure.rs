@@ -5,7 +5,7 @@ use crate::{
     atom::Atom,
     context::ContextImpl,
     function::{
-        BCFuncPayload, BCFunction, Bytecode, FunctionKind, JSVarRef, js_function_set_properties,
+        BCFuncPayload, BCFunction, Bytecode, FunctionKind, VarRef, js_function_set_properties,
     },
     object::{JS_PROP_WRITABLE, LazyInit, Object, ObjectPayload},
     stack_frame::StackFrame,
@@ -231,11 +231,11 @@ impl Bytecode {
     pub(crate) fn make_closure(
         &self,
         ctx: &ContextImpl,
-        cur_var_refs: &[JSVarRef],
+        cur_var_refs: &[VarRef],
         parent_frame: Option<&mut StackFrame>,
         proto: Option<Object>,
     ) -> Result<BCFunction, i32> {
-        let var_refs: Vec<JSVarRef> = if self.closure_var_count != 0 {
+        let var_refs: Vec<VarRef> = if self.closure_var_count != 0 {
             debug_assert!(
                 parent_frame.is_some(),
                 "parent stack frame must be present if there is any closure variable"

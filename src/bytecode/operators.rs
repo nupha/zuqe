@@ -7,7 +7,7 @@ use crate::{
     },
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::ContextImpl,
-    function::{Callback, FunctionKind, JSVarRef},
+    function::{Callback, FunctionKind, VarRef},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
@@ -102,7 +102,7 @@ pub(super) fn js_op_define_class(
     sp: *mut JSValue,
     class_name: Atom,
     class_flags: i32,
-    cur_var_refs: &[JSVarRef],
+    cur_var_refs: &[VarRef],
     sframe: &mut StackFrame,
     is_computed_name: bool,
 ) -> Result<(), i32> {

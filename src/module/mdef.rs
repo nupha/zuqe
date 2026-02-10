@@ -5,7 +5,7 @@ use crate::{
     builtins::promise::Promise,
     class::ClassExoticMethods,
     context::{Context, ContextImpl, ContextPtr},
-    function::{BCFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, JSVarRef},
+    function::{BCFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, VarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, Object, ObjectPayload},
@@ -231,7 +231,7 @@ impl ModuleDefImpl {
         match self.bytecode {
             JSValue::Bytecode(bc) => {
                 // create bytecode function with bytecode
-                let mut var_refs = Vec::<JSVarRef>::new();
+                let mut var_refs = Vec::<VarRef>::new();
                 let cvar_count = bc.closure_var_count;
                 if cvar_count != 0 {
                     var_refs
@@ -250,7 +250,7 @@ impl ModuleDefImpl {
                         } else {
                             // The other variables are imported from other modules.
                             // Add slot with a placeholder.
-                            var_refs.push(JSVarRef::new(ctx, JSValue::UNDEFINED)?);
+                            var_refs.push(VarRef::new(ctx, JSValue::UNDEFINED)?);
                         }
                     }
                 }
@@ -472,8 +472,8 @@ pub(crate) const js_module_ns_exotic_methods: ClassExoticMethods = ClassExoticMe
     set_prototype: None,
 };
 
-pub fn js_create_module_var(ctx: &ContextImpl, is_lexical: bool) -> Result<JSVarRef, i32> {
-    JSVarRef::new(
+pub fn js_create_module_var(ctx: &ContextImpl, is_lexical: bool) -> Result<VarRef, i32> {
+    VarRef::new(
         ctx,
         if is_lexical {
             JSValue::UNINITIALIZED

@@ -1,5 +1,7 @@
 use std::ffi::c_void;
 
+use gc_lite::GcPartitionId;
+
 use crate::{
     USER_CLASS_ID_START,
     atom::Atom,
@@ -35,7 +37,17 @@ impl ContextImpl {
             match self.rt_ptr().find_shape_by_proto(proto) {
                 Some(sh) => sh,
                 None => {
-                    if let Ok(sh) = Shape::new(self, proto, 0) {
+                    if let Ok(sh) = Shape::new(
+                        self,
+                        proto,
+                        0,
+                        proto.map_or(
+                            GcPartitionId::NONE, // in current gc scope
+                            |p| {
+                                p.gc_node().scope_id() // alloc shape in same gc scope as proto
+                            },
+                        ),
+                    ) {
                         sh
                     } else {
                         return Err(payload);
@@ -43,6 +55,7 @@ impl ContextImpl {
                 }
             }
         };
+
         self.create_object_with_shape(shape, payload)
     }
 

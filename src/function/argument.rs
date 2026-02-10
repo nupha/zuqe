@@ -40,6 +40,7 @@ pub fn js_build_arguments(ctx: &ContextImpl, args: &[JSValue]) -> JSValue {
             ctx.throw_out_of_memory();
             return JSValue::EXCEPTION;
         }
+
         arr_data.extend(&mut ctx.rt_ptr(), args.iter().copied(), xref);
 
         // if obj

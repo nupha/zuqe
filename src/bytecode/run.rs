@@ -31,7 +31,7 @@ use crate::{
     },
     eval::{EvalFlags, EvalType},
     function::{
-        Bytecode, CallContext, FunctionKind, JS_CallConstructorInternal, JSVarRef, build_arg_list,
+        Bytecode, CallContext, FunctionKind, JS_CallConstructorInternal, VarRef, build_arg_list,
         js_build_arguments, js_build_mapped_arguments, js_function_apply,
     },
     module::{js_dynamic_import, js_import_meta},
@@ -63,7 +63,7 @@ impl Bytecode {
         new_target: JSValue,          // The new.target value for constructor calls
         pc_offset: usize,             // Current instruction pointer (program counter) offset
         sp_offset: usize,             // Current stack pointer offset
-        closure_var_refs: &mut [JSVarRef],
+        closure_var_refs: &mut [VarRef],
         args: &[JSValue], // actual calling arguments pass in by caller, not padded length
         throwed: bool,    // Indicates if an exception has been thrown
     ) -> JSValue {
