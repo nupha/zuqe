@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
     JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom, context::ContextImpl, number::f64_stringify,
-    object::Object,
+    object::Object, string::StringRef,
 };
 
 use super::JSValue;
@@ -42,8 +42,9 @@ impl JSValue {
 }
 
 impl Object {
-    pub fn inspect(&self, ctx: &ContextImpl) -> Result<String, i32> {
-        let tag_atom: Atom = if self.is_array(ctx)? {
+    /// object's toStringTag
+    pub(crate) fn to_string_tag(&self, ctx: &ContextImpl) -> Result<Atom, i32> {
+        let tag = if self.is_array(ctx)? {
             Atom::CONST_Array
         } else if self.is_function() {
             Atom::CONST_Function
@@ -70,17 +71,27 @@ impl Object {
             }
         };
 
-        let tag = {
-            #[cfg(feature = "builtin_symbol")]
-            if let JSValue::String(s) = self.get_property(ctx, Atom::CONST_Symbol_toStringTag)? {
+        Ok(tag)
+    }
+
+    pub fn inspect(&self, ctx: &ContextImpl) -> Result<String, i32> {
+        let tag: StringRef;
+
+        #[cfg(feature = "builtin_symbol")]
+        {
+            tag = if let JSValue::String(s) =
+                self.get_property(ctx, Atom::CONST_Symbol_toStringTag)?
+            {
                 s
             } else {
-                tag_atom.force_string(ctx)?
-            }
+                self.to_string_tag(ctx).and_then(|a| a.force_string(ctx))?
+            };
+        }
 
-            #[cfg(not(feature = "builtin_symbol"))]
-            tag_atom.force_string(ctx)?
-        };
+        #[cfg(not(feature = "builtin_symbol"))]
+        {
+            tag = self.to_string_tag(ctx).and_then(|a| a.force_string(ctx))?;
+        }
 
         Ok(format!("[object {tag}]"))
     }

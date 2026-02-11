@@ -568,7 +568,8 @@ pub fn gen_std_class_defs(outfile: &Path) {
         }
 
         cdefs.push(format!(
-            "// {i}: {}\nStdClassDef{{class_name:Atom::CONST_{name}, initialize:{}, finalize:{} }},",
+            "// #{i}: id={} {}\nStdClassDef{{class_name:Atom::CONST_{name}, initialize:{}, finalize:{} }},",
+            i+1,
             cdef.const_name,
             cdef.initialize
                 .map_or("None".to_string(), |s| format!("Some({s})")),

@@ -841,10 +841,18 @@ pub(super) fn dump_run_stack(
             if i >= mark_start { mark } else { ' ' },
             // value repr
             {
-                let mut s = format!("{:?}", v.inspect(ctx).expect("inspect fail"));
-                if !v.is_string() {
-                    s = s[1..s.len() - 1].to_string();
-                }
+                let s = {
+                    #[cfg(feature = "builtin_proxy")]
+                    if v.as_object_Proxy().is_some() {
+                        "[object Proxy]".to_string() // to avoid ::inspect() on a revoked Proxy returnes error
+                    } else {
+                        v.inspect(ctx).unwrap()
+                    }
+                    #[cfg(not(feature = "builtin_proxy"))]
+                    {
+                        v.inspect(ctx).unwrap()
+                    }
+                };
 
                 if s.chars().count() > 80 {
                     s.chars().take(80).collect::<String>() + "…"

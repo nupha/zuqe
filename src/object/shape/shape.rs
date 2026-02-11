@@ -243,7 +243,8 @@ impl Shape {
             -1
         })?;
 
-        let shape = Self::new_internal(ctx, proto, prop_defs, scope_id)?;
+        // let shape = Self::new_internal(ctx, proto, prop_defs, scope_id)?;
+        let shape = Self::new_internal(ctx, proto, prop_defs, GcPartitionId::NONE)?;
         ctx.rt_ptr().register_shape(&shape)?;
         Ok(shape)
     }
