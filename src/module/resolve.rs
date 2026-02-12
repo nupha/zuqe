@@ -190,9 +190,8 @@ impl ModuleDef {
                 if imp.import_name == Atom::CONST__star_ {
                     // name space import
                     let val = reqm.ns(ctx)?;
-                    let xref = self.gc_node().scope_id();
                     md_func.payload_mut().closure_var_refs_mut()[import_var_idx as usize]
-                        .set_value(ctx, val.into(), xref);
+                        .set_value(val.into());
                 } else {
                     match reqm.resolve_export(ctx, imp.import_name, None)? {
                         ResolveExport::Found {
@@ -212,8 +211,7 @@ impl ModuleDef {
                                         let val = m2.ns(ctx)?;
                                         let vref = {
                                             let mut vr = js_create_module_var(ctx, true)?;
-                                            let xref = md_func.gc_node().scope_id();
-                                            vr.set_value(ctx, val.into(), xref);
+                                            vr.set_value(val.into());
                                             vr
                                         };
                                         md_func.payload_mut().closure_var_refs_mut()

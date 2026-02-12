@@ -199,8 +199,7 @@ impl Object {
                             };
                         }
                     } else {
-                        let xref = self.gc_node().scope_id();
-                        vref.set_value(ctx, val, xref);
+                        vref.set_value(val);
                     }
                 }
 

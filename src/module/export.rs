@@ -16,7 +16,7 @@ use crate::{
     value::JSValue,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum ExportedNameKind {
     EXPORTED_NAME_AMBIGUOUS,
     EXPORTED_NAME_NORMAL(VarRef),
@@ -67,9 +67,9 @@ pub struct ExportEntry {
 
 unsafe impl GcTracable for ExportEntry {
     fn trace(&self, tr: GcTraceOp<'_>) {
+        self.export_type.trace(tr);
         self.local_name.trace(tr);
         self.export_name.trace(tr);
-        self.export_type.trace(tr);
     }
 }
 
@@ -244,8 +244,7 @@ impl ModuleDefImpl {
                     var_ref.is_some(),
                     "exported local entry must have been linked"
                 );
-                let xref = unsafe { GcRef::from_ref_unchecked(self).node_info().scope_id() };
-                var_ref.unwrap().set_value(ctx, value, xref);
+                var_ref.unwrap().set_value(value);
                 Ok(())
             } else {
                 // not a local export entry

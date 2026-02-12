@@ -111,10 +111,10 @@ unsafe impl GcTracable for BCFuncPayload {
 }
 
 impl BCFuncPayload {
-    pub fn new(bytecode: Bytecode, closure_var_refs: Vec<VarRef>) -> Box<Self> {
+    pub fn new(bytecode: Bytecode, captured_vars: Vec<VarRef>) -> Box<Self> {
         Box::new(Self {
             bytecode,
-            closure_var_refs,
+            closure_var_refs: captured_vars,
             home_object: None,
         })
     }
@@ -324,8 +324,8 @@ impl BytecodeFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
+        let func_scope = self.gc_node().scope_id();
         let bc = self.payload().bytecode();
-        let bc_scope = self.gc_node().scope_id();
 
         // how many args that should be copied to local buf?
         // `args.len()` is actual argument count
@@ -406,17 +406,17 @@ impl BytecodeFunction {
         };
         stack_frame.var_count = bc.var_count;
 
-        let isa = self.payload_mut();
+        let bf = self.payload_mut();
         let ret = bc
             .run(
                 caller_ctx,
-                isa.home_object,
+                bf.home_object,
                 &mut stack_frame,
                 this_obj,
                 new_target,
                 0,
                 0,
-                &mut isa.closure_var_refs,
+                &mut bf.closure_var_refs,
                 args,
                 false,
             )
@@ -424,9 +424,9 @@ impl BytecodeFunction {
 
         // Note: closure values could be allocated in stack-frame's gc scope during execution,
         // before stack-frame is dropping, promote closure values up to at leat self Function's gc scope.
-        for vr in &isa.closure_var_refs {
+        for vr in bf.closure_var_refs() {
             if let Some(n) = vr.value().gc_node_ptr() {
-                rt.gc_heap_mut().set_xref(bc_scope, n);
+                rt.gc_heap_mut().set_xref(func_scope, n);
             }
         }
 

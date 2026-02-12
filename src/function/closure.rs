@@ -212,7 +212,7 @@ impl Bytecode {
         captured_vars: &[VarRef],
         parent_stack_frame: Option<&mut StackFrame>,
     ) -> Result<BCFunction, i32> {
-        let var_refs: Vec<VarRef> = if self.closure_var_count != 0 {
+        let captures: Vec<VarRef> = if self.closure_var_count != 0 {
             debug_assert!(
                 parent_stack_frame.is_some(),
                 "must have parent stack frame if there is any closure variable"
@@ -242,7 +242,7 @@ impl Bytecode {
         };
 
         let payload = {
-            let p = BCFuncPayload::new(*self, var_refs);
+            let p = BCFuncPayload::new(*self, captures);
             match self.func_kind() {
                 FunctionKind::Normal => ObjectPayload::BYTECODE_FUNCTION(p),
                 FunctionKind::Generator => ObjectPayload::GENERATOR_FUNCTION(p),

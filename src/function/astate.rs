@@ -188,8 +188,11 @@ impl AsyncStateImpl {
         let sp_offset = self.stack_frame.cur_sp_offset;
         debug_assert!(sp_offset >= 0);
 
+        let func_scope = func.gc_node().scope_id();
         let bf = func.payload_mut();
-        let ret_val = bf.bytecode().run(
+        let bc = bf.bytecode();
+
+        let ret_val = bc.run(
             caller_ctx,
             bf.home_object(),
             unsafe {
@@ -204,6 +207,16 @@ impl AsyncStateImpl {
             args,
             throw_flag,
         );
+
+        // Note: closure values could be allocated in stack-frame's gc scope during execution,
+        // before stack-frame is dropping, promote closure values up to at leat func's gc scope.
+        let mut rt = caller_ctx.rt_ptr();
+        for vr in bf.closure_var_refs() {
+            if let Some(n) = vr.value().gc_node_ptr() {
+                rt.gc_heap_mut().set_xref(func_scope, n);
+            }
+        }
+
         ret_val.err()
     }
 }

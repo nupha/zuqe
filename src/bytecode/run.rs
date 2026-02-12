@@ -1183,20 +1183,12 @@ impl Bytecode {
                         // [value, ^] -> [^]
                         // consume and store stack top value to var_ref
                         let idx = PC_FETCH!(u16);
-                        captured_vars[idx as usize].set_value(
-                            &realm,
-                            SP_VAL!(-1),
-                            stack_frame.gc_scope_id,
-                        );
+                        captured_vars[idx as usize].set_value(SP_VAL!(-1));
                         SP_GO!(-1);
                     }
                     OpCode::SET_VAR_REF => {
                         let idx = PC_FETCH!(u16);
-                        captured_vars[idx as usize].set_value(
-                            &realm,
-                            SP_VAL!(-1),
-                            stack_frame.gc_scope_id,
-                        );
+                        captured_vars[idx as usize].set_value(SP_VAL!(-1));
                     }
                     OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                         let idx = PC_FETCH!(u16);
@@ -1209,11 +1201,7 @@ impl Bytecode {
                             SP_PUT!(0, val);
                             SP_GO!(1);
                         } else {
-                            captured_vars[idx as usize].set_value(
-                                &realm,
-                                SP_VAL!(-1),
-                                stack_frame.gc_scope_id, // SHOULD BE PARENT STACK SCOPE?
-                            );
+                            captured_vars[idx as usize].set_value(SP_VAL!(-1));
                             SP_GO!(-1);
                         }
                     }
@@ -1223,11 +1211,7 @@ impl Bytecode {
                             JS_ThrowReferenceErrorUninitialized2(&realm, self, idx, true);
                             break State::Exception;
                         } else {
-                            captured_vars[idx as usize].set_value(
-                                &realm,
-                                SP_VAL!(-1),
-                                stack_frame.gc_scope_id,
-                            );
+                            captured_vars[idx as usize].set_value(SP_VAL!(-1));
                             SP_GO!(-1);
                         }
                     }

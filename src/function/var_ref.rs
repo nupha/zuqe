@@ -49,13 +49,6 @@ unsafe impl GcTracable for VarRefImpl {
 }
 
 impl VarRefImpl {
-    pub(crate) const fn is_arg(&self) -> bool {
-        match self {
-            Self::Bind { is_arg, .. } => *is_arg,
-            Self::Detached { is_arg, .. } => *is_arg,
-        }
-    }
-
     /// get value of the var.
     #[inline]
     pub(crate) const fn value(&self) -> JSValue {
@@ -65,9 +58,9 @@ impl VarRefImpl {
         }
     }
 
-    /// update value of variable, update gc cross reference
+    /// update value of variable
     #[inline]
-    pub(crate) fn set_value(&mut self, ctx: &ContextImpl, new_value: JSValue, xref: GcPartitionId) {
+    pub(crate) const fn set_value(&mut self, new_value: JSValue) {
         match self {
             Self::Bind { pvalue, .. } => unsafe {
                 *pvalue.as_mut() = new_value;
@@ -75,10 +68,6 @@ impl VarRefImpl {
             Self::Detached { value, .. } => {
                 *value = new_value;
             }
-        }
-
-        if let Some(n) = new_value.gc_node_ptr() {
-            ctx.rt_ptr().gc_heap_mut().set_xref(xref, n);
         }
     }
 
@@ -204,7 +193,6 @@ impl StackFrame {
                 // the VarRef of async functions during the GC. It would
                 // have the advantage of allowing the release of unused stack
                 // frames in a cycle.
-
                 let a_state = self
                     .async_state
                     .upgrade(ctx.rt_ptr().gc_heap())

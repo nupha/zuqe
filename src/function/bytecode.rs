@@ -1,5 +1,3 @@
-use std::ptr::NonNull;
-
 use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
