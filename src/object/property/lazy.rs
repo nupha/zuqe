@@ -83,7 +83,7 @@ impl JSProperty {
             realm, init_type, ..
         } = self
         {
-            init_type.instantiate(&realm, this_obj)
+            init_type.instantiate(realm, this_obj)
         } else {
             unreachable!("expect lazy property, but got {:?}", self);
         }

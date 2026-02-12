@@ -16,7 +16,7 @@ use crate::{
     },
     class::{ClassMeta, js_arguments_exotic_methods},
     context::ContextPtr,
-    function::{AsyncFunction, AsyncState, BoundFunction, NFuncPayload, NativeFunction},
+    function::{AsyncFunction, AsyncState, BoundFunction, NativeFunction},
     module::{ModuleLoadFn, ModuleNormalizeFn, js_module_ns_exotic_methods},
     object::ShapeImpl,
     resource::LocalResource,

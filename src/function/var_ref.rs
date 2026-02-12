@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     context::ContextImpl,

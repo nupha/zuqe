@@ -164,10 +164,6 @@ impl Drop for Shape {
         if self.use_count == 0 {
             self.gc_ref().node_info_mut().unset_xref();
         }
-
-        // if self.gc_ref().node_info_mut().dec_ref() == 0 {
-        //     self.gc_ref().node_info_mut().unset_xref();
-        // }
     }
 }
 

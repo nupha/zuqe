@@ -1,7 +1,5 @@
 use std::{ops::Deref, ptr::NonNull};
 
-use gc_lite::GcRef;
-
 use crate::{
     Context,
     atom::Atom,

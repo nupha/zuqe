@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
     atom::Atom,
