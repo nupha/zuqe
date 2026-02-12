@@ -66,7 +66,7 @@ pub struct StackFrame {
     /// Local variables count
     pub(crate) var_count: u16,
 
-    /// List of variable references in the stack frame
+    /// List of variable references to local vars in stack frame
     var_ref_list: Vec<VarRef>,
 
     /// Program counter offset for bytecode functions

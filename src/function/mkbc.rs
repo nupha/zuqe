@@ -2,7 +2,7 @@ use crate::{
     atom::Atom,
     context::ContextImpl,
     function::{
-        ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeImpl, JSClosureVar, JSVarDef,
+        ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeImpl, ClosureVar, JSVarDef,
         JSVarKindEnum, is_var_in_arg_scope,
     },
     module::add_module_variables,
@@ -140,7 +140,7 @@ impl FunctionDef {
         let mut closure_var_start = -1;
         let closure_var_count = self.closure_vars.as_ref().map_or(0, |x| x.len());
         if closure_var_count != 0 {
-            const ly: std::alloc::Layout = std::alloc::Layout::new::<JSClosureVar>();
+            const ly: std::alloc::Layout = std::alloc::Layout::new::<ClosureVar>();
             let mut i = bin_size;
             let m = i % ly.align();
             if m != 0 {
@@ -235,7 +235,7 @@ impl FunctionDef {
                 let mut ptr = bin
                     .as_mut_ptr()
                     .add(closure_var_start as usize)
-                    .cast::<JSClosureVar>();
+                    .cast::<ClosureVar>();
 
                 for cv in cvars {
                     ptr.write(cv);
@@ -415,7 +415,7 @@ impl FunctionDef {
 
                 let vd = fd.vars.get_mut(scope_idx as usize).unwrap();
                 vd.set_is_captured(true);
-                self.get_closure_var2(
+                self.get_closure_var(
                     ctx,
                     fd_ptr,
                     true,
@@ -437,7 +437,7 @@ impl FunctionDef {
                 // XXX: propagate is_const and var_kind too ?
                 for (i, vd) in fd.args.iter().enumerate() {
                     if !vd.var_name.is_null() {
-                        self.get_closure_var2(
+                        self.get_closure_var(
                             ctx,
                             fd as *const FunctionDef,
                             true,
@@ -457,7 +457,7 @@ impl FunctionDef {
                     if vd.scope_level == 0
                         && !(vd.var_name.is_null() || vd.var_name == Atom::CONST__ret_)
                     {
-                        self.get_closure_var2(
+                        self.get_closure_var(
                             ctx,
                             fd as *const FunctionDef,
                             true,
@@ -475,7 +475,7 @@ impl FunctionDef {
                 for (i, vd) in fd.vars.iter().enumerate() {
                     // do not close top level last result
                     if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
-                        self.get_closure_var2(
+                        self.get_closure_var(
                             ctx,
                             fd as *const FunctionDef,
                             true,
@@ -495,7 +495,7 @@ impl FunctionDef {
                 // add direct eval variables (we are necessarily at the top level)
                 if let Some(cvars) = fd.closure_vars.as_ref() {
                     for (i, cv) in cvars.iter().enumerate() {
-                        self.get_closure_var2(
+                        self.get_closure_var(
                             ctx,
                             fd as *const FunctionDef,
                             false,

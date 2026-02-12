@@ -90,9 +90,7 @@ pub enum FuncCallType {
 #[derive(Debug)]
 pub struct BCFuncPayload {
     bytecode: Bytecode,
-
-    /// closure variable references
-    pub(crate) var_refs: Vec<VarRef>,
+    closure_var_refs: Vec<VarRef>,
 
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
@@ -106,17 +104,17 @@ unsafe impl GcTracable for BCFuncPayload {
         if let Some(x) = self.home_object {
             x.trace(tr)
         }
-        for vr in self.var_refs.iter() {
+        for vr in self.closure_var_refs.iter() {
             vr.trace(tr);
         }
     }
 }
 
 impl BCFuncPayload {
-    pub fn new(bytecode: Bytecode, var_refs: Vec<VarRef>) -> Box<Self> {
+    pub fn new(bytecode: Bytecode, closure_var_refs: Vec<VarRef>) -> Box<Self> {
         Box::new(Self {
             bytecode,
-            var_refs,
+            closure_var_refs,
             home_object: None,
         })
     }
@@ -134,6 +132,16 @@ impl BCFuncPayload {
 
     pub(crate) const fn set_home_object(&mut self, obj: Option<Object>) {
         self.home_object = obj;
+    }
+
+    #[inline(always)]
+    pub(crate) fn closure_var_refs(&self) -> &[VarRef] {
+        &self.closure_var_refs
+    }
+
+    #[inline(always)]
+    pub(crate) fn closure_var_refs_mut(&mut self) -> &mut [VarRef] {
+        &mut self.closure_var_refs
     }
 }
 
@@ -316,8 +324,8 @@ impl BytecodeFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let rt = caller_ctx.rt_ptr();
         let bc = self.payload().bytecode();
+        let bc_scope = self.gc_node().scope_id();
 
         // how many args that should be copied to local buf?
         // `args.len()` is actual argument count
@@ -335,6 +343,7 @@ impl BytecodeFunction {
             bc.mode(),
         );
 
+        let mut rt = caller_ctx.rt_ptr();
         let mut stack_frame = StackFrame::new(self.into(), js_mode);
 
         // ensure stack has minimal free space.
@@ -397,21 +406,31 @@ impl BytecodeFunction {
         };
         stack_frame.var_count = bc.var_count;
 
-        // Note: return value was properly migrated inside ::run()
         let isa = self.payload_mut();
-        bc.run(
-            caller_ctx,
-            isa.home_object,
-            &mut stack_frame,
-            this_obj,
-            new_target,
-            0,
-            0,
-            &mut isa.var_refs,
-            args,
-            false,
-        )
-        .err()
+        let ret = bc
+            .run(
+                caller_ctx,
+                isa.home_object,
+                &mut stack_frame,
+                this_obj,
+                new_target,
+                0,
+                0,
+                &mut isa.closure_var_refs,
+                args,
+                false,
+            )
+            .err();
+
+        // Note: closure values could be allocated in stack-frame's gc scope during execution,
+        // before stack-frame is dropping, promote closure values up to at leat self Function's gc scope.
+        for vr in &isa.closure_var_refs {
+            if let Some(n) = vr.value().gc_node_ptr() {
+                rt.gc_heap_mut().set_xref(bc_scope, n);
+            }
+        }
+
+        ret
     }
 
     /// handle `Function` constructor. For example:

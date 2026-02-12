@@ -209,14 +209,14 @@ impl ContextImpl {
                 bc.eval(
                     self,
                     this_obj,
-                    &rt.current_stack_frame()
+                    rt.current_stack_frame()
                         .unwrap()
                         .func_obj
                         .as_BCFunction()
                         .copied()
                         .unwrap() // <-- stack function must be a BCFunction
                         .payload()
-                        .var_refs,
+                        .closure_var_refs(),
                     rt.current_stack_frame_mut(),
                 )
             }

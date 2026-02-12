@@ -15,7 +15,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{FunctionKind, closure::JSClosureVar, var::JSVarDef};
+use super::{FunctionKind, closure::ClosureVar, var::JSVarDef};
 
 #[derive(Debug)]
 pub struct BytecodeDebugInfo {
@@ -96,31 +96,32 @@ pub struct BytecodeImpl {
 
     pub(crate) stack_size: u16,
 
-    pub arg_count: u16,
-    pub var_count: u16,
-    pub closure_var_count: u16,
+    pub(crate) arg_count: u16,
+    pub(crate) var_count: u16,
+    pub(crate) closure_var_count: u16,
 
     /// binary image.
     /// SAFETY: may contains const, vararge, bytecode etc
     /// which may contain value and atom. must manually free them when dropped
-    pub binary: Box<[u8]>,
+    pub(crate) binary: Box<[u8]>,
     /// consts section (start_index, length)
-    pub consts_section: Option<(u16, u16)>,
+    consts_section: Option<(u16, u16)>,
     /// start index of vardefs in binary >=0 for valid index
-    pub vardefs_start: i32,
+    vardefs_start: i32,
     /// start index of closure vars >=0 for valid index
-    pub closure_var_start: i32,
+    closure_var_start: i32,
     /// index where opcodes starts
-    pub opcodes_start: u32,
+    opcodes_start: u32,
 
-    pub debug: Option<BytecodeDebugInfo>,
+    /// debug info
+    pub(crate) debug: Option<BytecodeDebugInfo>,
 }
 
 unsafe impl GcTracable for BytecodeImpl {
     fn trace(&self, tr: GcTraceOp) {
         self.func_name.trace(tr);
         self.consts().iter().for_each(|x| x.trace(tr));
-        self.vardefs().iter().for_each(|x| x.trace(tr));
+        self.local_vardefs().iter().for_each(|x| x.trace(tr));
         self.closure_vars().iter().for_each(|x| x.trace(tr));
 
         // trace atoms in opcodes
@@ -228,10 +229,30 @@ impl BytecodeImpl {
         self.attrs.need_home_object
     }
 
-    /// get nth arg or var vardef. for example:
+    /// get nth const value
+    #[inline]
+    pub(crate) fn load_const(&self, nth: usize) -> Option<JSValue> {
+        if let Some((start, len)) = self.consts_section
+            && nth < len as usize
+        {
+            debug_assert_eq!(start, 0);
+            Some(unsafe {
+                *self
+                    .binary
+                    .as_ptr()
+                    .add(start as usize)
+                    .cast::<JSValue>()
+                    .add(nth)
+            })
+        } else {
+            None
+        }
+    }
+
+    /// get nth arg or local var. for example:
     /// get 2nd var def: (2, false)
     /// get 3rd arg def: (3, true)
-    pub fn get_vardef(&self, nth: u16, is_arg: bool) -> Option<&JSVarDef> {
+    fn get_local_vardef(&self, nth: u16, is_arg: bool) -> Option<&JSVarDef> {
         if self.vardefs_start >= 0
             && nth
                 < if is_arg {
@@ -253,24 +274,26 @@ impl BytecodeImpl {
         }
     }
 
+    /// get nth argument def
     #[inline(always)]
-    pub fn get_arg(&self, nth: u16) -> Option<&JSVarDef> {
-        self.get_vardef(nth, true)
+    pub(crate) fn get_arg(&self, nth: u16) -> Option<&JSVarDef> {
+        self.get_local_vardef(nth, true)
     }
 
+    /// get nth local var def
     #[inline(always)]
-    pub fn get_var(&self, nth: u16) -> Option<&JSVarDef> {
-        self.get_vardef(nth, false)
+    pub(crate) fn get_var(&self, nth: u16) -> Option<&JSVarDef> {
+        self.get_local_vardef(nth, false)
     }
 
-    /// get nth closure var def
-    pub fn get_closure_var(&self, nth: u16) -> Option<&JSClosureVar> {
+    /// get nth closure var ref
+    pub(crate) fn get_closure_var(&self, nth: u16) -> Option<&ClosureVar> {
         if self.closure_var_start >= 0 && nth < self.closure_var_count {
             unsafe {
                 self.binary
                     .as_ptr()
                     .add(self.closure_var_start as usize)
-                    .cast::<JSClosureVar>()
+                    .cast::<ClosureVar>()
                     .add(nth as usize)
                     .as_ref()
             }
@@ -280,7 +303,7 @@ impl BytecodeImpl {
     }
 
     /// get args slice
-    pub fn args_slice(&self) -> &[JSVarDef] {
+    pub(crate) fn args_slice(&self) -> &[JSVarDef] {
         if self.arg_count > 0 {
             debug_assert!(self.vardefs_start >= 0);
             unsafe {
@@ -316,8 +339,8 @@ impl BytecodeImpl {
         }
     }
 
-    /// get vardefs slice. combination of args + vars.
-    pub fn vardefs(&self) -> &[JSVarDef] {
+    /// get local var defs, includes args + vars.
+    pub fn local_vardefs(&self) -> &[JSVarDef] {
         if self.vardefs_start >= 0 {
             debug_assert!(self.arg_count > 0 || self.var_count > 0);
             unsafe {
@@ -334,24 +357,8 @@ impl BytecodeImpl {
         }
     }
 
-    /// get vardefs (args+vars) starting pointer
-    unsafe fn vardefs_ptr(&mut self) -> Option<NonNull<JSVarDef>> {
-        if self.vardefs_start >= 0 {
-            debug_assert!(self.arg_count > 0 || self.var_count > 0);
-
-            NonNull::new(unsafe {
-                self.binary
-                    .as_mut_ptr()
-                    .add(self.vardefs_start as usize)
-                    .cast::<JSVarDef>()
-            })
-        } else {
-            None
-        }
-    }
-
     /// get closure vars slice
-    pub fn closure_vars(&self) -> &[JSClosureVar] {
+    pub(crate) fn closure_vars(&self) -> &[ClosureVar] {
         if self.closure_var_count > 0 {
             debug_assert!(self.closure_var_start >= 0);
 
@@ -360,7 +367,7 @@ impl BytecodeImpl {
                     self.binary
                         .as_ptr()
                         .add(self.closure_var_start as usize)
-                        .cast::<JSClosureVar>(),
+                        .cast::<ClosureVar>(),
                     self.closure_var_count as usize,
                 )
             }
@@ -369,34 +376,14 @@ impl BytecodeImpl {
         }
     }
 
-    /// get closure vars slice mut
-    pub fn closure_vars_mut(&mut self) -> Option<&mut [JSClosureVar]> {
-        if self.closure_var_count > 0 {
-            debug_assert!(self.closure_var_start >= 0);
-
-            unsafe {
-                Some(std::slice::from_raw_parts_mut(
-                    self.binary
-                        .as_mut_ptr()
-                        .add(self.closure_var_start as usize)
-                        .cast::<JSClosureVar>(),
-                    self.closure_var_count as usize,
-                ))
-            }
-        } else {
-            debug_assert_eq!(self.closure_var_start, -1);
-            None
-        }
-    }
-
     /// get opcodes slice
     #[inline(always)]
-    pub fn opcodes(&self) -> &[u8] {
+    pub(crate) fn opcodes(&self) -> &[u8] {
         &self.binary[self.opcodes_start as usize..]
     }
 
-    /// get const values slice
-    pub fn consts(&self) -> &[JSValue] {
+    /// get const values
+    pub(crate) fn consts(&self) -> &[JSValue] {
         if let Some((start, len)) = self.consts_section {
             debug_assert_eq!(start, 0);
             debug_assert!(len > 0);
@@ -411,13 +398,7 @@ impl BytecodeImpl {
         }
     }
 
-    /// get a const value by index
-    #[inline(always)]
-    pub fn load_const(&self, idx: usize) -> Option<JSValue> {
-        self.consts().get(idx).cloned()
-    }
-
-    pub fn find_line_num(&self, pc_value: u32) -> Option<i32> {
+    pub(crate) fn find_line_num(&self, pc_value: u32) -> Option<i32> {
         if self.debug.as_ref().is_none_or(|d| d.pc2line_buf.is_none()) {
             // function was stripped
             return None;
@@ -522,17 +503,17 @@ impl std::fmt::Debug for Bytecode {
 }
 
 impl Bytecode {
-    /// Evaluate Bytecode.
+    /// Evaluate Bytecode with captured variables.
     ///
     /// Internally, it will create a function object with the bytecode, then eval the function.
-    pub fn eval(
+    pub(crate) fn eval(
         &self,
         ctx: &ContextImpl,
         this_obj: JSValue,
-        var_refs: &[VarRef],
-        parent_frame: Option<&mut StackFrame>,
+        captured_vars: &[VarRef],
+        parent_stack_frame: Option<&mut StackFrame>,
     ) -> JSResult {
-        self.make_closure(ctx, var_refs, parent_frame, None)
+        self.make_closure(ctx, None, captured_vars, parent_stack_frame)
             .and_then(|f| f.call(ctx, this_obj, &[]))
     }
 }

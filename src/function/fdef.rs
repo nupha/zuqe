@@ -6,7 +6,7 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     eval::EvalType,
     function::{
-        BytecodeAttrs, DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSGlobalVar, JSVarDef, JSVarScope,
+        BytecodeAttrs, ClosureVar, DEFINE_GLOBAL_LEX_VAR, JSGlobalVar, JSVarDef, JSVarScope,
         push_vec_atom, push_vec_u8, push_vec_u16, push_vec_u32,
     },
     module::ModuleDef,
@@ -86,7 +86,7 @@ pub(crate) struct FunctionDef {
     pub func_var_idx: Option<u16>,
 
     /// closure vars list
-    pub closure_vars: Option<Vec<JSClosureVar>>,
+    pub closure_vars: Option<Vec<ClosureVar>>,
 
     //
     // pseudo vars

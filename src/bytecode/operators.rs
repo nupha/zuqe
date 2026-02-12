@@ -102,7 +102,7 @@ pub(super) fn js_op_define_class(
     sp: *mut JSValue,
     class_name: Atom,
     class_flags: i32,
-    cur_var_refs: &[VarRef],
+    captured_vars: &[VarRef],
     sframe: &mut StackFrame,
     is_computed_name: bool,
 ) -> Result<(), i32> {
@@ -142,7 +142,7 @@ pub(super) fn js_op_define_class(
     }
 
     let mut proto = ctx.create_base_object_with_proto(parent_proto)?;
-    let mut ctor = bc.make_closure(ctx, cur_var_refs, Some(sframe), parent_class.to_object())?;
+    let mut ctor = bc.make_closure(ctx, parent_class.to_object(), captured_vars, Some(sframe))?;
 
     ctor.method_set_home_object(Some(proto));
     ctor.set_flag_constructor(true);

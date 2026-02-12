@@ -404,7 +404,7 @@ impl ModuleDef {
                                     .as_object_BCFunction()
                                     .copied()
                                     .expect("BCFunction expected");
-                                p1.payload().var_refs[var_idx as usize]
+                                p1.payload().closure_var_refs()[var_idx as usize]
                             });
                     }
                 },

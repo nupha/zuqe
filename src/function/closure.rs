@@ -14,102 +14,105 @@ use crate::{
 use super::{ARG_SCOPE_END, FunctionDef, JS_MAX_LOCAL_VARS, JSVarKindEnum, is_var_in_arg_scope};
 
 #[derive(Debug)]
-pub struct JSClosureVar {
-    pub(crate) var_name: Atom,
-
-    // 8 bits available
-    // is_local = TRUE: index to a normal variable of the parent function.
-    // otherwise: index to a closure variable of the parent function
-    // 0-based index
-    pub(crate) var_idx: u16,
-
-    // Combines is_local, is_arg, is_const, is_lexical, and var_kind
+pub(crate) struct ClosureVar {
     //  is_local : 1;
     //  is_arg : 1;
     //  is_const : 1;
     //  is_lexical : 1;
     //  var_kind : 4; /* see JSVarKindEnum */
-    bitfield: u8,
+    flags: u8,
+
+    // 0-based index
+    // when flags `is_local` is set: index to a normal variable in the parent function.
+    // otherwise: index to a closure variable of the parent function.
+    var_idx: u16,
+
+    pub(crate) var_name: Atom,
 }
 
-unsafe impl GcTracable for JSClosureVar {
+unsafe impl GcTracable for ClosureVar {
     fn trace(&self, tr: GcTraceOp) {
         self.var_name.trace(tr);
     }
 }
 
-impl JSClosureVar {
+impl ClosureVar {
     #[inline(always)]
     pub const fn is_local(&self) -> bool {
-        self.bitfield & 0x01 != 0
+        self.flags & 0x01 != 0
     }
 
-    pub const fn set_is_local(&mut self, value: bool) {
+    pub const fn set_local(&mut self, value: bool) {
         if value {
-            self.bitfield |= 0x01;
+            self.flags |= 0x01;
         } else {
-            self.bitfield &= !0x01;
+            self.flags &= !0x01;
         }
     }
 
     #[inline(always)]
     pub const fn is_arg(&self) -> bool {
-        (self.bitfield >> 1) & 0x01 != 0
+        (self.flags >> 1) & 0x01 != 0
     }
 
-    pub const fn set_is_arg(&mut self, value: bool) {
+    pub const fn set_arg(&mut self, value: bool) {
         if value {
-            self.bitfield |= 0x02;
+            self.flags |= 0x02;
         } else {
-            self.bitfield &= !0x02;
+            self.flags &= !0x02;
         }
     }
 
     #[inline(always)]
     pub const fn is_const(&self) -> bool {
-        (self.bitfield >> 2) & 0x01 != 0
+        (self.flags >> 2) & 0x01 != 0
     }
 
-    pub const fn set_is_const(&mut self, value: bool) {
+    pub const fn set_const(&mut self, value: bool) {
         if value {
-            self.bitfield |= 0x04;
+            self.flags |= 0x04;
         } else {
-            self.bitfield &= !0x04;
+            self.flags &= !0x04;
         }
     }
 
     #[inline(always)]
     pub const fn is_lexical(&self) -> bool {
-        (self.bitfield >> 3) & 0x01 != 0
+        (self.flags >> 3) & 0x01 != 0
     }
 
-    pub const fn set_is_lexical(&mut self, value: bool) {
+    pub const fn set_lexical(&mut self, value: bool) {
         if value {
-            self.bitfield |= 0x08;
+            self.flags |= 0x08;
         } else {
-            self.bitfield &= !0x08;
+            self.flags &= !0x08;
         }
     }
 
     #[inline(always)]
     pub fn var_kind(&self) -> JSVarKindEnum {
-        unsafe { std::mem::transmute((self.bitfield >> 4) & 0x0F) }
+        unsafe { std::mem::transmute::<u8, JSVarKindEnum>((self.flags >> 4) & 0x0F) }
     }
 
     pub const fn set_var_kind(&mut self, value: JSVarKindEnum) {
-        self.bitfield = (self.bitfield & 0x0F) | ((value as u8) << 4);
+        self.flags = (self.flags & 0x0F) | ((value as u8) << 4);
+    }
+
+    #[inline(always)]
+    pub(crate) const fn var_index(&self) -> u16 {
+        self.var_idx
     }
 }
 
 impl FunctionDef {
+    /// Create a closure referencing a local variable (is_local = TRUE) or a closure (is_local = FALSE) in `fd`.
+    ///
     /// `fd` must be an ancestor of `self`.
-    /// Create in 'self' a closure referencing a local variable (is_local = TRUE)
-    /// or a closure (is_local = FALSE) in `fd`
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn get_closure_var2(
+    pub(super) fn get_closure_var(
         &mut self,
         ctx: &ContextImpl,
-        fd: *const FunctionDef,
+        fd: *const Self,
         mut is_local: bool,
         is_arg: bool,
         var_idx: u16,
@@ -123,7 +126,7 @@ impl FunctionDef {
         let vidx = if fd != self.parent {
             // search var_idx along ancestor path
             let i = unsafe {
-                (&mut *self.parent).get_closure_var2(
+                (&mut *self.parent).get_closure_var(
                     ctx, fd, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
                 )?
             };
@@ -133,43 +136,24 @@ impl FunctionDef {
             var_idx
         };
 
-        // find idx in self
+        // find in existing, or create if not found.
         if let Some(cvars) = self.closure_vars.as_ref()
-            && let Some(nth) = cvars.iter().position(|cv| {
-                cv.var_idx == vidx && cv.is_arg() == is_arg && cv.is_local() == is_local
+            && let Some(i) = cvars.iter().position(|cv| {
+                cv.var_index() == vidx && cv.is_arg() == is_arg && cv.is_local() == is_local
             })
         {
-            return Ok(nth as u16);
+            Ok(i as u16)
+        } else {
+            self.add_closure_var(
+                ctx, is_local, is_arg, vidx, var_name, is_const, is_lexical, var_kind,
+            )
         }
-
-        // not found, create it.
-        self.add_closure_var(
-            ctx, is_local, is_arg, vidx, var_name, is_const, is_lexical, var_kind,
-        )
-    }
-
-    /// `fd` must be an ancestor of `self`.
-    #[allow(clippy::too_many_arguments)]
-    #[inline(always)]
-    pub(super) fn get_closure_var(
-        &mut self,
-        ctx: &ContextImpl,
-        fd: *const FunctionDef,
-        is_arg: bool,
-        var_idx: u16,
-        var_name: Atom,
-        is_const: bool,
-        is_lexical: bool,
-        var_kind: JSVarKindEnum,
-    ) -> Result<u16, i32> {
-        self.get_closure_var2(
-            ctx, fd, true, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
-        )
     }
 
     /// returns added closure var index, or Err for error.
+    /// returned closure var index is 0-based.
     #[allow(clippy::too_many_arguments)]
-    pub fn add_closure_var(
+    pub(crate) fn add_closure_var(
         &mut self,
         ctx: &ContextImpl,
         is_local: bool,
@@ -180,40 +164,33 @@ impl FunctionDef {
         is_lexical: bool,
         var_kind: JSVarKindEnum,
     ) -> Result<u16, i32> {
-        let mut cv = JSClosureVar {
-            bitfield: 0,
+        let mut cv = ClosureVar {
+            flags: 0,
             var_idx,
             var_name,
         };
-        cv.set_is_local(is_local);
-        cv.set_is_arg(is_arg);
-        cv.set_is_const(is_const);
-        cv.set_is_lexical(is_lexical);
+        cv.set_local(is_local);
+        cv.set_arg(is_arg);
+        cv.set_const(is_const);
+        cv.set_lexical(is_lexical);
         cv.set_var_kind(var_kind);
 
-        if let Some(cvars) = self.closure_vars.as_mut() {
-            if cvars.len() == JS_MAX_LOCAL_VARS as usize {
+        if let Some(lst) = self.closure_vars.as_mut() {
+            if lst.len() == JS_MAX_LOCAL_VARS as usize {
                 ctx.throw_internal_error("too many closure variables");
                 return Err(-1);
             }
-            if cvars.len() == cvars.capacity() {
-                cvars.try_reserve_exact(8).map_err(|_| {
+            if lst.len() == lst.capacity() {
+                lst.try_reserve_exact(8).map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
             }
-            cvars.push(cv);
-            Ok(cvars.len() as u16 - 1) // var index is 0-based
-        } else {
-            let mut lst = Vec::<JSClosureVar>::new();
-            lst.try_reserve_exact(16).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
-
             lst.push(cv);
-            self.closure_vars.replace(lst);
-            Ok(0) // first index is 0
+            Ok(lst.len() as u16 - 1)
+        } else {
+            self.closure_vars.replace(vec![cv]);
+            Ok(0)
         }
     }
 
@@ -227,20 +204,20 @@ impl FunctionDef {
 }
 
 impl Bytecode {
-    /// Create function (a.k.a. closure) with `self` Bytecode and captured variables.
+    /// Create a function object with Bytecode and captured variables.
     pub(crate) fn make_closure(
         &self,
         ctx: &ContextImpl,
-        cur_var_refs: &[VarRef],
-        parent_frame: Option<&mut StackFrame>,
         proto: Option<Object>,
+        captured_vars: &[VarRef],
+        parent_stack_frame: Option<&mut StackFrame>,
     ) -> Result<BCFunction, i32> {
         let var_refs: Vec<VarRef> = if self.closure_var_count != 0 {
             debug_assert!(
-                parent_frame.is_some(),
-                "parent stack frame must be present if there is any closure variable"
+                parent_stack_frame.is_some(),
+                "must have parent stack frame if there is any closure variable"
             );
-            let sf = parent_frame.unwrap();
+            let up_sf = parent_stack_frame.unwrap();
 
             // initialize var_refs with closure variables
             let mut lst = Vec::new();
@@ -249,14 +226,14 @@ impl Bytecode {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
+
             for cv in self.closure_vars() {
-                let var_ref = if cv.is_local() {
-                    // reuse the existing variable reference if it already exists
-                    sf.get_var_ref(ctx, cv.var_idx, cv.is_arg())?
+                lst.push(if cv.is_local() {
+                    // the existing variable reference in parent stack frame
+                    up_sf.get_var_ref(ctx, cv.var_idx, cv.is_arg())?
                 } else {
-                    cur_var_refs[cv.var_idx as usize]
-                };
-                lst.push(var_ref);
+                    captured_vars[cv.var_idx as usize]
+                });
             }
 
             lst
@@ -336,7 +313,7 @@ pub(crate) fn add_closure_variables(
         return Ok(());
     }
 
-    let mut cvars = Vec::<JSClosureVar>::new();
+    let mut cvars = Vec::<ClosureVar>::new();
     cvars.try_reserve_exact(count as usize).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
@@ -348,15 +325,15 @@ pub(crate) fn add_closure_variables(
     while i >= 0 {
         let vd = vardefs.get(i as usize).unwrap();
         if vd.scope_level > 0 {
-            let mut cv = JSClosureVar {
-                bitfield: 0,
+            let mut cv = ClosureVar {
+                flags: 0,
                 var_idx: i as _,
                 var_name: vd.var_name,
             };
-            cv.set_is_local(true);
-            cv.set_is_arg(false);
-            cv.set_is_const(vd.is_const());
-            cv.set_is_lexical(vd.is_lexical());
+            cv.set_local(true);
+            cv.set_arg(false);
+            cv.set_const(vd.is_const());
+            cv.set_lexical(vd.is_lexical());
             cv.set_var_kind(vd.var_kind());
 
             cvars.push(cv);
@@ -368,15 +345,15 @@ pub(crate) fn add_closure_variables(
     if !is_arg_scope {
         // Add argument variables
         for (i, vd) in bc.args_slice().iter().enumerate() {
-            let mut cv = JSClosureVar {
-                bitfield: 0,
+            let mut cv = ClosureVar {
+                flags: 0,
                 var_idx: i as _,
                 var_name: vd.var_name,
             };
-            cv.set_is_local(true);
-            cv.set_is_arg(true);
-            cv.set_is_const(false);
-            cv.set_is_lexical(false);
+            cv.set_local(true);
+            cv.set_arg(true);
+            cv.set_const(false);
+            cv.set_lexical(false);
             cv.set_var_kind(JSVarKindEnum::JS_VAR_NORMAL);
 
             cvars.push(cv);
@@ -385,15 +362,15 @@ pub(crate) fn add_closure_variables(
         // Add local non lexical variables
         for (i, vd) in bc.vars_slice().iter().enumerate() {
             if vd.scope_level == 0 && vd.var_name != Atom::CONST__ret_ {
-                let mut cv = JSClosureVar {
-                    bitfield: 0,
+                let mut cv = ClosureVar {
+                    flags: 0,
                     var_idx: i as _,
                     var_name: vd.var_name,
                 };
-                cv.set_is_local(true);
-                cv.set_is_arg(false);
-                cv.set_is_const(vd.is_const());
-                cv.set_is_lexical(vd.is_lexical());
+                cv.set_local(true);
+                cv.set_arg(false);
+                cv.set_const(vd.is_const());
+                cv.set_lexical(vd.is_lexical());
                 cv.set_var_kind(vd.var_kind());
 
                 cvars.push(cv);
@@ -403,15 +380,15 @@ pub(crate) fn add_closure_variables(
         // only add pseudo variables
         for (i, vd) in bc.vars_slice().iter().enumerate() {
             if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
-                let mut cv = JSClosureVar {
-                    bitfield: 0,
+                let mut cv = ClosureVar {
+                    flags: 0,
                     var_idx: i as _,
                     var_name: vd.var_name,
                 };
-                cv.set_is_local(true);
-                cv.set_is_arg(false);
-                cv.set_is_const(vd.is_const());
-                cv.set_is_lexical(vd.is_lexical());
+                cv.set_local(true);
+                cv.set_arg(false);
+                cv.set_const(vd.is_const());
+                cv.set_lexical(vd.is_lexical());
                 cv.set_var_kind(vd.var_kind());
 
                 cvars.push(cv);
@@ -420,15 +397,15 @@ pub(crate) fn add_closure_variables(
     }
 
     for (i, cv0) in bc.closure_vars().iter().enumerate() {
-        let mut cv = JSClosureVar {
-            bitfield: 0,
+        let mut cv = ClosureVar {
+            flags: 0,
             var_idx: i as _,
             var_name: cv0.var_name,
         };
-        cv.set_is_local(false);
-        cv.set_is_arg(cv0.is_arg());
-        cv.set_is_const(cv0.is_const());
-        cv.set_is_lexical(cv0.is_lexical());
+        cv.set_local(false);
+        cv.set_arg(cv0.is_arg());
+        cv.set_const(cv0.is_const());
+        cv.set_lexical(cv0.is_lexical());
         cv.set_var_kind(cv0.var_kind());
 
         cvars.push(cv);

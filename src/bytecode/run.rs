@@ -63,7 +63,7 @@ impl Bytecode {
         new_target: JSValue,          // The new.target value for constructor calls
         pc_offset: usize,             // Current instruction pointer (program counter) offset
         sp_offset: usize,             // Current stack pointer offset
-        closure_var_refs: &mut [VarRef],
+        captured_vars: &mut [VarRef], // Closure var refs
         args: &[JSValue], // actual calling arguments pass in by caller, not padded length
         throwed: bool,    // Indicates if an exception has been thrown
     ) -> JSValue {
@@ -663,7 +663,7 @@ impl Bytecode {
                         if let JSValue::Bytecode(bc) = CPOOL![id] {
                             SP_PUT!(
                                 0,
-                                bc.make_closure(&realm, closure_var_refs, Some(stack_frame), None)
+                                bc.make_closure(&realm, None, captured_vars, Some(stack_frame))
                                     .map_or(JSValue::EXCEPTION, |f| f.into())
                             );
                             SP_GO!(1);
@@ -1172,17 +1172,18 @@ impl Bytecode {
                     }
 
                     OpCode::GET_VAR_REF => {
-                        // get value from var_ref, duplicate and push it on stack
-                        // operation: [^] -> [value, ^] where ^ is stack top
+                        // retrive value of var_ref, push it on stack
+                        // [^] -> [value, ^]
                         let idx = PC_FETCH!(u16);
-                        SP_PUT!(0, closure_var_refs[idx as usize].value());
+                        let val = captured_vars[idx as usize].value();
+                        SP_PUT!(0, val);
                         SP_GO!(1);
                     }
                     OpCode::PUT_VAR_REF => {
                         // [value, ^] -> [^]
                         // consume and store stack top value to var_ref
                         let idx = PC_FETCH!(u16);
-                        closure_var_refs[idx as usize].set_value(
+                        captured_vars[idx as usize].set_value(
                             &realm,
                             SP_VAL!(-1),
                             stack_frame.gc_scope_id,
@@ -1191,7 +1192,7 @@ impl Bytecode {
                     }
                     OpCode::SET_VAR_REF => {
                         let idx = PC_FETCH!(u16);
-                        closure_var_refs[idx as usize].set_value(
+                        captured_vars[idx as usize].set_value(
                             &realm,
                             SP_VAL!(-1),
                             stack_frame.gc_scope_id,
@@ -1199,33 +1200,30 @@ impl Bytecode {
                     }
                     OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                         let idx = PC_FETCH!(u16);
-                        let val = closure_var_refs[idx as usize].value();
+
+                        let val = captured_vars[idx as usize].value();
                         if unlikely(val.is_uninitialized()) {
                             JS_ThrowReferenceErrorUninitialized2(&realm, self, idx, true);
                             break State::Exception;
-                        }
-
-                        if opcode == OpCode::GET_VAR_REF_CHECK {
-                            // GET_VAR_REF_CHECK
+                        } else if opcode == OpCode::GET_VAR_REF_CHECK {
                             SP_PUT!(0, val);
                             SP_GO!(1);
                         } else {
-                            // PUT_VAR_REF_CHECK
-                            closure_var_refs[idx as usize].set_value(
+                            captured_vars[idx as usize].set_value(
                                 &realm,
                                 SP_VAL!(-1),
-                                stack_frame.gc_scope_id,
+                                stack_frame.gc_scope_id, // SHOULD BE PARENT STACK SCOPE?
                             );
                             SP_GO!(-1);
                         }
                     }
                     OpCode::PUT_VAR_REF_CHECK_INIT => {
                         let idx = PC_FETCH!(u16);
-                        if unlikely(!closure_var_refs[idx as usize].value().is_uninitialized()) {
+                        if unlikely(!captured_vars[idx as usize].value().is_uninitialized()) {
                             JS_ThrowReferenceErrorUninitialized2(&realm, self, idx, true);
                             break State::Exception;
                         } else {
-                            closure_var_refs[idx as usize].set_value(
+                            captured_vars[idx as usize].set_value(
                                 &realm,
                                 SP_VAL!(-1),
                                 stack_frame.gc_scope_id,
@@ -1295,7 +1293,7 @@ impl Bytecode {
                         }
 
                         let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
-                            Ok(closure_var_refs[idx as usize])
+                            Ok(captured_vars[idx as usize])
                         } else {
                             stack_frame.get_var_ref(&realm, idx, opcode == OpCode::MAKE_ARG_REF)
                         };
@@ -1826,7 +1824,7 @@ impl Bytecode {
                             sp,
                             atom,
                             class_flags as _,
-                            closure_var_refs,
+                            captured_vars,
                             stack_frame,
                             opcode == OpCode::DEFINE_CLASS_COMPUTED,
                         );

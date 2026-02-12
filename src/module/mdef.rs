@@ -395,17 +395,16 @@ pub(crate) fn js_free_modules(ctx: &mut ContextImpl, flag: JSFreeModuleEnum) {
     });
 }
 
-pub(crate) fn add_module_variables(ctx: &ContextImpl, fd: &mut FunctionDef) -> i32 {
+pub(crate) fn add_module_variables(ctx: &ContextImpl, fdef: &mut FunctionDef) -> i32 {
     // The imported global variables were added as closure variables
-    // in js_parse_import(). We add here the module global
-    // variables.
-    for i in 0..fd.global_vars.len() {
+    // in js_parse_import(). We add here the module global variables.
+    for i in 0..fdef.global_vars.len() {
         let (var_name, is_const, is_lexical) = {
-            let v = &fd.global_vars[i];
+            let v = &fdef.global_vars[i];
             (v.var_name, v.is_const(), v.is_lexical())
         };
 
-        if fd
+        if fdef
             .add_closure_var(
                 ctx,
                 true,
@@ -422,12 +421,12 @@ pub(crate) fn add_module_variables(ctx: &ContextImpl, fd: &mut FunctionDef) -> i
         }
     }
 
-    let mut m = fd.module.unwrap();
+    let mut m = fdef.module.unwrap();
 
     // resolve the variable names of the local exports
     for me in m.export_entries.iter_mut() {
         if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, .. } = &mut me.export_type {
-            if let Some(idx) = fd.find_closure_var(me.local_name) {
+            if let Some(idx) = fdef.find_closure_var(me.local_name) {
                 *var_idx = idx;
             } else {
                 ctx.throw_syntax_error(&format!(

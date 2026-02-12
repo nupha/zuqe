@@ -4,7 +4,7 @@ use crate::{
     atom::Atom,
     bytecode::OpcodeFormat,
     context::ContextImpl,
-    function::{Bytecode, FunctionKind, JSClosureVar, JSVarDef, JSVarKindEnum, Label},
+    function::{Bytecode, ClosureVar, FunctionKind, JSVarDef, JSVarKindEnum, Label},
     stack_frame::ExecMode,
     utils::read_from_ptr,
     value::JSValue,
@@ -22,7 +22,7 @@ pub(crate) fn dump_opcodes(
     bin: &[u8],
     args: &[JSVarDef],
     vars: &[JSVarDef],
-    closure_vars: &[JSClosureVar],
+    closure_vars: &[ClosureVar],
     consts: &[JSValue],
     source: Option<&str>,
     line_num: i32,
@@ -394,11 +394,7 @@ pub(crate) fn dump_opcodes(
                 let idx = unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize };
                 print!(
                     " {idx}  ; {}",
-                    closure_vars
-                        .get(idx)
-                        .unwrap()
-                        .var_name
-                        .to_utf8(ctx.rt_ref())
+                    closure_vars[idx].var_name.to_utf8(ctx.rt_ref())
                 );
             }
 
@@ -509,7 +505,7 @@ impl Bytecode {
                 println!(
                     "{i:5}: {} {var_type}:{loc_type}{} {const_str}",
                     cv.var_name.to_utf8(ctx.rt_ref()),
-                    cv.var_idx
+                    cv.var_index()
                 );
             }
         }
@@ -792,10 +788,20 @@ pub(super) fn dump_run_instruction(
 
         OpcodeFormat::VAR_REF => {
             let idx = unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize };
-            let v = b.get_closure_var(idx as _).unwrap();
-            v.var_name.with_utf8(ctx.rt_ref(), |s| {
-                print!(" {idx}:{s}");
-            });
+            let cv = b.get_closure_var(idx as _).unwrap();
+            print!(" {idx}  ; {}", cv.var_name.to_utf8(ctx.rt_ref()));
+            if cv.is_arg() {
+                print!(", argument");
+            }
+            if cv.is_local() {
+                print!(", local");
+            }
+            if cv.is_lexical() {
+                print!(", lexical");
+            }
+            if cv.is_const() {
+                print!(", const");
+            }
         }
 
         _ => {}

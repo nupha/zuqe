@@ -191,11 +191,8 @@ impl ModuleDef {
                     // name space import
                     let val = reqm.ns(ctx)?;
                     let xref = self.gc_node().scope_id();
-                    md_func.payload_mut().var_refs[import_var_idx as usize].set_value(
-                        ctx,
-                        val.into(),
-                        xref,
-                    );
+                    md_func.payload_mut().closure_var_refs_mut()[import_var_idx as usize]
+                        .set_value(ctx, val.into(), xref);
                 } else {
                     match reqm.resolve_export(ctx, imp.import_name, None)? {
                         ResolveExport::Found {
@@ -219,8 +216,8 @@ impl ModuleDef {
                                             vr.set_value(ctx, val.into(), xref);
                                             vr
                                         };
-                                        md_func.payload_mut().var_refs[import_var_idx as usize] =
-                                            vref;
+                                        md_func.payload_mut().closure_var_refs_mut()
+                                            [import_var_idx as usize] = vref;
                                     }
                                 }
                                 ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
@@ -235,10 +232,11 @@ impl ModuleDef {
                                             .as_object_BCFunction()
                                             .unwrap()
                                             .payload()
-                                            .var_refs
+                                            .closure_var_refs()
                                             [var_idx as usize]
                                     });
-                                    md_func.payload_mut().var_refs[import_var_idx as usize] = vr;
+                                    md_func.payload_mut().closure_var_refs_mut()
+                                        [import_var_idx as usize] = vr;
                                 }
                             }
                         }
@@ -257,7 +255,7 @@ impl ModuleDef {
                         &mut exp.export_type
                     {
                         debug_assert_ne!(*var_idx, u16::MAX);
-                        let vr = md_func.payload().var_refs[*var_idx as usize];
+                        let vr = md_func.payload().closure_var_refs()[*var_idx as usize];
                         var_ref.replace(vr);
                     }
                 }

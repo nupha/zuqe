@@ -22,7 +22,7 @@ impl FunctionDef {
             if let Some(mut idx) = cur_fd.find_private_class_field_all(var_name, scope_level) {
                 let var_kind = cur_fd.vars[idx as usize].var_kind();
                 if is_ref {
-                    idx = self.get_closure_var2(
+                    idx = self.get_closure_var(
                         ctx,
                         cur_fd,
                         true,
@@ -58,7 +58,7 @@ impl FunctionDef {
             }) {
                 let var_kind = cv.var_kind();
                 let idx = if !std::ptr::eq(root_fd, self) {
-                    self.get_closure_var2(
+                    self.get_closure_var(
                         ctx,
                         root_fd,
                         false,

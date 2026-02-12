@@ -159,7 +159,7 @@ impl FunctionDef {
 
                 if svar.vd.var_name == Atom::CONST__with_ && !is_pseudo_var {
                     svar.vd.set_is_captured(true);
-                    match self.get_closure_var2(
+                    match self.get_closure_var(
                         ctx,
                         cur_fd,
                         true,
@@ -225,7 +225,7 @@ impl FunctionDef {
                     vd.set_is_captured(true);
 
                     let cv_id = self
-                        .get_closure_var2(
+                        .get_closure_var(
                             ctx,
                             cur_fd,
                             true,
@@ -253,7 +253,7 @@ impl FunctionDef {
                         .unwrap();
                     vd.set_is_captured(true);
                     let cv_id = self
-                        .get_closure_var2(
+                        .get_closure_var(
                             ctx,
                             cur_fd,
                             true,
@@ -293,7 +293,7 @@ impl FunctionDef {
             for (i, cv) in cvars.iter().enumerate() {
                 if cv.var_name == var_name {
                     found_closure.replace(if cur_fd != self {
-                        self.get_closure_var2(
+                        self.get_closure_var(
                             ctx,
                             cur_fd,
                             false,
@@ -316,7 +316,7 @@ impl FunctionDef {
                     )
                 {
                     let cv_id = if cur_fd != self {
-                        self.get_closure_var2(
+                        self.get_closure_var(
                             ctx,
                             cur_fd,
                             false,
@@ -356,6 +356,7 @@ impl FunctionDef {
                     ctx,
                     cur_fd,
                     true,
+                    true,
                     (var_idx - ARGUMENT_VAR_OFFSET) as u16,
                     var_name,
                     false,
@@ -372,6 +373,7 @@ impl FunctionDef {
                 self.get_closure_var(
                     ctx,
                     cur_fd,
+                    true,
                     false,
                     var_idx as u16,
                     var_name,

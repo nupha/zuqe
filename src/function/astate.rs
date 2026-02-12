@@ -188,10 +188,10 @@ impl AsyncStateImpl {
         let sp_offset = self.stack_frame.cur_sp_offset;
         debug_assert!(sp_offset >= 0);
 
-        let isa = func.payload_mut();
-        let ret_val = isa.bytecode().run(
+        let bf = func.payload_mut();
+        let ret_val = bf.bytecode().run(
             caller_ctx,
-            isa.home_object(),
+            bf.home_object(),
             unsafe {
                 // use dedicated stack frame for async state
                 self.stack_frame.as_mut().get_unchecked_mut()
@@ -200,7 +200,7 @@ impl AsyncStateImpl {
             JSValue::UNDEFINED,
             pc_offset,
             sp_offset as usize,
-            &mut isa.var_refs,
+            bf.closure_var_refs_mut(),
             args,
             throw_flag,
         );
