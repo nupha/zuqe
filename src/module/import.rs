@@ -1,12 +1,12 @@
 use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{
+    Callback,
     atom::Atom,
     builtins::promise::Promise,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
-    function::CallContext,
-    function::NativeFunctionWithData,
+    function::{CallContext, NativeFunction},
     module::{
         JSFreeModuleEnum, get_script_or_module_name, js_free_modules,
         js_host_resolve_imported_module,
@@ -103,20 +103,24 @@ fn js_load_module_internal(
             match md.eval(&mut ctx) {
                 Ok(mut evaluate_promise) => {
                     let evaluate_resolving_funcs = [
-                        NativeFunctionWithData::create(
+                        NativeFunction::create(
                             &ctx,
-                            js_load_module_fulfilled,
+                            Callback::Func(js_load_module_fulfilled),
+                            "",
                             0,
                             0,
-                            [resolving_funcs[0], resolving_funcs[1], md.into()].into(),
+                            None,
+                            Some([resolving_funcs[0], resolving_funcs[1], md.into()].into()),
                         )
                         .unwrap(),
-                        NativeFunctionWithData::create(
+                        NativeFunction::create(
                             &ctx,
-                            js_load_module_rejected,
+                            Callback::Func(js_load_module_rejected),
+                            "",
                             0,
                             0,
-                            [resolving_funcs[0], resolving_funcs[1], md.into()].into(),
+                            None,
+                            Some([resolving_funcs[0], resolving_funcs[1], md.into()].into()),
                         )
                         .unwrap(),
                     ];

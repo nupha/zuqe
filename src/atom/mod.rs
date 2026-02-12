@@ -9,8 +9,6 @@ include!(concat!(env!("OUT_DIR"), "/atoms.rs"));
 
 use std::num::NonZeroU16;
 
-use crate::string::StringRef;
-
 /// atom descriptor kind
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(u8)]

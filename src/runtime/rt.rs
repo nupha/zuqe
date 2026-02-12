@@ -16,7 +16,7 @@ use crate::{
     },
     class::{ClassMeta, js_arguments_exotic_methods},
     context::ContextPtr,
-    function::{AsyncFunction, AsyncState, BoundFunction, NFuncPayload, NativeFunctionWithData},
+    function::{AsyncFunction, AsyncState, BoundFunction, NFuncPayload, NativeFunction},
     module::{ModuleLoadFn, ModuleNormalizeFn, js_module_ns_exotic_methods},
     object::ShapeImpl,
     resource::LocalResource,
@@ -195,10 +195,10 @@ impl RuntimeImpl {
 
             rt.class_registry[JS_CLASS_C_FUNCTION as usize]
                 .call
-                .replace(NFuncPayload::class_call);
+                .replace(NativeFunction::class_call);
             rt.class_registry[JS_CLASS_C_FUNCTION_DATA as usize]
                 .call
-                .replace(NativeFunctionWithData::class_call);
+                .replace(NativeFunction::class_call_with_data);
             rt.class_registry[JS_CLASS_BOUND_FUNCTION as usize]
                 .call
                 .replace(BoundFunction::class_call);

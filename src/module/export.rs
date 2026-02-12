@@ -202,8 +202,8 @@ impl ModuleDefImpl {
     ) -> Result<(), i32> {
         for entry in entries {
             let val: JSValue = match &entry.detail {
-                FieldDetail::Func { handler, length } => ctx
-                    .create_native_function(*handler, entry.name, *length, 0)?
+                FieldDetail::Func { callback, length } => ctx
+                    .create_native_function(*callback, entry.name, *length, 0)?
                     .into(),
                 FieldDetail::Object(fields) => {
                     let mut o = ctx.create_base_object()?;

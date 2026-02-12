@@ -12,8 +12,7 @@ use crate::{
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::{
-        AsyncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind,
-        NativeFunctionWithData,
+        AsyncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind, NativeFunction,
     },
     object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
@@ -427,16 +426,17 @@ impl AsyncGeneratorFunction {
             JS_PROP_CONFIGURABLE,
         )?;
 
-        let ctor: JSValue = ctx
-            .create_native_function_with_proto(
-                Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
-                "AsyncGeneratorFunction",
-                1,
-                FunctionKind::AsyncGenerator as i16,
-                Some(func_proto),
-            )
-            .unwrap()
-            .into();
+        let ctor: JSValue = NativeFunction::create(
+            &ctx,
+            Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
+            "AsyncGeneratorFunction",
+            1,
+            FunctionKind::AsyncGenerator as i16,
+            Some(func_proto),
+            None,
+        )
+        .unwrap()
+        .into();
         ctx.bind_ctor_proto_ex(ctor, agen_func, 0, JS_PROP_CONFIGURABLE)?;
 
         ctx.class_protos[JS_CLASS_ASYNC_GENERATOR as usize] = agen_proto;
@@ -454,21 +454,25 @@ fn js_async_generator_resolve_function_create(
 ) -> Result<[JSValue; 2], i32> {
     let resolving_funcs: [JSValue; 2] = [
         // handle fullfil
-        NativeFunctionWithData::create(
+        NativeFunction::create(
             ctx,
-            js_async_generator_resolve_function,
+            Callback::Func(js_async_generator_resolve_function),
+            "",
             1,
             if is_resume_next { 2 } else { 0 },
-            [generator].into(),
+            None,
+            Some([generator].into()),
         )?
         .into(),
         // handle reject
-        NativeFunctionWithData::create(
+        NativeFunction::create(
             ctx,
-            js_async_generator_resolve_function,
+            Callback::Func(js_async_generator_resolve_function),
+            "",
             1,
             if is_resume_next { 3 } else { 1 },
-            [generator].into(),
+            None,
+            Some([generator].into()),
         )?
         .into(),
     ];

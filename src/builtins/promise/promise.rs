@@ -10,8 +10,7 @@ use crate::{
     context::{Context, ContextImpl},
     error::JSResult,
     function::{
-        CallContext, Callback, JS_CallConstructor, NativeFunctionWithData,
-        js_function_set_properties,
+        CallContext, Callback, JS_CallConstructor, NativeFunction, js_function_set_properties,
     },
     object::{JS_PROP_C_W_E, Object, ObjectImpl, ObjectPayload},
     object_cast,
@@ -151,15 +150,17 @@ impl Promise {
         ctx: &ContextImpl,
         ctor: JSValue,
     ) -> Result<(Object, [JSValue; 2]), i32> {
-        let executor = NativeFunctionWithData::create(
+        let executor = NativeFunction::create(
             ctx,
-            Promise::executor_handler,
+            Callback::Func(Promise::executor_handler),
+            "",
             2,
             0,
+            None,
             // resolving functions, initially undefined.
             // these two fields will be replace by real Function object
             // in callback handler, which takes two arguments: resolve, reject.
-            [JSValue::UNDEFINED, JSValue::UNDEFINED].into(),
+            Some([JSValue::UNDEFINED, JSValue::UNDEFINED].into()),
         )?;
 
         let promise: Object = if ctor.is_undefined() {
@@ -172,7 +173,7 @@ impl Promise {
 
         // collect resolving functions
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-        if let Some(s) = executor.payload().native_func_with_data() {
+        if let Some(s) = executor.payload().native_func() {
             for i in 0..2 {
                 let item = s.data(i).unwrap();
                 item.ensure_function(ctx)?;

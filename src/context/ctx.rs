@@ -16,7 +16,7 @@ use crate::{
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES},
     eval::EvalFn,
-    function::{Callback, js_function_proto},
+    function::{Callback, NativeFunction, js_function_proto},
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
     object::{
@@ -357,12 +357,14 @@ impl ContextPtr {
 
         // Function
         {
-            let func = self.create_native_function_with_proto(
+            let func = NativeFunction::create(
+                self,
                 Callback::Func(js_function_proto),
                 "",
                 0,
                 0,
-                object.into(),
+                Some(object),
+                None,
             )?;
             self.class_protos[JS_CLASS_BYTECODE_FUNCTION as usize] = func.into();
         }

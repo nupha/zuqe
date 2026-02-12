@@ -12,7 +12,7 @@ use crate::{
     class::ClassID,
     context::{Context, ContextImpl},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
-    function::Callback,
+    function::{Callback, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     runtime::RuntimeImpl,
@@ -227,15 +227,16 @@ impl TypedArray {
             let mut ta_obj = ctx.create_base_object_with_proto(Some(proto))?;
             ta_obj.define_property_value_str(&ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
 
-            let mut func_obj: JSValue = ctx
-                .create_native_function_with_proto(
-                    Callback::Constructor(js_typed_array_constructor),
-                    &name,
-                    3,
-                    cid as i16, // magic
-                    Some(typed_array_base_func),
-                )?
-                .into();
+            let mut func_obj: JSValue = NativeFunction::create(
+                &ctx,
+                Callback::Constructor(js_typed_array_constructor),
+                &name,
+                3,
+                cid as i16, // magic
+                Some(typed_array_base_func),
+                None,
+            )?
+            .into();
 
             ctx.add_global_constructor(name.as_ref(), func_obj, ta_obj.into());
             func_obj.define_property_value_str(&ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;

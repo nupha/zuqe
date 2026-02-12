@@ -6,7 +6,7 @@ use crate::{
     class::ClassID,
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
-    function::{AsyncState, BCFunction, BytecodeFunction, Callback, FunctionKind},
+    function::{AsyncState, BCFunction, BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
@@ -26,15 +26,16 @@ impl AsyncFunction {
         let mut proto = ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
         proto.install_fields(&ctx, js_async_function_proto_funcs)?;
 
-        let ctor: JSValue = ctx
-            .create_native_function_with_proto(
-                Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
-                "AsyncFunction",
-                1,
-                FunctionKind::Async as i16,
-                ctx.function_ctor.as_object().cloned(),
-            )?
-            .into();
+        let ctor: JSValue = NativeFunction::create(
+            &ctx,
+            Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
+            "AsyncFunction",
+            1,
+            FunctionKind::Async as i16,
+            ctx.function_ctor.as_object().copied(),
+            None,
+        )?
+        .into();
 
         ctx.bind_ctor_proto_ex(ctor, proto.into(), 0, JS_PROP_CONFIGURABLE)?;
         Ok(Some(proto))

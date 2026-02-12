@@ -1,10 +1,10 @@
 use crate::{
-    JS_CLASS_PROMISE,
+    Callback, JS_CLASS_PROMISE,
     atom::Atom,
     builtins::{error::js_aggregate_error_constructor, js_get_this},
     context::ContextImpl,
     error::JSResult,
-    function::{CallContext, FieldDef, NativeFunctionWithData},
+    function::{CallContext, FieldDef, NativeFunction},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     utils::unlikely,
     value::JSValue,
@@ -52,9 +52,9 @@ fn js_promise_then_finally_func(cc: CallContext) -> JSResult {
     ))?;
 
     // create inner resolving function for finally()
-    let then_func: JSValue = NativeFunctionWithData::create(
+    let then_func: JSValue = NativeFunction::create(
         ctx,
-        |cc: CallContext| -> JSResult {
+        Callback::Func(|cc: CallContext| -> JSResult {
             let val = cc.data(0);
             if cc.magic() == 0 {
                 val.err() // resolve
@@ -62,10 +62,12 @@ fn js_promise_then_finally_func(cc: CallContext) -> JSResult {
                 cc.ctx().throw(val); // reject
                 Err(-1)
             }
-        },
+        }),
+        "",
         0, // resolve function has length=0
-        cc.magic(),
-        [*cc.arg(0)].into(), // data: argument#0
+        cc.magic() as _,
+        None,
+        Some([*cc.arg(0)].into()), // data: argument#0
     )?
     .into();
 
@@ -81,22 +83,24 @@ pub fn js_promise_finally(cc: CallContext) -> JSResult {
     } else {
         let ctor = JS_SpeciesConstructor(ctx, *cc.this(), JSValue::UNDEFINED)?;
         [
-            NativeFunctionWithData::create(
+            NativeFunction::create(
                 ctx,
-                js_promise_then_finally_func,
+                Callback::Func(js_promise_then_finally_func),
+                "",
                 1,
                 0,
-                // see callback for data usage
-                [ctor, on_finally].into(),
+                None,
+                Some([ctor, on_finally].into()), // see callback for data usage
             )?
             .into(),
-            NativeFunctionWithData::create(
+            NativeFunction::create(
                 ctx,
-                js_promise_then_finally_func,
+                Callback::Func(js_promise_then_finally_func),
+                "",
                 1,
                 1,
-                // see callback for data usage
-                [ctor, on_finally].into(),
+                None,
+                Some([ctor, on_finally].into()), // see callback for data usage
             )?
             .into(),
         ]
@@ -232,32 +236,15 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
                 return fail_reject(ctx);
             };
 
-            let mut resolve_element: JSValue = if let Ok(v) = NativeFunctionWithData::create(
-                ctx,
-                js_promise_all_resolve_element,
-                1,
-                cc.magic(),
-                [
-                    JSValue::Bool(false),
-                    JSValue::Int(index),
-                    values,
-                    resolving_funcs[is_promise_any as usize],
-                    resolve_element_env,
-                ]
-                .into(),
-            ) {
-                v.into()
-            } else {
-                return fail_reject(ctx);
-            };
-
-            let reject_element: JSValue = match cc.magic() {
-                PROMISE_MAGIC_allSettled => {
-                    if let Ok(r) = NativeFunctionWithData::create(
-                        ctx,
-                        js_promise_all_resolve_element,
-                        1,
-                        cc.magic() | 4,
+            let mut resolve_element: JSValue = if let Ok(v) =
+                NativeFunction::create(
+                    ctx,
+                    Callback::Func(js_promise_all_resolve_element),
+                    "",
+                    1,
+                    cc.magic() as _,
+                    None,
+                    Some(
                         [
                             JSValue::Bool(false),
                             JSValue::Int(index),
@@ -266,6 +253,32 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
                             resolve_element_env,
                         ]
                         .into(),
+                    ),
+                ) {
+                v.into()
+            } else {
+                return fail_reject(ctx);
+            };
+
+            let reject_element: JSValue = match cc.magic() {
+                PROMISE_MAGIC_allSettled => {
+                    if let Ok(r) = NativeFunction::create(
+                        ctx,
+                        Callback::Func(js_promise_all_resolve_element),
+                        "",
+                        1,
+                        (cc.magic() | 4) as _,
+                        None,
+                        Some(
+                            [
+                                JSValue::Bool(false),
+                                JSValue::Int(index),
+                                values,
+                                resolving_funcs[is_promise_any as usize],
+                                resolve_element_env,
+                            ]
+                            .into(),
+                        ),
                     ) {
                         r.into()
                     } else {

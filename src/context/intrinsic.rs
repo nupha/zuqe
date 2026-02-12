@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_GENERATOR,
     JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_STRING,
-    JS_CLASS_STRING_ITERATOR,
+    JS_CLASS_STRING_ITERATOR, Object,
     atom::Atom,
     builtins::{
         array::{
@@ -23,7 +23,7 @@ use crate::{
     context::ContextPtr,
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     eval::{EvalFlags, EvalType},
-    function::{BytecodeFunction, Callback, FunctionKind},
+    function::{BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload,
@@ -147,19 +147,20 @@ impl ContextPtr {
 
         // standard error constructors
         for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
-            let func_obj = self
-                .create_native_function_with_proto(
-                    Callback::ConstructorOrFunc(js_error_constructor),
-                    name,
-                    if i == ErrorKind::Aggregate as usize {
-                        2
-                    } else {
-                        1
-                    },
-                    i as _, // magic
-                    Some(ctor),
-                )
-                .unwrap();
+            let func_obj = NativeFunction::create(
+                &self,
+                Callback::ConstructorOrFunc(js_error_constructor),
+                name,
+                if i == ErrorKind::Aggregate as usize {
+                    2
+                } else {
+                    1
+                },
+                i as _, // magic
+                Some(ctor),
+                None,
+            )
+            .unwrap();
 
             let err_proto = self.error_protos[i]; // <-- this was initialized in core
             self.add_global_constructor(name, func_obj.into(), err_proto);

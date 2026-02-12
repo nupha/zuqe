@@ -1,12 +1,12 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    JS_CLASS_BYTECODE_FUNCTION,
+    Callback, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
     context::ContextImpl,
     error::JSResult,
     eval::{Compiled, EvalFlags, EvalType},
-    function::{CallContext, NativeFunctionWithData},
+    function::{CallContext, NativeFunction},
     module::{JSModuleStatus, ModuleDefImpl},
     runtime::js_check_stack_overflow,
     utils::unlikely,
@@ -348,20 +348,24 @@ impl ModuleDef {
 
         promise.then(
             ctx,
-            NativeFunctionWithData::create(
+            NativeFunction::create(
                 ctx,
-                ModuleDef::execute_async_fulfilled,
+                Callback::Func(ModuleDef::execute_async_fulfilled),
+                "",
                 0,
                 0,
-                [JSValue::Module(*self)].into(),
+                None,
+                Some([JSValue::Module(*self)].into()),
             )?
             .into(),
-            NativeFunctionWithData::create(
+            NativeFunction::create(
                 ctx,
-                ModuleDef::execute_async_rejected,
+                Callback::Func(ModuleDef::execute_async_rejected),
+                "",
                 0,
                 0,
-                [JSValue::Module(*self)].into(),
+                None,
+                Some([JSValue::Module(*self)].into()),
             )?
             .into(),
         )?;

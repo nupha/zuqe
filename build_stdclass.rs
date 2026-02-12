@@ -13,7 +13,6 @@ enum PayloadKey {
     #[cfg(feature = "builtin_date")]
     Datetime,
     NativeFunc,
-    NativeFuncWithData,
     BcFunction,
     BoundFunction,
     #[cfg(feature = "builtin_regexp")]
@@ -50,7 +49,6 @@ impl PayloadKey {
             #[cfg(feature = "builtin_date")]
             PayloadKey::Datetime => "datetime",
             PayloadKey::NativeFunc => "native_func",
-            PayloadKey::NativeFuncWithData => "native_func_with_data",
             PayloadKey::BcFunction => "bc_function",
             PayloadKey::BoundFunction => "bound_function",
             #[cfg(feature = "builtin_regexp")]
@@ -91,11 +89,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     m.insert(PayloadKey::Bool, "bool");
     m.insert(PayloadKey::String, "crate::string::StringRef");
     m.insert(PayloadKey::Value, "crate::value::JSValue");
-    m.insert(PayloadKey::NativeFunc, "crate::function::NFuncPayload");
-    m.insert(
-        PayloadKey::NativeFuncWithData,
-        "Box<crate::function::NativeFuncData>",
-    );
+    m.insert(PayloadKey::NativeFunc, "Box<crate::function::NFuncPayload>");
     m.insert(
         PayloadKey::BcFunction,
         "Box<crate::function::BCFuncPayload>",
@@ -254,7 +248,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Function",
             "C_FUNCTION_DATA",
-            PayloadKey::NativeFuncWithData,
+            PayloadKey::NativeFunc,
             None,
             None,
         ),

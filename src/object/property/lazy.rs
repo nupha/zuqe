@@ -53,8 +53,8 @@ impl LazyInit {
             Self::Prop(field) => {
                 let field = unsafe { field.as_ref() };
                 let val: JSValue = match &field.detail {
-                    FieldDetail::Func { handler, length } => ctx
-                        .create_native_function(*handler, field.name, *length, field.magic)?
+                    FieldDetail::Func { callback, length } => ctx
+                        .create_native_function(*callback, field.name, *length, field.magic)?
                         .into(),
                     FieldDetail::Str(s) => ctx.create_atom_string(s)?.into(),
                     FieldDetail::Object(entries) => {
@@ -66,7 +66,6 @@ impl LazyInit {
                         unreachable!("");
                     }
                 };
-
                 Ok(val)
             }
         }

@@ -1,7 +1,7 @@
 use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
-    JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+    Callback, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
     atom::Atom,
     builtins::{
         generator::{
@@ -12,7 +12,7 @@ use crate::{
     class::ClassID,
     context::{Context, ContextImpl},
     error::JSResult,
-    function::{CallContext, FieldDef, IteratorState, NativeFunctionWithData},
+    function::{CallContext, FieldDef, IteratorState, NativeFunction},
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
@@ -73,12 +73,14 @@ pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
     ctx: &ContextImpl,
     done: bool,
 ) -> JSValue {
-    NativeFunctionWithData::create(
+    NativeFunction::create(
         ctx,
-        js_async_from_sync_iterator_unwrap,
+        Callback::Func(js_async_from_sync_iterator_unwrap),
+        "",
         1,
         0,
-        [JSValue::Bool(done)].into(),
+        None,
+        Some([JSValue::Bool(done)].into()),
     )
     .map_or(JSValue::EXCEPTION, |x| x.into())
 }

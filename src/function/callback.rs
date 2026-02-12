@@ -1,8 +1,9 @@
-use std::ptr::NonNull;
+use std::{cell::RefCell, ptr::NonNull, rc::Rc};
 
-use gc_lite::{GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
+    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
     atom::Atom,
     builtins::iterator::js_create_iterator_result,
     context::{Context, ContextImpl, ContextPtr},
@@ -10,6 +11,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     object::{Object, ObjectImpl, ObjectPayload},
+    object_cast,
     runtime::js_check_stack_overflow,
     stack_frame::{ExecMode, StackFrame},
     value::JSValue,
@@ -43,11 +45,13 @@ pub enum Callback {
     ConstructorOrFunc(CallbackFn),
     IteratorNext(IteratorFn),
 
-    CFunc(JSCFunction),
-    CFuncMagic(JSCFunctionMagic),
-
     FF(JSCFunctionFF),
     FFF(JSCFunctionFFF),
+
+    #[deprecated]
+    CFunc(JSCFunction),
+    #[deprecated]
+    CFuncMagic(JSCFunctionMagic),
 }
 
 impl PartialEq for Callback {
@@ -62,32 +66,58 @@ impl PartialEq for Callback {
             }
             (Self::IteratorNext(a), Self::IteratorNext(b)) => std::ptr::fn_addr_eq(*a, *b),
 
+            (Self::FF(a), Self::FF(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::FFF(a), Self::FFF(b)) => std::ptr::fn_addr_eq(*a, *b),
+
             (Self::CFunc(a), Self::CFunc(b)) => std::ptr::fn_addr_eq(*a, *b),
             (Self::CFuncMagic(a), Self::CFuncMagic(b)) => std::ptr::fn_addr_eq(*a, *b),
 
-            (Self::FF(a), Self::FF(b)) => std::ptr::fn_addr_eq(*a, *b),
-            (Self::FFF(a), Self::FFF(b)) => std::ptr::fn_addr_eq(*a, *b),
             _ => false,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+/// object payload for native function
+#[derive(Debug)]
 pub(crate) struct NFuncPayload {
-    pub(crate) callback: Callback,
     pub(crate) realm: ContextPtr,
+    pub(crate) callback: Callback,
     pub(crate) length: u8,
     pub(crate) magic: i16,
+
+    /// binding values attached to native func
+    pub(crate) data: Option<Rc<RefCell<Box<[JSValue]>>>>,
 }
 
 unsafe impl GcTracable for NFuncPayload {
-    #[inline(always)]
     fn trace(&self, tr: GcTraceOp) {
         self.realm.trace(tr);
+        if let Some(data) = &self.data {
+            data.borrow().iter().for_each(|x| x.trace(tr));
+        }
     }
 }
 
 impl NFuncPayload {
+    /// get nth binding data
+    pub fn data(&self, nth: usize) -> Option<JSValue> {
+        self.data
+            .as_ref()
+            .and_then(|x| x.borrow().get(nth).copied())
+    }
+}
+
+/// Native function object
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct NativeFunction(GcRef<ObjectImpl>);
+
+object_cast!(
+    NativeFunction,
+    JS_CLASS_C_FUNCTION | JS_CLASS_C_FUNCTION_DATA
+);
+
+impl NativeFunction {
     pub fn class_call(
         ctx: Context,
         func: JSValue,
@@ -95,23 +125,21 @@ impl NFuncPayload {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let mut rt = ctx.rt_ptr();
         let func_obj = Object::try_from(func).unwrap();
+        let mut rt = ctx.rt_ptr();
 
         #[cfg(debug_assertions)]
         func_obj
             .gc_node()
             .debug_assert_node_tree_valid(rt.gc_heap());
 
-        let (callback, arg_length, magic, realm) =
-            if let ObjectPayload::C_FUNCTION(c) = func_obj.payload() {
-                (c.callback, c.length, c.magic, c.realm)
-            } else {
-                unreachable!()
-            };
+        let nfunc = func_obj.payload().native_func().unwrap();
+        let realm = nfunc.realm;
+        let magic = nfunc.magic;
+        let data = nfunc.data.clone();
 
         // better to always check stack overflow
-        if js_check_stack_overflow(&rt, std::mem::size_of::<JSValue>() * arg_length as usize) {
+        if js_check_stack_overflow(&rt, std::mem::size_of::<JSValue>() * nfunc.length as usize) {
             ctx.throw_stack_overflow();
             return Err(-1);
         }
@@ -126,28 +154,26 @@ impl NFuncPayload {
             ctx.rt_ptr().pop_stack_frame();
         });
 
-        let realm_cx = &*realm;
-
-        if args.len() < arg_length as usize {
+        if args.len() < nfunc.length as usize {
             // copy arguments to local buffer
             stack_frame
                 .local_buf
-                .try_reserve_exact(arg_length as usize)
+                .try_reserve_exact(nfunc.length as usize)
                 .map_err(|_| {
-                    realm_cx.throw_out_of_memory();
+                    realm.throw_out_of_memory();
                     -1
                 })?;
 
-            // copy pass in args, cloned
-            stack_frame.local_buf.extend(args.iter().copied());
-            // padding with undefined
-            stack_frame.local_buf.extend(std::iter::repeat_n(
-                JSValue::UNDEFINED,
-                arg_length as usize - args.len(),
-            ));
-            debug_assert_eq!(stack_frame.local_buf.len(), arg_length as usize);
+            // copy args up to `length` count
+            stack_frame.local_buf.extend(
+                args.iter()
+                    .copied()
+                    .chain(std::iter::repeat(JSValue::UNDEFINED))
+                    .take(nfunc.length as usize),
+            );
+            debug_assert_eq!(stack_frame.local_buf.len(), nfunc.length as usize);
 
-            stack_frame.arg_count = arg_length as _;
+            stack_frame.arg_count = nfunc.length as _;
             stack_frame.arg_real_count = args.len() as _;
             stack_frame.arg_base_ptr = stack_frame.local_buf.as_mut_ptr();
         } else {
@@ -156,33 +182,32 @@ impl NFuncPayload {
             stack_frame.arg_base_ptr = args.as_ptr() as *mut JSValue;
         }
 
-        let ret_val: JSResult = match callback {
+        let ret_val: JSResult = match nfunc.callback {
             Callback::Func(f) => {
                 let cc =
-                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, data);
                 f(cc)
             }
-
             Callback::Getter(f) => {
                 debug_assert_eq!(stack_frame.arg_count, 0);
                 let cc =
-                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, data);
                 f(cc)
             }
             Callback::Setter(f) => {
                 debug_assert_eq!(stack_frame.arg_count, 1);
                 let cc =
-                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, data);
                 f(cc)
             }
             Callback::IteratorNext(f) => {
                 let cc =
-                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, data);
                 let mut iter_state = IteratorState::NotDone;
                 let mut r = f(cc, &mut iter_state);
                 if r.is_ok() && iter_state != IteratorState::NotParsed {
                     r = js_create_iterator_result(
-                        realm_cx,
+                        &realm,
                         r.unwrap(),
                         iter_state == IteratorState::Done,
                     );
@@ -191,11 +216,11 @@ impl NFuncPayload {
             }
             Callback::Constructor(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                    realm_cx.throw_type_error("must be called with new");
+                    realm.throw_type_error("must be called with new");
                     return Err(-1);
                 }
                 let cc =
-                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, data);
                 f(cc)
             }
             Callback::ConstructorOrFunc(f) => {
@@ -203,34 +228,43 @@ impl NFuncPayload {
                     this_obj = JSValue::UNDEFINED;
                 }
                 let cc =
-                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, None);
+                    CallContext::new(realm, this_obj, stack_frame.arg_values(), magic as _, data);
                 f(cc)
             }
-            //
-            // LEGACIES
-            //
-            Callback::CFunc(f) => unsafe { f(realm_cx, this_obj, stack_frame.arg_values()).err() },
-            Callback::CFuncMagic(f) => unsafe {
-                f(realm_cx, this_obj, stack_frame.arg_values(), magic as i32).err()
-            },
 
-            Callback::FF(f) => stack_frame.arg_values()[0]
-                .to_f64(realm_cx)
-                .map(|n| JSValue::from(unsafe { f(n) })),
+            Callback::FF(f) => {
+                debug_assert!(data.is_none(), "binding data not allowed");
+                stack_frame.arg_values()[0]
+                    .to_f64(&realm)
+                    .map(|n| JSValue::from(unsafe { f(n) }))
+            }
             Callback::FFF(f) => {
+                debug_assert!(data.is_none(), "binding data not allowed");
                 let args = stack_frame.arg_values();
-                let d1 = args[0].to_f64(realm_cx)?;
-                let d2 = args[1].to_f64(realm_cx)?;
+                let d1 = args[0].to_f64(&realm)?;
+                let d2 = args[1].to_f64(&realm)?;
 
                 Ok(JSValue::from(unsafe { f(d1, d2) }))
             }
+
+            //
+            // LEGACIES
+            //
+            Callback::CFunc(f) => unsafe {
+                debug_assert!(data.is_none(), "binding data not allowed");
+                f(&realm, this_obj, stack_frame.arg_values()).err()
+            },
+            Callback::CFuncMagic(f) => unsafe {
+                debug_assert!(data.is_none(), "binding data not allowed");
+                f(&realm, this_obj, stack_frame.arg_values(), magic as i32).err()
+            },
         };
 
         if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr)
             && unsafe { n.as_ref().scope_id() == stack_frame.gc_scope_id }
         {
-            // `ret_val` was allocated in `stack_frame` scope, the `stack_frame` will be dropped at exit,
-            // must migrate `ret_val` to upper scope
+            // `ret_val` was allocated in `stack_frame` gc scope, the `stack_frame` will be dropped at exit,
+            // promote `ret_val` to upper scope
             let xref = stack_frame
                 .parent_mut()
                 .map_or(rt.gc_root_scope, |up| up.init_gc_scope());
@@ -240,18 +274,86 @@ impl NFuncPayload {
 
         ret_val
     }
-}
 
-// #[repr(transparent)]
-// #[derive(Debug, Clone)]
-// pub struct NativeFunction(JSValue);
+    pub fn class_call_with_data(
+        ctx: Context,
+        func_obj: JSValue,
+        this_val: JSValue,
+        args: &[JSValue],
+        _: i32,
+    ) -> JSResult {
+        match unsafe { func_obj.as_object_unchecked().payload() } {
+            ObjectPayload::C_FUNCTION_DATA(s) => {
+                if let Callback::Func(cb) = s.callback {
+                    cb(CallContext::new(
+                        ctx.into(),
+                        this_val,
+                        args,
+                        s.magic as _,
+                        s.data.clone(),
+                    ))
+                } else {
+                    unreachable!()
+                }
+            }
+            _ => {
+                unreachable!()
+            }
+        }
+    }
+
+    /// Create native function object.
+    /// at least `length` arguments can be readable in arguments.
+    pub(crate) fn create(
+        ctx: &ContextImpl,
+        callback: Callback,
+        name: &str,
+        length: u8,
+        magic: i16,
+        proto: Option<Object>,
+        binding_data: Option<Box<[JSValue]>>,
+    ) -> Result<Self, i32> {
+        let has_binding_data = binding_data.is_some();
+
+        let p = Box::new(NFuncPayload {
+            callback,
+            length,
+            magic,
+            realm: unsafe { ContextPtr::from_ref_unchecked(ctx) },
+            data: binding_data.map(|d| Rc::new(RefCell::new(d))),
+        });
+        let mut func_obj = ctx
+            .create_object_with_proto(
+                proto,
+                if has_binding_data {
+                    ObjectPayload::C_FUNCTION_DATA(p)
+                } else {
+                    ObjectPayload::C_FUNCTION(p)
+                },
+            )
+            .map_err(|_| -1)?;
+
+        if matches!(
+            callback,
+            Callback::Constructor(_) | Callback::ConstructorOrFunc(_)
+        ) {
+            func_obj.set_flag_constructor(true);
+        }
+
+        // define `length` and `name` properties on function.
+        let name_atom = Atom::new(ctx.rt_ptr(), name)?;
+        js_function_set_properties(ctx, func_obj, name_atom, length as i32);
+
+        Ok(Self(func_obj.gc_ref()))
+    }
+}
 
 impl ObjectImpl {
     /// Checks if Object is native function of specific type.
     /// Matches both the callback pointer and magic.
     pub fn match_native_callback(&self, callback: Callback, magic: i32) -> bool {
-        if let ObjectPayload::C_FUNCTION(cfunc) = self.payload() {
-            cfunc.magic == magic as i16 && callback.eq(&cfunc.callback)
+        if let Some(nf) = self.payload().native_func() {
+            nf.magic == magic as i16 && callback.eq(&nf.callback)
         } else {
             false
         }
@@ -262,65 +364,54 @@ impl JSValue {
     /// Checks if a JSValue is native function of specific type.
     /// Matches both the callback pointer and magic.
     pub fn match_native_callback(&self, callback: Callback, magic: i32) -> bool {
-        if let Self::Object(o) = self {
-            o.match_native_callback(callback, magic)
-        } else {
-            false
-        }
+        self.as_object()
+            .is_some_and(|o| o.match_native_callback(callback, magic))
     }
 }
 
 impl ContextImpl {
-    /// Create new function object with native callback and shape of specified prototype.
-    /// at least `length` arguments will be readable in arguments.
-    pub fn create_native_function_with_proto(
-        &self,
-        call: Callback,
-        name: &str,
-        length: u8,
-        magic: i16,
-        proto: Option<Object>,
-    ) -> Result<Object, i32> {
-        let mut func_obj = self
-            .create_object_with_proto(
-                proto,
-                ObjectPayload::C_FUNCTION(NFuncPayload {
-                    callback: call,
-                    length,
-                    magic,
-                    realm: unsafe { ContextPtr::from_ref_unchecked(self) },
-                }),
-            )
-            .map_err(|_| -1)?;
-
-        func_obj.set_flag_constructor(matches!(
-            call,
-            Callback::Constructor(_) | Callback::ConstructorOrFunc(_)
-        ));
-
-        // define properties length and name on function.
-        let name_atom = Atom::new(self.rt_ptr(), name)?;
-        js_function_set_properties(self, func_obj, name_atom, length as i32);
-
-        Ok(func_obj)
-    }
-
-    /// Create new function object with native callback. using function proto as proto object.
+    /// Create native function object with callback and binding data, using function proto as proto object.
     /// at least `length` arguments will be readable in arguments.
     #[inline(always)]
-    pub fn create_native_function(
+    pub fn create_native_function_with_data(
         &self,
-        handler: Callback,
+        callback: Callback,
         name: &str,
         length: u8,
         magic: i16,
+        binding_data: Option<Box<[JSValue]>>,
     ) -> Result<Object, i32> {
-        self.create_native_function_with_proto(
-            handler,
+        NativeFunction::create(
+            self,
+            callback,
             name,
             length,
             magic,
             Some(self.function_proto()),
+            binding_data,
         )
+        .map(|x| x.into())
+    }
+
+    /// Create native function object with callback, using function proto as proto object.
+    /// at least `length` arguments will be readable in arguments.
+    #[inline(always)]
+    pub fn create_native_function(
+        &self,
+        callback: Callback,
+        name: &str,
+        length: u8,
+        magic: i16,
+    ) -> Result<Object, i32> {
+        NativeFunction::create(
+            self,
+            callback,
+            name,
+            length,
+            magic,
+            Some(self.function_proto()),
+            None,
+        )
+        .map(|x| x.into())
     }
 }

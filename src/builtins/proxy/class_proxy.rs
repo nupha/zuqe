@@ -1,7 +1,8 @@
 use crate::{
+    Callback,
     atom::Atom,
     error::JSResult,
-    function::{CallContext, FieldDef, NativeFunctionWithData},
+    function::{CallContext, FieldDef, NativeFunction},
     object::{JS_PROP_C_W_E, ObjectPayload},
     value::JSValue,
 };
@@ -40,19 +41,21 @@ fn js_proxy_revocable(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
 
     // create revoke function
-    let revoke_obj = NativeFunctionWithData::create(
+    let revoke_obj = NativeFunction::create(
         ctx,
-        |mut cc| -> JSResult {
+        Callback::Func(|mut cc| -> JSResult {
             if let Some(px) = cc.data(0).as_object_Proxy() {
                 px.payload().set_revoked();
                 // clear attached data (Proxy value)
                 let _ = cc.replace_data(0, JSValue::NULL);
             }
             Ok(JSValue::UNDEFINED)
-        },
+        }),
+        "",
         0,
         0,
-        [proxy].into(),
+        None,
+        Some([proxy].into()),
     )?;
 
     let mut obj = ctx.create_base_object()?;

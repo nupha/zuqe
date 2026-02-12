@@ -182,7 +182,6 @@ fn setup_ctx_test262_helpers(ctx: Context) -> Result<JSValue, i32> {
         "gc",
         ctx.create_native_function(
             Callback::Func(|cc| -> JSResult {
-                // cc.context().rt_mut().gc_collect_root();
                 cc.context().rt_mut().gc_request();
                 Ok(JSValue::UNDEFINED)
             }),

@@ -14,7 +14,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum FieldDetail {
     Func {
-        handler: Callback,
+        callback: Callback,
         length: u8,
     },
     GetSet {
@@ -49,7 +49,7 @@ impl FieldDef {
         Self {
             name,
             detail: FieldDetail::Func {
-                handler: Callback::Func(callback),
+                callback: Callback::Func(callback),
                 length,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
@@ -93,7 +93,7 @@ impl FieldDef {
         Self {
             name,
             detail: FieldDetail::Func {
-                handler: Callback::IteratorNext(callback),
+                callback: Callback::IteratorNext(callback),
                 length,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
@@ -193,7 +193,7 @@ impl FieldDef {
         Self {
             name,
             detail: FieldDetail::Func {
-                handler: Callback::FF(callback),
+                callback: Callback::FF(callback),
                 length,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
@@ -211,7 +211,7 @@ impl FieldDef {
         Self {
             name,
             detail: FieldDetail::Func {
-                handler: Callback::FFF(callback),
+                callback: Callback::FFF(callback),
                 length,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
