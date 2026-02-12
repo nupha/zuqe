@@ -62,11 +62,11 @@ unsafe impl GcTracable for JSAsyncGeneratorRequest {
 pub struct AGenPayload {
     /// back ref to the generator object (const)
     generator: RefCell<GcWeak<ObjectImpl>>,
-
+    /// generator state
     state: AGenState,
 
-    /// None for state AWAITING_RETURN and COMPLETED
-    func_state: AsyncState,
+    /// Async execution state
+    async_state: AsyncState,
 
     /// list of JSAsyncGeneratorRequest.
     /// the queue's element is consumed in resolve() or reject() call.
@@ -74,8 +74,8 @@ pub struct AGenPayload {
 }
 
 unsafe impl GcTracable for AGenPayload {
-    fn trace(&self, mut tr: GcTraceOp) {
-        tr.add(self.func_state.gc_ref());
+    fn trace(&self, tr: GcTraceOp) {
+        self.async_state.trace(tr);
         self.queue.iter().for_each(|x| x.trace(tr));
     }
 }
@@ -93,7 +93,7 @@ impl AGenPayload {
 
     #[inline]
     fn set_throw_flag(&mut self, is_reject: bool) {
-        self.func_state.set_throw_flag(is_reject);
+        self.async_state.set_throw_flag(is_reject);
     }
 
     pub(crate) fn resume_next(&mut self, ctx: ContextPtr) {
@@ -151,7 +151,7 @@ impl AGenPayload {
                     } else {
                         // 'yield' returns a value. 'yield *' also returns a value
                         // in case the 'throw' method is called
-                        self.func_state.set_throw_flag(false);
+                        self.async_state.set_throw_flag(false);
                         self.set_throw_flag(false);
 
                         // to update stack:
@@ -159,12 +159,12 @@ impl AGenPayload {
                         // SP[0] <- completion type
                         // SP++
                         unsafe {
-                            let sp = self.func_state.frame.stack_cur_ptr().as_ptr();
+                            let sp = self.async_state.stack_frame.stack_cur_ptr().as_ptr();
                             *sp.offset(-1) = result;
                             *sp = JSValue::Int(completion_type);
 
-                            self.func_state
-                                .frame
+                            self.async_state
+                                .stack_frame
                                 .as_mut()
                                 .get_unchecked_mut()
                                 .cur_sp_offset += 1;
@@ -181,8 +181,8 @@ impl AGenPayload {
                     return;
                 }
                 State::Resume => 'resume: loop {
-                    let func_ret = self.func_state.resume(&ctx);
-                    if self.func_state.is_completed {
+                    let func_ret = self.async_state.resume(&ctx);
+                    if self.async_state.is_completed {
                         // end of function
                         match func_ret {
                             Ok(val) => {
@@ -205,8 +205,8 @@ impl AGenPayload {
                         // take stack top value.
                         let value = unsafe {
                             std::ptr::replace(
-                                self.func_state
-                                    .frame
+                                self.async_state
+                                    .stack_frame
                                     // HINT: stack_cur_ptr advances the addr of stack top value by 1.
                                     // subtract 1 to access stack top value addr.
                                     .stack_cur_ptr()
@@ -362,7 +362,7 @@ impl AsyncGeneratorFunction {
         let mut s = Box::new(AGenPayload {
             generator: RefCell::new(GcWeak::default()),
             state: AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
-            func_state: AsyncState::new(
+            async_state: AsyncState::new(
                 &ctx,
                 [const { JSValue::UNDEFINED }; 2],
                 *func_obj.as_object_BCFunction().unwrap(),
@@ -373,7 +373,7 @@ impl AsyncGeneratorFunction {
         });
 
         // execute the function till 'OpCode::INITIAL_YIELD' (no yield nor await are possible)
-        s.func_state.resume(&ctx)?;
+        s.async_state.resume(&ctx)?;
 
         // create AsyncGenerator object
         let mut obj = ctx
@@ -382,11 +382,11 @@ impl AsyncGeneratorFunction {
 
         // set generator to obj weakref
         let w = obj.downgrade();
-        if let ObjectPayload::ASYNC_GENERATOR(s) = obj.payload_mut() {
-            *s.generator.borrow_mut() = w;
-        } else {
-            unreachable!()
-        }
+        *obj.payload_mut()
+            .async_generator_mut()
+            .unwrap()
+            .generator
+            .borrow_mut() = w;
 
         Ok(obj.into())
     }
@@ -507,8 +507,8 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
             } else {
                 // set return value of await.
                 unsafe {
-                    *s.func_state
-                        .frame
+                    *s.async_state
+                        .stack_frame
                         // HINT: stack_cur_ptr() advances the stack top addr by 1,
                         // subtract 1 to access stack top.
                         .stack_cur_ptr()

@@ -61,6 +61,11 @@ macro_rules! gcref_wrapper {
             pub(crate) fn gc_node_mut(&mut self) -> &mut gc_lite::GcHead {
                 unsafe { self.0.node_ptr().as_mut() }
             }
+
+            #[inline(always)]
+            pub(crate) fn gc_node_ptr(&self) -> std::ptr::NonNull<gc_lite::GcHead> {
+                self.0.node_ptr()
+            }
         }
     };
 }

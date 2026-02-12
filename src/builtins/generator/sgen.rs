@@ -64,7 +64,7 @@ impl GeneratorPayload {
     /// run with stack frame
     #[inline(always)]
     fn with_stack_frame_mut<R>(&mut self, f: impl FnOnce(&mut StackFrame) -> R) -> R {
-        f(unsafe { self.func_state.frame.as_mut().get_unchecked_mut() })
+        f(unsafe { self.func_state.stack_frame.as_mut().get_unchecked_mut() })
     }
 
     /// execute the function up to 'OP_initial_yield' opcode

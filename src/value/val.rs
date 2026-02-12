@@ -170,8 +170,8 @@ impl PartialEq for JSValue {
             | (Self::EXCEPTION, Self::EXCEPTION)
             | (Self::UNINITIALIZED, Self::UNINITIALIZED) => true,
 
-            (Self::Bytecode(l0), Self::Bytecode(r0)) => l0.id() == r0.id(),
-            (Self::Module(m0), Self::Module(m1)) => m0.id() == m1.id(),
+            (Self::Bytecode(l0), Self::Bytecode(r0)) => l0 == r0,
+            (Self::Module(m0), Self::Module(m1)) => m0 == m1,
             (Self::CatchOffset(a), Self::CatchOffset(b)) => a.eq(b),
 
             _ => false,
@@ -389,8 +389,8 @@ impl JSValue {
             }
             Self::UNDEFINED | Self::NULL | Self::UNINITIALIZED | Self::EXCEPTION => 0,
             Self::Bool(b) => *b as u32,
-            Self::Bytecode(f) => hash_usize(f.id()),
-            Self::Module(m) => hash_usize(m.id()),
+            Self::Bytecode(f) => hash_usize(f.gc_node_ptr().as_ptr() as usize),
+            Self::Module(m) => hash_usize(m.gc_node_ptr().as_ptr() as usize),
             Self::CatchOffset(i) => {
                 let u = JSFloat64Union { uint64: *i as u64 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
@@ -431,8 +431,8 @@ impl JSValue {
                     None
                 }
             }
-            Self::Bytecode(b) => Some(b.gc_ref().node_ptr()),
-            Self::Module(m) => Some(m.gc_ref().node_ptr()),
+            Self::Bytecode(b) => Some(b.gc_node_ptr()),
+            Self::Module(m) => Some(m.gc_node_ptr()),
             _ => None,
         }
     }

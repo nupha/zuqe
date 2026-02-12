@@ -32,7 +32,10 @@ impl ModuleDefImpl {
         self.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
 
         if self.promise.is_some() {
-            debug_assert_eq!(self.cycle_root.unwrap().id(), self.id());
+            debug_assert_eq!(
+                self.cycle_root,
+                Some(unsafe { ModuleDef::from_ref_unchecked(self) })
+            );
             let _ = self.resolving_funcs[0].call(ctx, JSValue::UNDEFINED, &[JSValue::UNDEFINED]);
         }
     }
@@ -462,7 +465,7 @@ impl ModuleDef {
         }
 
         if md.promise.is_some() {
-            debug_assert_eq!(md.cycle_root().unwrap().id(), md.id());
+            debug_assert_eq!(md.cycle_root(), Some(md));
             let func = md.resolving_funcs[1];
             let _ = func.call(cc.ctx(), JSValue::UNDEFINED, std::slice::from_ref(err_val));
         }
@@ -511,9 +514,7 @@ fn gather_module_ancestors(
     }
 
     for mut m in module.async_parent_modules.iter().copied() {
-        if !exec_list.iter().any(|x| x.id() == m.id())
-            && m.cycle_root().is_some_and(|x| x.eval_exception().is_none())
-        {
+        if !exec_list.contains(&m) && m.cycle_root().is_some_and(|x| x.eval_exception().is_none()) {
             debug_assert_eq!(
                 m.status(),
                 JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC

@@ -12,7 +12,7 @@ impl ObjectImpl {
         ctx: &ContextImpl,
         update_fn: impl FnOnce(&mut ShapeImpl) -> R,
     ) -> Result<R, i32> {
-        let use_count = self.shape().unwrap().gc_ref().node_info().ref_count();
+        let use_count = self.shape().unwrap().use_count;
         let mut use_shape = if use_count > 1 {
             // shape is shared: dup to new
             self.shape().unwrap().dup(ctx)?
@@ -39,7 +39,7 @@ impl ObjectImpl {
     ) -> Result<usize, i32> {
         let (old_len, use_count) = {
             let sh = self.shape().unwrap();
-            (sh.len(), sh.gc_ref().node_info().ref_count())
+            (sh.len(), sh.use_count)
         };
         debug_assert_eq!(self.prop_values.len(), old_len);
 

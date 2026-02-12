@@ -1,6 +1,3 @@
-#[cfg(debug_assertions)]
-use gc_lite::GcTracable;
-
 use crate::{
     atom::Atom,
     context::ContextImpl,

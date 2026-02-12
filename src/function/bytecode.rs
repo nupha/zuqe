@@ -1,4 +1,4 @@
-use std::{os::raw::c_void, ptr::NonNull};
+use std::ptr::NonNull;
 
 use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
@@ -10,7 +10,6 @@ use crate::{
     eval::EvalType,
     function::{FunctionDef, VarRef},
     gcref_wrapper,
-    runtime::RuntimePtr,
     stack_frame::{ExecMode, StackFrame},
     utils::{get_leb128, get_sleb128, read_from_ptr},
     value::JSValue,
@@ -88,11 +87,8 @@ impl Default for BytecodeAttrs {
 }
 
 pub struct BytecodeImpl {
-    rt: RuntimePtr,
-
+    realm: ContextPtr,
     pub(crate) func_name: Atom,
-    realm: ContextPtr, // GcWeak<ContextImpl>,
-
     pub(crate) attrs: BytecodeAttrs,
 
     /// used by JS_GetScriptOrModuleName()
@@ -173,10 +169,8 @@ impl BytecodeImpl {
         stack_size: u16,
     ) -> Self {
         Self {
-            rt: ctx.rt_ptr(),
-
-            func_name: fd.func_name,
             realm: unsafe { ContextPtr::from_ref_unchecked(ctx) },
+            func_name: fd.func_name,
 
             attrs: BytecodeAttrs {
                 need_home_object: fd.attrs.need_home_object || fd.home_object_var_idx.is_some(),
@@ -208,25 +202,10 @@ impl BytecodeImpl {
         }
     }
 
-    #[inline(always)]
-    pub fn id(&self) -> usize {
-        self as *const Self as usize
-    }
-
-    #[inline(always)]
-    pub(crate) const fn rt(&self) -> RuntimePtr {
-        self.rt
-    }
-
     /// get bytecode realm context
     #[inline(always)]
     pub(crate) const fn realm(&self) -> Option<ContextPtr> {
         Some(self.realm)
-    }
-
-    #[inline(always)]
-    pub const fn attrs(&self) -> &BytecodeAttrs {
-        &self.attrs
     }
 
     #[inline(always)]
@@ -300,22 +279,6 @@ impl BytecodeImpl {
         }
     }
 
-    /// get nth closure var def
-    pub fn get_closure_var_mut(&mut self, nth: u16) -> Option<&mut JSClosureVar> {
-        if self.closure_var_start >= 0 && nth < self.closure_var_count {
-            unsafe {
-                self.binary
-                    .as_mut_ptr()
-                    .add(self.closure_var_start as usize)
-                    .cast::<JSClosureVar>()
-                    .add(nth as usize)
-                    .as_mut()
-            }
-        } else {
-            None
-        }
-    }
-
     /// get args slice
     pub fn args_slice(&self) -> &[JSVarDef] {
         if self.arg_count > 0 {
@@ -353,34 +316,6 @@ impl BytecodeImpl {
         }
     }
 
-    /// get args slice
-    pub fn args_slice_mut(&mut self) -> Option<&mut [JSVarDef]> {
-        if self.arg_count > 0 {
-            unsafe {
-                self.vardefs_ptr()
-                    .map(|p| std::slice::from_raw_parts_mut(p.as_ptr(), self.arg_count as usize))
-            }
-        } else {
-            None
-        }
-    }
-
-    /// get vars slice
-    pub fn vars_slice_mut(&mut self) -> Option<&mut [JSVarDef]> {
-        if self.var_count > 0 {
-            unsafe {
-                self.vardefs_ptr().map(|p| {
-                    std::slice::from_raw_parts_mut(
-                        p.as_ptr().add(self.arg_count as usize),
-                        self.var_count as usize,
-                    )
-                })
-            }
-        } else {
-            None
-        }
-    }
-
     /// get vardefs slice. combination of args + vars.
     pub fn vardefs(&self) -> &[JSVarDef] {
         if self.vardefs_start >= 0 {
@@ -396,18 +331,6 @@ impl BytecodeImpl {
             }
         } else {
             &[]
-        }
-    }
-
-    /// get vardefs slice. combination of args + vars.
-    pub fn vardefs_mut(&mut self) -> Option<&mut [JSVarDef]> {
-        unsafe {
-            self.vardefs_ptr().map(|p| {
-                std::slice::from_raw_parts_mut(
-                    p.as_ptr(),
-                    (self.arg_count + self.var_count) as usize,
-                )
-            })
         }
     }
 
@@ -583,44 +506,6 @@ impl BytecodeImpl {
 #[derive(Clone, Copy, PartialEq)]
 pub struct Bytecode(GcRef<BytecodeImpl>);
 
-// unsafe impl GcTracable for Bytecode {
-//     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-//         unsafe {
-//             self.0.as_ref().trace(tracer);
-//         }
-//     }
-// }
-
-// impl std::ops::Deref for Bytecode {
-//     type Target = BytecodeImpl;
-
-//     fn deref(&self) -> &Self::Target {
-//         unsafe { self.0.as_ref() }
-//     }
-// }
-
-// impl std::ops::DerefMut for Bytecode {
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         unsafe { self.0.as_mut() }
-//     }
-// }
-
-// impl Bytecode {
-//     #[inline(always)]
-//     pub(crate) const fn from(r: GcRef<BytecodeImpl>) -> Self {
-//         Self(r)
-//     }
-
-//     #[inline(always)]
-//     pub(crate) unsafe fn from_ref_unchecked(o: &BytecodeImpl) -> Self {
-//         Self(unsafe { GcRef::from_ref_unchecked(o) })
-//     }
-
-//     pub fn gc_ref(&self) -> GcRef<BytecodeImpl> {
-//         self.0
-//     }
-// }
-
 gcref_wrapper!(Bytecode, BytecodeImpl);
 
 impl From<Bytecode> for JSValue {
@@ -632,7 +517,7 @@ impl From<Bytecode> for JSValue {
 
 impl std::fmt::Debug for Bytecode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<Bytecode {:p}>", self.id() as *const c_void)
+        write!(f, "<Bytecode {:?}>", self.0)
     }
 }
 

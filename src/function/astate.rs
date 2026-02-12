@@ -1,6 +1,6 @@
 use std::{pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcHeap, GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     context::ContextImpl, error::JSResult, function::BCFunction, gcref_wrapper,
@@ -20,8 +20,8 @@ pub struct AsyncStateImpl {
     pub(crate) is_completed: bool,
     /// for async function only
     pub(crate) resolving_funcs: [JSValue; 2],
-    /// a dedicated stack frame to run async
-    pub(crate) frame: Pin<Box<StackFrame>>,
+    /// a dedicated stack frame for async execution
+    pub(crate) stack_frame: Pin<Box<StackFrame>>,
 }
 
 unsafe impl GcTracable for AsyncStateImpl {
@@ -29,7 +29,7 @@ unsafe impl GcTracable for AsyncStateImpl {
         self.this_val.trace(tr);
         self.resolving_funcs[0].trace(tr);
         self.resolving_funcs[1].trace(tr);
-        self.frame.trace(tr);
+        self.stack_frame.trace(tr);
     }
 }
 
@@ -73,11 +73,11 @@ impl AsyncStateImpl {
 
         // make a dedicated stack frame for async function execution
         // (the stack frame mode has ASYNC flag set).
-        let mut frame = Box::pin(StackFrame::new(bc_func.into(), mode | ExecMode::ASYNC));
-
-        // setup localbuf and sections
+        let mut stack_frame = Box::pin(StackFrame::new(bc_func.into(), mode | ExecMode::ASYNC));
         unsafe {
-            let sf = frame.as_mut().get_unchecked_mut();
+            let sf = stack_frame.as_mut().get_unchecked_mut();
+
+            sf.is_async = true;
             sf.arg_base_ptr = local_buf.as_mut_ptr();
             sf.arg_real_count = args.len() as _;
             sf.arg_count = arg_count as _;
@@ -92,7 +92,7 @@ impl AsyncStateImpl {
             resolving_funcs: resolvings,
             throw_flag: false,
             is_completed: false,
-            frame,
+            stack_frame,
         })
     }
 
@@ -103,12 +103,12 @@ impl AsyncStateImpl {
 
     #[inline(always)]
     pub fn arg_ptr(&self) -> NonNull<JSValue> {
-        unsafe { NonNull::new_unchecked(self.frame.arg_base_ptr) }
+        unsafe { NonNull::new_unchecked(self.stack_frame.arg_base_ptr) }
     }
 
     #[inline(always)]
     pub fn arg_count(&self) -> usize {
-        self.frame.arg_real_count as usize
+        self.stack_frame.arg_real_count as usize
     }
 
     #[inline(always)]
@@ -120,10 +120,10 @@ impl AsyncStateImpl {
     pub(super) fn set_return_value(&mut self, val: JSValue) {
         unsafe {
             *self
-                .frame
+                .stack_frame
                 .stack_base_ptr()
                 .as_ptr()
-                .add(self.frame.cur_sp_offset as usize - 1) = val;
+                .add(self.stack_frame.cur_sp_offset as usize - 1) = val;
         }
     }
 
@@ -142,13 +142,13 @@ impl AsyncStateImpl {
 
         let completed = match ret {
             Ok(JSValue::UNDEFINED) => {
-                debug_assert!(self.frame.cur_sp_offset > 0);
+                debug_assert!(self.stack_frame.cur_sp_offset > 0);
                 // get stack top value
                 ret = Ok(unsafe {
                     std::ptr::replace(
                         // HINT: stack_cur_ptr advances the stack_top pointer by 1.
                         // subtract 1 is the exact addr for stack_top.
-                        self.frame.stack_cur_ptr().offset(-1).as_ptr(),
+                        self.stack_frame.stack_cur_ptr().offset(-1).as_ptr(),
                         JSValue::UNDEFINED,
                     )
                 });
@@ -161,8 +161,11 @@ impl AsyncStateImpl {
         if completed {
             self.is_completed = true;
             unsafe {
-                // close the closure variables.
-                self.frame.as_mut().get_unchecked_mut().close_var_refs();
+                // close closure variables.
+                self.stack_frame
+                    .as_mut()
+                    .get_unchecked_mut()
+                    .close_var_refs();
             }
         }
 
@@ -180,9 +183,9 @@ impl AsyncStateImpl {
         let throw_flag = self.throw_flag;
 
         // state has a dedicated stack frame for async function
-        let mut func = *self.frame.func_obj.as_BCFunction().unwrap();
-        let pc_offset = self.frame.cur_pc_offset;
-        let sp_offset = self.frame.cur_sp_offset;
+        let mut func = *self.stack_frame.func_obj.as_BCFunction().unwrap();
+        let pc_offset = self.stack_frame.cur_pc_offset;
+        let sp_offset = self.stack_frame.cur_sp_offset;
         debug_assert!(sp_offset >= 0);
 
         let isa = func.payload_mut();
@@ -191,7 +194,7 @@ impl AsyncStateImpl {
             isa.home_object(),
             unsafe {
                 // use dedicated stack frame for async state
-                self.frame.as_mut().get_unchecked_mut()
+                self.stack_frame.as_mut().get_unchecked_mut()
             },
             this_obj,
             JSValue::UNDEFINED,
@@ -234,7 +237,7 @@ impl AsyncState {
         // setup backref link: StackFrame::async_state => GcWeak<AsyncStateImpl>
         unsafe {
             let w = a_state.downgrade(ctx.rt_ptr().gc_heap_mut());
-            a_state.frame.as_mut().get_unchecked_mut().async_state = w;
+            a_state.stack_frame.as_mut().get_unchecked_mut().async_state = w;
         }
 
         Ok(Self(a_state))

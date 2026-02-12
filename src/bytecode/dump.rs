@@ -4,10 +4,7 @@ use crate::{
     atom::Atom,
     bytecode::OpcodeFormat,
     context::ContextImpl,
-    function::{
-        Bytecode, FunctionKind, JSClosureVar, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
-        PC2LINE_OP_FIRST, PC2LINE_RANGE,
-    },
+    function::{Bytecode, FunctionKind, JSClosureVar, JSVarDef, JSVarKindEnum, Label},
     stack_frame::ExecMode,
     utils::read_from_ptr,
     value::JSValue,

@@ -44,6 +44,8 @@ pub struct StackFrame {
 
     /// Execution mode
     pub(crate) mode: ExecMode,
+    /// Stack frame for async?
+    pub(crate) is_async: bool,
 
     /// Weak backref to async state,
     /// only valid if stack frame is dedicated for an AsyncStateImpl
@@ -64,8 +66,8 @@ pub struct StackFrame {
     /// Local variables count
     pub(crate) var_count: u16,
 
-    /// List of variable references registered in this frame
-    pub(crate) var_ref_list: Vec<VarRef>,
+    /// List of variable references in the stack frame
+    var_ref_list: Vec<VarRef>,
 
     /// Program counter offset for bytecode functions
     /// Position in local_buf relative to pc_base (see Bytecode::bytecode_start)
@@ -99,15 +101,10 @@ unsafe impl GcTracable for StackFrame {
 
         // local vars
         tr.add_nodes(self.var_values().iter().filter_map(|v| v.gc_node_ptr()));
+        // var_refs
+        self.var_refs().iter().for_each(|r| r.trace(tr));
         // stack values
         tr.add_nodes(self.stack_values().iter().filter_map(|v| v.gc_node_ptr()));
-        // varrefs
-        self.var_ref_list.iter().for_each(|r| r.trace(tr));
-
-        // trace upward along chain
-        // if let Some(sf) = self.parent() {
-        //     sf.trace(tracer);
-        // }
     }
 }
 
@@ -123,13 +120,22 @@ impl Drop for StackFrame {
         if !self.gc_scope_id.is_null() {
             let mut rt = self.rt();
 
-            debug_assert!(
-                rt.gc_heap()
-                    .partition(self.gc_scope_id)
-                    .unwrap()
-                    .children()
-                    .is_empty()
-            );
+            #[cfg(debug_assertions)]
+            if self.is_async {
+                // The gc_scope_id maybe not in gc heap parition now -
+                // this is the case when the root stack frame is dropping,
+                // which causes AsyncState node dispose, and AsyncState::frame drop triggers its
+                // dedicated StackFrame::drop
+            } else {
+                // when normal stack frame is dropping, it always exists in heap
+                debug_assert!(
+                    rt.gc_heap()
+                        .partition(self.gc_scope_id)
+                        .unwrap()
+                        .children()
+                        .is_empty()
+                );
+            }
 
             rt.gc_heap_mut().remove_partition(
                 self.gc_scope_id,
@@ -194,6 +200,7 @@ impl StackFrame {
 
             func_obj,
             mode,
+            is_async: false,
             async_state: GcWeak::default(),
 
             local_buf: Vec::new(),
@@ -215,7 +222,7 @@ impl StackFrame {
 
     /// get runtime
     #[inline(always)]
-    fn rt(&self) -> RuntimePtr {
+    pub(crate) fn rt(&self) -> RuntimePtr {
         self.func_obj.rt()
     }
 
@@ -307,6 +314,16 @@ impl StackFrame {
         }
     }
 
+    #[inline(always)]
+    pub const fn var_refs(&self) -> &Vec<VarRef> {
+        &self.var_ref_list
+    }
+
+    #[inline(always)]
+    pub const fn var_refs_mut(&mut self) -> &mut Vec<VarRef> {
+        &mut self.var_ref_list
+    }
+
     /// Handles current exception by adding backtrace information if needed
     /// Returns:
     /// - Some((pc, sp)) if exception was caught (continue execution at new position)
@@ -361,31 +378,22 @@ impl StackFrame {
         None // exception is uncatched, abort with sp=0, pc unchanged
     }
 
-    /// Prepare to exit bytecode running.
-    pub(crate) fn handle_exit(
-        &mut self,
-        ctx: &ContextImpl,
-        pc: usize,
-        sp: usize,
-        is_generator: bool,
-    ) {
+    /// Prepare to exit bytecode execution.
+    pub(crate) fn handle_exit(&mut self, ctx: &ContextImpl, pc: usize, sp: usize, is_async: bool) {
         debug_assert_eq!(
             ctx.rt_ptr().current_stack_frame(),
             Some(&*self),
             "StackFrame::handle_exit() must be called on active stack frame"
         );
 
-        if is_generator {
-            // for async, local variables are freed by the caller.
+        if is_async {
+            // async execution, local variables are freed by the caller.
             // Hence the label 'done' should never be reached in async execution.
             self.cur_pc_offset = pc;
             self.cur_sp_offset = sp as i32;
         } else {
-            // is normal function
-            if !self.var_ref_list.is_empty() {
-                // variable references reference the stack: must close them
-                self.close_var_refs();
-            }
+            // var_refs are referencing the stack, before stack drop, detatch var_refs.
+            self.close_var_refs();
 
             // free local buf up to stack top (sp)
             // NOTE: this seems not needed. because when local_buf is dropped, rust will automatically do free stuff.
@@ -437,7 +445,7 @@ impl StackFrame {
             .iter()
             .filter_map(move |v| v.gc_node_ptr());
 
-        let var_refs_iter = self.var_ref_list.iter().map(|v| v.gc_ref().node_ptr());
+        let var_refs_iter = self.var_refs().iter().map(|v| v.gc_ref().node_ptr());
 
         std::iter::once(self.func_obj.gc_ref().node_ptr())
             .chain(args_iter)

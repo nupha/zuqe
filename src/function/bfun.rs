@@ -203,12 +203,21 @@ impl ObjectImpl {
     /// return realm context of the function object
     pub(crate) fn realm(&self, default: ContextPtr) -> Result<ContextPtr, i32> {
         match self.payload() {
-            ObjectPayload::C_FUNCTION(cfunc) => Ok(cfunc.realm),
-            ObjectPayload::BYTECODE_FUNCTION(fo)
-            | ObjectPayload::GENERATOR_FUNCTION(fo)
-            | ObjectPayload::ASYNC_FUNCTION(fo)
-            | ObjectPayload::ASYNC_GENERATOR_FUNCTION(fo) => {
-                Ok(fo.bytecode().realm().unwrap_or(default))
+            ObjectPayload::C_FUNCTION(f) => Ok(f.realm),
+
+            ObjectPayload::BYTECODE_FUNCTION(f)
+            | ObjectPayload::GENERATOR_FUNCTION(f)
+            | ObjectPayload::ASYNC_FUNCTION(f)
+            | ObjectPayload::ASYNC_GENERATOR_FUNCTION(f) => {
+                Ok(f.bytecode().realm().unwrap_or(default))
+            }
+
+            ObjectPayload::BOUND_FUNCTION(f) => {
+                if let Some(o) = f.func_obj.as_object() {
+                    o.realm(default)
+                } else {
+                    Ok(default)
+                }
             }
 
             #[cfg(feature = "builtin_proxy")]
@@ -220,13 +229,7 @@ impl ObjectImpl {
                     px.target().realm(default)
                 }
             }
-            ObjectPayload::BOUND_FUNCTION(bfunc) => {
-                if let Some(o) = bfunc.func_obj.as_object() {
-                    o.realm(default)
-                } else {
-                    Ok(default)
-                }
-            }
+
             _ => Ok(default),
         }
     }

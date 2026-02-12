@@ -42,8 +42,8 @@ impl JSValue {
 }
 
 impl Object {
-    /// object's toStringTag
-    pub(crate) fn to_string_tag(&self, ctx: &ContextImpl) -> Result<Atom, i32> {
+    /// return object's toStringTag
+    pub(crate) fn string_tag(&self, ctx: &ContextImpl) -> Result<Atom, i32> {
         let tag = if self.is_array(ctx)? {
             Atom::CONST_Array
         } else if self.is_function() {
@@ -61,7 +61,6 @@ impl Object {
                 crate::JS_CLASS_REGEXP => {
                     ctx.rt_ptr().class_registry[crate::JS_CLASS_REGEXP as usize].class_name
                 }
-
                 #[cfg(feature = "builtin_date")]
                 crate::JS_CLASS_DATE => {
                     ctx.rt_ptr().class_registry[crate::JS_CLASS_DATE as usize].class_name
@@ -84,7 +83,7 @@ impl Object {
             {
                 s
             } else {
-                self.to_string_tag(ctx).and_then(|a| a.force_string(ctx))?
+                self.string_tag(ctx).and_then(|a| a.force_string(ctx))?
             };
         }
 

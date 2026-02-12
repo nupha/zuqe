@@ -1278,7 +1278,7 @@ impl Bytecode {
                     }
                     OpCode::CLOSE_LOC => {
                         let idx = PC_FETCH!(u16);
-                        stack_frame.close_lexical_var(idx, false);
+                        stack_frame.close_var_ref(idx, false);
                     }
                     OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
@@ -2512,17 +2512,15 @@ impl Bytecode {
 
             match state {
                 State::Done(ret_val, is_generator) => {
-                    // `stack_frame` will be dropped after exit,
-                    // migrate `ret_val` to upper gc scope to prevent it being gc'ed unexpectedly.
+                    // Note: `stack_frame` will be dropped after exit,
+                    // ret_val and closure vars should be migrated to upper gc scope
+                    // to prevent it being gc'ed unexpectedly.
+
                     if let Some(n) = ret_val.gc_node_ptr()
                         && unsafe { n.as_ref().xref_partition().is_null() }
                     {
-                        rt.gc_heap_mut().set_xref(
-                            stack_frame
-                                .parent_mut()
-                                .map_or(realm.rt_ref().gc_root_scope, |up| up.init_gc_scope()),
-                            n,
-                        );
+                        let upper_scope = rt.gc_upper_scope(true).unwrap();
+                        rt.gc_heap_mut().set_xref(upper_scope, n);
                     }
 
                     stack_frame.handle_exit(
@@ -2531,6 +2529,7 @@ impl Bytecode {
                         unsafe { sp.offset_from(sp_base) as usize },
                         is_generator,
                     );
+
                     return ret_val;
                 }
 

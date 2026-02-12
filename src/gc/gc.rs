@@ -46,6 +46,26 @@ impl RuntimeImpl {
         }
     }
 
+    /// get upper gc scope.
+    /// if parent stack frame does not have gc scope and auto_init=true, then initialize scopes.
+    /// if no current stack frame, returns root scope.
+    pub(crate) fn gc_upper_scope(&mut self, auto_init: bool) -> Option<GcPartitionId> {
+        if let Some(up) = self
+            .current_stack_frame_mut()
+            .and_then(|sf| sf.parent_mut())
+        {
+            if !up.gc_scope_id.is_null() {
+                Some(up.gc_scope_id)
+            } else if auto_init {
+                Some(up.init_gc_scope())
+            } else {
+                None
+            }
+        } else {
+            Some(self.gc_root_scope)
+        }
+    }
+
     /// alloc data in given gc scope
     pub(crate) fn gc_alloc_in<T: GcTracable>(
         &mut self,

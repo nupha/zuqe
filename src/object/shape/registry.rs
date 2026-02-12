@@ -9,7 +9,7 @@ use crate::{
 impl RuntimeImpl {
     /// register a shape
     pub(crate) fn register_shape(&mut self, shape: &Shape) -> Result<(), i32> {
-        debug_assert!(shape.gc_ref().node_info().ref_count() > 0);
+        debug_assert!(shape.use_count > 0);
 
         if self.shape_registry.len() == self.shape_registry.capacity() {
             self.shape_registry
@@ -95,7 +95,7 @@ impl RuntimeImpl {
                 .filter_map(|w| w.upgrade(heap))
                 .find(|sh| sh.proto == proto && sh.prop_defs.count() == 0)
                 .map(|mut s| {
-                    s.node_info_mut().inc_ref();
+                    s.use_count += 1;
                     Shape::from(s)
                 })
         })
@@ -135,7 +135,7 @@ impl RuntimeImpl {
                 .last()
                 .is_some_and(|pr| pr.atom == prop && pr.flags() == prop_flags)
             {
-                found.node_info_mut().inc_ref();
+                found.use_count += 1;
                 return Some(Shape::from(found));
             }
         }

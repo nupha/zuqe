@@ -9,7 +9,7 @@ use crate::{
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, Object, ObjectPayload},
-    runtime::{RuntimeImpl, RuntimePtr},
+    runtime::RuntimeImpl,
     stack_frame::StackFrameParentIter,
     value::JSValue,
 };
@@ -28,16 +28,11 @@ pub(crate) trait ModuleInitFn: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {
 impl<F> ModuleInitFn for F where F: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
 
 pub struct ModuleDefImpl {
-    #[deprecated(note = "seems no use, should be removed")]
-    rt: RuntimePtr,
-
-    /// hold a refcount of the atom
-    pub module_name: Atom,
-
+    pub(super) module_name: Atom,
     pub(super) dependencies: Vec<ModuleDependency>,
+
     pub(crate) import_entries: Vec<ImportEntry>,
     pub(crate) export_entries: Vec<ExportEntry>,
-
     /// list of index in dependencies
     pub(crate) star_export_entries: Vec<u16>,
 
@@ -92,29 +87,34 @@ unsafe impl GcTracable for ModuleDefImpl {
 
         self.bytecode.trace(tr);
         self.async_parent_modules.iter().for_each(|x| x.trace(tr));
-        self.promise.map(|x| x.trace(tr));
+
+        if let Some(x) = self.promise {
+            x.trace(tr)
+        }
         self.resolving_funcs[0].trace(tr);
         self.resolving_funcs[1].trace(tr);
 
-        self.stack_prev.map(|x| x.trace(tr));
-        self.module_ns.map(|x| x.trace(tr));
-        self.cycle_root.map(|x| x.trace(tr));
-        self.eval_exception.map(|x| x.trace(tr));
-        self.meta_obj.map(|x| x.trace(tr));
-    }
-}
-
-impl PartialEq for ModuleDefImpl {
-    fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id()
+        if let Some(x) = self.stack_prev {
+            x.trace(tr)
+        }
+        if let Some(x) = self.module_ns {
+            x.trace(tr)
+        }
+        if let Some(x) = self.cycle_root {
+            x.trace(tr)
+        }
+        if let Some(x) = self.eval_exception {
+            x.trace(tr)
+        }
+        if let Some(x) = self.meta_obj {
+            x.trace(tr)
+        }
     }
 }
 
 impl ModuleDefImpl {
     fn new(ctx: &ContextImpl, module_name: Atom) -> Self {
         Self {
-            rt: ctx.rt_ptr(),
-
             module_name,
 
             dependencies: Vec::new(),
@@ -160,11 +160,6 @@ impl ModuleDefImpl {
         let mut md = ModuleDefImpl::new(ctx, name);
         md.init_func.replace(Box::new(init));
         Ok(md)
-    }
-
-    #[inline(always)]
-    pub fn id(&self) -> usize {
-        self as *const Self as usize
     }
 
     /// get module name atom.
@@ -242,16 +237,15 @@ impl ModuleDefImpl {
                         })?;
 
                     // create the global variables.
-                    // The other variables are imported from other modules
-                    for cv in bc.closure_vars().iter() {
-                        if cv.is_local() {
-                            let vr = js_create_module_var(ctx, cv.is_lexical())?;
-                            var_refs.push(vr);
+                    // other variables are imported from other modules
+                    for cv in bc.closure_vars() {
+                        var_refs.push(if cv.is_local() {
+                            js_create_module_var(ctx, cv.is_lexical())?
                         } else {
                             // The other variables are imported from other modules.
                             // Add slot with a placeholder.
-                            var_refs.push(VarRef::new(ctx, JSValue::UNDEFINED)?);
-                        }
+                            VarRef::new(ctx, JSValue::UNDEFINED)?
+                        });
                     }
                 }
 
@@ -302,7 +296,7 @@ impl ModuleDefImpl {
 }
 
 #[repr(transparent)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct ModuleDef(GcRef<ModuleDefImpl>);
 
 gcref_wrapper!(ModuleDef, ModuleDefImpl);
@@ -313,16 +307,9 @@ impl From<ModuleDef> for JSValue {
     }
 }
 
-impl PartialEq for ModuleDef {
-    #[inline(always)]
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
 impl std::fmt::Debug for ModuleDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<ModuleDef {:p}>", self.id() as *const std::ffi::c_void)
+        write!(f, "<ModuleDef {:?}>", self.gc_ref())
     }
 }
 
@@ -472,7 +459,7 @@ pub(crate) const js_module_ns_exotic_methods: ClassExoticMethods = ClassExoticMe
     set_prototype: None,
 };
 
-pub fn js_create_module_var(ctx: &ContextImpl, is_lexical: bool) -> Result<VarRef, i32> {
+pub(crate) fn js_create_module_var(ctx: &ContextImpl, is_lexical: bool) -> Result<VarRef, i32> {
     VarRef::new(
         ctx,
         if is_lexical {

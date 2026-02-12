@@ -46,7 +46,7 @@ impl ObjectImpl {
             }
             JSProperty::Deleted => {}
             _ => {
-                panic!("expect non-gc property");
+                unreachable!("expect non-gc property");
             }
         }
 
@@ -141,7 +141,8 @@ impl Object {
                         && flags & JS_PROP_HAS_VALUE != 0,
                 ) {
                     return if !val.is_same(self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?) {
-                        if ctx.throw_type_error_or_false(flags, "property is not configurable") {
+                        if ctx.can_throw(flags) {
+                            ctx.throw_type_error("property is not configurable");
                             Err(-1)
                         } else {
                             Ok(false)
@@ -207,10 +208,10 @@ impl Object {
                     // has {writable:false}
                     // 'writable' is set to false, no longer a reference (for mapped arguments)
                     if unlikely(class_id == JS_CLASS_MODULE_NS) {
-                        return if ctx.throw_type_error_or_false(
-                            flags,
-                            "module namespace properties have writable = false",
-                        ) {
+                        return if ctx.can_throw(flags) {
+                            ctx.throw_type_error(
+                                "module namespace properties have writable = false",
+                            );
                             Err(-1)
                         } else {
                             Ok(false)
@@ -314,7 +315,8 @@ impl Object {
                         && ((flags & JS_PROP_HAS_GET != 0 && new_getter != *getter)
                             || (flags & JS_PROP_HAS_SET != 0 && new_setter != *setter)),
                 ) {
-                    return if ctx.throw_type_error_or_false(flags, "property is not configurable") {
+                    return if ctx.can_throw(flags) {
+                        ctx.throw_type_error("property is not configurable");
                         Err(-1)
                     } else {
                         Ok(false)

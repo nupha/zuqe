@@ -13,13 +13,13 @@ impl ModuleDef {
         &self,
         ctx: &ContextImpl,
         export_name: Atom,
-        mut expect: Option<(usize, Atom)>, // (module_id, local_name_atom)
-        resolving: &mut Vec<(usize, Atom)>, // (module_id, export_atom), to detect circular
+        mut expect: Option<(ModuleDef, Atom)>, // (ModuleDef, local_name_atom)
+        resolving: &mut Vec<(ModuleDef, Atom)>, // (ModuleDef, export_atom), to detect circular
     ) -> Result<ResolveExport, i32> {
         if unlikely(
             resolving
                 .iter()
-                .any(|x| x.0 == self.id() && x.1 == export_name),
+                .any(|(m, a)| m.eq(self) && *a == export_name),
         ) {
             return Ok(ResolveExport::Circular);
         }
@@ -31,7 +31,7 @@ impl ModuleDef {
                 -1
             })?;
         }
-        resolving.push((self.id(), export_name));
+        resolving.push((*self, export_name));
 
         if let Some(me) = self.find_export(export_name) {
             match me.export_type {
@@ -71,11 +71,11 @@ impl ModuleDef {
                             export_type,
                         } => {
                             if expect.is_some_and(|(test_module_id, test_local_name)| {
-                                test_module_id != module.id() || test_local_name != local_name
+                                test_module_id != module || test_local_name != local_name
                             }) {
                                 return Ok(ResolveExport::Ambiguous);
                             } else {
-                                expect.replace((module.id(), local_name));
+                                expect.replace((module, local_name));
                                 ret = ResolveExport::Found {
                                     module,
                                     local_name,
@@ -99,14 +99,14 @@ impl ModuleDef {
     }
 
     /// resolve `export_name` in module `self`,
-    /// optionally restricted by (expect_module_id, expect_local_name)==(module_id, local_name)
+    /// optionally restricted by (expect_ModuleDef, expect_local_name)==(ModuleDef, local_name)
     pub(super) fn resolve_export(
         &self,
         ctx: &ContextImpl,
         export_name: Atom,
-        expect: Option<(usize, Atom)>, // (module_id, local_name_atom)
+        expect: Option<(ModuleDef, Atom)>, // (ModuleDef, local_name_atom)
     ) -> Result<ResolveExport, i32> {
-        let mut lst = Vec::<(usize, Atom)>::with_capacity(8);
+        let mut lst = Vec::with_capacity(8);
         self.resolve_export_internal(ctx, export_name, expect, &mut lst)
     }
 
@@ -286,7 +286,7 @@ impl ModuleDef {
                 *stack_top = m1.stack_prev.take();
 
                 m1.status = JSModuleStatus::JS_MODULE_STATUS_LINKED;
-                if m1.id() == self.id() {
+                if m1.eq(self) {
                     break;
                 }
             }

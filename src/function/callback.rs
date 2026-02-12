@@ -30,14 +30,6 @@ pub type JSCFunctionMagic = unsafe fn(
     magic: ::core::ffi::c_int,
 ) -> JSValue;
 
-pub type JSCFunctionData = unsafe fn(
-    ctx: &ContextImpl,
-    this_val: JSValue,
-    args: &[JSValue],
-    magic: i32,
-    func_data: &mut [JSValue],
-) -> JSValue;
-
 pub type JSCFunctionFF = unsafe fn(f64) -> f64;
 pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
 

@@ -225,7 +225,7 @@ impl ObjectImpl {
                 ctx.rt_ptr().is_shape_registered(sh),
                 "shape must be registered when used by object"
             );
-            debug_assert!(sh.gc_ref().node_info().ref_count() > 0);
+            debug_assert!(sh.use_count > 0);
         }
 
         // alloc prop value slots, initializing with default value
@@ -541,8 +541,8 @@ impl ObjectImpl {
     fn finalize(&mut self) {
         let mut rt = self.rt();
 
-        self.shape.take();
-        self.prop_values.clear();
+        // self.shape.take();
+        // self.prop_values.clear();
 
         // Map Set object remove weakref
         #[cfg(feature = "builtin_mapset")]

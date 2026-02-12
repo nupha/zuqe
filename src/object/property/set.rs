@@ -334,7 +334,6 @@ impl Object {
 
                                 // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
                                 let mut up = this.shape().unwrap().proto;
-
                                 while let Some(p) = up {
                                     let sh1 = p.shape().unwrap();
                                     match p.class_id() {
@@ -354,17 +353,15 @@ impl Object {
                                     }
                                     up = sh1.proto;
                                 }
-
                                 // append element
-                                return Some(self.add_fast_array_element(ctx, val, flags));
+                                Some(self.add_fast_array_element(ctx, val, flags))
                             }
                             std::cmp::Ordering::Greater => {
-                                // fall to slow path, destruct to sparse array
-                                return None;
+                                None // fall to slow path, destruct to sparse array
                             }
                         }
                     } else {
-                        return None;
+                        None
                     }
 
                     // let ret = self

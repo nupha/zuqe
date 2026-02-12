@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 use hash_link::HashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty};
@@ -9,6 +9,7 @@ use super::super::{obj::Object, property::JS_PROP_LENGTH};
 
 #[derive(Debug)]
 pub struct ShapeImpl {
+    pub(crate) use_count: u16,
     /// cached shape hash value
     pub(crate) hash: u32,
     /// prototype object
@@ -39,6 +40,7 @@ impl ShapeImpl {
         }
 
         Ok(Self {
+            use_count: 1,
             proto,
             prop_defs: props,
             has_small_array_index: false,
@@ -85,10 +87,7 @@ impl ShapeImpl {
         extras: &[(Atom, u32)],
     ) -> usize {
         debug_assert!(!extras.is_empty());
-        debug_assert_eq!(
-            unsafe { GcRef::from_ref_unchecked(self).node_info().ref_count() },
-            1
-        );
+        debug_assert_eq!(self.use_count, 1);
 
         let old_len = self.len();
         let new_len = old_len + extras.len();
@@ -144,7 +143,7 @@ impl ShapeImpl {
             props.push(*prs);
         }
 
-        Shape::new_internal(ctx, self.proto, props, GcPartitionId::NONE)
+        Shape::new_internal(ctx, self.proto, props)
     }
 }
 
@@ -160,17 +159,22 @@ unsafe impl GcTracable for Shape {
 
 impl Drop for Shape {
     fn drop(&mut self) {
-        if self.gc_ref().node_info_mut().dec_ref() == 0 {
+        debug_assert!(self.use_count > 0);
+        self.use_count -= 1;
+        if self.use_count == 0 {
             self.gc_ref().node_info_mut().unset_xref();
         }
+
+        // if self.gc_ref().node_info_mut().dec_ref() == 0 {
+        //     self.gc_ref().node_info_mut().unset_xref();
+        // }
     }
 }
 
 impl Clone for Shape {
     fn clone(&self) -> Self {
-        let mut gr = self.gc_ref();
-        gr.node_info_mut().inc_ref();
-        Self(gr)
+        self.gc_ref().use_count += 1;
+        Self(self.gc_ref())
     }
 }
 
@@ -203,22 +207,11 @@ impl Shape {
         ctx: &ContextImpl,
         proto: Option<Object>,
         prop_defs: HashList<ShapeProperty>,
-        scope_id: GcPartitionId,
     ) -> Result<Self, i32> {
-        let shape = ShapeImpl::new(proto, prop_defs)?;
-
         ctx.rt_ptr()
-            .gc_alloc_in(
-                if scope_id.is_null() {
-                    ctx.rt_ptr().gc_current_scope(true).unwrap()
-                } else {
-                    scope_id
-                },
-                shape,
-            )
-            .map(|mut s| {
-                let _n = s.node_info_mut().inc_ref();
-                debug_assert_eq!(_n, 1);
+            .gc_alloc(ShapeImpl::new(proto, prop_defs)?)
+            .map(|s| {
+                debug_assert_eq!(s.use_count, 1);
                 Self(s)
             })
             .map_err(|_| {
@@ -235,7 +228,6 @@ impl Shape {
         ctx: &ContextImpl,
         proto: Option<Object>,
         prop_cap: i32,
-        scope_id: GcPartitionId,
     ) -> Result<Self, i32> {
         let mut prop_defs = HashList::<ShapeProperty>::new();
         prop_defs.try_reserve(prop_cap as _).map_err(|_| {
@@ -243,8 +235,7 @@ impl Shape {
             -1
         })?;
 
-        // let shape = Self::new_internal(ctx, proto, prop_defs, scope_id)?;
-        let shape = Self::new_internal(ctx, proto, prop_defs, GcPartitionId::NONE)?;
+        let shape = Self::new_internal(ctx, proto, prop_defs)?;
         ctx.rt_ptr().register_shape(&shape)?;
         Ok(shape)
     }

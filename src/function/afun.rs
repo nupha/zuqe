@@ -61,7 +61,7 @@ impl AsyncFunction {
 
 impl BCFunction {
     /// call bytecode function in async manner
-    pub fn call_async(
+    pub(crate) fn call_async(
         &self,
         ctx: &mut ContextImpl,
         this_obj: JSValue,
@@ -70,17 +70,19 @@ impl BCFunction {
     ) -> Result<Promise, i32> {
         let (promise, resolving_funcs) = Promise::create(ctx)?;
 
-        // make Async state for execution
-        let mut s = AsyncState::new(ctx, resolving_funcs, *self, this_obj, args)?;
+        // build Async state for execution
+        let mut a_state = AsyncState::new(ctx, resolving_funcs, *self, this_obj, args)?;
 
         // IMPORTANT!
         // During opcode execution loop, GC collection may occur.
         // Async state is also a GC object, to avoid it being collected,
         // we temporarily set it as GC root.
         // When execution completes, remove it from roots.
-        ctx.rt_mut().gc_heap_mut().set_root(s.gc_ref(), true);
-        s.run_async_function(ctx); // <-- GC collection may occur inside
-        ctx.rt_mut().gc_heap_mut().set_root(s.gc_ref(), false);
+        // ctx.rt_mut().gc_heap_mut().set_root(a_state.gc_ref(), true);
+        // a_state.run_async_function(ctx); // <-- GC collection may occur inside
+        // ctx.rt_mut().gc_heap_mut().set_root(a_state.gc_ref(), false);
+
+        a_state.run_async_function(ctx);
 
         Ok(promise)
     }
@@ -88,7 +90,7 @@ impl BCFunction {
 
 impl JSValue {
     /// if value is a bytecode function, call it in async manner
-    pub fn call_async(
+    pub(crate) fn call_async(
         &self,
         ctx: &mut ContextImpl,
         this_obj: JSValue,
@@ -126,7 +128,7 @@ impl AsyncState {
             });
         } else {
             // return value of await
-            debug_assert!(a_state.frame.cur_sp_offset > 0);
+            debug_assert!(a_state.stack_frame.cur_sp_offset > 0);
             a_state.set_return_value(if args.is_empty() {
                 JSValue::UNDEFINED
             } else {
@@ -158,7 +160,7 @@ impl AsyncState {
             // Retrieve value from stack top: SP[-1]
             let value = unsafe {
                 std::ptr::replace(
-                    self.frame.stack_cur_ptr().offset(-1).as_ptr(),
+                    self.stack_frame.stack_cur_ptr().offset(-1).as_ptr(),
                     JSValue::UNDEFINED,
                 )
             };
