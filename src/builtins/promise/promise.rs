@@ -174,11 +174,15 @@ impl Promise {
 
         // collect resolving functions
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-        let s = executor.payload();
-        for i in 0..2 {
-            let item = s.data(i).unwrap();
-            item.ensure_function(ctx)?;
-            resolving_funcs[i] = item;
+        let data = executor.payload();
+
+        for (i, f) in resolving_funcs.iter_mut().enumerate() {
+            let v = data.data(i).unwrap();
+
+            #[cfg(debug_assertions)]
+            v.ensure_function(ctx)?;
+
+            *f = v;
         }
 
         Ok((promise, resolving_funcs))

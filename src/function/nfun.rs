@@ -46,11 +46,6 @@ pub enum Callback {
 
     FF(JSCFunctionFF),
     FFF(JSCFunctionFFF),
-
-    #[deprecated]
-    CFunc(JSCFunction),
-    #[deprecated]
-    CFuncMagic(JSCFunctionMagic),
 }
 
 impl PartialEq for Callback {
@@ -67,9 +62,6 @@ impl PartialEq for Callback {
 
             (Self::FF(a), Self::FF(b)) => std::ptr::fn_addr_eq(*a, *b),
             (Self::FFF(a), Self::FFF(b)) => std::ptr::fn_addr_eq(*a, *b),
-
-            (Self::CFunc(a), Self::CFunc(b)) => std::ptr::fn_addr_eq(*a, *b),
-            (Self::CFuncMagic(a), Self::CFuncMagic(b)) => std::ptr::fn_addr_eq(*a, *b),
 
             _ => false,
         }
@@ -166,18 +158,6 @@ impl NFuncPayload {
                 let d2 = cc.arg(1).to_f64(&self.realm)?;
                 Ok(JSValue::from(unsafe { f(d1, d2) }))
             }
-
-            //
-            // LEGACIES
-            //
-            Callback::CFunc(f) => unsafe {
-                // debug_assert!(data.is_none(), "binding data not allowed");
-                f(&self.realm, this_value, args).err()
-            },
-            Callback::CFuncMagic(f) => unsafe {
-                // debug_assert!(data.is_none(), "binding data not allowed");
-                f(&self.realm, this_value, args, self.magic as i32).err()
-            },
         };
 
         // Binding data could be updated inside callback,
@@ -238,8 +218,8 @@ impl NativeFunction {
             return Err(-1);
         }
 
-        // make a new stack frame to run native function.
-        // push it as current_stack_from during running, and pop to previouse when calling is done.
+        // make a new stack frame to call native function.
+        // push it as current_stack_from during running, and pop to restore previouse when calling exits.
         let mut stack_frame = StackFrame::new(nfunc.into(), ExecMode::empty());
         rt.push_stack_frame(NonNull::from_ref(&stack_frame));
         defer!({
@@ -247,7 +227,7 @@ impl NativeFunction {
         });
 
         if args.len() < args_length {
-            // copy arguments to local buffer
+            // copy arguments to frame's local buffer
             stack_frame
                 .local_buf
                 .try_reserve_exact(args_length)
@@ -274,8 +254,8 @@ impl NativeFunction {
             stack_frame.arg_base_ptr = args.as_ptr() as *mut JSValue;
         }
 
-        // Note: ret_val could be allocated in `stack_frame` gc scope,
-        // must promote ret_val and binding_data (if any) before stack_frame drop.
+        // Note: return value could be allocated in `stack_frame` gc scope,
+        // must promote return value and binding_data (if any) before stack_frame drop.
         let xref_scope = stack_frame
             .parent_mut()
             .map_or(rt.gc_root_scope, |up| up.init_gc_scope());
@@ -284,7 +264,6 @@ impl NativeFunction {
             .payload_mut()
             .call(this_obj, stack_frame.arg_values(), flags, xref_scope)
 
-        // // run callback
         // let ret_val: JSResult = {
         //     let mut cc = CallContext::new(
         //         realm,
@@ -490,7 +469,7 @@ impl ContextImpl {
         length: u8,
         magic: i16,
         binding_data: Option<Box<[JSValue]>>,
-    ) -> Result<Object, i32> {
+    ) -> Result<NativeFunction, i32> {
         NativeFunction::create(
             self,
             callback,
@@ -512,16 +491,7 @@ impl ContextImpl {
         name: &str,
         length: u8,
         magic: i16,
-    ) -> Result<Object, i32> {
-        NativeFunction::create(
-            self,
-            callback,
-            name,
-            length,
-            magic,
-            Some(self.function_proto()),
-            None,
-        )
-        .map(|x| x.into())
+    ) -> Result<NativeFunction, i32> {
+        Self::create_native_function_with_data(self, callback, name, length, magic, None)
     }
 }

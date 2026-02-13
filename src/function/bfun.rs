@@ -295,7 +295,7 @@ pub fn js_function_set_properties(ctx: &ContextImpl, mut func_obj: Object, name:
     );
 }
 
-pub fn js_function_proto(_: CallContext) -> JSResult {
+pub(crate) const fn js_function_proto(_: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 

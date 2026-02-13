@@ -233,7 +233,7 @@ impl TypedArray {
                 &name,
                 3,
                 cid as i16, // magic
-                Some(typed_array_base_func),
+                Some(typed_array_base_func.into()),
                 None,
             )?
             .into();

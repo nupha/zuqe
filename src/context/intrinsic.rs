@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_GENERATOR,
     JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_STRING,
-    JS_CLASS_STRING_ITERATOR, Object,
+    JS_CLASS_STRING_ITERATOR,
     atom::Atom,
     builtins::{
         array::{
@@ -157,7 +157,7 @@ impl ContextPtr {
                     1
                 },
                 i as _, // magic
-                Some(ctor),
+                Some(ctor.into()),
                 None,
             )
             .unwrap();

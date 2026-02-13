@@ -218,7 +218,7 @@ impl Proxy {
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
 
-        Ok(Some(proto))
+        Ok(Some(proto.into()))
     }
 
     pub fn class_call(
