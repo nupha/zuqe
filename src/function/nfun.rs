@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
@@ -102,6 +102,104 @@ impl NFuncPayload {
     pub fn data(&self, nth: usize) -> Option<JSValue> {
         self.data.as_ref().and_then(|x| x.get(nth).copied())
     }
+
+    /// Call native callback
+    fn call(
+        &mut self,
+        this_value: JSValue,
+        args: &[JSValue],
+        flags: i32,
+        xref_scope: GcPartitionId,
+    ) -> JSResult {
+        let mut cc = CallContext::new(
+            self.realm,
+            this_value,
+            args,
+            self.magic as _,
+            self.data.as_deref_mut(),
+        );
+
+        let ret_val: JSResult = match self.callback {
+            Callback::Func(f) => f(cc),
+            Callback::Getter(f) => {
+                debug_assert_eq!(cc.length(), 0);
+                f(cc)
+            }
+            Callback::Setter(f) => {
+                debug_assert_eq!(cc.length(), 1);
+                f(cc)
+            }
+            Callback::IteratorNext(f) => {
+                let mut iter_state = IteratorState::NotDone;
+                let r = f(cc, &mut iter_state);
+                if let Ok(v) = r
+                    && iter_state != IteratorState::NotParsed
+                {
+                    js_create_iterator_result(&self.realm, v, iter_state == IteratorState::Done)
+                } else {
+                    r
+                }
+            }
+            Callback::Constructor(f) => {
+                if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                    self.realm.throw_type_error("must be called with new");
+                    return Err(-1);
+                }
+                f(cc)
+            }
+            Callback::ConstructorOrFunc(f) => {
+                if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                    cc.set_this(JSValue::UNDEFINED); // set this_value to undefined
+                }
+                f(cc)
+            }
+
+            Callback::FF(f) => {
+                //debug_assert!(data.is_none(), "binding data not allowed");
+                cc.arg(0)
+                    .to_f64(&self.realm)
+                    .map(|n| JSValue::from(unsafe { f(n) }))
+            }
+            Callback::FFF(f) => {
+                //debug_assert!(data.is_none(), "binding data not allowed");
+                let d1 = cc.arg(0).to_f64(&self.realm)?;
+                let d2 = cc.arg(1).to_f64(&self.realm)?;
+                Ok(JSValue::from(unsafe { f(d1, d2) }))
+            }
+
+            //
+            // LEGACIES
+            //
+            Callback::CFunc(f) => unsafe {
+                // debug_assert!(data.is_none(), "binding data not allowed");
+                f(&self.realm, this_value, args).err()
+            },
+            Callback::CFuncMagic(f) => unsafe {
+                // debug_assert!(data.is_none(), "binding data not allowed");
+                f(&self.realm, this_value, args, self.magic as i32).err()
+            },
+        };
+
+        // Binding data could be updated inside callback,
+        // promote scope of binding data
+        if let Some(data) = &self.data
+            && !xref_scope.is_null()
+        {
+            debug_assert!(!data.is_empty());
+            for v in data {
+                if let Some(n) = v.gc_node_ptr() {
+                    self.realm.rt_ptr().gc_heap_mut().set_xref(xref_scope, n);
+                }
+            }
+        }
+
+        // promote gc scope of return value
+        if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr) {
+            self.realm.rt_ptr().gc_heap_mut().set_xref(xref_scope, n);
+        }
+
+        ret_val
+    }
 }
 
 /// Native function object
@@ -123,16 +221,15 @@ impl NativeFunction {
         flags: i32,
     ) -> JSResult {
         let mut rt = ctx.rt_ptr();
-        let mut func_obj = Self::try_from(func).unwrap();
+        let mut nfunc = Self::try_from(func).unwrap();
+        debug_assert_eq!(nfunc.class_id(), JS_CLASS_C_FUNCTION);
 
         #[cfg(debug_assertions)]
-        func_obj
-            .gc_node()
-            .debug_assert_node_tree_valid(rt.gc_heap());
+        nfunc.gc_node().debug_assert_node_tree_valid(rt.gc_heap());
 
-        let (realm, callback, args_length, magic) = {
-            let p = func_obj.payload();
-            (p.realm, p.callback, p.length as usize, p.magic)
+        let (realm, args_length) = {
+            let p = nfunc.payload();
+            (p.realm, p.length as usize)
         };
 
         // better to always check stack overflow
@@ -141,11 +238,9 @@ impl NativeFunction {
             return Err(-1);
         }
 
-        // new stack frame
-        let mut stack_frame = StackFrame::new(func_obj.into(), ExecMode::empty());
-
-        // set new stack frame to be the 'current-stack-frame',
-        // setup to perform pop stack frame on function exit.
+        // make a new stack frame to run native function.
+        // push it as current_stack_from during running, and pop to previouse when calling is done.
+        let mut stack_frame = StackFrame::new(nfunc.into(), ExecMode::empty());
         rt.push_stack_frame(NonNull::from_ref(&stack_frame));
         defer!({
             ctx.rt_ptr().pop_stack_frame();
@@ -166,7 +261,7 @@ impl NativeFunction {
                 args.iter()
                     .copied()
                     .chain(std::iter::repeat(JSValue::UNDEFINED))
-                    .take(args_length as usize),
+                    .take(args_length),
             );
             debug_assert_eq!(stack_frame.local_buf.len(), args_length);
 
@@ -179,146 +274,132 @@ impl NativeFunction {
             stack_frame.arg_base_ptr = args.as_ptr() as *mut JSValue;
         }
 
-        // run callback
-        let ret_val: JSResult = {
-            let mut cc = CallContext::new(
-                realm,
-                this_obj,
-                stack_frame.arg_values(),
-                magic as _,
-                func_obj.payload_mut().data.as_deref_mut(),
-            );
+        // Note: ret_val could be allocated in `stack_frame` gc scope,
+        // must promote ret_val and binding_data (if any) before stack_frame drop.
+        let xref_scope = stack_frame
+            .parent_mut()
+            .map_or(rt.gc_root_scope, |up| up.init_gc_scope());
 
-            match callback {
-                Callback::Func(f) => f(cc),
-                Callback::Getter(f) => {
-                    debug_assert_eq!(stack_frame.arg_count, 0);
-                    f(cc)
-                }
-                Callback::Setter(f) => {
-                    debug_assert_eq!(stack_frame.arg_count, 1);
-                    f(cc)
-                }
-                Callback::IteratorNext(f) => {
-                    let mut iter_state = IteratorState::NotDone;
-                    let r = f(cc, &mut iter_state);
-                    if let Ok(v) = r
-                        && iter_state != IteratorState::NotParsed
-                    {
-                        js_create_iterator_result(&realm, v, iter_state == IteratorState::Done)
-                    } else {
-                        r
-                    }
-                }
-                Callback::Constructor(f) => {
-                    if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                        realm.throw_type_error("must be called with new");
-                        return Err(-1);
-                    }
-                    f(cc)
-                }
-                Callback::ConstructorOrFunc(f) => {
-                    if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                        cc.set_this(JSValue::UNDEFINED); // set this_value to undefined
-                    }
-                    f(cc)
-                }
+        nfunc
+            .payload_mut()
+            .call(this_obj, stack_frame.arg_values(), flags, xref_scope)
 
-                Callback::FF(f) => {
-                    //debug_assert!(data.is_none(), "binding data not allowed");
-                    stack_frame.arg_values()[0]
-                        .to_f64(&realm)
-                        .map(|n| JSValue::from(unsafe { f(n) }))
-                }
-                Callback::FFF(f) => {
-                    //debug_assert!(data.is_none(), "binding data not allowed");
-                    let args = stack_frame.arg_values();
-                    let d1 = args[0].to_f64(&realm)?;
-                    let d2 = args[1].to_f64(&realm)?;
+        // // run callback
+        // let ret_val: JSResult = {
+        //     let mut cc = CallContext::new(
+        //         realm,
+        //         this_obj,
+        //         stack_frame.arg_values(),
+        //         magic as _,
+        //         nfunc.payload_mut().data.as_deref_mut(),
+        //     );
 
-                    Ok(JSValue::from(unsafe { f(d1, d2) }))
-                }
+        //     match callback {
+        //         Callback::Func(f) => f(cc),
+        //         Callback::Getter(f) => {
+        //             debug_assert_eq!(stack_frame.arg_count, 0);
+        //             f(cc)
+        //         }
+        //         Callback::Setter(f) => {
+        //             debug_assert_eq!(stack_frame.arg_count, 1);
+        //             f(cc)
+        //         }
+        //         Callback::IteratorNext(f) => {
+        //             let mut iter_state = IteratorState::NotDone;
+        //             let r = f(cc, &mut iter_state);
+        //             if let Ok(v) = r
+        //                 && iter_state != IteratorState::NotParsed
+        //             {
+        //                 js_create_iterator_result(&realm, v, iter_state == IteratorState::Done)
+        //             } else {
+        //                 r
+        //             }
+        //         }
+        //         Callback::Constructor(f) => {
+        //             if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+        //                 realm.throw_type_error("must be called with new");
+        //                 return Err(-1);
+        //             }
+        //             f(cc)
+        //         }
+        //         Callback::ConstructorOrFunc(f) => {
+        //             if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+        //                 cc.set_this(JSValue::UNDEFINED); // set this_value to undefined
+        //             }
+        //             f(cc)
+        //         }
 
-                //
-                // LEGACIES
-                //
-                Callback::CFunc(f) => unsafe {
-                    // debug_assert!(data.is_none(), "binding data not allowed");
-                    f(&realm, this_obj, stack_frame.arg_values()).err()
-                },
-                Callback::CFuncMagic(f) => unsafe {
-                    // debug_assert!(data.is_none(), "binding data not allowed");
-                    f(&realm, this_obj, stack_frame.arg_values(), magic as i32).err()
-                },
-            }
-        };
+        //         Callback::FF(f) => {
+        //             //debug_assert!(data.is_none(), "binding data not allowed");
+        //             stack_frame.arg_values()[0]
+        //                 .to_f64(&realm)
+        //                 .map(|n| JSValue::from(unsafe { f(n) }))
+        //         }
+        //         Callback::FFF(f) => {
+        //             //debug_assert!(data.is_none(), "binding data not allowed");
+        //             let args = stack_frame.arg_values();
+        //             let d1 = args[0].to_f64(&realm)?;
+        //             let d2 = args[1].to_f64(&realm)?;
 
-        // Binding data could be updated inside CallContext,
-        // promote binding data to at least func's gc scope.
-        if let Some(data) = &func_obj.payload().data {
-            let func_scope = func_obj.gc_node().scope_id();
-            for v in data {
-                if let Some(n) = v.gc_node_ptr() {
-                    ctx.rt_ptr().gc_heap_mut().set_xref(func_scope, n);
-                }
-            }
-        }
+        //             Ok(JSValue::from(unsafe { f(d1, d2) }))
+        //         }
 
-        // promote return value gc scope.
-        if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr)
-            && unsafe { n.as_ref().scope_id() == stack_frame.gc_scope_id }
-        {
-            // `ret_val` was allocated in `stack_frame` gc scope, the `stack_frame` will be dropped at exit,
-            // promote `ret_val` to upper scope
-            let xref = stack_frame
-                .parent_mut()
-                .map_or(rt.gc_root_scope, |up| up.init_gc_scope());
+        //         //
+        //         // LEGACIES
+        //         //
+        //         Callback::CFunc(f) => unsafe {
+        //             // debug_assert!(data.is_none(), "binding data not allowed");
+        //             f(&realm, this_obj, stack_frame.arg_values()).err()
+        //         },
+        //         Callback::CFuncMagic(f) => unsafe {
+        //             // debug_assert!(data.is_none(), "binding data not allowed");
+        //             f(&realm, this_obj, stack_frame.arg_values(), magic as i32).err()
+        //         },
+        //     }
+        // };
 
-            rt.gc_heap_mut().set_xref(xref, n);
-        }
+        // // Binding data could be updated inside CallContext,
+        // // promote binding data to at least func's gc scope.
+        // if let Some(data) = &nfunc.payload().data {
+        //     let func_scope = nfunc.gc_node().scope_id();
+        //     for v in data {
+        //         if let Some(n) = v.gc_node_ptr() {
+        //             ctx.rt_ptr().gc_heap_mut().set_xref(func_scope, n);
+        //         }
+        //     }
+        // }
 
-        ret_val
+        // // promote return value gc scope.
+        // if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr)
+        //     && unsafe { n.as_ref().scope_id() == stack_frame.gc_scope_id }
+        // {
+        //     // `ret_val` was allocated in `stack_frame` gc scope, the `stack_frame` will be dropped at exit,
+        //     // promote `ret_val` to upper scope
+        //     let xref = stack_frame
+        //         .parent_mut()
+        //         .map_or(rt.gc_root_scope, |up| up.init_gc_scope());
+
+        //     rt.gc_heap_mut().set_xref(xref, n);
+        // }
+
+        // ret_val
     }
 
+    // TODO: shall we combine this with `::class_call()`?
     pub fn class_call_with_data(
-        ctx: Context,
-        mut func_obj: JSValue,
+        _ctx: Context,
+        func_obj: JSValue,
         this_val: JSValue,
         args: &[JSValue],
-        _: i32,
+        _flags: i32,
     ) -> JSResult {
-        let scope = func_obj.gc_node().unwrap().scope_id();
+        let mut nfunc = NativeFunction::try_from(func_obj).unwrap();
+        let nfunc_scope = nfunc.gc_node().scope_id();
 
-        match unsafe { func_obj.as_object_mut_unchecked().payload_mut() } {
-            ObjectPayload::C_FUNCTION_DATA(s) => {
-                if let Callback::Func(cb) = s.callback {
-                    let ret = cb(CallContext::new(
-                        ctx.into(),
-                        this_val,
-                        args,
-                        s.magic as _,
-                        s.data.as_deref_mut(),
-                    ));
+        debug_assert_eq!(nfunc.class_id(), JS_CLASS_C_FUNCTION_DATA);
+        debug_assert!(matches!(nfunc.payload().callback, Callback::Func(_)));
 
-                    // Binding data could be updated inside CallContext,
-                    // promote binding data to at least nfunc's gc scope.
-                    if let Some(data) = &s.data {
-                        for v in data {
-                            if let Some(n) = v.gc_node_ptr() {
-                                ctx.rt_ptr().gc_heap_mut().set_xref(scope, n);
-                            }
-                        }
-                    }
-
-                    ret
-                } else {
-                    unreachable!()
-                }
-            }
-            _ => {
-                unreachable!()
-            }
-        }
+        nfunc.payload_mut().call(this_val, args, 0, nfunc_scope)
     }
 
     /// Create native function object.
