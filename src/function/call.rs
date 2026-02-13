@@ -1,4 +1,7 @@
+use std::ops::{Deref, DerefMut};
+
 use crate::{
+    Context,
     atom::Atom,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
@@ -6,7 +9,125 @@ use crate::{
     value::JSValue,
 };
 
-use super::{CallContext, build_arg_list};
+use super::build_arg_list;
+
+pub struct CallContext<'cc> {
+    ctx: ContextPtr,
+    this_value: JSValue,
+    args: &'cc [JSValue],
+    magic: i32,
+    data: Option<&'cc mut [JSValue]>,
+}
+
+impl<'cc> CallContext<'cc> {
+    pub(crate) const fn new(
+        ctx: ContextPtr,
+        this_value: JSValue,
+        args: &'cc [JSValue],
+        magic: i32,
+        data: Option<&'cc mut [JSValue]>,
+    ) -> Self {
+        Self {
+            ctx,
+            this_value,
+            args,
+            magic,
+            data,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) const fn new_simple(ctx: ContextPtr, this: JSValue, args: &'cc [JSValue]) -> Self {
+        Self::new(ctx, this, args, 0, None)
+    }
+
+    /// Context handle
+    #[inline(always)]
+    pub fn context(&self) -> Context<'cc> {
+        Context::from(self.ctx)
+    }
+
+    #[inline(always)]
+    pub(crate) const fn ctx_ptr(&self) -> ContextPtr {
+        self.ctx
+    }
+
+    #[inline(always)]
+    pub fn ctx(&self) -> &ContextImpl {
+        self.ctx.deref()
+    }
+
+    #[inline(always)]
+    pub fn ctx_mut(&mut self) -> &mut ContextImpl {
+        self.ctx.deref_mut()
+    }
+
+    pub const fn magic(&self) -> i32 {
+        self.magic
+    }
+
+    /// number of actual arguments
+    #[inline(always)]
+    pub const fn length(&self) -> usize {
+        self.args.len()
+    }
+
+    /// get `this` value
+    #[inline(always)]
+    pub const fn this(&self) -> &JSValue {
+        &self.this_value
+    }
+
+    /// get `this` value ref
+    #[inline(always)]
+    pub const fn this_mut(&mut self) -> &mut JSValue {
+        &mut self.this_value
+    }
+
+    /// set new `this` value, drop old `this`.
+    pub(crate) const fn set_this(&mut self, this_val: JSValue) {
+        self.this_value = this_val;
+    }
+
+    /// get `nth` argument, fail-safe to JSValue::UNDEFINED.
+    #[inline(always)]
+    pub fn arg(&self, nth: usize) -> &JSValue {
+        self.args.get(nth).unwrap_or(&JSValue::UNDEFINED)
+    }
+
+    /// get argument values slice
+    #[inline(always)]
+    pub const fn arguments(&self) -> &[JSValue] {
+        self.args
+    }
+
+    /// get `nth` bound data.
+    #[inline]
+    pub fn data(&self, nth: usize) -> JSValue {
+        self.data
+            .as_ref()
+            .and_then(|d| d.get(nth).cloned())
+            .unwrap_or(JSValue::UNDEFINED)
+    }
+
+    /// number of bound data values
+    #[inline]
+    pub fn data_len(&self) -> usize {
+        self.data.as_ref().map(|d| d.len()).unwrap_or(0)
+    }
+
+    /// Replace nth binding data with new `val`, returns the old value.
+    /// returns `None` if `nth` is out of range.
+    pub fn replace_data(&mut self, nth: usize, val: JSValue) -> Option<JSValue> {
+        if let Some(lst) = self.data.as_deref_mut()
+            && nth < lst.len()
+        {
+            return Some(std::mem::replace(&mut lst[nth], val));
+        }
+
+        None
+    }
+}
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]

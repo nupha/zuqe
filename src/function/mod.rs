@@ -5,7 +5,6 @@ mod bfun;
 mod bound;
 mod bytecode;
 mod call;
-mod cc;
 mod closure;
 mod cpool;
 mod emit;
@@ -25,8 +24,8 @@ mod var;
 mod var_ref;
 
 pub use {
-    afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, cc::*, fdef::*,
-    fields::*, label::*, nfun::*, optimize::*, scope::*, var::*, var_ref::*,
+    afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, fdef::*, fields::*,
+    label::*, nfun::*, optimize::*, scope::*, var::*, var_ref::*,
 };
 
 pub(crate) use {closure::*, emit::*};

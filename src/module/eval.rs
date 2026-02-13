@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use crate::{
     Callback, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
@@ -417,7 +415,7 @@ impl ModuleDef {
                             JSValue::UNDEFINED,
                             std::slice::from_ref(&e),
                             0,
-                            Some(Rc::new(RefCell::new([JSValue::Module(m)].into()))),
+                            Some(&mut [JSValue::Module(m)]),
                         ))?;
                     }
                 }
@@ -458,12 +456,13 @@ impl ModuleDef {
         md.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
 
         for m in md.async_parent_modules.iter() {
+            let mut data = [JSValue::Module(*m)];
             let cc = CallContext::new(
                 cc.ctx_ptr(),
                 JSValue::UNDEFINED,
                 std::slice::from_ref(err_val),
                 0,
-                Some(Rc::new(RefCell::new([JSValue::Module(*m)].into()))),
+                Some(&mut data),
             );
             Self::execute_async_rejected(cc).unwrap();
         }
