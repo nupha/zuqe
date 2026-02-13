@@ -9,7 +9,6 @@ use crate::{
     context::{Context, ContextImpl, ContextPtr},
     defer,
     error::JSResult,
-    function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     runtime::js_check_stack_overflow,
@@ -17,7 +16,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::js_function_set_properties;
+use super::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR, js_function_set_properties};
 
 pub type CallbackFn = fn(cc: CallContext) -> JSResult;
 pub type GetterFn = fn(cc: CallContext) -> JSResult;
@@ -80,10 +79,10 @@ impl PartialEq for Callback {
 /// object payload for native function
 #[derive(Debug)]
 pub(crate) struct NFuncPayload {
-    pub(crate) realm: ContextPtr,
     pub(crate) callback: Callback,
     pub(crate) length: u8,
     pub(crate) magic: i16,
+    pub(crate) realm: ContextPtr,
 
     /// binding values attached to native func
     pub(crate) data: Option<Rc<RefCell<Box<[JSValue]>>>>,
@@ -125,15 +124,16 @@ impl NativeFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let func_obj = Object::try_from(func).unwrap();
         let mut rt = ctx.rt_ptr();
+
+        let func_obj = Self::try_from(func).unwrap();
 
         #[cfg(debug_assertions)]
         func_obj
             .gc_node()
             .debug_assert_node_tree_valid(rt.gc_heap());
 
-        let nfunc = func_obj.payload().native_func().unwrap();
+        let nfunc = func_obj.payload();
         let realm = nfunc.realm;
         let magic = nfunc.magic;
         let data = nfunc.data.clone();
@@ -145,7 +145,7 @@ impl NativeFunction {
         }
 
         // new stack frame
-        let mut stack_frame = StackFrame::new(func_obj, ExecMode::empty());
+        let mut stack_frame = StackFrame::new(func_obj.into(), ExecMode::empty());
 
         // set new stack frame to be the 'current-stack-frame',
         // setup to perform pop stack frame on function exit.
@@ -260,6 +260,18 @@ impl NativeFunction {
             },
         };
 
+        // Binding data could be updated inside CallContext,
+        // promote binding data to at least func's gc scope.
+        if let Some(data) = &nfunc.data {
+            let func_scope = func_obj.gc_node().scope_id();
+            for v in data.borrow().iter() {
+                if let Some(n) = v.gc_node_ptr() {
+                    ctx.rt_ptr().gc_heap_mut().set_xref(func_scope, n);
+                }
+            }
+        }
+
+        // promote return value gc scope.
         if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr)
             && unsafe { n.as_ref().scope_id() == stack_frame.gc_scope_id }
         {
@@ -285,13 +297,26 @@ impl NativeFunction {
         match unsafe { func_obj.as_object_unchecked().payload() } {
             ObjectPayload::C_FUNCTION_DATA(s) => {
                 if let Callback::Func(cb) = s.callback {
-                    cb(CallContext::new(
+                    let ret = cb(CallContext::new(
                         ctx.into(),
                         this_val,
                         args,
                         s.magic as _,
                         s.data.clone(),
-                    ))
+                    ));
+
+                    // Binding data could be updated inside CallContext,
+                    // promote binding data to at least nfunc's gc scope.
+                    if let Some(data) = &s.data {
+                        let scope = func_obj.gc_node().unwrap().scope_id();
+                        for v in data.borrow().iter() {
+                            if let Some(n) = v.gc_node_ptr() {
+                                ctx.rt_ptr().gc_heap_mut().set_xref(scope, n);
+                            }
+                        }
+                    }
+
+                    ret
                 } else {
                     unreachable!()
                 }
@@ -345,6 +370,11 @@ impl NativeFunction {
         js_function_set_properties(ctx, func_obj, name_atom, length as i32);
 
         Ok(Self(func_obj.gc_ref()))
+    }
+
+    #[inline(always)]
+    pub(crate) fn payload(&self) -> &NFuncPayload {
+        self.0.payload().native_func().unwrap()
     }
 }
 

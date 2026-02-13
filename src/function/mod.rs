@@ -5,7 +5,7 @@ mod bfun;
 mod bound;
 mod bytecode;
 mod call;
-mod callback;
+mod cc;
 mod closure;
 mod cpool;
 mod emit;
@@ -13,6 +13,7 @@ mod fdef;
 mod fields;
 mod label;
 mod mkbc;
+mod nfun;
 mod optimize;
 mod resolve_labels;
 mod resolve_scoped_private;
@@ -24,8 +25,8 @@ mod var;
 mod var_ref;
 
 pub use {
-    afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, callback::*, fdef::*,
-    fields::*, label::*, optimize::*, scope::*, var::*, var_ref::*,
+    afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, cc::*, fdef::*,
+    fields::*, label::*, nfun::*, optimize::*, scope::*, var::*, var_ref::*,
 };
 
 pub(crate) use {closure::*, emit::*};

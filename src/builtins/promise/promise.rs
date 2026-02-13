@@ -113,7 +113,7 @@ unsafe impl GcTracable for Promise {
 }
 
 impl Promise {
-    /// create new Promise object with given executor function.
+    /// create Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
     /// `executor` must be a callable object.
     fn from_executor(ctx: &ContextImpl, executor: Object, ctor: JSValue) -> Result<Self, i32> {
@@ -133,6 +133,7 @@ impl Promise {
         );
 
         let rr = promise.create_resolving_functions(ctx)?;
+
         if executor.call(ctx, JSValue::UNDEFINED, &rr).is_err() {
             let exc = ctx.rt_ptr().take_exception();
             rr[1].call(ctx, JSValue::UNDEFINED, &[exc])?;
@@ -173,17 +174,14 @@ impl Promise {
 
         // collect resolving functions
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-        if let Some(s) = executor.payload().native_func() {
-            for i in 0..2 {
-                let item = s.data(i).unwrap();
-                item.ensure_function(ctx)?;
-                resolving_funcs[i] = item;
-            }
-
-            Ok((promise, resolving_funcs))
-        } else {
-            unreachable!()
+        let s = executor.payload();
+        for i in 0..2 {
+            let item = s.data(i).unwrap();
+            item.ensure_function(ctx)?;
+            resolving_funcs[i] = item;
         }
+
+        Ok((promise, resolving_funcs))
     }
 
     /// create default Promise and its associated resolving functions.
@@ -196,18 +194,17 @@ impl Promise {
         })
     }
 
-    /// create \[resolve, reject\] function pairs for `self` promise object.
+    /// create and returns \[resolve, reject\] function pairs for `self` promise object.
     pub(super) fn create_resolving_functions(
         &self,
         ctx: &ContextImpl,
     ) -> Result<[JSValue; 2], i32> {
-        // [resolve, reject]
-        let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
+        let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED]; // [resolve, reject]
         let resolved_flag = Rc::new(Cell::new(false));
         let func_proto = ctx.function_proto();
 
         for i in 0..2 {
-            let s = Box::new(PromiseResolvePayload {
+            let p = Box::new(PromiseResolvePayload {
                 promise: *self,
                 resolved: resolved_flag.clone(), // flag is shared between two functions
             });
@@ -215,9 +212,9 @@ impl Promise {
                 .create_object_with_proto(
                     Some(func_proto),
                     if i == 0 {
-                        ObjectPayload::PROMISE_RESOLVE_FUNCTION(s)
+                        ObjectPayload::PROMISE_RESOLVE_FUNCTION(p)
                     } else {
-                        ObjectPayload::PROMISE_REJECT_FUNCTION(s)
+                        ObjectPayload::PROMISE_REJECT_FUNCTION(p)
                     },
                 )
                 .map_err(|_| -1)?;

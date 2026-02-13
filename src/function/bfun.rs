@@ -9,7 +9,6 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     error::JSResult,
     eval::{EvalFlags, EvalType},
-    function::{Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, VarRef},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ObjectImpl,
         ObjectPayload,
@@ -19,6 +18,8 @@ use crate::{
     stack_frame::StackFrame,
     value::JSValue,
 };
+
+use super::{Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, VarRef};
 
 /// Special index for argument scope.
 /// This is same to `FunctionDef::body_scope`, which was automatically pushed
