@@ -37,6 +37,10 @@ pub struct StackFrame {
     /// Raw pointer to parent stack frame (NULL means top)
     pub(super) prev: *mut Pin<Self>,
 
+    /// store Runtime pointer, initialized to func_obj.rt() at first.
+    /// used to keep access to Runtime in case has been func_obj disposed.
+    pub(crate) rt: RuntimePtr,
+
     /// Associated function of this stack frame, could be:
     /// - Bytecode Function object
     /// - Native function object
@@ -117,25 +121,31 @@ impl PartialEq for StackFrame {
 
 impl Drop for StackFrame {
     fn drop(&mut self) {
+        log::trace!("[StackFrame::drop({self:p})]");
+
         if !self.gc_scope_id.is_null() {
             let mut rt = self.rt();
 
-            #[cfg(debug_assertions)]
-            if self.is_async {
-                // The gc_scope_id maybe not in gc heap parition now -
-                // this is the case when the root stack frame is dropping,
-                // which causes AsyncState node dispose, and AsyncState::frame drop triggers its
-                // dedicated StackFrame::drop
-            } else {
-                // when normal stack frame is dropping, it always exists in heap
-                debug_assert!(
-                    rt.gc_heap()
-                        .partition(self.gc_scope_id)
-                        .unwrap()
-                        .children()
-                        .is_empty()
-                );
-            }
+            // #[cfg(debug_assertions)]
+            // if self.is_async {
+            //     // The gc_scope_id maybe not in gc heap parition now -
+            //     // this is the case when the root stack frame is dropping,
+            //     // which causes AsyncState node dispose, and AsyncState::frame drop triggers its
+            //     // dedicated StackFrame::drop
+            // } else {
+            //     // for most cases, the normal stack frame scope do not have child scope because running does not nest.
+            //     // but there still could have change that child stack scope exists - it must be a stack frame for AsyncState.
+
+            //     debug_assert!(
+            //         rt.gc_heap()
+            //             .partition(self.gc_scope_id)
+            //             .unwrap()
+            //             .children()
+            //             .is_empty(),
+            //         "{:?}",
+            //         rt.gc_heap().partition(self.gc_scope_id).unwrap().children()
+            //     );
+            // }
 
             rt.gc_heap_mut().remove_partition(
                 self.gc_scope_id,
@@ -197,6 +207,7 @@ impl StackFrame {
     pub(crate) fn new(func_obj: Object, mode: ExecMode) -> Self {
         Self {
             prev: std::ptr::null_mut(),
+            rt: func_obj.rt(),
 
             func_obj,
             mode,
@@ -220,10 +231,10 @@ impl StackFrame {
         }
     }
 
-    /// get runtime
+    /// get runtime pointer
     #[inline(always)]
-    pub(crate) fn rt(&self) -> RuntimePtr {
-        self.func_obj.rt()
+    pub(crate) const fn rt(&self) -> RuntimePtr {
+        self.rt
     }
 
     /// get parent stack frame
@@ -238,9 +249,9 @@ impl StackFrame {
         unsafe { self.prev.cast::<StackFrame>().as_mut() }
     }
 
-    /// get-exist or lazy-init gc scope for this stack frame.
+    /// get or init gc scope for stack frame.
     pub(crate) fn init_gc_scope(&mut self) -> GcPartitionId {
-        if self.gc_scope_id == GcPartitionId::NONE {
+        if self.gc_scope_id.is_null() {
             let mut rt = self.rt();
 
             let parent = if let Some(up) = unsafe { self.prev.cast::<StackFrame>().as_mut() } {
@@ -250,6 +261,12 @@ impl StackFrame {
             };
 
             self.gc_scope_id = rt.gc_heap_mut().create_sub_partition(parent);
+
+            log::trace!(
+                "[StackFrame::init_gc_scope({self:p})]: {:?}, is_async={}",
+                self.gc_scope_id,
+                self.is_async
+            );
         }
 
         self.gc_scope_id

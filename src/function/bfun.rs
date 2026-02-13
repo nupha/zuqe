@@ -317,7 +317,7 @@ impl BytecodeFunction {
     }
 
     /// call bytecode function
-    pub fn call(
+    pub(super) fn call(
         mut self,
         caller_ctx: &ContextImpl,
         this_obj: JSValue,
@@ -408,7 +408,7 @@ impl BytecodeFunction {
         stack_frame.var_count = bc.var_count;
 
         let bf = self.payload_mut();
-        let ret = bc
+        let ret_val = bc
             .run(
                 caller_ctx,
                 bf.home_object,
@@ -431,7 +431,7 @@ impl BytecodeFunction {
             }
         }
 
-        ret
+        ret_val
     }
 
     /// handle `Function` constructor. For example:

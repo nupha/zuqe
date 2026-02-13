@@ -158,7 +158,6 @@ impl Object {
         ctx.poll_interrupts()?;
 
         let ret_val = if let Some(bf) = self.as_BytecodeFunction() {
-            // run bytecode function
             bf.call(ctx, this_obj, new_target, args, flags)
         } else if let Some(cb) = unsafe {
             ctx.rt_ptr()
