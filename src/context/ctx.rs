@@ -110,7 +110,7 @@ unsafe impl GcTracable for ContextImpl {
         self.loaded_modules.iter().for_each(|x| x.trace(tr));
 
         // pending jobs
-        self.job_list.iter().for_each(|x| x.gc_trace(tr));
+        self.job_list.iter().for_each(|x| x.trace(tr));
     }
 }
 

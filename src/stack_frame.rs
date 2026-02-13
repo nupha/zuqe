@@ -126,26 +126,11 @@ impl Drop for StackFrame {
         if !self.gc_scope_id.is_null() {
             let mut rt = self.rt();
 
-            // #[cfg(debug_assertions)]
-            // if self.is_async {
-            //     // The gc_scope_id maybe not in gc heap parition now -
-            //     // this is the case when the root stack frame is dropping,
-            //     // which causes AsyncState node dispose, and AsyncState::frame drop triggers its
-            //     // dedicated StackFrame::drop
-            // } else {
-            //     // for most cases, the normal stack frame scope do not have child scope because running does not nest.
-            //     // but there still could have change that child stack scope exists - it must be a stack frame for AsyncState.
-
-            //     debug_assert!(
-            //         rt.gc_heap()
-            //             .partition(self.gc_scope_id)
-            //             .unwrap()
-            //             .children()
-            //             .is_empty(),
-            //         "{:?}",
-            //         rt.gc_heap().partition(self.gc_scope_id).unwrap().children()
-            //     );
-            // }
+            // Note:
+            // 1. For async frames: gc_scope_id may already be removed from GC heap when the root frame drops,
+            // causing AsyncState disposal which triggers its dedicated StackFrame::drop.
+            // 2. For normal frames: in most cases, no child scopes exist (execution doesn't nest),
+            // but a child scope may exist for AsyncState stack frames.
 
             rt.gc_heap_mut().remove_partition(
                 self.gc_scope_id,

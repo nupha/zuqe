@@ -74,6 +74,7 @@ pub struct ModuleDefImpl {
     pub promise: Option<Promise>, /* corresponds to spec field: capability */
     pub resolving_funcs: [JSValue; 2], /* corresponds to spec field: capability */
     pub eval_exception: Option<JSValue>,
+
     /// the `import.meta` object of module
     pub meta_obj: Option<Object>,
 }
@@ -113,7 +114,7 @@ unsafe impl GcTracable for ModuleDefImpl {
 }
 
 impl ModuleDefImpl {
-    fn new(ctx: &ContextImpl, module_name: Atom) -> Self {
+    fn new(_ctx: &ContextImpl, module_name: Atom) -> Self {
         Self {
             module_name,
 
@@ -157,7 +158,7 @@ impl ModuleDefImpl {
         init: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
         let name = Atom::new(ctx.rt_ptr(), name)?;
-        let mut md = ModuleDefImpl::new(ctx, name);
+        let mut md = Self::new(ctx, name);
         md.init_func.replace(Box::new(init));
         Ok(md)
     }

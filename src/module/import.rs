@@ -40,16 +40,28 @@ pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult 
     // cause an unexpected recursion in js_evaluate_module()
     let cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
     let rr = resolving_funcs;
+
     ctx.queue_job_with_gc_trace(
         move || {
             js_dynamic_import_job(cx, resolving_funcs, basename_val, specifier);
             Ok(JSValue::UNDEFINED)
         },
-        move |tracer| {
-            basename_val.trace(tracer);
-            specifier.trace(tracer);
-            rr[0].trace(tracer);
-            rr[1].trace(tracer);
+        {
+            // Note: job tick is performed in root scope,
+            // should promote related gc nodes to root scope.
+            // let root_scope = cx.rt_ref().gc_root_scope;
+            // let heap = cx.rt_mut().gc_heap_mut();
+            // basename_val.set_xref(heap, root_scope);
+            // specifier.set_xref(heap, root_scope);
+            // rr[0].set_xref(heap, root_scope);
+            // rr[1].set_xref(heap, root_scope);
+
+            move |tr| {
+                basename_val.trace(tr);
+                specifier.trace(tr);
+                rr[0].trace(tr);
+                rr[1].trace(tr);
+            }
         },
     );
 

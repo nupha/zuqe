@@ -1,4 +1,4 @@
-use gc_lite::GcTraceOp;
+use gc_lite::{GcTracable, GcTraceOp};
 
 use crate::{context::ContextImpl, error::JSResult, runtime::RuntimeImpl, value::JSValue};
 
@@ -9,17 +9,18 @@ pub(crate) struct Job {
     gc_trace: Option<Box<dyn Fn(GcTraceOp)>>,
 }
 
+unsafe impl GcTracable for Job {
+    fn trace(&self, tr: GcTraceOp) {
+        if let Some(f) = self.gc_trace.as_ref() {
+            f(tr)
+        }
+    }
+}
+
 impl Job {
     #[inline(always)]
     pub fn run(self) -> JSResult {
         (self.run)()
-    }
-
-    #[inline]
-    pub(crate) fn gc_trace(&self, tr: GcTraceOp) {
-        if let Some(f) = self.gc_trace.as_ref() {
-            f(tr)
-        }
     }
 }
 
@@ -28,11 +29,11 @@ impl ContextImpl {
     pub(crate) fn queue_job_with_gc_trace(
         &mut self,
         run: impl FnOnce() -> JSResult + 'static,
-        trace_op: impl Fn(GcTraceOp) + 'static,
+        trace: impl Fn(GcTraceOp) + 'static,
     ) {
         self.job_list.push_back(Job {
             run: Box::new(run),
-            gc_trace: Some(Box::new(trace_op)),
+            gc_trace: Some(Box::new(trace)),
         });
     }
 }

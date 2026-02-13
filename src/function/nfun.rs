@@ -23,14 +23,6 @@ pub type GetterFn = fn(cc: CallContext) -> JSResult;
 pub type SetterFn = fn(cc: CallContext) -> JSResult;
 pub type IteratorFn = fn(cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
 
-pub type JSCFunction = unsafe fn(ctx: &ContextImpl, this_val: JSValue, args: &[JSValue]) -> JSValue;
-pub type JSCFunctionMagic = unsafe fn(
-    ctx: &ContextImpl,
-    this_val: JSValue,
-    args: &[JSValue],
-    magic: ::core::ffi::c_int,
-) -> JSValue;
-
 pub type JSCFunctionFF = unsafe fn(f64) -> f64;
 pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
 
@@ -263,105 +255,6 @@ impl NativeFunction {
         nfunc
             .payload_mut()
             .call(this_obj, stack_frame.arg_values(), flags, xref_scope)
-
-        // let ret_val: JSResult = {
-        //     let mut cc = CallContext::new(
-        //         realm,
-        //         this_obj,
-        //         stack_frame.arg_values(),
-        //         magic as _,
-        //         nfunc.payload_mut().data.as_deref_mut(),
-        //     );
-
-        //     match callback {
-        //         Callback::Func(f) => f(cc),
-        //         Callback::Getter(f) => {
-        //             debug_assert_eq!(stack_frame.arg_count, 0);
-        //             f(cc)
-        //         }
-        //         Callback::Setter(f) => {
-        //             debug_assert_eq!(stack_frame.arg_count, 1);
-        //             f(cc)
-        //         }
-        //         Callback::IteratorNext(f) => {
-        //             let mut iter_state = IteratorState::NotDone;
-        //             let r = f(cc, &mut iter_state);
-        //             if let Ok(v) = r
-        //                 && iter_state != IteratorState::NotParsed
-        //             {
-        //                 js_create_iterator_result(&realm, v, iter_state == IteratorState::Done)
-        //             } else {
-        //                 r
-        //             }
-        //         }
-        //         Callback::Constructor(f) => {
-        //             if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-        //                 realm.throw_type_error("must be called with new");
-        //                 return Err(-1);
-        //             }
-        //             f(cc)
-        //         }
-        //         Callback::ConstructorOrFunc(f) => {
-        //             if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-        //                 cc.set_this(JSValue::UNDEFINED); // set this_value to undefined
-        //             }
-        //             f(cc)
-        //         }
-
-        //         Callback::FF(f) => {
-        //             //debug_assert!(data.is_none(), "binding data not allowed");
-        //             stack_frame.arg_values()[0]
-        //                 .to_f64(&realm)
-        //                 .map(|n| JSValue::from(unsafe { f(n) }))
-        //         }
-        //         Callback::FFF(f) => {
-        //             //debug_assert!(data.is_none(), "binding data not allowed");
-        //             let args = stack_frame.arg_values();
-        //             let d1 = args[0].to_f64(&realm)?;
-        //             let d2 = args[1].to_f64(&realm)?;
-
-        //             Ok(JSValue::from(unsafe { f(d1, d2) }))
-        //         }
-
-        //         //
-        //         // LEGACIES
-        //         //
-        //         Callback::CFunc(f) => unsafe {
-        //             // debug_assert!(data.is_none(), "binding data not allowed");
-        //             f(&realm, this_obj, stack_frame.arg_values()).err()
-        //         },
-        //         Callback::CFuncMagic(f) => unsafe {
-        //             // debug_assert!(data.is_none(), "binding data not allowed");
-        //             f(&realm, this_obj, stack_frame.arg_values(), magic as i32).err()
-        //         },
-        //     }
-        // };
-
-        // // Binding data could be updated inside CallContext,
-        // // promote binding data to at least func's gc scope.
-        // if let Some(data) = &nfunc.payload().data {
-        //     let func_scope = nfunc.gc_node().scope_id();
-        //     for v in data {
-        //         if let Some(n) = v.gc_node_ptr() {
-        //             ctx.rt_ptr().gc_heap_mut().set_xref(func_scope, n);
-        //         }
-        //     }
-        // }
-
-        // // promote return value gc scope.
-        // if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr)
-        //     && unsafe { n.as_ref().scope_id() == stack_frame.gc_scope_id }
-        // {
-        //     // `ret_val` was allocated in `stack_frame` gc scope, the `stack_frame` will be dropped at exit,
-        //     // promote `ret_val` to upper scope
-        //     let xref = stack_frame
-        //         .parent_mut()
-        //         .map_or(rt.gc_root_scope, |up| up.init_gc_scope());
-
-        //     rt.gc_heap_mut().set_xref(xref, n);
-        // }
-
-        // ret_val
     }
 
     // TODO: shall we combine this with `::class_call()`?
@@ -479,7 +372,6 @@ impl ContextImpl {
             Some(self.function_proto()),
             binding_data,
         )
-        .map(|x| x.into())
     }
 
     /// Create native function object with callback, using function proto as proto object.

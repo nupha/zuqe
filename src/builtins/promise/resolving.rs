@@ -1,6 +1,6 @@
 use std::{cell::Cell, ops::DerefMut, rc::Rc};
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
@@ -144,6 +144,23 @@ impl Default for PromiseReaction {
     }
 }
 
+// impl PromiseReaction {
+//     /// promote gc cross ref scope for nodes in reaction
+//     pub(super) fn set_xref(&self, ctx: &mut ContextImpl, xref: GcPartitionId) {
+//         let heap = ctx.rt_mut().gc_heap_mut();
+
+//         if let Some(n) = self.resolving_funcs[0].gc_node_ptr() {
+//             heap.set_xref(xref, n);
+//         }
+//         if let Some(n) = self.resolving_funcs[1].gc_node_ptr() {
+//             heap.set_xref(xref, n);
+//         }
+//         if let Some(n) = self.handler.gc_node_ptr() {
+//             heap.set_xref(xref, n);
+//         }
+//     }
+// }
+
 impl Promise {
     /// Add a chained reaction to Promise.
     ///
@@ -168,7 +185,6 @@ impl Promise {
                 }
             },
         };
-
         let fail = PromiseReaction {
             resolving_funcs: cap_resolving_funcs,
             handler: {
@@ -204,35 +220,41 @@ impl Promise {
                     );
                 }
 
-                let action = if state == PromiseState::Fulfilled {
+                let act = if state == PromiseState::Fulfilled {
                     success
                 } else {
                     fail
                 };
 
-                // add to job list
-                {
-                    let is_reject = state == PromiseState::Rejected;
-                    let cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
+                // add a job to poll promise reaction in runtime tick
+                let is_reject = state == PromiseState::Rejected;
+                let mut cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
+                ctx.queue_job_with_gc_trace(
+                    move || {
+                        let mut raw = cx;
 
-                    ctx.queue_job_with_gc_trace(
-                        move || {
-                            let mut raw = cx;
+                        promise_reaction_job(
+                            raw.deref_mut(),
+                            act.resolving_funcs,
+                            act.handler,
+                            is_reject,
+                            result,
+                        )
+                    },
+                    {
+                        // Note: job tick is performed in root scope,
+                        // should promote related gc nodes to root scope.
+                        let root_scope = cx.rt_ref().gc_root_scope;
+                        let heap = cx.rt_mut().gc_heap_mut();
+                        act.set_xref(heap, root_scope);
+                        result.set_xref(heap, root_scope);
 
-                            promise_reaction_job(
-                                raw.deref_mut(),
-                                action.resolving_funcs,
-                                action.handler,
-                                is_reject,
-                                result,
-                            )
-                        },
                         move |tr| {
-                            action.trace(tr);
+                            act.trace(tr);
                             result.trace(tr);
-                        },
-                    );
-                }
+                        }
+                    },
+                );
             }
         }
 
@@ -265,6 +287,7 @@ impl Promise {
         is_reject: bool,
     ) {
         let (state, is_handled) = {
+            let xref = self.gc_node().scope_id();
             let p = self.payload_mut();
             debug_assert_eq!(p.state(), PromiseState::Pending);
 
@@ -275,6 +298,9 @@ impl Promise {
             };
             p.set_state(s);
             p.set_result(value);
+
+            // promote value's gc scope to same level of Promise
+            value.set_xref(ctx.rt_ptr().gc_heap_mut(), xref);
 
             (s, p.is_handled())
         };
@@ -294,25 +320,33 @@ impl Promise {
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
         let mut reactions = self.payload_mut().take_reactions();
-        let ctx2 = ctx;
+        let cx = ctx;
 
         for act in reactions[is_reject as usize].drain(..) {
             // queue reaction in job list to resolve in next tick
             ctx.queue_job_with_gc_trace(
                 move || {
-                    let mut raw = ctx2;
+                    let mut raw = cx;
 
                     promise_reaction_job(
-                        raw.deref_mut(),
+                        &mut raw,
                         act.resolving_funcs,
                         act.handler,
                         is_reject,
                         value,
                     )
                 },
-                move |tr| {
-                    value.trace(tr);
-                    act.trace(tr);
+                {
+                    // Note: tick is performed in root scope,
+                    // should promote related gc nodes to root scope.
+                    let root_scope = cx.rt_ref().gc_root_scope;
+                    value.set_xref(cx.rt_ptr().gc_heap_mut(), root_scope);
+                    act.set_xref(cx.rt_ptr().gc_heap_mut(), root_scope);
+
+                    move |tr| {
+                        value.trace(tr);
+                        act.trace(tr);
+                    }
                 },
             );
         }

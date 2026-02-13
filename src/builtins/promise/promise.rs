@@ -72,7 +72,7 @@ impl PromiseData {
     }
 
     #[inline(always)]
-    pub(crate) const fn set_result(&mut self, val: JSValue) {
+    pub(super) const fn set_result(&mut self, val: JSValue) {
         self.result = val;
     }
 
