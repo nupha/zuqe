@@ -315,9 +315,8 @@ impl RuntimeImpl {
         );
 
         if self.cur_stack_frame.is_null() {
-            #[cfg(debug_assert)]
+            #[cfg(debug_assertions)]
             debug_assert_eq!(self.stack_depth, 0);
-            
             self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
         } else {
             unsafe {
