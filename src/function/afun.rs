@@ -6,7 +6,7 @@ use crate::{
     class::ClassID,
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
-    function::{AsyncState, BCFunction, BytecodeFunction, Callback, FunctionKind, NativeFunction},
+    function::{AsyncState, BCWrapper, BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
@@ -60,9 +60,9 @@ impl AsyncFunction {
     }
 }
 
-impl BCFunction {
-    /// call bytecode function in async manner
-    pub(crate) fn call_async(
+impl BCWrapper {
+    /// run bytecode in async manner
+    fn execute_async(
         &self,
         ctx: &mut ContextImpl,
         this_obj: JSValue,
@@ -70,27 +70,14 @@ impl BCFunction {
         _flags: i32,
     ) -> Result<Promise, i32> {
         let (promise, resolving_funcs) = Promise::create(ctx)?;
-
-        // build Async state for execution
         let mut a_state = AsyncState::new(ctx, resolving_funcs, *self, this_obj, args)?;
-
-        // IMPORTANT!
-        // During opcode execution loop, GC collection may occur.
-        // Async state is also a GC object, to avoid it being collected,
-        // we temporarily set it as GC root.
-        // When execution completes, remove it from roots.
-        // ctx.rt_mut().gc_heap_mut().set_root(a_state.gc_ref(), true);
-        // a_state.run_async_function(ctx); // <-- GC collection may occur inside
-        // ctx.rt_mut().gc_heap_mut().set_root(a_state.gc_ref(), false);
-
-        a_state.run_async_function(ctx);
-
+        a_state.execute(ctx);
         Ok(promise)
     }
 }
 
 impl JSValue {
-    /// if value is a bytecode function, call it in async manner
+    /// if value is function object, call it in async manner
     pub(crate) fn call_async(
         &self,
         ctx: &mut ContextImpl,
@@ -98,10 +85,10 @@ impl JSValue {
         args: &[JSValue],
         flags: i32,
     ) -> Result<Promise, i32> {
-        if let Some(bc) = self.as_object_BCFunction() {
-            bc.call_async(ctx, this_obj, args, flags)
+        if let Some(bc) = self.as_object_BCWrapper() {
+            bc.execute_async(ctx, this_obj, args, flags)
         } else {
-            ctx.throw_type_error("not a bytecode function");
+            ctx.throw_type_error("not bytecode function");
             Err(-1)
         }
     }
@@ -137,15 +124,16 @@ impl AsyncState {
             });
         }
 
-        a_state.run_async_function(&mut ctx);
+        a_state.execute(&mut ctx);
+
         Ok(JSValue::UNDEFINED)
     }
 
-    fn run_async_function(&mut self, ctx: &mut ContextImpl) {
-        let func_ret = self.resume(ctx);
+    fn execute(&mut self, ctx: &mut ContextImpl) {
+        let ret = self.resume(ctx);
 
         if self.is_completed {
-            match func_ret {
+            match ret {
                 Ok(val) => {
                     // Normal function return
                     let func = self.resolving_funcs[0]; // resolve 
@@ -158,21 +146,21 @@ impl AsyncState {
                 }
             }
         } else {
-            // Retrieve value from stack top: SP[-1]
+            // Retrieve value at stack top
             let value = unsafe {
                 std::ptr::replace(
-                    self.stack_frame.stack_cur_ptr().offset(-1).as_ptr(),
+                    self.stack_frame.stack_cur_ptr().offset(-1).as_ptr(), // SP[-1]
                     JSValue::UNDEFINED,
                 )
             };
 
             // Handle await expression
-            let mut promise = if let Ok(p) = js_promise_resolve(CallContext::new_simple(
+            let mut promise = if let Ok(v) = js_promise_resolve(CallContext::new_simple(
                 unsafe { ContextPtr::from_ref_unchecked(ctx) },
                 ctx.promise_ctor,
                 std::slice::from_ref(&value),
             )) {
-                Promise::try_from(p).unwrap()
+                Promise::try_from(v).unwrap()
             } else {
                 let exc = ctx.rt_ptr().take_exception();
                 let rej = self.resolving_funcs[1];

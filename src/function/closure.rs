@@ -4,14 +4,14 @@ use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
     atom::Atom,
     context::ContextImpl,
-    function::{
-        BCFunction, BFuncPayload, Bytecode, FunctionKind, VarRef, js_function_set_properties,
-    },
     object::{JS_PROP_WRITABLE, LazyInit, Object, ObjectPayload},
     stack_frame::StackFrame,
 };
 
-use super::{ARG_SCOPE_END, FunctionDef, JS_MAX_LOCAL_VARS, JSVarKindEnum, is_var_in_arg_scope};
+use super::{
+    ARG_SCOPE_END, BCWrapper, BFuncPayload, Bytecode, FunctionDef, FunctionKind, JS_MAX_LOCAL_VARS,
+    JSVarKindEnum, VarRef, is_var_in_arg_scope, js_function_set_properties,
+};
 
 #[derive(Debug)]
 pub(crate) struct ClosureVar {
@@ -211,7 +211,7 @@ impl Bytecode {
         proto: Option<Object>,
         captured_vars: &[VarRef],
         parent_stack_frame: Option<&mut StackFrame>,
-    ) -> Result<BCFunction, i32> {
+    ) -> Result<BCWrapper, i32> {
         let captures: Vec<VarRef> = if self.closure_var_count != 0 {
             debug_assert!(
                 parent_stack_frame.is_some(),
@@ -241,27 +241,28 @@ impl Bytecode {
             Vec::new()
         };
 
-        let payload = {
+        let mut obj = {
             let p = BFuncPayload::new(*self, captures);
-            match self.func_kind() {
+            let isa = match self.func_kind() {
                 FunctionKind::Normal => ObjectPayload::BYTECODE_FUNCTION(p),
                 FunctionKind::Generator => ObjectPayload::GENERATOR_FUNCTION(p),
                 FunctionKind::Async => ObjectPayload::ASYNC_FUNCTION(p),
                 FunctionKind::AsyncGenerator => ObjectPayload::ASYNC_GENERATOR_FUNCTION(p),
-            }
-        };
-        let mut func = BCFunction(
-            ctx.create_object_with_proto(
-                proto.or_else(|| ctx.class_proto(payload.class_id())),
-                payload,
+            };
+
+            BCWrapper(
+                ctx.create_object_with_proto(
+                    proto.or_else(|| ctx.class_proto(isa.class_id())),
+                    isa,
+                )
+                .map_err(|_| -1)?
+                .gc_ref(),
             )
-            .map_err(|_| -1)?
-            .gc_ref(),
-        );
+        };
 
         js_function_set_properties(
             ctx,
-            func.into(),
+            obj.into(),
             if self.func_name.is_null() {
                 Atom::CONST_empty_string
             } else {
@@ -279,14 +280,14 @@ impl Bytecode {
             ));
 
             let proto = ctx.create_base_object_with_proto(ctx.class_proto(gen_class_id))?;
-            func.define_property_value(ctx, Atom::CONST_prototype, proto.into(), JS_PROP_WRITABLE)?;
+            obj.define_property_value(ctx, Atom::CONST_prototype, proto.into(), JS_PROP_WRITABLE)?;
         } else if self.has_prototype() {
             // add the 'prototype' property: delay instantiation to avoid
             // creating cycles for every javascript function. The prototype
             // object is created on the fly when first accessed
-            func.set_flag_constructor(true);
+            obj.set_flag_constructor(true);
 
-            func.define_lazy_property(
+            obj.define_lazy_property(
                 ctx,
                 Atom::CONST_prototype,
                 LazyInit::Prototype,
@@ -294,7 +295,7 @@ impl Bytecode {
             )?;
         }
 
-        Ok(func)
+        Ok(obj)
     }
 }
 
@@ -320,7 +321,7 @@ pub(crate) fn add_closure_variables(
     })?;
 
     // Add lexical variables in scope at the point of evaluation
-    let vardefs = bc.vars_slice();
+    let vardefs = bc.local_vars();
     let mut i = scope_idx;
     while i >= 0 {
         let vd = vardefs.get(i as usize).unwrap();
@@ -344,7 +345,7 @@ pub(crate) fn add_closure_variables(
     let is_arg_scope = i == ARG_SCOPE_END;
     if !is_arg_scope {
         // Add argument variables
-        for (i, vd) in bc.args_slice().iter().enumerate() {
+        for (i, vd) in bc.arguments().iter().enumerate() {
             let mut cv = ClosureVar {
                 flags: 0,
                 var_idx: i as _,
@@ -360,7 +361,7 @@ pub(crate) fn add_closure_variables(
         }
 
         // Add local non lexical variables
-        for (i, vd) in bc.vars_slice().iter().enumerate() {
+        for (i, vd) in bc.local_vars().iter().enumerate() {
             if vd.scope_level == 0 && vd.var_name != Atom::CONST__ret_ {
                 let mut cv = ClosureVar {
                     flags: 0,
@@ -378,7 +379,7 @@ pub(crate) fn add_closure_variables(
         }
     } else {
         // only add pseudo variables
-        for (i, vd) in bc.vars_slice().iter().enumerate() {
+        for (i, vd) in bc.local_vars().iter().enumerate() {
             if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
                 let mut cv = ClosureVar {
                     flags: 0,

@@ -112,7 +112,7 @@ unsafe impl GcTracable for BFuncPayload {
 }
 
 impl BFuncPayload {
-    pub fn new(bytecode: Bytecode, captured_vars: Vec<VarRef>) -> Box<Self> {
+    pub(crate) fn new(bytecode: Bytecode, captured_vars: Vec<VarRef>) -> Box<Self> {
         Box::new(Self {
             bytecode,
             closure_var_refs: captured_vars,
@@ -148,24 +148,24 @@ impl BFuncPayload {
     }
 }
 
-/// A callback object which have Bytecode inside, include:
+/// An object which have Bytecode inside, could be:
 /// * bytecode function
 /// * generator function
 /// * async function
 /// * async generator function
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
-pub struct BCFunction(pub(super) GcRef<ObjectImpl>);
+pub struct BCWrapper(pub(super) GcRef<ObjectImpl>);
 
 object_cast!(
-    BCFunction,
+    BCWrapper,
     JS_CLASS_BYTECODE_FUNCTION
         | JS_CLASS_GENERATOR_FUNCTION
         | JS_CLASS_ASYNC_FUNCTION
         | JS_CLASS_ASYNC_GENERATOR_FUNCTION
 );
 
-impl BCFunction {
+impl BCWrapper {
     #[inline(always)]
     pub fn is_async(&self) -> bool {
         matches!(
@@ -304,7 +304,7 @@ pub(crate) const fn js_function_proto(_: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-/// A subtype of BCFunction
+/// A subtype of BCWrapper
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct BytecodeFunction(GcRef<ObjectImpl>);
@@ -415,7 +415,7 @@ impl BytecodeFunction {
         self.0.payload_mut().bc_function_mut().unwrap()
     }
 
-    /// execute bytecode function
+    /// execute bytecode
     pub(super) fn execute(
         &mut self,
         caller_ctx: &ContextImpl,
@@ -424,7 +424,7 @@ impl BytecodeFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let func_scope = self.gc_node().scope_id();
+        let self_scope = self.gc_node().scope_id();
         let bc = self.payload().bytecode();
 
         // how many args that should be copied to local buf?
@@ -526,7 +526,7 @@ impl BytecodeFunction {
         // before stack-frame is dropping, promote closure values up to at leat self Function's gc scope.
         for vr in bf.closure_var_refs() {
             if let Some(n) = vr.value().gc_node_ptr() {
-                rt.gc_heap_mut().set_xref(func_scope, n);
+                rt.gc_heap_mut().set_xref(self_scope, n);
             }
         }
 

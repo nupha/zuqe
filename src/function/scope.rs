@@ -10,12 +10,12 @@ use crate::{
 use super::{ARG_SCOPE_END, JSVarDef};
 
 #[derive(Debug, Clone, Copy)]
-pub struct JSVarScope {
+pub(crate) struct JSVarScope {
     /// id of parent scope. -1 for none.
-    pub parent: i32,
+    pub(crate) parent: i32,
     /// index of the last variable defined in `vars` list up to this scope.
     /// -1 for none.
-    pub first: i32,
+    pub(crate) first: i32,
 }
 
 impl FunctionDef {
@@ -28,7 +28,7 @@ impl FunctionDef {
     ///
     ///  * The new scope id.
     /// * Err(-1) when alloc fail, in this case, current_exception has the exception.
-    pub fn push_scope(&mut self, last_line_num: i32) -> Result<u16, i32> {
+    pub(crate) fn push_scope(&mut self, last_line_num: i32) -> Result<u16, i32> {
         let scope_id = self.scopes.len(); // new scope id
 
         if self.scopes.len() == self.scopes.capacity() {
@@ -56,7 +56,7 @@ impl FunctionDef {
     ///
     /// Restores the parent scope and updates variable accessibility.
     /// Emits bytecode for scope cleanup.
-    pub fn pop_scope(&mut self, last_line_num: i32) {
+    pub(crate) fn pop_scope(&mut self, last_line_num: i32) {
         // disable scoped variables
         let scope = self.scope_level;
         self.scope_level = self.scopes[scope as usize].parent;
@@ -76,7 +76,7 @@ impl FunctionDef {
     /// # Arguments
     /// * `scope_from` - Starting scope ID to close from
     /// * `scope_stop` - Stop closing scopes at this ID
-    pub fn close_scopes(&mut self, scope_from: u16, scope_stop: u16, last_line_num: i32) {
+    pub(crate) fn close_scopes(&mut self, scope_from: u16, scope_stop: u16, last_line_num: i32) {
         let mut scope = scope_from as i32;
 
         while scope > scope_stop as i32 {
@@ -89,7 +89,7 @@ impl FunctionDef {
 
     /// define a variable in the current scope.
     /// `name` is not consumed.
-    pub fn add_scope_var(
+    pub(crate) fn add_scope_var(
         &mut self,
         ctx: &ContextImpl,
         name: Atom,
@@ -109,7 +109,7 @@ impl FunctionDef {
     }
 
     /// find a variable declaration in specified scope
-    pub fn find_var_in_scope(&self, name: Atom, scope: u16) -> Option<u16> {
+    pub(crate) fn find_var_in_scope(&self, name: Atom, scope: u16) -> Option<u16> {
         let mut vidx = self.scopes[scope as usize].first;
 
         while vidx >= 0 {
@@ -179,7 +179,7 @@ pub struct ScopedVarsIterItem<'a> {
     /// index of vardef
     pub idx: i32,
     /// reference to vardef
-    pub vd: &'a JSVarDef,
+    pub vardef: &'a JSVarDef,
     pub arg_scope_end: bool,
 }
 
@@ -207,7 +207,7 @@ impl<'a> Iterator for ScopedVarsIter<'a> {
 
             Some(ScopedVarsIterItem {
                 idx,
-                vd,
+                vardef: vd,
                 arg_scope_end: self.cur_idx == ARG_SCOPE_END,
             })
         } else {

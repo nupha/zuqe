@@ -4,14 +4,14 @@ use crate::{
     context::ContextImpl,
     error::JS_THROW_VAR_REDECL,
     eval::EvalType,
-    function::{
-        FunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions, push_vec_atom,
-        push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
-    },
     utils::{M2, read_from_ptr},
 };
 
-use super::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR, optimize::OPTIMIZE};
+use super::{
+    DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR, FunctionDef, JSVarKindEnum, get_label_pos,
+    instantiate_hoisted_definitions, optimize::OPTIMIZE, push_vec_atom, push_vec_slice,
+    push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
+};
 
 impl FunctionDef {
     /// Performs initial runtime checks for global variables

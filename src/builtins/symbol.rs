@@ -1,5 +1,4 @@
 use crate::{
-    JS_CLASS_SYMBOL,
     atom::{Atom, AtomKind},
     context::ContextImpl,
     error::JSResult,
@@ -10,7 +9,7 @@ use crate::{
 };
 
 impl ContextImpl {
-    /// `str` could be None for anonymous symbol.
+    /// `str` is None for anonymous symbol.
     pub fn create_symbol(&self, str: Option<StringRef>, atom_kind: AtomKind) -> JSResult {
         debug_assert!(
             matches!(
@@ -135,7 +134,7 @@ fn js_symbol_keyFor(cc: CallContext) -> JSResult {
         if s.atom_info().unwrap().kind() != AtomKind::GlobalSymbol {
             Ok(JSValue::UNDEFINED)
         } else {
-            Ok(JSValue::String(s.clone()))
+            Ok(JSValue::String(*s))
         }
     } else {
         cc.ctx().throw_type_error_not_a_symbol();

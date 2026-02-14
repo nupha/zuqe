@@ -119,7 +119,7 @@ unsafe impl GcTracable for BytecodeImpl {
     fn trace(&self, tr: GcTraceOp) {
         self.func_name.trace(tr);
         self.consts().iter().for_each(|x| x.trace(tr));
-        self.local_vardefs().iter().for_each(|x| x.trace(tr));
+        self.var_defs().iter().for_each(|x| x.trace(tr));
         self.closure_vars().iter().for_each(|x| x.trace(tr));
 
         // trace atoms in opcodes
@@ -300,8 +300,7 @@ impl BytecodeImpl {
         }
     }
 
-    /// get args slice
-    pub(crate) fn args_slice(&self) -> &[JSVarDef] {
+    pub fn arguments(&self) -> &[JSVarDef] {
         if self.arg_count > 0 {
             debug_assert!(self.vardefs_start >= 0);
             unsafe {
@@ -318,8 +317,7 @@ impl BytecodeImpl {
         }
     }
 
-    /// get vars slice
-    pub fn vars_slice(&self) -> &[JSVarDef] {
+    pub fn local_vars(&self) -> &[JSVarDef] {
         if self.var_count > 0 {
             debug_assert!(self.vardefs_start >= 0);
             unsafe {
@@ -337,8 +335,8 @@ impl BytecodeImpl {
         }
     }
 
-    /// get local var defs, includes args + vars.
-    pub fn local_vardefs(&self) -> &[JSVarDef] {
+    /// arguments + local_vars.
+    fn var_defs(&self) -> &[JSVarDef] {
         if self.vardefs_start >= 0 {
             debug_assert!(self.arg_count > 0 || self.var_count > 0);
             unsafe {
@@ -452,33 +450,6 @@ impl BytecodeImpl {
 
         Some(line_num)
     }
-
-    // #[deprecated]
-    // fn finalize(&mut self) {
-    //     // free atoms in bytecode section
-    //     free_bytecode_atoms(&self.binary[self.opcodes_start as usize..], true);
-
-    //     // free vardef var_name atom
-    //     if let Some(lst) = self.vardefs_mut() {
-    //         for vd in lst {
-    //             let _ = std::mem::replace(&mut vd.var_name, Atom::NULL);
-    //         }
-    //     }
-
-    //     // free closure vars atom
-    //     if let Some(lst) = self.closure_vars_mut() {
-    //         for cv in lst {
-    //             let _ = std::mem::replace(&mut cv.var_name, Atom::NULL);
-    //         }
-    //     }
-
-    //     // free const values
-    //     if let Some(lst) = self.consts_mut() {
-    //         for v in lst {
-    //             std::mem::replace(v, JSValue::UNDEFINED);
-    //         }
-    //     }
-    // }
 }
 
 #[repr(transparent)]
@@ -501,9 +472,9 @@ impl std::fmt::Debug for Bytecode {
 }
 
 impl Bytecode {
-    /// Evaluate Bytecode with captured variables.
+    /// Execute Bytecode with captured variables and returns result value.
     ///
-    /// Internally, it will create a function object with the bytecode, then eval the function.
+    /// Will create a function object that embeds the bytecode, then eval the function.
     pub(crate) fn eval(
         &self,
         ctx: &ContextImpl,

@@ -4,7 +4,7 @@ use std::{
     ffi::c_void,
 };
 
-use gc_lite::{GcTracable, GcTraceOp, GcTracer};
+use gc_lite::{GcTracable, GcTraceOp};
 use smallvec::SmallVec;
 use zuqe::{
     CallContext, Context, FieldDef, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JSResult, JSValue,
@@ -407,7 +407,7 @@ fn js_os_setReadHandler(cc: CallContext) -> JSResult {
             }
         });
         Ok(JSValue::UNDEFINED)
-    } else if func.as_object_BCFunction().is_some() {
+    } else if func.as_object_BCWrapper().is_some() {
         RW_HANDLERS.with(|lut| {
             let mut b = lut.borrow_mut();
             if let Some(rh) = b.get_mut(&fd) {

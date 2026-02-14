@@ -3,7 +3,7 @@ use std::{pin::Pin, ptr::NonNull};
 use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
-    context::ContextImpl, error::JSResult, function::BCFunction, gcref_wrapper,
+    context::ContextImpl, error::JSResult, function::BCWrapper, gcref_wrapper,
     runtime::js_check_stack_overflow, stack_frame::ExecMode, stack_frame::StackFrame,
     value::JSValue,
 };
@@ -58,7 +58,7 @@ impl AsyncStateImpl {
     fn new(
         ctx: &ContextImpl,
         resolvings: [JSValue; 2],
-        bc_func: BCFunction,
+        bc_func: BCWrapper,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {
@@ -203,7 +203,7 @@ impl AsyncStateImpl {
         let throw_flag = self.throw_flag;
 
         // state has a dedicated stack frame for async function
-        let mut func = *self.stack_frame.func_obj.as_BCFunction().unwrap();
+        let mut func = *self.stack_frame.func_obj.as_BCWrapper().unwrap();
         let pc_offset = self.stack_frame.cur_pc_offset;
         let sp_offset = self.stack_frame.cur_sp_offset;
         debug_assert!(sp_offset >= 0);
@@ -252,7 +252,7 @@ impl AsyncState {
     pub(crate) fn new(
         ctx: &ContextImpl,
         resolvings: [JSValue; 2],
-        bc_func: BCFunction,
+        bc_func: BCWrapper,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {

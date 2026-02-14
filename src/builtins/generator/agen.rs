@@ -364,7 +364,7 @@ impl AsyncGeneratorFunction {
             async_state: AsyncState::new(
                 &ctx,
                 [const { JSValue::UNDEFINED }; 2],
-                *func_obj.as_object_BCFunction().unwrap(),
+                *func_obj.as_object_BCWrapper().unwrap(),
                 this_obj,
                 args,
             )?,

@@ -58,16 +58,15 @@ pub struct StackFrame {
     /// Buffer storing arguments, local variables, and stack space
     pub(crate) local_buf: Vec<JSValue>,
 
-    /// Arguments array base pointer and count
-    /// Points into local_buf (self-referencing)
+    /// Argument values base pointer and count, points into local_buf (self-referencing)
+    /// For native callback stack frame, this pointer should be null.
     pub(crate) arg_base_ptr: *mut JSValue,
     pub(crate) arg_real_count: u16,
     pub(crate) arg_count: u16, // at least has `length`
 
-    /// Local variables base pointer, points into local_buf (self-referencing)
-    /// native callback's stack frame don't have var, this pointer is null.
+    /// Local variables base pointer and count, points into local_buf (self-referencing).
+    /// For native callback stack frame, this pointer should be null.
     pub(crate) var_base_ptr: *mut JSValue,
-    /// Local variables count
     pub(crate) var_count: u16,
 
     /// List of variable references to local vardefs in stack frame
@@ -103,12 +102,9 @@ unsafe impl GcTracable for StackFrame {
             }
         }
 
-        // local vars
-        tr.add_nodes(self.var_values().iter().filter_map(|v| v.gc_node_ptr()));
-        // var_refs
         self.var_refs().iter().for_each(|r| r.trace(tr));
-        // stack values
-        tr.add_nodes(self.stack_values().iter().filter_map(|v| v.gc_node_ptr()));
+        self.var_values().iter().for_each(|v| v.trace(tr));
+        self.stack_values().iter().for_each(|v| v.trace(tr));
     }
 }
 
@@ -149,7 +145,7 @@ impl Drop for StackFrame {
                     }
                     #[cfg(not(debug_assertions))]
                     {
-                        GcHeap::DUMMY_MIGRATE_CALLBACK
+                        gc_lite::GcHeap::DUMMY_MIGRATE_CALLBACK
                     }
                 },
                 {
@@ -160,7 +156,7 @@ impl Drop for StackFrame {
                         }
                     }
                     #[cfg(not(debug_assertions))]
-                    GcHeap::DUMMY_DISPOSE_CALLBACK
+                    gc_lite::GcHeap::DUMMY_DISPOSE_CALLBACK
                 },
             );
 
@@ -192,7 +188,6 @@ impl Drop for StackFrame {
 }
 
 impl StackFrame {
-    /// Create new StackFrame. It's allocated on stack.
     pub(crate) fn new(func_obj: Object, mode: ExecMode) -> Self {
         Self {
             prev: std::ptr::null_mut(),
@@ -392,7 +387,7 @@ impl StackFrame {
         debug_assert_eq!(
             ctx.rt_ptr().current_stack_frame(),
             Some(&*self),
-            "StackFrame::handle_exit() must be called on active stack frame"
+            "StackFrame::handle_exit() must be called on current stack frame"
         );
 
         if is_async {
@@ -401,7 +396,8 @@ impl StackFrame {
             self.cur_pc_offset = pc;
             self.cur_sp_offset = sp as i32;
         } else {
-            // var_refs are referencing the stack, before stack drop, detatch var_refs.
+            // var_refs may still referencing the stack,
+            // before stack frame drop, detatch all var_refs.
             self.close_var_refs();
 
             // free local buf up to stack top (sp)

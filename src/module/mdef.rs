@@ -43,9 +43,10 @@ pub struct ModuleDefImpl {
     /// - true: bytecode field is a function object value
     /// - false: bytecode field is a bytecode value
     pub(crate) func_created: bool,
+
     /// for JS modules only, this value could be:
     /// * Bytecode, when func_created is false,
-    /// * BCFunction object, when func_created is true.
+    /// * BCWrapper function, when func_created is true.
     /// * undefined for uninitialized.
     pub(crate) bytecode: JSValue,
     /// init callback for native module
@@ -226,7 +227,7 @@ impl ModuleDefImpl {
 
         match self.bytecode {
             JSValue::Bytecode(bc) => {
-                // create bytecode function with bytecode
+                // create BytecodeFunction object embedding Bytecode
                 let mut var_refs = Vec::<VarRef>::new();
                 let cvar_count = bc.closure_var_count;
                 if cvar_count != 0 {
@@ -250,12 +251,12 @@ impl ModuleDefImpl {
                     }
                 }
 
-                let payload = ObjectPayload::BYTECODE_FUNCTION(BFuncPayload::new(bc, var_refs));
-                let func = ctx
-                    .create_object_with_proto(Some(ctx.function_proto()), payload)
-                    .map_err(|_| -1)?;
-
-                self.bytecode = func.into();
+                self.bytecode = {
+                    let p = ObjectPayload::BYTECODE_FUNCTION(BFuncPayload::new(bc, var_refs));
+                    ctx.create_object_with_proto(Some(ctx.function_proto()), p)
+                        .map_err(|_| -1)?
+                        .into()
+                };
             }
 
             _ => {
@@ -482,7 +483,7 @@ pub(super) fn get_script_or_module_name(ctx: &ContextImpl, n_stack_levels: usize
         .map_or(StackFrameParentIter::EMPTY, |f| f.parent_iter(true))
         .skip(n_stack_levels)
     {
-        if let Some(bcf) = sf.func_obj.as_BCFunction() {
+        if let Some(bcf) = sf.func_obj.as_BCWrapper() {
             let bc = bcf.payload().bytecode();
             if !bc.is_direct_or_indirect_eval {
                 return bc.debug.as_ref().map(|d| d.filename);

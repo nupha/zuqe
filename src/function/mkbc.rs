@@ -1,21 +1,17 @@
 use crate::{
-    atom::Atom,
-    context::ContextImpl,
-    function::{
-        ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeImpl, ClosureVar, JSVarDef,
-        JSVarKindEnum, is_var_in_arg_scope,
-    },
-    module::add_module_variables,
-    stack_frame::ExecMode,
+    atom::Atom, context::ContextImpl, module::add_module_variables, stack_frame::ExecMode,
     value::JSValue,
 };
 
-use super::FunctionDef;
+use super::{
+    ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeImpl, ClosureVar, FunctionDef, JSVarDef,
+    JSVarKindEnum, is_var_in_arg_scope,
+};
 
 impl FunctionDef {
-    /// Compile function def to bytecode, returns the Bytecode.
+    /// Compile FunctionDef to Bytecode.
     ///
-    /// All the child functions are also created. It must be done this way to resolve all the variables.
+    /// All children functions are also created. It must be done this way to resolve all the variables.
     pub fn build_bytecode(mut self: Box<Self>, ctx: &ContextImpl) -> Result<Bytecode, i32> {
         //
         // recompute scope linkage
@@ -69,7 +65,7 @@ impl FunctionDef {
         // compile child functions.
         // IMPORTANT: must consume all children fds, even compile a child function has failure.
         let mut has_err = false;
-        for fd1 in self.child_list.drain(..) {
+        for fd1 in self.children.drain(..) {
             // restore children fd ownership: allow auto drop after use.
             let sub_fd = unsafe { Box::from_raw(fd1.as_ptr()) };
             if !has_err {
@@ -86,7 +82,7 @@ impl FunctionDef {
             // Note: sub_fd dropped here
         }
         debug_assert!(
-            self.child_list.is_empty(),
+            self.children.is_empty(),
             "must consume all children function defs"
         );
         if has_err {

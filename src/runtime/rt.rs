@@ -50,7 +50,7 @@ pub struct RuntimeImpl {
     pub(crate) cur_stack_frame: *mut Pin<StackFrame>,
     /// current stack frame depth
     #[cfg(debug_assertions)]
-    pub(crate) stack_depth: i32,
+    stack_depth: i32,
 
     /// current exception value
     pub(crate) cur_exception: JSValue,
@@ -296,11 +296,6 @@ impl RuntimeImpl {
         unsafe { self.cur_stack_frame.cast::<StackFrame>().as_mut() }
     }
 
-    #[cfg(debug_assertions)]
-    pub(crate) const fn stack_depth(&self) -> i32 {
-        self.stack_depth
-    }
-
     /// get current running function
     pub(crate) fn current_function(&self) -> JSValue {
         self.current_stack_frame()
@@ -320,7 +315,9 @@ impl RuntimeImpl {
         );
 
         if self.cur_stack_frame.is_null() {
+            #[cfg(debug_assert)]
             debug_assert_eq!(self.stack_depth, 0);
+            
             self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
         } else {
             unsafe {

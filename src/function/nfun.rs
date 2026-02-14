@@ -287,15 +287,16 @@ impl NativeFunction {
     ) -> Result<Self, i32> {
         let has_binding_data = binding_data.is_some();
 
-        let p = Box::new(NFuncPayload {
-            callback,
-            length,
-            magic,
-            realm: unsafe { ContextPtr::from_ref_unchecked(ctx) },
-            data: binding_data,
-        });
-        let mut func_obj = ctx
-            .create_object_with_proto(
+        let mut func_obj = {
+            let p = Box::new(NFuncPayload {
+                callback,
+                length,
+                magic,
+                realm: unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                data: binding_data,
+            });
+
+            ctx.create_object_with_proto(
                 proto,
                 if has_binding_data {
                     ObjectPayload::C_FUNCTION_DATA(p)
@@ -303,7 +304,8 @@ impl NativeFunction {
                     ObjectPayload::C_FUNCTION(p)
                 },
             )
-            .map_err(|_| -1)?;
+            .map_err(|_| -1)?
+        };
 
         if matches!(
             callback,

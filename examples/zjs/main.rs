@@ -118,20 +118,23 @@ fn parse_byte_size(ss: &str) -> Option<usize> {
 }
 
 fn main() -> ExitCode {
-    let log_file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open("debug.log")
-        .unwrap();
+    #[cfg(debug_assertions)]
+    {
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open("debug.log")
+            .unwrap();
 
-    let tee = TeeWriter::new(Some(log_file), Option::<std::fs::File>::None);
+        let tee = TeeWriter::new(Some(log_file), Option::<std::fs::File>::None);
 
-    env_logger::Builder::new()
-        .filter_level(log::LevelFilter::Trace)
-        //.filter_level(log::LevelFilter::Debug)
-        .target(env_logger::Target::Pipe(Box::new(tee)))
-        .init();
+        env_logger::Builder::new()
+            .filter_level(log::LevelFilter::Trace)
+            //.filter_level(log::LevelFilter::Debug)
+            .target(env_logger::Target::Pipe(Box::new(tee)))
+            .init();
+    }
 
     let args = Args::parse();
 

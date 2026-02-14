@@ -3,10 +3,9 @@ use crate::{
     bytecode::opcodes,
     context::ContextImpl,
     error::JS_THROW_VAR_RO,
-    function::{
-        FunctionDef, JSVarKindEnum, get_loc_or_ref, push_vec_atom, push_vec_u8, push_vec_u16,
-    },
 };
+
+use super::{FunctionDef, JSVarKindEnum, get_loc_or_ref, push_vec_atom, push_vec_u8, push_vec_u16};
 
 impl FunctionDef {
     fn resolve_scope_private_field1(

@@ -20,11 +20,12 @@ pub enum VarRefImpl {
     Bind {
         is_arg: bool,
         var_idx: u16,
-        /// A raw pointer to var value,
-        /// equivelent to StackFrame.arg_base_ptr[var_idx] or StackFrame.var_base_ptr[var_idx],
+        /// Raw pointer to var value, equivelent to
+        /// StackFrame::arg_base_ptr[var_idx] or StackFrame::var_base_ptr[var_idx],
         /// for speed access only
         pvalue: NonNull<JSValue>,
-        async_func: Option<AsyncState>,
+
+        async_state: Option<AsyncState>,
     },
 }
 
@@ -32,12 +33,14 @@ unsafe impl GcTracable for VarRefImpl {
     fn trace(&self, tr: GcTraceOp) {
         match self {
             Self::Bind {
-                async_func, pvalue, ..
+                async_state,
+                pvalue,
+                ..
             } => {
                 unsafe {
                     pvalue.as_ref().trace(tr);
                 }
-                if let Some(a) = async_func {
+                if let Some(a) = async_state {
                     a.trace(tr);
                 }
             }
@@ -49,8 +52,8 @@ unsafe impl GcTracable for VarRefImpl {
 }
 
 impl VarRefImpl {
-    /// get value of the var.
-    #[inline]
+    /// get variable value
+    #[inline(always)]
     pub(crate) const fn value(&self) -> JSValue {
         match self {
             Self::Bind { pvalue, .. } => unsafe { *pvalue.as_ref() },
@@ -58,8 +61,8 @@ impl VarRefImpl {
         }
     }
 
-    /// update value of variable
-    #[inline]
+    /// update variable value
+    #[inline(always)]
     pub(crate) const fn set_value(&mut self, new_value: JSValue) {
         match self {
             Self::Bind { pvalue, .. } => unsafe {
@@ -84,20 +87,10 @@ impl VarRefImpl {
         }
     }
 
-    /// Returns id of a binding var_ref;
-    /// Returns None if var_ref has been detached.
-    pub(crate) const fn var_idx(&self) -> Option<u16> {
-        if let Self::Bind { var_idx, .. } = self {
-            Some(*var_idx)
-        } else {
-            None
-        }
-    }
-
-    pub(crate) const fn matches(&self, var_idx: u16, is_arg: bool) -> bool {
+    const fn is_match(&self, var_idx: u16, is_arg: bool) -> bool {
         if let Self::Bind {
-            var_idx: i,
             is_arg: a,
+            var_idx: i,
             ..
         } = self
         {
@@ -108,6 +101,7 @@ impl VarRefImpl {
     }
 }
 
+// TODO: how about VarRef not to be a gc node?
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct VarRef(GcRef<VarRefImpl>);
@@ -135,14 +129,14 @@ impl VarRef {
         var_idx: u16,
         is_arg: bool,
         pvalue: NonNull<JSValue>,
-        async_func: Option<AsyncState>,
+        async_state: Option<AsyncState>,
     ) -> Result<Self, i32> {
         ctx.rt_ptr()
             .gc_alloc(VarRefImpl::Bind {
+                is_arg,
                 var_idx,
                 pvalue,
-                async_func,
-                is_arg,
+                async_state,
             })
             .map(Self)
             .map_err(|_| {
@@ -164,7 +158,7 @@ impl StackFrame {
         if let Some(vr) = self
             .var_refs()
             .iter()
-            .find(|x| x.matches(var_idx, is_arg))
+            .find(|x| x.is_match(var_idx, is_arg))
             .copied()
         {
             return Ok(vr);
@@ -210,29 +204,19 @@ impl StackFrame {
         Ok(vref)
     }
 
-    pub(crate) fn close_var_refs(&mut self) {
-        if !self.var_refs().is_empty() {
-            let mut rt = self.rt();
-            let upper_scope = rt.gc_upper_scope(true).unwrap();
-
-            for vr in self.var_refs_mut().iter_mut() {
-                vr.detach();
-
-                // need to promote var_ref value to upper gc scope?
-                // if let Some(n) = vr.value().gc_node_ptr() {
-                //     rt.gc_heap_mut().set_xref(upper_scope, n);
-                // }
-            }
-        }
-    }
-
     /// detach var ref (lexical) specified by (var_idx, is_arg)
     pub(crate) fn close_var_ref(&mut self, var_idx: u16, is_arg: bool) {
         if let Some(vr) = self
             .var_refs_mut()
             .iter_mut()
-            .find(|v| v.matches(var_idx, is_arg))
+            .find(|v| v.is_match(var_idx, is_arg))
         {
+            vr.detach();
+        }
+    }
+
+    pub(crate) fn close_var_refs(&mut self) {
+        for vr in self.var_refs_mut().iter_mut() {
             vr.detach();
         }
     }

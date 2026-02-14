@@ -450,7 +450,7 @@ impl Bytecode {
         }
 
         {
-            let args = self.args_slice();
+            let args = self.arguments();
             if !args.is_empty() {
                 print!("  args:");
                 for arg in args {
@@ -460,7 +460,7 @@ impl Bytecode {
             }
         }
 
-        let vars = self.vars_slice();
+        let vars = self.local_vars();
         if !vars.is_empty() {
             println!("  locals:");
             for (i, vd) in vars.iter().enumerate() {
@@ -517,8 +517,8 @@ impl Bytecode {
             ctx,
             3,
             self.opcodes(),
-            self.args_slice(),
-            self.vars_slice(),
+            self.arguments(),
+            self.local_vars(),
             self.closure_vars(),
             self.consts(),
             self.debug.as_ref().and_then(|d| d.source.as_deref()),

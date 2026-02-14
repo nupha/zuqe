@@ -204,7 +204,7 @@ impl Object {
         ret_val
     }
 
-    /// call `self` object
+    /// call object
     #[inline(always)]
     pub fn call(&self, ctx: &ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
         self.call_internal(
@@ -217,12 +217,10 @@ impl Object {
     }
 
     /// call function `self.method`
-    ///
-    /// `method` is not consumed
     #[inline]
     pub fn invoke(&self, ctx: &ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {
-        self.get_property(ctx, method)?
-            .call(ctx, (*self).into(), args)
+        self.get_property(ctx, method)
+            .and_then(|f| f.call(ctx, (*self).into(), args))
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.
@@ -233,11 +231,12 @@ impl Object {
         method: Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
-        let m = self.get_property(ctx, method)?;
-        if !m.is_undefined_or_null() {
-            return Ok(Some(m.call(ctx, (*self).into(), args)));
+        let f = self.get_property(ctx, method)?;
+        if !f.is_undefined_or_null() {
+            Ok(Some(f.call(ctx, (*self).into(), args)))
+        } else {
+            Ok(None)
         }
-        Ok(None)
     }
 
     /// call `self.method` if property `method` is callable.
@@ -248,9 +247,9 @@ impl Object {
         method: Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
-        let m = self.get_property(ctx, method)?;
-        if m.is_function() {
-            Ok(Some(m.call(ctx, (*self).into(), args)))
+        let f = self.get_property(ctx, method)?;
+        if f.is_function() {
+            Ok(Some(f.call(ctx, (*self).into(), args)))
         } else {
             Ok(None)
         }
@@ -288,7 +287,7 @@ impl JSValue {
     }
 
     /// call function `self.method`
-    #[inline]
+    #[inline(always)]
     pub fn invoke(&self, ctx: &ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {
         self.get_property(ctx, method)?.call(ctx, *self, args)
     }
@@ -311,8 +310,6 @@ impl JSValue {
 
     /// call `self.method` if property `method` is callable.
     /// otherwise, returns None
-    ///
-    /// `method` is not consumed
     pub fn invoke_callable(
         &self,
         ctx: &ContextImpl,

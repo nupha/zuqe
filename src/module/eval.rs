@@ -5,13 +5,12 @@ use crate::{
     error::JSResult,
     eval::{Compiled, EvalFlags, EvalType},
     function::{CallContext, NativeFunction},
-    module::{JSModuleStatus, ModuleDefImpl},
     runtime::js_check_stack_overflow,
     utils::unlikely,
     value::JSValue,
 };
 
-use super::ModuleDef;
+use super::{JSModuleStatus, ModuleDef, ModuleDefImpl};
 
 impl ModuleDefImpl {
     #[inline(always)]
@@ -334,14 +333,14 @@ impl ModuleDef {
 
     /// execute module function in async manner
     fn execute_async_module(&self, ctx: &mut ContextImpl) -> Result<(), i32> {
-        // Hint: bytecode is now a Function object
-        let md_func = self.bytecode;
         debug_assert_eq!(
-            md_func.as_object().unwrap().class_id(),
-            JS_CLASS_BYTECODE_FUNCTION
+            self.bytecode.as_object().unwrap().class_id(),
+            JS_CLASS_BYTECODE_FUNCTION,
+            "expect BytecodeFunction object"
         );
 
-        // execute bytecode function in async manner.
+        let md_func = self.bytecode;
+        // execute function in async manner.
         let mut promise = md_func.call_async(ctx, JSValue::UNDEFINED, &[], 0)?;
 
         promise.then(
@@ -487,7 +486,7 @@ impl ModuleDef {
         } else {
             // is bytecode function
             let bc = self.bytecode;
-            debug_assert!(bc.as_object_BCFunction().is_some());
+            debug_assert!(bc.as_object_BCWrapper().is_some());
 
             // eval bytecode function
             let promise = bc

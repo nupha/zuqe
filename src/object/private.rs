@@ -13,7 +13,7 @@ impl Object {
     /// Check if `self` has own property suggested by `func.<home_object>.<brand>`.
     pub fn check_brand(&self, ctx: &ContextImpl, func: JSValue) -> Result<bool, i32> {
         if let Some(home_obj) = func
-            .as_object_BCFunction()
+            .as_object_BCWrapper()
             .and_then(|o| o.payload().home_object())
         {
             if let Some((idx, _)) = home_obj.find_shape_property(Atom::CONST_Private_brand) {

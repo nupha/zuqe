@@ -1717,7 +1717,7 @@ impl Bytecode {
                     }
                     OpCode::SET_HOME_OBJECT => {
                         // [home_obj, func, ^] -> [home_obj, func, ^]
-                        if let Some(fo) = SP_MUT!(-1).as_object_BCFunction_mut() {
+                        if let Some(fo) = SP_MUT!(-1).as_object_BCWrapper_mut() {
                             fo.method_set_home_object(SP_VAL!(-2).to_object());
                         } else {
                             #[cfg(debug_assertions)]
@@ -2558,14 +2558,12 @@ impl Bytecode {
         };
 
         if let Some((new_pc, new_sp)) = stack_frame.handle_exception(ctx, pc_offset, sp_offset) {
-            // exception was caught.
-            // continue running, set pc/sp to jump
+            // exception was caught. continue running, set pc/sp to jump
             stack_frame.cur_sp_offset = new_sp as i32;
             unsafe { Some((pc_base.add(new_pc), sp_base.add(new_sp))) }
         } else {
             // abort with sp=0
-            let is_generator = self.func_kind() != FunctionKind::Normal;
-            stack_frame.handle_exit(ctx, pc_offset, 0, is_generator);
+            stack_frame.handle_exit(ctx, pc_offset, 0, self.func_kind() != FunctionKind::Normal);
             None
         }
     }

@@ -31,62 +31,60 @@ pub(crate) struct FunctionDef {
     pub(crate) ctx: ContextPtr,
 
     /// parent function def, null for root fd.
-    pub parent: *mut FunctionDef,
+    pub(crate) parent: *mut FunctionDef,
     /// scope level of parent fd
-    pub parent_scope_level: i32,
+    pub(crate) parent_scope_level: i32,
     /// 在父级常量池中的索引，-1表示无
     /// TODO: use Option<u16>
-    pub parent_cpool_idx: i32,
+    pub(crate) parent_cpool_idx: i32,
 
     /// list of children function defs
-    pub child_list: Vec<NonNull<FunctionDef>>,
+    pub(crate) children: Vec<NonNull<FunctionDef>>,
 
     // TODO: use Option<EvalType>
     /// 是否是eval代码
-    pub is_eval: bool,
+    pub(crate) is_eval: bool,
     /// 仅当is_eval=true时有效
-    pub eval_type: EvalType,
+    pub(crate) eval_type: EvalType,
 
     /// 变量是否未在本地定义
-    pub is_global_var: bool,
+    pub(crate) is_global_var: bool,
     /// 是否是函数表达式
-    pub is_func_expr: bool,
+    pub(crate) is_func_expr: bool,
     /// 是否拥有home object
-    pub has_home_object: bool,
+    pub(crate) has_home_object: bool,
 
     pub(crate) attrs: BytecodeAttrs,
 
-    //
     /// 是否需要创建参数作用域
-    pub has_parameter_expressions: bool,
+    pub(crate) has_parameter_expressions: bool,
     /// 严格模式指令
-    pub has_use_strict: bool,
+    pub(crate) has_use_strict: bool,
     /// 是否包含eval调用
-    pub has_eval_call: bool,
+    pub(crate) has_eval_call: bool,
     /// 是否可访问arguments绑定
-    pub has_arguments_binding: bool,
+    pub(crate) has_arguments_binding: bool,
     /// can access `this` binding?
-    pub has_this_binding: bool,
+    pub(crate) has_this_binding: bool,
     /// 是否在函数体内
-    pub in_function_body: bool,
+    pub(crate) in_function_body: bool,
 
-    pub func_type: JSParseFunctionEnum,
-    pub func_name: Atom,
+    pub(crate) func_type: JSParseFunctionEnum,
+    pub(crate) func_name: Atom,
 
     /// constants pool (string, function, number）.
-    pub cpool: Vec<JSValue>,
-    /// vars defination list
-    pub vars: Vec<JSVarDef>,
+    pub(super) cpool: Vec<JSValue>,
+    /// local variable definations
+    pub(crate) vars: Vec<JSVarDef>,
     /// arguments defination list
-    pub args: Vec<JSVarDef>,
+    pub(crate) args: Vec<JSVarDef>,
     /// global vars defination list.
-    pub global_vars: Vec<JSGlobalVar>,
+    pub(crate) global_vars: Vec<JSGlobalVar>,
+    /// closure vars list
+    pub(crate) closure_vars: Option<Vec<ClosureVar>>,
 
     // 当前函数的变量索引
-    pub func_var_idx: Option<u16>,
-
-    /// closure vars list
-    pub closure_vars: Option<Vec<ClosureVar>>,
+    pub(super) func_var_idx: Option<u16>,
 
     //
     // pseudo vars
@@ -197,7 +195,7 @@ impl FunctionDef {
             parent: std::ptr::null_mut(),
             parent_cpool_idx: -1,
             parent_scope_level: 0,
-            child_list: Vec::with_capacity(16),
+            children: Vec::with_capacity(16),
             attrs: BytecodeAttrs::default(),
 
             is_eval,
@@ -297,14 +295,14 @@ impl FunctionDef {
             fd.parent_scope_level = parent.scope_level;
             fd.attrs.exec_mode = parent.attrs.exec_mode;
 
-            if parent.child_list.len() == parent.child_list.capacity() {
-                parent.child_list.try_reserve(8).map_err(|_| {
+            if parent.children.len() == parent.children.capacity() {
+                parent.children.try_reserve(8).map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
             }
 
-            parent.child_list.push(NonNull::from(fd.deref_mut()));
+            parent.children.push(NonNull::from(fd.deref_mut()));
         }
 
         Ok(fd)
@@ -371,13 +369,13 @@ impl FunctionDef {
 
     fn finalize(&mut self) {
         // drop child function defs
-        for sub in self.child_list.drain(..) {
+        for sub in self.children.drain(..) {
             let _ = unsafe { Box::from_raw(sub.as_ptr()) };
         }
 
         // ensure `self` function def does not exist in parent's child_list
         if let Some(up) = unsafe { self.parent.as_mut() } {
-            up.child_list.retain(|f| !std::ptr::eq(f.as_ptr(), self));
+            up.children.retain(|f| !std::ptr::eq(f.as_ptr(), self));
         }
 
         // check parent's child_list
@@ -609,25 +607,32 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut FunctionDef, bc: &mut Vec<
 
     // add the global variables (only happens if FunctionDef::is_global_var is true)
     for mut hf in s.global_vars.drain(..) {
-        let mut has_closure: i32 = 0;
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        enum ClosureKind {
+            PutVar,
+            DefineField,
+            PutVarRef,
+        }
+
+        let mut closure_kind = ClosureKind::PutVar;
         let mut force_init = hf.force_init();
         let mut idx = 0;
 
         // we are in an eval, so the closure contains all the enclosing variables.
         // If the outer function has a variable environment, create a property for the variable there
         if let Some(cvars) = s.closure_vars.as_ref() {
-            for (j, cv) in cvars.iter().enumerate() {
-                idx = j;
+            for (i, cv) in cvars.iter().enumerate() {
+                idx = i;
                 match cv.var_name {
                     n if n == hf.var_name => {
-                        has_closure = 2;
+                        closure_kind = ClosureKind::PutVarRef;
                         force_init = false;
                         break;
                     }
                     Atom::CONST__var_ | Atom::CONST__arg_var_ => {
                         push_vec_u8(bc, OpCode::GET_VAR_REF as u8);
-                        push_vec_u16(bc, j as u16);
-                        has_closure = 1;
+                        push_vec_u16(bc, i as u16);
+                        closure_kind = ClosureKind::DefineField;
                         force_init = true;
                         break;
                     }
@@ -636,7 +641,7 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut FunctionDef, bc: &mut Vec<
             }
         }
 
-        if has_closure == 0 {
+        if closure_kind == ClosureKind::PutVar {
             let mut flags: u32 = 0;
             if s.eval_type != EvalType::Global {
                 flags |= JS_PROP_CONFIGURABLE;
@@ -678,21 +683,23 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut FunctionDef, bc: &mut Vec<
                 push_vec_u8(bc, OpCode::UNDEFINED as u8);
             }
 
-            if has_closure == 2 {
-                push_vec_u8(bc, OpCode::PUT_VAR_REF as u8);
-                push_vec_u16(bc, idx as u16);
-            } else if has_closure == 1 {
-                push_vec_u8(bc, OpCode::DEFINE_FIELD as u8);
-                push_vec_atom(bc, hf.var_name);
-                push_vec_u8(bc, OpCode::DROP as u8);
-            } else {
-                // XXX: Check if variable is writable and enumerable
-                push_vec_u8(bc, OpCode::PUT_VAR as u8);
-                push_vec_atom(bc, hf.var_name);
+            match closure_kind {
+                ClosureKind::PutVar => {
+                    // XXX: Check if variable is writable and enumerable
+                    push_vec_u8(bc, OpCode::PUT_VAR as u8);
+                    push_vec_atom(bc, hf.var_name);
+                }
+                ClosureKind::DefineField => {
+                    push_vec_u8(bc, OpCode::DEFINE_FIELD as u8);
+                    push_vec_atom(bc, hf.var_name);
+                    push_vec_u8(bc, OpCode::DROP as u8);
+                }
+                ClosureKind::PutVarRef => {
+                    push_vec_u8(bc, OpCode::PUT_VAR_REF as u8);
+                    push_vec_u16(bc, idx as u16);
+                }
             }
         }
-
-        // std::mem::replace(&mut hf.var_name, Atom::NULL).free(ctx.rt_mut());
     }
 
     if s.module.is_some() {

@@ -400,9 +400,9 @@ impl ModuleDef {
                                 debug_assert_ne!(var_idx, u16::MAX);
                                 let p1 = module
                                     .bytecode
-                                    .as_object_BCFunction()
+                                    .as_object_BCWrapper()
                                     .copied()
-                                    .expect("BCFunction expected");
+                                    .expect("BCWrapper expected");
                                 p1.payload().closure_var_refs()[var_idx as usize]
                             });
                     }

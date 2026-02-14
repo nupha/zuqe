@@ -123,7 +123,7 @@ impl ContextImpl {
         let add_backtrace = !rt.in_out_of_memory
             && rt
                 .current_stack_frame()
-                .is_none_or(|sf| sf.func_obj.as_BCFunction().is_some());
+                .is_none_or(|sf| sf.func_obj.as_BCWrapper().is_some());
 
         self.throw_error_internal(kind, message, add_backtrace);
     }
@@ -272,7 +272,7 @@ impl ContextImpl {
 
                 let mut backtrace_barrier = false;
 
-                if let Some(bc) = sf.func_obj.as_BCFunction().map(|f| f.payload().bytecode()) {
+                if let Some(bc) = sf.func_obj.as_BCWrapper().map(|f| f.payload().bytecode()) {
                     backtrace_barrier = bc.attrs.backtrace_barrier;
 
                     if let Some(debug) = bc.debug.as_ref() {

@@ -227,7 +227,7 @@ pub fn js_method_set_properties(
 
     func_obj.define_property_value(ctx, Atom::CONST_name, name_str.into(), JS_PROP_CONFIGURABLE)?;
 
-    if let Some(fo) = func_obj.as_object_BCFunction_mut() {
+    if let Some(fo) = func_obj.as_object_BCWrapper_mut() {
         fo.method_set_home_object(home_obj.as_object().copied());
     }
 

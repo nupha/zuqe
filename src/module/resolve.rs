@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     context::ContextImpl,
-    function::BCFunction,
+    function::BCWrapper,
     module::{ExportType, JSModuleStatus, ModuleDef, ResolveExport, js_create_module_var},
     runtime::js_check_stack_overflow,
     utils::unlikely,
@@ -178,7 +178,7 @@ impl ModuleDef {
         if self.init_func.is_none() {
             // is bytecode module
             debug_assert!(self.func_created, "module function should be created");
-            let mut md_func = BCFunction::try_from(self.bytecode).unwrap();
+            let mut md_func = BCWrapper::try_from(self.bytecode).unwrap();
 
             for imp in self.import_entries.iter() {
                 let import_var_idx = imp.var_idx;
@@ -227,7 +227,7 @@ impl ModuleDef {
                                             "module function must have been created"
                                         );
                                         dep.bytecode
-                                            .as_object_BCFunction()
+                                            .as_object_BCWrapper()
                                             .unwrap()
                                             .payload()
                                             .closure_var_refs()
