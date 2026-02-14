@@ -1,6 +1,6 @@
-use std::{cell::Cell, ops::DerefMut, rc::Rc};
+use std::{cell::Cell, rc::Rc};
 
-use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
@@ -15,7 +15,7 @@ use crate::{
 
 use super::{Promise, PromiseState, js_promise_resolve_thenable_job, promise_reaction_job};
 
-/// State of promise resolving function.
+/// Promise resolving function data
 #[derive(Debug)]
 pub struct PromiseResolvePayload {
     /// the target Promise
