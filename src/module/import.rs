@@ -38,10 +38,10 @@ pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult 
 
     // cannot run JS_LoadModuleInternal synchronously because it would
     // cause an unexpected recursion in js_evaluate_module()
-    let cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
     let rr = resolving_funcs;
+    let mut cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
 
-    ctx.queue_job_with_gc_trace(
+    ctx.queue_job_with_trace(
         move || {
             js_dynamic_import_job(cx, resolving_funcs, basename_val, specifier);
             Ok(JSValue::UNDEFINED)
@@ -49,12 +49,12 @@ pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult 
         {
             // Note: job tick is performed in root scope,
             // should promote related gc nodes to root scope.
-            // let root_scope = cx.rt_ref().gc_root_scope;
-            // let heap = cx.rt_mut().gc_heap_mut();
-            // basename_val.set_xref(heap, root_scope);
-            // specifier.set_xref(heap, root_scope);
-            // rr[0].set_xref(heap, root_scope);
-            // rr[1].set_xref(heap, root_scope);
+            let root_scope = cx.rt_ref().gc_root_scope;
+            let heap = cx.rt_mut().gc_heap_mut();
+            basename_val.set_xref(heap, root_scope);
+            specifier.set_xref(heap, root_scope);
+            rr[0].set_xref(heap, root_scope);
+            rr[1].set_xref(heap, root_scope);
 
             move |tr| {
                 basename_val.trace(tr);

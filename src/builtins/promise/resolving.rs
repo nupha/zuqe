@@ -69,7 +69,7 @@ impl PromiseResolveFunc {
         };
 
         let mut promise = s.promise;
-        let cx: ContextPtr = ctx.into();
+        let mut cx: ContextPtr = ctx.into();
 
         if is_reject || !arg0.is_object() {
             promise.fulfill_or_reject(cx, arg0, is_reject);
@@ -84,12 +84,22 @@ impl PromiseResolveFunc {
             if !then.is_function() {
                 promise.fulfill_or_reject(cx, arg0, is_reject);
             } else {
-                ctx.queue_job_with_gc_trace(
+                ctx.queue_job_with_trace(
                     move || js_promise_resolve_thenable_job(&cx, promise, arg0, then),
-                    move |tr| {
-                        prf.trace(tr);
-                        arg0.trace(tr);
-                        then.trace(tr);
+                    {
+                        // Note: tick is performed in root scope,
+                        // should promote related gc nodes to root scope.
+                        let root_scope = cx.rt_ref().gc_root_scope;
+                        let heap = cx.rt_mut().gc_heap_mut();
+                        prf.set_xref(heap, root_scope);
+                        arg0.set_xref(heap, root_scope);
+                        then.set_xref(heap, root_scope);
+
+                        move |tr| {
+                            prf.trace(tr);
+                            arg0.trace(tr);
+                            then.trace(tr);
+                        }
                     },
                 );
             }
@@ -229,12 +239,11 @@ impl Promise {
                 // add a job to poll promise reaction in runtime tick
                 let is_reject = state == PromiseState::Rejected;
                 let mut cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
-                ctx.queue_job_with_gc_trace(
-                    move || {
-                        let mut raw = cx;
 
+                ctx.queue_job_with_trace(
+                    move || {
                         promise_reaction_job(
-                            raw.deref_mut(),
+                            &mut cx,
                             act.resolving_funcs,
                             act.handler,
                             is_reject,
@@ -320,16 +329,14 @@ impl Promise {
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
         let mut reactions = self.payload_mut().take_reactions();
-        let cx = ctx;
+        let mut cx = ctx;
 
         for act in reactions[is_reject as usize].drain(..) {
             // queue reaction in job list to resolve in next tick
-            ctx.queue_job_with_gc_trace(
+            ctx.queue_job_with_trace(
                 move || {
-                    let mut raw = cx;
-
                     promise_reaction_job(
-                        &mut raw,
+                        &mut cx,
                         act.resolving_funcs,
                         act.handler,
                         is_reject,

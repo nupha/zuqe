@@ -26,7 +26,7 @@ impl Job {
 
 impl ContextImpl {
     /// Append a job to job queue.
-    pub(crate) fn queue_job_with_gc_trace(
+    pub(crate) fn queue_job_with_trace(
         &mut self,
         run: impl FnOnce() -> JSResult + 'static,
         trace: impl Fn(GcTraceOp) + 'static,
