@@ -147,11 +147,16 @@ impl Object {
                 if obj_flags.is_fast_array() {
                     if let Some(idx) = prop.to_small_int() {
                         if idx < cur_obj.fast_array_count() {
-                            return if target.is_some_and(|o| cur_obj == o) {
-                                cur_obj.set_property_value(ctx, JSValue::Int(idx as _), val, flags)
+                            if target.is_some_and(|o| cur_obj == o) {
+                                return cur_obj.set_property_value(
+                                    ctx,
+                                    JSValue::Int(idx as _),
+                                    val,
+                                    flags,
+                                );
                             } else {
                                 break; // proto iter loop
-                            };
+                            }
                         } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                             .contains(&cur_obj.class_id())
                         {
@@ -332,8 +337,8 @@ impl Object {
                                 // 否则会违反 JavaScript 的属性查找规则。
 
                                 // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
-                                let mut up = this.shape().unwrap().proto;
-                                while let Some(p) = up {
+                                let mut proto = this.shape().unwrap().proto();
+                                while let Some(p) = proto {
                                     let sh1 = p.shape().unwrap();
                                     match p.class_id() {
                                         JS_CLASS_ARRAY => {
@@ -350,7 +355,7 @@ impl Object {
                                             return None;
                                         }
                                     }
-                                    up = sh1.proto;
+                                    proto = sh1.proto;
                                 }
                                 // append element
                                 Some(self.add_fast_array_element(ctx, val, flags))
@@ -362,64 +367,6 @@ impl Object {
                     } else {
                         None
                     }
-
-                    // let ret = self
-                    //     .with_fast_array_values_mut(|lst| -> Option<Result<bool, i32>> {
-                    //         match idx.cmp(&lst.len()) {
-                    //             std::cmp::Ordering::Less => {
-                    //                 // update existing
-                    //                 unsafe {
-                    //                     *lst.get_unchecked_mut(idx) = val;
-                    //                 }
-                    //                 Some(Ok(true))
-                    //             }
-                    //             std::cmp::Ordering::Equal => {
-                    //                 // add an element to list
-
-                    //                 // Hint: 遵照js规范，
-                    //                 // 即使Array，它的原型链上可能还链接着其他对象。这些原型对象也可能具有数字索引的属性。
-                    //                 // 因此，在向当前数组添加新元素时，必须确保原型链上没有定义同名的属性（即相同的索引），
-                    //                 // 否则会违反 JavaScript 的属性查找规则。
-
-                    //                 // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
-                    //                 let mut up = this.shape().unwrap().proto;
-
-                    //                 while let Some(p) = up {
-                    //                     let sh1 = p.shape().unwrap();
-                    //                     match p.class_id() {
-                    //                         JS_CLASS_ARRAY => {
-                    //                             if !p.flags().is_fast_array() {
-                    //                                 return None;
-                    //                             }
-                    //                         }
-                    //                         JS_CLASS_OBJECT => {
-                    //                             if sh1.has_small_array_index {
-                    //                                 return None;
-                    //                             }
-                    //                         }
-                    //                         _ => {
-                    //                             return None;
-                    //                         }
-                    //                     }
-                    //                     up = sh1.proto;
-                    //                 }
-
-                    //                 Some(Ok(false)) // <-- indicated to append element
-                    //             }
-                    //             std::cmp::Ordering::Greater => {
-                    //                 // go slow path, destruct to sparse array
-                    //                 None
-                    //             }
-                    //         }
-                    //     })
-                    //     .flatten();
-
-                    // if let Some(Ok(false)) = ret {
-                    //     // append element
-                    //     Some(self.add_fast_array_element(ctx, val, flags))
-                    // } else {
-                    //     ret
-                    // }
                 } else {
                     None
                 }
@@ -440,26 +387,6 @@ impl Object {
                 } else {
                     None
                 }
-
-                // LEGACY
-                // if self
-                //     .with_fast_array_values_mut(|lst| -> bool {
-                //         if idx < lst.len() {
-                //             unsafe {
-                //                 *lst.get_unchecked_mut(idx) = val;
-                //             }
-                //             true
-                //         } else {
-                //             false
-                //         }
-                //     })
-                //     .unwrap()
-                // {
-                //     // early exit for fast array
-                //     Some(Ok(true))
-                // } else {
-                //     None
-                // }
             }
 
             //
@@ -537,8 +464,7 @@ impl Object {
         if let Some(idx) = index_key
             && let Some(r) = self.set_property_index(ctx, idx, val, flags)
         {
-            // early exit for fast path
-            return r;
+            return r; // early exit fast path
         }
 
         // slow path

@@ -126,11 +126,15 @@ impl Drop for StackFrame {
         if !self.gc_scope_id.is_null() {
             let mut rt = self.rt();
 
-            // Note:
-            // 1. For async frames: gc_scope_id may already be removed from GC heap when the root frame drops,
-            // causing AsyncState disposal which triggers its dedicated StackFrame::drop.
-            // 2. For normal frames: in most cases, no child scopes exist (execution doesn't nest),
-            // but a child scope may exist for AsyncState stack frames.
+            #[cfg(debug_assertions)]
+            {
+                debug_assert!(
+                    rt.gc_heap()
+                        .partition(self.gc_scope_id)
+                        .is_none_or(|p| p.children().is_empty()),
+                    "the closing gc scope should not have child"
+                );
+            }
 
             rt.gc_heap_mut().remove_partition(
                 self.gc_scope_id,
@@ -239,12 +243,15 @@ impl StackFrame {
         if self.gc_scope_id.is_null() {
             let mut rt = self.rt();
 
-            let parent = if let Some(up) = unsafe { self.prev.cast::<StackFrame>().as_mut() } {
+            // Note: async stack-frame has gc scope directly under root scope
+
+            let parent = if !self.is_async
+                && let Some(up) = unsafe { self.prev.cast::<StackFrame>().as_mut() }
+            {
                 up.init_gc_scope()
             } else {
                 rt.gc_root_scope
             };
-
             self.gc_scope_id = rt.gc_heap_mut().create_sub_partition(parent);
 
             log::trace!(

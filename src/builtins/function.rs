@@ -1,7 +1,9 @@
 use crate::{
     atom::Atom,
     error::JSResult,
-    function::{BoundFuncObjPayload, CallContext, FieldDef, FunctionKind, js_function_apply},
+    function::{
+        BFuncPayload, BoundFuncObjPayload, CallContext, FieldDef, FunctionKind, js_function_apply,
+    },
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     string::JS_ConcatString3,
     value::JSValue,
@@ -151,7 +153,7 @@ fn js_function_proto_fileName(cc: CallContext) -> JSResult {
     if let Some(filename) = cc.this().as_object().and_then(|o| {
         o.payload()
             .bc_function()
-            .and_then(|x| x.bytecode().debug.as_ref().map(|d| d.filename))
+            .and_then(|x: &Box<BFuncPayload>| x.bytecode().debug.as_ref().map(|d| d.filename))
     }) {
         filename.force_string(ctx).map(JSValue::String)
     } else {

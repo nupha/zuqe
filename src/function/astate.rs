@@ -1,6 +1,6 @@
 use std::{pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHeap, GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceOp};
 
 use crate::{
     context::ContextImpl, error::JSResult, function::BCFunction, gcref_wrapper,
@@ -30,6 +30,27 @@ unsafe impl GcTracable for AsyncStateImpl {
         self.resolving_funcs[0].trace(tr);
         self.resolving_funcs[1].trace(tr);
         self.stack_frame.trace(tr);
+    }
+}
+
+#[cfg(debug_assertions)]
+impl Drop for AsyncStateImpl {
+    fn drop(&mut self) {
+        // if gc scope for AsyncState's stack_frame has been closed, reset gc_scope_id field
+        // to "avoid scope must have no child" debug_assertion causes panic in StackFrame::drop().
+        if !self.stack_frame.gc_scope_id.is_null()
+            && self
+                .stack_frame
+                .rt()
+                .gc_heap()
+                .partition(self.stack_frame.gc_scope_id)
+                .is_none()
+        {
+            unsafe {
+                self.stack_frame.as_mut().get_unchecked_mut().gc_scope_id =
+                    gc_lite::GcPartitionId::NONE;
+            }
+        }
     }
 }
 
@@ -71,8 +92,7 @@ impl AsyncStateImpl {
             lst
         };
 
-        // make a dedicated stack frame for async function execution
-        // (the stack frame mode has ASYNC flag set).
+        // make a dedicated stack frame for async execution
         let mut stack_frame = Box::pin(StackFrame::new(bc_func.into(), mode | ExecMode::ASYNC));
         unsafe {
             let sf = stack_frame.as_mut().get_unchecked_mut();
@@ -196,8 +216,7 @@ impl AsyncStateImpl {
             caller_ctx,
             bf.home_object(),
             unsafe {
-                // use dedicated stack frame for async state
-                self.stack_frame.as_mut().get_unchecked_mut()
+                self.stack_frame.as_mut().get_unchecked_mut() // dedicated stack frame for async state
             },
             this_obj,
             JSValue::UNDEFINED,
@@ -209,7 +228,7 @@ impl AsyncStateImpl {
         );
 
         // Note: closure values could be allocated in stack-frame's gc scope during execution,
-        // before stack-frame is dropping, promote closure values up to at leat func's gc scope.
+        // before stack-frame is dropping, promote closure values up to func's gc scope.
         let mut rt = caller_ctx.rt_ptr();
         for vr in bf.closure_var_refs() {
             if let Some(n) = vr.value().gc_node_ptr() {

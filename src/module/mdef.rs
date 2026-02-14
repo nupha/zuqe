@@ -5,7 +5,7 @@ use crate::{
     builtins::promise::Promise,
     class::ClassExoticMethods,
     context::{Context, ContextImpl, ContextPtr},
-    function::{BCFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, VarRef},
+    function::{BFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, VarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, Object, ObjectPayload},
@@ -250,7 +250,7 @@ impl ModuleDefImpl {
                     }
                 }
 
-                let payload = ObjectPayload::BYTECODE_FUNCTION(BCFuncPayload::new(bc, var_refs));
+                let payload = ObjectPayload::BYTECODE_FUNCTION(BFuncPayload::new(bc, var_refs));
                 let func = ctx
                     .create_object_with_proto(Some(ctx.function_proto()), payload)
                     .map_err(|_| -1)?;

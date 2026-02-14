@@ -298,7 +298,9 @@ impl Bytecode {
                             .func_obj
                             .payload()
                             .bc_function()
-                            .and_then(|f| f.bytecode().debug.as_ref().map(|x| x.debug_setting))
+                            .and_then(|f: &Box<crate::function::BFuncPayload>| {
+                                f.bytecode().debug.as_ref().map(|x| x.debug_setting)
+                            })
                             .unwrap_or_default();
 
                         b.dump_run = 2; // O.o debug
@@ -2495,9 +2497,7 @@ impl Bytecode {
             match state {
                 State::Done(ret_val, is_generator) => {
                     // Note: `stack_frame` will be dropped after exit,
-                    // ret_val and closure vars should be migrated to upper gc scope
-                    // to prevent it being gc'ed unexpectedly.
-
+                    // ret_val should be migrated to upper gc scope
                     if let Some(n) = ret_val.gc_node_ptr()
                         && unsafe { n.as_ref().xref_partition().is_null() }
                     {

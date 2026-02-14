@@ -55,7 +55,7 @@ impl ObjectImpl {
         }
     }
 
-    /// set property at slot `idx`, and check gc cross reference
+    /// set property at slot `idx`, and set gc cross reference
     pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
         debug_assert!(idx < self.prop_values.len());
 
@@ -81,13 +81,6 @@ impl ObjectImpl {
             let xref = unsafe {
                 let o = GcRef::from_ref_unchecked(self);
                 o.node_info().scope_id()
-
-                // let x = obj_node.xref_partition();
-                // if x.is_null() {
-                //     obj_node.get_partition_id()
-                // } else {
-                //     x
-                // }
             };
 
             let mut rt = self.rt();

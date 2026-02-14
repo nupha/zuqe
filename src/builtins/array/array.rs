@@ -715,67 +715,17 @@ impl Object {
             }
         }
 
-        // add new element to list
-        let xref = self.gc_node().scope_id();
+        // add new element to list, gc cross ref should be considered
+        let obj_scope = self.gc_node().scope_id();
         self.as_Array_mut()
             .unwrap()
             .payload_mut()
-            .push(&mut ctx.rt_ptr(), val, xref)
+            .push(&mut ctx.rt_ptr(), val, obj_scope)
             .map(|_| true)
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })
-
-        ///// LEGACY
-
-        // // extend the array by one
-        // // XXX: convert to slow array if new_len > u32::MAX elements
-        // let new_len = self.with_fast_array_values(|lst| lst.len() + 1).unwrap();
-
-        // // first element in `prop_values` is the array length.
-        // // update the length if necessary. We assume that if the length is
-        // // not an integer, then if it >= 2^31.
-        // // Note: check array length to int in advance, to avoid prop_values borrow conflict.
-        // let len: Option<i32> = if let JSProperty::Normal(JSValue::Int(n)) = self.prop_slot(0) {
-        //     Some(*n)
-        // } else {
-        //     #[cfg(debug_assertions)]
-        //     unreachable!();
-        //     #[cfg(not(debug_assertions))]
-        //     None
-        // };
-
-        // if let Some(arr_len) = len
-        //     && new_len > arr_len as usize
-        // {
-        //     let r = self
-        //         .shape()
-        //         .and_then(|sh| sh.prop_defs.first().map(|p| p.flags()))
-        //         .unwrap();
-
-        //     if unlikely(r & JS_PROP_WRITABLE == 0) {
-        //         return if ctx.can_throw(flags) {
-        //             ctx.throw_type_error("'length' is read-only");
-        //             Err(-1)
-        //         } else {
-        //             Ok(false)
-        //         };
-        //     }
-
-        //     // update `length`
-        //     self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::Int(new_len as i32)));
-        // }
-
-        // // add new element to list
-        // self.with_fast_array_values_mut(|lst| -> Result<bool, i32> {
-        //     lst.try_push(val).map_err(|_| {
-        //         ctx.throw_out_of_memory();
-        //         -1
-        //     })?;
-        //     Ok(true)
-        // })
-        // .unwrap()
     }
 
     /// Get fast array list length:

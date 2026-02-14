@@ -158,14 +158,15 @@ impl Object {
         ctx.poll_interrupts()?;
 
         let ret_val = if let Some(bf) = self.as_BytecodeFunction() {
-            bf.call(ctx, this_obj, new_target, args, flags)
+            let mut bfun = *bf;
+            bfun.execute(ctx, this_obj, new_target, args, flags)
         } else if let Some(cb) = unsafe {
             ctx.rt_ptr()
                 .class_registry
                 .get_unchecked(self.class_id() as usize)
                 .call
         } {
-            // for non bytecode function (e.g. bound function, native function, async function etc),
+            // bound function, native function, async function etc,
             // check class defined exotic call handler
             cb(
                 unsafe { ContextPtr::from_ref_unchecked(ctx).into() },

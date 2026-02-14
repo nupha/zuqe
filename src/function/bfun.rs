@@ -84,12 +84,12 @@ pub enum FuncCallType {
 }
 
 /// Object payload for:
-/// * bytecode function,
-/// * async function,
-/// * generator function,
+/// * bytecode function
+/// * async function
+/// * generator function
 /// * async generator function
 #[derive(Debug)]
-pub struct BCFuncPayload {
+pub struct BFuncPayload {
     bytecode: Bytecode,
     closure_var_refs: Vec<VarRef>,
 
@@ -99,7 +99,7 @@ pub struct BCFuncPayload {
     home_object: Option<Object>,
 }
 
-unsafe impl GcTracable for BCFuncPayload {
+unsafe impl GcTracable for BFuncPayload {
     fn trace(&self, tr: GcTraceOp) {
         self.bytecode.trace(tr);
         if let Some(x) = self.home_object {
@@ -111,7 +111,7 @@ unsafe impl GcTracable for BCFuncPayload {
     }
 }
 
-impl BCFuncPayload {
+impl BFuncPayload {
     pub fn new(bytecode: Bytecode, captured_vars: Vec<VarRef>) -> Box<Self> {
         Box::new(Self {
             bytecode,
@@ -135,21 +135,26 @@ impl BCFuncPayload {
         self.home_object = obj;
     }
 
+    /// captured variables
     #[inline(always)]
     pub(crate) fn closure_var_refs(&self) -> &[VarRef] {
         &self.closure_var_refs
     }
 
+    /// captured variables
     #[inline(always)]
     pub(crate) fn closure_var_refs_mut(&mut self) -> &mut [VarRef] {
         &mut self.closure_var_refs
     }
 }
 
-/// represents a bytecode function, generator function, async function or async generator function,
-/// which have bytecode.
-#[derive(Debug, Clone, Copy)]
+/// A callback object which have Bytecode inside, include:
+/// * bytecode function
+/// * generator function
+/// * async function
+/// * async generator function
 #[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
 pub struct BCFunction(pub(super) GcRef<ObjectImpl>);
 
 object_cast!(
@@ -179,13 +184,13 @@ impl BCFunction {
 
     /// get bcfunction payload
     #[inline]
-    pub fn payload(&self) -> &BCFuncPayload {
+    pub fn payload(&self) -> &BFuncPayload {
         self.0.payload().bc_function().unwrap()
     }
 
     /// get bcfunction payload
     #[inline]
-    pub fn payload_mut(&mut self) -> &mut BCFuncPayload {
+    pub fn payload_mut(&mut self) -> &mut BFuncPayload {
         self.0.payload_mut().bc_function_mut().unwrap()
     }
 
@@ -299,6 +304,7 @@ pub(crate) const fn js_function_proto(_: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
+/// A subtype of BCFunction
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct BytecodeFunction(GcRef<ObjectImpl>);
@@ -306,135 +312,7 @@ pub struct BytecodeFunction(GcRef<ObjectImpl>);
 object_cast!(BytecodeFunction, JS_CLASS_BYTECODE_FUNCTION);
 
 impl BytecodeFunction {
-    #[inline(always)]
-    pub fn payload(&self) -> &BCFuncPayload {
-        self.0.payload().bc_function().unwrap()
-    }
-
-    #[inline(always)]
-    pub fn payload_mut(&mut self) -> &mut BCFuncPayload {
-        self.0.payload_mut().bc_function_mut().unwrap()
-    }
-
-    /// call bytecode function
-    pub(super) fn call(
-        mut self,
-        caller_ctx: &ContextImpl,
-        this_obj: JSValue,
-        new_target: JSValue,
-        args: &[JSValue],
-        flags: i32,
-    ) -> JSResult {
-        let func_scope = self.gc_node().scope_id();
-        let bc = self.payload().bytecode();
-
-        // how many args that should be copied to local buf?
-        // `args.len()` is actual argument count
-        // `b.arg_count` is the length when defining the function
-        let arg_copy_num =
-            if flags & JS_CALL_FLAG_COPY_ARGV != 0 || args.len() < bc.arg_count as usize {
-                std::cmp::max(args.len(), bc.arg_count as usize)
-            } else {
-                0
-            };
-
-        // how many bytes to allocate for local buf (args+vars+stack)?
-        let (buf_values_count, js_mode) = (
-            arg_copy_num as usize + bc.var_count as usize + bc.stack_size as usize,
-            bc.mode(),
-        );
-
-        let mut rt = caller_ctx.rt_ptr();
-        let mut stack_frame = StackFrame::new(self.into(), js_mode);
-
-        // ensure stack has minimal free space.
-        if js_check_stack_overflow(&rt, 32) {
-            caller_ctx.throw_stack_overflow();
-            return Err(-1);
-        }
-
-        // make local buffer and running bytecodes with it.
-        // local_buf layout:
-        //
-        // +------------------+
-        // | argument values  | <- arg_buf (optional, if need to copy arg)
-        // | variable values  | <- var_buf
-        // | stack space      | <- stack_buf
-        // +------------------+
-        //
-        if stack_frame
-            .local_buf
-            .try_reserve_exact(buf_values_count)
-            .is_err()
-        {
-            caller_ctx.throw_out_of_memory();
-            return Err(-1);
-        }
-
-        // initialize args section
-        if arg_copy_num != 0 {
-            debug_assert!(arg_copy_num >= args.len());
-
-            // copy actual arg values
-            stack_frame.local_buf.extend(args.iter().cloned());
-            // padding with undefined
-            stack_frame.local_buf.extend(std::iter::repeat_n(
-                JSValue::UNDEFINED,
-                arg_copy_num - args.len(),
-            ));
-
-            stack_frame.arg_count = arg_copy_num as _;
-            stack_frame.arg_real_count = args.len() as _;
-            stack_frame.arg_base_ptr = stack_frame.local_buf.as_mut_ptr()
-        } else {
-            stack_frame.arg_count = args.len() as _;
-            stack_frame.arg_real_count = args.len() as _;
-            stack_frame.arg_base_ptr = args.as_ptr().cast::<JSValue>() as *mut _;
-        }
-
-        // initialize (vars + stack) section
-        stack_frame.local_buf.extend(std::iter::repeat_n(
-            JSValue::UNDEFINED,
-            (bc.var_count + bc.stack_size) as usize,
-        ));
-        debug_assert_eq!(stack_frame.local_buf.len(), buf_values_count);
-
-        stack_frame.var_base_ptr = unsafe {
-            stack_frame
-                .local_buf
-                .as_mut_ptr()
-                .add(arg_copy_num as usize)
-        };
-        stack_frame.var_count = bc.var_count;
-
-        let bf = self.payload_mut();
-        let ret_val = bc
-            .run(
-                caller_ctx,
-                bf.home_object,
-                &mut stack_frame,
-                this_obj,
-                new_target,
-                0,
-                0,
-                &mut bf.closure_var_refs,
-                args,
-                false,
-            )
-            .err();
-
-        // Note: closure values could be allocated in stack-frame's gc scope during execution,
-        // before stack-frame is dropping, promote closure values up to at leat self Function's gc scope.
-        for vr in bf.closure_var_refs() {
-            if let Some(n) = vr.value().gc_node_ptr() {
-                rt.gc_heap_mut().set_xref(func_scope, n);
-            }
-        }
-
-        ret_val
-    }
-
-    /// handle `Function` constructor. For example:
+    /// Handle `Function` constructor call like:
     ///
     /// ```js
     /// const f = new Function("a", "b", "return a+b")
@@ -525,5 +403,133 @@ impl BytecodeFunction {
         }
 
         Ok(func_val)
+    }
+
+    #[inline(always)]
+    pub fn payload(&self) -> &BFuncPayload {
+        self.0.payload().bc_function().unwrap()
+    }
+
+    #[inline(always)]
+    pub fn payload_mut(&mut self) -> &mut BFuncPayload {
+        self.0.payload_mut().bc_function_mut().unwrap()
+    }
+
+    /// execute bytecode function
+    pub(super) fn execute(
+        &mut self,
+        caller_ctx: &ContextImpl,
+        this_obj: JSValue,
+        new_target: JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> JSResult {
+        let func_scope = self.gc_node().scope_id();
+        let bc = self.payload().bytecode();
+
+        // how many args that should be copied to local buf?
+        // `args.len()` is actual argument count
+        // `b.arg_count` is the length when defining the function
+        let arg_copy_num =
+            if flags & JS_CALL_FLAG_COPY_ARGV != 0 || args.len() < bc.arg_count as usize {
+                std::cmp::max(args.len(), bc.arg_count as usize)
+            } else {
+                0
+            };
+
+        // how many bytes to allocate for local buf (args+vars+stack)?
+        let (buf_values_count, js_mode) = (
+            arg_copy_num as usize + bc.var_count as usize + bc.stack_size as usize,
+            bc.mode(),
+        );
+
+        let mut rt = caller_ctx.rt_ptr();
+        let mut stack_frame = StackFrame::new((*self).into(), js_mode);
+
+        // ensure stack has minimal free space.
+        if js_check_stack_overflow(&rt, 32) {
+            caller_ctx.throw_stack_overflow();
+            return Err(-1);
+        }
+
+        // make local buffer and running bytecodes with it.
+        // local_buf layout:
+        //
+        // +------------------+
+        // | argument values  | <- arg_buf (optional, if need to copy arg)
+        // | variable values  | <- var_buf
+        // | stack space      | <- stack_buf
+        // +------------------+
+        //
+        if stack_frame
+            .local_buf
+            .try_reserve_exact(buf_values_count)
+            .is_err()
+        {
+            caller_ctx.throw_out_of_memory();
+            return Err(-1);
+        }
+
+        // initialize args section
+        if arg_copy_num != 0 {
+            debug_assert!(arg_copy_num >= args.len());
+
+            // copy actual arg values
+            stack_frame.local_buf.extend(args.iter().cloned());
+            // padding with undefined
+            stack_frame.local_buf.extend(std::iter::repeat_n(
+                JSValue::UNDEFINED,
+                arg_copy_num - args.len(),
+            ));
+
+            stack_frame.arg_count = arg_copy_num as _;
+            stack_frame.arg_real_count = args.len() as _;
+            stack_frame.arg_base_ptr = stack_frame.local_buf.as_mut_ptr()
+        } else {
+            stack_frame.arg_count = args.len() as _;
+            stack_frame.arg_real_count = args.len() as _;
+            stack_frame.arg_base_ptr = args.as_ptr().cast::<JSValue>() as *mut _;
+        }
+
+        // initialize (vars + stack) section
+        stack_frame.local_buf.extend(std::iter::repeat_n(
+            JSValue::UNDEFINED,
+            (bc.var_count + bc.stack_size) as usize,
+        ));
+        debug_assert_eq!(stack_frame.local_buf.len(), buf_values_count);
+
+        stack_frame.var_base_ptr = unsafe {
+            stack_frame
+                .local_buf
+                .as_mut_ptr()
+                .add(arg_copy_num as usize)
+        };
+        stack_frame.var_count = bc.var_count;
+
+        let bf = self.payload_mut();
+        let ret_val = bc
+            .run(
+                caller_ctx,
+                bf.home_object,
+                &mut stack_frame,
+                this_obj,
+                new_target,
+                0,
+                0,
+                &mut bf.closure_var_refs,
+                args,
+                false,
+            )
+            .err();
+
+        // Note: closure values could be allocated in stack-frame's gc scope during execution,
+        // before stack-frame is dropping, promote closure values up to at leat self Function's gc scope.
+        for vr in bf.closure_var_refs() {
+            if let Some(n) = vr.value().gc_node_ptr() {
+                rt.gc_heap_mut().set_xref(func_scope, n);
+            }
+        }
+
+        ret_val
     }
 }

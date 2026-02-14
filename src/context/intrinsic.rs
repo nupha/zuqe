@@ -23,7 +23,9 @@ use crate::{
     context::ContextPtr,
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     eval::{EvalFlags, EvalType},
-    function::{BytecodeFunction, Callback, FunctionKind, NativeFunction},
+    function::{
+        BCFunction, BFuncPayload, BytecodeFunction, Callback, FunctionKind, NativeFunction,
+    },
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload,
@@ -53,7 +55,7 @@ impl ContextPtr {
                         .this()
                         .as_object()
                         .and_then(|o| {
-                            o.payload().bc_function().map(|bc| {
+                            o.payload().bc_function().map(|bc: &Box<BFuncPayload>| {
                                 let b = bc.bytecode();
                                 b.mode().contains(ExecMode::STRICT) || !b.has_prototype()
                             })

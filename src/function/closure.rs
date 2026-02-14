@@ -5,7 +5,7 @@ use crate::{
     atom::Atom,
     context::ContextImpl,
     function::{
-        BCFuncPayload, BCFunction, Bytecode, FunctionKind, VarRef, js_function_set_properties,
+        BCFunction, BFuncPayload, Bytecode, FunctionKind, VarRef, js_function_set_properties,
     },
     object::{JS_PROP_WRITABLE, LazyInit, Object, ObjectPayload},
     stack_frame::StackFrame,
@@ -242,7 +242,7 @@ impl Bytecode {
         };
 
         let payload = {
-            let p = BCFuncPayload::new(*self, captures);
+            let p = BFuncPayload::new(*self, captures);
             match self.func_kind() {
                 FunctionKind::Normal => ObjectPayload::BYTECODE_FUNCTION(p),
                 FunctionKind::Generator => ObjectPayload::GENERATOR_FUNCTION(p),

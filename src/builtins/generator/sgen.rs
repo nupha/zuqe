@@ -14,8 +14,8 @@ pub(crate) const GEN_MAGIC_NEXT: i32 = 0;
 pub(crate) const GEN_MAGIC_RETURN: i32 = 1;
 pub(crate) const GEN_MAGIC_THROW: i32 = 2;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum GenState {
     JS_GENERATOR_STATE_SUSPENDED_START,
     JS_GENERATOR_STATE_SUSPENDED_YIELD,
@@ -32,12 +32,12 @@ pub const FUNC_RET_INITIAL_YIELD: i32 = 3;
 #[derive(Debug)]
 pub struct GeneratorPayload {
     state: GenState,
-    func_state: AsyncState,
+    async_state: AsyncState,
 }
 
 unsafe impl GcTracable for GeneratorPayload {
-    fn trace(&self, mut tr: GcTraceOp) {
-        tr.add(self.func_state.gc_ref());
+    fn trace(&self, tr: GcTraceOp) {
+        self.async_state.trace(tr);
     }
 }
 
@@ -53,24 +53,24 @@ impl GeneratorPayload {
     }
 
     fn set_throw_flag(&mut self, b: bool) {
-        self.func_state.set_throw_flag(b);
+        self.async_state.set_throw_flag(b);
     }
 
     #[inline(always)]
     pub fn is_completed(&self) -> bool {
-        self.func_state.is_completed
+        self.async_state.is_completed
     }
 
     /// run with stack frame
     #[inline(always)]
     fn with_stack_frame_mut<R>(&mut self, f: impl FnOnce(&mut StackFrame) -> R) -> R {
-        f(unsafe { self.func_state.stack_frame.as_mut().get_unchecked_mut() })
+        f(unsafe { self.async_state.stack_frame.as_mut().get_unchecked_mut() })
     }
 
     /// execute the function up to 'OP_initial_yield' opcode
     #[inline(always)]
     pub fn resume(&mut self, ctx: &ContextImpl) -> JSResult {
-        self.func_state.resume(ctx)
+        self.async_state.resume(ctx)
     }
 
     /// mark generator is completed
@@ -88,23 +88,23 @@ pub fn js_generator_function_call(
     args: &[JSValue],
     _flags: i32,
 ) -> JSResult {
-    let func_state = AsyncState::new(
+    let async_state = AsyncState::new(
         &ctx,
         [const { JSValue::UNDEFINED }; 2],
         *func_obj.as_object_BCFunction().unwrap(),
         this_obj,
         args,
     )?;
-    let mut g = Box::new(GeneratorPayload {
+    let mut p = Box::new(GeneratorPayload {
         state: GenState::JS_GENERATOR_STATE_SUSPENDED_START,
-        func_state,
+        async_state,
     });
 
-    // execute bytecodes up to 'OP_initial_yield'
-    g.resume(&ctx)?;
+    // initial execute bytecodes till OpCode::INITIAL_YIELD instruction
+    p.resume(&ctx)?;
 
-    // create js object of generator class
-    ctx.create_object_from_ctor(func_obj, ObjectPayload::GENERATOR(g))
+    // create Generator instance
+    ctx.create_object_from_ctor(func_obj, ObjectPayload::GENERATOR(p))
         .map(JSValue::Object)
         .map_err(|_| -1)
 }

@@ -90,10 +90,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     m.insert(PayloadKey::String, "crate::string::StringRef");
     m.insert(PayloadKey::Value, "crate::value::JSValue");
     m.insert(PayloadKey::NativeFunc, "Box<crate::function::NFuncPayload>");
-    m.insert(
-        PayloadKey::BcFunction,
-        "Box<crate::function::BCFuncPayload>",
-    );
+    m.insert(PayloadKey::BcFunction, "Box<crate::function::BFuncPayload>");
     m.insert(
         PayloadKey::BoundFunction,
         "Box<crate::function::BoundFuncObjPayload>",

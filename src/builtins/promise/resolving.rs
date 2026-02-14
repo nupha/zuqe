@@ -154,23 +154,6 @@ impl Default for PromiseReaction {
     }
 }
 
-// impl PromiseReaction {
-//     /// promote gc cross ref scope for nodes in reaction
-//     pub(super) fn set_xref(&self, ctx: &mut ContextImpl, xref: GcPartitionId) {
-//         let heap = ctx.rt_mut().gc_heap_mut();
-
-//         if let Some(n) = self.resolving_funcs[0].gc_node_ptr() {
-//             heap.set_xref(xref, n);
-//         }
-//         if let Some(n) = self.resolving_funcs[1].gc_node_ptr() {
-//             heap.set_xref(xref, n);
-//         }
-//         if let Some(n) = self.handler.gc_node_ptr() {
-//             heap.set_xref(xref, n);
-//         }
-//     }
-// }
-
 impl Promise {
     /// Add a chained reaction to Promise.
     ///
