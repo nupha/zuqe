@@ -1,6 +1,6 @@
 use std::{cell::Cell, rc::Rc};
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
@@ -28,7 +28,7 @@ pub struct PromiseResolvePayload {
 }
 
 unsafe impl GcTracable for PromiseResolvePayload {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.promise.trace(tr);
     }
 }
@@ -138,7 +138,7 @@ pub(super) struct PromiseReaction {
 }
 
 unsafe impl GcTracable for PromiseReaction {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.resolving_funcs[0].trace(tr);
         self.resolving_funcs[1].trace(tr);
         self.handler.trace(tr);

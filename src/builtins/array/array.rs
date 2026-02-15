@@ -1,7 +1,7 @@
 use std::collections::TryReserveError;
 
 use fallible_collections::{FallibleVec, TryCollect};
-use gc_lite::{GcHeap, GcPartitionId, GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcHeap, GcPartitionId, GcRef, GcTracable, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
@@ -26,7 +26,7 @@ pub(crate) struct ArrayPayload {
 }
 
 unsafe impl GcTracable for ArrayPayload {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         for v in self.values.iter() {
             v.trace(tr);
         }

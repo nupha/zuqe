@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use gc_lite::{GcTracable, GcTraceOp};
+use gc_lite::{GcTracable, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -55,7 +55,7 @@ pub struct ForInIterPayload {
 }
 
 unsafe impl GcTracable for ForInIterPayload {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.obj.map(|o| o.trace(tr));
         self.prop_enums.iter().for_each(|x| x.trace(tr));
     }

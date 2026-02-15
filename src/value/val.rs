@@ -4,7 +4,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcHead, GcTraceOp};
+use gc_lite::{GcHead, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ERROR,
@@ -123,7 +123,7 @@ pub enum JSValue {
 
 unsafe impl gc_lite::GcTracable for JSValue {
     #[inline(always)]
-    fn trace(&self, mut tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         if let Some(p) = self.gc_node_ptr() {
             tr.add_node(p);
         }

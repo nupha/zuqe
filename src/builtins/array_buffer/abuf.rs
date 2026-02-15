@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
@@ -105,7 +105,7 @@ pub struct ArrayBufferPayload {
 
 unsafe impl GcTracable for ArrayBufferPayload {
     #[inline(always)]
-    fn trace(&self, _: GcTraceOp) {}
+    fn trace(&self, _: &mut GcTraceCtx) {}
 }
 
 impl ArrayBufferPayload {

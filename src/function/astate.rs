@@ -1,6 +1,6 @@
 use std::{pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     context::ContextImpl, error::JSResult, function::BCWrapper, gcref_wrapper,
@@ -25,7 +25,7 @@ pub struct AsyncStateImpl {
 }
 
 unsafe impl GcTracable for AsyncStateImpl {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.this_val.trace(tr);
         self.resolving_funcs[0].trace(tr);
         self.resolving_funcs[1].trace(tr);

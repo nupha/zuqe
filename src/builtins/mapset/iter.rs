@@ -1,4 +1,4 @@
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR,
@@ -26,7 +26,7 @@ pub struct JSMapIteratorData {
 }
 
 unsafe impl GcTracable for JSMapIteratorData {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.obj.map(|x| x.trace(tr));
     }
 }

@@ -1,4 +1,4 @@
-use gc_lite::{GcTracable, GcTraceOp};
+use gc_lite::{GcTracable, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -14,7 +14,7 @@ pub struct ModuleDependency {
 }
 
 unsafe impl GcTracable for ModuleDependency {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.module_name.trace(tr);
         self.module.map(|x| x.trace(tr));
     }

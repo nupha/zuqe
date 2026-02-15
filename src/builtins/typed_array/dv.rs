@@ -1,4 +1,4 @@
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_DATAVIEW,
@@ -26,7 +26,7 @@ pub struct DataViewPayload {
 }
 
 unsafe impl GcTracable for DataViewPayload {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.buffer.trace(tr);
     }
 }

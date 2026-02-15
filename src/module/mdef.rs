@@ -1,4 +1,4 @@
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -81,7 +81,7 @@ pub struct ModuleDefImpl {
 }
 
 unsafe impl GcTracable for ModuleDefImpl {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.module_name.trace(tr);
         self.dependencies.iter().for_each(|x| x.trace(tr));
         self.export_entries.iter().for_each(|x| x.trace(tr));

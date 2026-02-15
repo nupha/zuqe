@@ -1,6 +1,6 @@
 use std::{cell::Cell, rc::Rc};
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_PROMISE,
@@ -48,7 +48,7 @@ pub struct PromiseData {
 }
 
 unsafe impl GcTracable for PromiseData {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.reactions[0].iter().for_each(|x| x.trace(tr));
         self.reactions[1].iter().for_each(|x| x.trace(tr));
         self.result.trace(tr);
@@ -107,7 +107,7 @@ pub struct Promise(GcRef<ObjectImpl>);
 object_cast!(Promise, JS_CLASS_PROMISE);
 
 unsafe impl GcTracable for Promise {
-    fn trace(&self, mut tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         tr.add(self.0);
     }
 }

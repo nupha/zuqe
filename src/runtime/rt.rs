@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHeap, GcPartitionId, GcTraceOp, GcWeak};
+use gc_lite::{GcHeap, GcPartitionId, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
@@ -79,9 +79,9 @@ pub struct RuntimeImpl {
     /// gc partition id
     pub(crate) gc_root_scope: GcPartitionId,
     /// user defined gc trace callback
-    pub(crate) gc_user_trace: Option<Box<dyn Fn(GcTraceOp)>>,
+    pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
     /// gc trace of current running job
-    pub(crate) gc_cur_job_trace: Option<Box<dyn Fn(GcTraceOp)>>,
+    pub(crate) gc_cur_job_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
     /// gc request flag
     pub(crate) gc_req: bool,
 

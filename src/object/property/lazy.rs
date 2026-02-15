@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcTracable, GcTraceOp};
+use gc_lite::{GcTracable, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -26,7 +26,7 @@ pub enum LazyInit {
 }
 
 unsafe impl GcTracable for LazyInit {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         if let Self::ModuleNS(ns) = self {
             ns.trace(tr);
         }

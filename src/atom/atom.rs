@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use gc_lite::{GcTracable, GcTraceOp};
+use gc_lite::{GcTracable, GcTraceCtx};
 
 use crate::{
     RuntimeImpl,
@@ -17,7 +17,7 @@ use crate::{
 pub struct Atom(pub(super) u32);
 
 unsafe impl GcTracable for Atom {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         if !self.is_const() && !self.is_small_int() {
             let rt = tr.heap().opaque().cast::<RuntimeImpl>();
             debug_assert!(!rt.is_null());

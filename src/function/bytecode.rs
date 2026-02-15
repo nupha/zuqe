@@ -1,4 +1,4 @@
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     atom::{Atom, is_const_atom, is_small_int_atom},
@@ -27,7 +27,7 @@ pub struct BytecodeDebugInfo {
 }
 
 unsafe impl GcTracable for BytecodeDebugInfo {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.filename.trace(tr);
     }
 }
@@ -116,7 +116,7 @@ pub struct BytecodeImpl {
 }
 
 unsafe impl GcTracable for BytecodeImpl {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.func_name.trace(tr);
         self.consts().iter().for_each(|x| x.trace(tr));
         self.var_defs().iter().for_each(|x| x.trace(tr));

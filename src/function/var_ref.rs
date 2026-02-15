@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     context::ContextImpl,
@@ -30,7 +30,7 @@ pub enum VarRefImpl {
 }
 
 unsafe impl GcTracable for VarRefImpl {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         match self {
             Self::Bind {
                 async_state,

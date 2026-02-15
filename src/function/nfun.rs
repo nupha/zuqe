@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
@@ -73,7 +73,7 @@ pub(crate) struct NFuncPayload {
 }
 
 unsafe impl GcTracable for NFuncPayload {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.realm.trace(tr);
         if let Some(data) = &self.data {
             data.iter().for_each(|x| x.trace(tr));

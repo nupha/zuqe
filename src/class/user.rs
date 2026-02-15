@@ -1,6 +1,6 @@
 use std::{cell::Cell, ffi::c_void, ptr::NonNull};
 
-use gc_lite::GcTracable;
+use gc_lite::{GcTracable, GcTraceCtx};
 
 use crate::{
     ClassDef, USER_CLASS_ID_START,
@@ -20,7 +20,7 @@ pub struct OtherPayload {
 
 unsafe impl GcTracable for OtherPayload {
     #[inline(always)]
-    fn trace(&self, _: gc_lite::GcTraceOp) {}
+    fn trace(&self, _: &mut GcTraceCtx) {}
 }
 
 impl OtherPayload {

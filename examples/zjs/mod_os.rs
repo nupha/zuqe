@@ -4,7 +4,7 @@ use std::{
     ffi::c_void,
 };
 
-use gc_lite::{GcTracable, GcTraceOp};
+use gc_lite::{GcTracable, GcTraceCtx};
 use smallvec::SmallVec;
 use zuqe::{
     CallContext, Context, FieldDef, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JSResult, JSValue,
@@ -368,25 +368,42 @@ fn js_os_poll(ctx: Context) -> bool {
     has_rw || min_tv.is_some() || OS_PENDING_SIGNALS.get() != 0
 }
 
-pub fn mod_os_gc_trace(tr: GcTraceOp) {
-    RW_HANDLERS.with(|lut| {
-        for v in lut.borrow().values() {
+pub fn mod_os_gc_trace(tr: &mut GcTraceCtx) {
+    RW_HANDLERS.with_borrow_mut(|s| {
+        for v in s.values() {
             v[0].trace(tr);
             v[1].trace(tr);
         }
     });
-
-    SIG_HANDLERS.with_borrow(|lut| {
-        for v in lut.values() {
+    SIG_HANDLERS.with_borrow_mut(|s| {
+        for v in s.values() {
             v.trace(tr);
         }
     });
-
-    TIMERS.with_borrow(|tms| {
-        for tm in tms {
+    TIMERS.with_borrow_mut(|s| {
+        for tm in s {
             tm.func.trace(tr);
         }
-    })
+    });
+
+    // RW_HANDLERS.with(|lut| {
+    //     for v in lut.borrow().values() {
+    //         v[0].trace(tr);
+    //         v[1].trace(tr);
+    //     }
+    // });
+
+    // SIG_HANDLERS.with_borrow(|lut| {
+    //     for v in lut.values() {
+    //         v.trace(tr);
+    //     }
+    // });
+
+    // TIMERS.with_borrow(|tms| {
+    //     for tm in tms {
+    //         tm.func.trace(tr);
+    //     }
+    // })
 }
 
 fn js_os_setReadHandler(cc: CallContext) -> JSResult {

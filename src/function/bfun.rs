@@ -1,4 +1,4 @@
-use gc_lite::{GcRef, GcTracable, GcTraceOp};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
@@ -100,7 +100,7 @@ pub struct BFuncPayload {
 }
 
 unsafe impl GcTracable for BFuncPayload {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.bytecode.trace(tr);
         if let Some(x) = self.home_object {
             x.trace(tr)

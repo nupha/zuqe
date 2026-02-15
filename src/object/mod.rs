@@ -15,7 +15,7 @@ macro_rules! gcref_wrapper {
     ($ty:ident, $in_ty:ident) => {
         unsafe impl gc_lite::GcTracable for $ty {
             #[inline(always)]
-            fn trace(&self, mut tr: gc_lite::GcTraceOp) {
+            fn trace(&self, mut tr: &mut gc_lite::GcTraceCtx) {
                 tr.add(self.0)
             }
         }

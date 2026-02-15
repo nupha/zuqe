@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use gc_lite::{GcTracable, GcTraceOp};
+use gc_lite::{GcTracable, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -45,7 +45,7 @@ pub(crate) enum ExportType {
 }
 
 unsafe impl GcTracable for ExportType {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         if let Self::JS_EXPORT_TYPE_LOCAL {
             var_ref: Some(vref),
             ..
@@ -66,7 +66,7 @@ pub struct ExportEntry {
 }
 
 unsafe impl GcTracable for ExportEntry {
-    fn trace(&self, tr: GcTraceOp<'_>) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.export_type.trace(tr);
         self.local_name.trace(tr);
         self.export_name.trace(tr);
@@ -88,7 +88,7 @@ pub(super) enum ResolveExport {
 }
 
 unsafe impl GcTracable for ResolveExport {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         if let Self::Found {
             export_name,
             local_name,

@@ -1,4 +1,4 @@
-use gc_lite::{GcTracable, GcTraceOp};
+use gc_lite::{GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
@@ -31,7 +31,7 @@ pub(crate) struct ClosureVar {
 }
 
 unsafe impl GcTracable for ClosureVar {
-    fn trace(&self, tr: GcTraceOp) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.var_name.trace(tr);
     }
 }

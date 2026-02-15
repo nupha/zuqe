@@ -1,6 +1,5 @@
 use gc_lite::{
-    GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceOp, GcTraceRestrict,
-    GcTracer,
+    GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceCtx, GcTraceRestrict,
 };
 
 use crate::runtime::RuntimeImpl;
@@ -97,31 +96,31 @@ impl RuntimeImpl {
 
         // 1. mark
         {
-            let mut tr = GcTracer::new(self.gc_heap(), GcTraceRestrict::No, true);
+            let heap = self.gc_heap();
+            let mut tr = GcTraceCtx::new(heap, GcTraceRestrict::No, true);
 
-            // Note: for root scope, Contexts are root nodes, they have been traced in trace_root step.
-
-            tr.trace_roots(partition_id, GcTracer::MARK_FUNC);
-
+            // 1. root nodes (Hint: for root scope, Contexts are root nodes)
+            tr.trace_roots(partition_id, GcTraceCtx::MARK_FUNC);
+            // 2. stack frame
             if let Some(sf) = self.current_stack_frame() {
                 debug_assert_eq!(sf.gc_scope_id, partition_id);
-                sf.trace(tr.ctx());
-                // tr.trace_iter(sf.gc_nodes(), GcTracer::MARK_FUNC);
+                sf.trace(&mut tr);
             }
+            // 3. exception
             if let Some(n) = self.cur_exception.gc_node_ptr() {
-                tr.trace(n, GcTracer::MARK_FUNC);
+                tr.trace(n, GcTraceCtx::MARK_FUNC);
             }
 
-            // user defined trace
+            // user defined mark
             if let Some(f) = self.gc_user_trace.as_ref() {
-                f(tr.ctx());
+                f(&mut tr);
             }
-            // currently running job
+            // mark currently running job
             if let Some(f) = self.gc_cur_job_trace.as_ref() {
-                f(tr.ctx());
+                f(&mut tr);
             }
 
-            tr.commit(GcTracer::MARK_FUNC);
+            tr.commit(GcTraceCtx::MARK_FUNC);
         }
 
         // 2. sweep
@@ -158,7 +157,7 @@ impl RuntimeImpl {
     }
 
     #[inline(always)]
-    pub fn gc_set_trace_handler(&mut self, f: impl Fn(GcTraceOp) + 'static) {
+    pub fn gc_set_trace_handler(&mut self, f: impl Fn(&mut GcTraceCtx) + 'static) {
         self.gc_user_trace.replace(Box::new(f));
     }
 

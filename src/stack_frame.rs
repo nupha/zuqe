@@ -4,7 +4,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcHead, GcPartitionId, GcTracable, GcTraceOp, GcWeak};
+use gc_lite::{GcHead, GcPartitionId, GcTracable, GcTraceCtx, GcWeak};
 
 use crate::{
     Object,
@@ -87,7 +87,7 @@ pub struct StackFrame {
 }
 
 unsafe impl GcTracable for StackFrame {
-    fn trace(&self, mut tr: GcTraceOp) {
+    fn trace(&self, mut tr: &mut GcTraceCtx) {
         self.func_obj.trace(tr);
 
         // trace args
