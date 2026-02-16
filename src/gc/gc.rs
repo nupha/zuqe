@@ -1,5 +1,6 @@
 use gc_lite::{
-    GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceCtx, GcTraceRestrict,
+    GcError, GcHeap, GcNode, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceCtx,
+    GcTraceRestrict,
 };
 
 use crate::runtime::RuntimeImpl;
@@ -66,7 +67,7 @@ impl RuntimeImpl {
     }
 
     /// alloc data in given gc scope
-    pub(crate) fn gc_alloc_in<T: GcTracable>(
+    pub(crate) fn gc_alloc_in<T: GcNode>(
         &mut self,
         scope_id: GcPartitionId,
         data: T,
@@ -85,7 +86,7 @@ impl RuntimeImpl {
     }
 
     #[inline]
-    pub fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
+    pub fn gc_alloc<T: GcNode>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         let pid = self.gc_current_scope(true).unwrap();
         self.gc_alloc_in(pid, data)
     }

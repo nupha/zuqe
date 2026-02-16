@@ -1,4 +1,4 @@
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     atom::{Atom, is_const_atom, is_small_int_atom},
@@ -151,6 +151,8 @@ unsafe impl GcTracable for BytecodeImpl {
         }
     }
 }
+
+impl GcNode for BytecodeImpl {}
 
 impl BytecodeImpl {
     #[allow(clippy::too_many_arguments)]

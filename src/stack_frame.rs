@@ -87,7 +87,7 @@ pub struct StackFrame {
 }
 
 unsafe impl GcTracable for StackFrame {
-    fn trace(&self, mut tr: &mut GcTraceCtx) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         self.func_obj.trace(tr);
 
         // trace args
