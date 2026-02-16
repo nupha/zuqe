@@ -365,7 +365,7 @@ impl ObjectImpl {
 
         // get directly referenced gc nodes, set xref of obj's children
         {
-            let children = obj.gc_node().gc_children(ctx.rt_ref().gc_heap());
+            let children = obj.gc_node().gc_children(ctx.rt_ptr().gc_heap_mut());
             if !children.is_empty() {
                 let obj_scope = obj.gc_node().scope_id();
                 for n in children {

@@ -97,7 +97,7 @@ impl RuntimeImpl {
 
         // 1. mark
         {
-            let heap = self.gc_heap();
+            let heap = self.gc_heap_mut();
             let mut tr = GcTraceCtx::new(heap, GcTraceRestrict::No, true);
 
             // 1. root nodes (Hint: for root scope, Contexts are root nodes)

@@ -197,7 +197,9 @@ impl NativeFunction {
         debug_assert_eq!(nfunc.class_id(), JS_CLASS_C_FUNCTION);
 
         #[cfg(debug_assertions)]
-        nfunc.gc_node().debug_assert_node_tree_valid(rt.gc_heap());
+        nfunc
+            .gc_node()
+            .debug_assert_node_tree_valid(rt.gc_heap_mut());
 
         let (realm, args_length) = {
             let p = nfunc.payload();

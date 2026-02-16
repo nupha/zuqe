@@ -87,7 +87,7 @@ impl ObjectImpl {
             for node in gc_node.into_iter().flatten() {
                 unsafe {
                     #[cfg(debug_assertions)]
-                    node.as_ref().debug_assert_node_tree_valid(rt.gc_heap());
+                    node.as_ref().debug_assert_node_tree_valid(rt.gc_heap_mut());
 
                     if node.as_ref().scope_id() != xref {
                         rt.gc_heap_mut().set_xref(xref, node);
