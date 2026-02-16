@@ -97,36 +97,35 @@ impl RuntimeImpl {
 
         // 1. mark
         {
-            let heap = self.gc_heap_mut();
-            let mut tr = GcTraceCtx::new(heap, GcTraceRestrict::No, true);
+            let mut gcx = GcTraceCtx::new(self.gc_heap_mut(), GcTraceRestrict::No, true);
 
             // 1. root nodes (Hint: for root scope, Contexts are root nodes)
-            tr.trace_roots(partition_id, GcTraceCtx::MARK_FUNC);
+            gcx.trace_roots(partition_id, GcTraceCtx::MARK_FUNC);
             // 2. stack frame
             if let Some(sf) = self.current_stack_frame() {
                 debug_assert_eq!(sf.gc_scope_id, partition_id);
-                sf.trace(&mut tr);
+                sf.trace(&mut gcx);
             }
             // 3. exception
             if let Some(n) = self.cur_exception.gc_node_ptr() {
-                tr.trace(n, GcTraceCtx::MARK_FUNC);
+                gcx.trace(n, GcTraceCtx::MARK_FUNC);
             }
 
             // user defined mark
             if let Some(f) = self.gc_user_trace.as_ref() {
-                f(&mut tr);
+                f(&mut gcx);
             }
             // mark currently running job
             if let Some(f) = self.gc_cur_job_trace.as_ref() {
-                f(&mut tr);
+                f(&mut gcx);
             }
 
-            tr.commit(GcTraceCtx::MARK_FUNC);
+            gcx.commit(GcTraceCtx::MARK_FUNC);
         }
 
         // 2. sweep
         let freed = self
-            .gc_heap
+            .gc_heap_mut()
             .sweep(partition_id, GcHeap::SWEEP_UNMARKED_FUNC, {
                 #[cfg(debug_assertions)]
                 {

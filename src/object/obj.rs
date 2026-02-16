@@ -365,11 +365,14 @@ impl ObjectImpl {
 
         // get directly referenced gc nodes, set xref of obj's children
         {
-            let children = obj.gc_node().gc_children(ctx.rt_ptr().gc_heap_mut());
+            let mut rt = ctx.rt_ptr();
+            let heap = rt.gc_heap_mut();
+
+            let children = obj.gc_node().gc_children(heap);
             if !children.is_empty() {
                 let obj_scope = obj.gc_node().scope_id();
                 for n in children {
-                    ctx.rt_ptr().gc_heap_mut().set_xref(obj_scope, n);
+                    heap.set_xref(obj_scope, n);
                 }
             }
         }
