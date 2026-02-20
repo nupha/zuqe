@@ -1,6 +1,6 @@
 use gc_lite::{
     GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceCtx, GcTraceRestrict,
-    GcTypedNode, gc_type_table,
+    GcTypedNode, gc_type_register,
 };
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
 };
 
 // register gc data types
-gc_type_table! {
+gc_type_register! {
     ContextImpl;
     ShapeImpl, drop_pass = 1;
     ObjectImpl;
