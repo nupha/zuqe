@@ -17,6 +17,7 @@ use crate::{
     class::{ClassMeta, js_arguments_exotic_methods},
     context::ContextPtr,
     function::{AsyncFunction, AsyncState, BoundFunction, NativeFunction},
+    gc::gc::GC_TYPE_INFO_LIST,
     module::{ModuleLoadFn, ModuleNormalizeFn, js_module_ns_exotic_methods},
     object::ShapeImpl,
     resource::LocalResource,
@@ -116,11 +117,8 @@ impl Drop for RuntimeImpl {
 
 impl RuntimeImpl {
     pub(super) fn new() -> Result<Box<Self>, i32> {
-        // ShapeImpl obj drop at pass 1
-        GcHeap::set_gc_type_drop_pass::<ShapeImpl>(1);
-
         // create gc heap and partition for this runtime
-        let mut gc_heap = GcHeap::new();
+        let mut gc_heap = GcHeap::new_with_types(GC_TYPE_INFO_LIST);
 
         let gc_part_id = gc_heap.create_root_partition(0);
         {
