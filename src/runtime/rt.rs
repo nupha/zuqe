@@ -118,7 +118,7 @@ impl Drop for RuntimeImpl {
 impl RuntimeImpl {
     pub(super) fn new() -> Result<Box<Self>, i32> {
         // create gc heap and partition for this runtime
-        let mut gc_heap = GcHeap::new_with_types(GC_TYPE_INFO_LIST);
+        let mut gc_heap = GcHeap::new(GC_TYPE_INFO_LIST);
 
         let gc_part_id = gc_heap.create_root_partition(0);
         {
