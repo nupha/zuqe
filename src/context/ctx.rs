@@ -7,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
@@ -113,8 +113,6 @@ unsafe impl GcTracable for ContextImpl {
         self.job_list.iter().for_each(|x| x.trace(tr));
     }
 }
-
-impl GcNode for ContextImpl {}
 
 impl Drop for ContextImpl {
     fn drop(&mut self) {

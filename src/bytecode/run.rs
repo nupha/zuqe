@@ -2499,7 +2499,7 @@ impl Bytecode {
                     // Note: `stack_frame` will be dropped after exit,
                     // ret_val should be migrated to upper gc scope
                     if let Some(n) = ret_val.gc_node_ptr()
-                        && unsafe { n.as_ref().xref_partition().is_null() }
+                        && unsafe { n.as_ref().xref().is_null() }
                     {
                         let upper_scope = rt.gc_upper_scope(true).unwrap();
                         rt.gc_heap_mut().set_xref(upper_scope, n);

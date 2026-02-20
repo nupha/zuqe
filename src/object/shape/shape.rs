@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 use hash_link::HashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty};
@@ -29,8 +29,6 @@ unsafe impl GcTracable for ShapeImpl {
         self.prop_defs.iter().for_each(|(_, p)| p.trace(tr));
     }
 }
-
-impl GcNode for ShapeImpl {}
 
 impl ShapeImpl {
     /// create an empty shape with prototype 'proto'.

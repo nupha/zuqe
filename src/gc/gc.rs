@@ -1,6 +1,6 @@
 use gc_lite::{
-    GcError, GcHeap, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceCtx, GcTraceRestrict,
-    GcTypedNode, gc_type_register,
+    GcError, GcHeap, GcNode, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceCtx,
+    GcTraceRestrict, gc_type_register,
 };
 
 use crate::{
@@ -15,13 +15,13 @@ use crate::{
 // register gc data types
 gc_type_register! {
     ContextImpl;
-    ShapeImpl, drop_pass = 1;
     ObjectImpl;
     ModuleDefImpl;
     VarRefImpl;
     BytecodeImpl;
     StringImpl;
     AsyncStateImpl;
+    ShapeImpl, drop_pass = 1;
 }
 
 impl RuntimeImpl {
@@ -86,7 +86,7 @@ impl RuntimeImpl {
     }
 
     /// alloc data in given gc scope
-    pub(crate) fn gc_alloc_in<T: GcTypedNode>(
+    pub(crate) fn gc_alloc_in<T: GcNode>(
         &mut self,
         scope_id: GcPartitionId,
         data: T,
@@ -105,7 +105,7 @@ impl RuntimeImpl {
     }
 
     #[inline]
-    pub fn gc_alloc<T: GcTypedNode>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
+    pub fn gc_alloc<T: GcNode>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         let pid = self.gc_current_scope(true).unwrap();
         self.gc_alloc_in(pid, data)
     }

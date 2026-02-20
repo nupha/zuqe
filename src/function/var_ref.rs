@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     context::ContextImpl,
@@ -50,8 +50,6 @@ unsafe impl GcTracable for VarRefImpl {
         }
     }
 }
-
-impl GcNode for VarRefImpl {}
 
 impl VarRefImpl {
     /// get variable value

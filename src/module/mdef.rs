@@ -1,4 +1,4 @@
-use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -113,8 +113,6 @@ unsafe impl GcTracable for ModuleDefImpl {
         }
     }
 }
-
-impl GcNode for ModuleDefImpl {}
 
 impl ModuleDefImpl {
     fn new(_ctx: &ContextImpl, module_name: Atom) -> Self {
