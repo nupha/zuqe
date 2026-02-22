@@ -57,7 +57,7 @@ impl ArrayPayload {
     }
 
     #[inline(always)]
-    fn push(&mut self, rt: &mut RuntimeImpl, val: JSValue) -> Result<(), TryReserveError> {
+    fn push(&mut self, val: JSValue) -> Result<(), TryReserveError> {
         self.values.try_push(val)
     }
 
@@ -708,14 +708,11 @@ impl Object {
             }
         }
 
-        // add new element to list, gc cross ref should be considered
-        let self_node = self.gc_node_ptr();
-
+        // add new element to list
         self.as_Array_mut()
             .unwrap()
             .payload_mut()
-            .push(&mut ctx.rt_ptr(), value)
-            .map(|_| true)
+            .push(value)
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
@@ -723,6 +720,7 @@ impl Object {
 
         // bind reference relation
         if let Some(n) = value.gc_node_ptr() {
+            let self_node = self.gc_node_ptr();
             ctx.rt_ptr().gc_heap_mut().bind(self_node, n);
         }
 
