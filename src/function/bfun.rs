@@ -424,7 +424,6 @@ impl BytecodeFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let self_scope = self.gc_node().scope_id();
         let bc = self.payload().bytecode();
 
         // how many args that should be copied to local buf?
@@ -506,6 +505,7 @@ impl BytecodeFunction {
         };
         stack_frame.var_count = bc.var_count;
 
+        let self_node = self.gc_node_ptr();
         let bf = self.payload_mut();
         let ret_val = bc
             .run(
@@ -526,7 +526,7 @@ impl BytecodeFunction {
         // before stack-frame is dropping, promote closure values up to at leat self Function's gc scope.
         for vr in bf.closure_var_refs() {
             if let Some(n) = vr.value().gc_node_ptr() {
-                rt.gc_heap_mut().set_xref(self_scope, n);
+                rt.gc_heap_mut().bind(self_node, n);
             }
         }
 

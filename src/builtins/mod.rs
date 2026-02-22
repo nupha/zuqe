@@ -31,6 +31,6 @@ pub mod symbol;
 
 use crate::{error::JSResult, function::CallContext};
 
-pub fn js_get_this(cc: CallContext) -> JSResult {
+pub const fn js_get_this(cc: CallContext) -> JSResult {
     Ok(*cc.this())
 }

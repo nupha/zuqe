@@ -244,7 +244,7 @@ pub struct StringRef(GcRef<StringImpl>);
 
 unsafe impl GcTracable for StringRef {
     #[inline(always)]
-    fn trace(&self, mut tr: &mut GcTraceCtx) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         tr.add(self.0);
     }
 }

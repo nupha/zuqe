@@ -189,7 +189,7 @@ impl JSMapState {
     }
 
     /// find value by key.
-    pub fn find(&self, ctx: &ContextImpl, key: JSValue) -> Option<JSValue> {
+    pub fn find(&self, _: &ContextImpl, key: JSValue) -> Option<JSValue> {
         let key = MapPair::normalize_key(key);
         let hash = key.hash();
 

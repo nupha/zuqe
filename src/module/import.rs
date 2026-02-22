@@ -49,12 +49,17 @@ pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult 
         {
             // Note: job tick is performed in root scope,
             // should promote related gc nodes to root scope.
-            let root_scope = cx.rt_ref().gc_root_scope;
+            let top = cx.rt_ref().gc_top_scope;
             let heap = cx.rt_mut().gc_heap_mut();
-            basename_val.set_xref(heap, root_scope);
-            specifier.set_xref(heap, root_scope);
-            rr[0].set_xref(heap, root_scope);
-            rr[1].set_xref(heap, root_scope);
+            if let Some(n) = basename_val.gc_node_ptr() {
+                heap.set_xref(top, n);
+            }
+            if let Some(n) = specifier.gc_node_ptr() {
+                heap.set_xref(top, n);
+            }
+            for n in rr.iter().filter_map(|v| v.gc_node_ptr()) {
+                heap.set_xref(top, n);
+            }
 
             move |tr| {
                 basename_val.trace(tr);

@@ -1,6 +1,6 @@
 use gc_lite::{
     GcError, GcHeap, GcNode, GcPartition, GcPartitionId, GcRef, GcTracable, GcTraceCtx,
-    GcTraceRestrict, gc_type_register,
+    gc_type_register,
 };
 
 use crate::{
@@ -38,13 +38,13 @@ impl RuntimeImpl {
     /// get gc top-level scope
     #[inline]
     pub(crate) fn gc_top_scope(&self) -> &GcPartition {
-        self.gc_heap().partition(self.gc_root_scope).unwrap()
+        self.gc_heap().partition(self.gc_top_scope).unwrap()
     }
 
     /// top gc partition for runtime
     #[inline]
     pub(crate) fn gc_top_scope_mut(&mut self) -> &mut GcPartition {
-        let pid = self.gc_root_scope;
+        let pid = self.gc_top_scope;
         self.gc_heap_mut().partition_mut(pid).unwrap()
     }
 
@@ -61,7 +61,7 @@ impl RuntimeImpl {
                 None
             }
         } else {
-            Some(self.gc_root_scope)
+            Some(self.gc_top_scope)
         }
     }
 
@@ -81,7 +81,7 @@ impl RuntimeImpl {
                 None
             }
         } else {
-            Some(self.gc_root_scope)
+            Some(self.gc_top_scope)
         }
     }
 
@@ -116,7 +116,7 @@ impl RuntimeImpl {
 
         // 1. mark
         {
-            let mut gcx = GcTraceCtx::new(self.gc_heap_mut(), GcTraceRestrict::No, true);
+            let mut gcx = GcTraceCtx::new(self.gc_heap_mut(), true);
 
             // 1. root nodes (Hint: for root scope, Contexts are root nodes)
             gcx.trace_roots(partition_id, GcTraceCtx::MARK_FUNC);
@@ -201,6 +201,6 @@ impl RuntimeImpl {
     }
 
     pub fn gc_set_threshold(&mut self, threshold: usize) {
-        self.gc_heap.set_gc_threshold(self.gc_root_scope, threshold);
+        self.gc_heap.set_gc_threshold(self.gc_top_scope, threshold);
     }
 }

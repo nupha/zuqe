@@ -233,7 +233,7 @@ impl ContextImpl {
                     debug_assert!(
                         self.rt_ref()
                             .gc_heap()
-                            .check_partition_ancestor(self.rt_ref().gc_root_scope, p)
+                            .check_partition_ancestor(self.rt_ref().gc_top_scope, p)
                     );
                 }
             } else if let Some(p) = self
@@ -245,7 +245,7 @@ impl ContextImpl {
                 debug_assert!(
                     self.rt_ref()
                         .gc_heap()
-                        .check_partition_ancestor(self.rt_ref().gc_root_scope, p)
+                        .check_partition_ancestor(self.rt_ref().gc_top_scope, p)
                 );
             }
         }

@@ -197,9 +197,7 @@ impl NativeFunction {
         debug_assert_eq!(nfunc.class_id(), JS_CLASS_C_FUNCTION);
 
         #[cfg(debug_assertions)]
-        nfunc
-            .gc_node()
-            .debug_assert_node_tree_valid(rt.gc_heap_mut());
+        nfunc.gc_node().debug_assert_node_valid(rt.gc_heap_mut());
 
         let (realm, args_length) = {
             let p = nfunc.payload();
@@ -252,7 +250,7 @@ impl NativeFunction {
         // must promote return value and binding_data (if any) before stack_frame drop.
         let xref_scope = stack_frame
             .parent_mut()
-            .map_or(rt.gc_root_scope, |up| up.init_gc_scope());
+            .map_or(rt.gc_top_scope, |up| up.init_gc_scope());
 
         nfunc
             .payload_mut()

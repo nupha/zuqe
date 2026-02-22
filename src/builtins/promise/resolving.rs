@@ -87,13 +87,19 @@ impl PromiseResolveFunc {
                 ctx.queue_job_with_trace(
                     move || js_promise_resolve_thenable_job(&cx, promise, arg0, then),
                     {
-                        // Note: tick is performed in root scope,
-                        // should promote related gc nodes to root scope.
-                        let root_scope = cx.rt_ref().gc_root_scope;
+                        // Note: tick is performed in top-level scope, promote related gc nodes to top-level scope.
+                        let top = cx.rt_ref().gc_top_scope;
                         let heap = cx.rt_mut().gc_heap_mut();
-                        prf.set_xref(heap, root_scope);
-                        arg0.set_xref(heap, root_scope);
-                        then.set_xref(heap, root_scope);
+
+                        for ch in prf.gc_children(heap) {
+                            heap.set_xref(top, ch);
+                        }
+                        if let Some(n) = arg0.gc_node_ptr() {
+                            heap.set_xref(top, n);
+                        }
+                        if let Some(n) = then.gc_node_ptr() {
+                            heap.set_xref(top, n);
+                        }
 
                         move |tr| {
                             prf.trace(tr);
@@ -234,12 +240,16 @@ impl Promise {
                         )
                     },
                     {
-                        // Note: job tick is performed in root scope,
-                        // should promote related gc nodes to root scope.
-                        let root_scope = cx.rt_ref().gc_root_scope;
+                        // Note: job tick is performed in top-level scope, promote related gc nodes to top scope.
+                        let top = cx.rt_ref().gc_top_scope;
                         let heap = cx.rt_mut().gc_heap_mut();
-                        act.set_xref(heap, root_scope);
-                        result.set_xref(heap, root_scope);
+
+                        for n in act.gc_children(heap) {
+                            heap.set_xref(top, n);
+                        }
+                        if let Some(n) = result.gc_node_ptr() {
+                            heap.set_xref(top, n);
+                        }
 
                         move |tr| {
                             act.trace(tr);
@@ -279,7 +289,7 @@ impl Promise {
         is_reject: bool,
     ) {
         let (state, is_handled) = {
-            let xref = self.gc_node().scope_id();
+            let self_node = self.gc_node_ptr();
             let p = self.payload_mut();
             debug_assert_eq!(p.state(), PromiseState::Pending);
 
@@ -292,7 +302,9 @@ impl Promise {
             p.set_result(value);
 
             // promote value's gc scope to same level of Promise
-            value.set_xref(ctx.rt_ptr().gc_heap_mut(), xref);
+            if let Some(v) = value.gc_node_ptr() {
+                ctx.rt_ptr().gc_heap_mut().bind(self_node, v);
+            }
 
             (s, p.is_handled())
         };
@@ -329,9 +341,16 @@ impl Promise {
                 {
                     // Note: tick is performed in root scope,
                     // should promote related gc nodes to root scope.
-                    let root_scope = cx.rt_ref().gc_root_scope;
-                    value.set_xref(cx.rt_ptr().gc_heap_mut(), root_scope);
-                    act.set_xref(cx.rt_ptr().gc_heap_mut(), root_scope);
+                    let mut rt = cx.rt_ptr();
+                    let top = rt.gc_top_scope;
+                    let heap = rt.gc_heap_mut();
+
+                    for n in act.gc_children(heap) {
+                        heap.set_xref(top, n);
+                    }
+                    if let Some(v) = value.gc_node_ptr() {
+                        heap.set_xref(top, v);
+                    }
 
                     move |tr| {
                         value.trace(tr);

@@ -361,16 +361,15 @@ impl ObjectImpl {
             .unwrap();
         }
 
-        // get directly referenced gc nodes, set xref of obj's children
+        // get directly referenced children nodes, bind nodes relation
         {
             let mut rt = ctx.rt_ptr();
             let heap = rt.gc_heap_mut();
-
-            let children = obj.gc_node().gc_children(heap);
+            let children = obj.gc_children(heap);
             if !children.is_empty() {
-                let obj_scope = obj.gc_node().scope_id();
-                for n in children {
-                    heap.set_xref(obj_scope, n);
+                let obj_node = obj.gc_node_ptr();
+                for ch in children {
+                    heap.bind(obj_node, ch);
                 }
             }
         }
@@ -507,14 +506,10 @@ impl ObjectImpl {
             );
         }
 
-        let obj = unsafe { Object::from_ref_unchecked(self) };
-
-        let obj_xref = obj.gc_node().scope_id();
-        if obj_xref != shape.gc_ref().node_info().scope_id() {
-            self.rt()
-                .gc_heap_mut()
-                .set_xref(obj_xref, shape.gc_ref().node_ptr());
-        }
+        let obj_node = unsafe { Object::from_ref_unchecked(self).gc_node_ptr() };
+        self.rt()
+            .gc_heap_mut()
+            .bind(obj_node, shape.gc_ref().node_ptr());
 
         self.shape.replace(shape);
     }

@@ -1133,7 +1133,7 @@ impl Bytecode {
 
                         #[cfg(debug_assertions)]
                         if let Some(n) = VAR_REF!(idx).gc_node() {
-                            n.debug_assert_node_tree_valid(rt.gc_heap_mut());
+                            n.debug_assert_node_valid(rt.gc_heap_mut());
                         }
 
                         SP_PUT!(0, *VAR_REF!(idx));

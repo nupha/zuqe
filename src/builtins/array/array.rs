@@ -51,24 +51,17 @@ impl ArrayPayload {
         &self.values
     }
 
+    #[inline(always)]
     pub fn reverse(&mut self) {
         self.values.reverse();
     }
 
-    pub fn push(
-        &mut self,
-        rt: &mut RuntimeImpl,
-        val: JSValue,
-        xref: GcPartitionId,
-    ) -> Result<(), TryReserveError> {
-        self.values.try_push(val)?;
-        if let Some(n) = val.gc_node_ptr() {
-            rt.gc_heap_mut().set_xref(xref, n);
-        }
-        Ok(())
+    #[inline(always)]
+    fn push(&mut self, rt: &mut RuntimeImpl, val: JSValue) -> Result<(), TryReserveError> {
+        self.values.try_push(val)
     }
 
-    pub fn extend(
+    pub(crate) fn extend(
         &mut self,
         rt: &mut RuntimeImpl,
         vals: impl Iterator<Item = JSValue>,
@@ -667,7 +660,7 @@ impl Object {
     pub(crate) fn add_fast_array_element(
         &mut self,
         ctx: &ContextImpl,
-        val: JSValue,
+        value: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
         debug_assert!(self.is_fast_array());
@@ -716,16 +709,24 @@ impl Object {
         }
 
         // add new element to list, gc cross ref should be considered
-        let obj_scope = self.gc_node().scope_id();
+        let self_node = self.gc_node_ptr();
+
         self.as_Array_mut()
             .unwrap()
             .payload_mut()
-            .push(&mut ctx.rt_ptr(), val, obj_scope)
+            .push(&mut ctx.rt_ptr(), value)
             .map(|_| true)
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
-            })
+            })?;
+
+        // bind reference relation
+        if let Some(n) = value.gc_node_ptr() {
+            ctx.rt_ptr().gc_heap_mut().bind(self_node, n);
+        }
+
+        Ok(true)
     }
 
     /// Get fast array list length:

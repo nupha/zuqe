@@ -188,7 +188,7 @@ impl Object {
                     debug_assert!(
                         ctx.rt_ref()
                             .gc_heap()
-                            .check_partition_ancestor(ctx.rt_ref().gc_root_scope, p)
+                            .check_partition_ancestor(ctx.rt_ref().gc_top_scope, p)
                     );
                 }
             } else if let Some(p) = ctx.rt_ref().exception().gc_node().map(|n| n.scope_id()) {
@@ -196,7 +196,7 @@ impl Object {
                 debug_assert!(
                     ctx.rt_ref()
                         .gc_heap()
-                        .check_partition_ancestor(ctx.rt_ref().gc_root_scope, p)
+                        .check_partition_ancestor(ctx.rt_ref().gc_top_scope, p)
                 );
             }
         }

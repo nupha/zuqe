@@ -78,7 +78,7 @@ pub struct RuntimeImpl {
     /// gc heap
     pub(crate) gc_heap: GcHeap,
     /// gc partition id
-    pub(crate) gc_root_scope: GcPartitionId,
+    pub(crate) gc_top_scope: GcPartitionId,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
     /// gc trace of current running job
@@ -158,7 +158,7 @@ impl RuntimeImpl {
             module_async_evaluation_next_timestamp: 0,
 
             gc_heap,
-            gc_root_scope: gc_part_id,
+            gc_top_scope: gc_part_id,
             gc_user_trace: None,
             gc_cur_job_trace: None,
             gc_req: false,
@@ -274,9 +274,9 @@ impl RuntimeImpl {
     #[cold]
     pub(crate) fn set_exception(&mut self, obj: JSValue) {
         if let Some(n) = obj.gc_node_ptr() {
-            // migrate obj to root gc scope
-            let root_scope = self.gc_root_scope;
-            self.gc_heap_mut().set_xref(root_scope, n);
+            // promote obj to top scope
+            let top = self.gc_top_scope;
+            self.gc_heap_mut().set_xref(top, n);
         }
 
         self.cur_exception = obj;
@@ -362,7 +362,7 @@ impl RuntimeImpl {
         self.shape_registry.clear();
 
         // remove root partition: dealloc all nodes live in it.
-        let root_scope_id = self.gc_root_scope;
+        let root_scope_id = self.gc_top_scope;
         self.gc_heap_mut().remove_partition(
             root_scope_id,
             GcHeap::DUMMY_MIGRATE_CALLBACK,

@@ -42,19 +42,6 @@ pub fn js_build_arguments(ctx: &ContextImpl, args: &[JSValue]) -> JSValue {
         }
 
         arr_data.extend(&mut ctx.rt_ptr(), args.iter().copied(), xref);
-
-        // if obj
-        //     .with_fast_array_values_mut(|lst| -> Result<(), i32> {
-        //         lst.try_reserve_exact(args.len()).map_err(|_| -1)?;
-        //         lst.extend(args.iter().cloned());
-        //         Ok(())
-        //     })
-        //     .unwrap()
-        //     .is_err()
-        // {
-        //     ctx.throw_out_of_memory();
-        //     return JSValue::EXCEPTION;
-        // };
     }
 
     #[cfg(feature = "builtin_symbol")]

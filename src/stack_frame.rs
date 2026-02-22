@@ -245,7 +245,7 @@ impl StackFrame {
             {
                 up.init_gc_scope()
             } else {
-                rt.gc_root_scope
+                rt.gc_top_scope
             };
             self.gc_scope_id = rt.gc_heap_mut().create_sub_partition(parent);
 

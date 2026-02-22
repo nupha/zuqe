@@ -51,7 +51,7 @@ impl RuntimeImpl {
         );
 
         let mut rt_ptr = unsafe { RuntimePtr::from_raw(self) };
-        let root_scope = self.gc_root_scope;
+        let root_scope = self.gc_top_scope;
 
         self.atom_registry
             .const_atoms
@@ -321,7 +321,7 @@ impl RuntimeImpl {
             hash,
         ));
 
-        let xref = self.gc_current_scope(false).unwrap_or(self.gc_root_scope);
+        let xref = self.gc_current_scope(false).unwrap_or(self.gc_top_scope);
         self.gc_heap_mut()
             .set_xref(xref, desc_str.gc_ref().node_ptr());
 
@@ -506,14 +506,4 @@ impl Atom {
         }
         h
     }
-}
-
-/// calc hash for str when using as an atom descriptor
-#[inline(always)]
-fn calc_atom_hash_str(str: &str, atom_kind: AtomKind) -> u32 {
-    let mut h = atom_kind as u32;
-    for c in str.encode_utf16() {
-        h = hash_u32_from_base(h, c as u32);
-    }
-    h
 }

@@ -1,6 +1,6 @@
 use std::{pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     context::ContextImpl, error::JSResult, function::BCWrapper, gcref_wrapper,
@@ -208,7 +208,7 @@ impl AsyncStateImpl {
         let sp_offset = self.stack_frame.cur_sp_offset;
         debug_assert!(sp_offset >= 0);
 
-        let func_scope = func.gc_node().scope_id();
+        let func_node = func.gc_node_ptr();
         let bf = func.payload_mut();
         let bc = bf.bytecode();
 
@@ -232,7 +232,7 @@ impl AsyncStateImpl {
         let mut rt = caller_ctx.rt_ptr();
         for vr in bf.closure_var_refs() {
             if let Some(n) = vr.value().gc_node_ptr() {
-                rt.gc_heap_mut().set_xref(func_scope, n);
+                rt.gc_heap_mut().bind(func_node, n);
             }
         }
 

@@ -92,11 +92,7 @@ impl ShapeImpl {
         let old_len = self.len();
         let new_len = old_len + extras.len();
 
-        let self_xref = unsafe {
-            GcRef::<Self>::from_ref_unchecked(self)
-                .node_info()
-                .scope_id()
-        };
+        let shape_node = unsafe { GcRef::<Self>::from_ref_unchecked(self).node_ptr() };
 
         for (i, (prop, prop_flags)) in extras.iter().enumerate() {
             #[cfg(debug_assertions)]
@@ -117,9 +113,10 @@ impl ShapeImpl {
 
             if !prop.is_const() && !prop.is_small_int() {
                 // set Atom string gc node xref
-                ctx.rt_ptr()
-                    .gc_heap_mut()
-                    .set_xref(self_xref, prop.descriptor(ctx.rt_ref()).gc_ref().node_ptr());
+                ctx.rt_ptr().gc_heap_mut().bind(
+                    shape_node,
+                    prop.descriptor(ctx.rt_ref()).gc_ref().node_ptr(),
+                );
             }
 
             // update shape hash
@@ -152,7 +149,7 @@ impl ShapeImpl {
 pub struct Shape(GcRef<ShapeImpl>);
 
 unsafe impl GcTracable for Shape {
-    fn trace(&self, mut tr: &mut GcTraceCtx) {
+    fn trace(&self, tr: &mut GcTraceCtx) {
         tr.add(self.0);
     }
 }

@@ -78,20 +78,15 @@ impl ObjectImpl {
         }
 
         if gc_node[0].is_some() || gc_node[1].is_some() {
-            let xref = unsafe {
-                let o = GcRef::from_ref_unchecked(self);
-                o.node_info().scope_id()
-            };
-
+            let self_node = unsafe { GcRef::from_ref_unchecked(self).node_ptr() };
             let mut rt = self.rt();
+
             for node in gc_node.into_iter().flatten() {
                 unsafe {
                     #[cfg(debug_assertions)]
-                    node.as_ref().debug_assert_node_tree_valid(rt.gc_heap_mut());
+                    node.as_ref().debug_assert_node_valid(rt.gc_heap_mut());
 
-                    if node.as_ref().scope_id() != xref {
-                        rt.gc_heap_mut().set_xref(xref, node);
-                    }
+                    rt.gc_heap_mut().bind(self_node, node);
                 }
             }
         }
