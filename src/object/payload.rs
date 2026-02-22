@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
+
 use crate::{context::ContextImpl, object::ObjectImpl, value::JSValue};
 
 include!(concat!(env!("OUT_DIR"), "/class_payload.rs"));
