@@ -430,34 +430,34 @@ impl StackFrame {
         }
     }
 
-    pub(crate) fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {
-        let args_iter = unsafe {
-            std::slice::from_raw_parts(
-                self.arg_base_ptr,
-                std::cmp::max(self.arg_real_count, self.arg_count) as usize,
-            )
-            .iter()
-            .filter_map(move |v| v.gc_node_ptr())
-        };
+    // pub(crate) fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {
+    //     let args_iter = unsafe {
+    //         std::slice::from_raw_parts(
+    //             self.arg_base_ptr,
+    //             std::cmp::max(self.arg_real_count, self.arg_count) as usize,
+    //         )
+    //         .iter()
+    //         .filter_map(move |v| v.gc_node_ptr())
+    //     };
 
-        let vars_iter = self
-            .var_values()
-            .iter()
-            .filter_map(move |v| v.gc_node_ptr());
+    //     let vars_iter = self
+    //         .var_values()
+    //         .iter()
+    //         .filter_map(move |v| v.gc_node_ptr());
 
-        let stack_iter = self
-            .stack_values()
-            .iter()
-            .filter_map(move |v| v.gc_node_ptr());
+    //     let stack_iter = self
+    //         .stack_values()
+    //         .iter()
+    //         .filter_map(move |v| v.gc_node_ptr());
 
-        let var_refs_iter = self.var_refs().iter().map(|v| v.gc_ref().node_ptr());
+    //     let var_refs_iter = self.var_refs().iter().map(|v| v.gc_ref().node_ptr());
 
-        std::iter::once(self.func_obj.gc_ref().node_ptr())
-            .chain(args_iter)
-            .chain(vars_iter)
-            .chain(stack_iter)
-            .chain(var_refs_iter)
-    }
+    //     std::iter::once(self.func_obj.gc_ref().node_ptr())
+    //         .chain(args_iter)
+    //         .chain(vars_iter)
+    //         .chain(stack_iter)
+    //         .chain(var_refs_iter)
+    // }
 }
 
 pub struct StackFrameParentIter<'a> {

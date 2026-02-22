@@ -213,23 +213,19 @@ fn f64_round_is_tie(num: f64, precision: usize) -> bool {
     let scaled = mantissa * factor;
 
     // 5. 更精确的中间值检测
-    let is_tie = {
-        // 获取需要判断的位
-        let digits = format!("{:.20}", scaled.abs());
-        let mut digit_parts = digits.split('.');
-        let _int_part = digit_parts.next().unwrap_or("0");
-        let dec_part = digit_parts.next().unwrap_or("0");
+    // 获取需要判断的位
+    let digits = format!("{:.20}", scaled.abs());
+    let mut digit_parts = digits.split('.');
+    let _int_part = digit_parts.next().unwrap_or("0");
+    let dec_part = digit_parts.next().unwrap_or("0");
 
-        // 检查是否正好是x.50000...
-        let is_half = dec_part.starts_with("5") && dec_part.chars().skip(1).all(|c| c == '0');
+    // 检查是否正好是x.50000...
+    let is_half = dec_part.starts_with("5") && dec_part.chars().skip(1).all(|c| c == '0');
 
-        // 检查整数部分是否是整数
-        let is_whole = scaled.fract().abs() < 1e-10;
+    // 检查整数部分是否是整数
+    let is_whole = scaled.fract().abs() < 1e-10;
 
-        is_half && is_whole
-    };
-
-    is_tie
+    is_half && is_whole
 }
 
 /* 2 <= base <= 36 */

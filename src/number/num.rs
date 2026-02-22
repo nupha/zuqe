@@ -11,6 +11,7 @@ pub(crate) fn is_safe_integer(d: f64) -> bool {
     f64::is_finite(d) && d.floor() == d && d.abs() <= MAX_SAFE_INTEGER as f64
 }
 
+#[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum IntOrFloat {
     Int64(i64),
@@ -51,12 +52,12 @@ impl From<IntOrFloat> for JSValue {
 }
 
 impl IntOrFloat {
-    pub fn to_i64(&self) -> Option<i64> {
+    pub fn to_i64(self) -> Option<i64> {
         match self {
-            Self::Int64(val) => Some(*val),
+            Self::Int64(val) => Some(val),
             Self::Float64(val) => {
-                if is_safe_integer(*val) {
-                    Some(*val as i64)
+                if is_safe_integer(val) {
+                    Some(val as i64)
                 } else {
                     None
                 }
@@ -64,16 +65,16 @@ impl IntOrFloat {
         }
     }
 
-    pub fn to_f64(&self) -> Option<f64> {
+    pub fn to_f64(self) -> Option<f64> {
         match self {
             IntOrFloat::Int64(val) => {
-                if (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(val) {
-                    Some(*val as f64)
+                if (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&val) {
+                    Some(val as f64)
                 } else {
                     None
                 }
             }
-            IntOrFloat::Float64(val) => Some(*val),
+            IntOrFloat::Float64(val) => Some(val),
         }
     }
 }

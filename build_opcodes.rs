@@ -385,11 +385,10 @@ pub fn gen_opcodes(outfile: &Path) {
     );
     enums.push("}".into());
 
-    enums.push("#[derive(Debug,Clone,Copy,PartialEq,Eq)]\n#[repr(u8)]\n#[allow(clippy::upper_case_acronyms)]".into());
+    enums.push("#[allow(clippy::upper_case_acronyms)]\n#[derive(Debug,Clone,Copy,PartialEq,Eq)]\n#[repr(u8)]".into());
     enums.push("pub enum OpCode {".into());
 
-    enums_temp.push("#[derive(Debug,Clone,Copy,PartialEq,Eq)]".into());
-    enums_temp.push("#[repr(u8)]".into());
+    enums_temp.push("#[allow(clippy::upper_case_acronyms)]\n#[derive(Debug,Clone,Copy,PartialEq,Eq)]\n#[repr(u8)]".into());
     enums_temp.push("pub enum OpCodeTemp {".into());
 
     info_common.push(format!(

@@ -114,7 +114,9 @@ pub(crate) unsafe fn js_atof(
     macro_rules! fail {
         () => {
             if !pp.is_null() {
-                *pp = p;
+                unsafe {
+                    *pp = p;
+                }
             }
             ctx.throw_type_error("invalid number literal");
             return Err(-1);
@@ -273,15 +275,15 @@ pub(crate) unsafe fn js_atof(
     }
 
     let mut buf = SmallVec::<[u8; 64]>::new();
-    let len = p.offset_from(p_start) as i32;
-    if len + 1 > buf.capacity() as i32 {
-        if buf.try_reserve_exact(len as usize + 1).is_err() {
-            if !pp.is_null() {
+    let len = unsafe { p.offset_from(p_start) as i32 };
+    if len + 1 > buf.capacity() as i32 && buf.try_reserve_exact(len as usize + 1).is_err() {
+        if !pp.is_null() {
+            unsafe {
                 *pp = p;
             }
-            ctx.throw_out_of_memory();
-            return Err(-1);
         }
+        ctx.throw_out_of_memory();
+        return Err(-1);
     }
 
     if is_neg {
@@ -289,7 +291,7 @@ pub(crate) unsafe fn js_atof(
     }
     // remove the separators and the radix prefixes
     for i in 0..len {
-        let c = *p_start.offset(i as isize);
+        let c = unsafe { *p_start.offset(i as isize) };
         if c != b'_' {
             buf.push(c);
         }
@@ -297,15 +299,13 @@ pub(crate) unsafe fn js_atof(
 
     if flags & ATOD_ACCEPT_SUFFIX != 0 {
         if *p == b'n' {
-            p = p.offset(1);
+            p = unsafe { p.offset(1) };
             atod_type = ATOD_TYPE_BIG_INT;
         } else if is_float && radix != 10 {
             fail!();
         }
-    } else if atod_type == ATOD_TYPE_FLOAT64 {
-        if is_float && radix != 10 {
-            fail!();
-        }
+    } else if atod_type == ATOD_TYPE_FLOAT64 && is_float && radix != 10 {
+        fail!();
     }
 
     // update cur ptr

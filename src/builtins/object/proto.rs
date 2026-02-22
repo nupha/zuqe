@@ -177,7 +177,7 @@ unsafe fn js_object___lookupGetter__(
         return JSValue::EXCEPTION;
     }
 
-    let res = loop {
+    loop {
         match obj.get_own_property(ctx, prop) {
             Ok(Some(desc)) => {
                 break if desc.flags & JS_PROP_GETSET != 0 {
@@ -208,25 +208,7 @@ unsafe fn js_object___lookupGetter__(
                 break JSValue::EXCEPTION;
             }
         }
-
-        // obj = obj.prototype(ctx).unwrap_or(JSValue::EXCEPTION);
-        // if obj.is_exception() {
-        //     // obj is Proxy
-        //     JS_FreeAtom(ctx, prop);
-        //     return JSValue::EXCEPTION;
-        // } else if obj.is_null() {
-        //     res = JSValue::UNDEFINED;
-        //     break;
-        // }
-
-        // // avoid infinite loop (possible with proxies)
-        // if ctx.poll_interrupts().is_err() {
-        //     JS_FreeAtom(ctx, prop);
-        //     return JSValue::EXCEPTION;
-        // }
-    };
-
-    res
+    }
 }
 
 pub const js_object_proto_funcs: &[FieldDef] = &[
