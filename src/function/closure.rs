@@ -1,4 +1,4 @@
-use gc_lite::{GcNode, GcTracable, GcTraceCtx};
+use gc_lite::{GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,

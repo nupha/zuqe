@@ -62,7 +62,7 @@ impl PartialEq for Callback {
 
 /// object payload for native function
 #[derive(Debug)]
-pub(crate) struct NFuncPayload {
+pub struct NFuncPayload {
     pub(crate) callback: Callback,
     pub(crate) length: u8,
     pub(crate) magic: i16,

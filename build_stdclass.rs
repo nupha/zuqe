@@ -541,7 +541,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
     let mut async_end: Option<usize> = None;
 
     cdefs.push(format!(
-        "pub const STD_CLASS_DEFS: [StdClassDef;{}] = [",
+        "pub(crate) const STD_CLASS_DEFS: [StdClassDef;{}] = [",
         class_defs.len()
     ));
 
@@ -647,7 +647,7 @@ pub fn gen_class_payload(outfile: &Path) {
 
     let mut kvs = CLASS_PAYLOAD_TYPE.iter().collect::<Vec<_>>();
     kvs.sort();
-    for (k, v) in kvs {
+    for (k, pty) in kvs {
         let arms = CLASS_DEF_LIST
             .iter()
             .filter_map(|c| {
@@ -660,12 +660,18 @@ pub fn gen_class_payload(outfile: &Path) {
             .collect::<Vec<_>>();
 
         if !arms.is_empty() {
+            let ty = if pty.starts_with("Box<") && pty.ends_with(">") {
+                &pty[4..pty.len() - 1]
+            } else {
+                pty
+            };
+
             get_payload_methods.push(
-                format!("pub const fn {k}(&self)->Option<&{v}> {{ if let {} = self {{ Some(x) }} else {{ None }} }}",
+                format!("pub const fn {k}(&self)->Option<&{ty}> {{ if let {} = self {{ Some(x) }} else {{ None }} }}",
                 arms.join("|")
             ));
             get_payload_methods.push(
-                format!("pub const fn {k}_mut(&mut self)->Option<&mut {v}> {{ if let {} = self {{ Some(x) }} else {{ None }} }}",
+                format!("pub const fn {k}_mut(&mut self)->Option<&mut {ty}> {{ if let {} = self {{ Some(x) }} else {{ None }} }}",
                 arms.join("|")
             ));
 
@@ -679,7 +685,7 @@ pub fn gen_class_payload(outfile: &Path) {
     let lines: Vec<String> = vec![
         "use crate::{  class::{ClassID }};\n".to_string(),
         // ObjectPayload
-        "#[derive(Debug)]\npub enum ObjectPayload {\n".to_string(),
+        "#[allow(clippy::upper_case_acronyms)]\n#[derive(Debug)]\n#[repr(u8)]\npub enum ObjectPayload {\n".to_string(),
         items.join(",\n"),
         "}".to_string(),
         "".to_string(),

@@ -119,7 +119,7 @@ impl RuntimeImpl {
             let mut gcx = GcTraceCtx::new(self.gc_heap_mut(), true);
 
             // 1. root nodes (Hint: for root scope, Contexts are root nodes)
-            gcx.trace_roots(partition_id, GcTraceCtx::MARK_FUNC);
+            gcx.trace_roots(partition_id);
             // 2. stack frame
             if let Some(sf) = self.current_stack_frame() {
                 debug_assert_eq!(sf.gc_scope_id, partition_id);
@@ -127,7 +127,7 @@ impl RuntimeImpl {
             }
             // 3. exception
             if let Some(n) = self.cur_exception.gc_node_ptr() {
-                gcx.trace(n, GcTraceCtx::MARK_FUNC);
+                gcx.trace(n);
             }
 
             // user defined mark
@@ -139,7 +139,7 @@ impl RuntimeImpl {
                 f(&mut gcx);
             }
 
-            gcx.commit(GcTraceCtx::MARK_FUNC);
+            gcx.commit();
         }
 
         // 2. sweep

@@ -105,7 +105,7 @@ pub fn gen_tokens(outfile: &Path) {
 
     // token enum
     output.push(
-        "#[repr(u8)]\n#[derive(Debug,Clone,Copy,PartialEq,PartialOrd)]\npub(super) enum TokenKind {"
+        "#[allow(clippy::upper_case_acronyms)]\n#[repr(u8)]\n#[derive(Debug,Clone,Copy,PartialEq,PartialOrd)]\npub(super) enum TokenKind {"
             .into(),
     );
     for tok in TOKENS.iter() {
@@ -161,8 +161,9 @@ pub fn gen_tokens(outfile: &Path) {
     output.push("_=>None}".into());
     output.push("}\n".into());
 
-    output
-        .push("pub fn from_keyword_atom(atom:crate::Atom)->Option<Self>{ match atom.id() {".into());
+    output.push(
+        "pub const fn from_keyword_atom(atom:crate::Atom)->Option<Self>{ match atom.id() {".into(),
+    );
     for (i, t) in TOKENS[kw_begin..=kw_end].iter().enumerate() {
         output.push(format!("{} => Some(Self::{t}),", i + 1));
     }

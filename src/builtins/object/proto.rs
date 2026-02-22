@@ -124,8 +124,8 @@ unsafe fn js_object___defineGetter__(
         return JSValue::EXCEPTION;
     }
 
-    let prop = *argv.offset(0);
-    let value = *argv.offset(1);
+    let prop = unsafe { *argv.offset(0) };
+    let value = unsafe { *argv.offset(1) };
 
     if unlikely(value.ensure_function(ctx).is_err()) {
         return JSValue::EXCEPTION;
@@ -172,7 +172,7 @@ unsafe fn js_object___lookupGetter__(
         return JSValue::EXCEPTION;
     }
 
-    let prop = (*argv.offset(0)).to_atom(ctx).unwrap_or(Atom::NULL);
+    let prop = unsafe { (*argv.offset(0)).to_atom(ctx).unwrap_or(Atom::NULL) };
     if prop.is_null() {
         return JSValue::EXCEPTION;
     }
