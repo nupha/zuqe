@@ -114,15 +114,7 @@ impl DataView {
         Ok(Some(dv_obj))
     }
 
-    pub fn class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
-        if let Some(dv) = isa.data_view() {
-            // during the GC the finalizers are called in an arbitrary
-            // order so the ArrayBuffer finalize may have been called
-            dv.array_buffer()
-                .payload_mut()
-                .remove_typed_array_weakref(rt, id);
-        }
-    }
+    pub const fn class_finalize(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
 
     /// create a DataView with AarrayBuffer, offset and length.
     pub(crate) fn create(
@@ -162,26 +154,6 @@ impl DataView {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
-
-        // let o = ctx
-        //     .create_object_from_ctor_with(ctor, || {
-        //         // Note: test array buffer detach again,
-        //         // because get prototype may potentially detach the buffer.
-        //         if unlikely(array_buffer.payload().is_detached()) {
-        //             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-        //             Err(-1)
-        //         } else {
-        //             let isa = Box::new(DataViewPayload {
-        //                 obj: UnsafeCell::new(JSObjectWeakref::default()),
-        //                 buffer: array_buffer,
-        //                 offset: offset as u32,
-        //                 byte_length: len as _,
-        //                 count: Cell::new(0),
-        //             });
-        //             Ok(ObjectPayload::DATAVIEW(isa))
-        //         }
-        //     })
-        //     .map_err(|_| -1)?;
 
         Ok(Self(o.0))
     }

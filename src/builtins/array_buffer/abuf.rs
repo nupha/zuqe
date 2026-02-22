@@ -101,8 +101,8 @@ pub struct ArrayBufferPayload {
     data: ABufData,
     /// if is shared, the array buffer cannot be detached
     detached: bool,
-    /// list of TypedArray objects that adopting this ArrayBuffer.
-    array_list: Vec<GcWeak<ObjectImpl>>,
+    /// list of TypedArray objects (weakref) that adopting this ArrayBuffer.
+    typed_array_list: Vec<GcWeak<ObjectImpl>>,
     opaque: *mut c_void,
 }
 
@@ -127,16 +127,8 @@ impl ArrayBufferPayload {
         }
     }
 
-    pub fn add_typed_array_weakref(&mut self, t: GcWeak<ObjectImpl>) {
-        self.array_list.push(t);
-    }
-
-    /// `obj_id` is the id of typed array object
-    pub fn remove_typed_array_weakref(&mut self, rt: &RuntimeImpl, obj_id: usize) {
-        let gcm = rt.gc_heap();
-
-        self.array_list
-            .retain(|w| w.upgrade(gcm).is_some_and(|a| a.id() != obj_id));
+    pub fn add_typed_array_weakref(&mut self, w: GcWeak<ObjectImpl>) {
+        self.typed_array_list.push(w);
     }
 
     /// get buffer content
@@ -144,12 +136,6 @@ impl ArrayBufferPayload {
     pub(crate) const fn data(&self) -> &ABufData {
         &self.data
     }
-
-    // /// get buffer content
-    // #[inline(always)]
-    // pub(crate) const fn data_mut(&mut self) -> &mut ABufData {
-    //     &mut self.data
-    // }
 
     /// replace buffer data, returns old data
     pub(crate) const fn replace(&mut self, data: ABufData) -> ABufData {
@@ -225,9 +211,8 @@ impl ArrayBuffer {
 
     /// also used for SharedArrayBuffer
     pub fn class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, _id: usize) {
+        // free data content
         let abuf = isa.array_buffer().unwrap();
-
-        // free content
         match abuf.data() {
             ABufData::Raw(p, len, Some(free_func)) => {
                 free_func(rt, abuf.opaque(), p.as_ptr(), *len);
@@ -256,7 +241,7 @@ impl ArrayBuffer {
             let inner = ArrayBufferPayload {
                 data,
                 detached: false,
-                array_list: Vec::new(),
+                typed_array_list: Vec::new(),
                 opaque,
             };
             Box::new(inner)
@@ -293,10 +278,9 @@ impl ArrayBuffer {
         let isa = Box::new(ArrayBufferPayload {
             data: ABufData::Empty,
             detached: false,
-            array_list: Vec::new(),
+            typed_array_list: Vec::new(),
             opaque,
         });
-
         let mut obj = ctx
             .create_object_from_ctor(
                 new_target,
@@ -398,13 +382,21 @@ impl ArrayBuffer {
                 f(ctx.rt_ref(), abuf.opaque(), ptr.as_ptr(), len);
             }
 
-            for w in abuf.array_list.drain(..) {
-                if let Some(o) = w.upgrade(ctx.rt_ptr().gc_heap()) {
-                    // typed array or dataview
-                    // Note: the typed array length and offset fields are not modified. set count to 0
-                    if let Some(ta) = Object::from(o).as_TypedArray_mut() {
-                        ta.payload_mut().set_count(0);
-                    }
+            let rt = ctx.rt_ptr();
+            let heap = rt.gc_heap();
+
+            for mut o in abuf
+                .typed_array_list
+                .drain(..)
+                .filter_map(|w| w.upgrade(heap))
+            {
+                // the typed array length and offset fields are not modified, only set count to 0
+                debug_assert!(
+                    o.payload_mut().typed_array_mut().is_some(),
+                    "expect TypedArray object"
+                );
+                if let Some(ta) = o.payload_mut().typed_array_mut() {
+                    ta.set_count(0);
                 }
             }
 

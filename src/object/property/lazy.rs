@@ -82,10 +82,7 @@ impl JSProperty {
     ///
     /// Note: will panic if property is not lazy type.
     pub(super) fn instantiate(&mut self, _ctx: &ContextImpl, this_obj: Object) -> JSResult {
-        if let JSProperty::LazyInit {
-            realm, init_type, ..
-        } = self
-        {
+        if let JSProperty::LazyInit { realm, init_type } = self {
             init_type.instantiate(realm, this_obj)
         } else {
             unreachable!("expect lazy property, but got {:?}", self);
@@ -114,9 +111,8 @@ impl Object {
             prop,
             (flags & JS_PROP_C_W_E) | JS_PROP_LAZYINIT,
             JSProperty::LazyInit {
-                init_type: lazy_init,
                 realm: unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                opaque: std::ptr::null_mut(),
+                init_type: lazy_init,
             },
         )
     }

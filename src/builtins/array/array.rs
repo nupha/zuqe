@@ -46,6 +46,10 @@ impl ArrayPayload {
         self.values.len()
     }
 
+    pub const fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn reserve(&mut self, extra: usize) -> Result<(), TryReserveError> {
         self.values.try_reserve(extra)
     }
@@ -61,8 +65,13 @@ impl ArrayPayload {
     }
 
     #[inline(always)]
-    fn push(&mut self, val: JSValue) -> Result<(), TryReserveError> {
+    pub fn push(&mut self, val: JSValue) -> Result<(), TryReserveError> {
         self.values.try_push(val)
+    }
+
+    #[inline(always)]
+    pub fn pop(&mut self) -> Option<JSValue> {
+        self.values.pop()
     }
 
     pub(crate) fn extend(
@@ -75,12 +84,9 @@ impl ArrayPayload {
         self.update_values_xref(rt.gc_heap_mut(), xref);
     }
 
+    #[inline(always)]
     pub fn remove(&mut self, index: usize) -> JSValue {
         self.values.remove(index)
-    }
-
-    pub fn pop(&mut self) -> Option<JSValue> {
-        self.values.pop()
     }
 
     pub fn set_nth(

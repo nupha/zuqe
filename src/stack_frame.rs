@@ -7,7 +7,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcHead, GcPartitionId, GcTracable, GcTraceCtx, GcWeak};
+use gc_lite::{GcPartitionId, GcTracable, GcTraceCtx, GcWeak};
 
 use crate::{
     Object,

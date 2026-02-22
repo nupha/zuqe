@@ -8,7 +8,7 @@ use crate::{
     JS_CLASS_REGEXP,
     atom::Atom,
     builtins::array::Array,
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     error::JSResult,
     function::{CallContext, Callback, FieldDef, JS_CallConstructor, js_function_apply},
     object::{

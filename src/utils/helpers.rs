@@ -25,7 +25,9 @@ use std::ffi::c_void;
 #[inline(always)]
 pub const fn js_get_stack_pointer() -> *const c_void {
     // get_frame_address(0).unwrap()
-    std::ptr::null()
+
+    let _d = 0_usize;
+    &_d as *const usize as *const c_void
 }
 
 //

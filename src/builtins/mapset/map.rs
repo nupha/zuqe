@@ -274,7 +274,7 @@ impl JSMapState {
         }
     }
 
-    pub(crate) fn remove_weak_obj(&mut self, obj: &ObjectImpl) {
+    pub(crate) fn remove_weak_obj(&mut self, obj: Object) {
         debug_assert!(self.is_weak);
 
         let hash = hash_usize(obj.id());
@@ -283,10 +283,7 @@ impl JSMapState {
         let purge_lut = if let Some(lst) = self.lut.get_mut(&hash) {
             lst.retain(|i| match self.slots.get(*i) {
                 Some(MapPair::Weak { key, .. }) => {
-                    if key
-                        .upgrade(obj.rt().gc_heap())
-                        .is_some_and(|k| Object(k).id() != obj.id())
-                    {
+                    if key.upgrade(obj.rt().gc_heap()).is_some_and(|k| k != obj.0) {
                         self.slots[*i] = MapPair::Removed;
                         false
                     } else {

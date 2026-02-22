@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
-
 use gc_lite::{GcTracable, GcTraceCtx};
 
 use crate::{
@@ -254,7 +252,6 @@ pub enum JSProperty {
     LazyInit {
         realm: ContextPtr,
         init_type: LazyInit,
-        opaque: *mut c_void,
     },
 
     Deleted,
@@ -277,9 +274,7 @@ unsafe impl GcTracable for JSProperty {
             Self::VarRef(vr) => {
                 vr.trace(tr);
             }
-            Self::LazyInit {
-                realm, init_type, ..
-            } => {
+            Self::LazyInit { realm, init_type } => {
                 realm.trace(tr);
                 init_type.trace(tr);
             }
@@ -515,17 +510,4 @@ pub const fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool {
         }
     }
     true
-}
-
-/// Get object `length` property as u32
-#[deprecated(note = "use JSValue::get_length_prop() instead")]
-pub fn js_get_length32(ctx: &ContextImpl, obj: JSValue) -> Result<u32, i32> {
-    obj.get_property(ctx, Atom::CONST_length)
-        .and_then(|v| v.to_u32(ctx))
-}
-
-/// Get object `length` property as i64
-#[deprecated(note = "use Object::get_length_prop() or JSValue::get_length_prop() instead")]
-pub fn js_get_length64(ctx: &ContextImpl, obj: JSValue) -> Result<i64, i32> {
-    obj.get_length_prop(ctx)
 }

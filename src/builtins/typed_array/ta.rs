@@ -3,7 +3,7 @@
 
 use std::cell::UnsafeCell;
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx, GcWeak};
+use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
@@ -33,8 +33,7 @@ pub const JS_TYPED_ARRAY_COUNT: usize =
 #[derive(Debug)]
 pub struct TypedArrayPayload {
     /// underlaying array buffer object.
-    pub(super) buffer: ArrayBuffer,
-
+    pub(super) array_buffer: ArrayBuffer,
     /// start offset in array buffer
     pub(super) offset: u32,
     /// number of bytes from array buffer
@@ -49,7 +48,7 @@ pub struct TypedArrayPayload {
 
 unsafe impl GcTracable for TypedArrayPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
-        self.buffer.trace(tr);
+        self.array_buffer.trace(tr);
     }
 }
 
@@ -57,7 +56,7 @@ impl TypedArrayPayload {
     /// create typed array payload with underlying array buffer `buffer`,
     /// offset in array buffer and type array element count.
     fn new(
-        buffer: ArrayBuffer,
+        array_buffer: ArrayBuffer,
         class_id: ClassID,
         offset: usize,
         count: usize,
@@ -67,7 +66,7 @@ impl TypedArrayPayload {
             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY
         ));
 
-        let abuf = buffer.payload();
+        let abuf = array_buffer.payload();
         let byte_length = abuf.byte_length();
         let size_log2 = TypedArray::SIZE_LOG2(class_id);
 
@@ -83,19 +82,20 @@ impl TypedArrayPayload {
         debug_assert!(offset + (count << size_log2) <= byte_length);
 
         let ta = Self {
-            buffer,
+            array_buffer,
             offset: offset as u32,
             byte_length: (count as u32) << size_log2,
             count: count as u32,
             obj: UnsafeCell::new(GcWeak::default()), // empty weakref
         };
+
         Ok(ta)
     }
 
     /// get underlaying array buffer object.
     #[inline(always)]
     pub const fn array_buffer(&self) -> ArrayBuffer {
-        self.buffer
+        self.array_buffer
     }
 
     /// check if `self` TypedArray is detached.
@@ -250,14 +250,14 @@ impl TypedArray {
         Ok(None)
     }
 
-    pub fn class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
-        if let Some(ta) = isa.typed_array() {
-            // during the GC the finalizers are called in an arbitrary
-            // order so the ArrayBuffer finalize may have been called
-            ta.array_buffer()
-                .payload_mut()
-                .remove_typed_array_weakref(rt, id);
-        }
+    pub const fn class_finalize(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {
+        // Hint: TypedArray underlaying ArrayBuffer object could have been disposed,
+        // calling ta.array_buffer() like following may cause undefined behaviour.
+        // if let Some(ta) = isa.typed_array() {
+        //     ta.array_buffer()
+        //         .payload_mut()
+        //         .remove_typed_array_weakref(rt, id);
+        // }
     }
 
     #[inline(always)]
@@ -489,11 +489,10 @@ impl TypedArray {
             .create_object_from_ctor(new_target, isa)
             .map_err(|_| -1)?;
 
-        // establish mutual references
+        // establish mutual references between TypedArray <==> ArrayBuffer
         {
             let p = ta.payload().typed_array().unwrap();
             let w = ta.downgrade();
-
             p.array_buffer().payload_mut().add_typed_array_weakref(w);
             unsafe {
                 *p.obj.get() = w;
@@ -583,15 +582,5 @@ impl TypedArray {
             }
             _ => Err(-1),
         }
-    }
-}
-
-#[deprecated]
-pub fn js_typed_array_mark(val: JSValue) {
-    let p = unsafe { val.as_object_unchecked() };
-    if p.payload().typed_array().is_some() {
-        // mark underlaying array buffer
-        // println!("[O.o] TODO typed array mark");
-        // (*rt).gc_mark_value(JSValue::Object(ta.array_buffer().clone()), mark_func);
     }
 }

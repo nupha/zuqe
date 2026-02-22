@@ -9,9 +9,9 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
-    JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, atom::Atom,
-    class::ClassID, context::ContextImpl, error::JSResult, gcref_wrapper, runtime::RuntimePtr,
-    string::StringRef, utils::unlikely, value::JSValue,
+    JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, RuntimeImpl,
+    atom::Atom, class::ClassID, context::ContextImpl, error::JSResult, gcref_wrapper,
+    runtime::RuntimePtr, string::StringRef, utils::unlikely, value::JSValue,
 };
 
 use super::{
@@ -165,12 +165,12 @@ pub struct ObjectImpl {
     /// property value slots
     pub(super) prop_values: Vec<JSProperty>,
 
-    /// this object is weak referenced in state.
+    /// where this object is weak referenced
     #[cfg(feature = "builtin_mapset")]
-    pub(crate) weak_refs: Vec<GcWeak<ObjectImpl>>,
+    weak_refs: Vec<GcWeak<ObjectImpl>>,
 
     /// object payload.
-    pub(super) payload: ObjectPayload,
+    payload: ObjectPayload,
 }
 
 unsafe impl GcTracable for ObjectImpl {
@@ -539,19 +539,29 @@ impl ObjectImpl {
         }
     }
 
+    #[inline(always)]
+    pub(crate) fn add_back_ref(&mut self, w: GcWeak<ObjectImpl>) {
+        self.weak_refs.push(w);
+    }
+
+    pub(crate) fn remove_back_ref(&mut self, rt: &RuntimeImpl, eliminate: Object) {
+        let heap = rt.gc_heap();
+        self.weak_refs
+            .retain(|w| w.upgrade(heap).is_some_and(|o| o != eliminate.0));
+    }
+
     fn finalize(&mut self) {
         let mut rt = self.rt();
-
-        // self.shape.take();
-        // self.prop_values.clear();
 
         // Map Set object remove weakref
         #[cfg(feature = "builtin_mapset")]
         {
             let heap = rt.gc_heap();
-            while let Some(w) = self.weak_refs.pop() {
-                if let Some(mut o) = w.upgrade(heap) {
-                    o.payload.mapset_mut().unwrap().remove_weak_obj(self)
+            let this = unsafe { Object::from_ref_unchecked(self) };
+
+            for mut o in self.weak_refs.drain(..).filter_map(|w| w.upgrade(heap)) {
+                if let Some(ms) = o.payload_mut().mapset_mut() {
+                    ms.remove_weak_obj(this);
                 }
             }
         }

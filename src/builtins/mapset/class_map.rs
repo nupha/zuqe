@@ -119,12 +119,11 @@ pub(crate) fn js_map_set(cc: CallContext) -> JSResult {
         },
     )? {
         // inserted pair
-        // make backref for key object if is weak
+        // make back ref for key object if is weak
         if s.is_weak() {
             key.as_object_mut()
                 .unwrap()
-                .weak_refs
-                .push(cc.this().as_object().unwrap().downgrade());
+                .add_back_ref(cc.this().as_object().unwrap().downgrade());
         }
     }
 
@@ -148,13 +147,9 @@ fn js_map_delete(cc: CallContext) -> JSResult {
                 s.remove(ctx, key);
 
                 if s.is_weak() {
-                    let this_obj = this.as_object().unwrap();
-                    let key_obj = key.as_object_mut().unwrap();
-
-                    key_obj.weak_refs.retain(|w| {
-                        w.upgrade(ctx.rt_ptr().gc_heap())
-                            .is_some_and(|o| !Object::from(o).eq(this_obj))
-                    });
+                    key.as_object_mut()
+                        .unwrap()
+                        .remove_back_ref(ctx.rt_ref(), this.as_object().copied().unwrap());
                 }
 
                 JSValue::Bool(true)
