@@ -771,9 +771,11 @@ impl Bytecode {
                         }
                     }
                     OpCode::CALL_METHOD | OpCode::TAIL_CALL_METHOD => {
+                        // [this_obj, func, arg1, ..., argN, ^] -> [ret_val, ^]
                         let call_argc = PC_FETCH!(u16) as i32;
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
 
+                        // save current pc
                         stack_frame.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
                         // could have recursive call.

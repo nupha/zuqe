@@ -122,7 +122,7 @@ impl RuntimeImpl {
         // * stack frame
         // * exception
 
-        self.gc_heap_mut().mark(partition_id, usize::MAX);
+        self.gc_heap_mut().mark(partition_id, 0);
 
         let mut gcx = self.gc_heap().create_trace_ctx();
         if let Some(sf) = self.current_stack_frame() {
