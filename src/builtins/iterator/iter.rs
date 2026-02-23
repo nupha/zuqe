@@ -3,7 +3,7 @@
 
 use std::marker::PhantomData;
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTracable, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -221,7 +221,7 @@ impl<'a> ObjectIter<'a> {
             target,
             done: next_method.is_undefined(),
             next_method,
-            ctx: unsafe { ContextPtr::from_ref_unchecked(ctx) },
+            ctx: ContextPtr::from(ctx.gc_ref()),
             _mark: PhantomData,
         })
     }
@@ -239,7 +239,7 @@ impl<'a> ObjectIter<'a> {
             // fast path for the built-in iterators,
             // avoid creating the intermediate result object
             let cc = CallContext::new(
-                unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                ctx.gc_ref().into(),
                 enum_obj.into(),
                 args,
                 nfun.magic as _,

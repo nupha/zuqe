@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
@@ -330,7 +330,7 @@ impl Object {
 
     /// test if property `prop` exists, check along proto chain.
     pub fn has_property(&self, ctx: &ContextImpl, prop: Atom) -> Result<bool, i32> {
-        let cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
+        let cx = ContextPtr::from(ctx.gc_ref());
 
         for cur_obj in self.shape_proto_iter(true) {
             if cur_obj.flags().is_exotic()

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use gc_lite::GcNode;
+
 use crate::{
     Callback, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
@@ -32,10 +34,7 @@ impl ModuleDefImpl {
         self.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
 
         if self.promise.is_some() {
-            debug_assert_eq!(
-                self.cycle_root,
-                Some(unsafe { ModuleDef::from_ref_unchecked(self) })
-            );
+            debug_assert_eq!(self.cycle_root, Some(ModuleDef::from(self.gc_ref())));
             let _ = self.resolving_funcs[0].call(ctx, JSValue::UNDEFINED, &[JSValue::UNDEFINED]);
         }
     }

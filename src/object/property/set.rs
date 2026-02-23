@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use gc_lite::GcNode;
+
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
@@ -179,10 +181,12 @@ impl Object {
                     .exotic
                     .as_ref()
                 {
+                    let cx = ContextPtr::from(ctx.gc_ref());
+
                     // apply exotic methods
                     if let Some(sp) = xm.set_property {
                         return sp(
-                            unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                            cx,
                             JSValue::Object(cur_obj),
                             prop,
                             val,
@@ -192,11 +196,7 @@ impl Object {
                     }
 
                     if let Some(f) = xm.get_own_property
-                        && let Some(desc) = f(
-                            unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                            JSValue::Object(cur_obj),
-                            prop,
-                        )?
+                        && let Some(desc) = f(cx, JSValue::Object(cur_obj), prop)?
                     {
                         if desc.flags & JS_PROP_GETSET != 0 {
                             return call_setter(

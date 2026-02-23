@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use gc_lite::GcNode;
+
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
@@ -98,11 +100,7 @@ impl Object {
                         .as_ref()
                         .and_then(|m| m.delete_property)
                     {
-                        return cb(
-                            unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                            JSValue::Object(*self),
-                            prop,
-                        );
+                        return cb(ContextPtr::from(ctx.gc_ref()), JSValue::Object(*self), prop);
                     }
                 }
             }

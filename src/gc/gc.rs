@@ -117,41 +117,40 @@ impl RuntimeImpl {
     pub(crate) fn gc_collect_in(&mut self, partition_id: GcPartitionId) -> usize {
         log::trace!("[collect] {partition_id:?}");
 
-        // 1. mark
-        {
-            for mut n in self.gc_heap_mut().nodes(partition_id) {
-                unsafe { n.as_mut().reset_color() }
-            }
-            let mut gcx = GcTraceCtx::new(self.gc_heap_mut(), false);
+        // Tracing
+        // * root nodes (Hint: for top-level scope, Contexts are root nodes)
+        // * stack frame
+        // * exception
 
-            // 1. scope root nodes (Hint: for root scope, Contexts are root nodes)
-            gcx.trace_roots(partition_id);
-            // 2. stack frame
-            if let Some(sf) = self.current_stack_frame() {
-                debug_assert_eq!(sf.gc_scope_id, partition_id);
-                sf.trace(&mut gcx);
-            }
-            // 3. exception
-            if let Some(n) = self.cur_exception.gc_node_ptr() {
-                gcx.trace(n);
-            }
+        self.gc_heap_mut().mark(partition_id, usize::MAX);
 
-            // user defined mark
-            if let Some(f) = self.gc_user_trace.as_ref() {
-                f(&mut gcx);
-            }
-            // mark currently running job
-            if let Some(f) = self.gc_cur_job_trace.as_ref() {
-                f(&mut gcx);
-            }
-
-            gcx.commit();
+        let mut gcx = self.gc_heap().create_trace_ctx();
+        if let Some(sf) = self.current_stack_frame() {
+            debug_assert_eq!(sf.gc_scope_id, partition_id);
+            sf.trace(&mut gcx);
+        }
+        if let Some(n) = self.cur_exception.gc_node_ptr() {
+            self.gc_heap().trace_node(n, &mut gcx);
+        }
+        // user defined mark
+        if let Some(f) = self.gc_user_trace.as_ref() {
+            f(&mut gcx);
+        }
+        // mark currently running job
+        if let Some(f) = self.gc_cur_job_trace.as_ref() {
+            f(&mut gcx);
         }
 
-        // 2. sweep
-        let freed = self
-            .gc_heap_mut()
-            .sweep(partition_id, GcHeap::SWEEP_UNMARKED_FUNC, {
+        for n in gcx.take_traced_nodes() {
+            if unsafe { n.as_ref().scope_id() } == partition_id {
+                self.gc_heap_mut().add_gray_node(n);
+            }
+        }
+
+        let mut freed = 0;
+        if self.gc_heap_mut().mark(partition_id, usize::MAX) {
+            // mark cycle done, sweep whites
+            freed = self.gc_heap_mut().sweep(partition_id, {
                 #[cfg(debug_assertions)]
                 {
                     |_, n| {
@@ -161,6 +160,51 @@ impl RuntimeImpl {
                 #[cfg(not(debug_assertions))]
                 GcHeap::DUMMY_DISPOSE_CALLBACK
             });
+        }
+
+        // // 1. mark
+        // {
+        //     for mut n in self.gc_heap_mut().nodes(partition_id) {
+        //         unsafe { n.as_mut().reset_color() }
+        //     }
+
+        //     // 1. scope root nodes (Hint: for root scope, Contexts are root nodes)
+        //     gcx.trace_roots(partition_id);
+        //     // 2. stack frame
+        //     if let Some(sf) = self.current_stack_frame() {
+        //         debug_assert_eq!(sf.gc_scope_id, partition_id);
+        //         sf.trace(&mut gcx);
+        //     }
+        //     // 3. exception
+        //     if let Some(n) = self.cur_exception.gc_node_ptr() {
+        //         gcx.trace(n);
+        //     }
+
+        //     // user defined mark
+        //     if let Some(f) = self.gc_user_trace.as_ref() {
+        //         f(&mut gcx);
+        //     }
+        //     // mark currently running job
+        //     if let Some(f) = self.gc_cur_job_trace.as_ref() {
+        //         f(&mut gcx);
+        //     }
+
+        //     gcx.commit();
+        // }
+
+        // // 2. sweep
+        // let freed = self
+        //     .gc_heap_mut()
+        //     .sweep(partition_id, GcHeap::SWEEP_UNMARKED_FUNC, {
+        //         #[cfg(debug_assertions)]
+        //         {
+        //             |_, n| {
+        //                 log::debug!("[sweep][{partition_id:?}] purge {n:?}");
+        //             }
+        //         }
+        //         #[cfg(not(debug_assertions))]
+        //         GcHeap::DUMMY_DISPOSE_CALLBACK
+        //     });
 
         if freed != 0 {
             // update gc threshold

@@ -3,7 +3,7 @@
 
 use std::{cell::Cell, ffi::c_void, ptr::NonNull};
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTracable, GcTraceCtx};
 
 use crate::{
     ClassDef, USER_CLASS_ID_START,
@@ -93,10 +93,7 @@ impl ContextImpl {
                             .get(class_id as usize)
                             .and_then(|c| c.initialize)
                         {
-                            let r = f(
-                                unsafe { ContextPtr::from_ref_unchecked(self).into() },
-                                class_id,
-                            )?;
+                            let r = f(ContextPtr::from(self.gc_ref()).into(), class_id)?;
                             if let Some(proto) = r {
                                 self.class_protos[class_id as usize] = proto.into();
                             } else if !self.class_protos[class_id as usize].is_object() {

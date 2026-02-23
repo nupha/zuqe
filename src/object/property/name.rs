@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_STRING,
@@ -153,7 +153,7 @@ impl Object {
                 // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
 
-                for pk in f(unsafe { ContextPtr::from_ref_unchecked(ctx) }, *self)? {
+                for pk in f(ContextPtr::from(ctx.gc_ref()), *self)? {
                     if !has_err {
                         let atom_kind = pk.atom.desc_kind(ctx.rt_ref());
                         if (flags >> (atom_kind as u8)) & 1 != 0 {

@@ -334,9 +334,12 @@ impl StringRef {
 
         // O.o
         #[cfg(debug_assertions)]
-        {
+        unsafe {
             let t = format!("[StringImpl] {}", ss.encode_utf8(true));
-            ss.gc_ref().node_info_mut().debug_set_dbg_string(t.into());
+            ss.gc_ref()
+                .node_ptr()
+                .as_mut()
+                .debug_set_dbg_string(t.into());
         }
 
         Ok(ss)

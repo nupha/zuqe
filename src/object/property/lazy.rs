@@ -3,7 +3,7 @@
 
 use std::ptr::NonNull;
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTracable, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -111,7 +111,7 @@ impl Object {
             prop,
             (flags & JS_PROP_C_W_E) | JS_PROP_LAZYINIT,
             JSProperty::LazyInit {
-                realm: unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                realm: ContextPtr::from(ctx.gc_ref()),
                 init_type: lazy_init,
             },
         )

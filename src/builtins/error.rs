@@ -3,6 +3,8 @@
 
 use std::borrow::Cow;
 
+use gc_lite::GcNode;
+
 use crate::{
     FieldDef, JS_CLASS_ERROR,
     atom::Atom,
@@ -25,7 +27,7 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
     // use proper proto, ensure proto is an object
     let mut proto = new_target.get_property(ctx, Atom::CONST_prototype)?;
     if !proto.is_object() {
-        let ctx_p = unsafe { ContextPtr::from_ref_unchecked(ctx) };
+        let ctx_p = ContextPtr::from(ctx.gc_ref());
         let realm = new_target
             .as_object()
             .map_or(Ok(ctx_p), |o| o.realm(ctx_p))?;

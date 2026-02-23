@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTracable, GcTraceCtx};
 
 use crate::{
     Callback,
@@ -42,7 +42,7 @@ pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult 
     // cannot run JS_LoadModuleInternal synchronously because it would
     // cause an unexpected recursion in js_evaluate_module()
     let rr = resolving_funcs;
-    let mut cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
+    let mut cx = ContextPtr::from(ctx.gc_ref());
 
     ctx.queue_job_with_trace(
         move || {

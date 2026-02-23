@@ -3,7 +3,7 @@
 
 use std::ptr::NonNull;
 
-use gc_lite::{GcPartitionId, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcPartitionId, GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
@@ -295,7 +295,7 @@ impl NativeFunction {
                 callback,
                 length,
                 magic,
-                realm: unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                realm: ctx.gc_ref().into(),
                 data: binding_data,
             });
 

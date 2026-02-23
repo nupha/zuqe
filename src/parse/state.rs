@@ -3,6 +3,8 @@
 
 use std::ptr::NonNull;
 
+use gc_lite::GcNode;
+
 use crate::{
     context::{ContextImpl, ContextPtr},
     function::FunctionDef,
@@ -96,7 +98,7 @@ impl<'s> JSParseState<'s> {
         let ptr = source.as_ptr();
 
         Self {
-            ctx: unsafe { ContextPtr::from_ref_unchecked(ctx) },
+            ctx: ctx.gc_ref().into(),
 
             input: source,
             input_end: unsafe { ptr.add(source.len()) },

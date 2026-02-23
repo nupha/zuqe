@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use gc_lite::GcNode;
+
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
@@ -25,11 +27,11 @@ impl Object {
         this_obj: JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
-        // // FIXME: may collect invalid descendant nodes?
-        // #[cfg(debug_assertions)]
-        // ctx.rt_ref()
-        //     .gc_heap()
-        //     .debug_assert_node_valid(self.gc_ref().node_ptr(), true);
+        #[cfg(debug_assertions)]
+        {
+            self.gc_node()
+                .debug_assert_node_valid(ctx.rt_ref().gc_heap());
+        }
 
         for mut cur_obj in self.shape_proto_iter(true) {
             'redo: loop {
@@ -123,7 +125,7 @@ impl Object {
                     if let Some(cb) = pm.get_property {
                         // XXX: should pass throw_ref_error
                         return cb(
-                            unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                            ContextPtr::from(ctx.gc_ref()),
                             cur_obj.into(),
                             prop,
                             this_obj,
@@ -132,7 +134,7 @@ impl Object {
 
                     if let Some(cb) = pm.get_own_property
                         && let Some(desc) = cb(
-                            unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                            ContextPtr::from(ctx.gc_ref()),
                             JSValue::Object(cur_obj),
                             prop,
                         )?

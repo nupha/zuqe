@@ -22,7 +22,7 @@ pub struct Atom(pub(super) u32);
 unsafe impl GcTracable for Atom {
     fn trace(&self, tr: &mut GcTraceCtx) {
         if !self.is_const() && !self.is_small_int() {
-            let rt = tr.heap().opaque().cast::<RuntimeImpl>();
+            let rt = tr.opaque().cast::<RuntimeImpl>();
             debug_assert!(!rt.is_null());
 
             let s = self.descriptor(unsafe { &*rt });

@@ -136,36 +136,14 @@ impl Drop for StackFrame {
                     rt.gc_heap()
                         .partition(self.gc_scope_id)
                         .is_none_or(|p| p.children().is_empty()),
-                    "the closing gc scope should not have child"
+                    "the closing scope should not have sub scope"
                 );
             }
 
             rt.gc_heap_mut().remove_partition(
                 self.gc_scope_id,
-                {
-                    #[cfg(debug_assertions)]
-                    {
-                        |_, n, scope| {
-                            if n.scope_id() == self.gc_scope_id {
-                                log::debug!("[O.o] migrate node {n:?} -> {scope:?}");
-                            }
-                        }
-                    }
-                    #[cfg(not(debug_assertions))]
-                    {
-                        gc_lite::GcHeap::DUMMY_MIGRATE_CALLBACK
-                    }
-                },
-                {
-                    #[cfg(debug_assertions)]
-                    {
-                        |_, n| {
-                            log::debug!("[remove_partition][{:?}] purge {n:?}", self.gc_scope_id,);
-                        }
-                    }
-                    #[cfg(not(debug_assertions))]
-                    gc_lite::GcHeap::DUMMY_DISPOSE_CALLBACK
-                },
+                gc_lite::GcHeap::DUMMY_PROMOTE_CALLBACK,
+                gc_lite::GcHeap::DUMMY_DISPOSE_CALLBACK,
             );
 
             // GUARD

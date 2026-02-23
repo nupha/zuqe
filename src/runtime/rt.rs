@@ -368,7 +368,7 @@ impl RuntimeImpl {
         let root_scope_id = self.gc_top_scope;
         self.gc_heap_mut().remove_partition(
             root_scope_id,
-            GcHeap::DUMMY_MIGRATE_CALLBACK,
+            GcHeap::DUMMY_PROMOTE_CALLBACK,
             GcHeap::DUMMY_DISPOSE_CALLBACK,
         );
 

@@ -3,7 +3,7 @@
 
 use std::{cell::Cell, rc::Rc};
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcPartitionId, GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
@@ -230,7 +230,7 @@ impl Promise {
 
                 // add a job to poll promise reaction in runtime tick
                 let is_reject = state == PromiseState::Rejected;
-                let mut cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
+                let mut cx = ContextPtr::from(ctx.gc_ref());
 
                 ctx.queue_job_with_trace(
                     move || {
@@ -269,7 +269,6 @@ impl Promise {
 
     /// create new promise for `then()`, register reaction handlers to `self` promise.
     /// `resolve` and `reject` are callback functions.
-    /// `resolve` and `reject` are not consumed.
     pub fn then(
         &mut self,
         ctx: &mut ContextImpl,

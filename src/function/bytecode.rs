@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     atom::{Atom, is_const_atom, is_small_int_atom},
@@ -171,7 +171,7 @@ impl BytecodeImpl {
         stack_size: u16,
     ) -> Self {
         Self {
-            realm: unsafe { ContextPtr::from_ref_unchecked(ctx) },
+            realm: ctx.gc_ref().into(),
             func_name: fd.func_name,
 
             attrs: BytecodeAttrs {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTracable, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -78,7 +78,7 @@ impl ContextImpl {
             // resolve dependency modules
             for dep in m.dependencies.iter_mut() {
                 let m1 = js_host_resolve_imported_module_atom(
-                    unsafe { ContextPtr::from_ref_unchecked(self) },
+                    self.gc_ref().into(),
                     &base_module_name,
                     &dep.module_name,
                 )?;

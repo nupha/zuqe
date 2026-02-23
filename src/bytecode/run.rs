@@ -2493,26 +2493,19 @@ impl Bytecode {
                     // Note: captured values be in ancestor scope of stack-frame's scope,
                     // even the stack-frame is dropped, captured values still alive.
                     #[cfg(debug_assertions)]
-                    if !captured_vars.is_empty() {
-                        let sf_scope = stack_frame
-                            .parent_iter(true)
-                            .filter_map(|s| {
-                                if s.gc_scope_id.is_null() {
-                                    None
-                                } else {
-                                    Some(s.gc_scope_id)
-                                }
-                            })
-                            .next()
-                            .unwrap_or(rt.gc_top_scope);
-
+                    if !captured_vars.is_empty() && !stack_frame.gc_scope_id.is_null() {
                         for cap in captured_vars.iter() {
                             if let Some(n) = cap.value().gc_node_ptr() {
-                                debug_assert!(
-                                    sf_scope.depth() >= cap.gc_node().scope_id().depth(),
-                                    "[O.o] stack frame scope: {sf_scope:?}, closure value scope: {:?}",
-                                    unsafe { n.as_ref().scope_id() }
-                                );
+                                unsafe {
+                                    debug_assert!(
+                                        stack_frame.gc_scope_id.depth()
+                                            >= n.as_ref().scope_id().depth(),
+                                        "[O.o] stack frame scope: {:?}, closure value scope: {:?}, closure var ref scope: {:?}",
+                                        stack_frame.gc_scope_id,
+                                        n.as_ref().scope_id(),
+                                        cap.gc_node().scope_id()
+                                    );
+                                }
                             }
                         }
                     }

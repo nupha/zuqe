@@ -3,7 +3,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
 use hash_link::HashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty};
@@ -95,7 +95,7 @@ impl ShapeImpl {
         let old_len = self.len();
         let new_len = old_len + extras.len();
 
-        let shape_node = unsafe { GcRef::<Self>::from_ref_unchecked(self).node_ptr() };
+        let shape_node = self.gc_ref().node_ptr();
 
         for (i, (prop, prop_flags)) in extras.iter().enumerate() {
             #[cfg(debug_assertions)]
@@ -162,7 +162,9 @@ impl Drop for Shape {
         debug_assert!(self.use_count > 0);
         self.use_count -= 1;
         if self.use_count == 0 {
-            self.gc_ref().node_info_mut().unset_xref();
+            unsafe {
+                self.gc_ref().node_ptr().as_mut().unset_xref();
+            }
         }
     }
 }

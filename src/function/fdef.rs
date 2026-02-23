@@ -3,6 +3,8 @@
 
 use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 
+use gc_lite::GcNode;
+
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
@@ -194,7 +196,7 @@ impl FunctionDef {
         line_num: i32,
     ) -> Result<Box<Self>, i32> {
         let o = Self {
-            ctx: unsafe { ContextPtr::from_ref_unchecked(ctx) },
+            ctx: ctx.gc_ref().into(),
             parent: std::ptr::null_mut(),
             parent_cpool_idx: -1,
             parent_scope_level: 0,

@@ -3,7 +3,7 @@
 
 use std::cmp::Ordering;
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTracable, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -216,7 +216,7 @@ impl ModuleDefImpl {
                 FieldDetail::Str(s) => ctx.create_string_from_str(s)?.into(),
                 FieldDetail::Int32(i) => JSValue::Int(*i),
                 FieldDetail::Float64(d) => JSValue::from(*d),
-                FieldDetail::Build(f) => f(unsafe { ContextPtr::from_ref_unchecked(ctx).into() })?,
+                FieldDetail::Build(f) => f(ContextPtr::from(ctx.gc_ref()).into())?,
 
                 FieldDetail::Undefined | FieldDetail::Alias { .. } | FieldDetail::GetSet { .. } => {
                     // module export ignores Alias, Get/Set, Undefined fields

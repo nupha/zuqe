@@ -3,6 +3,8 @@
 
 use std::ffi::c_void;
 
+use gc_lite::GcNode;
+
 use crate::{
     USER_CLASS_ID_START,
     atom::Atom,
@@ -69,7 +71,7 @@ impl ContextImpl {
             if let Some(o) = p.as_object().copied() {
                 Some(o)
             } else if let Ok(realm) = {
-                let cx = unsafe { ContextPtr::from_ref_unchecked(self) };
+                let cx = ContextPtr::from(self.gc_ref());
                 ctor.as_object().map_or(Ok(cx), |o| o.realm(cx))
             } {
                 realm.class_proto(class_id)

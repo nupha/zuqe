@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::GcRef;
+use gc_lite::{GcNode, GcRef};
 
 use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
-    context::{Context, ContextImpl, ContextPtr},
+    context::{Context, ContextImpl},
     error::JSResult,
     function::{AsyncState, BCWrapper, BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
@@ -159,7 +159,7 @@ impl AsyncState {
 
             // Handle await expression
             let mut promise = if let Ok(v) = js_promise_resolve(CallContext::new_simple(
-                unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                ctx.gc_ref().into(),
                 ctx.promise_ctor,
                 std::slice::from_ref(&value),
             )) {
@@ -196,7 +196,7 @@ impl AsyncState {
 
     fn async_function_resolve_create(&self, ctx: &ContextImpl) -> Result<[JSValue; 2], i32> {
         let mut resolving_funcs = [const { JSValue::UNDEFINED }; 2];
-        let state = unsafe { AsyncState::from_ref_unchecked(self) };
+        let state = AsyncState::from(self.gc_ref());
 
         for i in 0..2 {
             let func_obj = ctx

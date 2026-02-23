@@ -3,6 +3,8 @@
 
 use std::marker::PhantomData;
 
+use gc_lite::GcNode;
+
 use crate::{
     context::{ContextImpl, ContextPtr},
     error::JSResult,
@@ -21,7 +23,7 @@ impl<'a> Iterator for ObjectShapeProtoIter<'a> {
     type Item = Object;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(o) = self.obj.take() {
+        if let Some(o) = self.obj {
             self.obj = o.shape().and_then(|s| s.proto());
             Some(o)
         } else {
@@ -44,7 +46,7 @@ impl ObjectImpl {
     pub fn shape_proto_iter<'a>(&self, include_self: bool) -> ObjectShapeProtoIter<'a> {
         ObjectShapeProtoIter {
             obj: if include_self {
-                Some(unsafe { Object::from_ref_unchecked(self) })
+                Some(Object::from(self.gc_ref()))
             } else {
                 self.shape_proto()
             },
@@ -69,8 +71,8 @@ impl ObjectImpl {
         {
             // exotic: Proxy
             cb(
-                unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                JSValue::Object(unsafe { Object::from_ref_unchecked(self) }),
+                ContextPtr::from(ctx.gc_ref()),
+                JSValue::Object(Object::from(self.gc_ref())),
             )
             .map(|v| Object::try_from(v).ok())
         } else {
@@ -96,7 +98,7 @@ impl ObjectImpl {
             return Err(-1);
         };
 
-        let obj = unsafe { Object::from_ref_unchecked(self) };
+        let obj = Object::from(self.gc_ref());
 
         if self.flags().is_exotic()
             && let Some(cb) = ctx
@@ -108,7 +110,7 @@ impl ObjectImpl {
         {
             // exotic handler: Proxy
             let ret = cb(
-                unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                ContextPtr::from(ctx.gc_ref()),
                 JSValue::Object(obj),
                 proto_val,
             );

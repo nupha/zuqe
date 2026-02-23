@@ -3,6 +3,8 @@
 
 use std::ptr::NonNull;
 
+use gc_lite::GcNode;
+
 use crate::{
     atom::Atom,
     context::{Context, ContextImpl, ContextPtr},
@@ -318,8 +320,7 @@ impl Object {
                 val = JSValue::UNDEFINED;
             }
             FieldDetail::Build(f) => {
-                let c = unsafe { ContextPtr::from_ref_unchecked(ctx) };
-                val = f(c.into())?;
+                val = f(ContextPtr::from(ctx.gc_ref()).into())?;
             }
 
             FieldDetail::Alias { name, base } => {

@@ -18,7 +18,7 @@ macro_rules! gcref_wrapper {
     ($ty:ident, $in_ty:ident) => {
         unsafe impl gc_lite::GcTracable for $ty {
             #[inline(always)]
-            fn trace(&self, mut tr: &mut gc_lite::GcTraceCtx) {
+            fn trace(&self, tr: &mut gc_lite::GcTraceCtx) {
                 tr.add(self.0)
             }
         }
@@ -39,17 +39,14 @@ macro_rules! gcref_wrapper {
             }
         }
 
-        impl $ty {
+        impl From<gc_lite::GcRef<$in_ty>> for $ty {
             #[inline(always)]
-            pub(crate) const fn from(r: gc_lite::GcRef<$in_ty>) -> Self {
+            fn from(r: GcRef<$in_ty>) -> Self {
                 Self(r)
             }
+        }
 
-            #[inline(always)]
-            pub(crate) unsafe fn from_ref_unchecked(o: &$in_ty) -> Self {
-                Self(unsafe { gc_lite::GcRef::from_ref_unchecked(o) })
-            }
-
+        impl $ty {
             #[inline(always)]
             pub(crate) const fn gc_ref(&self) -> GcRef<$in_ty> {
                 self.0

@@ -3,7 +3,7 @@
 
 use std::{fmt::Formatter, ops::Deref};
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx, GcWeak};
+use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -199,11 +199,13 @@ impl std::fmt::Display for ObjectImpl {
 
         #[cfg(debug_assertions)]
         {
+            use gc_lite::GcNode;
+
             write!(
                 f,
                 "[{name} {:?} shape={:?} proto={}]",
-                unsafe { Object::from_ref_unchecked(self).gc_ref() },
-                self.shape().map(|s| s.gc_ref().node_ptr()),
+                Object::from(self.gc_ref()),
+                self.shape().map(|s| s.gc_head()),
                 self.shape()
                     .and_then(|s| s.proto())
                     .map_or("<null>".to_string(), |x| x.to_string())
@@ -325,7 +327,9 @@ impl ObjectImpl {
         }
 
         let mut obj = {
-            let mut gc_ref = ctx
+            let sh_ref = shape.as_ref().map(|s| s.gc_ref());
+
+            let gc_ref = ctx
                 .rt_ptr()
                 .gc_alloc(Self {
                     rt: ctx.rt_ptr(),
@@ -341,12 +345,19 @@ impl ObjectImpl {
                     std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::Int(0)))
                 })?;
 
+            if let Some(sh) = sh_ref {
+                ctx.rt_ptr()
+                    .gc_heap_mut()
+                    .bind(gc_ref.gc_head_ptr(), sh.gc_head_ptr());
+            }
+
             #[cfg(debug_assertions)]
-            {
+            unsafe {
                 let cid = gc_ref.class_id();
                 let cname = gc_ref.class_name().to_utf8(ctx.rt_ref());
                 gc_ref
-                    .node_info_mut()
+                    .node_ptr()
+                    .as_mut()
                     .debug_set_dbg_string(format!("[ObjectImpl] class={} ({cname})", cid).into());
             }
 
@@ -509,7 +520,7 @@ impl ObjectImpl {
             );
         }
 
-        let obj_node = unsafe { Object::from_ref_unchecked(self).gc_node_ptr() };
+        let obj_node = Object::from(self.gc_ref()).gc_node_ptr();
         self.rt()
             .gc_heap_mut()
             .bind(obj_node, shape.gc_ref().node_ptr());
@@ -557,7 +568,7 @@ impl ObjectImpl {
         #[cfg(feature = "builtin_mapset")]
         {
             let heap = rt.gc_heap();
-            let this = unsafe { Object::from_ref_unchecked(self) };
+            let this = Object::from(self.gc_ref());
 
             for mut o in self.weak_refs.drain(..).filter_map(|w| w.upgrade(heap)) {
                 if let Some(ms) = o.payload_mut().mapset_mut() {
@@ -598,13 +609,6 @@ impl TryFrom<JSValue> for Object {
         } else {
             Err(-1)
         }
-    }
-}
-
-impl From<GcRef<ObjectImpl>> for Object {
-    #[inline(always)]
-    fn from(value: GcRef<ObjectImpl>) -> Self {
-        Self(value)
     }
 }
 

@@ -3,6 +3,8 @@
 
 use std::ops::{Deref, DerefMut};
 
+use gc_lite::GcNode;
+
 use crate::{
     Context,
     atom::Atom,
@@ -172,7 +174,7 @@ impl Object {
             // bound function, native function, async function etc,
             // check class defined exotic call handler
             cb(
-                unsafe { ContextPtr::from_ref_unchecked(ctx).into() },
+                ContextPtr::from(ctx.gc_ref()).into(),
                 JSValue::Object(*self),
                 this_obj,
                 args,
@@ -367,7 +369,7 @@ pub(crate) fn JS_CallConstructorInternal(
             }
         } else if let Some(cb) = ctx.rt_ptr().class_registry[o.class_id() as usize].call {
             cb(
-                unsafe { ContextPtr::from_ref_unchecked(ctx).into() },
+                ContextPtr::from(ctx.gc_ref()).into(),
                 func_obj,
                 new_target,
                 args,

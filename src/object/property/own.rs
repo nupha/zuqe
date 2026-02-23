@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use gc_lite::GcNode;
+
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
@@ -76,12 +78,8 @@ impl Object {
                 .as_ref()
                 .and_then(|x| x.get_own_property)
             {
-                return cb(
-                    unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                    (*self).into(),
-                    prop,
-                )
-                .map(|d| d.is_some());
+                return cb(ContextPtr::from(ctx.gc_ref()), (*self).into(), prop)
+                    .map(|d| d.is_some());
             }
         }
 
@@ -174,11 +172,7 @@ impl Object {
                 .as_ref()
                 .and_then(|x| x.get_own_property)
             {
-                return f(
-                    unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                    JSValue::Object(*self),
-                    prop,
-                );
+                return f(ContextPtr::from(ctx.gc_ref()), JSValue::Object(*self), prop);
             }
         }
 
@@ -346,7 +340,7 @@ impl Object {
                     {
                         if let Some(f) = pm.define_own_property {
                             return f(
-                                unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                                ContextPtr::from(ctx.gc_ref()),
                                 JSValue::Object(*self),
                                 prop,
                                 val,
