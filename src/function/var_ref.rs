@@ -3,9 +3,10 @@
 
 use std::ptr::NonNull;
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
+    RuntimeImpl,
     context::ContextImpl,
     gcref_wrapper,
     stack_frame::{ExecMode, StackFrame},
@@ -65,8 +66,7 @@ impl VarRefImpl {
     }
 
     /// update variable value
-    #[inline(always)]
-    pub(crate) const fn set_value(&mut self, new_value: JSValue) {
+    pub(crate) fn set_value(&mut self, rt: &mut RuntimeImpl, new_value: JSValue) {
         match self {
             Self::Bind { pvalue, .. } => unsafe {
                 *pvalue.as_mut() = new_value;
@@ -74,6 +74,10 @@ impl VarRefImpl {
             Self::Detached { value, .. } => {
                 *value = new_value;
             }
+        }
+
+        if let Some(n) = new_value.gc_node_ptr() {
+            rt.gc_heap_mut().bind(self.gc_head_ptr(), n);
         }
     }
 

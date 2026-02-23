@@ -108,6 +108,11 @@ unsafe impl GcTracable for StackFrame {
         self.var_refs().iter().for_each(|r| r.trace(tr));
         self.var_values().iter().for_each(|v| v.trace(tr));
         self.stack_values().iter().for_each(|v| v.trace(tr));
+
+        // // for byte function, trace captured variables
+        // if let Some(bf) = self.func_obj.as_BytecodeFunction().map(|bf| bf.payload()) {
+        //     bf.closure_var_refs().iter().for_each(|r| r.trace(tr));
+        // }
     }
 }
 

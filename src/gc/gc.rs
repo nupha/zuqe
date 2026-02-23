@@ -119,9 +119,12 @@ impl RuntimeImpl {
 
         // 1. mark
         {
-            let mut gcx = GcTraceCtx::new(self.gc_heap_mut(), true);
+            for mut n in self.gc_heap_mut().nodes(partition_id) {
+                unsafe { n.as_mut().reset_color() }
+            }
+            let mut gcx = GcTraceCtx::new(self.gc_heap_mut(), false);
 
-            // 1. root nodes (Hint: for root scope, Contexts are root nodes)
+            // 1. scope root nodes (Hint: for root scope, Contexts are root nodes)
             gcx.trace_roots(partition_id);
             // 2. stack frame
             if let Some(sf) = self.current_stack_frame() {

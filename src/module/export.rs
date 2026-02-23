@@ -247,7 +247,7 @@ impl ModuleDefImpl {
                     var_ref.is_some(),
                     "exported local entry must have been linked"
                 );
-                var_ref.unwrap().set_value(value);
+                var_ref.unwrap().set_value(&mut ctx.rt_ptr(), value);
                 Ok(())
             } else {
                 // not a local export entry

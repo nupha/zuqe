@@ -120,6 +120,32 @@ impl Bytecode {
             }
         }
 
+        let mut rt = caller_ctx.rt_ptr();
+
+        // ensure captured variables are in ancestor scope of stack frame scope.
+        #[cfg(debug_assertions)]
+        if !captured_vars.is_empty() {
+            let sf_scope = stack_frame
+                .parent_iter(true)
+                .filter_map(|s| {
+                    if s.gc_scope_id.is_null() {
+                        None
+                    } else {
+                        Some(s.gc_scope_id)
+                    }
+                })
+                .next()
+                .unwrap_or(rt.gc_top_scope);
+
+            for cap in captured_vars.iter() {
+                debug_assert!(
+                    sf_scope.depth() >= cap.gc_node().scope_id().depth(),
+                    "[O.o] stack frame scope: {sf_scope:?}, captured scope: {:?}",
+                    cap.gc_node().scope_id()
+                );
+            }
+        }
+
         /// get value at stack position `idx`
         macro_rules! SP_VAL {
             (0) => {
@@ -286,8 +312,6 @@ impl Bytecode {
             Done(JSValue, bool),
             Exception,
         }
-
-        let mut rt = caller_ctx.rt_ptr();
 
         #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
         let mut debug_setting: Option<crate::function::BytecodeDebugSetting> = None;
@@ -1186,12 +1210,14 @@ impl Bytecode {
                         // [value, ^] -> [^]
                         // consume and store stack top value to var_ref
                         let idx = PC_FETCH!(u16);
-                        captured_vars[idx as usize].set_value(SP_VAL!(-1));
+                        captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                         SP_GO!(-1);
                     }
                     OpCode::SET_VAR_REF => {
+                        // [value, ^] -> [value, ^]
+                        // store stack top value to var_ref
                         let idx = PC_FETCH!(u16);
-                        captured_vars[idx as usize].set_value(SP_VAL!(-1));
+                        captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                     }
                     OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                         let idx = PC_FETCH!(u16);
@@ -1204,7 +1230,7 @@ impl Bytecode {
                             SP_PUT!(0, val);
                             SP_GO!(1);
                         } else {
-                            captured_vars[idx as usize].set_value(SP_VAL!(-1));
+                            captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                             SP_GO!(-1);
                         }
                     }
@@ -1214,7 +1240,7 @@ impl Bytecode {
                             JS_ThrowReferenceErrorUninitialized2(&realm, self, idx, true);
                             break State::Exception;
                         } else {
-                            captured_vars[idx as usize].set_value(SP_VAL!(-1));
+                            captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                             SP_GO!(-1);
                         }
                     }
@@ -1831,32 +1857,6 @@ impl Bytecode {
                         if unlikely(is_err) {
                             break State::Exception;
                         }
-
-                        // let array = SP_REF!(-2);
-                        // let prop = SP_TAKE!(-1);
-                        // if unlikely(array.is_undefined_or_null()) {
-                        //     ctx.throw_type_error(&format!(
-                        //         "cannot read property of {}",
-                        //         if array.is_undefined() {
-                        //             "undefined"
-                        //         } else {
-                        //             "null"
-                        //         }
-                        //     ));
-                        //     SP_PUT!(-2, JSValue::EXCEPTION);
-                        //     SP_GO!(-1);
-                        //     break State::Exception;
-                        // } else {
-                        //     let val = array
-                        //         .get_property_value(ctx, &prop)
-                        //         .unwrap_or(JSValue::EXCEPTION);
-                        //     let is_err = val.is_exception();
-                        //     SP_PUT!(-2, val);
-                        //     SP_GO!(-1);
-                        //     if unlikely(is_err) {
-                        //         break State::Exception;
-                        //     }
-                        // }
                     }
                     OpCode::GET_ARRAY_EL2 => {
                         // [array, prop, ^] -> [array, value, ^]
@@ -1869,29 +1869,6 @@ impl Bytecode {
                         if unlikely(is_err) {
                             break State::Exception;
                         }
-
-                        // let array = SP_REF!(-2);
-                        // if unlikely(array.is_undefined_or_null()) {
-                        //     ctx.throw_type_error(&format!(
-                        //         "cannot read property of {}",
-                        //         if array.is_undefined() {
-                        //             "undefined"
-                        //         } else {
-                        //             "null"
-                        //         }
-                        //     ));
-                        //     SP_PUT!(-1, JSValue::EXCEPTION);
-                        //     break State::Exception;
-                        // } else {
-                        //     let val = array
-                        //         .get_property_value(ctx, SP_REF!(-1))
-                        //         .unwrap_or(JSValue::EXCEPTION);
-                        //     let is_err = val.is_exception();
-                        //     SP_PUT!(-1, val);
-                        //     if unlikely(is_err) {
-                        //         break State::Exception;
-                        //     }
-                        // }
                     }
                     OpCode::GET_REF_VALUE => {
                         // [obj, prop, ^] -> [obj, value, ^]
@@ -2512,6 +2489,33 @@ impl Bytecode {
                         unsafe { sp.offset_from(sp_base) as usize },
                         is_generator,
                     );
+
+                    // Note: captured values be in ancestor scope of stack-frame's scope,
+                    // even the stack-frame is dropped, captured values still alive.
+                    #[cfg(debug_assertions)]
+                    if !captured_vars.is_empty() {
+                        let sf_scope = stack_frame
+                            .parent_iter(true)
+                            .filter_map(|s| {
+                                if s.gc_scope_id.is_null() {
+                                    None
+                                } else {
+                                    Some(s.gc_scope_id)
+                                }
+                            })
+                            .next()
+                            .unwrap_or(rt.gc_top_scope);
+
+                        for cap in captured_vars.iter() {
+                            if let Some(n) = cap.value().gc_node_ptr() {
+                                debug_assert!(
+                                    sf_scope.depth() >= cap.gc_node().scope_id().depth(),
+                                    "[O.o] stack frame scope: {sf_scope:?}, closure value scope: {:?}",
+                                    unsafe { n.as_ref().scope_id() }
+                                );
+                            }
+                        }
+                    }
 
                     return ret_val;
                 }

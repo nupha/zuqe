@@ -93,7 +93,7 @@ impl Object {
                         if unlikely(cur_obj.class_id() == JS_CLASS_MODULE_NS) {
                             fail_read_only!(prop)
                         } else if let JSProperty::VarRef(vref) = cur_obj.prop_slot_mut(idx) {
-                            vref.set_value(val);
+                            vref.set_value(&mut ctx.rt_ptr(), val);
                             return Ok(true);
                         } else {
                             unreachable!()

@@ -513,13 +513,13 @@ impl BytecodeFunction {
         let ret_val = bc
             .run(
                 caller_ctx,
-                bf.home_object,
+                bf.home_object(),
                 &mut stack_frame,
                 this_obj,
                 new_target,
                 0,
                 0,
-                &mut bf.closure_var_refs,
+                bf.closure_var_refs_mut(),
                 args,
                 false,
             )
@@ -527,9 +527,10 @@ impl BytecodeFunction {
 
         // Note: closure values could be allocated in stack-frame's gc scope during execution,
         // before stack-frame is dropping, promote closure values up to at leat self Function's gc scope.
+        let heap = rt.gc_heap_mut();
         for vr in bf.closure_var_refs() {
             if let Some(n) = vr.value().gc_node_ptr() {
-                rt.gc_heap_mut().bind(self_node, n);
+                heap.bind(self_node, n);
             }
         }
 

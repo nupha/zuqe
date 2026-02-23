@@ -190,7 +190,7 @@ impl Object {
                             };
                         }
                     } else {
-                        vref.set_value(val);
+                        vref.set_value(&mut ctx.rt_ptr(), val);
                     }
                 }
 
