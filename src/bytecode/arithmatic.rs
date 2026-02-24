@@ -52,6 +52,18 @@ impl TwoNumbers {
             let mut op2 = val2;
 
             loop {
+                // Note: despite original val1, val2 are from stack - traced by StackFrame,
+                // but op1, op2 could be new created orphan gc nodes,
+                // they must be protected in loop to avoid being collected
+                // in case toPrimitive or valueOf method is user defined bytecode function.
+                let mut _ng = ctx.rt_ref().gc_heap().protect_nodes(&[]);
+                if let Some(n) = op1.gc_node_ptr() {
+                    _ng.add(n);
+                }
+                if let Some(n) = op2.gc_node_ptr() {
+                    _ng.add(n);
+                }
+
                 op1 = op1.to_number(ctx)?;
                 op2 = op2.to_number(ctx)?;
                 if let Some(n2) = Self::from_values0(op1, op2) {
