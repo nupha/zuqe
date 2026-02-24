@@ -174,21 +174,6 @@ fn js_array_at(cc: CallContext) -> JSResult {
         JSValue::UNDEFINED
     };
 
-    // LEGACY
-    // let ret: JSValue = if idx < 0 || idx >= len {
-    //     JSValue::UNDEFINED // bad index
-    // } else if let Some(val) = obj
-    //     .with_fast_array_values(|lst| lst.get(idx as usize).cloned())
-    //     .flatten()
-    // {
-    //     // fast array element
-    //     val
-    // } else {
-    //     // sparse array
-    //     obj.try_get_property_i64(ctx, idx)?
-    //         .unwrap_or(JSValue::UNDEFINED)
-    // };
-
     Ok(ret)
 }
 
@@ -833,34 +818,6 @@ pub(crate) fn js_array_pop(cc: CallContext) -> JSResult {
             this.delete_property_i64(cx, new_len, JS_PROP_THROW)?;
             val
         };
-
-        // LEGACY
-        // if let Some(r) = obj
-        //     .with_fast_array_values_mut(|lst| {
-        //         if lst.len() == arr_len as usize {
-        //             Some(if shift {
-        //                 lst.remove(0)
-        //             } else {
-        //                 lst.pop().unwrap()
-        //             })
-        //         } else {
-        //             None
-        //         }
-        //     })
-        //     .flatten()
-        // {
-        //     // fast array pop/shift
-        //     res = r;
-        // } else {
-        //     // slow path
-        //     if shift {
-        //         res = obj.get_property_i64(cx, 0)?;
-        //         copy_sub_array(cx, &mut obj, 0, 1, arr_len as usize - 1, 1)?;
-        //     } else {
-        //         res = obj.get_property_i64(cx, new_len)?;
-        //     }
-        //     obj.delete_property_i64(cx, new_len, JS_PROP_THROW)?;
-        // }
     }
 
     this.set_property(cx, Atom::CONST_length, JSValue::from(new_len))?;
@@ -1279,74 +1236,6 @@ fn js_array_toSpliced(cc: CallContext) -> JSResult {
     // create result array (will update gc xref inside)
     let res_arr = ctx.create_array_with_values(new_lst)?;
     Ok(res_arr.into())
-
-    // LEGACY
-    // // create result array
-    // let mut res_arr = ctx.create_array_with_capacity(std::cmp::max(new_len, 0) as usize)?;
-    // if new_len <= 0 {
-    //     return Ok(res_arr.into());
-    // }
-
-    // res_arr
-    //     .with_fast_array_values_mut(|new_lst| -> Result<(), i32> {
-    //         macro_rules! error {
-    //             ($i:expr) => {
-    //                 // fill rest with undefined, because array finalize will free elements too.
-    //                 for _ in $i..new_len {
-    //                     new_lst.push(JSValue::UNDEFINED);
-    //                 }
-    //                 return Err(-1);
-    //             };
-    //         }
-
-    //         // fast path
-    //         if !obj
-    //             .with_fast_array_values(|lst| {
-    //                 if lst.len() == len as usize {
-    //                     for v in &lst[..start as usize] {
-    //                         new_lst.push(*v);
-    //                     }
-    //                     for j in 0..add {
-    //                         new_lst.push(*cc.arg((2 + j) as usize));
-    //                     }
-    //                     for v in &lst[(start + del) as usize..] {
-    //                         new_lst.push(*v);
-    //                     }
-
-    //                     true
-    //                 } else {
-    //                     false
-    //                 }
-    //             })
-    //             .unwrap_or(false)
-    //         {
-    //             // slow path: sparse array
-    //             for i in 0..start {
-    //                 if let Ok(val) = obj.try_get_property_i64(ctx, i) {
-    //                     new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
-    //                 } else {
-    //                     error!(i);
-    //                 }
-    //             }
-
-    //             for i in 0..add {
-    //                 new_lst.push(*cc.arg((2 + i) as usize));
-    //             }
-    //             for i in (start + del)..len {
-    //                 if let Ok(val) = obj.try_get_property_i64(ctx, i) {
-    //                     new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
-    //                 } else {
-    //                     error!(i);
-    //                 }
-    //             }
-    //         }
-
-    //         Ok(())
-    //     })
-    //     .unwrap()?;
-
-    // res_arr.set_property(ctx, Atom::CONST_length, JSValue::from(new_len))?;
-    // Ok(res_arr.into())
 }
 
 fn js_array_copyWithin(cc: CallContext) -> JSResult {

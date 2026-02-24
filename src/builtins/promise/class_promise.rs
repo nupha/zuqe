@@ -292,12 +292,6 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
 
             // next_promise, resolve_element, reject_element will be protected
             // by StackFrame, no manual required.
-            // let _lk = ctx.rt_ref().gc_heap().protect_nodes(&[
-            //     next_promise.gc_node_ptr().unwrap(),
-            //     resolve_element.gc_node_ptr().unwrap(),
-            //     reject_element.gc_node_ptr().unwrap(),
-            // ]);
-
             if next_promise
                 .invoke(ctx, Atom::CONST_then, &[resolve_element, reject_element])
                 .is_err()

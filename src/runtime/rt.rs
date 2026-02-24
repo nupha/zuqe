@@ -269,18 +269,19 @@ impl RuntimeImpl {
     /// put new obj to cur_exception. Returns old exception value
     #[cold]
     pub(crate) fn set_exception(&mut self, obj: JSValue) -> JSValue {
-        // prohibit obj from being gc collect
         if let Some(n) = obj.gc_node_ptr() {
+            #[cfg(debug_assertions)]
+            unsafe {
+                n.as_ref().debug_assert_node_valid_simple();
+            }
+
             self.gc_heap_mut().set_root_node(n, true);
         }
 
         let old_exc = std::mem::replace(&mut self.cur_exception, obj);
-
-        // let old exception be gc collectable
         if let Some(n) = old_exc.gc_node_ptr() {
             self.gc_heap_mut().set_root_node(n, false);
         }
-
         old_exc
     }
 

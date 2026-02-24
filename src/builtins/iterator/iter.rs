@@ -302,6 +302,11 @@ impl<'a> ObjectIter<'a> {
             JSValue::UNDEFINED
         };
 
+        // pending exc is root node
+        if let Some(n) = pending_exc.gc_node_ptr() {
+            ctx.rt_ptr().gc_heap_mut().set_root_node(n, true);
+        }
+
         // restore pending exception
         defer!({
             if has_exception {
