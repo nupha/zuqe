@@ -3,7 +3,7 @@
 
 use std::{pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     context::ContextImpl, error::JSResult, function::BCWrapper, gcref_wrapper,

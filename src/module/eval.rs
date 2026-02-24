@@ -89,7 +89,7 @@ impl ModuleDef {
     /// - create module function,
     /// - link,
     /// - and eval the function.
-    pub fn eval(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
+    pub(crate) fn eval(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
         // make module function
         self.create_module_function(ctx)?;
         // resolving imports, exports
@@ -250,47 +250,6 @@ impl ModuleDef {
                 m1.async_parent_modules.push(*self);
             }
         }
-
-        // // old logic
-        // for dep in self.dependencies.iter() {
-        //     let mut m1 = dep.module.unwrap();
-
-        //     index = m1.eval_internal(ctx, index, stack_top)?;
-        //     debug_assert!(matches!(
-        //         m1.status(),
-        //         JSModuleStatus::JS_MODULE_STATUS_EVALUATING
-        //             | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-        //             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-        //     ));
-
-        //     if m1.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATING {
-        //         self.dfs_ancestor_index =
-        //             std::cmp::min(self.dfs_ancestor_index, m1.dfs_ancestor_index);
-        //     } else {
-        //         m1 = m1.cycle_root().unwrap();
-        //         debug_assert!(matches!(
-        //             m1.status(),
-        //             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-        //                 | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-        //         ));
-        //         if let Some(exc) = m1.eval_exception() {
-        //             return Err(exc);
-        //         }
-        //     }
-
-        //     if m1.async_evaluation() {
-        //         self.pending_async_dependencies += 1;
-
-        //         if m1.async_parent_modules.len() == m1.async_parent_modules.capacity()
-        //             && m1.async_parent_modules.try_reserve(1).is_err()
-        //         {
-        //             ctx.throw_out_of_memory();
-        //             return Err(ctx.rt().take_exception());
-        //         }
-
-        //         m1.async_parent_modules.push(self.clone());
-        //     }
-        // }
 
         if self.pending_async_dependencies > 0 {
             debug_assert!(!self.async_evaluation());

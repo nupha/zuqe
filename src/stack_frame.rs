@@ -7,7 +7,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcPartitionId, GcTracable, GcTraceCtx, GcWeak};
+use gc_lite::{GcTracable, GcTraceCtx, GcWeak};
 
 use crate::{
     Object,
@@ -108,7 +108,9 @@ unsafe impl GcTracable for StackFrame {
             }
         }
 
-        self.var_refs().iter().for_each(|r| r.trace(tr));
+        for vr in self.var_refs() {
+            vr.trace(tr)
+        }
         self.var_values().iter().for_each(|v| v.trace(tr));
         self.stack_values().iter().for_each(|v| v.trace(tr));
 
@@ -123,13 +125,6 @@ impl PartialEq for StackFrame {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         std::ptr::addr_eq(self, other)
-    }
-}
-
-#[cfg(debug_assertions)]
-impl Drop for StackFrame {
-    fn drop(&mut self) {
-        log::trace!("[StackFrame::drop({self:p})]");
     }
 }
 

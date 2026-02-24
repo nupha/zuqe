@@ -74,14 +74,8 @@ fn js_promise_then_finally_func(cc: CallContext) -> JSResult {
     )?
     .into();
 
-    // following manual gc node protection is not required now:
-    // StackFrame will protect promise and then_func (as this_obj, args).
-
-    // let _lk = ctx.rt_ref().gc_heap().protect_nodes(&[
-    //     promise.gc_node_ptr().unwrap(),
-    //     then_func.gc_node_ptr().unwrap(),
-    // ]);
-
+    // manual gc node protection for promise, then_func is not required now:
+    // StackFrame will protect promise and then_func (as this_obj and args).
     promise.invoke(ctx, Atom::CONST_then, std::slice::from_ref(&then_func))
 }
 
@@ -142,12 +136,12 @@ pub fn js_promise_resolve(cc: CallContext) -> JSResult {
 
     let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, *cc.this())?;
 
-    // IMPORTANT: `result_promise`, `resolving_funcs` should keep alive in gc within this function
-    // protect to prevent them being collected (possibally in resolving_funcs[is_reject as usize].call())
-    let _lk = ctx.rt_ref().gc_heap().protect_nodes(&[
-        result_promise.gc_node_ptr(),
-        resolving_funcs[is_reject as usize].gc_node_ptr().unwrap(),
-    ]);
+    // manual protect `result_promise` from gc being collected,
+    // resolving_funcs[is_reject as usize] and arg0 will be protected by StackFrame, do not require manual.
+    let _ng = ctx
+        .rt_ref()
+        .gc_heap()
+        .protect_node(result_promise.gc_node_ptr());
 
     resolving_funcs[is_reject as usize].call(
         ctx,
@@ -169,32 +163,13 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
 
     let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, *cc.this())?;
 
-    // IMPORTANT: `result_promise`, `resolving_funcs` should keep alive in gc within this function
+    // IMPORTANT: `result_promise` should keep alive in gc within this function
     // protect to prevent them being collected (possibally in bytecode exeution, e.g. promise_resolve.call etc)
     let mut _lk = ctx.rt_ref().gc_heap().protect_nodes(&[
         result_promise.gc_node_ptr(),
         resolving_funcs[0].gc_node_ptr().unwrap(),
         resolving_funcs[1].gc_node_ptr().unwrap(),
     ]);
-
-    // let _deferred1 = {
-    //     let mut rt_ptr = ctx.rt_ptr();
-    //     let p = result_promise.gc_ref();
-    //     let r0 = resolving_funcs[0].as_object().unwrap().gc_ref();
-    //     let r1 = resolving_funcs[1].as_object().unwrap().gc_ref();
-
-    //     let heap = rt_ptr.gc_heap_mut();
-    //     heap.set_root(p, true);
-    //     heap.set_root(r0, true);
-    //     heap.set_root(r1, true);
-
-    //     crate::defer_fn!({
-    //         let heap = rt_ptr.gc_heap_mut();
-    //         heap.set_root(p, false);
-    //         heap.set_root(r0, false);
-    //         heap.set_root(r1, false);
-    //     })
-    // };
 
     let fail_reject = |cx: &ContextImpl| -> JSResult {
         let error = cx.rt_ptr().take_exception();
@@ -239,32 +214,6 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
     if let Some(n) = it.next_method.gc_node_ptr() {
         _lk.add(n);
     }
-
-    // let _deferred2 = {
-    //     let mut rt_ptr = ctx.rt_ptr();
-    //     let aa = arr.gc_ref();
-    //     let ee = resolve_element_env.as_object().unwrap().gc_ref();
-    //     let it_target = it.target.gc_ref();
-    //     let it_next = it.next_method.as_object().map(|o| o.gc_ref());
-
-    //     let heap = rt_ptr.gc_heap_mut();
-    //     heap.set_root(aa, true);
-    //     heap.set_root(ee, true);
-    //     heap.set_root(it_target, true);
-    //     if let Some(o) = it_next {
-    //         heap.set_root(o, true);
-    //     }
-
-    //     crate::defer_fn!({
-    //         let heap = rt_ptr.gc_heap_mut();
-    //         heap.set_root(aa, false);
-    //         heap.set_root(ee, false);
-    //         heap.set_root(it_target, false);
-    //         if let Some(o) = it_next {
-    //             heap.set_root(o, false);
-    //         }
-    //     })
-    // };
 
     let mut values: JSValue = arr.into();
     let mut index = 0;
@@ -341,11 +290,13 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
                 return fail_reject(ctx);
             }
 
-            let _lk = ctx.rt_ref().gc_heap().protect_nodes(&[
-                next_promise.gc_node_ptr().unwrap(),
-                resolve_element.gc_node_ptr().unwrap(),
-                reject_element.gc_node_ptr().unwrap(),
-            ]);
+            // next_promise, resolve_element, reject_element will be protected
+            // by StackFrame, no manual required.
+            // let _lk = ctx.rt_ref().gc_heap().protect_nodes(&[
+            //     next_promise.gc_node_ptr().unwrap(),
+            //     resolve_element.gc_node_ptr().unwrap(),
+            //     reject_element.gc_node_ptr().unwrap(),
+            // ]);
 
             if next_promise
                 .invoke(ctx, Atom::CONST_then, &[resolve_element, reject_element])

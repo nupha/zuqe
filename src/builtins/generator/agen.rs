@@ -374,6 +374,12 @@ impl AsyncGeneratorFunction {
             queue: Vec::with_capacity(2),
         });
 
+        // protect node async_state before .resume() execute bytecode.
+        let _ng = ctx
+            .rt_ref()
+            .gc_heap()
+            .protect_node(s.async_state.gc_node_ptr());
+
         // execute the function till 'OpCode::INITIAL_YIELD' (no yield nor await are possible)
         s.async_state.resume(&ctx)?;
 

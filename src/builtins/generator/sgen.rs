@@ -103,6 +103,12 @@ pub fn js_generator_function_call(
         async_state,
     });
 
+    // protect node async_state before .resume() execute bytecode.
+    let _ng = ctx
+        .rt_ref()
+        .gc_heap()
+        .protect_node(async_state.gc_node_ptr());
+
     // initial execute bytecodes till OpCode::INITIAL_YIELD instruction
     p.resume(&ctx)?;
 

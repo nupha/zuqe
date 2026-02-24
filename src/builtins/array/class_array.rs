@@ -378,10 +378,10 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
 
     // Note: `func.call()` statement may trigger gc collect inside,
     // we must protect allocated `ret` from being collected.
-    let mut _lk = if len > 0
-        && let Some(n) = ret.gc_node_ptr()
+    let mut _ng = if len > 0
+        && let Some(a) = ret.gc_node_ptr()
     {
-        Some(ctx.rt_ref().gc_heap().protect_node(n))
+        Some(ctx.rt_ref().gc_heap().protect_node(a))
     } else {
         None
     };
@@ -450,15 +450,8 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
             &[obj, JSValue::Int(n as i32)],
         )?;
 
-        // protect arr being gc collected.
-        if let Some(n) = arr.gc_node_ptr() {
-            if let Some(k) = &mut _lk {
-                k.add(n);
-            } else {
-                _lk.replace(ctx.rt_ref().gc_heap().protect_node(n));
-            }
-        }
-
+        // node `arr` will be used as `this_obj` when invoking method,
+        // so that StackFrame will protect arr (this_obj) from being gc collected.
         arr.invoke(ctx, Atom::CONST_set, std::slice::from_ref(&ret))?;
         ret = arr;
     }
