@@ -51,41 +51,10 @@ impl RuntimeImpl {
         self.gc_heap_mut().partition_mut(pid).unwrap()
     }
 
-    /// Get gc scope of current running state.
-    /// if current stack frame does not have gc scope and auto_init=true, then initialize and return.
-    /// if not curent stack frame, returns root scope.
-    pub(crate) fn gc_current_scope(&mut self, auto_init: bool) -> Option<GcPartitionId> {
-        if let Some(sf) = self.current_stack_frame_mut() {
-            if !sf.gc_scope_id.is_null() {
-                Some(sf.gc_scope_id)
-            } else if auto_init {
-                Some(sf.init_gc_scope())
-            } else {
-                None
-            }
-        } else {
-            Some(self.gc_top_scope)
-        }
-    }
-
-    /// get upper gc scope.
-    /// if parent stack frame does not have gc scope and auto_init=true, then initialize scopes.
-    /// if no current stack frame, returns root scope.
-    pub(crate) fn gc_upper_scope(&mut self, auto_init: bool) -> Option<GcPartitionId> {
-        if let Some(up) = self
-            .current_stack_frame_mut()
-            .and_then(|sf| sf.parent_mut())
-        {
-            if !up.gc_scope_id.is_null() {
-                Some(up.gc_scope_id)
-            } else if auto_init {
-                Some(up.init_gc_scope())
-            } else {
-                None
-            }
-        } else {
-            Some(self.gc_top_scope)
-        }
+    /// Get gc parition id
+    #[inline(always)]
+    pub(crate) const fn gc_part_id(&self) -> GcPartitionId {
+        self.gc_top_scope
     }
 
     /// alloc data in given gc scope
@@ -109,8 +78,7 @@ impl RuntimeImpl {
 
     #[inline]
     pub fn gc_alloc<T: GcNode>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
-        let pid = self.gc_current_scope(true).unwrap();
-        self.gc_alloc_in(pid, data)
+        self.gc_alloc_in(self.gc_part_id(), data)
     }
 
     /// collect garbage
@@ -126,7 +94,6 @@ impl RuntimeImpl {
 
         let mut gcx = self.gc_heap().create_trace_ctx();
         if let Some(sf) = self.current_stack_frame() {
-            debug_assert_eq!(sf.gc_scope_id, partition_id);
             sf.trace(&mut gcx);
         }
         if let Some(n) = self.cur_exception.gc_node_ptr() {
@@ -150,16 +117,9 @@ impl RuntimeImpl {
         let mut freed = 0;
         if self.gc_heap_mut().mark(partition_id, usize::MAX) {
             // mark cycle done, sweep whites
-            freed = self.gc_heap_mut().sweep(partition_id, {
-                #[cfg(debug_assertions)]
-                {
-                    |_, n| {
-                        log::debug!("[sweep][{partition_id:?}] purge {n:?}");
-                    }
-                }
-                #[cfg(not(debug_assertions))]
-                GcHeap::DUMMY_DISPOSE_CALLBACK
-            });
+            freed = self
+                .gc_heap_mut()
+                .sweep(partition_id, GcHeap::DUMMY_DISPOSE_CALLBACK);
         }
 
         // // 1. mark
@@ -220,9 +180,7 @@ impl RuntimeImpl {
 
     #[inline]
     pub(crate) fn gc_collect(&mut self) {
-        if let Some(p) = self.gc_current_scope(false) {
-            self.gc_collect_in(p);
-        }
+        self.gc_collect_in(self.gc_part_id());
     }
 
     #[inline(always)]

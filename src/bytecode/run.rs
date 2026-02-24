@@ -122,30 +122,6 @@ impl Bytecode {
 
         let mut rt = caller_ctx.rt_ptr();
 
-        // ensure captured variables are in ancestor scope of stack frame scope.
-        #[cfg(debug_assertions)]
-        if !captured_vars.is_empty() {
-            let sf_scope = stack_frame
-                .parent_iter(true)
-                .filter_map(|s| {
-                    if s.gc_scope_id.is_null() {
-                        None
-                    } else {
-                        Some(s.gc_scope_id)
-                    }
-                })
-                .next()
-                .unwrap_or(rt.gc_top_scope);
-
-            for cap in captured_vars.iter() {
-                debug_assert!(
-                    sf_scope.depth() >= cap.gc_node().scope_id().depth(),
-                    "[O.o] stack frame scope: {sf_scope:?}, captured scope: {:?}",
-                    cap.gc_node().scope_id()
-                );
-            }
-        }
-
         /// get value at stack position `idx`
         macro_rules! SP_VAL {
             (0) => {
@@ -2465,23 +2441,21 @@ impl Bytecode {
                 #[cfg(debug_assertions)]
                 {
                     // perform garbage collect after each opcode execution to strictly ensure gc is correct.
-                    stack_frame.gc_collect();
+                    rt.gc_collect();
                 }
                 #[cfg(not(debug_assertions))]
                 if rt.gc_req {
                     // perform garbage collect when needed
-                    stack_frame.gc_collect();
+                    rt.gc_collect();
                 }
             }; // opcodes loop
 
             match state {
                 State::Done(ret_val, is_generator) => {
                     // Note: `stack_frame` will be dropped after exit,
-                    // ret_val should be migrated to upper gc scope
-                    if let Some(n) = ret_val.gc_node_ptr()
-                        && unsafe { n.as_ref().xref().is_null() }
-                    {
-                        let upper_scope = rt.gc_upper_scope(true).unwrap();
+                    // promote ret_val to upper scope
+                    if let Some(n) = ret_val.gc_node_ptr() {
+                        let upper_scope = rt.gc_part_id();
                         rt.gc_heap_mut().set_xref(upper_scope, n);
                     }
 
@@ -2491,26 +2465,6 @@ impl Bytecode {
                         unsafe { sp.offset_from(sp_base) as usize },
                         is_generator,
                     );
-
-                    // Note: captured values be in ancestor scope of stack-frame's scope,
-                    // even the stack-frame is dropped, captured values still alive.
-                    #[cfg(debug_assertions)]
-                    if !captured_vars.is_empty() && !stack_frame.gc_scope_id.is_null() {
-                        for cap in captured_vars.iter() {
-                            if let Some(n) = cap.value().gc_node_ptr() {
-                                unsafe {
-                                    debug_assert!(
-                                        stack_frame.gc_scope_id.depth()
-                                            >= n.as_ref().scope_id().depth(),
-                                        "[O.o] stack frame scope: {:?}, closure value scope: {:?}, closure var ref scope: {:?}",
-                                        stack_frame.gc_scope_id,
-                                        n.as_ref().scope_id(),
-                                        cap.gc_node().scope_id()
-                                    );
-                                }
-                            }
-                        }
-                    }
 
                     return ret_val;
                 }

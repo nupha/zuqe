@@ -408,8 +408,8 @@ impl StringData {
                             escape_str(t)
                         }
                     }
-                    Self::AsciiStatic(t) => {
-                        let t = &t[range];
+                    Self::AsciiStatic(s) => {
+                        let t = &s[range];
                         if !escape {
                             Cow::Borrowed(t)
                         } else {

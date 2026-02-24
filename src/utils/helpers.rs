@@ -103,24 +103,32 @@ pub(crate) const fn hash_usize(id: usize) -> u32 {
 }
 
 #[macro_export]
-macro_rules! defer {
-    ($($code:tt)*) => {
-        let _deferred = {
+macro_rules! defer_fn {
+    ($($code:tt)+) => {
+        {
+            #[must_use]
             struct Deferred<F: FnOnce()> {
                 cleanup: Option<F>,
             }
             impl<F: FnOnce()> Drop for Deferred<F> {
                 fn drop(&mut self) {
-                    if let Some(cleanup) = self.cleanup.take() {
-                        cleanup();
+                    if let Some(f) = self.cleanup.take() {
+                        f();
                     }
                 }
             }
             Deferred {
-                cleanup: Some(|| {
-                    $($code)*
+                cleanup: Some(move || {
+                    $($code)+
                 }),
             }
-        };
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! defer {
+    ($($code:tt)*) => {
+        let _deferred = $crate::defer_fn!($($code)*);
     };
 }

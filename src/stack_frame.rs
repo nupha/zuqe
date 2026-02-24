@@ -83,9 +83,6 @@ pub struct StackFrame {
     /// Use stack_cur_ptr() to get raw pointer to this position
     pub(crate) cur_sp_offset: i32,
 
-    /// gc partitionid for stack frame scoped gc allocs
-    pub(crate) gc_scope_id: GcPartitionId,
-
     _mark: PhantomPinned,
 }
 
@@ -109,10 +106,10 @@ unsafe impl GcTracable for StackFrame {
         self.var_values().iter().for_each(|v| v.trace(tr));
         self.stack_values().iter().for_each(|v| v.trace(tr));
 
-        // // for byte function, trace captured variables
-        // if let Some(bf) = self.func_obj.as_BytecodeFunction().map(|bf| bf.payload()) {
-        //     bf.closure_var_refs().iter().for_each(|r| r.trace(tr));
-        // }
+        // trace upper stack frames
+        if let Some(up) = self.parent() {
+            up.trace(tr);
+        }
     }
 }
 
@@ -123,53 +120,10 @@ impl PartialEq for StackFrame {
     }
 }
 
+#[cfg(debug_assertions)]
 impl Drop for StackFrame {
     fn drop(&mut self) {
         log::trace!("[StackFrame::drop({self:p})]");
-
-        if !self.gc_scope_id.is_null() {
-            let mut rt = self.rt();
-
-            #[cfg(debug_assertions)]
-            {
-                debug_assert!(
-                    rt.gc_heap()
-                        .partition(self.gc_scope_id)
-                        .is_none_or(|p| p.children().is_empty()),
-                    "the closing scope should not have sub scope"
-                );
-            }
-
-            rt.gc_heap_mut().remove_partition(
-                self.gc_scope_id,
-                gc_lite::GcHeap::DUMMY_PROMOTE_CALLBACK,
-                gc_lite::GcHeap::DUMMY_DISPOSE_CALLBACK,
-            );
-
-            // GUARD
-            #[cfg(debug_assertions)]
-            {
-                debug_assert!(
-                    rt.gc_heap().partition(self.gc_scope_id).is_none(),
-                    "[O.o] scope must be removed"
-                );
-
-                // ensure no local shape weakref is alive after scope is closed.
-                let mut chk = rt
-                    .shape_registry
-                    .values()
-                    .flat_map(|lst| lst.iter().flat_map(|s| s.upgrade(&rt.gc_heap)));
-
-                let found = chk.find(|s| s.node_info().scope_id() == self.gc_scope_id);
-
-                debug_assert!(
-                    found.is_none(),
-                    "[O.o] shape weakref is still alive: scope={:?}, shape_node={:?}",
-                    self.gc_scope_id,
-                    found.map(|x| x.node_ptr()).map(|p| unsafe { p.as_ref() })
-                );
-            }
-        }
     }
 }
 
@@ -195,8 +149,6 @@ impl StackFrame {
             cur_pc_offset: 0,
             cur_sp_offset: 0,
 
-            gc_scope_id: GcPartitionId::NONE,
-
             _mark: PhantomPinned,
         }
     }
@@ -217,40 +169,6 @@ impl StackFrame {
     #[inline(always)]
     pub const fn parent_mut(&mut self) -> Option<&mut StackFrame> {
         unsafe { self.prev.cast::<StackFrame>().as_mut() }
-    }
-
-    /// get or init gc scope for stack frame.
-    pub(crate) fn init_gc_scope(&mut self) -> GcPartitionId {
-        if self.gc_scope_id.is_null() {
-            let mut rt = self.rt();
-
-            // Note: async stack-frame has gc scope directly under root scope
-
-            let parent = if !self.is_async
-                && let Some(up) = unsafe { self.prev.cast::<StackFrame>().as_mut() }
-            {
-                up.init_gc_scope()
-            } else {
-                rt.gc_top_scope
-            };
-            self.gc_scope_id = rt.gc_heap_mut().create_sub_partition(parent);
-
-            log::trace!(
-                "[StackFrame::init_gc_scope({self:p})]: {:?}, is_async={}",
-                self.gc_scope_id,
-                self.is_async
-            );
-        }
-
-        self.gc_scope_id
-    }
-
-    /// perform gc collect for stack frame scope
-    #[inline(always)]
-    pub(crate) fn gc_collect(&self) {
-        if !self.gc_scope_id.is_null() {
-            self.rt().gc_collect_in(self.gc_scope_id);
-        }
     }
 
     /// Returns the base pointer of the stack in this frame.

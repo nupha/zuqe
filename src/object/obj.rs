@@ -203,13 +203,20 @@ impl std::fmt::Display for ObjectImpl {
 
             write!(
                 f,
-                "[{name} {:?} shape={:?} proto={}]",
-                Object::from(self.gc_ref()),
+                "[{name} {:?} shape={:?}]",
+                self.gc_head(),
                 self.shape().map(|s| s.gc_head()),
-                self.shape()
-                    .and_then(|s| s.proto())
-                    .map_or("<null>".to_string(), |x| x.to_string())
             )
+
+            // write!(
+            //     f,
+            //     "[{name} {:?} shape={:?} proto={}]",
+            //     Object::from(self.gc_ref()),
+            //     self.shape().map(|s| s.gc_head()),
+            //     self.shape()
+            //         .and_then(|s| s.proto())
+            //         .map_or("<null>".to_string(), |x| x.to_string())
+            // )
         }
         #[cfg(not(debug_assertions))]
         {

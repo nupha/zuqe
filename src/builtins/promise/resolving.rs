@@ -3,7 +3,7 @@
 
 use std::{cell::Cell, rc::Rc};
 
-use gc_lite::{GcNode, GcPartitionId, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
 
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
@@ -277,6 +277,7 @@ impl Promise {
     ) -> Result<Object, i32> {
         let ctor = JS_SpeciesConstructor(ctx, (*self).into(), JSValue::UNDEFINED)?;
         let (promise2, rr) = Self::create_from_ctor(ctx, ctor)?;
+
         self.reaction(ctx, [success, fail], rr)?;
         Ok(promise2)
     }

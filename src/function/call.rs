@@ -186,24 +186,12 @@ impl Object {
         };
 
         #[cfg(debug_assertions)]
-        {
-            if let Ok(v) = ret_val.as_ref() {
-                if let Some(p) = v.gc_node().map(|n| n.scope_id()) {
-                    debug_assert!(!p.is_null());
-                    debug_assert!(
-                        ctx.rt_ref()
-                            .gc_heap()
-                            .check_partition_ancestor(ctx.rt_ref().gc_top_scope, p)
-                    );
-                }
-            } else if let Some(p) = ctx.rt_ref().exception().gc_node().map(|n| n.scope_id()) {
-                debug_assert!(!p.is_null());
-                debug_assert!(
-                    ctx.rt_ref()
-                        .gc_heap()
-                        .check_partition_ancestor(ctx.rt_ref().gc_top_scope, p)
-                );
+        if let Ok(v) = ret_val.as_ref() {
+            if let Some(n) = v.gc_node() {
+                n.debug_assert_node_valid(ctx.rt_ref().gc_heap());
             }
+        } else if let Some(n) = ctx.rt_ref().exception().gc_node() {
+            n.debug_assert_node_valid(ctx.rt_ref().gc_heap());
         }
 
         ret_val
@@ -363,9 +351,18 @@ pub(crate) fn JS_CallConstructorInternal(
                     } else {
                         return JSValue::EXCEPTION;
                     };
-                func_obj
+
+                // Note: func_obj.call_internal() may trigger gc collect inside,
+                // must keep `this` value alive until call_internal() return.
+                let this_node = this.gc_node_ptr().unwrap();
+                ctx.rt_ptr().gc_heap_mut().set_root_node(this_node, true);
+
+                let r = func_obj
                     .call_internal(ctx, this, new_target, args, flags)
-                    .map_or(JSValue::EXCEPTION, |v| if v.is_object() { v } else { this })
+                    .map_or(JSValue::EXCEPTION, |v| if v.is_object() { v } else { this });
+
+                ctx.rt_ptr().gc_heap_mut().set_root_node(this_node, false);
+                r
             }
         } else if let Some(cb) = ctx.rt_ptr().class_registry[o.class_id() as usize].call {
             cb(

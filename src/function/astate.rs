@@ -36,27 +36,6 @@ unsafe impl GcTracable for AsyncStateImpl {
     }
 }
 
-#[cfg(debug_assertions)]
-impl Drop for AsyncStateImpl {
-    fn drop(&mut self) {
-        // if gc scope for AsyncState's stack_frame has been closed, reset gc_scope_id field
-        // to "avoid scope must have no child" debug_assertion causes panic in StackFrame::drop().
-        if !self.stack_frame.gc_scope_id.is_null()
-            && self
-                .stack_frame
-                .rt()
-                .gc_heap()
-                .partition(self.stack_frame.gc_scope_id)
-                .is_none()
-        {
-            unsafe {
-                self.stack_frame.as_mut().get_unchecked_mut().gc_scope_id =
-                    gc_lite::GcPartitionId::NONE;
-            }
-        }
-    }
-}
-
 impl AsyncStateImpl {
     fn new(
         ctx: &ContextImpl,

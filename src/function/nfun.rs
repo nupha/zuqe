@@ -157,9 +157,7 @@ impl NFuncPayload {
 
         // Binding data could be updated inside callback,
         // promote scope of binding data
-        if let Some(data) = &self.data
-            && !xref_scope.is_null()
-        {
+        if let Some(data) = &self.data {
             debug_assert!(!data.is_empty());
             for v in data {
                 if let Some(n) = v.gc_node_ptr() {
@@ -170,6 +168,12 @@ impl NFuncPayload {
 
         // promote gc scope of return value
         if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr) {
+            #[cfg(debug_assertions)]
+            unsafe {
+                n.as_ref()
+                    .debug_assert_node_valid(self.realm.rt_ref().gc_heap());
+            }
+
             self.realm.rt_ptr().gc_heap_mut().set_xref(xref_scope, n);
         }
 
@@ -251,10 +255,7 @@ impl NativeFunction {
 
         // Note: return value could be allocated in `stack_frame` gc scope,
         // must promote return value and binding_data (if any) before stack_frame drop.
-        let xref_scope = stack_frame
-            .parent_mut()
-            .map_or(rt.gc_top_scope, |up| up.init_gc_scope());
-
+        let xref_scope = ctx.rt_ref().gc_part_id();
         nfunc
             .payload_mut()
             .call(this_obj, stack_frame.arg_values(), flags, xref_scope)
