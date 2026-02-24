@@ -327,8 +327,13 @@ impl ContextImpl {
             Ok(val)
         };
 
+        // protect result and promise from been gc collected
+        let mut _lk = self.rt_ref().gc_heap().protect_nodes(&[]);
+        if let Some(n) = promise.map(|p| p.gc_node_ptr()) {
+            _lk.add(n);
+        }
         if let Ok(Some(n)) = result.as_ref().map(|v| v.gc_node_ptr()) {
-            rt.gc_heap_mut().set_root_node(n, true);
+            _lk.add(n)
         }
 
         // tick to finish

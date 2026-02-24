@@ -267,7 +267,7 @@ impl Promise {
         Ok(())
     }
 
-    /// create new promise for `then()`, register reaction handlers to `self` promise.
+    /// create wrapper promise for `then()`, register reaction handlers to `self` promise.
     /// `resolve` and `reject` are callback functions.
     pub fn then(
         &mut self,
@@ -278,7 +278,10 @@ impl Promise {
         let ctor = JS_SpeciesConstructor(ctx, (*self).into(), JSValue::UNDEFINED)?;
         let (promise2, rr) = Self::create_from_ctor(ctx, ctor)?;
 
+        // Hint: self.reaction() don't call bytecode execution inside, it won't trigger gc collect,
+        // thus protect gc node `promise2` is not required.
         self.reaction(ctx, [success, fail], rr)?;
+
         Ok(promise2)
     }
 

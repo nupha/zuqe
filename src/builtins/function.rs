@@ -12,7 +12,6 @@ use crate::{
 
 fn js_function_call(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
-
     if cc.length() > 0 {
         cc.this().call(
             ctx,

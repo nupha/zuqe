@@ -279,68 +279,6 @@ fn js_array_with(cc: CallContext) -> JSResult {
         dst
     };
 
-    // let new_lst = if let Some(dst) = obj.with_fast_array_values(|src| {
-    //     // `this` is fast array: copy list
-    //     debug_assert_eq!(src.len(), len as usize);
-    //     src.iter().cloned().try_collect::<Vec<JSValue>>()
-    // }) {
-    //     let mut dst = dst.map_err(|_| {
-    //         ctx.throw_out_of_memory();
-    //         -1
-    //     })?;
-    //     // modified element
-    //     dst[idx as usize] = *cc.arg(1);
-    //     dst
-    // } else {
-    //     // slow path
-    //     let mut dst = Vec::<JSValue>::new();
-    //     dst.try_reserve_exact(len as usize).map_err(|_| {
-    //         ctx.throw_out_of_memory();
-    //         -1
-    //     })?;
-
-    //     for i in 0..idx {
-    //         match obj.try_get_property_i64(ctx, i) {
-    //             Ok(Some(v)) => {
-    //                 dst.push(v);
-    //             }
-    //             Ok(None) => {
-    //                 dst.push(JSValue::UNDEFINED);
-    //             }
-    //             Err(_) => {
-    //                 // fill rest with undefined
-    //                 for _ in i..len {
-    //                     dst.push(JSValue::UNDEFINED);
-    //                 }
-    //                 return Err(-1);
-    //             }
-    //         }
-    //     }
-
-    //     // the modified element
-    //     dst.push(*cc.arg(1));
-
-    //     // idx+1..end
-    //     for i in (idx + 1)..len {
-    //         match obj.try_get_property_i64(ctx, i) {
-    //             Ok(Some(v)) => {
-    //                 dst.push(v);
-    //             }
-    //             Ok(None) => {
-    //                 dst.push(JSValue::UNDEFINED);
-    //             }
-    //             Err(_) => {
-    //                 // fill rest with undefined
-    //                 for _ in i..len {
-    //                     dst.push(JSValue::UNDEFINED);
-    //                 }
-    //                 return Err(-1);
-    //             }
-    //         }
-    //     }
-    //     dst
-    // };
-
     debug_assert_eq!(new_lst.len(), len as usize);
 
     // make Array with values
@@ -424,34 +362,29 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
     };
     func.ensure_function(ctx)?;
 
-    let mut ret: JSValue;
-    match special {
-        s if s == special_every || s == special_every | special_TA => {
-            ret = JSValue::Bool(true);
-        }
-        s if s == special_some || s == special_some | special_TA => {
-            ret = JSValue::Bool(false);
-        }
-        special_map => {
-            ret = JS_ArraySpeciesCreate(cc.ctx_ptr(), obj, JSValue::from(len))?;
-        }
-        special_filter => {
-            ret = JS_ArraySpeciesCreate(cc.ctx_ptr(), obj, JSValue::Int(0))?;
-        }
-        s if s == special_map | special_TA => {
-            ret = js_typed_array___speciesCreate(
-                cc.ctx_ptr(),
-                JSValue::UNDEFINED,
-                &[obj, JSValue::from(len as i32)],
-            )?;
-        }
-        s if s == special_filter | special_TA => {
-            ret = ctx.create_array()?.into();
-        }
-        _ => {
-            ret = JSValue::UNDEFINED;
-        }
-    }
+    let mut ret: JSValue = match special {
+        s if s == special_every || s == special_every | special_TA => JSValue::Bool(true),
+        s if s == special_some || s == special_some | special_TA => JSValue::Bool(false),
+        special_map => JS_ArraySpeciesCreate(cc.ctx_ptr(), obj, JSValue::from(len))?,
+        special_filter => JS_ArraySpeciesCreate(cc.ctx_ptr(), obj, JSValue::Int(0))?,
+        s if s == special_map | special_TA => js_typed_array___speciesCreate(
+            cc.ctx_ptr(),
+            JSValue::UNDEFINED,
+            &[obj, JSValue::from(len as i32)],
+        )?,
+        s if s == special_filter | special_TA => ctx.create_array()?.into(),
+        _ => JSValue::UNDEFINED,
+    };
+
+    // Note: `func.call()` statement may trigger gc collect inside,
+    // we must protect allocated `ret` from being collected.
+    let mut _lk = if len > 0
+        && let Some(n) = ret.gc_node_ptr()
+    {
+        Some(ctx.rt_ref().gc_heap().protect_node(n))
+    } else {
+        None
+    };
 
     let mut n = 0;
     let mut present: bool;
@@ -476,6 +409,8 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
 
         if present {
             let index_val = JSValue::from(k);
+
+            // Note: func.call() may perform gc collect inside
             let res = func.call(ctx, this_arg, &[val, index_val, obj])?;
 
             match special {
@@ -514,6 +449,16 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
             JSValue::UNDEFINED,
             &[obj, JSValue::Int(n as i32)],
         )?;
+
+        // protect arr being gc collected.
+        if let Some(n) = arr.gc_node_ptr() {
+            if let Some(k) = &mut _lk {
+                k.add(n);
+            } else {
+                _lk.replace(ctx.rt_ref().gc_heap().protect_node(n));
+            }
+        }
+
         arr.invoke(ctx, Atom::CONST_set, std::slice::from_ref(&ret))?;
         ret = arr;
     }

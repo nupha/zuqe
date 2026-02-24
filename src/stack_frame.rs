@@ -49,6 +49,10 @@ pub struct StackFrame {
     /// - Native function object
     pub(crate) func_obj: Object,
 
+    /// extra values that should avoid been gc collected alone with this stack frame:
+    /// e.g. this_obj, new_target. allows max 2 values.
+    pub(crate) protected_values: [JSValue; 2],
+
     /// Execution mode
     pub(crate) mode: ExecMode,
     /// Stack frame for async?
@@ -89,6 +93,8 @@ pub struct StackFrame {
 unsafe impl GcTracable for StackFrame {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.func_obj.trace(tr);
+        self.protected_values[0].trace(tr);
+        self.protected_values[1].trace(tr);
 
         // trace args
         let cnt = std::cmp::max(self.arg_real_count, self.arg_count);
@@ -106,7 +112,7 @@ unsafe impl GcTracable for StackFrame {
         self.var_values().iter().for_each(|v| v.trace(tr));
         self.stack_values().iter().for_each(|v| v.trace(tr));
 
-        // trace upper stack frames
+        // trace parent stack frames
         if let Some(up) = self.parent() {
             up.trace(tr);
         }
@@ -128,13 +134,14 @@ impl Drop for StackFrame {
 }
 
 impl StackFrame {
-    pub(crate) fn new(func_obj: Object, mode: ExecMode) -> Self {
+    pub(crate) fn new(func_obj: Object, mode: ExecMode, protected_values: [JSValue; 2]) -> Self {
         Self {
             prev: std::ptr::null_mut(),
             rt: func_obj.rt(),
 
             func_obj,
             mode,
+            protected_values,
             is_async: false,
             async_state: GcWeak::default(),
 

@@ -446,7 +446,7 @@ impl BytecodeFunction {
         );
 
         let mut rt = caller_ctx.rt_ptr();
-        let mut stack_frame = StackFrame::new((*self).into(), js_mode);
+        let mut stack_frame = StackFrame::new((*self).into(), js_mode, [this_obj, new_target]);
 
         // ensure stack has minimal free space.
         if js_check_stack_overflow(&rt, 32) {

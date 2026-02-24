@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ops::{Deref, DerefMut};
+use std::{
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+};
 
-use gc_lite::GcNode;
+use gc_lite::{GcHead, GcNode};
 
 use crate::{
     Context,
@@ -150,8 +153,10 @@ pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
 impl Object {
-    /// `ctx` is the caller ctx.
-    /// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
+    /// # Arguments
+    /// * ctx is the caller ctx.
+    /// * argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
+    /// * protect_gc_nodes specifies gc nodes that should be protected from being collected within bytecode exeecution.
     pub(crate) fn call_internal(
         &self,
         ctx: &ContextImpl,
@@ -162,9 +167,8 @@ impl Object {
     ) -> JSResult {
         ctx.poll_interrupts()?;
 
-        let ret_val = if let Some(bf) = self.as_BytecodeFunction() {
-            let mut bfun = *bf;
-            bfun.execute(ctx, this_obj, new_target, args, flags)
+        let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
+            bf.execute(ctx, this_obj, new_target, args, flags)
         } else if let Some(cb) = unsafe {
             ctx.rt_ptr()
                 .class_registry
@@ -173,6 +177,9 @@ impl Object {
         } {
             // bound function, native function, async function etc,
             // check class defined exotic call handler
+
+            println!("[O.o] {self:?}");
+
             cb(
                 ContextPtr::from(ctx.gc_ref()).into(),
                 JSValue::Object(*self),
@@ -186,11 +193,9 @@ impl Object {
         };
 
         #[cfg(debug_assertions)]
-        if let Ok(v) = ret_val.as_ref() {
-            if let Some(n) = v.gc_node() {
-                n.debug_assert_node_valid(ctx.rt_ref().gc_heap());
-            }
-        } else if let Some(n) = ctx.rt_ref().exception().gc_node() {
+        if let Ok(v) = ret_val.as_ref()
+            && let Some(n) = v.gc_node()
+        {
             n.debug_assert_node_valid(ctx.rt_ref().gc_heap());
         }
 
@@ -282,7 +287,8 @@ impl JSValue {
     /// call function `self.method`
     #[inline(always)]
     pub fn invoke(&self, ctx: &ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {
-        self.get_property(ctx, method)?.call(ctx, *self, args)
+        self.get_property(ctx, method)
+            .and_then(|v| v.call(ctx, *self, args))
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.

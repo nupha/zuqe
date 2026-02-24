@@ -75,7 +75,12 @@ impl AsyncStateImpl {
         };
 
         // make a dedicated stack frame for async execution
-        let mut stack_frame = Box::pin(StackFrame::new(bc_func.into(), mode | ExecMode::ASYNC));
+        let mut stack_frame = Box::pin(StackFrame::new(
+            bc_func.into(),
+            mode | ExecMode::ASYNC,
+            [JSValue::UNDEFINED, JSValue::UNDEFINED],
+        ));
+
         unsafe {
             let sf = stack_frame.as_mut().get_unchecked_mut();
 

@@ -145,6 +145,8 @@ fn js_load_module_internal(
                         .unwrap(),
                     ];
 
+                    // Hint: `evaluate_promise.then()` don't call bytecode execution inside, won't trigger gc collection,
+                    // protect gc nodes is not required.
                     let _ = evaluate_promise.then(
                         &mut ctx,
                         evaluate_resolving_funcs[0].into(),

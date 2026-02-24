@@ -341,10 +341,12 @@ impl ModuleDef {
             "expect BytecodeFunction object"
         );
 
+        // execute module function in async manner.
         let md_func = self.bytecode;
-        // execute function in async manner.
         let mut promise = md_func.call_async(ctx, JSValue::UNDEFINED, &[], 0)?;
 
+        // Hint: `promise.then()` don't call bytecode execution inside, won't trigger gc collection,
+        // protect promise, success, fail nodes is not required.
         promise.then(
             ctx,
             NativeFunction::create(

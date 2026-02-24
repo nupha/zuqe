@@ -10,7 +10,6 @@ use crate::{
     atom::Atom,
     builtins::iterator::js_create_iterator_result,
     context::{Context, ContextImpl, ContextPtr},
-    defer,
     error::JSResult,
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
@@ -98,6 +97,8 @@ impl NFuncPayload {
         flags: i32,
         xref_scope: GcPartitionId,
     ) -> JSResult {
+        // current stack frame has been set for this call.
+
         let mut cc = CallContext::new(
             self.realm,
             this_value,
@@ -201,10 +202,12 @@ impl NativeFunction {
     ) -> JSResult {
         let mut rt = ctx.rt_ptr();
         let mut nfunc = Self::try_from(func).unwrap();
-        debug_assert_eq!(nfunc.class_id(), JS_CLASS_C_FUNCTION);
 
         #[cfg(debug_assertions)]
-        nfunc.gc_node().debug_assert_node_valid(rt.gc_heap_mut());
+        {
+            debug_assert_eq!(nfunc.class_id(), JS_CLASS_C_FUNCTION);
+            nfunc.gc_node().debug_assert_node_valid(rt.gc_heap_mut());
+        }
 
         let (realm, args_length) = {
             let p = nfunc.payload();
@@ -219,10 +222,15 @@ impl NativeFunction {
 
         // make a new stack frame to call native function.
         // push it as current_stack_from during running, and pop to restore previouse when calling exits.
-        let mut stack_frame = StackFrame::new(nfunc.into(), ExecMode::empty());
+        let mut stack_frame = StackFrame::new(
+            nfunc.into(),
+            ExecMode::empty(),
+            [this_obj, JSValue::UNDEFINED],
+        );
+
         rt.push_stack_frame(NonNull::from_ref(&stack_frame));
-        defer!({
-            ctx.rt_ptr().pop_stack_frame();
+        crate::defer!({
+            rt.pop_stack_frame();
         });
 
         if args.len() < args_length {
