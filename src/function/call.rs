@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
-};
+use std::ops::{Deref, DerefMut};
 
-use gc_lite::{GcHead, GcNode};
+use gc_lite::GcNode;
 
 use crate::{
     Context,
@@ -156,7 +153,6 @@ impl Object {
     /// # Arguments
     /// * ctx is the caller ctx.
     /// * argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
-    /// * protect_gc_nodes specifies gc nodes that should be protected from being collected within bytecode exeecution.
     pub(crate) fn call_internal(
         &self,
         ctx: &ContextImpl,
@@ -177,9 +173,6 @@ impl Object {
         } {
             // bound function, native function, async function etc,
             // check class defined exotic call handler
-
-            println!("[O.o] {self:?}");
-
             cb(
                 ContextPtr::from(ctx.gc_ref()).into(),
                 JSValue::Object(*self),
@@ -358,17 +351,11 @@ pub(crate) fn JS_CallConstructorInternal(
                         return JSValue::EXCEPTION;
                     };
 
-                // Note: func_obj.call_internal() may trigger gc collect inside,
-                // must keep `this` value alive until call_internal() return.
-                let this_node = this.gc_node_ptr().unwrap();
-                ctx.rt_ptr().gc_heap_mut().set_root_node(this_node, true);
+                // Note: manual protect `this` gc node is not required now, tracing `this` is now performed by StackFrame.
 
-                let r = func_obj
+                func_obj
                     .call_internal(ctx, this, new_target, args, flags)
-                    .map_or(JSValue::EXCEPTION, |v| if v.is_object() { v } else { this });
-
-                ctx.rt_ptr().gc_heap_mut().set_root_node(this_node, false);
-                r
+                    .map_or(JSValue::EXCEPTION, |v| if v.is_object() { v } else { this })
             }
         } else if let Some(cb) = ctx.rt_ptr().class_registry[o.class_id() as usize].call {
             cb(

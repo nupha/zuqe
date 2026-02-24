@@ -134,6 +134,7 @@ impl BFuncPayload {
         self.home_object
     }
 
+    #[inline(always)]
     pub(crate) const fn set_home_object(&mut self, obj: Option<Object>) {
         self.home_object = obj;
     }
@@ -533,13 +534,6 @@ impl BytecodeFunction {
                 heap.bind(self_node, n);
             }
         }
-
-        // #[cfg(debug_assertions)]
-        // if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
-        //     unsafe {
-        //         n.as_ref().debug_assert_node_valid(rt.gc_heap());
-        //     }
-        // }
 
         ret_val
     }

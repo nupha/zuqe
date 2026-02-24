@@ -3,7 +3,7 @@
 
 use std::ptr::NonNull;
 
-use gc_lite::{GcHead, GcRef};
+use gc_lite::{GcHead, GcNode};
 
 use crate::{
     JS_CLASS_MODULE_NS,
@@ -65,14 +65,14 @@ impl ObjectImpl {
         let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
             JSProperty::Normal(val) => [val.gc_node_ptr(), None],
             JSProperty::GetSet { getter, setter } => [
-                getter.map(|o| o.gc_ref().node_ptr()),
-                setter.map(|o| o.gc_ref().node_ptr()),
+                getter.map(|o| o.gc_node_ptr()),
+                setter.map(|o| o.gc_node_ptr()),
             ],
-            JSProperty::VarRef(vr) => [Some(vr.gc_ref().node_ptr()), None],
+            JSProperty::VarRef(vr) => [Some(vr.gc_node_ptr()), None],
             JSProperty::LazyInit {
                 init_type: LazyInit::ModuleNS(m),
                 ..
-            } => [Some(m.gc_ref().node_ptr()), None],
+            } => [Some(m.gc_node_ptr()), None],
             _ => [None, None],
         };
 
@@ -81,7 +81,7 @@ impl ObjectImpl {
         }
 
         if gc_node[0].is_some() || gc_node[1].is_some() {
-            let self_node = unsafe { GcRef::from_ref_unchecked(self).node_ptr() };
+            let self_node = self.gc_head_ptr();
             let mut rt = self.rt();
 
             for node in gc_node.into_iter().flatten() {
