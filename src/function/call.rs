@@ -164,6 +164,8 @@ impl Object {
         ctx.poll_interrupts()?;
 
         let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
+            // When calling bytecode function, a StackFrame is created for execution,
+            // gc nodes self, this_obj, new_target, args are protected by the StackFrame
             bf.execute(ctx, this_obj, new_target, args, flags)
         } else if let Some(cb) = unsafe {
             ctx.rt_ptr()
@@ -171,8 +173,20 @@ impl Object {
                 .get_unchecked(self.class_id() as usize)
                 .call
         } {
-            // bound function, native function, async function etc,
-            // check class defined exotic call handler
+            // use class defined exotic callback (e.g. bound function, native function, async function etc)
+            // no stack frame for calling callback,
+            // gc node self, this_obj, new_target, args should be protected manually
+            let mut _ng = ctx.rt_ref().gc_heap().protect_node(self.gc_node_ptr());
+            if let Some(n) = this_obj.gc_node_ptr() {
+                _ng.add(n);
+            }
+            if let Some(n) = new_target.gc_node_ptr() {
+                _ng.add(n);
+            }
+            for n in args.iter().flat_map(|v| v.gc_node_ptr()) {
+                _ng.add(n);
+            }
+
             cb(
                 ContextPtr::from(ctx.gc_ref()).into(),
                 JSValue::Object(*self),

@@ -28,10 +28,8 @@ impl Object {
         throw_ref_error: bool,
     ) -> JSResult {
         #[cfg(debug_assertions)]
-        {
-            self.gc_node()
-                .debug_assert_node_valid(ctx.rt_ref().gc_heap());
-        }
+        self.gc_node()
+            .debug_assert_node_valid(ctx.rt_ref().gc_heap());
 
         for mut cur_obj in self.shape_proto_iter(true) {
             'redo: loop {

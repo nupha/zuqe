@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::marker::PhantomData;
-
-use gc_lite::{GcNode, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcNodeGuard, GcTracable, GcTraceCtx};
 
 use crate::{
     atom::Atom,
     builtins::js_get_this,
     context::{ContextImpl, ContextPtr},
-    defer,
     error::JSResult,
     function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
@@ -159,13 +156,14 @@ impl ForInIterPayload {
     }
 }
 
-#[derive(Clone)]
 pub struct ObjectIter<'a> {
     pub(crate) target: Object,
     pub(crate) next_method: JSValue,
     pub(crate) ctx: ContextPtr,
     pub(crate) done: bool,
-    _mark: PhantomData<&'a ()>,
+
+    /// protect gc node target, next_method from being gc collected
+    _ng: GcNodeGuard<'a>,
 }
 
 impl<'a> Iterator for ObjectIter<'a> {
@@ -217,12 +215,23 @@ impl<'a> ObjectIter<'a> {
             JSValue::UNDEFINED
         };
 
+        let mut _ng = unsafe {
+            std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'a>>(
+                ctx.rt_ref()
+                    .gc_heap()
+                    .protect_nodes(&[target.gc_node_ptr()]),
+            )
+        };
+        if let Some(n) = next_method.gc_node_ptr() {
+            _ng.add(n);
+        }
+
         Ok(Self {
             target,
             done: next_method.is_undefined(),
             next_method,
             ctx: ContextPtr::from(ctx.gc_ref()),
-            _mark: PhantomData,
+            _ng,
         })
     }
 
@@ -306,9 +315,8 @@ impl<'a> ObjectIter<'a> {
         if let Some(n) = pending_exc.gc_node_ptr() {
             ctx.rt_ptr().gc_heap_mut().set_root_node(n, true);
         }
-
         // restore pending exception
-        defer!({
+        crate::defer!({
             if has_exception {
                 rt.set_exception(pending_exc);
             }

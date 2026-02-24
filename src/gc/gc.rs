@@ -118,50 +118,6 @@ impl RuntimeImpl {
                 .sweep(partition_id, GcHeap::DUMMY_DISPOSE_CALLBACK);
         }
 
-        // // 1. mark
-        // {
-        //     for mut n in self.gc_heap_mut().nodes(partition_id) {
-        //         unsafe { n.as_mut().reset_color() }
-        //     }
-
-        //     // 1. scope root nodes (Hint: for root scope, Contexts are root nodes)
-        //     gcx.trace_roots(partition_id);
-        //     // 2. stack frame
-        //     if let Some(sf) = self.current_stack_frame() {
-        //         debug_assert_eq!(sf.gc_scope_id, partition_id);
-        //         sf.trace(&mut gcx);
-        //     }
-        //     // 3. exception
-        //     if let Some(n) = self.cur_exception.gc_node_ptr() {
-        //         gcx.trace(n);
-        //     }
-
-        //     // user defined mark
-        //     if let Some(f) = self.gc_user_trace.as_ref() {
-        //         f(&mut gcx);
-        //     }
-        //     // mark currently running job
-        //     if let Some(f) = self.gc_cur_job_trace.as_ref() {
-        //         f(&mut gcx);
-        //     }
-
-        //     gcx.commit();
-        // }
-
-        // // 2. sweep
-        // let freed = self
-        //     .gc_heap_mut()
-        //     .sweep(partition_id, GcHeap::SWEEP_UNMARKED_FUNC, {
-        //         #[cfg(debug_assertions)]
-        //         {
-        //             |_, n| {
-        //                 log::debug!("[sweep][{partition_id:?}] purge {n:?}");
-        //             }
-        //         }
-        //         #[cfg(not(debug_assertions))]
-        //         GcHeap::DUMMY_DISPOSE_CALLBACK
-        //     });
-
         if freed != 0 {
             // update gc threshold
             let used = self.gc_top_scope().memory_used();
