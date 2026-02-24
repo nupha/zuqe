@@ -83,7 +83,7 @@ impl ContextImpl {
     /// put `obj` to current_exception.
     #[inline(never)]
     #[cold]
-    pub fn throw(&self, obj: JSValue) {
+    pub(crate) fn throw(&self, obj: JSValue) {
         self.rt_ptr().set_exception(obj);
     }
 
@@ -123,7 +123,7 @@ impl ContextImpl {
         let rt = self.rt_ref();
 
         // add backtrace if called from a bytecode function
-        let add_backtrace = !rt.in_out_of_memory
+        let add_backtrace = !rt.out_of_memory
             && rt
                 .current_stack_frame()
                 .is_none_or(|sf| sf.func_obj.as_BCWrapper().is_some());
@@ -212,10 +212,10 @@ impl ContextImpl {
     #[cold]
     pub fn throw_out_of_memory(&self) {
         let mut rt = self.rt_ptr();
-        if !rt.in_out_of_memory {
-            rt.in_out_of_memory = true;
+        if !rt.out_of_memory {
+            rt.out_of_memory = true;
             self.throw_internal_error("out of memory");
-            rt.in_out_of_memory = false;
+            rt.out_of_memory = false;
         }
     }
 

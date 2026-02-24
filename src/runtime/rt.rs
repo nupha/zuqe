@@ -57,9 +57,9 @@ pub struct RuntimeImpl {
     stack_depth: i32,
 
     /// current exception value
-    pub(crate) cur_exception: JSValue,
-    /* true if inside an out of memory error, to avoid recursing */
-    pub(crate) in_out_of_memory: bool,
+    cur_exception: JSValue,
+    /// indicating out of memory error, to avoid recursing
+    pub(crate) out_of_memory: bool,
 
     /// pre-compiled regexp in parsing state.
     #[cfg(feature = "builtin_regexp")]
@@ -149,12 +149,10 @@ impl RuntimeImpl {
             stack_limit: 0,
 
             cur_exception: JSValue::NULL,
+            out_of_memory: false,
 
             #[cfg(feature = "builtin_regexp")]
             regexp_precompiled: Vec::new(),
-
-            in_out_of_memory: false,
-            interrupt_handler: None,
 
             module_normalize_func: None,
             module_load_func: None,
@@ -167,6 +165,7 @@ impl RuntimeImpl {
             gc_req: false,
 
             stop_flag: None,
+            interrupt_handler: None,
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,
@@ -267,22 +266,27 @@ impl RuntimeImpl {
         self.cur_exception
     }
 
-    /// get current exception value, then reset current_exception to null.
-    pub const fn take_exception(&mut self) -> JSValue {
-        std::mem::replace(&mut self.cur_exception, JSValue::NULL)
-    }
-
-    /// set new obj to current_exception, returns the old exception value.
-    /// Note: returned value should be freed by caller
+    /// put new obj to cur_exception. Returns old exception value
     #[cold]
-    pub(crate) fn set_exception(&mut self, obj: JSValue) {
+    pub(crate) fn set_exception(&mut self, obj: JSValue) -> JSValue {
+        // prohibit obj from being gc collect
         if let Some(n) = obj.gc_node_ptr() {
-            // promote obj to top scope
-            let top = self.gc_top_scope;
-            self.gc_heap_mut().set_xref(top, n);
+            self.gc_heap_mut().set_root_node(n, true);
         }
 
-        self.cur_exception = obj;
+        let old_exc = std::mem::replace(&mut self.cur_exception, obj);
+
+        // let old exception be gc collectable
+        if let Some(n) = old_exc.gc_node_ptr() {
+            self.gc_heap_mut().set_root_node(n, false);
+        }
+
+        old_exc
+    }
+
+    /// Take current exception, reset cur_exception to null.
+    pub fn take_exception(&mut self) -> JSValue {
+        self.set_exception(JSValue::NULL)
     }
 
     /// get stack frame for current running function

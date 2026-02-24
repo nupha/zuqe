@@ -86,18 +86,15 @@ impl RuntimeImpl {
         log::trace!("[collect] {partition_id:?}");
 
         // Tracing
-        // * root nodes (Hint: for top-level scope, Contexts are root nodes)
+        // * root nodes (Hint: Exception, Contexts are root nodes)
         // * stack frame
-        // * exception
+        // * user defined
 
         self.gc_heap_mut().mark(partition_id, 0);
 
         let mut gcx = self.gc_heap().create_trace_ctx();
         if let Some(sf) = self.current_stack_frame() {
             sf.trace(&mut gcx);
-        }
-        if let Some(n) = self.cur_exception.gc_node_ptr() {
-            self.gc_heap().trace_node(n, &mut gcx);
         }
         // user defined mark
         if let Some(f) = self.gc_user_trace.as_ref() {
@@ -107,7 +104,6 @@ impl RuntimeImpl {
         if let Some(f) = self.gc_cur_job_trace.as_ref() {
             f(&mut gcx);
         }
-
         for n in gcx.take_traced_nodes() {
             if unsafe { n.as_ref().scope_id() } == partition_id {
                 self.gc_heap_mut().add_gray_node(n);

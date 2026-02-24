@@ -240,30 +240,26 @@ impl Promise {
     /// get Promise payload
     #[inline(always)]
     pub fn payload(&self) -> &PromiseData {
-        if let Some(p) = self.0.payload().promise() {
-            p
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!();
-            #[cfg(not(debug_assertions))]
-            unsafe {
-                std::hint::unreachable_unchecked();
-            }
+        #[cfg(debug_assertions)]
+        {
+            self.0.payload().promise().unwrap()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            self.0.payload().promise().unwrap_unchecked()
         }
     }
 
     /// get Promise payload
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut PromiseData {
-        if let Some(p) = self.0.payload_mut().promise_mut() {
-            p
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!();
-            #[cfg(not(debug_assertions))]
-            unsafe {
-                std::hint::unreachable_unchecked();
-            }
+        #[cfg(debug_assertions)]
+        {
+            self.0.payload_mut().promise_mut().unwrap()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            self.0.payload_mut().promise_mut().unwrap_unchecked()
         }
     }
 
