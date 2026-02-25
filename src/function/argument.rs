@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::GcNode;
-
 use crate::{
     JS_CLASS_OBJECT,
     atom::Atom,
@@ -128,8 +126,7 @@ pub fn js_build_mapped_arguments(
     Ok(obj)
 }
 
-// XXX: should use ValueArray
-pub fn build_arg_list(ctx: &ContextImpl, array_arg: JSValue) -> Result<Box<[JSValue]>, i32> {
+pub(crate) fn build_arg_list(ctx: &ContextImpl, array_arg: JSValue) -> Result<Box<[JSValue]>, i32> {
     let Some(array_arg) = array_arg.as_object().copied() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -151,30 +148,15 @@ pub fn build_arg_list(ctx: &ContextImpl, array_arg: JSValue) -> Result<Box<[JSVa
         && let Some(arr_data) = array_arg.payload().array()
     {
         // fast array
-        debug_assert_eq!(arr_data.len(), length as usize);
-        lst.extend(arr_data.values().iter().copied());
+        if arr_data.len() == length as usize {
+            lst.extend(arr_data.values().iter().copied());
+        }
     } else {
         // slow path
         for i in 0..length {
             lst.push(array_arg.get_property_u32(ctx, i)?);
         }
     }
-
-    // LEGACY
-    // if array_arg
-    //     .with_fast_array_values(|a| {
-    //         if a.len() == len as usize {
-    //             // fast array: clone values
-    //             tab.extend(a.iter().cloned());
-    //         }
-    //     })
-    //     .is_none()
-    // {
-    //     // slow array
-    //     for i in 0..len {
-    //         tab.push(array_arg.get_property_u32(ctx, i)?);
-    //     }
-    // }
 
     Ok(lst.into_boxed_slice())
 }
