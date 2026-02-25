@@ -7,8 +7,8 @@ mod get;
 mod lazy;
 mod name;
 mod own;
-mod property;
+mod prop;
 mod set;
 mod slot;
 
-pub use {lazy::*, name::*, property::*};
+pub use {lazy::*, name::*, prop::*};

@@ -23,11 +23,12 @@ use std::ffi::c_void;
 
 /// get stack top level addr
 #[inline(always)]
-pub const fn js_get_stack_pointer() -> *const c_void {
+pub fn js_get_stack_pointer() -> usize {
     // get_frame_address(0).unwrap()
 
-    let _d = 0_usize;
-    &_d as *const usize as *const c_void
+    let d = 0;
+    let p = &d as *const i32;
+    p as usize
 }
 
 //

@@ -383,7 +383,7 @@ impl RuntimeImpl {
 }
 
 pub(crate) fn js_check_stack_overflow(rt: &RuntimeImpl, alloca_size: usize) -> bool {
-    let sp = js_get_stack_pointer() as usize - alloca_size;
+    let sp = js_get_stack_pointer() - alloca_size;
     if rt.stack_limit > 0 {
         sp < rt.stack_limit
     } else {
@@ -392,6 +392,6 @@ pub(crate) fn js_check_stack_overflow(rt: &RuntimeImpl, alloca_size: usize) -> b
 }
 
 fn JS_UpdateStackTop(rt: &mut RuntimeImpl) {
-    rt.stack_top = js_get_stack_pointer() as usize;
+    rt.stack_top = js_get_stack_pointer();
     rt.update_stack_limit();
 }

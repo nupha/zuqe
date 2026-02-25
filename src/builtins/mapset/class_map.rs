@@ -9,7 +9,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_CONFIGURABLE, Object, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 
