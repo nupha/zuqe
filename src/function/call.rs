@@ -150,6 +150,8 @@ pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
 impl Object {
+    /// The lowest place to dispatch a function call - either bytecode or native execution.
+    ///
     /// # Arguments
     /// * ctx is the caller ctx.
     /// * argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
@@ -162,6 +164,9 @@ impl Object {
         flags: i32,
     ) -> JSResult {
         ctx.poll_interrupts()?;
+
+        // Note: to protect gc nodes allocated during calling from being gc collected.
+        ctx.rt_ptr().gc_heap_mut().open_alloc_trans();
 
         let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
             // When calling bytecode function, a StackFrame is created for execution,
@@ -205,6 +210,9 @@ impl Object {
         {
             n.debug_assert_node_valid(ctx.rt_ref().gc_heap());
         }
+
+        // protection ends at end of calling.
+        ctx.rt_ptr().gc_heap_mut().close_alloc_trans();
 
         ret_val
     }
