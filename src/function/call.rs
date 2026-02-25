@@ -11,6 +11,7 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     error::JSResult,
     object::{Object, ObjectPayload},
+    utils::unlikely,
     value::JSValue,
 };
 
@@ -145,17 +146,19 @@ pub enum IteratorState {
     NotParsed,
 }
 
-pub const JS_CALL_FLAG_CONSTRUCTOR: i32 = 1 << 0;
-pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
-pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
+pub(crate) const JS_CALL_FLAG_CONSTRUCTOR: i32 = 1 << 0;
+pub(crate) const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
+pub(crate) const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
 impl Object {
-    /// The lowest place to dispatch a function call - either bytecode or native execution.
+    /// The unified place to dispatch a function call:
+    /// either bytecode or native execution, either normal or constructor call.
     ///
     /// # Arguments
     /// * ctx is the caller ctx.
     /// * argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
-    pub(crate) fn call_internal(
+    /// * flags & JS_CALL_FLAG_CONSTRUCTOR !=0 indicates a constructor call
+    fn call_internal(
         &self,
         ctx: &ContextImpl,
         this_obj: JSValue,
@@ -165,32 +168,70 @@ impl Object {
     ) -> JSResult {
         ctx.poll_interrupts()?;
 
+        let is_ctor = flags & JS_CALL_FLAG_CONSTRUCTOR != 0;
+        if unlikely(is_ctor && !self.flags().is_constructor()) {
+            ctx.throw_type_error("not a constructor");
+            return Err(-1);
+        }
+
+        let mut rt = ctx.rt_ptr();
+
         // Note: to protect gc nodes allocated during calling from being gc collected.
-        ctx.rt_ptr().gc_heap_mut().open_alloc_guard();
+        // protection ends at end of calling.
+        rt.gc_heap_mut().open_alloc_guard();
+        crate::defer!({
+            rt.gc_heap_mut().close_alloc_guard();
+        });
 
         let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
             // When calling bytecode function, a StackFrame is created for execution,
             // gc nodes self, this_obj, new_target, args are protected by the StackFrame
-            bf.execute(ctx, this_obj, new_target, args, flags)
+            if is_ctor && !bf.payload().bytecode().attrs.is_derived_class_constructor {
+                // legacy constructor behavior
+                let this: JSValue = ctx
+                    .create_object_from_ctor(new_target, ObjectPayload::OBJECT)
+                    .map_err(|_| {
+                        ctx.throw_type_error("constructor must return an object");
+                        -1
+                    })?
+                    .into();
+
+                bf.execute(ctx, this, new_target, args, flags)
+                    .map(|v| if v.is_object() { v } else { this })
+            } else {
+                bf.execute(ctx, this_obj, new_target, args, flags)
+            }
         } else if let Some(cb) = unsafe {
-            ctx.rt_ptr()
-                .class_registry
+            rt.class_registry
                 .get_unchecked(self.class_id() as usize)
                 .call
         } {
             // Note: calling class defined exotic callback (e.g. bound function, native function, async function etc)
             // do not have stack frame,
-            // gc node self, this_obj, new_target, args should be protected manually - full guard.
-            let mut _fg = ctx.rt_ref().gc_heap().protect_node(self.gc_node_ptr());
-            if let Some(n) = this_obj.gc_node_ptr() {
-                _fg.add(n);
-            }
-            if let Some(n) = new_target.gc_node_ptr() {
-                _fg.add(n);
-            }
-            for n in args.iter().flat_map(|v| v.gc_node_ptr()) {
-                _fg.add(n);
-            }
+            // gc node self, this_obj, new_target, args should be protected manually
+            rt.gc_heap_mut().with_current_alloc_guard(|g| {
+                g.add(self.gc_node_ptr());
+                if let Some(n) = this_obj.gc_node_ptr() {
+                    g.add(n);
+                }
+                if let Some(n) = new_target.gc_node_ptr() {
+                    g.add(n);
+                }
+                for n in args.iter().flat_map(|v| v.gc_node_ptr()) {
+                    g.add(n);
+                }
+            });
+
+            // let mut _fg = rt.gc_heap().protect_node(self.gc_node_ptr());
+            // if let Some(n) = this_obj.gc_node_ptr() {
+            //     _fg.add(n);
+            // }
+            // if let Some(n) = new_target.gc_node_ptr() {
+            //     _fg.add(n);
+            // }
+            // for n in args.iter().flat_map(|v| v.gc_node_ptr()) {
+            //     _fg.add(n);
+            // }
 
             cb(
                 ContextPtr::from(ctx.gc_ref()).into(),
@@ -200,7 +241,7 @@ impl Object {
                 flags,
             )
         } else {
-            ctx.throw_type_error("not callable");
+            ctx.throw_type_error("not a function");
             Err(-1)
         };
 
@@ -208,16 +249,12 @@ impl Object {
         if let Ok(v) = ret_val.as_ref()
             && let Some(n) = v.gc_node()
         {
-            n.debug_assert_node_valid(ctx.rt_ref().gc_heap());
+            n.debug_assert_node_valid(rt.gc_heap());
         }
-
-        // protection ends at end of calling.
-        ctx.rt_ptr().gc_heap_mut().close_alloc_guard();
 
         ret_val
     }
 
-    /// call object
     #[inline(always)]
     pub fn call(&self, ctx: &ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
         self.call_internal(
@@ -227,6 +264,27 @@ impl Object {
             args,
             JS_CALL_FLAG_COPY_ARGV,
         )
+    }
+
+    #[inline(always)]
+    pub fn call_ctor_target(
+        &self,
+        ctx: &ContextImpl,
+        new_target: JSValue,
+        args: &[JSValue],
+    ) -> JSResult {
+        self.call_internal(
+            ctx,
+            JSValue::UNDEFINED,
+            new_target,
+            args,
+            JS_CALL_FLAG_COPY_ARGV | JS_CALL_FLAG_CONSTRUCTOR,
+        )
+    }
+
+    #[inline(always)]
+    pub fn call_ctor(&self, ctx: &ContextImpl, args: &[JSValue]) -> JSResult {
+        self.call_ctor_target(ctx, JSValue::Object(*self), args)
     }
 
     /// call function `self.method`
@@ -283,7 +341,7 @@ impl JSValue {
         if let Some(o) = self.as_object() {
             o.call_internal(ctx, this_obj, new_target, args, flags)
         } else {
-            ctx.throw_type_error("not callable");
+            ctx.throw_type_error("not a function");
             Err(-1)
         }
     }
@@ -297,6 +355,27 @@ impl JSValue {
             args,
             JS_CALL_FLAG_COPY_ARGV,
         )
+    }
+
+    #[inline(always)]
+    pub fn call_ctor_target(
+        &self,
+        ctx: &ContextImpl,
+        new_target: JSValue,
+        args: &[JSValue],
+    ) -> JSResult {
+        self.call_internal(
+            ctx,
+            JSValue::UNDEFINED,
+            new_target,
+            args,
+            JS_CALL_FLAG_COPY_ARGV | JS_CALL_FLAG_CONSTRUCTOR,
+        )
+    }
+
+    #[inline(always)]
+    pub fn call_ctor(&self, ctx: &ContextImpl, args: &[JSValue]) -> JSResult {
+        self.call_ctor_target(ctx, *self, args)
     }
 
     /// call function `self.method`
@@ -340,79 +419,6 @@ impl JSValue {
     }
 }
 
-pub(crate) fn JS_CallConstructorInternal(
-    ctx: &ContextImpl,
-    func_obj: JSValue,
-    new_target: JSValue,
-    args: &[JSValue],
-    mut flags: i32,
-) -> JSValue {
-    if ctx.poll_interrupts().is_err() {
-        return JSValue::EXCEPTION;
-    }
-
-    if let JSValue::Object(o) = func_obj {
-        if !o.flags().is_constructor() {
-            ctx.throw_type_error("not a constructor");
-            return JSValue::EXCEPTION;
-        }
-
-        flags |= JS_CALL_FLAG_CONSTRUCTOR;
-
-        if let Some(bf) = o.as_BytecodeFunction() {
-            if bf.payload().bytecode().attrs.is_derived_class_constructor {
-                func_obj
-                    .call_internal(ctx, JSValue::UNDEFINED, new_target, args, flags)
-                    .unwrap_or(JSValue::EXCEPTION)
-            } else {
-                // legacy constructor behavior
-                let this: JSValue =
-                    if let Ok(o) = ctx.create_object_from_ctor(new_target, ObjectPayload::OBJECT) {
-                        o.into()
-                    } else {
-                        return JSValue::EXCEPTION;
-                    };
-
-                // Note: manual protect `this` gc node is not required now, tracing `this` is now performed by StackFrame.
-
-                func_obj
-                    .call_internal(ctx, this, new_target, args, flags)
-                    .map_or(JSValue::EXCEPTION, |v| if v.is_object() { v } else { this })
-            }
-        } else if let Some(cb) = ctx.rt_ptr().class_registry[o.class_id() as usize].call {
-            cb(
-                ContextPtr::from(ctx.gc_ref()).into(),
-                func_obj,
-                new_target,
-                args,
-                flags,
-            )
-            .unwrap_or(JSValue::EXCEPTION)
-        } else {
-            ctx.throw_type_error("not a function");
-            JSValue::EXCEPTION
-        }
-    } else {
-        ctx.throw_type_error("not a function");
-        JSValue::EXCEPTION
-    }
-}
-
-#[inline(always)]
-pub(crate) fn JS_CallConstructor2(
-    ctx: &ContextImpl,
-    func_obj: JSValue,
-    new_target: JSValue,
-    args: &[JSValue],
-) -> JSValue {
-    JS_CallConstructorInternal(ctx, func_obj, new_target, args, JS_CALL_FLAG_COPY_ARGV)
-}
-
-#[inline(always)]
-pub fn JS_CallConstructor(ctx: &ContextImpl, func_obj: JSValue, args: &[JSValue]) -> JSValue {
-    JS_CallConstructorInternal(ctx, func_obj, func_obj, args, JS_CALL_FLAG_COPY_ARGV)
-}
-
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
 pub(crate) fn js_function_apply(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
@@ -430,7 +436,13 @@ pub(crate) fn js_function_apply(cc: CallContext) -> JSResult {
         let arg_list = build_arg_list(ctx, array_arg)?;
         if cc.magic() & 1 != 0 {
             // magic: 1 constructor apply
-            JS_CallConstructor2(ctx, this_val, this_arg, arg_list.as_ref()).err()
+            this_val.call_internal(
+                ctx,
+                JSValue::UNDEFINED,
+                this_arg,
+                &arg_list,
+                JS_CALL_FLAG_COPY_ARGV | JS_CALL_FLAG_CONSTRUCTOR,
+            )
         } else {
             // magic: 0/2 normal or Reflect.apply
             this_val.call(ctx, this_arg, arg_list.as_ref())

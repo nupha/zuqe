@@ -34,7 +34,7 @@ use crate::{
     },
     eval::{EvalFlags, EvalType},
     function::{
-        Bytecode, CallContext, FunctionKind, JS_CallConstructorInternal, VarRef, build_arg_list,
+        Bytecode, CallContext, FunctionKind, JS_CALL_FLAG_CONSTRUCTOR, VarRef, build_arg_list,
         js_build_arguments, js_build_mapped_arguments, js_function_apply,
     },
     module::{js_dynamic_import, js_import_meta},
@@ -725,16 +725,15 @@ impl Bytecode {
                         stack_frame.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
                         let func = unsafe { *call_argv.offset(-2) };
-                        let ret_val = JS_CallConstructorInternal(
+                        let ret_val = func.call_internal(
                             &realm,
-                            func,
+                            JSValue::UNDEFINED,
                             unsafe { *call_argv.offset(-1) },
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
-                            0,
+                            JS_CALL_FLAG_CONSTRUCTOR,
                         );
-                        if unlikely(ret_val.is_exception()) {
-                            break State::Exception;
-                        } else {
+
+                        if let Ok(val) = ret_val {
                             // clear stack values: no need so
                             // for i in -2..call_argc {
                             //     unsafe {
@@ -742,9 +741,32 @@ impl Bytecode {
                             //     }
                             // }
                             SP_GO!(-(call_argc + 2));
-                            SP_PUT!(0, ret_val);
+                            SP_PUT!(0, val);
                             SP_GO!(1);
+                        } else {
+                            break State::Exception;
                         }
+
+                        // let ret_val = JS_CallConstructorInternal(
+                        //     &realm,
+                        //     func,
+                        //     unsafe { *call_argv.offset(-1) },
+                        //     unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
+                        //     0,
+                        // );
+                        // if unlikely(ret_val.is_err()) {
+                        //     break State::Exception;
+                        // } else {
+                        //     // clear stack values: no need so
+                        //     // for i in -2..call_argc {
+                        //     //     unsafe {
+                        //     //         *call_argv.offset(i as isize) = JSValue::UNDEFINED;
+                        //     //     }
+                        //     // }
+                        //     SP_GO!(-(call_argc + 2));
+                        //     SP_PUT!(0, ret_val);
+                        //     SP_GO!(1);
+                        // }
                     }
                     OpCode::CALL_METHOD | OpCode::TAIL_CALL_METHOD => {
                         // [this_obj, func, arg1, ..., argN, ^] -> [ret_val, ^]

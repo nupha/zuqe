@@ -6,7 +6,7 @@ use crate::{
     builtins::js_get_this,
     class::ClassID,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
-    function::{CallContext, FieldDef, JS_CallConstructor},
+    function::{CallContext, FieldDef},
     object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     utils::unlikely,
     value::JSValue,
@@ -79,7 +79,7 @@ fn js_array_buffer_slice(cc: CallContext) -> JSResult {
         )
         .map(|x| x.into())
     } else {
-        JS_CallConstructor(ctx, ctor, &[JSValue::from(new_len)]).err()
+        ctor.call_ctor(ctx, &[JSValue::from(new_len)])
     }?;
 
     let new_abuf = new_obj

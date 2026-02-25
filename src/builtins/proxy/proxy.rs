@@ -11,7 +11,7 @@ use crate::{
     class::{ClassExoticMethods, ClassID},
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
-    function::{Callback, JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2},
+    function::{Callback, JS_CALL_FLAG_CONSTRUCTOR},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
@@ -340,22 +340,22 @@ fn js_proxy_call_constructor(
     new_target: JSValue,
     args: &[JSValue],
 ) -> JSResult {
-    let s = func_obj.payload();
-    if !s.target.is_constructor() {
+    let px = func_obj.payload();
+    if !px.target.is_constructor() {
         ctx.throw_type_error("not a constructor");
         return Err(-1);
     }
 
-    let method = s.get_proxy_method(&ctx, Atom::CONST_construct)?;
+    let method = px.get_proxy_method(&ctx, Atom::CONST_construct)?;
     if method.is_undefined() {
-        return JS_CallConstructor2(&ctx, s.target.into(), new_target, args).err();
+        return px.target.call_ctor_target(&ctx, new_target, args);
     }
 
     let arg_array = ctx.create_array_from_slice(args)?;
     let ret = method.call(
         &ctx,
-        s.handler,
-        &[s.target.into(), arg_array.into(), new_target],
+        px.handler,
+        &[px.target.into(), arg_array.into(), new_target],
     )?;
 
     if !ret.is_object() {

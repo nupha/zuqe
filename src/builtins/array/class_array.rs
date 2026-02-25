@@ -18,7 +18,7 @@ use crate::{
     bytecode::arithmatic::StrictEqMode,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
-    function::{CallContext, FieldDef, JS_CallConstructor},
+    function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, Object, ObjectPayload},
     runtime::js_check_stack_overflow,
@@ -129,7 +129,7 @@ fn JS_ArraySpeciesCreate(ctx: ContextPtr, obj: JSValue, len_val: JSValue) -> JSR
             std::slice::from_ref(&len_val),
         ))
     } else {
-        JS_CallConstructor(&ctx, ctor, std::slice::from_ref(&len_val)).err()
+        ctor.call_ctor(&ctx, std::slice::from_ref(&len_val))
     }
 }
 
@@ -1496,7 +1496,7 @@ fn js_array_from(cc: CallContext) -> JSResult {
             if has {
                 // `items` has [Symbol.iterator] method
                 let mut arr = if cc.this().is_constructor() {
-                    JS_CallConstructor(ctx, *cc.this(), &[]).err()?
+                    cc.this().call_ctor(ctx, &[])?
                 } else {
                     ctx.create_array()?.into()
                 };
@@ -1528,7 +1528,7 @@ fn js_array_from(cc: CallContext) -> JSResult {
         let len_val = JSValue::from(len);
 
         let mut arr = if cc.this().is_constructor() {
-            JS_CallConstructor(ctx, *cc.this(), &[len_val]).err()?
+            cc.this().call_ctor(ctx, std::slice::from_ref(&len_val))?
         } else {
             ctx.create_array_with_capacity(len as usize)?.into()
         };
@@ -1597,7 +1597,8 @@ fn js_array_of(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
 
     let mut arr = if cc.this().is_constructor() {
-        JS_CallConstructor(ctx, *cc.this(), &[JSValue::Int(cc.length() as i32)]).err()?
+        cc.this()
+            .call_ctor(ctx, std::slice::from_ref(&JSValue::Int(cc.length() as i32)))?
     } else {
         ctx.create_array()?.into()
     };

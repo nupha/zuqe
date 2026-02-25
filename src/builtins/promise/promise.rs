@@ -12,9 +12,7 @@ use crate::{
     class::ClassID,
     context::{Context, ContextImpl},
     error::JSResult,
-    function::{
-        CallContext, Callback, JS_CallConstructor, NativeFunction, js_function_set_properties,
-    },
+    function::{CallContext, Callback, NativeFunction, js_function_set_properties},
     object::{JS_PROP_C_W_E, Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
@@ -170,9 +168,8 @@ impl Promise {
         let promise: Object = if ctor.is_undefined() {
             Self::from_executor(ctx, executor.into(), JSValue::UNDEFINED)?.into()
         } else {
-            JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor.into()))
-                .err()?
-                .try_into()?
+            ctor.call_ctor(ctx, std::slice::from_ref(&executor.into()))
+                .and_then(Object::try_from)?
         };
 
         // collect resolving functions

@@ -12,7 +12,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2};
+use super::JS_CALL_FLAG_CONSTRUCTOR;
 
 #[derive(Debug)]
 pub struct BoundFuncObjPayload {
@@ -67,9 +67,9 @@ impl BoundFunction {
                 if func_obj.is_same(new_target) {
                     new_target = bf.func_obj;
                 }
-                JS_CallConstructor2(&ctx, bf.func_obj, new_target, arg_list.as_slice()).err()
+                bf.func_obj.call_ctor_target(&ctx, new_target, &arg_list)
             } else {
-                bf.func_obj.call(&ctx, bf.this_val, arg_list.as_slice())
+                bf.func_obj.call(&ctx, bf.this_val, &arg_list)
             }
         } else {
             unreachable!()

@@ -22,7 +22,7 @@ use crate::{
     class::ClassID,
     context::{ContextImpl, ContextPtr},
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
-    function::{CallContext, FieldDef, JS_CallConstructor},
+    function::{CallContext, FieldDef},
     number::JSFloat64Union,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, Object},
     string::StringBuf,
@@ -147,7 +147,7 @@ pub fn js_typed_array_constructor(cc: CallContext) -> JSResult {
 }
 
 pub fn js_typed_array_create(ctx: &ContextImpl, ctor: JSValue, args: &[JSValue]) -> JSResult {
-    let ret = JS_CallConstructor(ctx, ctor, args).err()?;
+    let ret = ctor.call_ctor(ctx, args)?;
 
     // validate the typed array
     let new_len = js_typed_array_get_length_internal(ctx, ret)?;

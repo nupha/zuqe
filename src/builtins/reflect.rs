@@ -10,7 +10,7 @@ use crate::{
         },
     },
     error::JSResult,
-    function::{CallContext, FieldDef, JS_CallConstructor2, build_arg_list, js_function_apply},
+    function::{CallContext, FieldDef, build_arg_list, js_function_apply},
     object::{JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     value::JSValue,
 };
@@ -46,7 +46,7 @@ fn js_reflect_construct(cc: CallContext) -> JSResult {
     };
 
     let args = build_arg_list(cc.ctx(), array_arg)?;
-    JS_CallConstructor2(cc.ctx(), func, new_target, &args).err()
+    func.call_ctor_target(cc.ctx(), new_target, &args)
 }
 
 fn js_reflect_deleteProperty(cc: CallContext) -> JSResult {

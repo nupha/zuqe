@@ -10,7 +10,7 @@ use crate::{
     builtins::array::Array,
     context::ContextImpl,
     error::JSResult,
-    function::{CallContext, Callback, FieldDef, JS_CallConstructor, js_function_apply},
+    function::{CallContext, Callback, FieldDef, js_function_apply},
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, Object,
         ObjectPayload,
@@ -461,7 +461,7 @@ pub fn js_regexp_Symbol_matchAll(cc: CallContext) -> JSResult {
     // make matcher: regexp object
     let flags = this.get_property(ctx, Atom::CONST_flags)?.to_string(ctx)?;
     let ctor = JS_SpeciesConstructor(ctx, this, ctx.regexp_ctor)?;
-    let regexp = JS_CallConstructor(ctx, ctor, &[this, flags.into()]).err()?;
+    let regexp = ctor.call_ctor(ctx, &[this, flags.into()])?;
 
     let last_index = this
         .get_property(ctx, Atom::CONST_lastIndex)?
@@ -757,8 +757,8 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
         let regexp_ctor = ctx.regexp_ctor;
         let ctor = JS_SpeciesConstructor(ctx, *cc.this(), regexp_ctor)?;
 
-        let re = JS_CallConstructor(ctx, ctor, &[*cc.this(), flags.into()]).err()?;
-        (TryInto::<Object>::try_into(re).unwrap(), is_unicode)
+        let re = ctor.call_ctor(ctx, &[*cc.this(), flags.into()])?;
+        (Object::try_from(re).unwrap(), is_unicode)
     };
 
     let mut arr = ctx.create_array()?;

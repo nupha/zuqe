@@ -741,7 +741,7 @@ fn js_string_match(cc: CallContext) -> JSResult {
         }
         let regexp_obj = {
             let ctor = ctx.regexp_ctor;
-            crate::function::JS_CallConstructor(ctx, ctor, &args[0..args_len]).err()?
+            ctor.call_ctor(ctx, &args[0..args_len])?
         };
 
         let str = JSValue::String(this.to_string_non_undefined_or_null(ctx)?);
