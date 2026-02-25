@@ -419,6 +419,8 @@ fn run_test_file(
         return;
     }
 
+    println!("{}", filename.to_str().unwrap());
+
     // collect included harness files
     let mut harness_files = Vec::<PathBuf>::with_capacity(16);
     harness_files.extend_from_slice(&[harness_path.join("assert.js"), harness_path.join("sta.js")]);
@@ -568,24 +570,10 @@ pub struct AppConfig {
     tests: Option<Vec<String>>,
     exclude_tests: Option<Vec<String>>,
     exclude_features: Option<Vec<String>>,
+    log: Option<String>,
 }
 
 fn main() {
-    // create log file
-    let log_file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open("test262.log")
-        .unwrap();
-
-    let tee = TeeWriter::new(Some(log_file), Option::<std::fs::File>::None);
-
-    env_logger::Builder::new()
-        .filter_level(log::LevelFilter::Trace)
-        .target(env_logger::Target::Pipe(Box::new(tee.clone())))
-        .init();
-
     let mut app_cfg = {
         let mut fp = std::fs::OpenOptions::new()
             .read(true)
@@ -596,7 +584,27 @@ fn main() {
         fp.read_to_string(&mut txt).unwrap();
         serde_yaml::from_str::<AppConfig>(txt.as_str()).unwrap()
     };
-    println!("app config: {:?}", app_cfg);
+
+    let log_tee: Option<TeeWriter<std::fs::File, std::fs::File>> = if let Some(log) = app_cfg.log {
+        // create log file
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(log)
+            .unwrap();
+
+        let tee = TeeWriter::new(Some(log_file), Option::<std::fs::File>::None);
+
+        env_logger::Builder::new()
+            .filter_level(log::LevelFilter::Trace)
+            .target(env_logger::Target::Pipe(Box::new(tee.clone())))
+            .init();
+
+        Some(tee)
+    } else {
+        None
+    };
 
     let mut base_path: PathBuf = if let Some(txt) = app_cfg.base_path.take() {
         let p = PathBuf::from(txt);
@@ -694,7 +702,7 @@ fn main() {
                 let file_name = path.unwrap();
 
                 if !exclude_tests.contains(&file_name) {
-                    if let Some(f) = &tee.a {
+                    if let Some(f) = log_tee.as_ref().and_then(|t| t.a.clone()) {
                         // truncate log file
                         let mut fp = f.lock().unwrap();
                         fp.flush().unwrap();
@@ -702,8 +710,6 @@ fn main() {
                         fp.seek(std::io::SeekFrom::Start(0)).unwrap();
                         fp.flush().unwrap();
                     }
-
-                    println!("{}", file_name.to_str().unwrap());
 
                     run_test_file(
                         &file_name,
