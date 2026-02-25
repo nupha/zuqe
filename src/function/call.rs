@@ -166,7 +166,7 @@ impl Object {
         ctx.poll_interrupts()?;
 
         // Note: to protect gc nodes allocated during calling from being gc collected.
-        ctx.rt_ptr().gc_heap_mut().open_alloc_trans();
+        ctx.rt_ptr().gc_heap_mut().open_guard();
 
         let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
             // When calling bytecode function, a StackFrame is created for execution,
@@ -178,19 +178,21 @@ impl Object {
                 .get_unchecked(self.class_id() as usize)
                 .call
         } {
-            // use class defined exotic callback (e.g. bound function, native function, async function etc)
-            // no stack frame for calling callback,
+            // Note: calling class defined exotic callback (e.g. bound function, native function, async function etc)
+            // do not have stack frame,
             // gc node self, this_obj, new_target, args should be protected manually
-            let mut _ng = ctx.rt_ref().gc_heap().protect_node(self.gc_node_ptr());
-            if let Some(n) = this_obj.gc_node_ptr() {
-                _ng.add(n);
-            }
-            if let Some(n) = new_target.gc_node_ptr() {
-                _ng.add(n);
-            }
-            for n in args.iter().flat_map(|v| v.gc_node_ptr()) {
-                _ng.add(n);
-            }
+            ctx.rt_ptr().gc_heap_mut().with_current_guard(|g| {
+                g.add(self.gc_node_ptr());
+                if let Some(n) = this_obj.gc_node_ptr() {
+                    g.add(n);
+                }
+                if let Some(n) = new_target.gc_node_ptr() {
+                    g.add(n);
+                }
+                for n in args.iter().flat_map(|v| v.gc_node_ptr()) {
+                    g.add(n);
+                }
+            });
 
             cb(
                 ContextPtr::from(ctx.gc_ref()).into(),
@@ -212,7 +214,7 @@ impl Object {
         }
 
         // protection ends at end of calling.
-        ctx.rt_ptr().gc_heap_mut().close_alloc_trans();
+        ctx.rt_ptr().gc_heap_mut().close_guard();
 
         ret_val
     }

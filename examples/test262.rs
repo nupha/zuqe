@@ -91,7 +91,8 @@ fn js_print(cc: CallContext) -> JSResult {
             ASYNC_DONE.store(2, Ordering::SeqCst);
         }
     }
-    println!();
+
+    // println!();
 
     Ok(JSValue::UNDEFINED)
 }
@@ -496,17 +497,7 @@ fn run_test_file(
             if let Err(exc) =
                 run_test_script(ctx, content.as_str(), filename, is_module, is_async, strict)
             {
-                eprintln!("TEST262 EXCEPTION: {:?}", exc.message);
-
-                // let msg = if let JSValue::Object(o) = &exc {
-                //     #[cfg(debug_assertions)]
-                //     o.dump(ctx.rt_ref());
-
-                //     let msg = o.get_property(&ctx, Atom::CONST_message).unwrap();
-                //     msg.inspect(&ctx).unwrap().to_string()
-                // } else {
-                //     "<no msg>".into()
-                // };
+                // eprintln!("TEST262 EXCEPTION: {:?}", exc.message);
 
                 if let Some(neg) = &negative {
                     if let Some(ty) = neg.type_.as_ref() {
