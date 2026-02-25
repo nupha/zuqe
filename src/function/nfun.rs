@@ -97,8 +97,6 @@ impl NFuncPayload {
         flags: i32,
         xref_scope: GcPartitionId,
     ) -> JSResult {
-        // current stack frame has been set for this call.
-
         let mut cc = CallContext::new(
             self.realm,
             this_value,

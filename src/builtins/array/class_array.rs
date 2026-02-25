@@ -1233,9 +1233,8 @@ fn js_array_toSpliced(cc: CallContext) -> JSResult {
         }
     }
 
-    // create result array (will update gc xref inside)
-    let res_arr = ctx.create_array_with_values(new_lst)?;
-    Ok(res_arr.into())
+    // create result array
+    ctx.create_array_with_values(new_lst).map(|a| a.into())
 }
 
 fn js_array_copyWithin(cc: CallContext) -> JSResult {
@@ -1490,6 +1489,11 @@ fn js_array_from(cc: CallContext) -> JSResult {
     let has_iterator: bool = {
         #[cfg(feature = "builtin_symbol")]
         {
+            let mut _ng = ctx.rt_ref().gc_heap().protect_nodes(&[]);
+            if let Some(n) = items.gc_node_ptr() {
+                _ng.add(n);
+            }
+
             let it = items.get_property(ctx, Atom::CONST_Symbol_iterator)?;
             let has = !it.is_undefined();
 
@@ -1500,6 +1504,10 @@ fn js_array_from(cc: CallContext) -> JSResult {
                 } else {
                     ctx.create_array()?.into()
                 };
+
+                if let Some(n) = arr.gc_node_ptr() {
+                    _ng.add(n);
+                }
 
                 let iter = items.get_iterator_must(ctx, false)?;
                 let it = ObjectIter::new(ctx, iter, Atom::CONST_next)?;
@@ -1533,6 +1541,12 @@ fn js_array_from(cc: CallContext) -> JSResult {
             ctx.create_array_with_capacity(len as usize)?.into()
         };
 
+        // protect arr, src nodes
+        let mut _ng = ctx.rt_ref().gc_heap().protect_node(src.gc_node_ptr());
+        if let Some(n) = arr.gc_node_ptr() {
+            _ng.add(n);
+        }
+
         for i in 0..len {
             let mut el = src.get_property_i64(ctx, i)?;
             if mapping {
@@ -1544,50 +1558,6 @@ fn js_array_from(cc: CallContext) -> JSResult {
         k = len;
         res = arr;
     }
-
-    // let res: JSValue = if has_iterator {
-    //     // `items` has [Symbo.iterator] method
-    //     let mut arr = if cc.this().is_constructor() {
-    //         JS_CallConstructor(ctx, *cc.this(), &[]).err()?
-    //     } else {
-    //         ctx.create_array()?.into()
-    //     };
-
-    //     let iter = items.get_iterator_must(ctx, false)?;
-    //     let it = ObjectIter::new(ctx, iter, Atom::CONST_next)?;
-
-    //     for el in it {
-    //         let mut val = el?;
-    //         if mapping {
-    //             val = mapfn.call(ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
-    //         }
-    //         arr.define_property_value_i64(ctx, k, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
-    //         k += 1;
-    //     }
-
-    //     arr
-    // } else {
-    //     let src = items.objectify(ctx)?;
-    //     let len = src.get_length_prop(ctx)?;
-    //     let len_val = JSValue::from(len);
-
-    //     let mut arr = if cc.this().is_constructor() {
-    //         JS_CallConstructor(ctx, *cc.this(), &[len_val]).err()?
-    //     } else {
-    //         ctx.create_array_with_capacity(len as usize)?.into()
-    //     };
-
-    //     for i in 0..len {
-    //         let mut el = src.get_property_i64(ctx, i)?;
-    //         if mapping {
-    //             el = mapfn.call(ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
-    //         }
-    //         arr.define_property_value_i64(ctx, i, el, JS_PROP_C_W_E | JS_PROP_THROW)?;
-    //     }
-
-    //     k = len;
-    //     arr
-    // };
 
     res.set_property(ctx, Atom::CONST_length, JSValue::from(k as u32))?;
     Ok(res)

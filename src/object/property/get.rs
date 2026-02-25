@@ -54,6 +54,8 @@ impl Object {
                                 getter: Some(fun), ..
                             } = cur_obj.prop_slot(idx)
                             {
+                                let _ng =
+                                    ctx.rt_ref().gc_heap().protect_nodes(&[self.gc_node_ptr()]);
                                 fun.call(ctx, this_obj, &[])
                             } else {
                                 Ok(JSValue::UNDEFINED)

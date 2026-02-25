@@ -104,6 +104,7 @@ impl Object {
 
                     JS_PROP_GETSET => {
                         return if let JSProperty::GetSet { setter, .. } = cur_obj.prop_slot(idx) {
+                            let _ng = ctx.rt_ref().gc_heap().protect_nodes(&[self.gc_node_ptr()]);
                             call_setter(ctx, *setter, target.unwrap_or(*self).into(), val, flags)
                         } else {
                             unreachable!()
@@ -199,6 +200,7 @@ impl Object {
                         && let Some(desc) = f(cx, JSValue::Object(cur_obj), prop)?
                     {
                         if desc.flags & JS_PROP_GETSET != 0 {
+                            let _ng = ctx.rt_ref().gc_heap().protect_nodes(&[self.gc_node_ptr()]);
                             return call_setter(
                                 ctx,
                                 desc.setter.as_object().copied(),

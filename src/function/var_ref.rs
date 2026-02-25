@@ -117,7 +117,7 @@ gcref_wrapper!(VarRef, VarRefImpl);
 
 impl VarRef {
     /// create a detached var ref
-    pub(crate) fn new(ctx: &ContextImpl, value: JSValue) -> Result<Self, i32> {
+    pub(crate) fn create(ctx: &ContextImpl, value: JSValue) -> Result<Self, i32> {
         ctx.rt_ptr()
             .gc_alloc(VarRefImpl::Detached {
                 value,
@@ -131,7 +131,7 @@ impl VarRef {
     }
 
     /// create a bind var ref
-    pub fn new_bind(
+    fn create_bind(
         ctx: &ContextImpl,
         var_idx: u16,
         is_arg: bool,
@@ -172,7 +172,7 @@ impl StackFrame {
         }
 
         // make new VarRef bind to target var_idx
-        let vref = VarRef::new_bind(
+        let vref = VarRef::create_bind(
             ctx,
             var_idx,
             is_arg,

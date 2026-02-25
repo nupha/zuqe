@@ -249,7 +249,7 @@ impl ModuleDefImpl {
                         } else {
                             // The other variables are imported from other modules.
                             // Add slot with a placeholder.
-                            VarRef::new(ctx, JSValue::UNDEFINED)?
+                            VarRef::create(ctx, JSValue::UNDEFINED)?
                         });
                     }
                 }
@@ -464,7 +464,7 @@ pub(crate) const js_module_ns_exotic_methods: ClassExoticMethods = ClassExoticMe
 };
 
 pub(crate) fn js_create_module_var(ctx: &ContextImpl, is_lexical: bool) -> Result<VarRef, i32> {
-    VarRef::new(
+    VarRef::create(
         ctx,
         if is_lexical {
             JSValue::UNINITIALIZED

@@ -207,16 +207,16 @@ impl<'a> From<ObjectIter<'a>> for JSValue {
 
 impl<'a> ObjectIter<'a> {
     /// `next` is the name of method used to fetch the __next__ value when iterating.
-    /// this atom is not consumed.
     pub fn new(ctx: &'a ContextImpl, target: Object, next: Atom) -> Result<Self, i32> {
+        let rt = ctx.rt_ref();
+        let mut _ng = rt.gc_heap().protect_nodes(&[target.gc_node_ptr()]);
+
         let next_method = if !next.is_null() {
             target.get_property(ctx, next)?
         } else {
             JSValue::UNDEFINED
         };
 
-        let rt = ctx.rt_ref();
-        let mut _ng = rt.gc_heap().protect_nodes(&[target.gc_node_ptr()]);
         if let Some(n) = next_method.gc_node_ptr() {
             _ng.add(n);
         }
