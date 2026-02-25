@@ -371,11 +371,8 @@ impl RuntimeImpl {
 
         // remove root partition: dealloc all nodes live in it.
         let root_scope_id = self.gc_top_scope;
-        self.gc_heap_mut().remove_partition(
-            root_scope_id,
-            GcHeap::DUMMY_PROMOTE_CALLBACK,
-            GcHeap::DUMMY_DISPOSE_CALLBACK,
-        );
+        self.gc_heap_mut()
+            .remove_partition(root_scope_id, GcHeap::DUMMY_DISPOSE_CALLBACK);
 
         // debug_assert_eq!(
         //     self.gc_heap().nodes_iter(root_scope_id).count(),
