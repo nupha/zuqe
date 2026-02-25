@@ -215,13 +215,8 @@ impl<'a> ObjectIter<'a> {
             JSValue::UNDEFINED
         };
 
-        let mut _ng = unsafe {
-            std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'a>>(
-                ctx.rt_ref()
-                    .gc_heap()
-                    .protect_nodes(&[target.gc_node_ptr()]),
-            )
-        };
+        let rt = ctx.rt_ref();
+        let mut _ng = rt.gc_heap().protect_nodes(&[target.gc_node_ptr()]);
         if let Some(n) = next_method.gc_node_ptr() {
             _ng.add(n);
         }

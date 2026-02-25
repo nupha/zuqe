@@ -165,7 +165,7 @@ impl ContextImpl {
         let has_await = fd.has_await;
 
         // compile function def into bytecode.
-        let bc = fd.build_bytecode(self)?;
+        let bc = fd.create_bytecode(self)?;
 
         // XXX: Could add a flag to avoid resolution if necessary
         if let Some(mut md) = frame_module {

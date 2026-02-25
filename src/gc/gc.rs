@@ -71,13 +71,13 @@ impl RuntimeImpl {
         Ok(r)
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn gc_alloc<T: GcNode>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         self.gc_alloc_in(self.gc_part_id(), data)
     }
 
     /// collect garbage
-    pub(crate) fn gc_collect_in(&mut self, partition_id: GcPartitionId) -> usize {
+    fn gc_collect_in(&mut self, partition_id: GcPartitionId) -> usize {
         log::trace!("[collect] {partition_id:?}");
 
         // Tracing

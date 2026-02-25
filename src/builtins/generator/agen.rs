@@ -364,7 +364,7 @@ impl AsyncGeneratorFunction {
         let mut s = Box::new(AGenPayload {
             generator: RefCell::new(GcWeak::default()),
             state: AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
-            async_state: AsyncState::new(
+            async_state: AsyncState::create(
                 &ctx,
                 [const { JSValue::UNDEFINED }; 2],
                 *func_obj.as_object_BCWrapper().unwrap(),
@@ -374,7 +374,7 @@ impl AsyncGeneratorFunction {
             queue: Vec::with_capacity(2),
         });
 
-        // protect node async_state before .resume() execute bytecode.
+        // protect async_state before .resume() execute bytecode.
         let _ng = ctx
             .rt_ref()
             .gc_heap()

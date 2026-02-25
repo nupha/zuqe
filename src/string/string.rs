@@ -209,10 +209,10 @@ impl StringImpl {
     /// copy content to make a new string, with given rt.
     pub(crate) fn copy_to_new(&self, rt: RuntimePtr) -> Result<StringRef, i32> {
         match self.content() {
-            StringData::Empty => StringRef::new_internal(rt, StringData::Empty, None),
-            StringData::Ident => StringRef::new_internal(rt, StringData::Ident, None),
-            StringData::AsciiStatic(s) => StringRef::from_static(rt, s, None),
-            _ => StringRef::new(self.rt(), self.content().clone()),
+            StringData::Empty => StringRef::create_internal(rt, StringData::Empty, None),
+            StringData::Ident => StringRef::create_internal(rt, StringData::Ident, None),
+            StringData::AsciiStatic(s) => StringRef::create_static(rt, s, None),
+            _ => StringRef::create(self.rt(), self.content().clone()),
         }
     }
 
@@ -318,7 +318,7 @@ impl TryFrom<JSValue> for StringRef {
 
 impl StringRef {
     /// create String with string data, and optional atom info.
-    fn new_internal(
+    fn create_internal(
         mut rt: RuntimePtr,
         content: StringData,
         atom_info: Option<AtomInfo>,
@@ -346,30 +346,30 @@ impl StringRef {
     }
 
     #[inline(always)]
-    pub(crate) fn new(rt: RuntimePtr, content: StringData) -> Result<Self, i32> {
-        Self::new_internal(rt, content, None)
+    pub(crate) fn create(rt: RuntimePtr, content: StringData) -> Result<Self, i32> {
+        Self::create_internal(rt, content, None)
     }
 
     #[inline]
-    pub(crate) fn from_str(rt: RuntimePtr, s: &str) -> Result<Self, i32> {
+    pub(crate) fn create_str(rt: RuntimePtr, s: &str) -> Result<Self, i32> {
         let sbuf = StringBuf::from_str(s)?;
-        Self::new_internal(rt, StringData::from_buf(sbuf), None)
+        Self::create_internal(rt, StringData::from_buf(sbuf), None)
     }
 
     #[inline]
-    pub(crate) fn from_utf8(rt: RuntimePtr, utf8_bytes: Vec<u8>) -> Result<Self, i32> {
+    pub(crate) fn create_utf8(rt: RuntimePtr, utf8_bytes: Vec<u8>) -> Result<Self, i32> {
         let data = StringData::from_buf(StringBuf::from_utf8(utf8_bytes).map_err(|_| -1)?);
-        Self::new(rt, data)
+        Self::create(rt, data)
     }
 
     /// static str `s` must be ascii str.
     #[inline(always)]
-    pub(crate) fn from_static(
+    pub(crate) fn create_static(
         rt: RuntimePtr,
         s: &'static str,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
-        Self::new_internal(rt, StringData::from_static(s), atom_info)
+        Self::create_internal(rt, StringData::from_static(s), atom_info)
     }
 
     /// convert String value to String object
@@ -428,7 +428,7 @@ impl StringRef {
                 -1
             })?;
 
-        Self::new(ctx.rt_ptr(), StringData::from_buf(buf))
+        Self::create(ctx.rt_ptr(), StringData::from_buf(buf))
     }
 }
 
@@ -439,7 +439,7 @@ impl ContextImpl {
             Atom::CONST_empty_string.force_string(self)
         } else {
             let data = StringData::from_buf(sbuf);
-            StringRef::new(self.rt_ptr(), data).map_err(|_| {
+            StringRef::create(self.rt_ptr(), data).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })
@@ -451,7 +451,7 @@ impl ContextImpl {
         if content.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
-            StringRef::new(self.rt_ptr(), content).map_err(|_| {
+            StringRef::create(self.rt_ptr(), content).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })
@@ -466,7 +466,7 @@ impl ContextImpl {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::from_utf8(self.rt_ptr(), utf8_bytes).inspect_err(|_| {
+            StringRef::create_utf8(self.rt_ptr(), utf8_bytes).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
         }
@@ -480,7 +480,7 @@ impl ContextImpl {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::from_str(self.rt_ptr(), str).inspect_err(|_| {
+            StringRef::create_str(self.rt_ptr(), str).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
         }

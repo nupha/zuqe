@@ -15,7 +15,7 @@ impl FunctionDef {
     /// Compile FunctionDef to Bytecode.
     ///
     /// All children functions are also created. It must be done this way to resolve all the variables.
-    pub fn build_bytecode(mut self: Box<Self>, ctx: &ContextImpl) -> Result<Bytecode, i32> {
+    pub fn create_bytecode(mut self: Box<Self>, ctx: &ContextImpl) -> Result<Bytecode, i32> {
         //
         // recompute scope linkage
         //
@@ -75,7 +75,7 @@ impl FunctionDef {
                 let cpool_idx: i32 = sub_fd.parent_cpool_idx;
                 debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
 
-                if let Ok(sub_bc) = sub_fd.build_bytecode(ctx) {
+                if let Ok(sub_bc) = sub_fd.create_bytecode(ctx) {
                     // strore child bytecode to constant pool
                     self.cpool[cpool_idx as usize] = JSValue::Bytecode(sub_bc);
                 } else {

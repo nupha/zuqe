@@ -40,7 +40,7 @@ impl ContextImpl {
             match self.rt_ptr().find_shape_by_proto(proto) {
                 Some(sh) => sh,
                 None => {
-                    if let Ok(sh) = Shape::new(self, proto, 0) {
+                    if let Ok(sh) = Shape::create(self, proto, 0) {
                         sh
                     } else {
                         return Err(payload);

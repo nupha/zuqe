@@ -91,7 +91,7 @@ pub fn js_generator_function_call(
     args: &[JSValue],
     _flags: i32,
 ) -> JSResult {
-    let async_state = AsyncState::new(
+    let async_state = AsyncState::create(
         &ctx,
         [const { JSValue::UNDEFINED }; 2],
         *func_obj.as_object_BCWrapper().unwrap(),

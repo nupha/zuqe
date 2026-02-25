@@ -143,7 +143,7 @@ impl ShapeImpl {
             props.push(*prs);
         }
 
-        Shape::new_internal(ctx, self.proto, props)
+        Shape::create_internal(ctx, self.proto, props)
     }
 }
 
@@ -201,7 +201,7 @@ impl std::fmt::Debug for Shape {
 impl Shape {
     /// create a shape with prototype 'proto' and property capacity.
     /// The new shape is not registered.
-    pub(crate) fn new_internal(
+    pub(crate) fn create_internal(
         ctx: &ContextImpl,
         proto: Option<Object>,
         prop_defs: HashList<ShapeProperty>,
@@ -222,7 +222,7 @@ impl Shape {
     /// alloc shape in expected scope (if given scope is null, then use current scope).
     /// new shape is not registered,
     /// new shape is added to GC, new shape is registered.
-    pub(crate) fn new(
+    pub(crate) fn create(
         ctx: &ContextImpl,
         proto: Option<Object>,
         prop_cap: i32,
@@ -233,7 +233,7 @@ impl Shape {
             -1
         })?;
 
-        let shape = Self::new_internal(ctx, proto, prop_defs)?;
+        let shape = Self::create_internal(ctx, proto, prop_defs)?;
         ctx.rt_ptr().register_shape(&shape)?;
         Ok(shape)
     }

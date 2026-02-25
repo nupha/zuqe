@@ -3,7 +3,7 @@
 
 use std::{pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     context::ContextImpl, error::JSResult, function::BCWrapper, gcref_wrapper,
@@ -185,6 +185,8 @@ impl AsyncStateImpl {
         this_obj: JSValue,
         args: &[JSValue],
     ) -> JSResult {
+        debug_assert!(self.gc_head().is_protected());
+
         caller_ctx.poll_interrupts()?;
 
         let throw_flag = self.throw_flag;
@@ -236,7 +238,7 @@ pub struct AsyncState(GcRef<AsyncStateImpl>);
 gcref_wrapper!(AsyncState, AsyncStateImpl);
 
 impl AsyncState {
-    pub(crate) fn new(
+    pub(crate) fn create(
         ctx: &ContextImpl,
         resolvings: [JSValue; 2],
         bc_func: BCWrapper,

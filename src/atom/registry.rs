@@ -447,7 +447,7 @@ impl Atom {
         {
             Ok(Self::new_small_int(i))
         } else {
-            let s = StringRef::from_str(rt, str)?;
+            let s = StringRef::create_str(rt, str)?;
             Self::from_string(rt, s, kind)
         }
     }
@@ -456,7 +456,7 @@ impl Atom {
         if (0..JS_ATOM_MAX_INT as i64).contains(&n) {
             Ok(Self::new_small_int(n as u32))
         } else {
-            let s = StringRef::from_utf8(rt, format!("{n}").into_bytes())?;
+            let s = StringRef::create_utf8(rt, format!("{n}").into_bytes())?;
             Self::from_string(rt, s, AtomKind::String)
         }
     }

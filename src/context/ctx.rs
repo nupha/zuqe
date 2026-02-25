@@ -417,7 +417,7 @@ impl ContextPtr {
             self.class_protos[JS_CLASS_ARRAY as usize] = array_proto.into();
 
             // 2. make default shape for Array
-            let mut array_shape = Shape::new(self, Some(array_proto), 1).unwrap();
+            let mut array_shape = Shape::create(self, Some(array_proto), 1).unwrap();
             // define `length` property at #0
             array_shape.add_shape_properties(
                 self,

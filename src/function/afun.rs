@@ -73,13 +73,13 @@ impl BCWrapper {
         _flags: i32,
     ) -> Result<Promise, i32> {
         let (promise, resolving_funcs) = Promise::create(ctx)?;
-        let mut a_state = AsyncState::new(ctx, resolving_funcs, *self, this_obj, args)?;
+        let mut a_state = AsyncState::create(ctx, resolving_funcs, *self, this_obj, args)?;
 
-        // manually proect a_state node before calling .execute()
+        // protect promise and a_state before calling .execute()
         let rt = ctx.rt_ptr();
         let _ng = rt
             .gc_heap()
-            .protect_nodes(&[a_state.gc_node_ptr(), promise.gc_node_ptr()]);
+            .protect_nodes(&[promise.gc_node_ptr(), a_state.gc_node_ptr()]);
 
         a_state.execute(ctx);
         Ok(promise)
