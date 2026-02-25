@@ -166,7 +166,7 @@ impl Object {
         ctx.poll_interrupts()?;
 
         // Note: to protect gc nodes allocated during calling from being gc collected.
-        ctx.rt_ptr().gc_heap_mut().open_guard();
+        ctx.rt_ptr().gc_heap_mut().open_alloc_guard();
 
         let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
             // When calling bytecode function, a StackFrame is created for execution,
@@ -180,19 +180,17 @@ impl Object {
         } {
             // Note: calling class defined exotic callback (e.g. bound function, native function, async function etc)
             // do not have stack frame,
-            // gc node self, this_obj, new_target, args should be protected manually
-            ctx.rt_ptr().gc_heap_mut().with_current_guard(|g| {
-                g.add(self.gc_node_ptr());
-                if let Some(n) = this_obj.gc_node_ptr() {
-                    g.add(n);
-                }
-                if let Some(n) = new_target.gc_node_ptr() {
-                    g.add(n);
-                }
-                for n in args.iter().flat_map(|v| v.gc_node_ptr()) {
-                    g.add(n);
-                }
-            });
+            // gc node self, this_obj, new_target, args should be protected manually - full guard.
+            let mut _fg = ctx.rt_ref().gc_heap().protect_node(self.gc_node_ptr());
+            if let Some(n) = this_obj.gc_node_ptr() {
+                _fg.add(n);
+            }
+            if let Some(n) = new_target.gc_node_ptr() {
+                _fg.add(n);
+            }
+            for n in args.iter().flat_map(|v| v.gc_node_ptr()) {
+                _fg.add(n);
+            }
 
             cb(
                 ContextPtr::from(ctx.gc_ref()).into(),
@@ -214,7 +212,7 @@ impl Object {
         }
 
         // protection ends at end of calling.
-        ctx.rt_ptr().gc_heap_mut().close_guard();
+        ctx.rt_ptr().gc_heap_mut().close_alloc_guard();
 
         ret_val
     }

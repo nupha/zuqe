@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
-
 // fn get_frame_address(level: usize) -> Option<*const c_void> {
 //     // NOTE: 除了libc, 还可以用backtrace实现
 
