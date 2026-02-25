@@ -278,7 +278,7 @@ impl NativeFunction {
         _flags: i32,
     ) -> JSResult {
         let mut nfunc = NativeFunction::try_from(func_obj).unwrap();
-        let nfunc_scope = nfunc.gc_node().scope_id();
+        let nfunc_scope = nfunc.gc_node().partition_id();
 
         debug_assert_eq!(nfunc.class_id(), JS_CLASS_C_FUNCTION_DATA);
         debug_assert!(matches!(nfunc.payload().callback, Callback::Func(_)));

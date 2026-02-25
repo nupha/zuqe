@@ -319,7 +319,7 @@ impl Object {
         match self.class_id() {
             JS_CLASS_ARRAY => {
                 if self.flags().extensible() {
-                    let self_xref = self.gc_ref().node_info().scope_id();
+                    let self_xref = self.gc_ref().node_info().partition_id();
                     let this = *self;
 
                     if self.is_fast_array()
@@ -376,7 +376,7 @@ impl Object {
             }
 
             JS_CLASS_ARGUMENTS => {
-                let self_xref = self.gc_ref().node_info().scope_id();
+                let self_xref = self.gc_ref().node_info().partition_id();
 
                 if self.is_fast_array()
                     && let Some(arr_data) = self.payload_mut().array_mut()

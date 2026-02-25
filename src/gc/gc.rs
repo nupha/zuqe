@@ -104,8 +104,8 @@ impl RuntimeImpl {
         if let Some(f) = self.gc_cur_job_trace.as_ref() {
             f(&mut gcx);
         }
-        for n in gcx.take_traced_nodes() {
-            if unsafe { n.as_ref().scope_id() } == partition_id {
+        for n in gcx.next_node() {
+            if unsafe { n.as_ref().partition_id() } == partition_id {
                 self.gc_heap_mut().add_gray_node(n);
             }
         }

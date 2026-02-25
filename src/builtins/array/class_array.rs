@@ -1660,7 +1660,8 @@ fn copy_sub_array(
                     &mut ctx.rt_ptr(),
                     to,
                     val,
-                    val.gc_node().map_or(GcPartitionId::NONE, |x| x.scope_id()),
+                    val.gc_node()
+                        .map_or(GcPartitionId::NONE, |x| x.partition_id()),
                 );
             } else {
                 done_count = i;
