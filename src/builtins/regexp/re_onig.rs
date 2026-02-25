@@ -7,7 +7,7 @@
 
 use std::{borrow::Cow, cell::Cell, ops::Range, rc::Rc};
 
-use gc_lite::{GcRef, GcTracable};
+use gc_lite::{GcRef, GcTrace};
 use onig::{EncodedBytes, Regex, RegexOptions, Syntax};
 use onig_sys::{OnigEncoding, OnigEncodingUTF8};
 
@@ -50,7 +50,7 @@ pub struct RegExpStringIterPayload {
     done: Cell<bool>,
 }
 
-unsafe impl GcTracable for RegExpStringIterPayload {
+impl GcTrace for RegExpStringIterPayload {
     #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.iterated_string.trace(tracer);
@@ -115,7 +115,7 @@ pub struct RegExpData {
     pub(super) regex: Rc<Regex>,
 }
 
-unsafe impl GcTracable for RegExpData {
+impl GcTrace for RegExpData {
     #[inline(always)]
     fn trace(&self, _: &mut gc_lite::GcTracer) {}
 }

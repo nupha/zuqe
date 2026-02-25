@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     atom::{Atom, is_const_atom, is_small_int_atom},
@@ -29,7 +29,7 @@ pub struct BytecodeDebugInfo {
     pub(crate) debug_setting: super::BytecodeDebugSetting,
 }
 
-unsafe impl GcTracable for BytecodeDebugInfo {
+impl GcTrace for BytecodeDebugInfo {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.filename.trace(tr);
     }
@@ -118,7 +118,7 @@ pub struct BytecodeImpl {
     pub(crate) debug: Option<BytecodeDebugInfo>,
 }
 
-unsafe impl GcTracable for BytecodeImpl {
+impl GcTrace for BytecodeImpl {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.func_name.trace(tr);
         self.consts().iter().for_each(|x| x.trace(tr));

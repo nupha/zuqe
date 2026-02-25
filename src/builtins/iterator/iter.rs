@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcNode, GcNodeGuard, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcNodeGuard, GcTrace, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -54,7 +54,7 @@ pub struct ForInIterPayload {
     pub(crate) prop_count: u32,
 }
 
-unsafe impl GcTracable for ForInIterPayload {
+impl GcTrace for ForInIterPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         if let Some(o) = self.obj {
             o.trace(tr)

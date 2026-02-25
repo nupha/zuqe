@@ -10,7 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
@@ -87,7 +87,7 @@ pub struct ContextImpl {
     pub(crate) user_opaque: *mut std::ffi::c_void,
 }
 
-unsafe impl GcTracable for ContextImpl {
+impl GcTrace for ContextImpl {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.class_protos.iter().for_each(|x| x.trace(tr));
         if let Some(x) = self.array_shape.as_ref() {

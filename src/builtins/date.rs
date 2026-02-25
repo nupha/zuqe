@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     atom::{Atom, AtomKind},
@@ -705,7 +705,7 @@ pub struct Datetime {
     timestamp_ms: i64,
 }
 
-unsafe impl GcTracable for Datetime {
+impl GcTrace for Datetime {
     #[inline(always)]
     fn trace(&self, _: &mut GcTraceCtx) {}
 }

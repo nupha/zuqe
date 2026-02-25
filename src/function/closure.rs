@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
@@ -33,7 +33,7 @@ pub(crate) struct ClosureVar {
     pub(crate) var_name: Atom,
 }
 
-unsafe impl GcTracable for ClosureVar {
+impl GcTrace for ClosureVar {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.var_name.trace(tr);
     }

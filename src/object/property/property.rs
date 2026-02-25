@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcNode, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
@@ -257,7 +257,7 @@ pub enum JSProperty {
     Deleted,
 }
 
-unsafe impl GcTracable for JSProperty {
+impl GcTrace for JSProperty {
     fn trace(&self, tr: &mut GcTraceCtx) {
         match self {
             Self::Normal(v) => {

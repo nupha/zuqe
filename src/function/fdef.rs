@@ -176,7 +176,7 @@ pub(crate) struct FunctionDef {
 }
 
 // TODO: FunctionDef should be tracable?
-// unsafe impl GcTracable for JSFuntionDef {
+// impl GcTrace for JSFuntionDef {
 //     // TODO
 // }
 

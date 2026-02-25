@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcNode, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     Callback,
@@ -24,7 +24,7 @@ pub struct ImportEntry {
     pub req_module_idx: i32, // in dependencies
 }
 
-unsafe impl GcTracable for ImportEntry {
+impl GcTrace for ImportEntry {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.import_name.trace(tr);
     }

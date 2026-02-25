@@ -16,7 +16,7 @@ pub use {obj::*, payload::*, property::*, shape::*};
 #[macro_export]
 macro_rules! gcref_wrapper {
     ($ty:ident, $in_ty:ident) => {
-        unsafe impl gc_lite::GcTracable for $ty {
+        impl gc_lite::GcTrace for $ty {
             #[inline(always)]
             fn trace(&self, tr: &mut gc_lite::GcTraceCtx) {
                 tr.add(self.0)

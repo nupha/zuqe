@@ -7,7 +7,7 @@ use std::{
     ffi::c_void,
 };
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 use zuqe::{
     CallContext, Context, FieldDef, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JSResult, JSValue,

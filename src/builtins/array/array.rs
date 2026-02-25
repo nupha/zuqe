@@ -4,7 +4,7 @@
 use std::collections::TryReserveError;
 
 use fallible_collections::{FallibleVec, TryCollect};
-use gc_lite::{GcHeap, GcPartitionId, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcHeap, GcPartitionId, GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
@@ -29,7 +29,7 @@ pub struct ArrayPayload {
     values: Vec<JSValue>,
 }
 
-unsafe impl GcTracable for ArrayPayload {
+impl GcTrace for ArrayPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         for v in self.values.iter() {
             v.trace(tr);

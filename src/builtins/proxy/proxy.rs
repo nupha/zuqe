@@ -3,7 +3,7 @@
 
 use std::cell::Cell;
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_PROXY,
@@ -35,7 +35,7 @@ pub struct ProxyPayload {
     is_revoked: Cell<bool>,
 }
 
-unsafe impl GcTracable for ProxyPayload {
+impl GcTrace for ProxyPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.target.trace(tr);
         self.handler.trace(tr);

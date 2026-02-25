@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
@@ -102,7 +102,7 @@ pub struct BFuncPayload {
     home_object: Option<Object>,
 }
 
-unsafe impl GcTracable for BFuncPayload {
+impl GcTrace for BFuncPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.bytecode.trace(tr);
         if let Some(x) = self.home_object {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_GENERATOR,
@@ -38,7 +38,7 @@ pub struct GeneratorPayload {
     async_state: AsyncState,
 }
 
-unsafe impl GcTracable for GeneratorPayload {
+impl GcTrace for GeneratorPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.async_state.trace(tr);
     }

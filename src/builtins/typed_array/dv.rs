@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_DATAVIEW,
@@ -28,7 +28,7 @@ pub struct DataViewPayload {
     pub(super) byte_length: u32,
 }
 
-unsafe impl GcTracable for DataViewPayload {
+impl GcTrace for DataViewPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.buffer.trace(tr);
     }

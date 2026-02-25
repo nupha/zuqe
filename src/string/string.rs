@@ -7,7 +7,7 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_STRING,
@@ -41,7 +41,7 @@ pub struct StringImpl {
     atom_info: Option<AtomInfo>,
 }
 
-unsafe impl GcTracable for StringImpl {
+impl GcTrace for StringImpl {
     #[inline(always)]
     fn trace(&self, _: &mut GcTraceCtx) {}
 }
@@ -245,7 +245,7 @@ impl StringImpl {
 #[repr(transparent)]
 pub struct StringRef(GcRef<StringImpl>);
 
-unsafe impl GcTracable for StringRef {
+impl GcTrace for StringRef {
     #[inline(always)]
     fn trace(&self, tr: &mut GcTraceCtx) {
         tr.add(self.0);

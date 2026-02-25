@@ -3,7 +3,7 @@
 
 use std::{cell::Cell, rc::Rc};
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_PROMISE,
@@ -50,7 +50,7 @@ pub struct PromiseData {
     is_handled: bool,
 }
 
-unsafe impl GcTracable for PromiseData {
+impl GcTrace for PromiseData {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.reactions[0].iter().for_each(|x| x.trace(tr));
         self.reactions[1].iter().for_each(|x| x.trace(tr));
@@ -109,7 +109,7 @@ pub struct Promise(GcRef<ObjectImpl>);
 
 object_cast!(Promise, JS_CLASS_PROMISE);
 
-unsafe impl GcTracable for Promise {
+impl GcTrace for Promise {
     fn trace(&self, tr: &mut GcTraceCtx) {
         tr.add(self.0);
     }

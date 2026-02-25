@@ -3,7 +3,7 @@
 
 use std::ptr::NonNull;
 
-use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     RuntimeImpl,
@@ -33,7 +33,7 @@ pub enum VarRefImpl {
     },
 }
 
-unsafe impl GcTracable for VarRefImpl {
+impl GcTrace for VarRefImpl {
     fn trace(&self, tr: &mut GcTraceCtx) {
         match self {
             Self::Bind {

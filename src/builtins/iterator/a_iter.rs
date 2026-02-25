@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     Callback, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
@@ -29,7 +29,7 @@ pub struct JSAsyncFromSyncIteratorData {
     pub(super) next_method: JSValue,
 }
 
-unsafe impl GcTracable for JSAsyncFromSyncIteratorData {
+impl GcTrace for JSAsyncFromSyncIteratorData {
     fn trace(&self, tr: &mut GcTraceCtx) {
         tr.add(self.obj.gc_ref());
         self.next_method.trace(tr);

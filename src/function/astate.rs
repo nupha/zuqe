@@ -3,7 +3,7 @@
 
 use std::{pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     context::ContextImpl, error::JSResult, function::BCWrapper, gcref_wrapper,
@@ -27,7 +27,7 @@ pub struct AsyncStateImpl {
     pub(crate) stack_frame: Pin<Box<StackFrame>>,
 }
 
-unsafe impl GcTracable for AsyncStateImpl {
+impl GcTrace for AsyncStateImpl {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.this_val.trace(tr);
         self.resolving_funcs[0].trace(tr);

@@ -124,7 +124,7 @@ pub enum JSValue {
     Bytecode(Bytecode),
 }
 
-unsafe impl gc_lite::GcTracable for JSValue {
+impl gc_lite::GcTrace for JSValue {
     #[inline(always)]
     fn trace(&self, tr: &mut GcTraceCtx) {
         if let Some(p) = self.gc_node_ptr() {

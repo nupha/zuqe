@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR,
@@ -28,7 +28,7 @@ pub struct JSMapIteratorData {
     pub(crate) index: usize,
 }
 
-unsafe impl GcTracable for JSMapIteratorData {
+impl GcTrace for JSMapIteratorData {
     fn trace(&self, tr: &mut GcTraceCtx) {
         if let Some(x) = self.obj {
             x.trace(tr)

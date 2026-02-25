@@ -3,7 +3,7 @@
 
 use std::cell::UnsafeCell;
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR,
@@ -26,7 +26,7 @@ pub struct ArrayIterPayload {
     kind: JSIteratorKindEnum,
 }
 
-unsafe impl GcTracable for ArrayIterPayload {
+impl GcTrace for ArrayIterPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         unsafe {
             (*self.val.get()).trace(tr);

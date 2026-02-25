@@ -3,7 +3,7 @@
 
 use std::{cell::Cell, ffi::c_void, ptr::NonNull};
 
-use gc_lite::{GcNode, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     ClassDef, USER_CLASS_ID_START,
@@ -21,7 +21,7 @@ pub struct OtherPayload {
     pub(crate) opaque: *mut c_void,
 }
 
-unsafe impl GcTracable for OtherPayload {
+impl GcTrace for OtherPayload {
     #[inline(always)]
     fn trace(&self, _: &mut GcTraceCtx) {}
 }

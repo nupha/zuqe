@@ -7,7 +7,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcTracable, GcTraceCtx, GcWeak};
+use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     Object,
@@ -90,7 +90,7 @@ pub struct StackFrame {
     _mark: PhantomPinned,
 }
 
-unsafe impl GcTracable for StackFrame {
+impl GcTrace for StackFrame {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.func_obj.trace(tr);
         self.protected_values[0].trace(tr);

@@ -3,7 +3,7 @@
 
 use std::cell::UnsafeCell;
 
-use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx, GcWeak};
+use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
@@ -46,7 +46,7 @@ pub struct TypedArrayPayload {
     obj: UnsafeCell<GcWeak<ObjectImpl>>,
 }
 
-unsafe impl GcTracable for TypedArrayPayload {
+impl GcTrace for TypedArrayPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.array_buffer.trace(tr);
     }

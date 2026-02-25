@@ -3,7 +3,7 @@
 
 use std::cell::RefCell;
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx, GcWeak};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -51,7 +51,7 @@ pub struct JSAsyncGeneratorRequest {
     pub resolving_funcs: [JSValue; 2],
 }
 
-unsafe impl GcTracable for JSAsyncGeneratorRequest {
+impl GcTrace for JSAsyncGeneratorRequest {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.result.trace(tr);
         self.promise.trace(tr);
@@ -75,7 +75,7 @@ pub struct AGenPayload {
     queue: Vec<Box<JSAsyncGeneratorRequest>>,
 }
 
-unsafe impl GcTracable for AGenPayload {
+impl GcTrace for AGenPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.async_state.trace(tr);
         self.queue.iter().for_each(|x| x.trace(tr));

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -83,7 +83,7 @@ pub struct ModuleDefImpl {
     pub meta_obj: Option<Object>,
 }
 
-unsafe impl GcTracable for ModuleDefImpl {
+impl GcTrace for ModuleDefImpl {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.module_name.trace(tr);
         self.dependencies.iter().for_each(|x| x.trace(tr));

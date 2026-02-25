@@ -706,7 +706,7 @@ pub fn gen_class_payload(outfile: &Path) {
         // impl collect trait
         "\n\n".to_string(),
         format!(
-            r#"unsafe impl gc_lite::GcTracable for ObjectPayload {{
+            r#"impl gc_lite::GcTrace for ObjectPayload {{
                 fn trace(&self, tr: &mut gc_lite::GcTraceCtx) {{
                     match self {{
                         {},

@@ -3,7 +3,7 @@
 
 use std::ptr::NonNull;
 
-use gc_lite::{GcNode, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -28,7 +28,7 @@ pub enum LazyInit {
     ModuleNS(ModuleDef),
 }
 
-unsafe impl GcTracable for LazyInit {
+impl GcTrace for LazyInit {
     fn trace(&self, tr: &mut GcTraceCtx) {
         if let Self::ModuleNS(ns) = self {
             ns.trace(tr);

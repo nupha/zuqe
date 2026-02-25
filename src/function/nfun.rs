@@ -3,7 +3,7 @@
 
 use std::ptr::NonNull;
 
-use gc_lite::{GcNode, GcPartitionId, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcPartitionId, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
@@ -74,7 +74,7 @@ pub struct NFuncPayload {
     pub(crate) data: Option<Box<[JSValue]>>,
 }
 
-unsafe impl GcTracable for NFuncPayload {
+impl GcTrace for NFuncPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.realm.trace(tr);
         if let Some(data) = &self.data {

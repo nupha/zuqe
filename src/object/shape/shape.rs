@@ -3,7 +3,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 use hash_link::HashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty};
@@ -24,7 +24,7 @@ pub struct ShapeImpl {
     pub(crate) has_small_array_index: bool,
 }
 
-unsafe impl GcTracable for ShapeImpl {
+impl GcTrace for ShapeImpl {
     fn trace(&self, tr: &mut GcTraceCtx) {
         if let Some(x) = self.proto {
             x.trace(tr);
@@ -151,7 +151,7 @@ impl ShapeImpl {
 #[derive(PartialEq)]
 pub struct Shape(GcRef<ShapeImpl>);
 
-unsafe impl GcTracable for Shape {
+impl GcTrace for Shape {
     fn trace(&self, tr: &mut GcTraceCtx) {
         tr.add(self.0);
     }

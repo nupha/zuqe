@@ -3,7 +3,7 @@
 
 use std::{fmt::Formatter, ops::Deref};
 
-use gc_lite::{GcNode, GcRef, GcTracable, GcTraceCtx, GcWeak};
+use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -173,7 +173,7 @@ pub struct ObjectImpl {
     payload: ObjectPayload,
 }
 
-unsafe impl GcTracable for ObjectImpl {
+impl GcTrace for ObjectImpl {
     fn trace(&self, tr: &mut GcTraceCtx) {
         if let Some(x) = self.shape.as_ref() {
             x.trace(tr)

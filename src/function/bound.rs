@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTracable, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_BOUND_FUNCTION,
@@ -21,7 +21,7 @@ pub struct BoundFuncObjPayload {
     pub bind_args: Vec<JSValue>,
 }
 
-unsafe impl GcTracable for BoundFuncObjPayload {
+impl GcTrace for BoundFuncObjPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.func_obj.trace(tr);
         self.this_val.trace(tr);

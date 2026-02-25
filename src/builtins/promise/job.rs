@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTracable, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{context::ContextImpl, error::JSResult, runtime::RuntimeImpl, value::JSValue};
 
@@ -12,7 +12,7 @@ pub(crate) struct Job {
     gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
 }
 
-unsafe impl GcTracable for Job {
+impl GcTrace for Job {
     fn trace(&self, tr: &mut GcTraceCtx) {
         if let Some(f) = self.gc_trace.as_ref() {
             f(tr)

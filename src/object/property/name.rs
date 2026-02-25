@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcNode, GcTracable, GcTraceCtx};
+use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_STRING,
@@ -33,7 +33,7 @@ pub struct PropertyKey {
     pub is_exotic: bool,
 }
 
-unsafe impl GcTracable for PropertyKey {
+impl GcTrace for PropertyKey {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.atom.trace(tr);
     }
