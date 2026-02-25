@@ -663,14 +663,14 @@ impl Bytecode {
                     OpCode::FCLOSURE => {
                         // [^] -> [func_obj, ^]
                         let id = PC_FETCH!(u32);
+
                         if let JSValue::Bytecode(bc) = CPOOL![id] {
-                            SP_PUT!(
-                                0,
-                                bc.make_closure(&realm, None, captured_vars, Some(stack_frame))
-                                    .map_or(JSValue::EXCEPTION, |f| f.into())
-                            );
+                            let r = bc
+                                .make_closure(&realm, None, captured_vars, Some(stack_frame))
+                                .map_or(JSValue::EXCEPTION, |f| f.into());
+                            SP_PUT!(0, r);
                             SP_GO!(1);
-                            if SP_REF!(-1).is_exception() {
+                            if r.is_exception() {
                                 break State::Exception;
                             }
                         } else {

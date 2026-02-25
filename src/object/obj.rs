@@ -382,18 +382,18 @@ impl ObjectImpl {
             .unwrap();
         }
 
-        // get directly referenced children nodes, bind nodes relation
-        {
-            let mut rt = ctx.rt_ptr();
-            let heap = rt.gc_heap_mut();
-            let children = obj.gc_children(heap);
-            if !children.is_empty() {
-                let obj_node = obj.gc_node_ptr();
-                for ch in children {
-                    heap.bind(obj_node, ch);
-                }
-            }
-        }
+        // // get directly referenced children nodes, bind nodes relation
+        // {
+        //     let mut rt = ctx.rt_ptr();
+        //     let heap = rt.gc_heap_mut();
+        //     let children = obj.gc_children(heap);
+        //     if !children.is_empty() {
+        //         let obj_node = obj.gc_node_ptr();
+        //         for ch in children {
+        //             heap.bind(obj_node, ch);
+        //         }
+        //     }
+        // }
 
         Ok(obj)
     }

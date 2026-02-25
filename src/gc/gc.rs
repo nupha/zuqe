@@ -57,18 +57,13 @@ impl RuntimeImpl {
         self.gc_top_scope
     }
 
-    /// alloc data in given gc scope
+    /// alloc data in given gc partition_id
     pub(crate) fn gc_alloc_in<T: GcNode>(
         &mut self,
-        scope_id: GcPartitionId,
+        partition_id: GcPartitionId,
         data: T,
     ) -> Result<GcRef<T>, (GcError, T)> {
-        let r = self.gc_heap_mut().alloc(scope_id, data)?;
-
-        // trace data's children nodes to mark possible cross reference
-        // for n in r.node_info().gc_children(self.gc_heap()) {
-        //     self.gc_heap_mut().set_xref(scope_id, n);
-        // }
+        let r = self.gc_heap_mut().alloc(partition_id, data)?;
 
         if self.gc_top_scope().should_gc() {
             self.gc_req = true;
@@ -104,7 +99,8 @@ impl RuntimeImpl {
         if let Some(f) = self.gc_cur_job_trace.as_ref() {
             f(&mut gcx);
         }
-        for n in gcx.next_node() {
+
+        for n in gcx.take_nodes() {
             if unsafe { n.as_ref().partition_id() } == partition_id {
                 self.gc_heap_mut().add_gray_node(n);
             }
