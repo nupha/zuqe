@@ -92,7 +92,7 @@ fn js_function_bind(cc: CallContext) -> JSResult {
 
     let name = cc.this().get_property(ctx, Atom::CONST_name)?;
     let name = if let JSValue::String(s) = name {
-        s
+        s.gc_ref().to_local(ctx.gc_heap())
     } else {
         Atom::CONST_empty_string.force_string(ctx)?
     };
@@ -117,7 +117,7 @@ fn js_function_toString(cc: CallContext) -> JSResult {
         if let Some(debug) = bc.debug.as_ref()
             && let Some(s) = debug.source.as_deref()
         {
-            return ctx.create_string_from_str(s).map(JSValue::String);
+            return ctx.create_string_from_str(s).map(JSValue::from);
         }
         bc.func_kind()
     } else {
@@ -136,7 +136,7 @@ fn js_function_toString(cc: CallContext) -> JSResult {
         name = Atom::CONST_empty_string.force_string(ctx)?.into();
     }
 
-    JS_ConcatString3(ctx, pref, name, suff).map(JSValue::String)
+    JS_ConcatString3(ctx, pref, name, suff).map(JSValue::from)
 }
 
 fn js_function_hasInstance(cc: CallContext) -> JSResult {
@@ -155,7 +155,7 @@ fn js_function_proto_fileName(cc: CallContext) -> JSResult {
             .bc_function()
             .and_then(|x| x.bytecode().debug.as_ref().map(|d| d.filename))
     }) {
-        filename.force_string(ctx).map(JSValue::String)
+        filename.force_string(ctx).map(JSValue::from)
     } else {
         Ok(JSValue::UNDEFINED)
     }

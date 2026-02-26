@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::borrow::Cow;
-
+use gc_lite::{GcLocal, GcNode};
 use smallvec::SmallVec;
 
 use crate::{
@@ -12,16 +11,16 @@ use crate::{
     context::ContextImpl,
     error::JSResult,
     object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E},
-    string::{StringBuf, StringData, StringRef},
+    string::{StringBuf, StringData, StringImpl, StringRef},
     value::JSValue,
 };
 
 struct JSONStringifyContext {
     replacer_func: JSValue,
-    replacer_props: Option<Vec<StringRef>>,
+    replacer_props: Option<Vec<GcLocal<StringImpl>>>,
     stack: SmallVec<[JSValue; 16]>,
     gap: StringData,
-    empty: StringRef,
+    empty: GcLocal<StringImpl>,
     buf: StringBuf,
 }
 
@@ -41,14 +40,14 @@ impl ContextImpl {
         } else if replacer.is_array(self)? {
             let n = replacer.get_length_prop(self)?;
 
-            let mut keylst = Vec::<StringRef>::new();
+            let mut keylst = Vec::<GcLocal<StringImpl>>::new();
             keylst.try_reserve_exact(n as usize).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })?;
 
             for i in 0..n {
-                let k: StringRef = match replacer.get_property_i64(self, i)? {
+                let k: GcLocal<StringImpl> = match replacer.get_property_i64(self, i)? {
                     JSValue::Object(o) => {
                         if matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
                             JSValue::Object(o).to_string(self)?
@@ -56,7 +55,7 @@ impl ContextImpl {
                             continue; // symbols are ignored
                         }
                     }
-                    JSValue::String(s) => s,
+                    JSValue::String(s) => s.gc_ref().to_local(self.gc_heap()),
                     v if v.is_number() => v.to_string(self)?,
                     _ => {
                         continue; // ignored
@@ -112,15 +111,15 @@ impl ContextImpl {
         let mut wrapper: JSValue = self.create_base_object()?.into();
         wrapper.define_property_value(self, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
 
-        let empty = jsc.empty;
-        let val = js_json_check(self, &jsc, wrapper, obj, empty)?;
+        let empty = &jsc.empty;
+        let val = js_json_check(self, &jsc, wrapper, obj, empty.into())?;
         if val.is_undefined() {
             return Ok(JSValue::UNDEFINED);
         }
 
         js_json_to_str(self, &mut jsc, val, &StringBuf::Empty)?;
         jsc.buf.shrink_to_fit();
-        self.create_string_with_buf(jsc.buf).map(JSValue::String)
+        self.create_string_with_buf(jsc.buf).map(JSValue::from)
     }
 }
 
@@ -132,7 +131,7 @@ fn js_json_check(
     key: StringRef,
 ) -> JSResult {
     let mut val = val;
-    let key = JSValue::String(key);
+    let key = JSValue::from(key.gc_ref());
 
     if val.is_object() {
         let f = val.get_property(ctx, Atom::CONST_toJSON)?;
@@ -271,7 +270,7 @@ fn js_json_to_str(
                         jsc,
                         val,
                         val.get_property_i64(ctx, i)?,
-                        ctx.create_string_from_str(&format!("{i}"))?,
+                        (&ctx.create_string_from_str(&format!("{i}"))?).into(),
                     )?;
                     if v.is_undefined() {
                         v = JSValue::NULL;
@@ -289,12 +288,15 @@ fn js_json_to_str(
                 }
                 jsc.buf.push_u8(b']').unwrap();
             } else {
-                let tab: Cow<[StringRef]> = if let Some(lst) = jsc.replacer_props.as_ref() {
+                let tab: Box<[StringRef]> = if let Some(lst) = jsc.replacer_props.as_ref() {
                     // Unsafe: use raw pointer to avoid borrowing jsc,
                     // because jsc will be borrowed mut later.
                     // guarantee `replacer_props` won't be modified in this function
                     let lst = unsafe { std::slice::from_raw_parts(lst.as_ptr(), lst.len()) };
-                    lst.into()
+                    lst.iter()
+                        .map(|x| x.gc_ref().into())
+                        .collect::<Vec<_>>()
+                        .into()
                 } else {
                     // query own property names.
                     let kvs = val.get_own_property_kvs(

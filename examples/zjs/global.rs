@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ops::Deref;
+
 use colorized::{Colors, colorize_print, colorize_println};
 use zuqe::{CallContext, Callback, Context, JS_PROP_C_W_E, JSResult, JSValue};
 
@@ -30,7 +32,7 @@ fn js_print(cc: CallContext) -> JSResult {
             if inspect {
                 arg.inspect(&ctx)?.to_string()
             } else {
-                format!("{}", arg.to_string(&ctx)?)
+                format!("{}", arg.to_string(&ctx)?.deref())
             },
             color(),
         );

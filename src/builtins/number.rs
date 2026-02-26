@@ -135,7 +135,7 @@ fn js_number_toString(cc: CallContext) -> JSResult {
 
     let s = f64_stringify(d, radix as _, None, JS_DTOA_VAR_FORMAT);
     ctx.create_string_from_utf8(s.into_owned().into_bytes())
-        .map(JSValue::String)
+        .map(JSValue::from)
 }
 
 fn js_number_toPrecision(cc: CallContext) -> JSResult {
@@ -177,7 +177,7 @@ fn js_number_toPrecision(cc: CallContext) -> JSResult {
         }
     };
 
-    ctx.create_string_from_str(&s).map(JSValue::String)
+    ctx.create_string_from_str(&s).map(JSValue::from)
 }
 
 fn js_number_toExponential(cc: CallContext) -> JSResult {
@@ -211,7 +211,7 @@ fn js_number_toExponential(cc: CallContext) -> JSResult {
         )
     };
 
-    ctx.create_string_from_str(&s).map(JSValue::String)
+    ctx.create_string_from_str(&s).map(JSValue::from)
 }
 
 fn js_number_toFixed(cc: CallContext) -> JSResult {
@@ -229,7 +229,7 @@ fn js_number_toFixed(cc: CallContext) -> JSResult {
     };
 
     ctx.create_string_from_utf8(s.into_bytes())
-        .map(JSValue::String)
+        .map(JSValue::from)
 }
 
 pub const js_number_proto_funcs: &[FieldDef] = &[

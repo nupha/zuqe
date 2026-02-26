@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcLocal, GcTrace, GcTraceCtx};
 
 use crate::{
     atom::{Atom, AtomKind},
@@ -15,7 +15,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{Object, ObjectPayload},
-    string::{CharCode, StringBuf, StringRef},
+    string::{CharCode, StringBuf, StringImpl, StringRef},
     value::{HINT_FORCE_ORDINARY, HINT_NONE, HINT_NUMBER, HINT_STRING, JSValue},
 };
 
@@ -549,7 +549,7 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
 /// - 2: toISOString: "2018-01-02T23:02:56.927Z"
 /// - 3: toLocaleString: "1/2/2018, 11:40:40 PM"
 /// - part: 1=date, 2=time 3=all
-fn datetime_format(ctx: &ContextImpl, tm_val: i64, flags: i32) -> Result<StringRef, i32> {
+fn datetime_format(ctx: &ContextImpl, tm_val: i64, flags: i32) -> Result<GcLocal<StringImpl>, i32> {
     let fmt = (flags >> 4) & 0x0F;
     let part = flags & 0x0F;
 
@@ -888,7 +888,7 @@ pub fn js_date_constructor(cc: CallContext) -> JSResult {
 
     if new_target.is_undefined() {
         // invoked as a function, returns toString()
-        datetime_format(ctx, tm.into(), 0x13).map(JSValue::String)
+        datetime_format(ctx, tm.into(), 0x13).map(JSValue::from)
     } else {
         ctx.create_object_from_ctor(new_target, ObjectPayload::DATE(tm))
             .map(JSValue::Object)
@@ -936,7 +936,7 @@ fn js_date_setTime(mut cc: CallContext) -> JSResult {
 
 fn get_date_string(cc: CallContext) -> JSResult {
     let tm = JS_ThisTimeValue(cc.ctx(), *cc.this())?;
-    datetime_format(cc.ctx(), tm.into(), cc.magic()).map(JSValue::String)
+    datetime_format(cc.ctx(), tm.into(), cc.magic()).map(JSValue::from)
 }
 
 fn js_date_Symbol_toPrimitive(cc: CallContext) -> JSResult {

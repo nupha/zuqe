@@ -7,7 +7,7 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcLocal, GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_STRING,
@@ -207,7 +207,7 @@ impl StringImpl {
     }
 
     /// copy content to make a new string, with given rt.
-    pub(crate) fn copy_to_new(&self, rt: RuntimePtr) -> Result<StringRef, i32> {
+    pub(crate) fn copy_to_new(&self, rt: RuntimePtr) -> Result<GcLocal<StringImpl>, i32> {
         match self.content() {
             StringData::Empty => StringRef::create_internal(rt, StringData::Empty, None),
             StringData::Ident => StringRef::create_internal(rt, StringData::Ident, None),
@@ -236,6 +236,68 @@ impl StringImpl {
             } else {
                 ctx.rt_ptr().take_exception();
                 JSValue::Float64(f64::NAN)
+            }
+        }
+    }
+
+    /// convert String value to String object
+    pub fn objectify(&self, ctx: &ContextImpl, ctor: JSValue) -> Result<Object, i32> {
+        let len = self.len();
+        let mut o = ctx
+            .create_object_from_ctor(ctor, ObjectPayload::STRING(self.gc_ref().into()))
+            .map_err(|_| -1)?;
+
+        o.define_property_value(ctx, Atom::CONST_length, JSValue::from(len as u32), 0)?;
+        Ok(o)
+    }
+
+    /// treat value `other` as string, and concat self with other.
+    pub(crate) fn concat(
+        &self,
+        ctx: &ContextImpl,
+        other: JSValue,
+    ) -> Result<GcLocal<StringImpl>, i32> {
+        let s2 = other.to_string(ctx)?;
+
+        if self.is_empty() {
+            return Ok(s2);
+        } else if s2.is_empty() {
+            return Ok(self.gc_ref().to_local(ctx.rt_ref().gc_heap()));
+        }
+
+        // concat self, s2
+        let buf = self
+            .content()
+            .to_buf()
+            .and_then(|mut sb| sb.push_content(s2.content()).map(|_| sb))
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+
+        StringRef::create(ctx.rt_ptr(), StringData::from_buf(buf))
+    }
+
+    /// make sub string with content of given range.
+    /// range is about buffer index, and end index is exclusive.
+    pub fn sub_string(
+        &self,
+        ctx: &ContextImpl,
+        range: Range<usize>,
+    ) -> Result<GcLocal<StringImpl>, i32> {
+        let end = std::cmp::min(range.end, self.len());
+
+        if range.start == 0 && end == self.len() {
+            Ok(self.gc_ref().to_local(ctx.gc_heap()))
+        } else {
+            let count = end.saturating_sub(range.start);
+            if count > 0 {
+                ctx.create_string_with_buf(self.content().to_buf_range(range).map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?)
+            } else {
+                ctx.create_string_with_content(StringData::Empty)
             }
         }
     }
@@ -293,6 +355,34 @@ impl From<GcRef<StringImpl>> for StringRef {
     }
 }
 
+impl From<GcRef<StringImpl>> for JSValue {
+    #[inline(always)]
+    fn from(value: GcRef<StringImpl>) -> Self {
+        Self::String(StringRef(value))
+    }
+}
+
+impl From<GcLocal<StringImpl>> for JSValue {
+    #[inline(always)]
+    fn from(value: GcLocal<StringImpl>) -> Self {
+        Self::String(StringRef(value.gc_ref()))
+    }
+}
+
+impl From<&GcLocal<StringImpl>> for JSValue {
+    #[inline(always)]
+    fn from(value: &GcLocal<StringImpl>) -> Self {
+        Self::String(StringRef(value.gc_ref()))
+    }
+}
+
+impl From<&GcLocal<StringImpl>> for StringRef {
+    #[inline(always)]
+    fn from(value: &GcLocal<StringImpl>) -> Self {
+        StringRef(value.gc_ref())
+    }
+}
+
 impl From<StringRef> for JSValue {
     #[inline(always)]
     fn from(value: StringRef) -> Self {
@@ -322,7 +412,7 @@ impl StringRef {
         mut rt: RuntimePtr,
         content: StringData,
         atom_info: Option<AtomInfo>,
-    ) -> Result<Self, i32> {
+    ) -> Result<GcLocal<StringImpl>, i32> {
         let s = StringImpl::new(rt, content, atom_info);
         let ss = rt
             .gc_alloc(s)
@@ -330,34 +420,36 @@ impl StringRef {
                 eprintln!("[O.o] alloc error");
                 -1
             })
-            .map(Self)?;
+            .map(|r| r.to_local(rt.gc_heap()))?;
 
         // O.o
         #[cfg(debug_assertions)]
         unsafe {
+            use gc_lite::GcNode;
+
             let t = format!("[StringImpl] {}", ss.encode_utf8(true));
-            ss.gc_ref()
-                .node_ptr()
-                .as_mut()
-                .debug_set_dbg_string(t.into());
+            ss.gc_head_ptr().as_mut().debug_set_dbg_string(t.into());
         }
 
         Ok(ss)
     }
 
     #[inline(always)]
-    pub(crate) fn create(rt: RuntimePtr, content: StringData) -> Result<Self, i32> {
+    pub(crate) fn create(rt: RuntimePtr, content: StringData) -> Result<GcLocal<StringImpl>, i32> {
         Self::create_internal(rt, content, None)
     }
 
     #[inline]
-    pub(crate) fn create_str(rt: RuntimePtr, s: &str) -> Result<Self, i32> {
+    pub(crate) fn create_str(rt: RuntimePtr, s: &str) -> Result<GcLocal<StringImpl>, i32> {
         let sbuf = StringBuf::from_str(s)?;
         Self::create_internal(rt, StringData::from_buf(sbuf), None)
     }
 
     #[inline]
-    pub(crate) fn create_utf8(rt: RuntimePtr, utf8_bytes: Vec<u8>) -> Result<Self, i32> {
+    pub(crate) fn create_utf8(
+        rt: RuntimePtr,
+        utf8_bytes: Vec<u8>,
+    ) -> Result<GcLocal<StringImpl>, i32> {
         let data = StringData::from_buf(StringBuf::from_utf8(utf8_bytes).map_err(|_| -1)?);
         Self::create(rt, data)
     }
@@ -368,73 +460,22 @@ impl StringRef {
         rt: RuntimePtr,
         s: &'static str,
         atom_info: Option<AtomInfo>,
-    ) -> Result<Self, i32> {
+    ) -> Result<GcLocal<StringImpl>, i32> {
         Self::create_internal(rt, StringData::from_static(s), atom_info)
-    }
-
-    /// convert String value to String object
-    pub fn objectify(self, ctx: &ContextImpl, ctor: JSValue) -> Result<Object, i32> {
-        let len = self.len();
-        let mut o = ctx
-            .create_object_from_ctor(ctor, ObjectPayload::STRING(self))
-            .map_err(|_| -1)?;
-
-        o.define_property_value(ctx, Atom::CONST_length, JSValue::from(len as u32), 0)?;
-        Ok(o)
     }
 
     #[inline(always)]
     pub const fn gc_ref(&self) -> GcRef<StringImpl> {
         self.0
     }
-
-    /// make sub string with content of given range.
-    /// range is about buffer index, and end index is exclusive.
-    pub fn sub_string(&self, ctx: &ContextImpl, range: Range<usize>) -> Result<Self, i32> {
-        let end = std::cmp::min(range.end, self.len());
-
-        if range.start == 0 && end == self.len() {
-            Ok(*self)
-        } else {
-            let count = end.saturating_sub(range.start);
-            if count > 0 {
-                ctx.create_string_with_buf(self.content().to_buf_range(range).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?)
-            } else {
-                ctx.create_string_with_content(StringData::Empty)
-            }
-        }
-    }
-
-    /// treat value `other` as string, and concat self with other.
-    pub(crate) fn concat(&self, ctx: &ContextImpl, other: JSValue) -> Result<Self, i32> {
-        let s2 = other.to_string(ctx)?;
-
-        if self.is_empty() {
-            return Ok(s2);
-        } else if s2.is_empty() {
-            return Ok(*self);
-        }
-
-        // concat self, s2
-        let buf = self
-            .content()
-            .to_buf()
-            .and_then(|mut sb| sb.push_content(s2.content()).map(|_| sb))
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
-
-        Self::create(ctx.rt_ptr(), StringData::from_buf(buf))
-    }
 }
 
 impl ContextImpl {
     /// create string value from string buf.
-    pub(crate) fn create_string_with_buf(&self, sbuf: StringBuf) -> Result<StringRef, i32> {
+    pub(crate) fn create_string_with_buf(
+        &self,
+        sbuf: StringBuf,
+    ) -> Result<GcLocal<StringImpl>, i32> {
         if sbuf.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
@@ -447,7 +488,10 @@ impl ContextImpl {
     }
 
     /// create string value from string content.
-    pub(crate) fn create_string_with_content(&self, content: StringData) -> Result<StringRef, i32> {
+    pub(crate) fn create_string_with_content(
+        &self,
+        content: StringData,
+    ) -> Result<GcLocal<StringImpl>, i32> {
         if content.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
@@ -459,7 +503,7 @@ impl ContextImpl {
     }
 
     /// create string from utf8 encoded data.
-    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> Result<StringRef, i32> {
+    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> Result<GcLocal<StringImpl>, i32> {
         if utf8_bytes.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else if utf8_bytes.len() > JS_STRING_LEN_MAX {
@@ -473,7 +517,7 @@ impl ContextImpl {
     }
 
     /// create string from str
-    pub fn create_string_from_str(&self, str: &str) -> Result<StringRef, i32> {
+    pub fn create_string_from_str(&self, str: &str) -> Result<GcLocal<StringImpl>, i32> {
         if unlikely(str.is_empty()) {
             Atom::CONST_empty_string.force_string(self)
         } else if unlikely(str.len() > JS_STRING_LEN_MAX) {
@@ -487,7 +531,7 @@ impl ContextImpl {
     }
 
     /// create string value from a single string char.
-    pub fn create_string_from_char(&self, ch: CharCode) -> Result<StringRef, i32> {
+    pub fn create_string_from_char(&self, ch: CharCode) -> Result<GcLocal<StringImpl>, i32> {
         let sbuf = match ch.encode_utf16(&mut [0; 2]) {
             &[b @ (0..0x80), _] => StringBuf::Ascii(vec![b as u8]),
             bb => StringBuf::Utf16(bb.to_vec()),
@@ -501,9 +545,9 @@ pub(crate) fn JS_ConcatString3(
     str1: &CStr,
     str2: JSValue,
     str3: &CStr,
-) -> Result<StringRef, i32> {
+) -> Result<GcLocal<StringImpl>, i32> {
     let p = if let JSValue::String(s) = str2 {
-        s
+        s.gc_ref().to_local(ctx.gc_heap())
     } else {
         str2.to_string(ctx)?
     };
@@ -553,26 +597,26 @@ impl JSValue {
 
             Self::Int(i) => ctx
                 .create_string_from_utf8(format!("{}", *i).into_bytes())
-                .map(Self::String),
+                .map(Self::from),
             Self::Bool(b) => if *b {
                 Atom::CONST_true
             } else {
                 Atom::CONST_false
             }
             .force_string(ctx)
-            .map(Self::String),
+            .map(Self::from),
             Self::Float64(n) => {
                 let s = f64_stringify(*n, 10, None, JS_DTOA_VAR_FORMAT);
-                ctx.create_string_from_str(s.as_ref()).map(Self::String)
+                ctx.create_string_from_str(s.as_ref()).map(Self::from)
             }
-            Self::NULL => Atom::CONST_null.force_string(ctx).map(Self::String),
-            Self::UNDEFINED => Atom::CONST_undefined.force_string(ctx).map(Self::String),
+            Self::NULL => Atom::CONST_null.force_string(ctx).map(Self::from),
+            Self::UNDEFINED => Atom::CONST_undefined.force_string(ctx).map(Self::from),
 
             Self::Object(_) => self
                 .to_primitive(ctx, HINT_STRING)
                 .and_then(|s| s.to_string_or_symbol(ctx)),
 
-            Self::Bytecode(_) => ctx.create_string_from_str("[bytecode]").map(Self::String),
+            Self::Bytecode(_) => ctx.create_string_from_str("[bytecode]").map(Self::from),
 
             Self::EXCEPTION => {
                 #[cfg(debug_assertions)]
@@ -595,18 +639,17 @@ impl JSValue {
         self.to_string_or_symbol(ctx)
     }
 
-    /// Coerce value `self` to string.
-    /// if `self` is symbol, will return Err.
-    pub fn to_string(&self, ctx: &ContextImpl) -> Result<StringRef, i32> {
+    /// Coerce value `self` to string. if `self` is symbol, returns Err.
+    pub fn to_string(&self, ctx: &ContextImpl) -> Result<GcLocal<StringImpl>, i32> {
         match self {
-            Self::String(s) => Ok(*s),
+            Self::String(s) => Ok(s.gc_ref().to_local(ctx.rt_ref().gc_heap())),
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => {
                 ctx.throw_type_error("cannot convert symbol to string");
                 Err(-1)
             }
             _ => match self.to_string_or_symbol(ctx)? {
-                JSValue::String(s) => Ok(s),
+                JSValue::String(s) => Ok(s.gc_ref().to_local(ctx.rt_ref().gc_heap())),
                 #[cfg(feature = "builtin_symbol")]
                 JSValue::Symbol(_) => {
                     ctx.throw_type_error("cannot convert symbol to string");
@@ -618,8 +661,11 @@ impl JSValue {
     }
 
     /// Coerce value `val` to string, but null or undefined are forbidden.
-    pub fn to_string_non_undefined_or_null(&self, ctx: &ContextImpl) -> Result<StringRef, i32> {
-        if self.is_undefined_or_null() {
+    pub fn to_string_non_undefined_or_null(
+        &self,
+        ctx: &ContextImpl,
+    ) -> Result<GcLocal<StringImpl>, i32> {
+        if unlikely(self.is_undefined_or_null()) {
             ctx.throw_type_error("null or undefined are forbidden");
             Err(-1)
         } else {
@@ -630,7 +676,7 @@ impl JSValue {
     /// Invoking `toLocaleString()` method.
     pub fn to_locale_string(&self, ctx: &ContextImpl) -> Result<JSValue, i32> {
         if self.is_undefined_or_null() {
-            self.to_string(ctx).map(JSValue::String)
+            self.to_string(ctx).map(|s| JSValue::from(s))
         } else {
             self.invoke(ctx, Atom::CONST_toLocaleString, &[])
         }

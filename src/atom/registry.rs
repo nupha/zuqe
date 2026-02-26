@@ -7,6 +7,8 @@ use std::{
     num::NonZeroU16,
 };
 
+use gc_lite::{GcLocal, GcNode};
+
 use crate::{
     RuntimeImpl,
     atom::{is_const_atom, is_small_int_atom},
@@ -147,7 +149,7 @@ impl RuntimeImpl {
     /// Same `str` will return the matched existing atom.
     fn register_atom(&mut self, str: StringRef, mut atom_kind: AtomKind) -> Result<Atom, i32> {
         // match for existing atoms, don't register twice for same content.
-        let (mut desc_str, hash): (StringRef, u32) = match atom_kind {
+        let (mut desc_str, hash): (GcLocal<StringImpl>, u32) = match atom_kind {
             #[cfg(feature = "builtin_symbol")]
             AtomKind::String | AtomKind::GlobalSymbol => {
                 debug_assert!(!str.content().is_ident());
@@ -161,7 +163,7 @@ impl RuntimeImpl {
                     // make new string with same content under given runtime, without atom info
                     str.copy_to_new(self.into())?
                 } else {
-                    str
+                    str.gc_ref().to_local(self.gc_heap())
                 };
 
                 let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
@@ -254,18 +256,17 @@ impl RuntimeImpl {
             #[cfg(feature = "builtin_symbol")]
             AtomKind::Symbol | AtomKind::Private => {
                 // these atom types are distinct, even they have same string content.
-                let ss = if str.content().is_ident() {
+                let ss: GcLocal<StringImpl> = if str.content().is_ident() {
                     debug_assert_eq!(
                         atom_kind,
                         AtomKind::Symbol,
                         "ident string type is only for anonymous symbol"
                     );
-                    str
+                    str.gc_ref().to_local(self.gc_heap())
                 } else if str.atom_info().is_some() {
-                    // clone content as a new jsstring
-                    str.copy_to_new(self.into())?
+                    str.copy_to_new(self.into())? // clone content as a new jsstring
                 } else {
-                    str
+                    str.gc_ref().to_local(self.gc_heap())
                 };
 
                 let hash = if atom_kind == AtomKind::Symbol {
@@ -318,15 +319,14 @@ impl RuntimeImpl {
             }
         }
 
-        desc_str.set_atom_info(AtomInfo::new(
+        desc_str.gc_ref().set_atom_info(AtomInfo::new(
             unsafe { NonZeroU16::new_unchecked(atom_id) },
             atom_kind,
             hash,
         ));
 
         let xref = self.gc_part_id();
-        self.gc_heap_mut()
-            .set_xref(xref, desc_str.gc_ref().node_ptr());
+        self.gc_heap_mut().set_xref(xref, desc_str.gc_head_ptr());
 
         if let Some(i) = idx {
             debug_assert_eq!(i, atom_id as usize - ATOM_CONST_COUNT as usize - 1);
@@ -334,9 +334,12 @@ impl RuntimeImpl {
                 self.atom_registry.user_atoms[i].is_none(),
                 "atom slot {i} is in use"
             );
-            self.atom_registry.user_atoms[i].replace(desc_str);
+            self.atom_registry.user_atoms[i].replace(desc_str.gc_ref().into());
         } else {
-            self.atom_registry.user_atoms.push(Some(desc_str));
+            self.atom_registry
+                .user_atoms
+                .push(Some(desc_str.gc_ref().into()));
+
             debug_assert_eq!(
                 self.atom_registry.user_atoms.len(),
                 atom_id as usize - ATOM_CONST_COUNT as usize
@@ -448,7 +451,7 @@ impl Atom {
             Ok(Self::new_small_int(i))
         } else {
             let s = StringRef::create_str(rt, str)?;
-            Self::from_string(rt, s, kind)
+            Self::from_string(rt, (&s).into(), kind)
         }
     }
 
@@ -457,7 +460,7 @@ impl Atom {
             Ok(Self::new_small_int(n as u32))
         } else {
             let s = StringRef::create_utf8(rt, format!("{n}").into_bytes())?;
-            Self::from_string(rt, s, AtomKind::String)
+            Self::from_string(rt, (&s).into(), AtomKind::String)
         }
     }
 

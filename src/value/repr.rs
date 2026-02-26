@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ops::Deref;
+
+use gc_lite::GcLocal;
+
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
     JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom, context::ContextImpl, number::f64_stringify,
-    object::Object, string::StringRef,
+    object::Object, string::StringImpl,
 };
 
 use super::JSValue;
@@ -77,14 +81,14 @@ impl Object {
     }
 
     pub fn inspect(&self, ctx: &ContextImpl) -> Result<String, i32> {
-        let tag: StringRef;
+        let tag: GcLocal<StringImpl>;
 
         #[cfg(feature = "builtin_symbol")]
         {
             tag = if let JSValue::String(s) =
                 self.get_property(ctx, Atom::CONST_Symbol_toStringTag)?
             {
-                s
+                s.gc_ref().to_local(ctx.gc_heap())
             } else {
                 self.string_tag(ctx).and_then(|a| a.force_string(ctx))?
             };
@@ -95,6 +99,6 @@ impl Object {
             tag = self.to_string_tag(ctx).and_then(|a| a.force_string(ctx))?;
         }
 
-        Ok(format!("[object {tag}]"))
+        Ok(format!("[object {}]", tag.deref()))
     }
 }

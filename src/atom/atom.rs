@@ -3,7 +3,7 @@
 
 use std::borrow::Cow;
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcLocal, GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     RuntimeImpl,
@@ -11,7 +11,7 @@ use crate::{
     context::ContextImpl,
     number::IntOrFloat,
     runtime::RuntimePtr,
-    string::{CharCode, StringRef},
+    string::{CharCode, StringImpl, StringRef},
     value::JSValue,
 };
 
@@ -228,13 +228,13 @@ impl Atom {
     pub fn to_value(&self, ctx: &ContextImpl) -> Result<JSValue, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
-                .map(JSValue::String)
+                .map(JSValue::from)
         } else {
             let s = *self.descriptor(ctx.rt_ref());
             match s.atom_info().unwrap().kind() {
-                AtomKind::String => Ok(JSValue::String(s)),
+                AtomKind::String => Ok(JSValue::from(s)),
                 #[cfg(feature = "builtin_symbol")]
-                AtomKind::Private => Ok(JSValue::String(s)),
+                AtomKind::Private => Ok(JSValue::from(s)),
                 #[cfg(feature = "builtin_symbol")]
                 AtomKind::Symbol | AtomKind::GlobalSymbol => Ok(JSValue::Symbol(s)),
             }
@@ -243,15 +243,15 @@ impl Atom {
 
     /// force convert atom to string value.
     /// for anonymous symbol, ident convert to empty string value.
-    pub fn force_string(&self, ctx: &ContextImpl) -> Result<StringRef, i32> {
+    pub fn force_string(&self, ctx: &ContextImpl) -> Result<GcLocal<StringImpl>, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}").into_bytes())
         } else {
-            let s = *self.descriptor(ctx.rt_ref());
+            let s = self.descriptor(ctx.rt_ref());
             if s.content().is_ident() {
                 Self::CONST_empty_string.force_string(ctx)
             } else {
-                Ok(s)
+                Ok(s.gc_ref().to_local(ctx.gc_heap()))
             }
         }
     }
@@ -321,22 +321,22 @@ pub const JS_ATOM_TAG_INT: u32 = 1 << 31;
 pub const JS_ATOM_MAX_INT: u32 = JS_ATOM_TAG_INT - 1;
 pub const JS_ATOM_MAX: u32 = u16::MAX as u32 - 1;
 
-impl StringRef {
+impl StringImpl {
     /// convert string to atom. if string is not registered as atom yet, do registration.
-    pub(crate) fn to_atom(self, rt: RuntimePtr, kind: AtomKind) -> Result<Atom, i32> {
+    pub(crate) fn to_atom(&self, rt: RuntimePtr, kind: AtomKind) -> Result<Atom, i32> {
         if let Some(a) = self.atom_info() {
             // str already registered as atom
             Ok(Atom::from_id(a.id()))
         } else {
             // register as atom
-            Atom::from_string(rt, self, kind)
+            Atom::from_string(rt, self.gc_ref().into(), kind)
         }
     }
 }
 
 impl ContextImpl {
     /// create or reuse an Atom from `str`
-    pub fn create_atom_string(&self, str: &str) -> Result<StringRef, i32> {
+    pub fn create_atom_string(&self, str: &str) -> Result<GcLocal<StringImpl>, i32> {
         let atom = Atom::new(self.rt_ptr(), str)?;
         atom.force_string(self)
     }

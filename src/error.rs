@@ -98,7 +98,7 @@ impl ContextImpl {
             let _ = o.define_property_value(
                 self,
                 Atom::CONST_message,
-                s.map_or(JSValue::EXCEPTION, JSValue::String),
+                s.map_or(JSValue::EXCEPTION, JSValue::from),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             );
 
@@ -239,7 +239,7 @@ impl ContextImpl {
             error_obj.define_property_value(
                 self,
                 Atom::CONST_fileName,
-                str.map_or(JSValue::UNDEFINED, JSValue::String),
+                str.map_or(JSValue::UNDEFINED, JSValue::from),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )?;
             error_obj.define_property_value(
@@ -318,7 +318,7 @@ impl ContextImpl {
     ) {
         let traceback = if let Ok(s) = self.do_build_backtrace(target, file_line, backtrace_flags) {
             self.create_string_from_utf8(s.into_bytes())
-                .map_or(JSValue::UNDEFINED, JSValue::String)
+                .map_or(JSValue::UNDEFINED, JSValue::from)
         } else {
             JSValue::NULL
         };

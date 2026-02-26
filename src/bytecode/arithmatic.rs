@@ -449,7 +449,7 @@ impl JSValue {
                     op2 = b.to_primitive(ctx, HINT_NONE)?;
                 }
                 (a @ JSValue::String(_), b) | (a, b @ JSValue::String(_)) => {
-                    return a.to_string(ctx)?.concat(ctx, b).map(JSValue::String);
+                    return a.to_string(ctx)?.concat(ctx, b).map(JSValue::from);
                 }
                 (a, b) => {
                     op1 = a.to_number(ctx)?;

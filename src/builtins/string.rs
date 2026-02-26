@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ops::Deref;
+
+use gc_lite::{GcLocal, GcNode};
 #[cfg(feature = "all_unicode")]
 use unicode_normalization::UnicodeNormalization;
 
@@ -68,21 +71,19 @@ fn js_string_at(cc: CallContext) -> JSResult {
 
     if buf_idx < 0 || buf_idx >= buf_len {
         match what {
-            0 => Atom::CONST_empty_string
-                .force_string(cx)
-                .map(JSValue::String),
+            0 => Atom::CONST_empty_string.force_string(cx).map(JSValue::from),
             1 => Ok(JSValue::UNDEFINED),
             2 => Ok(JSValue::Float64(f64::NAN)),
             _ => unreachable!(),
         }
     } else {
-        let code = str.get(buf_idx as usize).unwrap();
+        let code = str.deref().get(buf_idx as usize).unwrap();
         if what == 2 {
             // charCodeAt() returns int
             Ok(JSValue::Int(code as i32))
         } else {
             // charAt(), at() returns string
-            cx.create_string_from_char(code.into()).map(JSValue::String)
+            cx.create_string_from_char(code.into()).map(JSValue::from)
         }
     }
 }
@@ -133,7 +134,7 @@ fn js_string_toWellFormed(cc: CallContext) -> JSResult {
                 buf.extend_from_slice(cc.char().unwrap_or('\u{FFFD}').encode_utf16(&mut [0; 2]));
             }
 
-            return ctx.create_string_with_buf(buf.into()).map(JSValue::String);
+            return ctx.create_string_with_buf(buf.into()).map(JSValue::from);
         }
     }
 
@@ -260,7 +261,11 @@ fn js_string_replace(cc: CallContext) -> JSResult {
                     .call(
                         ctx,
                         JSValue::UNDEFINED,
-                        &[search_for.into(), JSValue::from(pos as u32), str.into()],
+                        &[
+                            search_for.gc_ref().into(),
+                            JSValue::from(pos as u32),
+                            str.gc_ref().into(),
+                        ],
                     )
                     .and_then(|v| v.to_string(ctx))
             } else {
@@ -322,7 +327,7 @@ fn js_string_replace(cc: CallContext) -> JSResult {
     }
 
     // create result string
-    ctx.create_string_with_buf(res_string).map(JSValue::String)
+    ctx.create_string_with_buf(res_string).map(JSValue::from)
 }
 
 fn js_string_split(cc: CallContext) -> JSResult {
@@ -427,7 +432,7 @@ fn js_string_substring(cc: CallContext) -> JSResult {
     let (start, end) = if a < b { (a, b) } else { (b, a) };
 
     p.sub_string(cx, start as usize..end as usize)
-        .map(JSValue::String)
+        .map(JSValue::from)
 }
 
 fn js_string_substr(cc: CallContext) -> JSResult {
@@ -444,7 +449,7 @@ fn js_string_substr(cc: CallContext) -> JSResult {
     };
 
     p.sub_string(ctx, a as usize..(a + n) as usize)
-        .map(JSValue::String)
+        .map(JSValue::from)
 }
 
 fn js_string_slice(cc: CallContext) -> JSResult {
@@ -460,7 +465,7 @@ fn js_string_slice(cc: CallContext) -> JSResult {
     };
 
     p.sub_string(cx, start as usize..std::cmp::max(end, start) as usize)
-        .map(JSValue::String)
+        .map(JSValue::from)
 }
 
 fn js_string_pad(cc: CallContext) -> JSResult {
@@ -477,7 +482,7 @@ fn js_string_pad(cc: CallContext) -> JSResult {
     }
     ttl_len -= len;
 
-    let mut fill_str: Option<StringRef> = None;
+    let mut fill_str: Option<GcLocal<StringImpl>> = None;
     let mut fill_char = CharCode::Char(' ');
 
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
@@ -544,7 +549,7 @@ fn js_string_pad(cc: CallContext) -> JSResult {
         })?;
     }
 
-    cx.create_string_with_buf(sbuf).map(JSValue::String)
+    cx.create_string_with_buf(sbuf).map(JSValue::from)
 }
 
 fn js_string_repeat(cc: CallContext) -> JSResult {
@@ -580,7 +585,7 @@ fn js_string_repeat(cc: CallContext) -> JSResult {
     }
     res_string.shrink_to_fit();
 
-    cx.create_string_with_buf(res_string).map(JSValue::String)
+    cx.create_string_with_buf(res_string).map(JSValue::from)
 }
 
 fn js_string_includes(cc: CallContext) -> JSResult {
@@ -744,7 +749,7 @@ fn js_string_match(cc: CallContext) -> JSResult {
             ctor.call_ctor(ctx, &args[0..args_len])?
         };
 
-        let str = JSValue::String(this.to_string_non_undefined_or_null(ctx)?);
+        let str = JSValue::from(this.to_string_non_undefined_or_null(ctx)?);
         regexp_obj.invoke(ctx, method_name, std::slice::from_ref(&str))
     }
 
@@ -763,7 +768,7 @@ fn js_string_trim(cc: CallContext) -> JSResult {
         -1
     })?;
     s.trim(cc.magic() & 1 != 0, cc.magic() & 2 != 0);
-    ctx.create_string_with_buf(s).map(JSValue::String)
+    ctx.create_string_with_buf(s).map(JSValue::from)
 }
 
 pub fn string_cmp(p1: &StringImpl, p2: &StringImpl, x1: usize, x2: usize, len: usize) -> i32 {
@@ -798,7 +803,7 @@ pub fn string_cmp(p1: &StringImpl, p2: &StringImpl, x1: usize, x2: usize, len: u
 
 /// also used for String.prototype.valueOf
 fn js_string_toString(cc: CallContext) -> Result<JSValue, i32> {
-    js_thisStringValue(cc.ctx(), *cc.this()).map(JSValue::String)
+    js_thisStringValue(cc.ctx(), *cc.this()).map(JSValue::from)
 }
 
 #[inline]
@@ -858,7 +863,7 @@ fn js_string_toLowerCase(cc: CallContext) -> JSResult {
                 s.to_uppercase()
             };
             if t.eq(s) {
-                return Ok(JSValue::String(p));
+                return Ok(JSValue::from(p));
             }
             StringBuf::from_utf8(t.into_bytes())?
         }
@@ -867,7 +872,7 @@ fn js_string_toLowerCase(cc: CallContext) -> JSResult {
         }
     };
 
-    ctx.create_string_with_buf(sbuf).map(JSValue::String)
+    ctx.create_string_with_buf(sbuf).map(JSValue::from)
 }
 
 #[cfg(feature = "all_unicode")]
@@ -944,7 +949,7 @@ fn js_string_normalize(cc: CallContext) -> JSResult {
     };
 
     cx.create_string_from_utf8(ns.into_bytes())
-        .map(JSValue::String)
+        .map(JSValue::from)
 }
 
 // non-standard
@@ -1034,7 +1039,7 @@ fn js_string_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResu
                 if let Some((span, c)) = ss.content().chars_since(it.index() as usize).next() {
                     it.set_index(span.end as u32);
                     *state = IteratorState::NotDone;
-                    ctx.create_string_from_char(c).map(JSValue::String)
+                    ctx.create_string_from_char(c).map(JSValue::from)
                 } else {
                     it.set_value(JSValue::UNDEFINED);
                     *state = IteratorState::Done;
@@ -1072,7 +1077,7 @@ fn js_string_fromCharCode(cc: CallContext) -> JSResult {
         })?;
     }
 
-    ctx.create_string_with_buf(sbuf).map(JSValue::String)
+    ctx.create_string_with_buf(sbuf).map(JSValue::from)
 }
 
 fn js_string_fromCodePoint(cc: CallContext) -> JSResult {
@@ -1118,7 +1123,7 @@ fn js_string_fromCodePoint(cc: CallContext) -> JSResult {
         }
     }
 
-    ctx.create_string_with_buf(sbuf).map(JSValue::String)
+    ctx.create_string_with_buf(sbuf).map(JSValue::from)
 }
 
 fn js_string_raw(cc: CallContext) -> JSResult {
@@ -1148,7 +1153,7 @@ fn js_string_raw(cc: CallContext) -> JSResult {
         }
     }
 
-    ctx.create_string_with_buf(sbuf).map(JSValue::String)
+    ctx.create_string_with_buf(sbuf).map(JSValue::from)
 }
 
 pub const js_string_funcs: &[FieldDef] = &[

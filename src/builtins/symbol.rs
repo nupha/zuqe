@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use gc_lite::{GcLocal, GcNode};
+
 use crate::{
     atom::{Atom, AtomKind},
     context::ContextImpl,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::JS_PROP_CONFIGURABLE,
-    string::{StringData, StringRef},
+    string::{StringData, StringImpl, StringRef},
     value::JSValue,
 };
 
@@ -22,19 +24,16 @@ impl ContextImpl {
             "{atom_kind:?}"
         );
 
-        let atom = Atom::from_string_as_is(
-            self.rt_ptr(),
-            if let Some(s) = str {
-                s
-            } else {
-                debug_assert_eq!(atom_kind, AtomKind::Symbol);
-                StringRef::create(self.rt_ptr(), StringData::Ident).map_err(|_| {
-                    self.throw_out_of_memory();
-                    -1
-                })?
-            },
-            atom_kind,
-        )?;
+        let atom = if let Some(s) = str {
+            Atom::from_string_as_is(self.rt_ptr(), s, atom_kind)?
+        } else {
+            debug_assert_eq!(atom_kind, AtomKind::Symbol);
+            let s = StringRef::create(self.rt_ptr(), StringData::Ident).map_err(|_| {
+                self.throw_out_of_memory();
+                -1
+            })?;
+            Atom::from_string_as_is(self.rt_ptr(), (&s).into(), atom_kind)?
+        };
 
         let sym = JSValue::Symbol(*atom.descriptor(self.rt_ref()));
         Ok(sym)
@@ -69,12 +68,12 @@ pub fn js_symbol_constructor(cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let str: Option<StringRef> = if cc.arg(0).is_undefined() {
+    let str: Option<GcLocal<StringImpl>> = if cc.arg(0).is_undefined() {
         None
     } else {
         Some(cc.arg(0).to_string(ctx)?)
     };
-    ctx.create_symbol(str, AtomKind::Symbol)
+    ctx.create_symbol(str.map(|s| (&s).into()), AtomKind::Symbol)
 }
 
 //
@@ -97,7 +96,7 @@ fn js_symbol_toString(cc: CallContext) -> JSResult {
     let val = js_thisSymbolValue(ctx, *cc.this())?;
     // formatted as 'Symbol(XXX)'
     ctx.create_string_from_utf8(val.inspect(ctx)?.into_bytes())
-        .map(JSValue::String)
+        .map(JSValue::from)
 }
 
 fn js_symbol_valueOf(cc: CallContext) -> JSResult {
@@ -129,7 +128,8 @@ pub const js_symbol_proto_funcs: &[FieldDef] = &[
 
 fn js_symbol_for(cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(cc.ctx())?;
-    cc.ctx().create_symbol(Some(s), AtomKind::GlobalSymbol)
+    cc.ctx()
+        .create_symbol(Some((&s).into()), AtomKind::GlobalSymbol)
 }
 
 fn js_symbol_keyFor(cc: CallContext) -> JSResult {
@@ -137,7 +137,7 @@ fn js_symbol_keyFor(cc: CallContext) -> JSResult {
         if s.atom_info().unwrap().kind() != AtomKind::GlobalSymbol {
             Ok(JSValue::UNDEFINED)
         } else {
-            Ok(JSValue::String(*s))
+            Ok(JSValue::from(*s))
         }
     } else {
         cc.ctx().throw_type_error_not_a_symbol();

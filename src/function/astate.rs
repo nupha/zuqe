@@ -185,8 +185,6 @@ impl AsyncStateImpl {
         this_obj: JSValue,
         args: &[JSValue],
     ) -> JSResult {
-        debug_assert!(self.gc_head().is_protected());
-
         caller_ctx.poll_interrupts()?;
 
         let throw_flag = self.throw_flag;

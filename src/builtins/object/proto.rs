@@ -25,7 +25,7 @@ pub(crate) fn js_object_toString(cc: CallContext) -> JSResult {
     };
 
     cx.create_string_from_utf8(txt.into_bytes())
-        .map(JSValue::String)
+        .map(JSValue::from)
 }
 
 pub(crate) fn js_object_toLocaleString(cc: CallContext) -> JSResult {

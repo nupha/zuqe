@@ -131,7 +131,7 @@ fn js_string_codePointRange(cc: CallContext) -> JSResult {
                 .as_bytes(),
         );
     }
-    cc.ctx().create_string_from_utf8(buf).map(JSValue::String)
+    cc.ctx().create_string_from_utf8(buf).map(JSValue::from)
 }
 
 fn js_createRealm(cc: CallContext) -> JSResult {

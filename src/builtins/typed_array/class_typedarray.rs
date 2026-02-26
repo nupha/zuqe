@@ -458,7 +458,7 @@ fn js_typed_array_get_toStringTag(cc: CallContext) -> JSResult {
         ctx.rt_ptr().class_registry[ta.class_id() as usize]
             .class_name
             .force_string(ctx)
-            .map(JSValue::String)
+            .map(JSValue::from)
     } else {
         Ok(JSValue::UNDEFINED)
     }
@@ -1206,7 +1206,7 @@ fn js_typed_array_join(cc: CallContext) -> JSResult {
     }
 
     sbuf.shrink_to_fit();
-    ctx.create_string_with_buf(sbuf).map(JSValue::String)
+    ctx.create_string_with_buf(sbuf).map(JSValue::from)
 }
 
 fn js_typed_array_indexOf(cc: CallContext) -> JSResult {

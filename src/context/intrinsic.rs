@@ -295,7 +295,7 @@ impl ContextPtr {
             let mut o = self
                 .create_object_with_proto(
                     self.class_proto(JS_CLASS_OBJECT),
-                    ObjectPayload::STRING(empty_str),
+                    ObjectPayload::STRING((&empty_str).into()),
                 )
                 .unwrap();
 

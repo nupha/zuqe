@@ -2229,7 +2229,7 @@ impl Bytecode {
                         SP_PUT!(
                             -1,
                             atom.force_string(&realm)
-                                .map_or(JSValue::EXCEPTION, JSValue::String)
+                                .map_or(JSValue::EXCEPTION, JSValue::from)
                         );
                     }
                     OpCode::DELETE => {

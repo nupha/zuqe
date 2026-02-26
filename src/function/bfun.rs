@@ -299,7 +299,7 @@ pub fn js_function_set_properties(ctx: &ContextImpl, mut func_obj: Object, name:
         ctx,
         Atom::CONST_name,
         name.force_string(ctx)
-            .map_or(JSValue::EXCEPTION, JSValue::String),
+            .map_or(JSValue::EXCEPTION, JSValue::from),
         JS_PROP_CONFIGURABLE,
     );
 }

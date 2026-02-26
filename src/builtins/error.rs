@@ -57,7 +57,7 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
         obj.define_property_value(
             ctx,
             Atom::CONST_message,
-            msg.into(),
+            msg.gc_ref().into(),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
     }
@@ -146,7 +146,7 @@ pub fn js_error_toString(cc: CallContext) -> JSResult {
         (true, true) => "".into(),
     };
 
-    cc.ctx().create_string_from_str(&txt).map(JSValue::String)
+    cc.ctx().create_string_from_str(&txt).map(JSValue::from)
 }
 
 pub const js_error_proto_funcs: &[FieldDef] = &[

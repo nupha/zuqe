@@ -43,7 +43,7 @@ fn js_boolean_toString(cc: CallContext) -> JSResult {
         }
     }
     .force_string(ctx)
-    .map(JSValue::String)
+    .map(JSValue::from)
 }
 
 fn js_boolean_valueOf(cc: CallContext) -> JSResult {

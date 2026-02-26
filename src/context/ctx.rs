@@ -10,7 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcHeap, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
@@ -197,6 +197,16 @@ impl ContextImpl {
     #[inline(always)]
     pub fn rt_mut(&mut self) -> &mut RuntimeImpl {
         &mut self.rt
+    }
+
+    #[inline(always)]
+    pub fn gc_heap(&self) -> &GcHeap {
+        self.rt.gc_heap()
+    }
+
+    #[inline(always)]
+    pub fn gc_heap_mut(&mut self) -> &mut GcHeap {
+        self.rt.gc_heap_mut()
     }
 
     /// get global object
@@ -387,7 +397,7 @@ impl ContextPtr {
                 err.define_property_value(
                     self,
                     Atom::CONST_name,
-                    JSValue::String(name),
+                    JSValue::from(name),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
                 .unwrap();
@@ -395,7 +405,7 @@ impl ContextPtr {
                 err.define_property_value(
                     self,
                     Atom::CONST_message,
-                    JSValue::String(msg),
+                    JSValue::from(&msg),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
                 .unwrap();
