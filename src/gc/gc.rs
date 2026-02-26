@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use gc_lite::{
-    GcError, GcHeap, GcNode, GcPartition, GcPartitionId, GcRef, GcTrace, GcTraceCtx,
+    GcError, GcHeap, GcLocal, GcNode, GcPartition, GcPartitionId, GcRef, GcTrace, GcTraceCtx,
     gc_type_register,
 };
 
@@ -71,9 +71,27 @@ impl RuntimeImpl {
         Ok(r)
     }
 
+    /// alloc data in given gc partition_id
+    pub(crate) fn gc_alloc_local_in<T: GcNode>(
+        &mut self,
+        partition_id: GcPartitionId,
+        data: T,
+    ) -> Result<GcLocal<T>, (GcError, T)> {
+        let r = self.gc_heap_mut().alloc_local(partition_id, data)?;
+        if self.gc_top_scope().should_gc() {
+            self.gc_req = true;
+        }
+        Ok(r)
+    }
+
     #[inline(always)]
     pub fn gc_alloc<T: GcNode>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         self.gc_alloc_in(self.gc_part_id(), data)
+    }
+
+    #[inline(always)]
+    pub fn gc_alloc_local<T: GcNode>(&mut self, data: T) -> Result<GcLocal<T>, (GcError, T)> {
+        self.gc_alloc_local_in(self.gc_part_id(), data)
     }
 
     /// collect garbage

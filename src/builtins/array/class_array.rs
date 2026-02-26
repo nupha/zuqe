@@ -759,7 +759,7 @@ pub(crate) fn js_array_join(cc: CallContext) -> JSResult {
             let ss: LocalString = if to_locale_string {
                 el.to_locale_string(cx)?.to_string(cx)?
             } else if let JSValue::String(s) = el {
-                LocalString::from(s.gc_ref().to_local(cx.rt_ref().gc_heap()))
+                s.to_local()
             } else {
                 el.to_string(cx)?
             };

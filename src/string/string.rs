@@ -207,7 +207,7 @@ impl StringImpl {
     }
 
     /// copy content to make a new string, with given rt.
-    pub(crate) fn copy_to_new(&self, rt: RuntimePtr) -> Result<GcLocal<StringImpl>, i32> {
+    pub(crate) fn copy_to_new(&self, rt: RuntimePtr) -> Result<LocalString, i32> {
         match self.content() {
             StringData::Empty => StringRef::create_internal(rt, StringData::Empty, None),
             StringData::Ident => StringRef::create_internal(rt, StringData::Ident, None),
@@ -240,6 +240,11 @@ impl StringImpl {
         }
     }
 
+    #[inline(always)]
+    pub fn to_local(&self) -> LocalString {
+        LocalString::from(self.gc_ref().to_local(self.rt().gc_heap()))
+    }
+
     /// convert String value to String object
     pub fn objectify(&self, ctx: &ContextImpl, ctor: JSValue) -> Result<Object, i32> {
         let len = self.len();
@@ -258,9 +263,7 @@ impl StringImpl {
         if self.is_empty() {
             return Ok(s2);
         } else if s2.is_empty() {
-            return Ok(LocalString::from(
-                self.gc_ref().to_local(ctx.rt_ref().gc_heap()),
-            ));
+            return Ok(self.to_local());
         }
 
         // concat self, s2
@@ -282,7 +285,7 @@ impl StringImpl {
         let end = std::cmp::min(range.end, self.len());
 
         if range.start == 0 && end == self.len() {
-            Ok(LocalString::from(self.gc_ref().to_local(ctx.gc_heap())))
+            Ok(self.to_local())
         } else {
             let count = end.saturating_sub(range.start);
             if count > 0 {
@@ -482,15 +485,15 @@ impl StringRef {
         mut rt: RuntimePtr,
         content: StringData,
         atom_info: Option<AtomInfo>,
-    ) -> Result<GcLocal<StringImpl>, i32> {
+    ) -> Result<LocalString, i32> {
         let s = StringImpl::new(rt, content, atom_info);
         let ss = rt
-            .gc_alloc(s)
+            .gc_alloc_local(s)
             .map_err(|_| {
                 eprintln!("[O.o] alloc error");
                 -1
             })
-            .map(|r| r.to_local(rt.gc_heap()))?;
+            .map(LocalString)?;
 
         // O.o
         #[cfg(debug_assertions)]
@@ -505,21 +508,18 @@ impl StringRef {
     }
 
     #[inline(always)]
-    pub(crate) fn create(rt: RuntimePtr, content: StringData) -> Result<GcLocal<StringImpl>, i32> {
+    pub(crate) fn create(rt: RuntimePtr, content: StringData) -> Result<LocalString, i32> {
         Self::create_internal(rt, content, None)
     }
 
     #[inline]
-    pub(crate) fn create_str(rt: RuntimePtr, s: &str) -> Result<GcLocal<StringImpl>, i32> {
+    pub(crate) fn create_str(rt: RuntimePtr, s: &str) -> Result<LocalString, i32> {
         let sbuf = StringBuf::from_str(s)?;
         Self::create_internal(rt, StringData::from_buf(sbuf), None)
     }
 
     #[inline]
-    pub(crate) fn create_utf8(
-        rt: RuntimePtr,
-        utf8_bytes: Vec<u8>,
-    ) -> Result<GcLocal<StringImpl>, i32> {
+    pub(crate) fn create_utf8(rt: RuntimePtr, utf8_bytes: Vec<u8>) -> Result<LocalString, i32> {
         let data = StringData::from_buf(StringBuf::from_utf8(utf8_bytes).map_err(|_| -1)?);
         Self::create(rt, data)
     }
@@ -530,7 +530,7 @@ impl StringRef {
         rt: RuntimePtr,
         s: &'static str,
         atom_info: Option<AtomInfo>,
-    ) -> Result<GcLocal<StringImpl>, i32> {
+    ) -> Result<LocalString, i32> {
         Self::create_internal(rt, StringData::from_static(s), atom_info)
     }
 
@@ -622,7 +622,7 @@ pub(crate) fn JS_ConcatString3(
     str3: &CStr,
 ) -> Result<LocalString, i32> {
     let p = if let JSValue::String(s) = str2 {
-        LocalString::from(s.gc_ref().to_local(ctx.gc_heap()))
+        s.to_local()
     } else {
         str2.to_string(ctx)?
     };
@@ -717,18 +717,14 @@ impl JSValue {
     /// Coerce value `self` to string. if `self` is symbol, returns Err.
     pub fn to_string(&self, ctx: &ContextImpl) -> Result<LocalString, i32> {
         match self {
-            Self::String(s) => Ok(LocalString::from(
-                s.gc_ref().to_local(ctx.rt_ref().gc_heap()),
-            )),
+            Self::String(s) => Ok(s.to_local()),
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => {
                 ctx.throw_type_error("cannot convert symbol to string");
                 Err(-1)
             }
             _ => match self.to_string_or_symbol(ctx)? {
-                JSValue::String(s) => Ok(LocalString::from(
-                    s.gc_ref().to_local(ctx.rt_ref().gc_heap()),
-                )),
+                JSValue::String(s) => Ok(s.to_local()),
                 #[cfg(feature = "builtin_symbol")]
                 JSValue::Symbol(_) => {
                     ctx.throw_type_error("cannot convert symbol to string");

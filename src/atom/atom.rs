@@ -251,7 +251,7 @@ impl Atom {
             if s.content().is_ident() {
                 Self::CONST_empty_string.force_string(ctx)
             } else {
-                Ok(LocalString::from(s.gc_ref().to_local(ctx.gc_heap())))
+                Ok(s.to_local())
             }
         }
     }

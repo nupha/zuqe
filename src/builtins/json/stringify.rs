@@ -55,7 +55,7 @@ impl ContextImpl {
                             continue; // symbols are ignored
                         }
                     }
-                    JSValue::String(s) => LocalString::from(s.gc_ref().to_local(self.gc_heap())),
+                    JSValue::String(s) => s.to_local(),
                     v if v.is_number() => v.to_string(self)?,
                     _ => {
                         continue; // ignored
@@ -293,10 +293,7 @@ fn js_json_to_str(
                     // because jsc will be borrowed mut later.
                     // guarantee `replacer_props` won't be modified in this function
                     let lst = unsafe { std::slice::from_raw_parts(lst.as_ptr(), lst.len()) };
-                    lst.iter()
-                        .map(|x| x.to_ref())
-                        .collect::<Vec<_>>()
-                        .into()
+                    lst.iter().map(|x| x.to_ref()).collect::<Vec<_>>().into()
                 } else {
                     // query own property names.
                     let kvs = val.get_own_property_kvs(
