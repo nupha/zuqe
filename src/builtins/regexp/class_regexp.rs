@@ -571,6 +571,11 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
         }
     }
 
+    // protect match results nodes
+    let _ng = ctx
+        .gc_heap()
+        .protect_nodes_iter(matche_list.iter().map(|m| m.gc_node_ptr()));
+
     let mut pos = 0;
 
     for mat in matche_list {

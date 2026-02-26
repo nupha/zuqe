@@ -3,7 +3,7 @@
 
 use std::borrow::Cow;
 
-use gc_lite::{GcLocal, GcNode, GcTrace, GcTraceCtx};
+use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     RuntimeImpl,
