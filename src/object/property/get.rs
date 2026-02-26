@@ -19,6 +19,8 @@ use crate::{
 use super::{JS_PROP_GETSET, JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF};
 
 impl Object {
+    /// The core method to retrive property value: either by shape/slots or by exotic handler.
+    ///
     /// walk up proto chain and get property in shape or by exotic handler.
     pub(crate) fn get_property_internal(
         &self,
@@ -54,6 +56,7 @@ impl Object {
                                 getter: Some(fun), ..
                             } = cur_obj.prop_slot(idx)
                             {
+                                // protect `self` before calling getter func
                                 let _ng =
                                     ctx.rt_ref().gc_heap().protect_nodes(&[self.gc_node_ptr()]);
                                 fun.call(ctx, this_obj, &[])
@@ -124,6 +127,15 @@ impl Object {
                 {
                     if let Some(cb) = pm.get_property {
                         // XXX: should pass throw_ref_error
+                        // protect nodes before calling callback
+                        let mut _ng = ctx
+                            .rt_ref()
+                            .gc_heap()
+                            .protect_nodes(&[self.gc_node_ptr(), cur_obj.gc_node_ptr()]);
+                        if let Some(n) = this_obj.gc_node_ptr() {
+                            _ng.add(n);
+                        }
+
                         return cb(
                             ContextPtr::from(ctx.gc_ref()),
                             cur_obj.into(),
@@ -140,6 +152,11 @@ impl Object {
                         )?
                     {
                         return if unlikely(desc.flags & JS_PROP_GETSET != 0) {
+                            let mut _ng = ctx
+                                .rt_ref()
+                                .gc_heap()
+                                .protect_nodes(&[self.gc_node_ptr(), cur_obj.gc_node_ptr()]);
+
                             desc.getter.call(ctx, this_obj, &[])
                         } else {
                             debug_assert!(!desc.value.is_exception());
