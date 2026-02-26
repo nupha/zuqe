@@ -11,7 +11,7 @@ use crate::{
     context::ContextImpl,
     number::IntOrFloat,
     runtime::RuntimePtr,
-    string::{CharCode, StringImpl, StringRef},
+    string::{CharCode, LocalString, StringImpl, StringRef},
     value::JSValue,
 };
 
@@ -243,7 +243,7 @@ impl Atom {
 
     /// force convert atom to string value.
     /// for anonymous symbol, ident convert to empty string value.
-    pub fn force_string(&self, ctx: &ContextImpl) -> Result<GcLocal<StringImpl>, i32> {
+    pub fn force_string(&self, ctx: &ContextImpl) -> Result<LocalString, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}").into_bytes())
         } else {
@@ -251,7 +251,7 @@ impl Atom {
             if s.content().is_ident() {
                 Self::CONST_empty_string.force_string(ctx)
             } else {
-                Ok(s.gc_ref().to_local(ctx.gc_heap()))
+                Ok(LocalString::from(s.gc_ref().to_local(ctx.gc_heap())))
             }
         }
     }
@@ -336,7 +336,7 @@ impl StringImpl {
 
 impl ContextImpl {
     /// create or reuse an Atom from `str`
-    pub fn create_atom_string(&self, str: &str) -> Result<GcLocal<StringImpl>, i32> {
+    pub fn create_atom_string(&self, str: &str) -> Result<LocalString, i32> {
         let atom = Atom::new(self.rt_ptr(), str)?;
         atom.force_string(self)
     }

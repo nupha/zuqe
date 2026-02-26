@@ -203,6 +203,7 @@ impl Object {
             // do not have stack frame,
             // gc node self, this_obj, new_target, args should be protected manually
 
+            // // TO ELIIMINATE THIS GUARD
             // // Note: to protect gc nodes allocated during calling from being gc collected.
             // // protection ends at end of calling.
             // rt.gc_heap_mut().open_alloc_guard();
@@ -369,8 +370,8 @@ impl JSValue {
     /// call function `self.method`
     #[inline(always)]
     pub fn invoke(&self, ctx: &ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {
-        self.get_property(ctx, method)
-            .and_then(|v| v.call(ctx, *self, args))
+        let f = self.get_property(ctx, method)?;
+        f.call(ctx, *self, args)
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.

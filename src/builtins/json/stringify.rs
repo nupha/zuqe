@@ -11,16 +11,16 @@ use crate::{
     context::ContextImpl,
     error::JSResult,
     object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E},
-    string::{StringBuf, StringData, StringImpl, StringRef},
+    string::{LocalString, StringBuf, StringData, StringImpl, StringRef},
     value::JSValue,
 };
 
 struct JSONStringifyContext {
     replacer_func: JSValue,
-    replacer_props: Option<Vec<GcLocal<StringImpl>>>,
+    replacer_props: Option<Vec<LocalString>>,
     stack: SmallVec<[JSValue; 16]>,
     gap: StringData,
-    empty: GcLocal<StringImpl>,
+    empty: LocalString,
     buf: StringBuf,
 }
 
@@ -40,14 +40,14 @@ impl ContextImpl {
         } else if replacer.is_array(self)? {
             let n = replacer.get_length_prop(self)?;
 
-            let mut keylst = Vec::<GcLocal<StringImpl>>::new();
+            let mut keylst = Vec::<LocalString>::new();
             keylst.try_reserve_exact(n as usize).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })?;
 
             for i in 0..n {
-                let k: GcLocal<StringImpl> = match replacer.get_property_i64(self, i)? {
+                let k: LocalString = match replacer.get_property_i64(self, i)? {
                     JSValue::Object(o) => {
                         if matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
                             JSValue::Object(o).to_string(self)?
@@ -55,7 +55,7 @@ impl ContextImpl {
                             continue; // symbols are ignored
                         }
                     }
-                    JSValue::String(s) => s.gc_ref().to_local(self.gc_heap()),
+                    JSValue::String(s) => LocalString::from(s.gc_ref().to_local(self.gc_heap())),
                     v if v.is_number() => v.to_string(self)?,
                     _ => {
                         continue; // ignored
@@ -294,7 +294,7 @@ fn js_json_to_str(
                     // guarantee `replacer_props` won't be modified in this function
                     let lst = unsafe { std::slice::from_raw_parts(lst.as_ptr(), lst.len()) };
                     lst.iter()
-                        .map(|x| x.gc_ref().into())
+                        .map(|x| x.to_ref())
                         .collect::<Vec<_>>()
                         .into()
                 } else {

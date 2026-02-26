@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use fallible_collections::TryCollect;
-use gc_lite::{GcLocal, GcPartitionId};
+use gc_lite::GcPartitionId;
 
 use crate::{
     JS_CLASS_ARRAY,
@@ -22,7 +22,7 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, Object, ObjectPayload},
     runtime::js_check_stack_overflow,
-    string::{StringBuf, StringImpl},
+    string::{LocalString, StringBuf},
     value::JSValue,
 };
 
@@ -728,7 +728,7 @@ pub(crate) fn js_array_join(cc: CallContext) -> JSResult {
     let len = obj.get_length_prop(cx)?;
 
     let mut c = b',' as i32; // default separator
-    let mut p: Option<GcLocal<StringImpl>> = None;
+    let mut p: Option<LocalString> = None;
 
     if !to_locale_string && cc.length() > 0 && !cc.arg(0).is_undefined() {
         let sep = cc.arg(0).to_string(cx)?;
@@ -756,10 +756,10 @@ pub(crate) fn js_array_join(cc: CallContext) -> JSResult {
 
         let el = obj.get_property_i64(cx, i)?;
         if !el.is_undefined_or_null() {
-            let ss: GcLocal<StringImpl> = if to_locale_string {
+            let ss: LocalString = if to_locale_string {
                 el.to_locale_string(cx)?.to_string(cx)?
             } else if let JSValue::String(s) = el {
-                s.gc_ref().to_local(cx.rt_ref().gc_heap())
+                LocalString::from(s.gc_ref().to_local(cx.rt_ref().gc_heap()))
             } else {
                 el.to_string(cx)?
             };

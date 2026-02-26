@@ -15,7 +15,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{Object, ObjectPayload},
-    string::{CharCode, StringBuf, StringImpl, StringRef},
+    string::{CharCode, LocalString, StringBuf, StringImpl, StringRef},
     value::{HINT_FORCE_ORDINARY, HINT_NONE, HINT_NUMBER, HINT_STRING, JSValue},
 };
 
@@ -549,7 +549,7 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
 /// - 2: toISOString: "2018-01-02T23:02:56.927Z"
 /// - 3: toLocaleString: "1/2/2018, 11:40:40 PM"
 /// - part: 1=date, 2=time 3=all
-fn datetime_format(ctx: &ContextImpl, tm_val: i64, flags: i32) -> Result<GcLocal<StringImpl>, i32> {
+fn datetime_format(ctx: &ContextImpl, tm_val: i64, flags: i32) -> Result<LocalString, i32> {
     let fmt = (flags >> 4) & 0x0F;
     let part = flags & 0x0F;
 

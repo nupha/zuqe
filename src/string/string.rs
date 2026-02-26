@@ -252,17 +252,15 @@ impl StringImpl {
     }
 
     /// treat value `other` as string, and concat self with other.
-    pub(crate) fn concat(
-        &self,
-        ctx: &ContextImpl,
-        other: JSValue,
-    ) -> Result<GcLocal<StringImpl>, i32> {
+    pub(crate) fn concat(&self, ctx: &ContextImpl, other: JSValue) -> Result<LocalString, i32> {
         let s2 = other.to_string(ctx)?;
 
         if self.is_empty() {
             return Ok(s2);
         } else if s2.is_empty() {
-            return Ok(self.gc_ref().to_local(ctx.rt_ref().gc_heap()));
+            return Ok(LocalString::from(
+                self.gc_ref().to_local(ctx.rt_ref().gc_heap()),
+            ));
         }
 
         // concat self, s2
@@ -275,20 +273,16 @@ impl StringImpl {
                 -1
             })?;
 
-        StringRef::create(ctx.rt_ptr(), StringData::from_buf(buf))
+        StringRef::create(ctx.rt_ptr(), StringData::from_buf(buf)).map(LocalString::from)
     }
 
     /// make sub string with content of given range.
     /// range is about buffer index, and end index is exclusive.
-    pub fn sub_string(
-        &self,
-        ctx: &ContextImpl,
-        range: Range<usize>,
-    ) -> Result<GcLocal<StringImpl>, i32> {
+    pub fn sub_string(&self, ctx: &ContextImpl, range: Range<usize>) -> Result<LocalString, i32> {
         let end = std::cmp::min(range.end, self.len());
 
         if range.start == 0 && end == self.len() {
-            Ok(self.gc_ref().to_local(ctx.gc_heap()))
+            Ok(LocalString::from(self.gc_ref().to_local(ctx.gc_heap())))
         } else {
             let count = end.saturating_sub(range.start);
             if count > 0 {
@@ -390,6 +384,82 @@ impl From<StringRef> for JSValue {
     }
 }
 
+#[repr(transparent)]
+pub struct LocalString(GcLocal<StringImpl>);
+
+impl Deref for LocalString {
+    type Target = StringImpl;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl DerefMut for LocalString {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.deref_mut()
+    }
+}
+
+impl std::fmt::Display for LocalString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.deref())
+    }
+}
+
+impl std::fmt::Debug for LocalString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0.deref())
+    }
+}
+
+impl LocalString {
+    #[inline(always)]
+    pub const fn gc_local(&self) -> &GcLocal<StringImpl> {
+        &self.0
+    }
+
+    #[inline(always)]
+    pub fn into_inner(self) -> GcLocal<StringImpl> {
+        self.0
+    }
+
+    #[inline(always)]
+    pub fn to_ref(&self) -> StringRef {
+        StringRef(self.0.gc_ref())
+    }
+}
+
+impl From<GcLocal<StringImpl>> for LocalString {
+    #[inline(always)]
+    fn from(value: GcLocal<StringImpl>) -> Self {
+        LocalString(value)
+    }
+}
+
+impl From<LocalString> for JSValue {
+    #[inline(always)]
+    fn from(value: LocalString) -> Self {
+        JSValue::String(value.to_ref())
+    }
+}
+
+impl From<&LocalString> for JSValue {
+    #[inline(always)]
+    fn from(value: &LocalString) -> Self {
+        JSValue::String(value.to_ref())
+    }
+}
+
+impl From<&LocalString> for StringRef {
+    #[inline(always)]
+    fn from(value: &LocalString) -> Self {
+        value.to_ref()
+    }
+}
+
 impl TryFrom<Object> for StringRef {
     type Error = i32;
 
@@ -472,18 +542,17 @@ impl StringRef {
 
 impl ContextImpl {
     /// create string value from string buf.
-    pub(crate) fn create_string_with_buf(
-        &self,
-        sbuf: StringBuf,
-    ) -> Result<GcLocal<StringImpl>, i32> {
+    pub(crate) fn create_string_with_buf(&self, sbuf: StringBuf) -> Result<LocalString, i32> {
         if sbuf.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
             let data = StringData::from_buf(sbuf);
-            StringRef::create(self.rt_ptr(), data).map_err(|_| {
-                self.throw_out_of_memory();
-                -1
-            })
+            StringRef::create(self.rt_ptr(), data)
+                .map(LocalString::from)
+                .map_err(|_| {
+                    self.throw_out_of_memory();
+                    -1
+                })
         }
     }
 
@@ -491,47 +560,53 @@ impl ContextImpl {
     pub(crate) fn create_string_with_content(
         &self,
         content: StringData,
-    ) -> Result<GcLocal<StringImpl>, i32> {
+    ) -> Result<LocalString, i32> {
         if content.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
-            StringRef::create(self.rt_ptr(), content).map_err(|_| {
-                self.throw_out_of_memory();
-                -1
-            })
+            StringRef::create(self.rt_ptr(), content)
+                .map(LocalString::from)
+                .map_err(|_| {
+                    self.throw_out_of_memory();
+                    -1
+                })
         }
     }
 
     /// create string from utf8 encoded data.
-    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> Result<GcLocal<StringImpl>, i32> {
+    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> Result<LocalString, i32> {
         if utf8_bytes.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else if utf8_bytes.len() > JS_STRING_LEN_MAX {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::create_utf8(self.rt_ptr(), utf8_bytes).inspect_err(|_| {
-                self.throw_out_of_memory();
-            })
+            StringRef::create_utf8(self.rt_ptr(), utf8_bytes)
+                .map(LocalString::from)
+                .inspect_err(|_| {
+                    self.throw_out_of_memory();
+                })
         }
     }
 
     /// create string from str
-    pub fn create_string_from_str(&self, str: &str) -> Result<GcLocal<StringImpl>, i32> {
+    pub fn create_string_from_str(&self, str: &str) -> Result<LocalString, i32> {
         if unlikely(str.is_empty()) {
             Atom::CONST_empty_string.force_string(self)
         } else if unlikely(str.len() > JS_STRING_LEN_MAX) {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::create_str(self.rt_ptr(), str).inspect_err(|_| {
-                self.throw_out_of_memory();
-            })
+            StringRef::create_str(self.rt_ptr(), str)
+                .map(LocalString::from)
+                .inspect_err(|_| {
+                    self.throw_out_of_memory();
+                })
         }
     }
 
     /// create string value from a single string char.
-    pub fn create_string_from_char(&self, ch: CharCode) -> Result<GcLocal<StringImpl>, i32> {
+    pub fn create_string_from_char(&self, ch: CharCode) -> Result<LocalString, i32> {
         let sbuf = match ch.encode_utf16(&mut [0; 2]) {
             &[b @ (0..0x80), _] => StringBuf::Ascii(vec![b as u8]),
             bb => StringBuf::Utf16(bb.to_vec()),
@@ -545,9 +620,9 @@ pub(crate) fn JS_ConcatString3(
     str1: &CStr,
     str2: JSValue,
     str3: &CStr,
-) -> Result<GcLocal<StringImpl>, i32> {
+) -> Result<LocalString, i32> {
     let p = if let JSValue::String(s) = str2 {
-        s.gc_ref().to_local(ctx.gc_heap())
+        LocalString::from(s.gc_ref().to_local(ctx.gc_heap()))
     } else {
         str2.to_string(ctx)?
     };
@@ -640,16 +715,20 @@ impl JSValue {
     }
 
     /// Coerce value `self` to string. if `self` is symbol, returns Err.
-    pub fn to_string(&self, ctx: &ContextImpl) -> Result<GcLocal<StringImpl>, i32> {
+    pub fn to_string(&self, ctx: &ContextImpl) -> Result<LocalString, i32> {
         match self {
-            Self::String(s) => Ok(s.gc_ref().to_local(ctx.rt_ref().gc_heap())),
+            Self::String(s) => Ok(LocalString::from(
+                s.gc_ref().to_local(ctx.rt_ref().gc_heap()),
+            )),
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => {
                 ctx.throw_type_error("cannot convert symbol to string");
                 Err(-1)
             }
             _ => match self.to_string_or_symbol(ctx)? {
-                JSValue::String(s) => Ok(s.gc_ref().to_local(ctx.rt_ref().gc_heap())),
+                JSValue::String(s) => Ok(LocalString::from(
+                    s.gc_ref().to_local(ctx.rt_ref().gc_heap()),
+                )),
                 #[cfg(feature = "builtin_symbol")]
                 JSValue::Symbol(_) => {
                     ctx.throw_type_error("cannot convert symbol to string");
@@ -661,10 +740,7 @@ impl JSValue {
     }
 
     /// Coerce value `val` to string, but null or undefined are forbidden.
-    pub fn to_string_non_undefined_or_null(
-        &self,
-        ctx: &ContextImpl,
-    ) -> Result<GcLocal<StringImpl>, i32> {
+    pub fn to_string_non_undefined_or_null(&self, ctx: &ContextImpl) -> Result<LocalString, i32> {
         if unlikely(self.is_undefined_or_null()) {
             ctx.throw_type_error("null or undefined are forbidden");
             Err(-1)

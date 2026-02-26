@@ -6,7 +6,7 @@ use crate::{
     error::JSResult,
     function::{BoundFuncObjPayload, CallContext, FieldDef, FunctionKind, js_function_apply},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
-    string::JS_ConcatString3,
+    string::{JS_ConcatString3, LocalString},
     value::JSValue,
 };
 
@@ -91,11 +91,12 @@ fn js_function_bind(cc: CallContext) -> JSResult {
     func_obj.define_property_value(ctx, Atom::CONST_length, len_val, JS_PROP_CONFIGURABLE)?;
 
     let name = cc.this().get_property(ctx, Atom::CONST_name)?;
-    let name = if let JSValue::String(s) = name {
-        s.gc_ref().to_local(ctx.gc_heap())
-    } else {
-        Atom::CONST_empty_string.force_string(ctx)?
-    };
+    let name: LocalString =
+        if let JSValue::String(s) = name {
+            LocalString::from(s.gc_ref().to_local(ctx.gc_heap()))
+        } else {
+            Atom::CONST_empty_string.force_string(ctx)?
+        };
 
     // make bound function name.
     let bf_name = JS_ConcatString3(ctx, c"bound ", name.into(), c"")?;

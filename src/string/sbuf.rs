@@ -823,24 +823,26 @@ impl StringBufSlice<'_> {
 
 /// inplace convert Vec<u16> to Vec<u8>
 pub(super) unsafe fn s16_into_s8(mut d16: Vec<u16>) -> Vec<u8> {
-    debug_assert!(!d16.iter().any(|c| *c >= 0x80), "must be ascii content");
+    unsafe {
+        debug_assert!(!d16.iter().any(|c| *c >= 0x80), "must be ascii content");
 
-    let mut ptr16 = d16.as_mut_ptr();
-    let mut ptr8 = ptr16.cast::<u8>();
-    let ptr = ptr8;
-    let len = d16.len();
-    let cap = d16.capacity();
+        let mut ptr16 = d16.as_mut_ptr();
+        let mut ptr8 = ptr16.cast::<u8>();
+        let ptr = ptr8;
+        let len = d16.len();
+        let cap = d16.capacity();
 
-    for _ in 0..len {
-        *ptr8 = *ptr16 as u8;
-        ptr8 = ptr8.add(1);
-        ptr16 = ptr16.add(1);
+        for _ in 0..len {
+            *ptr8 = *ptr16 as u8;
+            ptr8 = ptr8.add(1);
+            ptr16 = ptr16.add(1);
+        }
+
+        // IMPORTANT: don't drop vec automatically
+        std::mem::forget(d16);
+        // re-interpret vec as Vec<u8>
+        Vec::from_raw_parts(ptr, len, cap * 2)
     }
-
-    // IMPORTANT: don't drop vec automatically
-    std::mem::forget(d16);
-    // re-interpret vec as Vec<u8>
-    unsafe { Vec::from_raw_parts(ptr, len, cap * 2) }
 }
 
 pub(super) fn is_char_visible(ch: char) -> bool {

@@ -3,7 +3,7 @@
 
 use std::ops::Deref;
 
-use gc_lite::{GcLocal, GcNode};
+use gc_lite::GcNode;
 #[cfg(feature = "all_unicode")]
 use unicode_normalization::UnicodeNormalization;
 
@@ -16,8 +16,8 @@ use crate::{
     function::{CallContext, FieldDef, IteratorState},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
     string::{
-        CharCode, CharCodeDecoder, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringData,
-        StringImpl, StringRef, Utf16Stream,
+        CharCode, CharCodeDecoder, JS_ConcatString3, JS_STRING_LEN_MAX, LocalString, StringBuf,
+        StringData, StringImpl, StringRef, Utf16Stream,
     },
     value::JSValue,
 };
@@ -482,7 +482,7 @@ fn js_string_pad(cc: CallContext) -> JSResult {
     }
     ttl_len -= len;
 
-    let mut fill_str: Option<GcLocal<StringImpl>> = None;
+    let mut fill_str: Option<LocalString> = None;
     let mut fill_char = CharCode::Char(' ');
 
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
@@ -749,8 +749,13 @@ fn js_string_match(cc: CallContext) -> JSResult {
             ctor.call_ctor(ctx, &args[0..args_len])?
         };
 
-        let str = JSValue::from(this.to_string_non_undefined_or_null(ctx)?);
-        regexp_obj.invoke(ctx, method_name, std::slice::from_ref(&str))
+        // protect regexp_obj before .invoke()
+        let _ng = regexp_obj
+            .gc_node_ptr()
+            .map(|n| ctx.gc_heap().protect_node(n));
+
+        let s = this.to_string_non_undefined_or_null(ctx)?;
+        regexp_obj.invoke(ctx, method_name, std::slice::from_ref(&JSValue::from(&s)))
     }
 
     #[cfg(not(feature = "builtin_regexp"))]

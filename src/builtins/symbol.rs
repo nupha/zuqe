@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcLocal, GcNode};
+use gc_lite::GcNode;
 
 use crate::{
     atom::{Atom, AtomKind},
@@ -9,7 +9,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     object::JS_PROP_CONFIGURABLE,
-    string::{StringData, StringImpl, StringRef},
+    string::{LocalString, StringData, StringImpl, StringRef},
     value::JSValue,
 };
 
@@ -68,7 +68,7 @@ pub fn js_symbol_constructor(cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let str: Option<GcLocal<StringImpl>> = if cc.arg(0).is_undefined() {
+    let str: Option<LocalString> = if cc.arg(0).is_undefined() {
         None
     } else {
         Some(cc.arg(0).to_string(ctx)?)

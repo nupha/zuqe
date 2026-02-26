@@ -8,7 +8,7 @@ use gc_lite::GcLocal;
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
     JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom, context::ContextImpl, number::f64_stringify,
-    object::Object, string::StringImpl,
+    object::Object, string::{LocalString, StringImpl},
 };
 
 use super::JSValue;
@@ -81,14 +81,14 @@ impl Object {
     }
 
     pub fn inspect(&self, ctx: &ContextImpl) -> Result<String, i32> {
-        let tag: GcLocal<StringImpl>;
+        let tag: LocalString;
 
         #[cfg(feature = "builtin_symbol")]
         {
             tag = if let JSValue::String(s) =
                 self.get_property(ctx, Atom::CONST_Symbol_toStringTag)?
             {
-                s.gc_ref().to_local(ctx.gc_heap())
+                LocalString::from(s.gc_ref().to_local(ctx.gc_heap()))
             } else {
                 self.string_tag(ctx).and_then(|a| a.force_string(ctx))?
             };

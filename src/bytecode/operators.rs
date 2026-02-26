@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcLocal, GcNode};
+use gc_lite::GcNode;
 
 use crate::{
     JS_CLASS_OBJECT,
@@ -19,7 +19,7 @@ use crate::{
         JS_PROP_WRITABLE, Object,
     },
     stack_frame::StackFrame,
-    string::{JS_ConcatString3, StringImpl, StringRef},
+    string::{JS_ConcatString3, LocalString, StringImpl, StringRef},
     utils::unlikely,
     value::JSValue,
 };
@@ -206,7 +206,7 @@ pub(super) fn js_has_unscopable(ctx: &ContextImpl, obj: JSValue, atom: Atom) -> 
 pub(crate) fn js_get_function_name(
     ctx: &ContextImpl,
     name: Atom,
-) -> Result<GcLocal<StringImpl>, i32> {
+) -> Result<LocalString, i32> {
     let name_str = name.force_string(ctx)?;
     if name.is_normal_desc_string(ctx.rt_ref()) {
         JS_ConcatString3(ctx, c"[", JSValue::from(name_str.gc_ref()), c"]")

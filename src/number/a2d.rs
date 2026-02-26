@@ -111,265 +111,265 @@ pub(crate) unsafe fn js_atof(
     mut radix: i32,
     flags: i32,
 ) -> Result<IntOrFloat, i32> {
-    let mut p = str;
-    let mut p_start = p;
+    unsafe {
+        let mut p = str;
+        let mut p_start = p;
 
-    macro_rules! fail {
-        () => {
-            if !pp.is_null() {
-                unsafe {
+        macro_rules! fail {
+            () => {
+                if !pp.is_null() {
                     *pp = p;
                 }
-            }
-            ctx.throw_type_error("invalid number literal");
-            return Err(-1);
+                ctx.throw_type_error("invalid number literal");
+                return Err(-1);
+            };
+        }
+
+        // optional separator between digits
+        let mut sep = if flags & ATOD_ACCEPT_UNDERSCORES != 0 {
+            '_' as i32
+        } else {
+            256
         };
-    }
 
-    // optional separator between digits
-    let mut sep = if flags & ATOD_ACCEPT_UNDERSCORES != 0 {
-        '_' as i32
-    } else {
-        256
-    };
-
-    enum GotoLabel {
-        NoRadixPrefix(bool),
-    }
-
-    let mut goto: Option<GotoLabel> = None;
-    let mut is_neg: bool = false;
-
-    match *p {
-        b'+' => {
-            p = p.offset(1);
-            p_start = p_start.offset(1);
-            if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
-                goto = Some(GotoLabel::NoRadixPrefix(false));
-            }
+        enum GotoLabel {
+            NoRadixPrefix(bool),
         }
-        b'-' => {
-            is_neg = true;
-            p = p.offset(1);
-            p_start = p_start.offset(1);
-            if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
-                goto = Some(GotoLabel::NoRadixPrefix(true));
+
+        let mut goto: Option<GotoLabel> = None;
+        let mut is_neg: bool = false;
+
+        match *p {
+            b'+' => {
+                p = p.offset(1);
+                p_start = p_start.offset(1);
+                if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
+                    goto = Some(GotoLabel::NoRadixPrefix(false));
+                }
             }
-        }
-        _ => {}
-    };
+            b'-' => {
+                is_neg = true;
+                p = p.offset(1);
+                p_start = p_start.offset(1);
+                if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
+                    goto = Some(GotoLabel::NoRadixPrefix(true));
+                }
+            }
+            _ => {}
+        };
 
-    if goto.is_none() {
-        if *p == b'0' {
-            let mut no_prefix = false;
+        if goto.is_none() {
+            if *p == b'0' {
+                let mut no_prefix = false;
 
-            // check next char for radix
-            match *p.offset(1) {
-                b'x' | b'X' if radix == 0 || radix == 16 => {
-                    p = p.offset(2);
-                    radix = 16;
-                }
-                b'o' | b'O' if radix == 0 && flags & ATOD_ACCEPT_BIN_OCT != 0 => {
-                    p = p.offset(2);
-                    radix = 8;
-                }
-                b'b' | b'B' if radix == 0 && flags & ATOD_ACCEPT_BIN_OCT != 0 => {
-                    p = p.offset(2);
-                    radix = 2;
-                }
-                b'0'..=b'9' if radix == 0 && flags & ATOD_ACCEPT_LEGACY_OCTAL != 0 => {
-                    let mut i = 1;
-                    sep = 256;
-                    while *p.offset(i) >= b'0' && *p.offset(i) <= b'7' {
-                        i += 1;
+                // check next char for radix
+                match *p.offset(1) {
+                    b'x' | b'X' if radix == 0 || radix == 16 => {
+                        p = p.offset(2);
+                        radix = 16;
                     }
-                    if *p.offset(i) == b'8' || *p.offset(i) == b'9' {
-                        no_prefix = true;
-                    } else {
-                        p = p.offset(1);
+                    b'o' | b'O' if radix == 0 && flags & ATOD_ACCEPT_BIN_OCT != 0 => {
+                        p = p.offset(2);
                         radix = 8;
                     }
-                }
-                _ => {
-                    no_prefix = true;
-                }
-            }
-
-            if !no_prefix {
-                // there must be a digit after the prefix
-                if to_digit(*p) >= radix {
-                    fail!();
-                }
-            }
-        } else {
-            goto = Some(GotoLabel::NoRadixPrefix(is_neg));
-        }
-    }
-
-    let mut atod_type = flags & ATOD_TYPE_MASK;
-
-    while let Some(label) = goto.take() {
-        match label {
-            GotoLabel::NoRadixPrefix(is_neg) => {
-                if flags & ATOD_INT_ONLY == 0
-                    && atod_type == ATOD_TYPE_FLOAT64
-                    && strstart(p, c"Infinity".as_ptr().cast(), std::ptr::addr_of_mut!(p))
-                {
-                    let mut d = 1.0 / 0.0;
-                    if is_neg {
-                        d = -d;
+                    b'b' | b'B' if radix == 0 && flags & ATOD_ACCEPT_BIN_OCT != 0 => {
+                        p = p.offset(2);
+                        radix = 2;
                     }
-                    if !pp.is_null() {
-                        *pp = p;
+                    b'0'..=b'9' if radix == 0 && flags & ATOD_ACCEPT_LEGACY_OCTAL != 0 => {
+                        let mut i = 1;
+                        sep = 256;
+                        while *p.offset(i) >= b'0' && *p.offset(i) <= b'7' {
+                            i += 1;
+                        }
+                        if *p.offset(i) == b'8' || *p.offset(i) == b'9' {
+                            no_prefix = true;
+                        } else {
+                            p = p.offset(1);
+                            radix = 8;
+                        }
                     }
-                    return Ok(IntOrFloat::from(d));
+                    _ => {
+                        no_prefix = true;
+                    }
                 }
-            }
-        }
-    }
 
-    if radix == 0 {
-        radix = 10;
-    }
-
-    let mut is_float = false;
-    p_start = p;
-    while (*p as char).is_digit(radix as _)
-        || (*p == sep as u8
-            && (radix != 10 || p != p_start.offset(1) || *p.offset(-1) != b'0')
-            && (*p.add(1) as char).is_digit(radix as _))
-    {
-        p = p.add(1);
-    }
-
-    if flags & ATOD_INT_ONLY == 0 {
-        if *p == b'.' && (p > p_start || to_digit(*p.offset(1)) < radix) {
-            is_float = true;
-            p = p.add(1);
-            if *p as i32 == sep {
-                fail!();
-            }
-            while to_digit(*p) < radix || (*p == sep as u8 && to_digit(*p.offset(1)) < radix) {
-                p = p.add(1);
-            }
-        }
-        if p > p_start
-            && (((*p == b'e' || *p == b'E') && radix == 10)
-                || ((*p == b'p' || *p == b'P') && (radix == 2 || radix == 8 || radix == 16)))
-        {
-            let mut p1 = p.offset(1);
-            is_float = true;
-            if matches!(*p1, b'+' | b'-') {
-                p1 = p1.offset(1);
-            }
-            if (*p1 as char).is_digit(radix as _) {
-                p = p1.offset(1);
-                while (*p as char).is_digit(radix as _)
-                    || (*p == sep as u8 && (*p.add(1) as char).is_digit(radix as _))
-                {
-                    p = p.offset(1);
-                }
-            }
-        }
-    }
-
-    if p == p_start {
-        fail!();
-    }
-
-    let mut buf = SmallVec::<[u8; 64]>::new();
-    let len = unsafe { p.offset_from(p_start) as i32 };
-    if len + 1 > buf.capacity() as i32 && buf.try_reserve_exact(len as usize + 1).is_err() {
-        if !pp.is_null() {
-            unsafe {
-                *pp = p;
-            }
-        }
-        ctx.throw_out_of_memory();
-        return Err(-1);
-    }
-
-    if is_neg {
-        buf.push(b'-');
-    }
-    // remove the separators and the radix prefixes
-    for i in 0..len {
-        let c = unsafe { *p_start.offset(i as isize) };
-        if c != b'_' {
-            buf.push(c);
-        }
-    }
-
-    if flags & ATOD_ACCEPT_SUFFIX != 0 {
-        if *p == b'n' {
-            p = unsafe { p.offset(1) };
-            atod_type = ATOD_TYPE_BIG_INT;
-        } else if is_float && radix != 10 {
-            fail!();
-        }
-    } else if atod_type == ATOD_TYPE_FLOAT64 && is_float && radix != 10 {
-        fail!();
-    }
-
-    // update cur ptr
-    if !pp.is_null() {
-        *pp = p;
-    }
-
-    match atod_type {
-        ATOD_TYPE_FLOAT64 => {
-            let txt = std::str::from_utf8(buf.as_slice()).unwrap();
-
-            if !is_float && radix != 10 {
-                // non-10 radix integer
-                if let Ok(i) = i64::from_str_radix(txt, radix as _) {
-                    Ok(if unlikely(i == 0 && is_neg) {
-                        IntOrFloat::Float64(-0.0) // -0
-                    } else {
-                        IntOrFloat::Int64(i)
-                    })
-                } else if !is_neg && let Ok(u) = u64::from_str_radix(txt, radix as _) {
-                    Ok(IntOrFloat::from(u as f64))
-                } else if let Ok(i) = i128::from_str_radix(txt, radix as _) {
-                    Ok(IntOrFloat::Float64(i as f64))
-                } else {
-                    fail!();
+                if !no_prefix {
+                    // there must be a digit after the prefix
+                    if to_digit(*p) >= radix {
+                        fail!();
+                    }
                 }
             } else {
-                // parse float64
-                if let Ok(f) = txt.parse::<f64>() {
-                    Ok(IntOrFloat::from(f))
-                } else {
-                    fail!();
+                goto = Some(GotoLabel::NoRadixPrefix(is_neg));
+            }
+        }
+
+        let mut atod_type = flags & ATOD_TYPE_MASK;
+
+        while let Some(label) = goto.take() {
+            match label {
+                GotoLabel::NoRadixPrefix(is_neg) => {
+                    if flags & ATOD_INT_ONLY == 0
+                        && atod_type == ATOD_TYPE_FLOAT64
+                        && strstart(p, c"Infinity".as_ptr().cast(), std::ptr::addr_of_mut!(p))
+                    {
+                        let mut d = 1.0 / 0.0;
+                        if is_neg {
+                            d = -d;
+                        }
+                        if !pp.is_null() {
+                            *pp = p;
+                        }
+                        return Ok(IntOrFloat::from(d));
+                    }
                 }
             }
         }
-        ATOD_TYPE_BIG_INT => {
-            // fail!();
-            ctx.throw_type_error("big int is not supported");
+
+        if radix == 0 {
+            radix = 10;
+        }
+
+        let mut is_float = false;
+        p_start = p;
+        while (*p as char).is_digit(radix as _)
+            || (*p == sep as u8
+                && (radix != 10 || p != p_start.offset(1) || *p.offset(-1) != b'0')
+                && (*p.add(1) as char).is_digit(radix as _))
+        {
+            p = p.add(1);
+        }
+
+        if flags & ATOD_INT_ONLY == 0 {
+            if *p == b'.' && (p > p_start || to_digit(*p.offset(1)) < radix) {
+                is_float = true;
+                p = p.add(1);
+                if *p as i32 == sep {
+                    fail!();
+                }
+                while to_digit(*p) < radix || (*p == sep as u8 && to_digit(*p.offset(1)) < radix) {
+                    p = p.add(1);
+                }
+            }
+            if p > p_start
+                && (((*p == b'e' || *p == b'E') && radix == 10)
+                    || ((*p == b'p' || *p == b'P') && (radix == 2 || radix == 8 || radix == 16)))
+            {
+                let mut p1 = p.offset(1);
+                is_float = true;
+                if matches!(*p1, b'+' | b'-') {
+                    p1 = p1.offset(1);
+                }
+                if (*p1 as char).is_digit(radix as _) {
+                    p = p1.offset(1);
+                    while (*p as char).is_digit(radix as _)
+                        || (*p == sep as u8 && (*p.add(1) as char).is_digit(radix as _))
+                    {
+                        p = p.offset(1);
+                    }
+                }
+            }
+        }
+
+        if p == p_start {
+            fail!();
+        }
+
+        let mut buf = SmallVec::<[u8; 64]>::new();
+        let len = p.offset_from(p_start) as i32;
+        if len + 1 > buf.capacity() as i32 && buf.try_reserve_exact(len as usize + 1).is_err() {
             if !pp.is_null() {
                 *pp = p;
             }
-            Err(-1)
+            ctx.throw_out_of_memory();
+            return Err(-1);
         }
 
-        _ => unreachable!(),
+        if is_neg {
+            buf.push(b'-');
+        }
+        // remove the separators and the radix prefixes
+        for i in 0..len {
+            let c = *p_start.offset(i as isize);
+            if c != b'_' {
+                buf.push(c);
+            }
+        }
+
+        if flags & ATOD_ACCEPT_SUFFIX != 0 {
+            if *p == b'n' {
+                p = p.offset(1);
+                atod_type = ATOD_TYPE_BIG_INT;
+            } else if is_float && radix != 10 {
+                fail!();
+            }
+        } else if atod_type == ATOD_TYPE_FLOAT64 && is_float && radix != 10 {
+            fail!();
+        }
+
+        // update cur ptr
+        if !pp.is_null() {
+            *pp = p;
+        }
+
+        match atod_type {
+            ATOD_TYPE_FLOAT64 => {
+                let txt = std::str::from_utf8(buf.as_slice()).unwrap();
+
+                if !is_float && radix != 10 {
+                    // non-10 radix integer
+                    if let Ok(i) = i64::from_str_radix(txt, radix as _) {
+                        Ok(if unlikely(i == 0 && is_neg) {
+                            IntOrFloat::Float64(-0.0) // -0
+                        } else {
+                            IntOrFloat::Int64(i)
+                        })
+                    } else if !is_neg && let Ok(u) = u64::from_str_radix(txt, radix as _) {
+                        Ok(IntOrFloat::from(u as f64))
+                    } else if let Ok(i) = i128::from_str_radix(txt, radix as _) {
+                        Ok(IntOrFloat::Float64(i as f64))
+                    } else {
+                        fail!();
+                    }
+                } else {
+                    // parse float64
+                    if let Ok(f) = txt.parse::<f64>() {
+                        Ok(IntOrFloat::from(f))
+                    } else {
+                        fail!();
+                    }
+                }
+            }
+            ATOD_TYPE_BIG_INT => {
+                // fail!();
+                ctx.throw_type_error("big int is not supported");
+                if !pp.is_null() {
+                    *pp = p;
+                }
+                Err(-1)
+            }
+
+            _ => unreachable!(),
+        }
     }
 }
 
 /// starts_with() equivalent
 unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> bool {
-    let mut p = str;
-    let mut q = val;
-    while *q != 0 {
-        if *p != *q {
-            return false;
+    unsafe {
+        let mut p = str;
+        let mut q = val;
+        while *q != 0 {
+            if *p != *q {
+                return false;
+            }
+            p = p.offset(1);
+            q = q.offset(1);
         }
-        p = p.offset(1);
-        q = q.offset(1);
+        if !ptr.is_null() {
+            *ptr = p;
+        }
+        true
     }
-    if !ptr.is_null() {
-        *ptr = p;
-    }
-    true
 }

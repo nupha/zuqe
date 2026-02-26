@@ -204,10 +204,14 @@ fn js_os_poll(ctx: Context) -> bool {
 
         for func in callbacks.drain(..) {
             if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                eprintln!(
-                    "signal handle error: {:?}",
-                    ctx.rt_ref().exception().to_string(ctx)
-                );
+                match ctx.rt_ref().exception().to_string(ctx) {
+                    Ok(s) => {
+                        eprintln!("signal handle error: {}", s);
+                    }
+                    Err(_) => {
+                        eprintln!("signal handle error: <failed to stringify exception>");
+                    }
+                }
             }
         }
 
@@ -236,7 +240,14 @@ fn js_os_poll(ctx: Context) -> bool {
                 if diff <= 0 {
                     let func = std::mem::replace(&mut tmr.func, JSValue::UNDEFINED);
                     if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                        eprintln!("Timer error: {:?}", ctx.rt_ref().exception().to_string(ctx));
+                        match ctx.rt_ref().exception().to_string(ctx) {
+                            Ok(s) => {
+                                eprintln!("Timer error: {}", s);
+                            }
+                            Err(_) => {
+                                eprintln!("Timer error: <failed to stringify exception>");
+                            }
+                        }
                     }
                 } else if diff < min_delay {
                     min_delay = diff;
