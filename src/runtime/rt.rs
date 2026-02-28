@@ -23,7 +23,6 @@ use crate::{
     gc::gc::GC_TYPE_REGISTRY,
     module::{ModuleLoadFn, ModuleNormalizeFn, js_module_ns_exotic_methods},
     object::ShapeImpl,
-    resource::LocalResource,
     stack_frame::StackFrame,
     string::js_string_exotic_methods,
     utils::js_get_stack_pointer,
@@ -81,7 +80,7 @@ pub struct RuntimeImpl {
     /// gc heap
     pub(crate) gc_heap: GcHeap,
     /// gc partition id
-    pub(crate) gc_top_scope: GcPartitionId,
+    pub(crate) gc_part_hot: GcPartitionId,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
     /// gc trace of current running job
@@ -102,24 +101,11 @@ pub struct RuntimeImpl {
 impl Drop for RuntimeImpl {
     fn drop(&mut self) {
         self.finalize();
-
-        let this = self.id();
-
-        // unregister rt
-        if let Ok(has_live) = LocalResource::try_with_runtimes_mut(|slot| {
-            if let Some(i) = slot.iter().position(|x| x.id() == this) {
-                slot.swap_remove(i);
-            }
-            !slot.is_empty()
-        }) && !has_live
-        {
-            // no runtime alive
-        }
     }
 }
 
 impl RuntimeImpl {
-    pub(super) fn new() -> Result<Box<Self>, i32> {
+    pub(super) fn new() -> Result<Self, i32> {
         // create gc heap and partition for this runtime
         let mut gc_heap = GcHeap::new(&GC_TYPE_REGISTRY);
 
@@ -130,7 +116,7 @@ impl RuntimeImpl {
             par.set_gc_threshold(8); // small threshould to trigger gc ASAP
         }
 
-        let mut rt = Box::new(Self {
+        let mut rt = Self {
             atom_registry: AtomRegistry::new(),
             class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
             shape_registry: HashMap::with_capacity(64),
@@ -159,7 +145,7 @@ impl RuntimeImpl {
             module_async_evaluation_next_timestamp: 0,
 
             gc_heap,
-            gc_top_scope: gc_part_id,
+            gc_part_hot: gc_part_id,
             gc_user_trace: None,
             gc_cur_job_trace: None,
             gc_req: false,
@@ -169,12 +155,12 @@ impl RuntimeImpl {
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,
-        });
+        };
+
+        // // initialize the top-level gc scope
+        // rt.gc_heap_mut().push_gc_scope(gc_part_id);
 
         rt.init_const_atoms();
-
-        let rt_ptr = rt.as_ref() as *const Self as *mut Self;
-        rt.gc_heap_mut().set_opaque(rt_ptr.cast());
 
         // register builtin classes
         rt.register_builtin_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
@@ -236,7 +222,7 @@ impl RuntimeImpl {
                 Some(AsyncGeneratorFunction::class_call);
         }
 
-        JS_UpdateStackTop(rt.as_mut());
+        JS_UpdateStackTop(&mut rt);
 
         Ok(rt)
     }
@@ -274,14 +260,13 @@ impl RuntimeImpl {
             unsafe {
                 n.as_ref().debug_assert_node_valid_simple();
             }
-
-            self.gc_heap_mut().set_root_node(n, true);
+            // self.gc_heap_mut().set_root_node(n, true);
         }
 
         let old_exc = std::mem::replace(&mut self.cur_exception, obj);
-        if let Some(n) = old_exc.gc_node_ptr() {
-            self.gc_heap_mut().set_root_node(n, false);
-        }
+        // if let Some(n) = old_exc.gc_node_ptr() {
+        //     self.gc_heap_mut().set_root_node(n, false);
+        // }
         old_exc
     }
 
@@ -364,15 +349,20 @@ impl RuntimeImpl {
         log::trace!("[rt_fin] {self:p}");
 
         debug_assert!(self.cur_stack_frame.is_null());
+        debug_assert_eq!(
+            self.gc_heap().scope_level(),
+            0,
+            "all gc scope must be cleared"
+        );
 
         self.cur_exception = JSValue::UNDEFINED;
         self.context_list.clear();
         self.shape_registry.clear();
 
         // remove root partition: dealloc all nodes live in it.
-        let root_scope_id = self.gc_top_scope;
+        let pid = self.gc_part_id();
         self.gc_heap_mut()
-            .remove_partition(root_scope_id, GcHeap::DUMMY_DISPOSE_CALLBACK);
+            .remove_partition(pid, GcHeap::DUMMY_DISPOSE_CALLBACK);
 
         // debug_assert_eq!(
         //     self.gc_heap().nodes_iter(root_scope_id).count(),

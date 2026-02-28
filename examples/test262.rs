@@ -15,8 +15,8 @@ use std::{
 
 use serde::Deserialize;
 use zuqe::{
-    CallContext, Callback, Context, ErrorText, EvalFlags, EvalType, JS_PROP_C_W_E, JSResult,
-    JSValue, ModuleDef, Runtime,
+    CallContext, Callback, Context, ContextImpl, ErrorText, EvalFlags, EvalType, JS_PROP_C_W_E,
+    JSResult, JSValue, ModuleDef, Runtime,
 };
 
 /// counter of "Test262:AsyncTestComplete" messages
@@ -135,11 +135,16 @@ fn js_string_codePointRange(cc: CallContext) -> JSResult {
 }
 
 fn js_createRealm(cc: CallContext) -> JSResult {
-    let ctx2 = cc.context().rt_mut().create_context_ecma()?;
-    setup_ctx_test262_helpers(ctx2)
+    // let mut ctx2 = cc.context().rt_mut().create_context_ecma()?;
+    let mut ctx2 = cc
+        .context()
+        .rt_mut()
+        .create_context(Context::ECMA_CONTEXT_SETUP)?;
+
+    setup_ctx_test262_helpers(&mut ctx2)
 }
 
-fn setup_ctx_test262_helpers(ctx: Context) -> Result<JSValue, i32> {
+fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
     let mut global = JSValue::Object(ctx.global_obj());
 
     {
@@ -442,8 +447,13 @@ fn run_test_file(
     let mut rt = Runtime::create().unwrap();
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
-    let ctx = rt.create_context_ecma().unwrap();
-    setup_ctx_test262_helpers(ctx).unwrap();
+    let ctx = rt
+        .create_context(|ctx| {
+            Context::ECMA_CONTEXT_SETUP(ctx)?;
+            setup_ctx_test262_helpers(ctx)?;
+            Ok(())
+        })
+        .unwrap();
 
     let mut has_err = false;
 

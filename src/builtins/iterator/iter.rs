@@ -306,16 +306,16 @@ impl<'a> ObjectIter<'a> {
             JSValue::UNDEFINED
         };
 
-        // pending exc is root node
-        if let Some(n) = pending_exc.gc_node_ptr() {
-            ctx.rt_ptr().gc_heap_mut().set_root_node(n, true);
-        }
-        // restore pending exception
-        crate::defer!({
-            if has_exception {
-                rt.set_exception(pending_exc);
-            }
-        });
+        // ensure pending exc is protected - NO NEED ANY MORE.
+        // if let Some(n) = pending_exc.gc_node_ptr() {
+        //     ctx.rt_ptr().gc_heap_mut().set_root_node(n, true);
+        // }
+        // // restore pending exception
+        // crate::defer!({
+        //     if has_exception {
+        //         rt.set_exception(pending_exc);
+        //     }
+        // });
 
         if let Ok(method) = obj.get_property(ctx, Atom::CONST_return) {
             if !method.is_undefined_or_null() {

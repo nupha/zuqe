@@ -56,7 +56,7 @@ impl RuntimeImpl {
         );
 
         let mut rt_ptr = unsafe { RuntimePtr::from_raw(self) };
-        let root_scope = self.gc_top_scope;
+        let root_scope = self.gc_part_hot;
 
         self.atom_registry
             .const_atoms
@@ -122,10 +122,15 @@ impl RuntimeImpl {
                         hash,
                     )),
                 );
-                let s = rt_ptr.gc_alloc_in(root_scope, ss).unwrap();
-                // const atom string is root node.
+
+                // const atom string is root gc node.
                 // TODO: alloc const atom string in a dedicated top-level scope.
-                rt_ptr.gc_heap_mut().set_root(s, true);
+                let s = rt_ptr
+                    .gc_heap_mut()
+                    .with_new_scope(root_scope, |gc| gc.alloc_root(ss).unwrap());
+
+                // let s = rt_ptr.gc_alloc_in(root_scope, ss).unwrap();
+                // rt_ptr.gc_heap_mut().set_root(s, true);
 
                 StringRef::from(s)
             };

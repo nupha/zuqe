@@ -3,7 +3,10 @@
 
 use std::cell::Cell;
 
-use zuqe::{CallContext, Context, EvalFlags, FieldDef, JS_SetUncatchableError, JSResult, JSValue};
+use zuqe::{
+    CallContext, Context, ContextImpl, EvalFlags, FieldDef, JS_SetUncatchableError, JSResult,
+    JSValue,
+};
 
 use crate::{
     class_file::{JSFile, js_file_puts},
@@ -190,7 +193,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
     ),
 ];
 
-pub fn init_mod_std(mut ctx: Context) -> Result<(), i32> {
+pub fn init_mod_std(ctx: &mut ContextImpl) -> Result<(), i32> {
     ctx.register_module("std", MOD_STD_ENTRIES)?;
     Ok(())
 }

@@ -176,6 +176,13 @@ impl Object {
 
         let mut rt = ctx.rt_ptr();
 
+        // Note: to protect gc nodes allocated during calling from being gc collected.
+        // protection ends at end of calling.
+        rt.gc_heap_mut().open_alloc_guard();
+        crate::defer!({
+            rt.gc_heap_mut().close_alloc_guard();
+        });
+
         let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
             // When calling bytecode function, a StackFrame is created for execution,
             // gc nodes self, this_obj, new_target, args are protected by the StackFrame
@@ -203,24 +210,16 @@ impl Object {
             // do not have stack frame,
             // gc node self, this_obj, new_target, args should be protected manually
 
-            // // TO ELIIMINATE THIS GUARD
-            // // Note: to protect gc nodes allocated during calling from being gc collected.
-            // // protection ends at end of calling.
-            // rt.gc_heap_mut().open_alloc_guard();
-            // crate::defer!({
-            //     rt.gc_heap_mut().close_alloc_guard();
-            // });
-
-            let mut _fg = rt.gc_heap().protect_node(self.gc_node_ptr());
-            if let Some(n) = this_obj.gc_node_ptr() {
-                _fg.add(n);
-            }
-            if let Some(n) = new_target.gc_node_ptr() {
-                _fg.add(n);
-            }
-            for n in args.iter().flat_map(|v| v.gc_node_ptr()) {
-                _fg.add(n);
-            }
+            // let mut _fg = rt.gc_heap().protect_node(self.gc_node_ptr());
+            // if let Some(n) = this_obj.gc_node_ptr() {
+            //     _fg.add(n);
+            // }
+            // if let Some(n) = new_target.gc_node_ptr() {
+            //     _fg.add(n);
+            // }
+            // for n in args.iter().flat_map(|v| v.gc_node_ptr()) {
+            //     _fg.add(n);
+            // }
 
             cb(
                 ContextPtr::from(ctx.gc_ref()).into(),

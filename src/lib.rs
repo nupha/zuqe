@@ -19,7 +19,6 @@ mod module;
 mod number;
 mod object;
 mod parse;
-mod resource;
 mod runtime;
 mod stack_frame;
 mod string;
@@ -29,7 +28,7 @@ mod value;
 pub use {
     atom::Atom,
     class::{ClassDef, ClassID},
-    context::{Context, ContextBuilder},
+    context::{Context, ContextImpl},
     error::{ErrorText, JS_SetUncatchableError, JSResult},
     eval::{EvalFlags, EvalType},
     function::{CallContext, Callback, FieldDef},

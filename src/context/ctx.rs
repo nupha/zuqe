@@ -13,9 +13,14 @@ use std::{
 use gc_lite::{GcHeap, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
+    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_DATAVIEW, JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY,
+    JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
-    builtins::{array::ArrayPayload, error::js_error_proto_funcs, promise::Job},
+    builtins::{
+        array::ArrayPayload, error::js_error_proto_funcs, global::js_global_props, promise::Job,
+    },
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES},
     eval::EvalFn,
@@ -303,6 +308,116 @@ impl<'a> From<&ContextImpl> for Context<'a> {
     }
 }
 
+impl<'a> Context<'a> {
+    pub const ECMA_CONTEXT_SETUP: fn(&mut ContextImpl) -> Result<(), i32> =
+        |ctx: &mut ContextImpl| -> Result<(), i32> {
+            //
+            // make global namespace - this must come first.
+            //
+            let mut gobj = ctx.create_base_object()?;
+            // define name `globalThis` and `global`
+            gobj.define_property_value(
+                &ctx,
+                Atom::CONST_globalThis,
+                gobj.into(),
+                JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+            )?;
+            gobj.define_property_value(
+                &ctx,
+                Atom::CONST_global,
+                gobj.into(),
+                JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+            )?;
+            ctx.global_obj = gobj.into();
+
+            // make global var object
+            ctx.global_var_obj = ctx.create_base_object_with_proto(None)?.into();
+
+            //
+            // init intrinsic base classes
+            //
+            ctx.intrinsic_base_object(); // Object
+            ctx.intrinsic_base_function(); // Function
+            ctx.intrinsic_base_errors(); // Error
+            ctx.intrinsic_base_array(); // Array
+            ctx.intrinsic_base_number(); // Number
+            ctx.intrinsic_base_boolean(); // Boolean
+            ctx.intrinsic_base_string(); // String
+
+            // Symbol
+            #[cfg(feature = "builtin_symbol")]
+            ctx.intrinsic_base_symbol();
+
+            ctx.intrinsic_base_generator(); // Generator
+
+            ctx.intrinsic_eval(); // `eval()` function
+
+            //
+            // init user classes
+            //
+            let mut use_classes = vec![
+                // async
+                JS_CLASS_PROMISE,
+                JS_CLASS_ASYNC_FUNCTION,
+                JS_CLASS_ASYNC_GENERATOR,
+                JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+                JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+                // array buffer & dataview
+                JS_CLASS_ARRAY_BUFFER,
+                JS_CLASS_SHARED_ARRAY_BUFFER,
+                JS_CLASS_DATAVIEW,
+            ];
+            // TypedArray
+            use_classes.extend(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY);
+            // Proxy
+            #[cfg(feature = "builtin_proxy")]
+            use_classes.push(crate::JS_CLASS_PROXY);
+            // RegExp
+            #[cfg(feature = "builtin_regexp")]
+            use_classes.extend_from_slice(&[
+                crate::JS_CLASS_REGEXP,
+                crate::JS_CLASS_REGEXP_STRING_ITERATOR,
+            ]);
+            // Map/Set
+            #[cfg(feature = "builtin_mapset")]
+            use_classes.extend_from_slice(&[
+                crate::JS_CLASS_MAP,
+                crate::JS_CLASS_SET,
+                crate::JS_CLASS_WEAKMAP,
+                crate::JS_CLASS_WEAKSET,
+                crate::JS_CLASS_MAP_ITERATOR,
+                crate::JS_CLASS_SET_ITERATOR,
+            ]);
+            // Date
+            #[cfg(feature = "builtin_date")]
+            use_classes.push(crate::JS_CLASS_DATE);
+
+            ctx.use_classes(&use_classes)?;
+
+            // setup global
+            {
+                gobj.install_fields(ctx, js_global_props)?;
+
+                // Reflect: lazy init
+                #[cfg(feature = "builtin_reflect")]
+                gobj.install_fields(ctx, crate::builtins::reflect::js_reflect_obj)?;
+
+                // JSON: lazy init
+                #[cfg(feature = "builtin_json")]
+                gobj.install_fields(ctx, crate::builtins::json::js_json_obj)?;
+
+                // Math: lazy init
+                #[cfg(feature = "builtin_math")]
+                {
+                    ctx.init_random_seed();
+                    gobj.install_fields(ctx, crate::builtins::math::js_math_obj)?;
+                }
+            }
+
+            Ok(())
+        };
+}
+
 /// A light-weight context pointer, efficent to copy, like a raw pointer.
 /// It can be dereferenced to ref or mut ref automatically.
 /// Safety: you are responsible to take more care to use it safe, keep in mind pointer could be dangling.
@@ -444,25 +559,33 @@ impl ContextPtr {
 }
 
 impl RuntimeImpl {
-    /// Creates context with setup closure.
-    pub(super) fn create_context_raw<'a>(
+    /// Create context with setup.
+    pub fn create_context<'a>(
         &mut self,
-        setup: impl FnOnce(ContextPtr) -> Result<(), i32>,
+        setup: impl FnOnce(&mut ContextImpl) -> Result<(), i32>,
     ) -> Result<Context<'a>, i32> {
         let inner = ContextImpl::new(self)?;
-        let gc_ref = self.gc_alloc(inner).map_err(|_| -1)?;
 
-        // setup context and make it be root node.
-        // in case error, ContextImpl node will be purged in mark-sweep.
-        let mut ctx = ContextPtr(gc_ref);
-        ctx.init_core_objects().and_then(|_| setup(ctx))?;
+        // run in a gc scope.
+        let pid = self.gc_part_id();
+        let ctx = self
+            .gc_heap_mut()
+            .with_new_scope(pid, |gc| -> Result<Context<'a>, i32> {
+                let gc_ref = gc.alloc_root(inner).map_err(|_| -1)?;
 
-        self.gc_heap_mut().set_root(gc_ref, true);
-        self.context_list.push(ctx);
+                // setup context and make it be root node.
+                // in case error, ContextImpl node will be purged in mark-sweep.
+                let mut ctx = ContextPtr(gc_ref);
+                ctx.init_core_objects().and_then(|_| setup(&mut ctx))?;
 
-        Ok(Context {
-            gc_ref,
-            _mark: PhantomData,
-        })
+                Ok(Context {
+                    gc_ref,
+                    _mark: PhantomData,
+                })
+            })
+            .map_err(|_| -1)?;
+
+        self.context_list.push(ctx.into());
+        Ok(ctx)
     }
 }

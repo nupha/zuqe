@@ -77,6 +77,16 @@ impl ContextImpl {
         eval_flags: EvalFlags,
         scope_idx: i32,
     ) -> Result<Compiled, i32> {
+        let _gc_scope_for_parse = {
+            let pid = self.rt_ref().gc_part_id();
+            self.gc_heap_mut().push_gc_scope(pid);
+
+            let mut rt = self.rt_ptr();
+            crate::defer_fn!({
+                rt.gc_heap_mut().pop_gc_scope();
+            })
+        };
+
         // get (bytecode, module, js_mode) of current stack frame
         let (frame_func_bc, frame_module, js_mode) = if eval_type == EvalType::Direct {
             let cur_func = self
@@ -199,6 +209,14 @@ impl ContextImpl {
         //     );
         // }
 
+        // create new gc scope for eval.
+        let mut rt = self.rt_ptr();
+        let pid = rt.gc_part_id();
+        rt.gc_heap_mut().push_gc_scope(pid);
+        crate::defer!({
+            rt.gc_heap_mut().pop_gc_scope();
+        });
+
         let ret_val = match self.compile(source, filename, eval_type, eval_flags, scope_idx)? {
             Compiled::GlobalOrIndirect(bc) => {
                 // Note: `bc` is not gc traced now.
@@ -272,7 +290,13 @@ impl ContextImpl {
     ) -> Result<JSValue, ErrorText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
+        // create new gc scope for running source
         let mut rt = self.rt_ptr();
+        let pid = rt.gc_part_id();
+        rt.gc_heap_mut().push_gc_scope(pid);
+        crate::defer!({
+            rt.gc_heap_mut().pop_gc_scope();
+        });
 
         // eval
         let val = if eval_type == EvalType::Module {
@@ -347,6 +371,9 @@ impl ContextImpl {
                 }
             }
         };
+
+        // close gc scope eval scipt scope
+        rt.gc_heap_mut().pop_gc_scope();
 
         match result {
             Ok(v) => Ok(v),

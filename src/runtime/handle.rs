@@ -2,70 +2,45 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use std::{
+    cell::UnsafeCell,
     ops::{Deref, DerefMut},
     ptr::NonNull,
     rc::Rc,
 };
 
-use crate::{resource::LocalResource, runtime::RuntimeImpl};
+use crate::runtime::RuntimeImpl;
 
 /// A ref counted handle to runtime.
 /// When last handle dropped, associated runtime will be dropped.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone)]
 #[repr(transparent)]
-pub struct Runtime(Rc<NonNull<RuntimeImpl>>);
-
-impl Drop for Runtime {
-    fn drop(&mut self) {
-        let this_id = self.id();
-
-        // unregister runtime
-        let _rt = LocalResource::with_runtimes_mut(|slot| {
-            slot.iter()
-                .position(|r| r.id() == this_id)
-                .map(|i| slot.swap_remove(i))
-        });
-
-        #[cfg(debug_assertions)]
-        if let Some(r) = _rt.as_ref() {
-            debug_assert_eq!(this_id, r.id());
-        }
-
-        // _rt will be dropped here
-    }
-}
+pub struct Runtime(Rc<UnsafeCell<RuntimeImpl>>);
 
 impl Deref for Runtime {
     type Target = RuntimeImpl;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { (*self.0).as_ref() }
+        unsafe { &*self.0.get() }
     }
 }
 
 impl DerefMut for Runtime {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        let mut p = *self.0;
-        unsafe { p.as_mut() }
+        unsafe { &mut *self.0.get() }
     }
 }
 
 impl Runtime {
     /// create runtime
     pub fn create() -> Result<Runtime, i32> {
-        let rt: Box<RuntimeImpl> = RuntimeImpl::new()?;
-        let h = Runtime::from(rt.as_ref());
+        let rt = Rc::new(UnsafeCell::new(RuntimeImpl::new()?));
 
-        // register runtime
-        LocalResource::with_runtimes_mut(|slot| {
-            slot.push(rt);
-        });
+        let rt_ptr = rt.get();
+        unsafe {
+            (*rt.get()).gc_heap_mut().set_opaque(rt_ptr.cast());
+        }
 
-        Ok(h)
-    }
-
-    fn from(inner: &RuntimeImpl) -> Self {
-        Self(Rc::new(NonNull::from_ref(inner)))
+        Ok(Self(rt))
     }
 }
 

@@ -12,8 +12,10 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
+use gc_lite::GcContext;
 use zuqe::{
-    CallContext, ClassDef, ClassID, Context, FieldDef, JSResult, JSValue, Object, RuntimeImpl,
+    CallContext, ClassDef, ClassID, Context, FieldDef, JSResult, JSValue, Object, Runtime,
+    RuntimeImpl,
 };
 
 #[derive(Debug)]
@@ -233,12 +235,24 @@ impl JSFile {
     }
 
     /// register class
-    pub fn register(rt: &mut RuntimeImpl) -> Result<ClassID, i32> {
-        let class_id = rt.register_class(
-            &ClassDef::new("File")
-                .initialize(Self::handle_init)
-                .finalize_opaque(Self::handle_fini),
-        )?;
+    pub fn register(mut rt: Runtime) -> Result<ClassID, i32> {
+        let mut rt2 = rt.clone();
+
+        let class_id = rt
+            .gc_scope(|_: &GcContext| {
+                rt2.register_class(
+                    &ClassDef::new("File")
+                        .initialize(Self::handle_init)
+                        .finalize_opaque(Self::handle_fini),
+                )
+            })
+            .expect("register class File failed");
+
+        // let class_id = rt.register_class(
+        //     &ClassDef::new("File")
+        //         .initialize(Self::handle_init)
+        //         .finalize_opaque(Self::handle_fini),
+        // )?;
 
         // save assigned class_id
         Self::CLASS_ID.with(|s| s.set(class_id));

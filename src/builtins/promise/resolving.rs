@@ -91,7 +91,7 @@ impl PromiseResolveFunc {
                     move || js_promise_resolve_thenable_job(&cx, promise, arg0, then),
                     {
                         // Note: tick is performed in top-level scope, promote related gc nodes to top-level scope.
-                        let top = cx.rt_ref().gc_top_scope;
+                        let top = cx.rt_ref().gc_part_hot;
                         let heap = cx.rt_mut().gc_heap_mut();
 
                         for ch in prf.gc_children(heap) {
@@ -244,7 +244,7 @@ impl Promise {
                     },
                     {
                         // Note: job tick is performed in top-level scope, promote related gc nodes to top scope.
-                        let top = cx.rt_ref().gc_top_scope;
+                        let top = cx.rt_ref().gc_part_hot;
                         let heap = cx.rt_mut().gc_heap_mut();
 
                         for n in act.gc_children(heap) {
@@ -348,7 +348,7 @@ impl Promise {
                     // Note: tick is performed in root scope,
                     // should promote related gc nodes to root scope.
                     let mut rt = cx.rt_ptr();
-                    let top = rt.gc_top_scope;
+                    let top = rt.gc_part_hot;
                     let heap = rt.gc_heap_mut();
 
                     for n in act.gc_children(heap) {

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ops::DerefMut;
+
 use gc_lite::{
-    GcError, GcHeap, GcLocal, GcNode, GcPartition, GcPartitionId, GcRef, GcTrace, GcTraceCtx,
-    gc_type_register,
+    GcContext, GcError, GcHeap, GcLocal, GcNode, GcPartition, GcPartitionId, GcRef, GcTrace,
+    GcTraceCtx, gc_type_register,
 };
 
 use crate::{
+    Runtime,
     context::ContextImpl,
     function::{AsyncStateImpl, BytecodeImpl, VarRefImpl},
     module::ModuleDefImpl,
@@ -41,20 +44,20 @@ impl RuntimeImpl {
     /// get gc top-level scope
     #[inline]
     pub(crate) fn gc_top_scope(&self) -> &GcPartition {
-        self.gc_heap().partition(self.gc_top_scope).unwrap()
+        self.gc_heap().partition(self.gc_part_hot).unwrap()
     }
 
     /// top gc partition for runtime
     #[inline]
     pub(crate) fn gc_top_scope_mut(&mut self) -> &mut GcPartition {
-        let pid = self.gc_top_scope;
+        let pid = self.gc_part_hot;
         self.gc_heap_mut().partition_mut(pid).unwrap()
     }
 
     /// Get gc parition id
     #[inline(always)]
     pub(crate) const fn gc_part_id(&self) -> GcPartitionId {
-        self.gc_top_scope
+        self.gc_part_hot
     }
 
     /// alloc data in given gc partition_id
@@ -63,25 +66,41 @@ impl RuntimeImpl {
         partition_id: GcPartitionId,
         data: T,
     ) -> Result<GcRef<T>, (GcError, T)> {
-        let r = self.gc_heap_mut().alloc(partition_id, data)?;
+        let r = self
+            .gc_heap_mut()
+            .with_current_scope(|scope| {
+                debug_assert_eq!(scope.partition_id(), partition_id);
+                scope.alloc(data)
+            })
+            .expect("expect gc scope");
 
         if self.gc_top_scope().should_gc() {
             self.gc_req = true;
         }
-        Ok(r)
+
+        r
     }
 
     /// alloc data in given gc partition_id
+    #[deprecated]
     pub(crate) fn gc_alloc_local_in<T: GcNode>(
         &mut self,
         partition_id: GcPartitionId,
         data: T,
     ) -> Result<GcLocal<T>, (GcError, T)> {
-        let r = self.gc_heap_mut().alloc_local(partition_id, data)?;
+        let r = self
+            .gc_heap_mut()
+            .with_current_scope(|scope| {
+                debug_assert_eq!(scope.partition_id(), partition_id);
+                scope.alloc_local(data)
+            })
+            .expect("expect gc scope");
+
         if self.gc_top_scope().should_gc() {
             self.gc_req = true;
         }
-        Ok(r)
+
+        r
     }
 
     #[inline(always)]
@@ -90,8 +109,18 @@ impl RuntimeImpl {
     }
 
     #[inline(always)]
+    #[deprecated]
     pub fn gc_alloc_local<T: GcNode>(&mut self, data: T) -> Result<GcLocal<T>, (GcError, T)> {
         self.gc_alloc_local_in(self.gc_part_id(), data)
+    }
+
+    pub fn gc_scope<R>(&mut self, f: impl FnOnce(&GcContext) -> R) -> R {
+        let pid = self.gc_part_id();
+        self.gc_heap_mut().push_gc_scope(pid);
+        let gc = self.gc_heap().current_gc_scope().unwrap();
+        let r = f(gc);
+        self.gc_heap_mut().pop_gc_scope();
+        r
     }
 
     /// collect garbage
@@ -171,10 +200,31 @@ impl RuntimeImpl {
     }
 
     pub fn gc_set_memory_limit(&mut self, limit: usize) -> usize {
-        self.gc_top_scope_mut().set_memory_limit(limit)
+        let pid = self.gc_part_id();
+        self.gc_heap_mut()
+            .partition_mut(pid)
+            .unwrap()
+            .set_memory_limit(limit)
     }
 
     pub fn gc_set_threshold(&mut self, threshold: usize) {
-        self.gc_heap.set_gc_threshold(self.gc_top_scope, threshold);
+        self.gc_heap.set_gc_threshold(self.gc_part_hot, threshold);
     }
 }
+
+// impl Runtime {
+//     pub fn gc_scope2<R>(&self, f: impl FnOnce(&GcContext) -> R) -> R {
+//         let pid = self.as_ref().gc_part_id();
+//         let mut rt = self.clone();
+
+//         rt.as_mut().gc_heap_mut().push_gc_scope(pid);
+//         crate::defer!({
+//             rt.as_mut().gc_heap_mut().pop_gc_scope();
+//         });
+
+//         let r = self.as_ref();
+//         let gc = r.gc_heap().current_gc_scope().unwrap();
+
+//         f(gc)
+//     }
+// }

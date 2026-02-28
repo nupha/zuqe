@@ -10,7 +10,8 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 use zuqe::{
-    CallContext, Context, FieldDef, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JSResult, JSValue,
+    CallContext, Context, ContextImpl, FieldDef, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JSResult,
+    JSValue,
 };
 
 // Declare windows crt functions
@@ -578,7 +579,7 @@ const MOD_OS_ENTRIES: &[FieldDef] = &[
     FieldDef::INT32("SIGTTOU", libc::SIGTTOU, JS_PROP_CONFIGURABLE),
 ];
 
-pub fn init_mod_os(mut ctx: Context) -> Result<(), i32> {
+pub fn init_mod_os(ctx: &mut ContextImpl) -> Result<(), i32> {
     ctx.register_module("os", MOD_OS_ENTRIES)?;
     ctx.add_tick_handler(|cx| -> bool { js_os_poll(cx) });
     Ok(())

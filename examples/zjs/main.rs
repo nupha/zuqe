@@ -175,33 +175,33 @@ fn main() -> ExitCode {
     }
 
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
-
     // module os has internal gc objects need customized trace & collect.
     rt.gc_set_trace_handler(|tr| {
         mod_os_gc_trace(tr);
     });
 
     // register native class 'File'
-    let class_id_file = JSFile::register(&mut rt).unwrap();
-
-    // create context
-    let mut ctx = rt
-        .create_context_ecma()
-        .inspect_err(|_| {
-            let e = rt.take_exception();
-            eprintln!("[O.o] {:?}", e);
-        })
-        .unwrap();
-    ctx.use_class(class_id_file).unwrap();
-
-    // register native modules
-    init_mod_std(ctx).unwrap();
-    init_mod_os(ctx).unwrap();
-
-    setup_globals(ctx, &args.script_args).unwrap();
+    let class_id_file = JSFile::register(rt.clone()).unwrap();
 
     let is_module =
         args.module || filename.ends_with(".mjs") || ModuleDef::detect_module(script.as_bytes());
+
+    // create context
+    let mut ctx = rt
+        .create_context(|ctx| {
+            Context::ECMA_CONTEXT_SETUP(ctx)?;
+
+            // use File class
+            ctx.use_class(class_id_file).unwrap();
+
+            // register native modules
+            init_mod_std(ctx).unwrap();
+            init_mod_os(ctx).unwrap();
+
+            setup_globals(ctx, &args.script_args).unwrap();
+            Ok(())
+        })
+        .unwrap();
 
     match ctx.run_wait(
         script.as_bytes(),

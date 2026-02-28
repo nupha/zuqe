@@ -4,7 +4,7 @@
 use std::ops::Deref;
 
 use colorized::{Colors, colorize_print, colorize_println};
-use zuqe::{CallContext, Callback, Context, JS_PROP_C_W_E, JSResult, JSValue};
+use zuqe::{CallContext, Callback, Context, ContextImpl, JS_PROP_C_W_E, JSResult, JSValue};
 
 fn js_print(cc: CallContext) -> JSResult {
     let ctx = cc.context();
@@ -42,7 +42,7 @@ fn js_print(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn setup_globals(ctx: Context, script_args: &[String]) -> Result<(), i32> {
+pub fn setup_globals(ctx: &mut ContextImpl, script_args: &[String]) -> Result<(), i32> {
     let mut global = ctx.global_obj();
     let ctx = &ctx;
 
