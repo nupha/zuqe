@@ -10,7 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcHeap, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcHeap, GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
@@ -590,5 +590,54 @@ impl RuntimeImpl {
 
         self.context_list.push(ctx.into());
         Ok(ctx)
+    }
+}
+
+pub struct ContextScope<'a> {
+    pub(crate) ctx: GcRef<ContextImpl>,
+
+    #[cfg(debug_assertions)]
+    level: u32,
+
+    _mark: PhantomData<&'a ()>,
+}
+
+impl<'a> Drop for ContextScope<'a> {
+    fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(self.level, self.ctx.gc_heap().scope_level() as u32);
+
+        self.ctx.gc_heap_mut().pop_gc_scope();
+    }
+}
+
+impl<'a> Deref for ContextScope<'a> {
+    type Target = ContextImpl;
+
+    fn deref(&self) -> &Self::Target {
+        self.ctx.deref()
+    }
+}
+
+impl<'a> DerefMut for ContextScope<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ctx.deref_mut()
+    }
+}
+
+impl ContextImpl {
+    /// create a context scope
+    pub fn scope(&mut self) -> ContextScope<'_> {
+        let pid = self.rt_ref().gc_part_id();
+        self.gc_heap_mut().push_gc_scope(pid);
+
+        ContextScope {
+            ctx: self.gc_ref(),
+
+            #[cfg(debug_assertions)]
+            level: self.gc_heap().scope_level() as u32,
+
+            _mark: PhantomData,
+        }
     }
 }

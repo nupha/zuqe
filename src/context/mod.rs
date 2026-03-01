@@ -6,6 +6,6 @@ mod global;
 mod interrupt;
 mod intrinsic;
 
-pub use ctx::{Context, ContextImpl};
+pub use ctx::{Context, ContextImpl, ContextScope};
 
 pub(crate) use ctx::ContextPtr;

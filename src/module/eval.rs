@@ -68,7 +68,7 @@ impl ModuleDef {
         filename: &str,
         strip: bool,
     ) -> Result<Self, i32> {
-        if let Compiled::Module(md) = ctx.compile(
+        if let Compiled::Module(md) = ctx.compile_source(
             source,
             filename,
             EvalType::Module,

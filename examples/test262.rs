@@ -105,10 +105,14 @@ fn js_detachArrayBuffer(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_evalScript(mut cc: CallContext) -> JSResult {
-    let script = cc.arg(0).inspect(cc.ctx())?;
-    cc.ctx_mut()
-        .eval_global(script.as_bytes(), "<eval>", EvalFlags::empty())
+fn js_evalScript(cc: CallContext) -> JSResult {
+    let source = cc.arg(0).inspect(cc.ctx())?;
+    cc.context()
+        .scope()
+        .eval_global(source.as_bytes(), "<eval>", EvalFlags::empty())
+
+    // cc.ctx_mut()
+    //     .eval_global(source.as_bytes(), "<eval>", EvalFlags::empty())
 }
 
 fn js_string_codePointRange(cc: CallContext) -> JSResult {
@@ -321,14 +325,15 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorT
             })
             .unwrap();
 
-        ctx.eval_global(
+        let mut cs = ctx.scope();
+        cs.eval_global(
             src.as_bytes(),
             file.as_os_str().to_string_lossy().as_ref(),
             EvalFlags::empty(),
         )
         .map_err(|_| {
-            let exc = ctx.rt_mut().take_exception();
-            ErrorText::from(&ctx, exc)
+            let exc = cs.rt_mut().take_exception();
+            ErrorText::from(&cs, exc)
         })?;
     }
 

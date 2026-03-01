@@ -67,7 +67,8 @@ impl BoundFunction {
                 if func_obj.is_same(new_target) {
                     new_target = bf.func_obj;
                 }
-                bf.func_obj.call_ctor_target(&ctx, new_target, &arg_list)
+                bf.func_obj
+                    .call_ctor_new_target(&ctx, new_target, &arg_list)
             } else {
                 bf.func_obj.call(&ctx, bf.this_val, &arg_list)
             }

@@ -28,11 +28,11 @@ impl ContextImpl {
     pub fn json_stringify(&self, obj: JSValue, replacer: JSValue, mut space: JSValue) -> JSResult {
         let mut jsc = JSONStringifyContext {
             replacer_func: JSValue::UNDEFINED,
-            stack: SmallVec::new(),
             replacer_props: None,
             empty: Atom::CONST_empty_string.force_string(self).unwrap(),
             gap: StringData::Empty,
             buf: StringBuf::Empty,
+            stack: SmallVec::new(),
         };
 
         if replacer.is_function() {
@@ -127,11 +127,14 @@ fn js_json_check(
     ctx: &ContextImpl,
     jsc: &JSONStringifyContext,
     holder: JSValue,
-    mut val: JSValue,
+    val: JSValue,
     key: StringRef,
 ) -> JSResult {
+    let mut val = val;
     let key = JSValue::from(key.gc_ref());
 
+    // check for object.toJSON method
+    // ECMA specifies this is done only for Object and BigInt */
     if val.is_object() {
         let f = val.get_property(ctx, Atom::CONST_toJSON)?;
         if f.is_function() {
@@ -145,7 +148,7 @@ fn js_json_check(
         val
     };
 
-    match &ret {
+    match ret {
         JSValue::Object(o) => {
             if o.is_function() {
                 Ok(JSValue::UNDEFINED)

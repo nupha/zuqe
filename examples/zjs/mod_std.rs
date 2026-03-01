@@ -4,8 +4,7 @@
 use std::cell::Cell;
 
 use zuqe::{
-    CallContext, Context, ContextImpl, EvalFlags, FieldDef, JS_SetUncatchableError, JSResult,
-    JSValue,
+    CallContext, ContextImpl, EvalFlags, FieldDef, JS_SetUncatchableError, JSResult, JSValue,
 };
 
 use crate::{
@@ -120,7 +119,7 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
         flags |= EvalFlags::COMPILE_TO_ASYNC;
     }
 
-    let ret = cc.ctx_mut().eval_global(
+    let ret = cc.ctx_mut().scope().eval_global(
         str.content().encode_utf8_bytes(true).as_ref(),
         "<evalScript>",
         flags,

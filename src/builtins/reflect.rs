@@ -46,7 +46,7 @@ fn js_reflect_construct(cc: CallContext) -> JSResult {
     };
 
     let args = build_arg_list(cc.ctx(), array_arg)?;
-    func.call_ctor_target(cc.ctx(), new_target, &args)
+    func.call_ctor_new_target(cc.ctx(), new_target, &args)
 }
 
 fn js_reflect_deleteProperty(cc: CallContext) -> JSResult {

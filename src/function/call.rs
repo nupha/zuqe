@@ -226,7 +226,7 @@ impl Object {
             cb(
                 ContextPtr::from(ctx.gc_ref()).into(),
                 JSValue::Object(*self),
-                this_obj,
+                if is_ctor { new_target } else { this_obj },
                 args,
                 flags,
             )
@@ -354,7 +354,7 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn call_ctor_target(
+    pub fn call_ctor_new_target(
         &self,
         ctx: &ContextImpl,
         new_target: JSValue,
@@ -371,7 +371,7 @@ impl JSValue {
 
     #[inline(always)]
     pub fn call_ctor(&self, ctx: &ContextImpl, args: &[JSValue]) -> JSResult {
-        self.call_ctor_target(ctx, *self, args)
+        self.call_ctor_new_target(ctx, *self, args)
     }
 
     /// call function `self.method`

@@ -7,7 +7,7 @@ use crate::{
     Context,
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextImpl, ContextPtr},
+    context::{ContextImpl, ContextPtr, ContextScope},
     error::{ErrorText, JSResult},
     function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
@@ -69,7 +69,7 @@ pub(crate) enum Compiled {
 impl ContextImpl {
     /// compile `source` according to `flags` mode, don't eval.
     /// - `filename` is used to identify the module.
-    pub(crate) fn compile(
+    pub(crate) fn compile_source(
         &mut self,
         source: &[u8],
         filename: &str,
@@ -183,12 +183,27 @@ impl ContextImpl {
             md.bytecode = JSValue::Bytecode(bc);
             md.set_tla(has_await);
             self.resolve_module(md)?;
+
+            // Note: promote return bytecode to upper gc scope.
+            self.gc_heap()
+                .current_gc_scope()
+                .unwrap()
+                .promote(md.gc_node_ptr());
+
             Ok(Compiled::Module(md))
-        } else if frame_func_bc.is_some() {
-            debug_assert_eq!(eval_type, EvalType::Direct);
-            Ok(Compiled::Direct(bc))
         } else {
-            Ok(Compiled::GlobalOrIndirect(bc))
+            // Note: promote return bytecode to upper gc scope.
+            self.gc_heap()
+                .current_gc_scope()
+                .unwrap()
+                .promote(bc.gc_node_ptr());
+
+            if frame_func_bc.is_some() {
+                debug_assert_eq!(eval_type, EvalType::Direct);
+                Ok(Compiled::Direct(bc))
+            } else {
+                Ok(Compiled::GlobalOrIndirect(bc))
+            }
         }
     }
 
@@ -209,48 +224,48 @@ impl ContextImpl {
         //     );
         // }
 
-        // create new gc scope for eval.
-        let mut rt = self.rt_ptr();
-        let pid = rt.gc_part_id();
-        rt.gc_heap_mut().push_gc_scope(pid);
-        crate::defer!({
-            rt.gc_heap_mut().pop_gc_scope();
-        });
+        debug_assert!(self.gc_heap().scope_level() > 0, "expect gc scope for eval");
 
-        let ret_val = match self.compile(source, filename, eval_type, eval_flags, scope_idx)? {
-            Compiled::GlobalOrIndirect(bc) => {
-                // Note: `bc` is not gc traced now.
-                bc.eval(self, this_obj, &[], None)
-            }
-            Compiled::Direct(bc) => {
-                let mut rt = self.rt_ptr();
-                // Note: `bc` is not gc traced now.
-                bc.eval(
-                    self,
-                    this_obj,
-                    rt.current_stack_frame()
-                        .unwrap()
-                        .func_obj
-                        .as_BCWrapper()
-                        .copied()
-                        .unwrap() // <-- stack function must be a BCWrapper
-                        .payload()
-                        .closure_var_refs(),
-                    rt.current_stack_frame_mut(),
-                )
-            }
-            Compiled::Module(mut m) => {
-                // Problem: m has created function? m was linked?
-                // if m has not created function, should use m.eval() instead of m.eval_func()
-                debug_assert!(m.func_created);
-                m.eval_func(self).map(|p| p.into())
-            }
-        };
+        let ret_val =
+            match self.compile_source(source, filename, eval_type, eval_flags, scope_idx)? {
+                Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
+                Compiled::Direct(bc) => {
+                    let mut rt = self.rt_ptr();
+                    bc.eval(
+                        self,
+                        this_obj,
+                        rt.current_stack_frame()
+                            .unwrap()
+                            .func_obj
+                            .as_BCWrapper()
+                            .copied()
+                            .unwrap() // <-- stack function must be a BCWrapper
+                            .payload()
+                            .closure_var_refs(),
+                        rt.current_stack_frame_mut(),
+                    )
+                }
+                Compiled::Module(mut m) => {
+                    // Problem: m has created function? m was linked?
+                    // if m has not created function, should use m.eval() instead of m.eval_func()
+                    debug_assert!(m.func_created);
+                    m.eval_func(self).map(|p| p.into())
+                }
+            };
+
+        #[cfg(debug_assertions)]
+        if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
+            debug_assert!(
+                self.gc_heap().current_gc_scope().unwrap().contains(n),
+                "return value should be promoted to current scope"
+            );
+        }
 
         ret_val
     }
 
     /// eval `source` as global type, with global object as `this` binding.
+    #[deprecated(note = "use ContextScope::eval_global() instead")]
     pub fn eval_global(
         &mut self,
         source: &[u8],
@@ -420,5 +435,26 @@ impl JSValue {
         } else {
             Ok(*self)
         }
+    }
+}
+
+impl<'a> ContextScope<'a> {
+    /// eval `source` as global type, with global object as `this` binding.
+    pub fn eval_global(
+        &mut self,
+        source: &[u8],
+        filename: &str,
+        eval_flags: EvalFlags,
+    ) -> JSResult {
+        let global = self.ctx.global_obj();
+
+        self.ctx.eval_internal(
+            global.into(),
+            source,
+            filename,
+            EvalType::Global,
+            eval_flags,
+            -1,
+        )
     }
 }

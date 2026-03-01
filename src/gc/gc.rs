@@ -57,7 +57,7 @@ impl RuntimeImpl {
         self.gc_part_hot
     }
 
-    /// alloc data in given gc partition_id
+    /// alloc data in current scope, in given gc partition_id
     pub(crate) fn gc_alloc_in<T: GcNode>(
         &mut self,
         partition_id: GcPartitionId,
@@ -213,20 +213,3 @@ impl RuntimeImpl {
         self.gc_heap.set_gc_threshold(self.gc_part_hot, threshold);
     }
 }
-
-// impl Runtime {
-//     pub fn gc_scope2<R>(&self, f: impl FnOnce(&GcContext) -> R) -> R {
-//         let pid = self.as_ref().gc_part_id();
-//         let mut rt = self.clone();
-
-//         rt.as_mut().gc_heap_mut().push_gc_scope(pid);
-//         crate::defer!({
-//             rt.as_mut().gc_heap_mut().pop_gc_scope();
-//         });
-
-//         let r = self.as_ref();
-//         let gc = r.gc_heap().current_gc_scope().unwrap();
-
-//         f(gc)
-//     }
-// }
