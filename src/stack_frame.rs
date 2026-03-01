@@ -51,6 +51,9 @@ pub struct StackFrame {
 
     /// extra values that should avoid been gc collected alone with this stack frame:
     /// e.g. this_obj, new_target. allows max 2 values.
+    #[deprecated(
+        note = "Use scope to protect gc nodes, filling proteced values in stack frame is not courraged"
+    )]
     pub(crate) protected_values: [JSValue; 2],
 
     /// Execution mode

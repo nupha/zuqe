@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcLocal, GcNode};
+use gc_lite::GcNode;
 use smallvec::SmallVec;
 
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
     context::ContextImpl,
     error::JSResult,
     object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E},
-    string::{LocalString, StringBuf, StringData, StringImpl, StringRef},
+    string::{LocalString, StringBuf, StringData, StringRef},
     value::JSValue,
 };
 
@@ -127,10 +127,9 @@ fn js_json_check(
     ctx: &ContextImpl,
     jsc: &JSONStringifyContext,
     holder: JSValue,
-    val: JSValue,
+    mut val: JSValue,
     key: StringRef,
 ) -> JSResult {
-    let mut val = val;
     let key = JSValue::from(key.gc_ref());
 
     if val.is_object() {

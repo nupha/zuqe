@@ -176,7 +176,7 @@ impl Object {
 
         let mut rt = ctx.rt_ptr();
 
-        // Note: run in new gc scope
+        // Note: in new gc scope
         let _new_gc_scope = {
             let pid = rt.gc_part_id();
             rt.gc_heap_mut().push_gc_scope(pid);
@@ -240,6 +240,12 @@ impl Object {
             && let Some(n) = v.gc_node()
         {
             n.debug_assert_node_valid(rt.gc_heap());
+        }
+
+        // promote return value to upper gc scope to protect it from being gc collected.
+        // current scope will be closed after function exit.
+        if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
+            ctx.gc_heap().current_gc_scope().unwrap().promote(n);
         }
 
         ret_val
