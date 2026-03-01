@@ -13,6 +13,7 @@ use std::{
     },
 };
 
+use clap::{Parser, command};
 use serde::Deserialize;
 use zuqe::{
     CallContext, Callback, Context, ContextImpl, ErrorText, EvalFlags, EvalType, JS_PROP_C_W_E,
@@ -575,11 +576,35 @@ pub struct AppConfig {
     log: Option<String>,
 }
 
+#[derive(Debug, Parser)]
+#[command(version)]
+struct Args {
+    // #[arg(
+    //     long,
+    //     default_value_t = String::from("1m"),
+    //     value_name = "n",
+    //     help = "set memory limit to n"
+    // )]
+    // memory_limit: String,
+
+    // #[arg(
+    //     long,
+    //     default_value_t = String::from("1m"),
+    //     value_name = "n",
+    //     help = "set stack size to n"
+    // )]
+    // stack_size: String,
+    #[arg(default_value_t = String::from("test262.yml"), help = "config file")]
+    config_file: String,
+}
+
 fn main() {
+    let args = Args::parse();
+
     let mut app_cfg = {
         let mut fp = std::fs::OpenOptions::new()
             .read(true)
-            .open("test262.yml")
+            .open(args.config_file)
             .unwrap();
         let mut txt = String::new();
 

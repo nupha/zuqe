@@ -176,12 +176,14 @@ impl Object {
 
         let mut rt = ctx.rt_ptr();
 
-        // Note: to protect gc nodes allocated during calling from being gc collected.
-        // protection ends at end of calling.
-        rt.gc_heap_mut().open_alloc_guard();
-        crate::defer!({
-            rt.gc_heap_mut().close_alloc_guard();
-        });
+        // Note: run in new gc scope
+        let _new_gc_scope = {
+            let pid = rt.gc_part_id();
+            rt.gc_heap_mut().push_gc_scope(pid);
+            crate::defer_fn!({
+                rt.gc_heap_mut().pop_gc_scope();
+            })
+        };
 
         let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
             // When calling bytecode function, a StackFrame is created for execution,
@@ -208,8 +210,8 @@ impl Object {
         } {
             // Note: calling class defined exotic callback (e.g. bound function, native function, async function etc)
             // do not have stack frame,
-            // gc node self, this_obj, new_target, args should be protected manually
-
+            // gc node self, this_obj, new_target, args should be protected manually.
+            // ### WE'RE USING GC SCOPE, THIS SHOULD NOT BE NEEDED.
             // let mut _fg = rt.gc_heap().protect_node(self.gc_node_ptr());
             // if let Some(n) = this_obj.gc_node_ptr() {
             //     _fg.add(n);

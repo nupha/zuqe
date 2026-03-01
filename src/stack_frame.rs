@@ -111,8 +111,12 @@ impl GcTrace for StackFrame {
         for vr in self.var_refs() {
             vr.trace(tr)
         }
-        self.var_values().iter().for_each(|v| v.trace(tr));
-        self.stack_values().iter().for_each(|v| v.trace(tr));
+        for v in self.var_values() {
+            v.trace(tr)
+        }
+        for v in self.stack_values() {
+            v.trace(tr)
+        }
 
         // trace parent stack frames
         if let Some(up) = self.parent() {

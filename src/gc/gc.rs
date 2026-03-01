@@ -124,21 +124,23 @@ impl RuntimeImpl {
     fn gc_collect_in(&mut self, partition_id: GcPartitionId) -> usize {
         log::trace!("[collect] {partition_id:?}");
 
-        // Tracing
-        // * root nodes (Hint: Contexts are root nodes)
-        // * stack frame
-        // * current exception
-        // * user defined
-
+        // ensure marking cycle is started
         self.gc_heap_mut().mark(partition_id, 0);
 
         let mut gcx = self.gc_heap().create_trace_ctx();
+
+        // mark contexts
+        for c in self.context_list.iter() {
+            c.trace(&mut gcx);
+        }
+        // mark stack frames
         if let Some(sf) = self.current_stack_frame() {
             sf.trace(&mut gcx);
         }
+        // mark exception
         self.cur_exception().trace(&mut gcx);
 
-        // user defined mark
+        // mark user defined
         if let Some(f) = self.gc_user_trace.as_ref() {
             f(&mut gcx);
         }

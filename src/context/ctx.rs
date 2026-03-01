@@ -110,6 +110,7 @@ impl GcTrace for ContextImpl {
         #[cfg(feature = "builtin_regexp")]
         self.regexp_ctor.trace(tr);
         self.promise_ctor.trace(tr);
+
         self.throw_type_error.trace(tr);
         self.eval_func.trace(tr);
         self.global_obj.trace(tr);
@@ -215,13 +216,13 @@ impl ContextImpl {
     }
 
     /// get global object
-    #[inline]
+    #[inline(always)]
     pub fn global_obj(&self) -> Object {
         unsafe { *self.global_obj.as_object_unchecked() }
     }
 
     /// get global var object
-    #[inline]
+    #[inline(always)]
     pub fn global_var_obj(&self) -> Object {
         unsafe { *self.global_var_obj.as_object_unchecked() }
     }
@@ -311,27 +312,20 @@ impl<'a> From<&ContextImpl> for Context<'a> {
 impl<'a> Context<'a> {
     pub const ECMA_CONTEXT_SETUP: fn(&mut ContextImpl) -> Result<(), i32> =
         |ctx: &mut ContextImpl| -> Result<(), i32> {
-            //
-            // make global namespace - this must come first.
-            //
-            let mut gobj = ctx.create_base_object()?;
             // define name `globalThis` and `global`
+            let mut gobj = ctx.global_obj();
             gobj.define_property_value(
-                &ctx,
+                ctx,
                 Atom::CONST_globalThis,
                 gobj.into(),
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )?;
             gobj.define_property_value(
-                &ctx,
+                ctx,
                 Atom::CONST_global,
                 gobj.into(),
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )?;
-            ctx.global_obj = gobj.into();
-
-            // make global var object
-            ctx.global_var_obj = ctx.create_base_object_with_proto(None)?.into();
 
             //
             // init intrinsic base classes
@@ -562,7 +556,7 @@ impl RuntimeImpl {
     /// Create context with setup.
     pub fn create_context<'a>(
         &mut self,
-        setup: impl FnOnce(&mut ContextImpl) -> Result<(), i32>,
+        context_setup: impl FnOnce(&mut ContextImpl) -> Result<(), i32>,
     ) -> Result<Context<'a>, i32> {
         let inner = ContextImpl::new(self)?;
 
@@ -571,12 +565,21 @@ impl RuntimeImpl {
         let ctx = self
             .gc_heap_mut()
             .with_new_scope(pid, |gc| -> Result<Context<'a>, i32> {
-                let gc_ref = gc.alloc_root(inner).map_err(|_| -1)?;
+                let gc_ref = gc.alloc(inner).map_err(|_| -1)?;
 
-                // setup context and make it be root node.
-                // in case error, ContextImpl node will be purged in mark-sweep.
-                let mut ctx = ContextPtr(gc_ref);
-                ctx.init_core_objects().and_then(|_| setup(&mut ctx))?;
+                // setup context.
+                // Note: in case of exception, ContextImpl node will be purged in mark-sweep.
+                {
+                    let mut ctx = ContextPtr(gc_ref);
+                    // make global namespace
+                    ctx.global_obj = ctx.create_base_object()?.into();
+                    // make global var object
+                    ctx.global_var_obj = ctx.create_base_object_with_proto(None)?.into();
+
+                    // don't change order
+                    ctx.init_core_objects()?;
+                    context_setup(&mut ctx)?;
+                }
 
                 Ok(Context {
                     gc_ref,

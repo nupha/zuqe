@@ -4,6 +4,7 @@
 use std::ops::Deref;
 
 use colorized::{Colors, colorize_print, colorize_println};
+use gc_lite::GcNode;
 use zuqe::{CallContext, Callback, Context, ContextImpl, JS_PROP_C_W_E, JSResult, JSValue};
 
 fn js_print(cc: CallContext) -> JSResult {
@@ -44,7 +45,6 @@ fn js_print(cc: CallContext) -> JSResult {
 
 pub fn setup_globals(ctx: &mut ContextImpl, script_args: &[String]) -> Result<(), i32> {
     let mut global = ctx.global_obj();
-    let ctx = &ctx;
 
     {
         let printfn: JSValue = ctx

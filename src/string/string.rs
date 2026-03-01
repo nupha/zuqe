@@ -242,7 +242,7 @@ impl StringImpl {
 
     #[inline(always)]
     pub fn to_local(&self) -> LocalString {
-        LocalString::from(self.gc_ref().to_local(self.rt().gc_heap()))
+        LocalString::from(self.gc_ref().to_local(self.rt().gc_heap_mut()))
     }
 
     /// convert String value to String object

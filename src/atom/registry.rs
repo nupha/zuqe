@@ -7,7 +7,7 @@ use std::{
     num::NonZeroU16,
 };
 
-use gc_lite::{GcLocal, GcNode};
+use gc_lite::GcNode;
 
 use crate::{
     RuntimeImpl,

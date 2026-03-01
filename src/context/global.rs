@@ -160,6 +160,7 @@ impl ContextImpl {
     pub fn get_global_var(&self, prop: Atom, throw_ref_error: bool) -> JSResult {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
+
         if let Some((idx, _)) = gvobj.find_shape_property(prop) {
             // found in global var object
             // XXX: should handle JS_PROP_TMASK properties

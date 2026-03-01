@@ -1097,7 +1097,6 @@ impl Bytecode {
                     OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
                         // [val, ^] -> [^]
                         let atom = Atom::from_id(PC_FETCH!(u32));
-
                         let res = realm.set_global_var(
                             atom,
                             SP_VAL!(-1),
