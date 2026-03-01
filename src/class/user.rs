@@ -49,6 +49,14 @@ impl RuntimeImpl {
         debug_assert!(!class_def.class_name.is_empty());
         debug_assert!(class_def.finalize.is_some());
 
+        // class name atom should be root
+        let class_atom = {
+            let a = Atom::from_str(self.into(), class_def.class_name, AtomKind::String)?;
+            let s = a.descriptor(self).gc_head_ptr();
+            self.gc_heap_mut().set_root_node(s);
+            a
+        };
+
         thread_local! {
             static CLASS_ID_SERIAL: Cell<u16> = const { Cell::new(USER_CLASS_ID_START) };
         }
@@ -59,9 +67,7 @@ impl RuntimeImpl {
         });
         debug_assert!(class_id >= USER_CLASS_ID_START);
 
-        let class_atom = Atom::from_str(self.into(), class_def.class_name, AtomKind::String)?;
         self.add_class_internal(class_id, class_atom, class_def)?;
-
         Ok(class_id)
     }
 }

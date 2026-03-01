@@ -129,9 +129,6 @@ impl RuntimeImpl {
                     .gc_heap_mut()
                     .with_new_scope(root_scope, |gc| gc.alloc_root(ss).unwrap());
 
-                // let s = rt_ptr.gc_alloc_in(root_scope, ss).unwrap();
-                // rt_ptr.gc_heap_mut().set_root(s, true);
-
                 StringRef::from(s)
             };
             lst.push(str);
@@ -350,6 +347,12 @@ impl RuntimeImpl {
                 atom_id as usize - ATOM_CONST_COUNT as usize
             );
         }
+
+        log::debug!(
+            "[register_atom] {atom_id}: {:?}, {:?}",
+            atom_kind,
+            desc_str.gc_head()
+        );
 
         Ok(Atom(atom_id as u32))
     }

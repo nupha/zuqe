@@ -242,7 +242,7 @@ impl Promise {
             self.0.payload().promise().unwrap()
         }
         #[cfg(not(debug_assertions))]
-        {
+        unsafe {
             self.0.payload().promise().unwrap_unchecked()
         }
     }
@@ -255,7 +255,7 @@ impl Promise {
             self.0.payload_mut().promise_mut().unwrap()
         }
         #[cfg(not(debug_assertions))]
-        {
+        unsafe {
             self.0.payload_mut().promise_mut().unwrap_unchecked()
         }
     }

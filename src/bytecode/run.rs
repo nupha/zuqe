@@ -2467,7 +2467,6 @@ impl Bytecode {
                 }
                 #[cfg(not(debug_assertions))]
                 if rt.gc_req {
-                    // perform garbage collect when needed
                     rt.gc_collect();
                 }
             }; // opcodes loop

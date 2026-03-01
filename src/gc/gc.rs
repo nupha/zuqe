@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ops::DerefMut;
-
 use gc_lite::{
     GcContext, GcError, GcHeap, GcLocal, GcNode, GcPartition, GcPartitionId, GcRef, GcTrace,
     GcTraceCtx, gc_type_register,
 };
 
 use crate::{
-    Runtime,
     context::ContextImpl,
     function::{AsyncStateImpl, BytecodeImpl, VarRefImpl},
     module::ModuleDefImpl,
@@ -128,8 +125,9 @@ impl RuntimeImpl {
         log::trace!("[collect] {partition_id:?}");
 
         // Tracing
-        // * root nodes (Hint: Exception, Contexts are root nodes)
+        // * root nodes (Hint: Contexts are root nodes)
         // * stack frame
+        // * current exception
         // * user defined
 
         self.gc_heap_mut().mark(partition_id, 0);
@@ -138,6 +136,8 @@ impl RuntimeImpl {
         if let Some(sf) = self.current_stack_frame() {
             sf.trace(&mut gcx);
         }
+        self.cur_exception().trace(&mut gcx);
+
         // user defined mark
         if let Some(f) = self.gc_user_trace.as_ref() {
             f(&mut gcx);

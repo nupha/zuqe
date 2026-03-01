@@ -260,14 +260,15 @@ impl RuntimeImpl {
             unsafe {
                 n.as_ref().debug_assert_node_valid_simple();
             }
-            // self.gc_heap_mut().set_root_node(n, true);
         }
 
-        let old_exc = std::mem::replace(&mut self.cur_exception, obj);
-        // if let Some(n) = old_exc.gc_node_ptr() {
-        //     self.gc_heap_mut().set_root_node(n, false);
-        // }
-        old_exc
+        std::mem::replace(&mut self.cur_exception, obj)
+    }
+
+    /// Take current exception, reset cur_exception to null.
+    #[inline(always)]
+    pub const fn cur_exception(&self) -> JSValue {
+        self.cur_exception
     }
 
     /// Take current exception, reset cur_exception to null.
