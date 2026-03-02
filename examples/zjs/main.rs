@@ -203,7 +203,7 @@ fn main() -> ExitCode {
         })
         .unwrap();
 
-    let mut scope = ctx.create_scope();
+    let mut scope = ctx.new_scope();
     match scope.run_wait(
         script.as_bytes(),
         &filename,

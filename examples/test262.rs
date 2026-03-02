@@ -108,11 +108,8 @@ fn js_detachArrayBuffer(cc: CallContext) -> JSResult {
 fn js_evalScript(cc: CallContext) -> JSResult {
     let source = cc.arg(0).inspect(cc.ctx())?;
     cc.context()
-        .create_scope()
+        .new_scope()
         .eval_global(source.as_bytes(), "<eval>", EvalFlags::empty())
-
-    // cc.ctx_mut()
-    //     .eval_global(source.as_bytes(), "<eval>", EvalFlags::empty())
 }
 
 fn js_string_codePointRange(cc: CallContext) -> JSResult {
@@ -184,16 +181,16 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
                 0,
             )?
             .into();
-        obj262.set_property_str(&ctx, "codePointRange", f)?;
+        obj262.set_property_str(ctx, "codePointRange", f)?;
     }
 
     {
         let f = ctx.create_native_function(Callback::Func(js_createRealm), "createRealm", 1, 0)?;
-        obj262.set_property_str(&ctx, "createRealm", f.into())?;
+        obj262.set_property_str(ctx, "createRealm", f.into())?;
     }
 
     obj262.set_property_str(
-        &ctx,
+        ctx,
         "gc",
         ctx.create_native_function(
             Callback::Func(|cc| -> JSResult {
@@ -207,8 +204,8 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         .into(),
     )?;
 
-    obj262.set_property_str(&ctx, "global", global)?;
-    global.set_property_str(&ctx, "$262", obj262.into())?;
+    obj262.set_property_str(ctx, "global", global)?;
+    global.set_property_str(ctx, "$262", obj262.into())?;
 
     Ok(obj262.into())
 }
@@ -351,7 +348,7 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    ctx.create_scope().run_wait(
+    ctx.new_scope().run_wait(
         script.as_bytes(),
         filename.as_os_str().to_str().unwrap(),
         if is_module {
@@ -460,7 +457,7 @@ fn run_test_file(
         })
         .unwrap();
 
-    let mut ctx_scope = ctx.create_scope();
+    let mut ctx_scope = ctx.new_scope();
     let mut has_err = false;
 
     if !harness_files.is_empty() {

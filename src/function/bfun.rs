@@ -382,7 +382,7 @@ impl BytecodeFunction {
         // eval script
         let mut func_val = {
             let global = ctx.global_obj();
-            ctx.eval_internal(
+            ctx.new_scope().eval_internal(
                 global.into(),
                 buf.as_slice(),
                 "<input>",

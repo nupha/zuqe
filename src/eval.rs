@@ -224,7 +224,9 @@ impl ContextImpl {
             }
         }
     }
+}
 
+impl<'a> ContextScope<'a> {
     /// compile source, then eval it.
     pub(super) fn eval_internal(
         &mut self,
@@ -242,40 +244,10 @@ impl ContextImpl {
         //     );
         // }
 
-        #[cfg(debug_assertions)]
-        let _ctx_scope_level = {
-            let l = self.gc_heap().scope_level();
-            debug_assert!(l > 0, "expect gc scope for eval");
-            l
-        };
-
         let ret_val =
             match self.compile_source(source, filename, eval_type, eval_flags, var_scope_idx)? {
-                Compiled::GlobalOrIndirect(bc) => {
-                    #[cfg(debug_assertions)]
-                    debug_assert!(
-                        self.gc_heap()
-                            .current_gc_scope()
-                            .unwrap()
-                            .contains(bc.gc_node_ptr()),
-                        "ctx_scope={_ctx_scope_level}, node={:?}",
-                        bc.gc_node()
-                    );
-
-                    bc.eval(self, this_obj, &[], None)
-                }
-
+                Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
                 Compiled::Direct(bc) => {
-                    #[cfg(debug_assertions)]
-                    debug_assert!(
-                        self.gc_heap()
-                            .current_gc_scope()
-                            .unwrap()
-                            .contains(bc.gc_node_ptr()),
-                        "ctx_scope={_ctx_scope_level}, node={:?}",
-                        bc.gc_node()
-                    );
-
                     let mut rt = self.rt_ptr();
                     bc.eval(
                         self,
@@ -291,59 +263,25 @@ impl ContextImpl {
                         rt.current_stack_frame_mut(),
                     )
                 }
-
                 Compiled::Module(mut m) => {
                     // Problem: m has created function? m was linked?
                     // if m has not created function, should use m.eval() instead of m.eval_func()
-                    #[cfg(debug_assertions)]
-                    {
-                        debug_assert!(m.func_created);
-                        debug_assert!(
-                            self.gc_heap()
-                                .current_gc_scope()
-                                .unwrap()
-                                .contains(m.gc_node_ptr()),
-                            "ctx_scope={_ctx_scope_level}, node={:?}",
-                            m.gc_node()
-                        );
-                    }
-
                     m.eval_func(self).map(|p| p.into())
                 }
             };
 
-        #[cfg(debug_assertions)]
-        {
-            debug_assert_eq!(self.gc_heap().scope_level(), _ctx_scope_level);
-
-            // if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
-            //     debug_assert!(
-            //         self.gc_heap().current_gc_scope().unwrap().contains(n),
-            //         "ctx_scope={_ctx_scope_level}, node={:?}",
-            //         unsafe { n.as_ref() }
-            //     );
-            // }
-        }
+        // // TODO: should enable this check? to ensure return value in current scope.
+        // // JSValue::eval_object() breaks this assertion now.
+        // #[cfg(debug_assertions)]
+        // if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
+        //     debug_assert!(
+        //         self.gc_heap().current_gc_scope().unwrap().contains(n),
+        //         "ctx_scope={_ctx_scope_level}, node={:?}",
+        //         unsafe { n.as_ref() }
+        //     );
+        // }
 
         ret_val
-    }
-
-    /// eval `source` as global type, with global object as `this` binding.
-    #[deprecated(note = "use ContextScope::eval_global() instead")]
-    pub fn eval_global(
-        &mut self,
-        source: &[u8],
-        filename: &str,
-        eval_flags: EvalFlags,
-    ) -> JSResult {
-        self.eval_internal(
-            self.global_obj().into(),
-            source,
-            filename,
-            EvalType::Global,
-            eval_flags,
-            -1,
-        )
     }
 
     /// eval `source` as module type, with global object as `this` binding.
@@ -358,9 +296,26 @@ impl ContextImpl {
         md.set_import_meta(self, filename, true)?;
         md.eval(self)
     }
-}
 
-impl<'a> ContextScope<'a> {
+    /// eval `source` as global type, with global object as `this` binding.
+    /// perform eval in current execution scope, returned value is in current scope too.
+    pub fn eval_global(
+        &mut self,
+        source: &[u8],
+        filename: &str,
+        eval_flags: EvalFlags,
+    ) -> JSResult {
+        let global = self.ctx.global_obj();
+        self.eval_internal(
+            global.into(),
+            source,
+            filename,
+            EvalType::Global,
+            eval_flags,
+            -1,
+        )
+    }
+
     /// run script `source`, wait till execution terminates, returns the result value.
     pub fn run_wait(
         &mut self,
@@ -369,12 +324,12 @@ impl<'a> ContextScope<'a> {
         eval_type: EvalType,
         eval_flags: EvalFlags,
     ) -> Result<Value<'a>, ErrorText> {
-        self.run_wait_inner(source, filename, eval_type, eval_flags)
+        self.do_run_wait(source, filename, eval_type, eval_flags)
             .map(|v| v.into())
     }
 
     /// run script, handle result value with callback. wait till execution terminates.
-    fn run_wait_inner(
+    fn do_run_wait(
         &mut self,
         source: &[u8],
         filename: &str,
@@ -480,7 +435,7 @@ impl JSValue {
     /// - otherwise returns as-is.
     pub(crate) fn eval_object(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ContextScope,
         this_obj: JSValue,
         eval_type: EvalType,
         eval_flags: EvalFlags,
@@ -498,27 +453,5 @@ impl JSValue {
         } else {
             Ok(*self)
         }
-    }
-}
-
-impl<'a> ContextScope<'a> {
-    /// eval `source` as global type, with global object as `this` binding.
-    /// perform eval in current execution scope, returned value is in current scope too.
-    pub fn eval_global(
-        &mut self,
-        source: &[u8],
-        filename: &str,
-        eval_flags: EvalFlags,
-    ) -> JSResult {
-        let global = self.ctx.global_obj();
-
-        self.ctx.eval_internal(
-            global.into(),
-            source,
-            filename,
-            EvalType::Global,
-            eval_flags,
-            -1,
-        )
     }
 }

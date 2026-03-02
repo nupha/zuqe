@@ -14,8 +14,9 @@ use crate::{
 pub fn js_global_eval(mut cc: CallContext) -> JSResult {
     let global = cc.ctx().global_obj();
     let val = *cc.arg(0);
+
     val.eval_object(
-        cc.ctx_mut(),
+        &mut cc.ctx_mut().new_scope(),
         global.into(),
         EvalType::Indirect,
         EvalFlags::empty(),

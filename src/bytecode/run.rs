@@ -968,7 +968,7 @@ impl Bytecode {
                                 // where call_argv[0] is the `obj` arg, call_argv[-1] is `eval` func
                                 let obj = unsafe { &*call_argv };
                                 obj.eval_object(
-                                    &mut realm,
+                                    &mut realm.new_scope(),
                                     JSValue::UNDEFINED,
                                     EvalType::Direct,
                                     EvalFlags::empty(),
@@ -1015,7 +1015,7 @@ impl Bytecode {
                                 if !arg_list.is_empty() {
                                     // eval(obj, ...)
                                     arg_list[0].eval_object(
-                                        &mut realm,
+                                        &mut realm.new_scope(),
                                         JSValue::UNDEFINED,
                                         EvalType::Direct,
                                         EvalFlags::empty(),

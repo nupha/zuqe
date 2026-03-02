@@ -119,7 +119,7 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
         flags |= EvalFlags::COMPILE_TO_ASYNC;
     }
 
-    let ret = cc.ctx_mut().create_scope().eval_global(
+    let ret = cc.ctx_mut().new_scope().eval_global(
         str.content().encode_utf8_bytes(true).as_ref(),
         "<evalScript>",
         flags,

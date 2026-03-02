@@ -554,7 +554,7 @@ impl RuntimeImpl {
     /// Create context with setup.
     pub fn create_context<'a>(
         &mut self,
-        context_setup: impl FnOnce(&mut ContextScope) -> Result<(), i32>,
+        setup: impl FnOnce(&mut ContextScope) -> Result<(), i32>,
     ) -> Result<Context<'a>, i32> {
         let inner = ContextImpl::new(self)?;
 
@@ -574,9 +574,9 @@ impl RuntimeImpl {
                     ctx.global_var_obj = ctx.create_base_object_with_proto(None)?.into();
 
                     // don't change order
-                    let mut sc = ctx.create_scope();
+                    let mut sc = ctx.new_scope();
                     sc.init_core_objects()?;
-                    context_setup(&mut sc)?;
+                    setup(&mut sc)?;
 
                     // ctx.init_core_objects()?;
                     // context_setup(&mut ctx)?;
@@ -650,7 +650,7 @@ impl<'a> ContextScope<'a> {
 
 impl ContextImpl {
     /// create a context scope
-    pub fn create_scope(&mut self) -> ContextScope<'_> {
+    pub fn new_scope(&mut self) -> ContextScope<'_> {
         let pid = self.rt_ref().gc_part_id();
         self.gc_heap_mut().push_gc_scope(pid);
 

@@ -402,7 +402,8 @@ impl ContextImpl {
              eval_flags: EvalFlags,
              scope_idx: i32|
              -> JSResult {
-                ctx.eval_internal(this_obj, input, filename, eval_type, eval_flags, scope_idx)
+                ctx.new_scope()
+                    .eval_internal(this_obj, input, filename, eval_type, eval_flags, scope_idx)
             },
         );
 
