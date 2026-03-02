@@ -5,7 +5,11 @@ mod ctx;
 mod global;
 mod interrupt;
 mod intrinsic;
+mod scope;
 
-pub use ctx::{Context, ContextImpl, ContextScope};
+pub use {
+    ctx::{Context, ContextImpl},
+    scope::ContextScope,
+};
 
 pub(crate) use ctx::ContextPtr;
