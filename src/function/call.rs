@@ -174,7 +174,7 @@ impl Object {
             return Err(-1);
         }
 
-        let mut rt = ctx.rt_ptr();
+        let rt = ctx.rt_ptr();
 
         // // Note: execute in new scope
         // let _new_gc_scope = {

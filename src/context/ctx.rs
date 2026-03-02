@@ -245,6 +245,102 @@ impl ContextImpl {
             .is_some_and(|sf| sf.mode.contains(ExecMode::STRICT))
     }
 
+    /// Initialize minimum amount of objects to be able to compile code and display error messages.
+    /// No Atom should be allocated by this function.
+    fn init_core_objects(&mut self) -> Result<(), i32> {
+        debug_assert!(
+            [
+                JS_CLASS_OBJECT,
+                JS_CLASS_BYTECODE_FUNCTION,
+                JS_CLASS_ARRAY,
+                JS_CLASS_ERROR,
+            ]
+            .iter()
+            .max()
+            .copied()
+            .unwrap()
+                < self.rt_ptr().class_registry.len() as ClassID
+        );
+
+        // Object
+        let mut object = self.create_base_object_with_proto(None)?;
+        object.set_flag_immutable_prototype(true);
+        self.class_protos[JS_CLASS_OBJECT as usize] = object.into();
+
+        // Function
+        {
+            let func = NativeFunction::create(
+                self,
+                Callback::Func(js_function_proto),
+                "",
+                0,
+                0,
+                Some(object),
+                None,
+            )?;
+            self.class_protos[JS_CLASS_BYTECODE_FUNCTION as usize] = func.into();
+        }
+
+        // Error
+        {
+            let mut error = self.create_base_object()?;
+            error.install_fields(self, js_error_proto_funcs).unwrap();
+            self.class_protos[JS_CLASS_ERROR as usize] = error.into();
+
+            // standard error objects
+            let msg = Atom::CONST_empty_string.force_string(self).unwrap();
+            for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
+                let mut err = self.create_base_object_with_proto(Some(error))?;
+
+                let name = self.create_atom_string(name).unwrap();
+                err.define_property_value(
+                    self,
+                    Atom::CONST_name,
+                    JSValue::from(name),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )
+                .unwrap();
+
+                err.define_property_value(
+                    self,
+                    Atom::CONST_message,
+                    JSValue::from(&msg),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )
+                .unwrap();
+
+                self.error_protos[i] = err.into();
+            }
+        }
+
+        // Array
+        {
+            // 1. make Array prototype object
+            let array_proto = self
+                .create_object_with_proto(
+                    object.into(),
+                    ObjectPayload::ARRAY(ArrayPayload::default()),
+                )
+                .map_err(|_| -1)?;
+
+            self.class_protos[JS_CLASS_ARRAY as usize] = array_proto.into();
+
+            // 2. make default shape for Array
+            let mut array_shape = Shape::create(self, Some(array_proto), 1).unwrap();
+            // define `length` property at #0
+            array_shape.add_shape_properties(
+                self,
+                &[(Atom::CONST_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)],
+            );
+
+            // register shape
+            self.rt_ptr().register_shape(&array_shape).unwrap();
+            self.array_shape.replace(array_shape);
+        }
+
+        Ok(())
+    }
+
     fn finalize(&mut self) {
         self.job_list.clear();
 
@@ -451,104 +547,6 @@ impl<'a> From<ContextPtr> for Context<'a> {
 impl std::fmt::Debug for ContextPtr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<ContextPtr {:p}>", self.id() as *const c_void)
-    }
-}
-
-impl ContextImpl {
-    /// Initialize minimum amount of objects to be able to compile code and display error messages.
-    /// No Atom should be allocated by this function.
-    fn init_core_objects(&mut self) -> Result<(), i32> {
-        debug_assert!(
-            [
-                JS_CLASS_OBJECT,
-                JS_CLASS_BYTECODE_FUNCTION,
-                JS_CLASS_ARRAY,
-                JS_CLASS_ERROR,
-            ]
-            .iter()
-            .max()
-            .copied()
-            .unwrap()
-                < self.rt_ptr().class_registry.len() as ClassID
-        );
-
-        // Object
-        let mut object = self.create_base_object_with_proto(None)?;
-        object.set_flag_immutable_prototype(true);
-        self.class_protos[JS_CLASS_OBJECT as usize] = object.into();
-
-        // Function
-        {
-            let func = NativeFunction::create(
-                self,
-                Callback::Func(js_function_proto),
-                "",
-                0,
-                0,
-                Some(object),
-                None,
-            )?;
-            self.class_protos[JS_CLASS_BYTECODE_FUNCTION as usize] = func.into();
-        }
-
-        // Error
-        {
-            let mut error = self.create_base_object()?;
-            error.install_fields(self, js_error_proto_funcs).unwrap();
-            self.class_protos[JS_CLASS_ERROR as usize] = error.into();
-
-            // standard error objects
-            let msg = Atom::CONST_empty_string.force_string(self).unwrap();
-            for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
-                let mut err = self.create_base_object_with_proto(Some(error))?;
-
-                let name = self.create_atom_string(name).unwrap();
-                err.define_property_value(
-                    self,
-                    Atom::CONST_name,
-                    JSValue::from(name),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )
-                .unwrap();
-
-                err.define_property_value(
-                    self,
-                    Atom::CONST_message,
-                    JSValue::from(&msg),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )
-                .unwrap();
-
-                self.error_protos[i] = err.into();
-            }
-        }
-
-        // Array
-        {
-            // 1. make Array prototype object
-            let array_proto = self
-                .create_object_with_proto(
-                    object.into(),
-                    ObjectPayload::ARRAY(ArrayPayload::default()),
-                )
-                .map_err(|_| -1)?;
-
-            self.class_protos[JS_CLASS_ARRAY as usize] = array_proto.into();
-
-            // 2. make default shape for Array
-            let mut array_shape = Shape::create(self, Some(array_proto), 1).unwrap();
-            // define `length` property at #0
-            array_shape.add_shape_properties(
-                self,
-                &[(Atom::CONST_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)],
-            );
-
-            // register shape
-            self.rt_ptr().register_shape(&array_shape).unwrap();
-            self.array_shape.replace(array_shape);
-        }
-
-        Ok(())
     }
 }
 
