@@ -348,7 +348,7 @@ fn js_proxy_call_constructor(
 
     let method = px.get_proxy_method(&ctx, Atom::CONST_construct)?;
     if method.is_undefined() {
-        return px.target.call_ctor_target(&ctx, new_target, args);
+        return px.target.call_ctor_new_target(&ctx, new_target, args);
     }
 
     let arg_array = ctx.create_array_from_slice(args)?;

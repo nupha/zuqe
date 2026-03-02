@@ -203,7 +203,8 @@ fn main() -> ExitCode {
         })
         .unwrap();
 
-    match ctx.run_wait(
+    let mut scope = ctx.scope();
+    match scope.run_wait(
         script.as_bytes(),
         &filename,
         if is_module {
@@ -214,7 +215,7 @@ fn main() -> ExitCode {
         EvalFlags::empty(),
     ) {
         Ok(val) => {
-            colorize_println(val.inspect(&ctx).unwrap(), GreenFg);
+            colorize_println(val.inspect(&scope).unwrap(), GreenFg);
             ExitCode::SUCCESS
         }
         Err(e) => {

@@ -13,11 +13,11 @@ use std::{
     },
 };
 
-use clap::{Parser, command};
+use clap::Parser;
 use serde::Deserialize;
 use zuqe::{
-    CallContext, Callback, Context, ContextImpl, ErrorText, EvalFlags, EvalType, JS_PROP_C_W_E,
-    JSResult, JSValue, ModuleDef, Runtime,
+    CallContext, Callback, Context, ContextImpl, ContextScope, ErrorText, EvalFlags, EvalType,
+    JS_PROP_C_W_E, JSResult, JSValue, ModuleDef, Runtime,
 };
 
 /// counter of "Test262:AsyncTestComplete" messages
@@ -317,7 +317,7 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorText> {
+fn run_harness(cs: &mut ContextScope, harness_files: &[PathBuf]) -> Result<(), ErrorText> {
     for file in harness_files {
         let src = std::fs::read_to_string(file)
             .inspect_err(|_| {
@@ -325,7 +325,6 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorT
             })
             .unwrap();
 
-        let mut cs = ctx.scope();
         cs.eval_global(
             src.as_bytes(),
             file.as_os_str().to_string_lossy().as_ref(),
@@ -341,7 +340,7 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorT
 }
 
 fn run_test_script(
-    mut ctx: Context,
+    ctx: &mut ContextScope,
     script: &str,
     filename: &Path,
     is_module: bool,
@@ -352,7 +351,7 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    ctx.run_wait(
+    ctx.scope().run_wait(
         script.as_bytes(),
         filename.as_os_str().to_str().unwrap(),
         if is_module {
@@ -453,7 +452,7 @@ fn run_test_file(
     let mut rt = Runtime::create().unwrap();
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
-    let ctx = rt
+    let mut ctx = rt
         .create_context(|ctx| {
             Context::ECMA_CONTEXT_SETUP(ctx)?;
             setup_ctx_test262_helpers(ctx)?;
@@ -461,11 +460,13 @@ fn run_test_file(
         })
         .unwrap();
 
+    let mut ctx_scope = ctx.scope();
     let mut has_err = false;
 
     if !harness_files.is_empty() {
         // eval included harness files
-        if let Err(exc) = run_harness(ctx, &harness_files) {
+
+        if let Err(exc) = run_harness(&mut ctx_scope, &harness_files) {
             // write to outf
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&exc, false, false, false, outf);
@@ -510,9 +511,14 @@ fn run_test_file(
         .into_iter()
         .flatten()
         {
-            if let Err(exc) =
-                run_test_script(ctx, content.as_str(), filename, is_module, is_async, strict)
-            {
+            if let Err(exc) = run_test_script(
+                &mut ctx_scope,
+                content.as_str(),
+                filename,
+                is_module,
+                is_async,
+                strict,
+            ) {
                 // eprintln!("TEST262 EXCEPTION: {:?}", exc.message);
 
                 if let Some(neg) = &negative {
@@ -584,21 +590,6 @@ pub struct AppConfig {
 #[derive(Debug, Parser)]
 #[command(version)]
 struct Args {
-    // #[arg(
-    //     long,
-    //     default_value_t = String::from("1m"),
-    //     value_name = "n",
-    //     help = "set memory limit to n"
-    // )]
-    // memory_limit: String,
-
-    // #[arg(
-    //     long,
-    //     default_value_t = String::from("1m"),
-    //     value_name = "n",
-    //     help = "set stack size to n"
-    // )]
-    // stack_size: String,
     #[arg(default_value_t = String::from("test262.yml"), help = "config file")]
     config_file: String,
 }

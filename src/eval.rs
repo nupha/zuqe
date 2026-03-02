@@ -4,7 +4,6 @@
 use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
-    Context,
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
     context::{ContextImpl, ContextPtr, ContextScope},
@@ -77,13 +76,24 @@ impl ContextImpl {
         eval_flags: EvalFlags,
         scope_idx: i32,
     ) -> Result<Compiled, i32> {
-        let _gc_scope_for_parse = {
-            let pid = self.rt_ref().gc_part_id();
-            self.gc_heap_mut().push_gc_scope(pid);
+        // let _gc_scope_for_parse = {
+        //     let pid = self.rt_ref().gc_part_id();
+        //     self.gc_heap_mut().push_gc_scope(pid);
 
-            let mut rt = self.rt_ptr();
+        //     let mut rt = self.rt_ptr();
+        //     crate::defer_fn!({
+        //         rt.gc_heap_mut().pop_gc_scope();
+        //     })
+        // };
+
+        #[cfg(debug_assertions)]
+        let _check_scope_level = {
+            let l = self.gc_heap().scope_level();
+            debug_assert!(l > 0, "expect gc scope for compile_source");
+
+            let rt = self.rt_ptr();
             crate::defer_fn!({
-                rt.gc_heap_mut().pop_gc_scope();
+                debug_assert_eq!(rt.gc_heap().scope_level(), l);
             })
         };
 
@@ -177,6 +187,16 @@ impl ContextImpl {
         // compile function def into bytecode.
         let bc = fd.create_bytecode(self)?;
 
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            self.gc_heap()
+                .current_gc_scope()
+                .unwrap()
+                .contains(bc.gc_node_ptr()),
+            "{:?}",
+            bc.gc_node()
+        );
+
         // XXX: Could add a flag to avoid resolution if necessary
         if let Some(mut md) = frame_module {
             // resolve module
@@ -184,20 +204,18 @@ impl ContextImpl {
             md.set_tla(has_await);
             self.resolve_module(md)?;
 
-            // Note: promote return bytecode to upper gc scope.
-            self.gc_heap()
-                .current_gc_scope()
-                .unwrap()
-                .promote(md.gc_node_ptr());
-
+            // // Note: promote return bytecode to upper gc scope.
+            // self.gc_heap()
+            //     .current_gc_scope()
+            //     .unwrap()
+            //     .promote(md.gc_node_ptr());
             Ok(Compiled::Module(md))
         } else {
-            // Note: promote return bytecode to upper gc scope.
-            self.gc_heap()
-                .current_gc_scope()
-                .unwrap()
-                .promote(bc.gc_node_ptr());
-
+            // // Note: promote return bytecode to upper gc scope.
+            // self.gc_heap()
+            //     .current_gc_scope()
+            //     .unwrap()
+            //     .promote(bc.gc_node_ptr());
             if frame_func_bc.is_some() {
                 debug_assert_eq!(eval_type, EvalType::Direct);
                 Ok(Compiled::Direct(bc))
@@ -215,7 +233,7 @@ impl ContextImpl {
         filename: &str,
         eval_type: EvalType,
         eval_flags: EvalFlags,
-        scope_idx: i32,
+        var_scope_idx: i32,
     ) -> JSResult {
         // #[cfg(debug_assertions)]
         // if eval_flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
@@ -224,12 +242,40 @@ impl ContextImpl {
         //     );
         // }
 
-        debug_assert!(self.gc_heap().scope_level() > 0, "expect gc scope for eval");
+        #[cfg(debug_assertions)]
+        let _ctx_scope_level = {
+            let l = self.gc_heap().scope_level();
+            debug_assert!(l > 0, "expect gc scope for eval");
+            l
+        };
 
         let ret_val =
-            match self.compile_source(source, filename, eval_type, eval_flags, scope_idx)? {
-                Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
+            match self.compile_source(source, filename, eval_type, eval_flags, var_scope_idx)? {
+                Compiled::GlobalOrIndirect(bc) => {
+                    #[cfg(debug_assertions)]
+                    debug_assert!(
+                        self.gc_heap()
+                            .current_gc_scope()
+                            .unwrap()
+                            .contains(bc.gc_node_ptr()),
+                        "ctx_scope={_ctx_scope_level}, node={:?}",
+                        bc.gc_node()
+                    );
+
+                    bc.eval(self, this_obj, &[], None)
+                }
+
                 Compiled::Direct(bc) => {
+                    #[cfg(debug_assertions)]
+                    debug_assert!(
+                        self.gc_heap()
+                            .current_gc_scope()
+                            .unwrap()
+                            .contains(bc.gc_node_ptr()),
+                        "ctx_scope={_ctx_scope_level}, node={:?}",
+                        bc.gc_node()
+                    );
+
                     let mut rt = self.rt_ptr();
                     bc.eval(
                         self,
@@ -245,20 +291,38 @@ impl ContextImpl {
                         rt.current_stack_frame_mut(),
                     )
                 }
+
                 Compiled::Module(mut m) => {
                     // Problem: m has created function? m was linked?
                     // if m has not created function, should use m.eval() instead of m.eval_func()
-                    debug_assert!(m.func_created);
+                    #[cfg(debug_assertions)]
+                    {
+                        debug_assert!(m.func_created);
+                        debug_assert!(
+                            self.gc_heap()
+                                .current_gc_scope()
+                                .unwrap()
+                                .contains(m.gc_node_ptr()),
+                            "ctx_scope={_ctx_scope_level}, node={:?}",
+                            m.gc_node()
+                        );
+                    }
+
                     m.eval_func(self).map(|p| p.into())
                 }
             };
 
         #[cfg(debug_assertions)]
-        if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
-            debug_assert!(
-                self.gc_heap().current_gc_scope().unwrap().contains(n),
-                "return value should be promoted to current scope"
-            );
+        {
+            debug_assert_eq!(self.gc_heap().scope_level(), _ctx_scope_level);
+
+            // if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
+            //     debug_assert!(
+            //         self.gc_heap().current_gc_scope().unwrap().contains(n),
+            //         "ctx_scope={_ctx_scope_level}, node={:?}",
+            //         unsafe { n.as_ref() }
+            //     );
+            // }
         }
 
         ret_val
@@ -294,6 +358,20 @@ impl ContextImpl {
         md.set_import_meta(self, filename, true)?;
         md.eval(self)
     }
+}
+
+impl<'a> ContextScope<'a> {
+    /// run script `source`, wait till execution terminates, returns the result value.
+    pub fn run_wait(
+        &mut self,
+        source: &[u8],
+        filename: &str,
+        eval_type: EvalType,
+        eval_flags: EvalFlags,
+    ) -> Result<Value<'a>, ErrorText> {
+        self.run_wait_inner(source, filename, eval_type, eval_flags)
+            .map(|v| v.into())
+    }
 
     /// run script, handle result value with callback. wait till execution terminates.
     fn run_wait_inner(
@@ -305,15 +383,14 @@ impl ContextImpl {
     ) -> Result<JSValue, ErrorText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
-        // create new gc scope for running source
-        let mut rt = self.rt_ptr();
-        let pid = rt.gc_part_id();
-        rt.gc_heap_mut().push_gc_scope(pid);
-        crate::defer!({
-            rt.gc_heap_mut().pop_gc_scope();
-        });
+        // // create new gc scope for running source
+        // let mut rt = self.rt_ptr();
+        // let pid = rt.gc_part_id();
+        // rt.gc_heap_mut().push_gc_scope(pid);
+        // crate::defer!({
+        //     rt.gc_heap_mut().pop_gc_scope();
+        // });
 
-        // eval
         let val = if eval_type == EvalType::Module {
             self.eval_module(source, filename, eval_flags.contains(EvalFlags::STRIP))
                 .map(|p| p.into())
@@ -321,7 +398,7 @@ impl ContextImpl {
             self.eval_global(source, filename, eval_flags)
         }
         .map_err(|_| {
-            let exc = rt.take_exception();
+            let exc = self.rt_mut().take_exception();
             ErrorText::from(self, exc)
         })?;
 
@@ -342,20 +419,20 @@ impl ContextImpl {
             Ok(val)
         };
 
-        // protect result and promise from been gc collected
-        let mut _ng = self.rt_ref().gc_heap().protect_nodes(&[]);
-        if let Some(n) = promise.map(|p| p.gc_node_ptr()) {
-            _ng.add(n);
-        }
-        if let Ok(Some(n)) = result.as_ref().map(|v| v.gc_node_ptr()) {
-            _ng.add(n)
-        }
+        // // protect result and promise from been gc collected
+        // let mut _ng = self.rt_ref().gc_heap().protect_nodes(&[]);
+        // if let Some(n) = promise.map(|p| p.gc_node_ptr()) {
+        //     _ng.add(n);
+        // }
+        // if let Ok(Some(n)) = result.as_ref().map(|v| v.gc_node_ptr()) {
+        //     _ng.add(n)
+        // }
 
         // tick to finish
         let exit_code = loop {
-            match rt.tick() {
+            match self.rt_mut().tick() {
                 Ok(TickStatus::Continue) => {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    std::thread::sleep(std::time::Duration::from_millis(5));
                     continue;
                 }
                 Ok(TickStatus::Stop(code)) => {
@@ -380,34 +457,20 @@ impl ContextImpl {
                     break code;
                 }
                 Err(_) => {
-                    let exc = rt.take_exception();
+                    let exc = self.rt_mut().take_exception();
                     result = Err(ErrorText::from(self, exc));
                     break -1;
                 }
             }
         };
 
-        // close gc scope eval scipt scope
-        rt.gc_heap_mut().pop_gc_scope();
+        // // close gc scope eval scipt scope
+        // self.rt_mut().gc_heap_mut().pop_gc_scope();
 
         match result {
             Ok(v) => Ok(v),
             Err(e) => Err(e),
         }
-    }
-}
-
-impl<'a> Context<'a> {
-    /// run script `source`, wait till execution terminates, returns the result value.
-    pub fn run_wait(
-        &mut self,
-        source: &[u8],
-        filename: &str,
-        eval_type: EvalType,
-        eval_flags: EvalFlags,
-    ) -> Result<Value<'a>, ErrorText> {
-        self.run_wait_inner(source, filename, eval_type, eval_flags)
-            .map(|v| v.into())
     }
 }
 
@@ -421,7 +484,7 @@ impl JSValue {
         this_obj: JSValue,
         eval_type: EvalType,
         eval_flags: EvalFlags,
-        scope_idx: i32,
+        var_scope_idx: i32,
     ) -> JSResult {
         if let Self::String(s) = self {
             ctx.eval_internal(
@@ -430,7 +493,7 @@ impl JSValue {
                 "<string>",
                 eval_type,
                 eval_flags,
-                scope_idx,
+                var_scope_idx,
             )
         } else {
             Ok(*self)
@@ -440,6 +503,7 @@ impl JSValue {
 
 impl<'a> ContextScope<'a> {
     /// eval `source` as global type, with global object as `this` binding.
+    /// perform eval in current execution scope, returned value is in current scope too.
     pub fn eval_global(
         &mut self,
         source: &[u8],

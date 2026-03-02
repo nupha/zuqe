@@ -1007,7 +1007,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::APPLY_EVAL => {
-                        let scope_idx = PC_FETCH!(u16) as i32 - 1; // NOTE: could be minus
+                        let var_scope_idx = PC_FETCH!(u16) as i32 - 1; // NOTE: could be minus
                         let func_val = SP_REF!(-2);
 
                         if let Ok(arg_list) = build_arg_list(&realm, SP_VAL!(-1)) {
@@ -1019,7 +1019,7 @@ impl Bytecode {
                                         JSValue::UNDEFINED,
                                         EvalType::Direct,
                                         EvalFlags::empty(),
-                                        scope_idx,
+                                        var_scope_idx,
                                     )
                                 } else {
                                     // eval() returns undefined

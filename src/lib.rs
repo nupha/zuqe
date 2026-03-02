@@ -28,7 +28,7 @@ mod value;
 pub use {
     atom::Atom,
     class::{ClassDef, ClassID},
-    context::{Context, ContextImpl},
+    context::{Context, ContextImpl, ContextScope},
     error::{ErrorText, JS_SetUncatchableError, JSResult},
     eval::{EvalFlags, EvalType},
     function::{CallContext, Callback, FieldDef},

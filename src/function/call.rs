@@ -176,14 +176,14 @@ impl Object {
 
         let mut rt = ctx.rt_ptr();
 
-        // Note: in new gc scope
-        let _new_gc_scope = {
-            let pid = rt.gc_part_id();
-            rt.gc_heap_mut().push_gc_scope(pid);
-            crate::defer_fn!({
-                rt.gc_heap_mut().pop_gc_scope();
-            })
-        };
+        // // Note: execute in new scope
+        // let _new_gc_scope = {
+        //     let pid = rt.gc_part_id();
+        //     rt.gc_heap_mut().push_gc_scope(pid);
+        //     crate::defer_fn!({
+        //         rt.gc_heap_mut().pop_gc_scope();
+        //     })
+        // };
 
         let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
             // When calling bytecode function, a StackFrame is created for execution,
@@ -242,11 +242,11 @@ impl Object {
             n.debug_assert_node_valid(rt.gc_heap());
         }
 
-        // promote return value to upper gc scope to protect it from being gc collected.
-        // current scope will be closed after function exit.
-        if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
-            ctx.gc_heap().current_gc_scope().unwrap().promote(n);
-        }
+        // // promote return value to upper gc scope to protect it from being gc collected.
+        // // current scope will be closed after function exit.
+        // if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
+        //     ctx.gc_heap().current_gc_scope().unwrap().promote(n);
+        // }
 
         ret_val
     }
@@ -263,7 +263,7 @@ impl Object {
     }
 
     #[inline(always)]
-    pub fn call_ctor_target(
+    pub fn call_ctor_new_target(
         &self,
         ctx: &ContextImpl,
         new_target: JSValue,
@@ -280,7 +280,7 @@ impl Object {
 
     #[inline(always)]
     pub fn call_ctor(&self, ctx: &ContextImpl, args: &[JSValue]) -> JSResult {
-        self.call_ctor_target(ctx, JSValue::Object(*self), args)
+        self.call_ctor_new_target(ctx, JSValue::Object(*self), args)
     }
 
     /// call function `self.method`
