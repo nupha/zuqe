@@ -10,7 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcHeap, GcNode, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcError, GcHeap, GcLocal, GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
@@ -310,8 +310,8 @@ impl<'a> From<&ContextImpl> for Context<'a> {
 }
 
 impl<'a> Context<'a> {
-    pub const ECMA_CONTEXT_SETUP: fn(&mut ContextImpl) -> Result<(), i32> =
-        |ctx: &mut ContextImpl| -> Result<(), i32> {
+    pub const ECMA_CONTEXT_SETUP: fn(&mut ContextScope) -> Result<(), i32> =
+        |ctx: &mut ContextScope| -> Result<(), i32> {
             // define name `globalThis` and `global`
             let mut gobj = ctx.global_obj();
             gobj.define_property_value(
@@ -454,7 +454,7 @@ impl std::fmt::Debug for ContextPtr {
     }
 }
 
-impl ContextPtr {
+impl ContextImpl {
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
     /// No Atom should be allocated by this function.
     fn init_core_objects(&mut self) -> Result<(), i32> {
@@ -556,11 +556,10 @@ impl RuntimeImpl {
     /// Create context with setup.
     pub fn create_context<'a>(
         &mut self,
-        context_setup: impl FnOnce(&mut ContextImpl) -> Result<(), i32>,
+        context_setup: impl FnOnce(&mut ContextScope) -> Result<(), i32>,
     ) -> Result<Context<'a>, i32> {
         let inner = ContextImpl::new(self)?;
 
-        // run in a gc scope.
         let pid = self.gc_part_id();
         let ctx = self
             .gc_heap_mut()
@@ -577,8 +576,12 @@ impl RuntimeImpl {
                     ctx.global_var_obj = ctx.create_base_object_with_proto(None)?.into();
 
                     // don't change order
-                    ctx.init_core_objects()?;
-                    context_setup(&mut ctx)?;
+                    let mut sc = ctx.create_scope();
+                    sc.init_core_objects()?;
+                    context_setup(&mut sc)?;
+
+                    // ctx.init_core_objects()?;
+                    // context_setup(&mut ctx)?;
                 }
 
                 Ok(Context {
@@ -625,9 +628,31 @@ impl<'a> DerefMut for ContextScope<'a> {
     }
 }
 
+impl<'a> ContextScope<'a> {
+    /// Allocate a node, and put it to scope cache to protect it.
+    pub fn alloc<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
+        self.gc_heap_mut()
+            .with_current_scope(|gc| gc.alloc(payload))
+            .unwrap()
+    }
+
+    pub fn alloc_root<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
+        self.gc_heap_mut()
+            .with_current_scope(|gc| gc.alloc_root(payload))
+            .unwrap()
+    }
+
+    #[deprecated]
+    pub fn alloc_local<T: GcNode>(&mut self, payload: T) -> Result<GcLocal<T>, (GcError, T)> {
+        self.gc_heap_mut()
+            .with_current_scope(|gc| gc.alloc_local(payload))
+            .unwrap()
+    }
+}
+
 impl ContextImpl {
     /// create a context scope
-    pub fn scope(&mut self) -> ContextScope<'_> {
+    pub fn create_scope(&mut self) -> ContextScope<'_> {
         let pid = self.rt_ref().gc_part_id();
         self.gc_heap_mut().push_gc_scope(pid);
 

@@ -108,7 +108,7 @@ fn js_detachArrayBuffer(cc: CallContext) -> JSResult {
 fn js_evalScript(cc: CallContext) -> JSResult {
     let source = cc.arg(0).inspect(cc.ctx())?;
     cc.context()
-        .scope()
+        .create_scope()
         .eval_global(source.as_bytes(), "<eval>", EvalFlags::empty())
 
     // cc.ctx_mut()
@@ -154,7 +154,7 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
 
     {
         let s = ctx.create_native_function(Callback::Func(js_print), "print", 1, 0)?;
-        global.set_property_str(&ctx, "print", s.into())?;
+        global.set_property_str(ctx, "print", s.into())?;
     }
 
     // $262
@@ -167,12 +167,12 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
             1,
             0,
         )?;
-        obj262.set_property_str(&ctx, "detachArrayBuffer", f.into())?;
+        obj262.set_property_str(ctx, "detachArrayBuffer", f.into())?;
     }
 
     {
         let f = ctx.create_native_function(Callback::Func(js_evalScript), "evalScript", 1, 0)?;
-        obj262.set_property_str(&ctx, "evalScript", f.into())?;
+        obj262.set_property_str(ctx, "evalScript", f.into())?;
     }
 
     {
@@ -351,7 +351,7 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    ctx.scope().run_wait(
+    ctx.create_scope().run_wait(
         script.as_bytes(),
         filename.as_os_str().to_str().unwrap(),
         if is_module {
@@ -460,7 +460,7 @@ fn run_test_file(
         })
         .unwrap();
 
-    let mut ctx_scope = ctx.scope();
+    let mut ctx_scope = ctx.create_scope();
     let mut has_err = false;
 
     if !harness_files.is_empty() {
