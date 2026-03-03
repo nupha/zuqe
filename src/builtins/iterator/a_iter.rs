@@ -43,7 +43,7 @@ pub struct AsyncFromSyncIterator(GcRef<ObjectImpl>);
 object_cast!(AsyncFromSyncIterator, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR);
 
 impl AsyncFromSyncIterator {
-    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let aiter_proto = ctx.async_iterator_proto()?;
         let mut proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
         proto.install_fields(&mut ctx, js_async_from_sync_iterator_proto_funcs)?;
@@ -156,7 +156,7 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
                             (*cc.arg(0), 1)
                         };
                         return Ok(done_resolve(
-                            &mut cc.ctx_ptr(),
+                            &mut ctx,
                             resolving_funcs,
                             err,
                             is_reject,
@@ -167,13 +167,8 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
                     fval
                 }
                 Err(_) => {
-                    return Ok(done_resolve(
-                        &mut cc.ctx_ptr(),
-                        resolving_funcs,
-                        ctx.rt_ptr().take_exception(),
-                        1,
-                        promise,
-                    ));
+                    let exc = ctx.rt_mut().take_exception();
+                    return Ok(done_resolve(&mut ctx, resolving_funcs, exc, 1, promise));
                 }
             }
         };
@@ -195,34 +190,22 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
                     let mut _done = false;
                     value = JS_IteratorGetCompleteValue(&mut ctx, value, &mut _done);
                     if value.is_exception() {
-                        let err = ctx.rt_ptr().take_exception();
-                        return Ok(done_resolve(
-                            &mut cc.ctx_ptr(),
-                            resolving_funcs,
-                            err,
-                            1,
-                            promise,
-                        ));
+                        let err = ctx.rt_mut().take_exception();
+                        return Ok(done_resolve(&mut ctx, resolving_funcs, err, 1, promise));
                     }
                     _done
                 }
             };
 
             let mut value_wrapper_promise: Promise = {
-                let mut ctxptr = cc.ctx_ptr();
                 let cc =
                     CallContext::new_simple(ctx, ctx.promise_ctor, std::slice::from_ref(&value));
 
                 if let Ok(r) = js_promise_resolve(cc) {
                     r.try_into()?
                 } else {
-                    return Ok(done_resolve(
-                        &mut ctxptr,
-                        resolving_funcs,
-                        ctx.rt_ptr().take_exception(),
-                        1,
-                        promise,
-                    ));
+                    let exc = ctx.rt_mut().take_exception();
+                    return Ok(done_resolve(&mut ctx, resolving_funcs, exc, 1, promise));
                 }
             };
 
@@ -233,23 +216,13 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
             value_wrapper_promise.reaction(&mut ctx, resolve_reject, resolving_funcs)?;
             Ok(promise.into())
         } else {
-            Ok(done_resolve(
-                &mut cc.ctx_ptr(),
-                resolving_funcs,
-                ctx.rt_ptr().take_exception(),
-                1,
-                promise,
-            ))
+            let exc = ctx.rt_mut().take_exception();
+            Ok(done_resolve(&mut ctx, resolving_funcs, exc, 1, promise))
         }
     } else {
         ctx.throw_type_error("not an Async-from-Sync Iterator");
-        Ok(done_resolve(
-            &mut cc.ctx_ptr(),
-            resolving_funcs,
-            ctx.rt_ptr().take_exception(),
-            1,
-            promise,
-        ))
+        let exc = ctx.rt_mut().take_exception();
+        Ok(done_resolve(&mut ctx, resolving_funcs, exc, 1, promise))
     }
 }
 

@@ -13,7 +13,7 @@ use crate::{
     JS_CLASS_STRING,
     atom::{Atom, AtomInfo, AtomKind},
     class::ClassExoticMethods,
-    context::{ContextImpl, ContextPtr},
+    context::{Context, ContextImpl, ContextPtr},
     number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
@@ -234,7 +234,7 @@ impl StringImpl {
                     JSValue::from(num)
                 }
             } else {
-                ctx.rt_ptr().take_exception();
+                ctx.rt_mut().take_exception();
                 JSValue::Float64(f64::NAN)
             }
         }
@@ -276,7 +276,7 @@ impl StringImpl {
                 -1
             })?;
 
-        StringRef::create(ctx.rt_ptr(), StringData::from_buf(buf)).map(LocalString::from)
+        StringRef::create(ctx.rt_ptr(), StringData::from_buf(buf))
     }
 
     /// make sub string with content of given range.
@@ -555,12 +555,10 @@ impl ContextImpl {
             Atom::CONST_empty_string.force_string(self)
         } else {
             let data = StringData::from_buf(sbuf);
-            StringRef::create(self.rt_ptr(), data)
-                .map(LocalString::from)
-                .map_err(|_| {
-                    self.throw_out_of_memory();
-                    -1
-                })
+            StringRef::create(self.rt_ptr(), data).map_err(|_| {
+                self.throw_out_of_memory();
+                -1
+            })
         }
     }
 
@@ -572,12 +570,10 @@ impl ContextImpl {
         if content.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
-            StringRef::create(self.rt_ptr(), content)
-                .map(LocalString::from)
-                .map_err(|_| {
-                    self.throw_out_of_memory();
-                    -1
-                })
+            StringRef::create(self.rt_ptr(), content).map_err(|_| {
+                self.throw_out_of_memory();
+                -1
+            })
         }
     }
 
@@ -589,11 +585,9 @@ impl ContextImpl {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::create_utf8(self.rt_ptr(), utf8_bytes)
-                .map(LocalString::from)
-                .inspect_err(|_| {
-                    self.throw_out_of_memory();
-                })
+            StringRef::create_utf8(self.rt_ptr(), utf8_bytes).inspect_err(|_| {
+                self.throw_out_of_memory();
+            })
         }
     }
 
@@ -605,11 +599,9 @@ impl ContextImpl {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::create_str(self.rt_ptr(), str)
-                .map(LocalString::from)
-                .inspect_err(|_| {
-                    self.throw_out_of_memory();
-                })
+            StringRef::create_str(self.rt_ptr(), str).inspect_err(|_| {
+                self.throw_out_of_memory();
+            })
         }
     }
 
@@ -759,7 +751,7 @@ impl JSValue {
     /// Invoking `toLocaleString()` method.
     pub fn to_locale_string(&self, ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         if self.is_undefined_or_null() {
-            self.to_string(ctx).map(|s| JSValue::from(s))
+            self.to_string(ctx).map(JSValue::from)
         } else {
             self.invoke(ctx, Atom::CONST_toLocaleString, &[])
         }
@@ -772,7 +764,7 @@ impl JSValue {
 
 /// prop is not consumed
 fn string_define_own_property(
-    mut ctx: ContextPtr,
+    mut ctx: Context,
     mut this_obj: JSValue,
     prop: Atom,
     val: JSValue,
@@ -847,10 +839,7 @@ fn string_define_own_property(
 
 pub(crate) const js_string_exotic_methods: ClassExoticMethods = ClassExoticMethods {
     get_own_property: Some(
-        |mut ctx: ContextPtr,
-         obj: JSValue,
-         prop: Atom|
-         -> Result<Option<JSPropertyDescriptor>, i32> {
+        |mut ctx: Context, obj: JSValue, prop: Atom| -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method for JS_CLASS_STRING object
             if let Some(idx) = prop.to_small_int()
                 && let Some(s) = obj.as_string()

@@ -815,8 +815,8 @@ impl<'s> JSParseState<'s> {
         }
         .inspect_err(|_| {
             // re-throw error as parser syntax error
-            let exc_obj = self.ctx.rt_ptr().take_exception();
-            self.throw(exc_obj);
+            let exc = self.ctx.rt_mut().take_exception();
+            self.throw(exc);
         })?;
 
         debug_assert!(self.input_end >= p);

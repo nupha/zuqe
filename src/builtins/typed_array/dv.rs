@@ -95,7 +95,7 @@ pub struct DataView(GcRef<ObjectImpl>);
 object_cast!(DataView, JS_CLASS_DATAVIEW);
 
 impl DataView {
-    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
         debug_assert_eq!(class_id, JS_CLASS_DATAVIEW);
 
         let mut dv_obj = ctx.create_base_object()?;

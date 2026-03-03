@@ -404,7 +404,7 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
             let index_val = JSValue::from(k);
 
             // Note: func.call() may perform gc collect inside
-            let res = func.call(&mut cc.ctx_ptr(), this_arg, &[val, index_val, obj])?;
+            let res = func.call(&mut ctx, this_arg, &[val, index_val, obj])?;
 
             match special {
                 s if s == special_every || s == special_every | special_TA => {
@@ -451,7 +451,7 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
         // node `arr` will be used as `this_obj` when invoking method,
         // so that StackFrame will protect arr (this_obj) from being gc collected.
         arr.invoke(
-            &mut cc.ctx_ptr(),
+            &mut ctx,
             Atom::CONST_set,
             std::slice::from_ref(&ret),
         )?;
@@ -532,7 +532,7 @@ pub(crate) fn js_array_reduce(cc: CallContext) -> JSResult {
         if present {
             let index_val = JSValue::from(k1);
             acc = func.call(
-                &mut cc.ctx_ptr(),
+                &mut ctx,
                 JSValue::UNDEFINED,
                 &[acc, val, index_val, obj],
             )?;
@@ -562,7 +562,7 @@ fn js_array_fill(cc: CallContext) -> JSResult {
 
     // XXX: should special case fast arrays
     while start < end {
-        obj.set_property_i64(&mut cc.ctx_ptr(), start, *cc.arg(0))?;
+        obj.set_property_i64(&mut ctx, start, *cc.arg(0))?;
         start += 1;
     }
 
@@ -604,7 +604,7 @@ fn js_array_find(cc: CallContext) -> JSResult {
     while k != end {
         let index_val = JSValue::from(k);
         let val = obj.get_property_value(&mut ctx, index_val)?;
-        let res = func.call(&mut cc.ctx_ptr(), this_arg, &[val, index_val, this_val])?;
+        let res = func.call(&mut ctx, this_arg, &[val, index_val, this_val])?;
 
         if res.to_bool()? {
             // found
@@ -797,7 +797,7 @@ pub(crate) fn js_array_join(cc: CallContext) -> JSResult {
 pub(crate) fn js_array_toString(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
     let obj = cc.this().objectify(&mut ctx)?;
-    obj.invoke_callable(&mut cc.ctx_ptr(), Atom::CONST_join, &[])?
+    obj.invoke_callable(&mut ctx, Atom::CONST_join, &[])?
         .unwrap_or_else(|| {
             // use builtin `Object.prototype.toString`
             js_object_toString(CallContext::new(cc.ctx_ptr(), obj.into(), &[], 0, None))
@@ -831,7 +831,7 @@ pub(crate) fn js_array_pop(cc: CallContext) -> JSResult {
             // slow path
             let val = if shift {
                 let v = this.get_property_i64(&mut ctx, 0)?;
-                copy_sub_array(&mut cc.ctx_ptr(), &mut this, 0, 1, length as usize - 1, 1)?;
+                copy_sub_array(&mut ctx, &mut this, 0, 1, length as usize - 1, 1)?;
                 v
             } else {
                 this.get_property_i64(&mut ctx, new_len)?
@@ -861,7 +861,7 @@ pub(crate) fn js_array_push(cc: CallContext) -> JSResult {
     let mut from = len;
     if unshift != 0 && cc.length() > 0 {
         copy_sub_array(
-            &mut cc.ctx_ptr(),
+            &mut ctx,
             &mut obj,
             cc.length() as _,
             0,
@@ -872,11 +872,11 @@ pub(crate) fn js_array_push(cc: CallContext) -> JSResult {
     }
 
     for i in 0..cc.length() {
-        obj.set_property_i64(&mut cc.ctx_ptr(), from + i as i64, *cc.arg(i))?;
+        obj.set_property_i64(&mut ctx, from + i as i64, *cc.arg(i))?;
     }
 
     obj.set_property(
-        &mut cc.ctx_ptr(),
+        &mut ctx,
         Atom::CONST_length,
         JSValue::from(new_len),
     )?;
@@ -926,17 +926,17 @@ fn js_array_reverse(cc: CallContext) -> JSResult {
         };
 
         if h_present {
-            this.set_property_i64(&mut cc.ctx_ptr(), l, hval)?;
+            this.set_property_i64(&mut ctx, l, hval)?;
 
             if l_present {
-                this.set_property_i64(&mut cc.ctx_ptr(), h, lval)?;
+                this.set_property_i64(&mut ctx, h, lval)?;
                 lval = JSValue::UNDEFINED;
             } else {
                 this.delete_property_i64(&mut ctx, h, JS_PROP_THROW)?;
             }
         } else if l_present {
             this.delete_property_i64(&mut ctx, l, JS_PROP_THROW)?;
-            this.set_property_i64(&mut cc.ctx_ptr(), h, lval)?;
+            this.set_property_i64(&mut ctx, h, lval)?;
             lval = JSValue::UNDEFINED;
         }
 
@@ -1013,7 +1013,7 @@ fn js_array_sort(cc: CallContext) -> JSResult {
         }
     };
     let mut obj = cc.this().objectify(&mut ctx)?;
-    Array::sort(&mut cc.ctx_ptr(), &mut obj, cmpfn)?;
+    Array::sort(&mut ctx, &mut obj, cmpfn)?;
     Ok(obj.into())
 }
 
@@ -1069,7 +1069,7 @@ fn js_array_toSorted(cc: CallContext) -> JSResult {
     };
 
     let mut arr = ctx.create_array_with_values(new_lst)?;
-    Array::sort(&mut cc.ctx_ptr(), &mut arr, cmpfn)?;
+    Array::sort(&mut ctx, &mut arr, cmpfn)?;
     Ok(arr.into())
 }
 
@@ -1286,7 +1286,7 @@ fn js_array_copyWithin(cc: CallContext) -> JSResult {
     let count = std::cmp::min(end - start, len - to);
     if count > 0 {
         copy_sub_array(
-            &mut cc.ctx_ptr(),
+            &mut ctx,
             &mut obj,
             to as _,
             start as _,
@@ -1326,7 +1326,7 @@ pub(crate) fn js_array_flatten(cc: CallContext) -> JSResult {
     let arr = JS_ArraySpeciesCreate(cc.ctx_ptr(), source, JSValue::Int(0))?;
 
     JS_FlattenIntoArray(
-        &mut cc.ctx_ptr(),
+        &mut ctx,
         arr,
         source,
         source_len,

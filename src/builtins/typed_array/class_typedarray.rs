@@ -325,7 +325,7 @@ fn js_typed_array_with(cc: CallContext) -> JSResult {
     }
 
     let mut ta2 = ta.create_to_new(ctx, JSValue::UNDEFINED, ta.class_id())?;
-    ta2.set_property_i64(&mut cc.ctx_ptr(), idx, val)?;
+    ta2.set_property_i64(&mut ctx, idx, val)?;
     Ok(ta2.into())
 }
 
@@ -658,7 +658,7 @@ fn js_typed_array_find(cc: CallContext) -> JSResult {
         let index_val = JSValue::Int(k);
         let val = this_val.get_property_value(&mut ctx, index_val)?;
 
-        let res = func.call(&mut cc.ctx_ptr(), this_arg, &[val, index_val, this_val])?;
+        let res = func.call(&mut ctx, this_arg, &[val, index_val, this_val])?;
         if res.to_bool().unwrap_or(true) {
             return if matches!(cc.magic(), special_findIndex | special_findLastIndex) {
                 Ok(index_val)
@@ -823,7 +823,7 @@ fn js_typed_array_slice(cc: CallContext) -> JSResult {
         // slow path using property set
         for n in 0..count {
             let val = this_val.get_property_value(&mut ctx, JSValue::Int((start + n) as i32))?;
-            arr.set_property_u32(&mut cc.ctx_ptr(), n as u32, val)?;
+            arr.set_property_u32(&mut ctx, n as u32, val)?;
         }
     }
 
@@ -1036,7 +1036,7 @@ fn js_typed_array_sort(cc: CallContext) -> JSResult {
                         slice.sort_by(|a, b| {
                             if !has_error {
                                 if let Ok(r) =
-                                    call_cmp_fn(&mut cc.ctx_ptr(), cmp, $cvt(*a), $cvt(*b))
+                                    call_cmp_fn(&mut ctx, cmp, $cvt(*a), $cvt(*b))
                                 {
                                     r
                                 } else {
@@ -1086,7 +1086,7 @@ fn js_typed_array_sort(cc: CallContext) -> JSResult {
                     slice.sort_by(|a, b| {
                         if !has_error {
                             if let Ok(r) = call_cmp_fn(
-                                &mut cc.ctx_ptr(),
+                                &mut ctx,
                                 cmp_fn,
                                 JSValue::from(*a as f64),
                                 JSValue::from(*b as f64),
@@ -1117,7 +1117,7 @@ fn js_typed_array_sort(cc: CallContext) -> JSResult {
                     slice.sort_by(|a, b| {
                         if !has_error {
                             if let Ok(r) = call_cmp_fn(
-                                &mut cc.ctx_ptr(),
+                                &mut ctx,
                                 cmp_fn,
                                 JSValue::from(*a),
                                 JSValue::from(*b),

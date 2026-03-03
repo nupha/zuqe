@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     error::JS_ThrowReferenceErrorNotDefined,
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
@@ -33,7 +33,7 @@ impl Object {
     /// - None: add new property is not allowed.
     pub(crate) fn set_property_internal(
         &self,
-        mut ctx: ContextPtr,
+        ctx: &mut ContextImpl,
         prop: Atom,
         val: JSValue,
         target: Option<Object>,
@@ -73,13 +73,13 @@ impl Object {
                             debug_assert_eq!(cur_obj.class_id(), JS_CLASS_ARRAY);
                             debug_assert_eq!(prop, Atom::CONST_length);
 
-                            let arr_len = val.to_array_length(&mut ctx, false)?;
+                            let arr_len = val.to_array_length(ctx, false)?;
                             let can_throw = ctx.can_throw(flags);
 
                             return unsafe {
                                 cur_obj
                                     .as_Array_mut_unchecked()
-                                    .set_length(&mut ctx, arr_len, can_throw)
+                                    .set_length(ctx, arr_len, can_throw)
                             };
                         }
 
@@ -104,7 +104,9 @@ impl Object {
 
                     JS_PROP_GETSET => {
                         return if let JSProperty::GetSet { setter, .. } = cur_obj.prop_slot(idx) {
-                            let _ng = ctx.gc_heap().protect_nodes(&[self.gc_node_ptr()]);
+                            let _rt = ctx.rt_ptr();
+                            let _ng = _rt.gc_heap().protect_nodes(&[self.gc_node_ptr()]);
+
                             call_setter(ctx, *setter, target.unwrap_or(*self).into(), val, flags)
                         } else {
                             unreachable!()
@@ -114,12 +116,12 @@ impl Object {
                     JS_PROP_LAZYINIT => {
                         let val = {
                             let this = cur_obj;
-                            cur_obj.prop_slot_mut(idx).instantiate(&mut ctx, this)
+                            cur_obj.prop_slot_mut(idx).instantiate(ctx, this)
                         };
 
                         // modify shape property kind to NORMAL
                         cur_obj
-                            .modify_shape_property_index_flags(&mut ctx, idx, |f| f & !JS_PROP_TMASK)?;
+                            .modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
                         // update prop slot value
                         cur_obj.set_prop_slot(
                             idx,
@@ -155,7 +157,7 @@ impl Object {
                         if idx < cur_obj.fast_array_count() {
                             if target.is_some_and(|o| cur_obj == o) {
                                 return cur_obj.set_property_value(
-                                    &mut ctx,
+                                    ctx,
                                     JSValue::Int(idx as _),
                                     val,
                                     flags,
@@ -167,15 +169,15 @@ impl Object {
                             .contains(&cur_obj.class_id())
                         {
                             // Note: consume the value even if typed array oob
-                            let _ = val.to_number(&mut ctx)?;
+                            let _ = val.to_number(ctx)?;
                             return Ok(true);
                         }
                     } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                         .contains(&cur_obj.class_id())
-                        && prop.is_numeric_index(&mut ctx)?
+                        && prop.is_numeric_index(ctx)?
                     {
                         // Note: consume the value even if typed array oob
-                        let _ = val.to_number(&mut ctx)?;
+                        let _ = val.to_number(ctx)?;
                         return Ok(true);
                     }
                 } else if let Some(xm) = ctx.rt_ptr().class_registry[cur_obj.class_id() as usize]
@@ -183,9 +185,9 @@ impl Object {
                     .as_ref()
                 {
                     // apply exotic methods
-                    if let Some(sp) = xm.set_property {
-                        return sp(
-                            ctx,
+                    if let Some(f) = xm.set_property {
+                        return f(
+                            ctx.into(),
                             JSValue::Object(cur_obj),
                             prop,
                             val,
@@ -195,10 +197,11 @@ impl Object {
                     }
 
                     if let Some(f) = xm.get_own_property
-                        && let Some(desc) = f(ctx, JSValue::Object(cur_obj), prop)?
+                        && let Some(desc) = f(ctx.into(), JSValue::Object(cur_obj), prop)?
                     {
                         if desc.flags & JS_PROP_GETSET != 0 {
-                            let _ng = ctx.gc_heap().protect_nodes(&[self.gc_node_ptr()]);
+                            let _rt = ctx.rt_ptr();
+                            let _ng = _rt.gc_heap().protect_nodes(&[self.gc_node_ptr()]);
 
                             return call_setter(
                                 ctx,
@@ -215,7 +218,7 @@ impl Object {
 
                         if target.is_some_and(|o| cur_obj == o) {
                             return cur_obj.define_property(
-                                &mut ctx,
+                                ctx,
                                 prop,
                                 val,
                                 JSValue::UNDEFINED,
@@ -233,7 +236,7 @@ impl Object {
         //
 
         if unlikely(flags & JS_PROP_NO_ADD != 0) {
-            JS_ThrowReferenceErrorNotDefined(&mut ctx, prop);
+            JS_ThrowReferenceErrorNotDefined(ctx, prop);
             return Err(-1);
         }
 
@@ -251,15 +254,15 @@ impl Object {
                         // && arr.class_id() == JS_CLASS_ARRAY // should exclude JS_CLASS_ARGUMENTS?
                         && idx == arr.fast_array_count()
                     {
-                        return arr.add_fast_array_element(&mut ctx, val, flags);
+                        return arr.add_fast_array_element(ctx, val, flags);
                     }
                 } else {
-                    target.add_own_property(&mut ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))?;
+                    target.add_own_property(ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))?;
                     return Ok(true);
                 }
             } else {
                 // generic case: modify the property on `target` if it already exists
-                if let Some(desc) = target.get_own_property(&mut ctx, prop)? {
+                if let Some(desc) = target.get_own_property(ctx, prop)? {
                     if unlikely(desc.flags & JS_PROP_GETSET != 0) {
                         fail!("setter is forbidden")
                     } else if unlikely(
@@ -269,7 +272,7 @@ impl Object {
                         fail_read_only!(prop);
                     } else {
                         return target.define_property(
-                            &mut ctx,
+                            ctx,
                             prop,
                             val,
                             JSValue::UNDEFINED,
@@ -307,13 +310,7 @@ impl Object {
         prop: Atom,
         val: JSValue,
     ) -> Result<bool, i32> {
-        self.set_property_internal(
-            ContextPtr::from_ref(ctx),
-            prop,
-            val,
-            Some(*self),
-            JS_PROP_THROW,
-        )
+        self.set_property_internal(ctx, prop, val, Some(*self), JS_PROP_THROW)
     }
 
     /// set property value with integral index key, usually used for fast arrays.
@@ -484,7 +481,7 @@ impl Object {
 
         // slow path
         let atom = prop.to_atom(ctx)?;
-        self.set_property_internal(ContextPtr::from_ref(ctx), atom, val, Some(*self), flags)
+        self.set_property_internal(ctx, atom, val, Some(*self), flags)
     }
 
     pub fn set_property_u32(
@@ -497,13 +494,7 @@ impl Object {
             .unwrap_or_else(|| {
                 // slow path
                 let atom = Atom::from_i64(ctx.rt_ptr(), idx as i64)?;
-                self.set_property_internal(
-                    ContextPtr::from_ref(ctx),
-                    atom,
-                    val,
-                    Some(*self),
-                    JS_PROP_THROW,
-                )
+                self.set_property_internal(ctx, atom, val, Some(*self), JS_PROP_THROW)
             })
     }
 
@@ -542,7 +533,7 @@ impl JSValue {
     /// For other cases,  `receiver` should be None, suggesting it's same to `self`.
     pub(crate) fn set_property_internal(
         &self,
-        mut ctx: ContextPtr,
+        ctx: &mut ContextImpl,
         prop: Atom,
         val: Self,
         receiver: Option<Object>,
@@ -550,7 +541,7 @@ impl JSValue {
     ) -> Result<bool, i32> {
         if let Self::Object(o) = self {
             o.set_property_internal(ctx, prop, val, receiver.or(Some(*o)), flags)
-        } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(&mut ctx, self) {
+        } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
             p.set_property_internal(ctx, prop, val, receiver, flags)
         } else if unlikely(ctx.can_throw(flags)) {
             ctx.throw_type_error_not_an_object();
@@ -562,7 +553,7 @@ impl JSValue {
 
     #[inline(always)]
     pub fn set_property(&self, ctx: &mut ContextImpl, prop: Atom, val: Self) -> Result<bool, i32> {
-        self.set_property_internal(ContextPtr::from_ref(ctx), prop, val, None, JS_PROP_THROW)
+        self.set_property_internal(ctx, prop, val, None, JS_PROP_THROW)
     }
 
     #[inline]
@@ -577,7 +568,7 @@ impl JSValue {
             o.set_property_value(ctx, prop, val, flags)
         } else {
             let atom = prop.to_atom(ctx)?;
-            self.set_property_internal(ContextPtr::from_ref(ctx), atom, val, None, flags)
+            self.set_property_internal(ctx, atom, val, None, flags)
         }
     }
 
@@ -621,15 +612,16 @@ impl JSValue {
     }
 }
 
+#[inline(always)]
 fn call_setter(
-    mut ctx: ContextPtr,
+    ctx: &mut ContextImpl,
     setter: Option<Object>,
     this_obj: JSValue,
-    val: JSValue,
+    value: JSValue,
     flags: u32,
 ) -> Result<bool, i32> {
     if let Some(func) = setter {
-        func.call(&mut ctx, this_obj, std::slice::from_ref(&val))?;
+        func.call(ctx, this_obj, std::slice::from_ref(&value))?;
         Ok(true)
     } else if unlikely(ctx.can_throw(flags)) {
         ctx.throw_type_error("no setter for property");

@@ -177,7 +177,7 @@ impl ModuleDef {
     ) -> Result<i32, JSValue> {
         if js_check_stack_overflow(ctx.rt_ref(), 0) {
             ctx.throw_stack_overflow();
-            return Err(ctx.rt_ptr().take_exception());
+            return Err(ctx.rt_mut().take_exception());
         }
 
         match self.status() {
@@ -242,7 +242,7 @@ impl ModuleDef {
                     && m1.async_parent_modules.try_reserve(1).is_err()
                 {
                     ctx.throw_out_of_memory();
-                    return Err(ctx.rt_ptr().take_exception());
+                    return Err(ctx.rt_mut().take_exception());
                 }
 
                 m1.async_parent_modules.push(*self);
@@ -440,7 +440,7 @@ impl ModuleDef {
         if let Some(f) = self.init_func.as_ref() {
             // is native module: no asynchronous execution
             if unlikely(f(&mut ctx, self).is_err()) {
-                Err(ctx.rt_ptr().take_exception())
+                Err(ctx.rt_mut().take_exception())
             } else {
                 Ok(())
             }
@@ -452,14 +452,14 @@ impl ModuleDef {
             // eval bytecode function
             let promise = bc
                 .call_async(ctx, JSValue::UNDEFINED, &[], 0)
-                .map_err(|_| ctx.rt_ptr().take_exception())?;
+                .map_err(|_| ctx.rt_mut().take_exception())?;
 
             match promise.state() {
                 PromiseState::Fulfilled => Ok(()),
                 PromiseState::Rejected => Err(promise.result()),
                 PromiseState::Pending => {
                     ctx.throw_type_error("promise is pending");
-                    Err(ctx.rt_ptr().take_exception())
+                    Err(ctx.rt_mut().take_exception())
                 }
             }
         }

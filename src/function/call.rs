@@ -447,13 +447,13 @@ pub(crate) fn js_function_apply(cc: CallContext) -> JSResult {
 
     if array_arg.is_undefined_or_null() && cc.magic() != 2 {
         // magic: 0/1 normal or constructor apply
-        this_val.call(&mut cc.ctx_ptr(), this_arg, &[])
+        this_val.call(&mut ctx, this_arg, &[])
     } else {
         let arg_list = build_arg_list(&mut ctx, array_arg)?;
         if cc.magic() & 1 != 0 {
             // magic: 1 constructor apply
             this_val.call_internal(
-                &mut cc.ctx_ptr(),
+                &mut ctx,
                 JSValue::UNDEFINED,
                 this_arg,
                 &arg_list,
@@ -461,7 +461,7 @@ pub(crate) fn js_function_apply(cc: CallContext) -> JSResult {
             )
         } else {
             // magic: 0/2 normal or Reflect.apply
-            this_val.call(&mut cc.ctx_ptr(), this_arg, arg_list.as_ref())
+            this_val.call(&mut ctx, this_arg, arg_list.as_ref())
         }
     }
 }

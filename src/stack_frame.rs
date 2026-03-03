@@ -285,7 +285,7 @@ impl StackFrame {
                         }
                     } else {
                         unsafe {
-                            std::ptr::replace(sp_base.add(sp), ctx.rt_ptr().take_exception());
+                            std::ptr::replace(sp_base.add(sp), ctx.rt_mut().take_exception());
                         }
                         sp += 1;
                         return Some((pos as usize, sp));

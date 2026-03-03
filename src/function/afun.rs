@@ -25,7 +25,7 @@ pub struct AsyncFunction(pub(crate) GcRef<ObjectImpl>);
 object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
-    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = {
             let p = ctx.function_proto();
             ctx.create_base_object_with_proto(Some(p))?
@@ -155,8 +155,8 @@ impl AsyncState {
                 }
                 Err(_) => {
                     let func = self.resolving_funcs[1]; // reject 
-                    let error = ctx.rt_ptr().take_exception();
-                    let _ = func.call(&mut ctx, JSValue::UNDEFINED, &[error]);
+                    let exc = ctx.rt_mut().take_exception();
+                    let _ = func.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
                 }
             }
         } else {
@@ -176,7 +176,7 @@ impl AsyncState {
             )) {
                 Promise::try_from(v).unwrap()
             } else {
-                let exc = ctx.rt_ptr().take_exception();
+                let exc = ctx.rt_mut().take_exception();
                 let rej = self.resolving_funcs[1];
                 let _ = rej.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc)); // TODO what to do if exception?
                 return;
@@ -185,9 +185,9 @@ impl AsyncState {
             let resolving_funcs = if let Ok(rr) = self.async_function_resolve_create(&mut ctx) {
                 rr
             } else {
-                let error = ctx.rt_ptr().take_exception();
+                let exc = ctx.rt_mut().take_exception();
                 let func = self.resolving_funcs[1];
-                let _ = func.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&error));
+                let _ = func.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
                 [const { JSValue::UNDEFINED }; 2]
             };
 
@@ -199,8 +199,12 @@ impl AsyncState {
             );
 
             if res.is_err() {
-                let exc = ctx.rt_ptr().take_exception();
-                let _ = self.resolving_funcs[1].call(&mut ctx, JSValue::UNDEFINED, &[exc]);
+                let exc = ctx.rt_mut().take_exception();
+                let _ = self.resolving_funcs[1].call(
+                    &mut ctx,
+                    JSValue::UNDEFINED,
+                    std::slice::from_ref(&exc),
+                );
             }
         }
     }

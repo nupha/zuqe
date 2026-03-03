@@ -316,7 +316,7 @@ impl RegExp {
         RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, Box::new(re)))
     }
 
-    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
         match class_id {
             JS_CLASS_REGEXP => {
                 let mut obj = ctx.create_base_object()?;

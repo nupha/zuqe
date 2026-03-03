@@ -136,7 +136,7 @@ impl Promise {
         let rr = promise.create_resolving_functions(ctx)?;
 
         if executor.call(ctx, JSValue::UNDEFINED, &rr).is_err() {
-            let exc = ctx.rt_ptr().take_exception();
+            let exc = ctx.rt_mut().take_exception();
             rr[1].call(ctx, JSValue::UNDEFINED, &[exc])?;
         }
 
@@ -303,7 +303,7 @@ impl Promise {
         Promise::from_executor(cc.ctx_mut(), executor, this).map(|p| p.into())
     }
 
-    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = ctx.create_base_object()?;
         proto.install_fields(&mut ctx, js_promise_proto_funcs)?;
 

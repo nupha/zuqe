@@ -2,10 +2,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    RuntimeImpl,
+    Context, RuntimeImpl,
     atom::Atom,
     class::{ClassCallFn, ClassInitializeFn, FreeObjFn, GetPrototypeFn, SetPrototypeFn},
-    context::ContextPtr,
     function::FunctionDef,
     object::{JS_PROP_NO_EXOTIC, ObjectPayload},
     value::JSValue,
@@ -110,6 +109,7 @@ impl ClassDef {
         }
     }
 
+    /// set class initialize callback
     pub const fn initialize(mut self, f: ClassInitializeFn) -> Self {
         self.initialize.replace(f);
         self
@@ -133,9 +133,8 @@ impl ClassDef {
     }
 }
 
-/// prop is not consumed
 fn js_arguments_define_own_property(
-    mut ctx: ContextPtr,
+    mut ctx: Context,
     this_obj: JSValue,
     prop: Atom,
     val: JSValue,

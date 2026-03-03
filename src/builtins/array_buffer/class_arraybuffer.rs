@@ -79,7 +79,7 @@ fn js_array_buffer_slice(cc: CallContext) -> JSResult {
         )
         .map(|x| x.into())
     } else {
-        ctor.call_ctor(&mut cc.ctx_ptr(), &[JSValue::from(new_len)])
+        ctor.call_ctor(&mut ctx, &[JSValue::from(new_len)])
     }?;
 
     let new_abuf = new_obj

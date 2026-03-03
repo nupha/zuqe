@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_STRING,
     atom::{Atom, AtomDescKind},
     builtins::iterator::JSIteratorKindEnum,
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
     object::{JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, Object},
     string::StringRef,
@@ -159,7 +159,7 @@ impl Object {
                 // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
 
-                for pk in f(ContextPtr::from(ctx.gc_ref()), *self)? {
+                for pk in f(ctx.gc_ref().into(), *self)? {
                     if !has_err {
                         let atom_kind = pk.atom.desc_kind(ctx.rt_ref());
                         if (flags >> (atom_kind as u8)) & 1 != 0 {

@@ -1614,7 +1614,7 @@ impl Bytecode {
                         SP_GO!(-2);
 
                         let r = obj.set_property_internal(
-                            realm,
+                            &mut realm,
                             atom,
                             value,
                             None,
@@ -1972,7 +1972,7 @@ impl Bytecode {
 
                         if let Ok(atom) = prop.to_atom(&mut realm) {
                             let ret = obj.set_property_internal(
-                                realm,
+                                &mut realm,
                                 atom,
                                 val,
                                 if let JSValue::Object(o) = &this_obj {
@@ -2341,7 +2341,7 @@ impl Bytecode {
                                     OpCode::WITH_PUT_VAR => {
                                         // XXX: check if strict mode
                                         let ret = env_obj.set_property_internal(
-                                            realm,
+                                            &mut realm,
                                             atom,
                                             SP_VAL!(-2),
                                             None,

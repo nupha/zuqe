@@ -192,7 +192,7 @@ impl AGenPayload {
                                 self.resolve(&mut ctx, val, true);
                             }
                             Err(_) => {
-                                let exc = ctx.rt_ptr().take_exception();
+                                let exc = ctx.rt_mut().take_exception();
                                 self.complete();
                                 self.reject(&mut ctx, exc);
                             }
@@ -259,11 +259,11 @@ impl AGenPayload {
                 // Fail looking up JS_ATOM_constructor when is_reject==0.
                 // A poisoned .constructor property is observable and the resulting
                 // exception should be delivered to the catch handler.
-                let err = ctx.rt_ptr().take_exception();
+                let exc = ctx.rt_mut().take_exception();
                 let cc = CallContext::new(
                     ctx,
                     ctx.promise_ctor,
-                    std::slice::from_ref(&err),
+                    std::slice::from_ref(&exc),
                     1, // is_reject=1
                     None,
                 );
@@ -393,7 +393,7 @@ impl AsyncGeneratorFunction {
         Ok(obj.into())
     }
 
-    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
         debug_assert!(
             matches!(
                 class_id,
@@ -485,9 +485,9 @@ fn js_async_generator_resolve_function_create(
 
 fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
     let is_reject = cc.magic() & 1 != 0;
-    let ctx = cc.ctx_ptr();
-    let arg = *cc.arg(0);
+    let mut ctx = cc.ctx_ptr();
 
+    let arg = *cc.arg(0);
     let mut data0 = *cc.data(0).as_object().unwrap();
     if let ObjectPayload::ASYNC_GENERATOR(s) = data0.payload_mut() {
         if cc.magic() >= 2 {
@@ -500,9 +500,9 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
 
             s.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED);
             if is_reject {
-                s.reject(&mut cc.ctx_ptr(), arg);
+                s.reject(&mut ctx, arg);
             } else {
-                s.resolve(&mut cc.ctx_ptr(), arg, true);
+                s.resolve(&mut ctx, arg, true);
             }
         } else {
             // restart function execution after await()
@@ -564,11 +564,7 @@ fn js_async_generator_next(mut cc: CallContext) -> JSResult {
         }
     } else {
         let err = cc.ctx().rt_ptr().take_exception();
-        resolving_funcs[1].call(
-            &mut cc.ctx_ptr(),
-            JSValue::UNDEFINED,
-            std::slice::from_ref(&err),
-        )?;
+        resolving_funcs[1].call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&err))?;
     }
 
     Ok(promise.into())

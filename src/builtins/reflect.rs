@@ -103,7 +103,7 @@ fn js_reflect_set(cc: CallContext) -> JSResult {
         let atom = prop.to_atom(&mut ctx)?;
 
         o.set_property_internal(
-            cc.ctx_ptr(),
+            &mut ctx,
             atom,
             val,
             match receiver {

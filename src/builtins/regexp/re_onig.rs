@@ -310,7 +310,11 @@ object_cast!(RegExp, JS_CLASS_REGEXP);
 
 impl RegExp {
     /// create RegExp object with given RegExpData, and constructor.
-    pub(crate) fn from(ctx: &mut ContextImpl, ctor: JSValue, re: Box<RegExpData>) -> Result<Self, i32> {
+    pub(crate) fn from(
+        ctx: &mut ContextImpl,
+        ctor: JSValue,
+        re: Box<RegExpData>,
+    ) -> Result<Self, i32> {
         let mut o = Self(
             ctx.create_object_from_ctor(ctor, ObjectPayload::REGEXP(re))
                 .map_err(|_| -1)?
@@ -335,7 +339,7 @@ impl RegExp {
         RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, Box::new(re)))
     }
 
-    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
         match class_id {
             JS_CLASS_REGEXP => {
                 let mut obj = ctx.create_base_object()?;

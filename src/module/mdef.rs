@@ -443,7 +443,7 @@ pub(crate) fn add_module_variables(ctx: &mut ContextImpl, fdef: &mut FunctionDef
 }
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
-fn js_module_ns_has(_: ContextPtr, obj: Object, prop: Atom) -> Result<bool, i32> {
+fn js_module_ns_has(_: Context, obj: Object, prop: Atom) -> Result<bool, i32> {
     Ok(obj.has_shape_property(prop))
 }
 

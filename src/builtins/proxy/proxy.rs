@@ -207,7 +207,7 @@ pub struct Proxy(pub(super) GcRef<ObjectImpl>);
 object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
-    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto =
             ctx.create_native_function(Callback::Constructor(js_proxy_constructor), "Proxy", 2, 0)?;
 
@@ -371,7 +371,7 @@ fn js_proxy_call_constructor(
 //
 
 fn js_proxy_get_own_property(
-    mut ctx: ContextPtr,
+    mut ctx: Context,
     obj: JSValue,
     prop: Atom,
 ) -> Result<Option<JSPropertyDescriptor>, i32> {
@@ -452,7 +452,7 @@ fn js_proxy_get_own_property(
 }
 
 fn js_proxy_define_own_property(
-    mut ctx: ContextPtr,
+    mut ctx: Context,
     obj: JSValue,
     prop: Atom,
     value: JSValue,
@@ -552,11 +552,7 @@ fn js_proxy_define_own_property(
     Ok(true)
 }
 
-fn js_proxy_delete_property(
-    mut ctx: ContextPtr,
-    mut obj: JSValue,
-    atom: Atom,
-) -> Result<bool, i32> {
+fn js_proxy_delete_property(mut ctx: Context, mut obj: JSValue, atom: Atom) -> Result<bool, i32> {
     let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
         return Err(-1);
     };
@@ -586,7 +582,7 @@ fn js_proxy_delete_property(
 }
 
 fn js_proxy_get_own_property_names(
-    mut ctx: ContextPtr,
+    mut ctx: Context,
     mut obj: Object,
 ) -> Result<Box<[PropertyKey]>, i32> {
     let Some(px) = obj.as_Proxy_mut().map(|x| x.payload_mut()) else {
@@ -676,7 +672,7 @@ fn js_proxy_get_own_property_names(
     Ok(tab.into_boxed_slice())
 }
 
-fn js_proxy_has(mut ctx: ContextPtr, mut obj: Object, atom: Atom) -> Result<bool, i32> {
+fn js_proxy_has(mut ctx: Context, mut obj: Object, atom: Atom) -> Result<bool, i32> {
     let Some(px) = obj.as_Proxy_mut().map(|x| x.payload_mut()) else {
         return Err(-1);
     };
@@ -710,7 +706,7 @@ fn js_proxy_has(mut ctx: ContextPtr, mut obj: Object, atom: Atom) -> Result<bool
     Ok(ret)
 }
 
-fn js_proxy_get(mut ctx: ContextPtr, obj: JSValue, atom: Atom, receiver: JSValue) -> JSResult {
+fn js_proxy_get(mut ctx: Context, obj: JSValue, atom: Atom, receiver: JSValue) -> JSResult {
     let Some(px) = obj.as_object_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
@@ -749,7 +745,7 @@ fn js_proxy_get(mut ctx: ContextPtr, obj: JSValue, atom: Atom, receiver: JSValue
 }
 
 fn js_proxy_set(
-    mut ctx: ContextPtr,
+    mut ctx: Context,
     obj: JSValue,
     atom: Atom,
     value: JSValue,
@@ -763,7 +759,7 @@ fn js_proxy_set(
     let method = s.get_proxy_method(&mut ctx, Atom::CONST_set)?;
     if method.is_undefined() {
         return s.target.set_property_internal(
-            ctx,
+            &mut ctx,
             atom,
             value,
             match receiver {
@@ -809,7 +805,7 @@ fn js_proxy_set(
     Ok(ret)
 }
 
-fn js_proxy_get_prototype(mut ctx: ContextPtr, obj: JSValue) -> Result<JSValue, i32> {
+fn js_proxy_get_prototype(mut ctx: Context, obj: JSValue) -> Result<JSValue, i32> {
     if let Some(px) = obj.as_object_Proxy() {
         px.get_prototype_of(&mut ctx)
     } else {
@@ -818,7 +814,7 @@ fn js_proxy_get_prototype(mut ctx: ContextPtr, obj: JSValue) -> Result<JSValue, 
 }
 
 fn js_proxy_set_prototype(
-    mut ctx: ContextPtr,
+    mut ctx: Context,
     mut obj: JSValue,
     proto_val: JSValue,
 ) -> Result<bool, i32> {

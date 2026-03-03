@@ -422,7 +422,7 @@ pub fn js_regexp_Symbol_match(cc: CallContext) -> JSResult {
             .chars()
             .any(|(_, c)| matches!(c, CharCode::Char('u') | CharCode::Char('v')));
 
-        this.set_property(&mut cc.ctx_ptr(), Atom::CONST_lastIndex, JSValue::Int(0))?;
+        this.set_property(&mut ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
 
         let mut lst = Vec::<JSValue>::with_capacity(8);
         while let Some(mat) = regexp_exec(ctx, this, str.gc_ref().into())? {
@@ -467,13 +467,13 @@ pub fn js_regexp_Symbol_matchAll(cc: CallContext) -> JSResult {
         .get_property(&mut ctx, Atom::CONST_flags)?
         .to_string(&mut ctx)?;
     let ctor = JS_SpeciesConstructor(ctx, this, ctx.regexp_ctor)?;
-    let regexp = ctor.call_ctor(&mut cc.ctx_ptr(), &[this, JSValue::from(flags.gc_ref())])?;
+    let regexp = ctor.call_ctor(&mut ctx, &[this, JSValue::from(flags.gc_ref())])?;
 
     let last_index = this
         .get_property(&mut ctx, Atom::CONST_lastIndex)?
         .to_length(&mut ctx)?;
 
-    regexp.set_property(&mut cc.ctx_ptr(), Atom::CONST_lastIndex, last_index.into())?;
+    regexp.set_property(&mut ctx, Atom::CONST_lastIndex, last_index.into())?;
 
     // make regexp string iterator object
     ctx.create_object(ObjectPayload::REGEXP_STRING_ITERATOR(

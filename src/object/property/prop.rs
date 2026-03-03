@@ -291,7 +291,7 @@ impl Default for JSProperty {
 
 impl JSProperty {
     /// retrive property value
-    pub(super) fn value(&self, mut ctx: ContextPtr, this_obj: JSValue) -> JSResult {
+    pub(super) fn value(&self, ctx: &mut ContextImpl, this_obj: JSValue) -> JSResult {
         match self {
             Self::Normal(v) => {
                 debug_assert!(!v.is_exception());
@@ -299,7 +299,7 @@ impl JSProperty {
             }
             Self::GetSet { getter, .. } => {
                 if let Some(fun) = getter {
-                    fun.call(&mut ctx, this_obj, &[])
+                    fun.call(ctx, this_obj, &[])
                 } else {
                     Ok(JSValue::UNDEFINED)
                 }
@@ -378,7 +378,9 @@ impl Object {
 
         for k in source.get_own_property_names(&mut ctx, gpn_flags)? {
             if let Some(excl) = excluded {
-                let skip = excl.get_own_property(&mut ctx, k.atom).map(|x| x.is_some())?;
+                let skip = excl
+                    .get_own_property(&mut ctx, k.atom)
+                    .map(|x| x.is_some())?;
                 if skip {
                     continue; // excluded prop, skip
                 }

@@ -169,7 +169,7 @@ object_cast!(
 );
 
 impl ArrayBuffer {
-    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
         match class_id {
             JS_CLASS_ARRAY_BUFFER => {
                 // ArrayBuffer

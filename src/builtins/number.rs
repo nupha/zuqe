@@ -77,7 +77,7 @@ pub(super) fn js_parseInt(cc: CallContext) -> JSResult {
                 .map_or_else(
                     |_| {
                         // fail to parse number, returns NaN
-                        ctx.rt_ptr().take_exception();
+                        ctx.rt_mut().take_exception();
                         JSValue::Float64(f64::NAN)
                     },
                     JSValue::from,
@@ -101,7 +101,7 @@ pub(super) fn js_parseFloat(cc: CallContext) -> JSResult {
             let val = js_atof(&mut ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0).map_or_else(
                 |_| {
                     // fail to parse number, returns NaN
-                    ctx.rt_ptr().take_exception();
+                    ctx.rt_mut().take_exception();
                     JSValue::Float64(f64::NAN)
                 },
                 JSValue::from,

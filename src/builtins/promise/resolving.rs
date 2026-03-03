@@ -80,7 +80,7 @@ impl PromiseResolveFunc {
         } else if unlikely(arg0.is_same(promise.into())) {
             promise.reject(cx, {
                 ctx.throw_type_error("promise self resolution");
-                ctx.rt_ptr().take_exception()
+                ctx.rt_mut().take_exception()
             });
             return Ok(JSValue::UNDEFINED);
         } else if let Ok(then) = arg0.get_property(&mut ctx, Atom::CONST_then) {
@@ -113,7 +113,7 @@ impl PromiseResolveFunc {
                 );
             }
         } else {
-            promise.reject(cx, ctx.rt_ptr().take_exception());
+            promise.reject(cx, cx.rt_mut().take_exception());
         }
 
         Ok(JSValue::UNDEFINED)

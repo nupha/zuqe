@@ -113,11 +113,11 @@ fn js_load_module_internal(
         Ok(mut md) => {
             if ctx.resolve_module(md).is_err() {
                 js_free_modules(&mut ctx, JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED);
-                let err = ctx.rt_ptr().take_exception();
+                let exc = ctx.rt_mut().take_exception();
                 let _ = resolving_funcs[1].call(
                     &mut ctx,
                     JSValue::UNDEFINED,
-                    std::slice::from_ref(&err),
+                    std::slice::from_ref(&exc),
                 );
                 return;
             }
@@ -156,19 +156,19 @@ fn js_load_module_internal(
                     );
                 }
                 Err(_) => {
-                    let err = ctx.rt_ptr().take_exception();
+                    let exc = ctx.rt_mut().take_exception();
                     let _ = resolving_funcs[1].call(
                         &mut ctx,
                         JSValue::UNDEFINED,
-                        std::slice::from_ref(&err),
+                        std::slice::from_ref(&exc),
                     );
                 }
             }
         }
         Err(_) => {
-            let err = ctx.rt_ptr().take_exception();
+            let exc = ctx.rt_mut().take_exception();
             let _ =
-                resolving_funcs[1].call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+                resolving_funcs[1].call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
         }
     }
 }

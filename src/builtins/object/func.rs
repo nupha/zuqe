@@ -409,10 +409,8 @@ pub(crate) fn js_object_seal(cc: CallContext) -> JSResult {
 }
 
 pub(crate) fn js_object_isSealed(cc: CallContext) -> JSResult {
-    let b = cc
-        .arg(0)
-        .clone()
-        .is_sealed(&mut cc.ctx_ptr(), cc.magic() != 0)?;
+    let mut ctx = cc.ctx_ptr();
+    let b = cc.arg(0).clone().is_sealed(&mut ctx, cc.magic() != 0)?;
     Ok(JSValue::Bool(b))
 }
 

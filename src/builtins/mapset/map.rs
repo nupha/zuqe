@@ -345,7 +345,7 @@ object_cast!(
 );
 
 impl MapSet {
-    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
         let iter_proto = ctx.iterator_proto()?;
 
         match class_id {

@@ -9,7 +9,7 @@ use crate::{
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
     JS_CLASS_UINT32_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
     object::{JSProperty, Object},
     utils::unlikely,
@@ -137,20 +137,11 @@ impl Object {
                             _ng.add(n);
                         }
 
-                        return cb(
-                            ContextPtr::from(ctx.gc_ref()),
-                            cur_obj.into(),
-                            prop,
-                            this_obj,
-                        );
+                        return cb(ctx.gc_ref().into(), cur_obj.into(), prop, this_obj);
                     }
 
                     if let Some(cb) = pm.get_own_property
-                        && let Some(desc) = cb(
-                            ContextPtr::from(ctx.gc_ref()),
-                            JSValue::Object(cur_obj),
-                            prop,
-                        )?
+                        && let Some(desc) = cb(ctx.into(), JSValue::Object(cur_obj), prop)?
                     {
                         return if unlikely(desc.flags & JS_PROP_GETSET != 0) {
                             let _rt = ctx.rt_ptr();

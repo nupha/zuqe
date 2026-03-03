@@ -62,7 +62,7 @@ impl ObjectImpl {
     /// - Err(_) in case Proxy object calling getPrototypeOf() failed.
     pub fn prototype(&self, ctx: &mut ContextImpl) -> Result<Option<Object>, i32> {
         if self.flags().is_exotic()
-            && let Some(cb) = ctx
+            && let Some(f) = ctx
                 .rt_ref()
                 .class_registry
                 .get(self.class_id() as usize)
@@ -70,11 +70,8 @@ impl ObjectImpl {
                 .and_then(|em| em.get_prototype)
         {
             // exotic: Proxy
-            cb(
-                ContextPtr::from(ctx.gc_ref()),
-                JSValue::Object(Object::from(self.gc_ref())),
-            )
-            .map(|v| Object::try_from(v).ok())
+            f(ctx.into(), JSValue::Object(Object::from(self.gc_ref())))
+                .map(|v| Object::try_from(v).ok())
         } else {
             Ok(self.shape_proto())
         }
@@ -101,7 +98,7 @@ impl ObjectImpl {
         let obj = Object::from(self.gc_ref());
 
         if self.flags().is_exotic()
-            && let Some(cb) = ctx
+            && let Some(f) = ctx
                 .rt_ref()
                 .class_registry
                 .get(self.class_id() as usize)
@@ -109,12 +106,7 @@ impl ObjectImpl {
                 .and_then(|em| em.set_prototype)
         {
             // exotic handler: Proxy
-            let ret = cb(
-                ContextPtr::from(ctx.gc_ref()),
-                JSValue::Object(obj),
-                proto_val,
-            );
-
+            let ret = f(ctx.into(), JSValue::Object(obj), proto_val);
             return if ret == Ok(false) && throw_flag {
                 ctx.throw_type_error("proxy: bad prototype");
                 Err(-1)

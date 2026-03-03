@@ -25,10 +25,11 @@ use super::{
 //
 
 fn js_promise_then(mut cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
+
     let mut this = *cc.this();
     if let Some(p) = this.as_object_Promise_mut() {
-        p.then(&mut cc.ctx_ptr(), *cc.arg(0), *cc.arg(1))
-            .map(|p| p.into())
+        p.then(&mut ctx, *cc.arg(0), *cc.arg(1)).map(|p| p.into())
     } else {
         cc.ctx_mut()
             .throw_type_error_invalid_class(JS_CLASS_PROMISE);
@@ -37,8 +38,10 @@ fn js_promise_then(mut cc: CallContext) -> JSResult {
 }
 
 fn js_promise_catch(cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
+
     cc.this().invoke(
-        &mut cc.ctx_ptr(),
+        &mut ctx,
         Atom::CONST_then,
         &[JSValue::UNDEFINED, *cc.arg(0)],
     )
@@ -49,7 +52,7 @@ fn js_promise_then_finally_func(cc: CallContext) -> JSResult {
     let ctor = cc.data(0);
     let on_finally = cc.data(1);
 
-    let res = on_finally.call(&mut cc.ctx_ptr(), JSValue::UNDEFINED, &[])?;
+    let res = on_finally.call(&mut ctx, JSValue::UNDEFINED, &[])?;
 
     let promise = js_promise_resolve(CallContext::new_simple(
         cc.ctx_ptr(),
@@ -138,7 +141,7 @@ pub fn js_promise_resolve(cc: CallContext) -> JSResult {
         }
     }
 
-    let (result_promise, resolving_funcs) = Promise::create_from_ctor(&mut cc.ctx_ptr(), this)?;
+    let (result_promise, resolving_funcs) = Promise::create_from_ctor(&mut ctx, this)?;
 
     // manual protect result_promise from gc being collected,
     // resolving_funcs[is_reject as usize] and arg0 will be protected in ::call()
@@ -188,7 +191,7 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
 
     let promise_resolve = if let Ok(x) = cc.this().get_property(&mut ctx, Atom::CONST_resolve) {
         if unlikely(x.ensure_function(&mut ctx).is_err()) {
-            return fail_reject(&mut cc.ctx_ptr());
+            return fail_reject(&mut ctx);
         } else {
             x
         }
@@ -333,7 +336,7 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
             }
 
             let ret = resolving_funcs[is_promise_any as usize].call(
-                &mut cc.ctx_ptr(),
+                &mut ctx,
                 JSValue::UNDEFINED,
                 std::slice::from_ref(&values),
             );
@@ -433,7 +436,7 @@ pub fn js_promise_withResolvers(cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let (result_promise, resolving_funcs) = Promise::create_from_ctor(&mut cc.ctx_ptr(), this)?;
+    let (result_promise, resolving_funcs) = Promise::create_from_ctor(&mut ctx, this)?;
     let mut obj = ctx.create_base_object()?;
 
     obj.define_property_value(

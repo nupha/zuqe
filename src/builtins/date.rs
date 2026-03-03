@@ -715,7 +715,7 @@ impl Datetime {
         timestamp_ms: INVALID_TIMESTAMP,
     };
 
-    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut obj = ctx.create_base_object()?;
         obj.install_fields(&mut ctx, js_date_proto_funcs).unwrap();
 
@@ -935,8 +935,9 @@ fn js_date_setTime(mut cc: CallContext) -> JSResult {
 }
 
 fn get_date_string(cc: CallContext) -> JSResult {
-    let tm = JS_ThisTimeValue(cc.ctx_ptr(), *cc.this())?;
-    datetime_format(&mut cc.ctx_ptr(), tm.into(), cc.magic()).map(JSValue::from)
+    let mut ctx = cc.ctx_ptr();
+    let tm = JS_ThisTimeValue(ctx, *cc.this())?;
+    datetime_format(&mut ctx, tm.into(), cc.magic()).map(JSValue::from)
 }
 
 fn js_date_Symbol_toPrimitive(cc: CallContext) -> JSResult {
@@ -1144,8 +1145,9 @@ fn js_Date_now(_: CallContext) -> JSResult {
     Ok(JSValue::from(ts.timestamp()))
 }
 
-fn js_Date_parse(mut cc: CallContext) -> JSResult {
-    let s = cc.arg(0).to_string(&mut cc.ctx_ptr())?;
+fn js_Date_parse(cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
+    let s = cc.arg(0).to_string(&mut ctx)?;
     let tm = Datetime::parse(&s.content().encode_utf8_bytes(false)).unwrap_or(Datetime::INVALID);
     Ok(JSValue::from(tm))
 }
