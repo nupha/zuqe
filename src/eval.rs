@@ -295,7 +295,9 @@ impl ContextImpl {
         md.set_import_meta(self, filename, true)?;
         md.eval(self)
     }
+}
 
+impl<'a> ContextScope<'a> {
     /// eval `source` as global type, with global object as `this` binding.
     /// perform eval in current execution scope, returned value is in current scope too.
     pub fn eval_global(
@@ -316,18 +318,18 @@ impl ContextImpl {
     }
 
     /// run script `source`, wait till execution terminates, returns the result value.
-    pub fn run_wait<'v>(
+    pub fn run_wait(
         &mut self,
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
         eval_flags: EvalFlags,
-    ) -> Result<Value<'v>, ErrorText> {
+    ) -> Result<Value<'a>, ErrorText> {
         self.do_run_wait(source, filename, eval_type, eval_flags)
             .map(|v| v.into())
     }
 
-    /// run script, handle result value with callback. wait till execution terminates.
+    /// run `source` script, wait till execution terminates, returns the result value.
     fn do_run_wait(
         &mut self,
         source: &[u8],
@@ -336,15 +338,6 @@ impl ContextImpl {
         eval_flags: EvalFlags,
     ) -> Result<JSValue, ErrorText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
-        debug_assert!(self.gc_heap().scope_level() > 0);
-
-        // // create new gc scope for running source
-        // let mut rt = self.rt_ptr();
-        // let pid = rt.gc_part_id();
-        // rt.gc_heap_mut().push_gc_scope(pid);
-        // crate::defer!({
-        //     rt.gc_heap_mut().pop_gc_scope();
-        // });
 
         let val = if eval_type == EvalType::Module {
             self.eval_module(source, filename, eval_flags.contains(EvalFlags::STRIP))
@@ -358,9 +351,10 @@ impl ContextImpl {
         })?;
 
         #[cfg(debug_assertions)]
-        if let Some(n) = val.gc_node() {
-            debug_assert!(n.is_local() || n.is_root(), "{val:?}");
-        }
+        debug_assert!(
+            val.gc_node().is_none_or(|n| n.is_local() || n.is_root()),
+            "eval return value must be local: {val:?}"
+        );
 
         let mut promise = Promise::try_from(val).ok();
         let mut result = if let Some(p) = promise {
@@ -379,14 +373,14 @@ impl ContextImpl {
             Ok(val)
         };
 
-        // // protect result and promise from been gc collected
-        // let mut _ng = self.rt_ref().gc_heap().protect_nodes(&[]);
-        // if let Some(n) = promise.map(|p| p.gc_node_ptr()) {
-        //     _ng.add(n);
-        // }
-        // if let Ok(Some(n)) = result.as_ref().map(|v| v.gc_node_ptr()) {
-        //     _ng.add(n)
-        // }
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            result
+                .as_ref()
+                .ok()
+                .is_none_or(|v| v.gc_node().is_none_or(|n| n.is_local() || n.is_root())),
+            "Promise result value must be local"
+        );
 
         // tick to finish
         let exit_code = loop {
@@ -423,9 +417,6 @@ impl ContextImpl {
                 }
             }
         };
-
-        // // close gc scope eval scipt scope
-        // self.rt_mut().gc_heap_mut().pop_gc_scope();
 
         match result {
             Ok(v) => Ok(v),

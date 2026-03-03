@@ -308,7 +308,7 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(cs: &mut ContextScope, harness_files: &[PathBuf]) -> Result<(), ErrorText> {
+fn run_harness(scope: &mut ContextScope, harness_files: &[PathBuf]) -> Result<(), ErrorText> {
     for file in harness_files {
         let src = std::fs::read_to_string(file)
             .inspect_err(|_| {
@@ -316,15 +316,16 @@ fn run_harness(cs: &mut ContextScope, harness_files: &[PathBuf]) -> Result<(), E
             })
             .unwrap();
 
-        cs.eval_global(
-            src.as_bytes(),
-            file.as_os_str().to_string_lossy().as_ref(),
-            EvalFlags::empty(),
-        )
-        .map_err(|_| {
-            let exc = cs.rt_mut().take_exception();
-            ErrorText::from(cs, exc)
-        })?;
+        scope
+            .eval_global(
+                src.as_bytes(),
+                file.as_os_str().to_string_lossy().as_ref(),
+                EvalFlags::empty(),
+            )
+            .map_err(|_| {
+                let exc = scope.rt_mut().take_exception();
+                ErrorText::from(scope, exc)
+            })?;
     }
 
     Ok(())
