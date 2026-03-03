@@ -1497,7 +1497,9 @@ impl Bytecode {
 
                         // SP[-1] is iter_obj
                         if let JSValue::Object(o) = SP_VAL!(-1)
-                            && unlikely(ObjectIter::close_internal(realm, o, false).is_err())
+                            && unlikely(
+                                ObjectIter::close_iter_internal(&mut realm, o, false).is_err(),
+                            )
                         {
                             // leave iter_obj in stack
                             break State::Exception;

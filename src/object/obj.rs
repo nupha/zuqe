@@ -720,7 +720,7 @@ impl Object {
             };
         }
 
-        self.is_extensible(ctx).map(|b| !b)
+        self.is_extensible_obj(ctx).map(|b| !b)
     }
 }
 

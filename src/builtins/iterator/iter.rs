@@ -292,32 +292,34 @@ impl<'a> ObjectIter<'a> {
     }
 
     /// pre-close before iterate is done, calling `return` method if available.
-    pub(crate) fn close_internal(
-        mut ctx: ContextPtr,
+    pub(crate) fn close_iter_internal(
+        ctx: &mut ContextImpl,
         obj: Object,
         has_exception: bool,
     ) -> Result<(), i32> {
-        let mut rt = ctx.rt_ptr();
         let pending_exc = if has_exception {
-            rt.take_exception()
+            ctx.rt_mut().take_exception()
         } else {
             JSValue::UNDEFINED
         };
 
-        // ensure pending exc is protected - NO NEED ANY MORE.
-        // if let Some(n) = pending_exc.gc_node_ptr() {
-        //     ctx.rt_ptr().gc_heap_mut().set_root_node(n, true);
-        // }
-        // // restore pending exception
-        // crate::defer!({
-        //     if has_exception {
-        //         rt.set_exception(pending_exc);
-        //     }
-        // });
+        // prevent pending_exc from being collected
+        debug_assert!(ctx.gc_heap().scope_level() > 0);
+        if let Some(n) = pending_exc.gc_node_ptr()
+            && unsafe {
+                let n = n.as_ref();
+                !n.is_local() && !n.is_root()
+            }
+        {
+            // add to current scope to protect it.
+            ctx.gc_heap_mut().with_current_scope(|s| {
+                s.add_non_local(n);
+            });
+        }
 
-        if let Ok(method) = obj.get_property(&mut ctx, Atom::CONST_return) {
+        if let Ok(method) = obj.get_property(ctx, Atom::CONST_return) {
             if !method.is_undefined_or_null() {
-                let ret = method.call(&mut ctx, obj.into(), &[])?;
+                let ret = method.call(ctx, obj.into(), &[])?;
                 if pending_exc.is_undefined_or_null() && !ret.is_object() {
                     ctx.throw_type_error_not_an_object();
                     return Err(-1);
@@ -343,7 +345,7 @@ impl<'a> ObjectIter<'a> {
         if !self.done {
             self.done = true;
             self.next_method = JSValue::UNDEFINED;
-            Self::close_internal(self.ctx, self.target, has_exception)
+            Self::close_iter_internal(&mut self.ctx, self.target, has_exception)
         } else if has_exception {
             Err(-1)
         } else {

@@ -281,7 +281,7 @@ impl StackFrame {
                         if let JSValue::Object(o) =
                             unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) }
                         {
-                            let _ = ObjectIter::close_internal(ctx, o, true);
+                            let _ = ObjectIter::close_iter_internal(&mut ctx, o, true);
                         }
                     } else {
                         unsafe {

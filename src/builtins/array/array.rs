@@ -625,14 +625,14 @@ impl ContextImpl {
     }
 }
 
-impl Object {
+impl ObjectImpl {
     /// return Err if exception (proxy case) or TRUE/FALSE
     pub fn is_array(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         let class_id = self.class_id();
 
         #[cfg(feature = "builtin_proxy")]
         if class_id == crate::JS_CLASS_PROXY {
-            unsafe { self.as_Proxy_unchecked().is_array(ctx) }
+            unsafe { Object::from_ref(self).as_Proxy_unchecked().is_array(ctx) }
         } else {
             Ok(class_id == JS_CLASS_ARRAY)
         }
@@ -653,7 +653,8 @@ impl Object {
 
         if self.is_fast_array() {
             // take array list out
-            let items = std::mem::take(&mut self.as_Array_mut().unwrap().payload_mut().values);
+            let items = std::mem::take(&mut self.payload_mut().array_mut().unwrap().values);
+            let mut arr_obj = Object::from_ref(self);
 
             for (i, v) in items.into_iter().enumerate() {
                 // add_property cannot fail here
@@ -661,7 +662,7 @@ impl Object {
                 //
                 // Note: special JSValue::UNINITIALIZED is used to indicate not adding this as property
                 if !v.is_uninitialized() {
-                    self.add_own_property(
+                    arr_obj.add_own_property(
                         ctx,
                         Atom::new_small_int(i as _),
                         JS_PROP_C_W_E,
@@ -693,7 +694,7 @@ impl Object {
 
         // extend the array by one
         // XXX: convert to slow array if new_len > u32::MAX elements
-        let new_len = self.as_Array().unwrap().payload().len() + 1;
+        let new_len = self.payload().array().unwrap().len() + 1;
 
         // first element in `prop_values` is the array length.
         // update the length if necessary. We assume that if the length is
@@ -730,20 +731,20 @@ impl Object {
         }
 
         // add new element to list
-        self.as_Array_mut()
+        self.payload_mut()
+            .array_mut()
             .unwrap()
-            .payload_mut()
             .push(value)
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
 
-        // bind reference relation
-        if let Some(n) = value.gc_node_ptr() {
-            let self_node = self.gc_node_ptr();
-            ctx.rt_ptr().gc_heap_mut().bind(self_node, n);
-        }
+        // // bind reference relation
+        // if let Some(n) = value.gc_node_ptr() {
+        //     let self_node = self.gc_node_ptr();
+        //     ctx.rt_ptr().gc_heap_mut().bind(self_node, n);
+        // }
 
         Ok(true)
     }

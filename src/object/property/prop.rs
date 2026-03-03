@@ -316,11 +316,13 @@ impl JSProperty {
 impl Object {
     /// check if object is extensible.
     /// in case `self` is a Proxy object, may return Err.
-    pub fn is_extensible(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
+    pub fn is_extensible_obj(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         #[cfg(feature = "builtin_proxy")]
         {
-            self.as_Proxy()
-                .map_or_else(|| Ok(self.flags().extensible()), |p| p.is_extensible(ctx))
+            self.as_Proxy().map_or_else(
+                || Ok(self.flags().extensible()),
+                |p| p.is_extensible_obj(ctx),
+            )
         }
         #[cfg(not(feature = "builtin_proxy"))]
         {
@@ -420,7 +422,7 @@ impl JSValue {
     /// return Err() if exception (Proxy object only) or TRUE/FALSE
     pub fn is_extensible(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         if let Self::Object(p) = self {
-            p.is_extensible(ctx)
+            p.is_extensible_obj(ctx)
         } else {
             Ok(false)
         }

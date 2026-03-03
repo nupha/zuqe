@@ -67,16 +67,16 @@ impl ProxyPayload {
         self.is_revoked.set(true);
     }
 
-    pub fn is_extensible(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
+    pub fn is_extensible_obj(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         let method = self.get_proxy_method(ctx, Atom::CONST_isExtensible)?;
         if method.is_undefined() {
-            self.target.is_extensible(ctx)
+            self.target.is_extensible_obj(ctx)
         } else {
             let b = method
                 .call(ctx, self.handler, &[self.target.into()])?
                 .to_bool()?;
 
-            if b != self.target.is_extensible(ctx)? {
+            if b != self.target.is_extensible_obj(ctx)? {
                 ctx.throw_type_error("proxy: inconsistent isExtensible");
                 Err(-1)
             } else {
@@ -117,7 +117,7 @@ impl ProxyPayload {
                 .call(ctx, self.handler, &[self.target.into()])?
                 .to_bool()?;
 
-            if b && self.target.is_extensible(ctx)? {
+            if b && self.target.is_extensible_obj(ctx)? {
                 ctx.throw_type_error("proxy: inconsistent preventExtensions");
                 return Err(-1);
             }
@@ -141,7 +141,7 @@ impl ProxyPayload {
             return Err(-1);
         }
 
-        if self.target.is_extensible(ctx)? {
+        if self.target.is_extensible_obj(ctx)? {
             Ok(ret)
         } else {
             // check invariant
@@ -183,7 +183,7 @@ impl ProxyPayload {
                 // }
             }
             _ => {
-                if !self.target.is_extensible(ctx)?
+                if !self.target.is_extensible_obj(ctx)?
                     && proto_val
                         != self
                             .target
@@ -308,8 +308,8 @@ impl Proxy {
     }
 
     #[inline(always)]
-    pub fn is_extensible(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
-        self.payload().is_extensible(ctx)
+    pub fn is_extensible_obj(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
+        self.payload().is_extensible_obj(ctx)
     }
 
     #[inline(always)]
@@ -412,7 +412,7 @@ fn js_proxy_get_own_property(
                 ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
                 return Err(-1);
             }
-        } else if !px.target.is_extensible(&mut ctx)? {
+        } else if !px.target.is_extensible_obj(&mut ctx)? {
             ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
             return Err(-1);
         }
@@ -572,7 +572,7 @@ fn js_proxy_delete_property(mut ctx: Context, mut obj: JSValue, atom: Atom) -> R
             ctx.throw_type_error("proxy: inconsistent deleteProperty");
             return Err(-1);
         }
-        if !px.target.is_extensible(&mut ctx)? {
+        if !px.target.is_extensible_obj(&mut ctx)? {
             ctx.throw_type_error("proxy: inconsistent deleteProperty");
             return Err(-1);
         }
@@ -636,7 +636,7 @@ fn js_proxy_get_own_property_names(
     }
 
     // check if there are non configurable properties
-    let is_extensible = px.target.is_extensible(&mut ctx)?;
+    let is_extensible = px.target.is_extensible_obj(&mut ctx)?;
 
     for k2 in px
         .target
