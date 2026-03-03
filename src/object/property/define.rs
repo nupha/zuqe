@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use gc_lite::GcNode;
+
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_TAG_INT},
@@ -9,7 +11,7 @@ use crate::{
     number::IntOrFloat,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSProperty, Object,
-        PropertyKey,
+        ObjectImpl, PropertyKey,
     },
     utils::unlikely,
     value::JSValue,
@@ -22,7 +24,7 @@ use super::{
     JSPropertyDescriptor, check_define_prop_flags, get_prop_flags,
 };
 
-impl Object {
+impl ObjectImpl {
     /* allowed flags:
        JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JS_PROP_ENUMERABLE
        JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
@@ -63,7 +65,7 @@ impl Object {
                 if prs_flags & JS_PROP_TMASK == JS_PROP_LAZYINIT {
                     // Instantiate lazy property
                     let val = {
-                        let this = *self;
+                        let this = Object::from_ref(self);
                         self.prop_slot_mut(idx).instantiate(ctx, this)
                     };
 
@@ -136,7 +138,7 @@ impl Object {
                                     continue; // redo_prop_update
                                 }
                                 if flags & JS_PROP_HAS_VALUE != 0 {
-                                    let xref = self.gc_node().partition_id();
+                                    let xref = self.gc_head().partition_id();
                                     self.payload_mut().array_mut().unwrap().set_nth(
                                         ctx.rt_mut(),
                                         idx,
@@ -343,7 +345,7 @@ impl Object {
         let props = properties.objectify(ctx)?;
 
         // Note: each property of `props` is a descriptor object
-        let mut this = *self;
+        let mut this = Object::from_ref(self);
         let props2 = props;
 
         props.own_property_names_foreach(

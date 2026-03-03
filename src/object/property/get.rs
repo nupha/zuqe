@@ -11,14 +11,14 @@ use crate::{
     atom::{Atom, JS_ATOM_MAX_INT},
     context::ContextImpl,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
-    object::{JSProperty, Object},
+    object::{JSProperty, Object, ObjectImpl},
     utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
 use super::{JS_PROP_GETSET, JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF};
 
-impl Object {
+impl ObjectImpl {
     /// The core method to retrive property value: either by shape/slots or by exotic handler.
     ///
     /// walk up proto chain and get property in shape or by exotic handler.
@@ -30,7 +30,7 @@ impl Object {
         throw_ref_error: bool,
     ) -> JSResult {
         #[cfg(debug_assertions)]
-        self.gc_node()
+        self.gc_head()
             .debug_assert_node_valid(ctx.rt_ref().gc_heap());
 
         for mut cur_obj in self.shape_proto_iter(true) {
@@ -58,7 +58,7 @@ impl Object {
                             {
                                 // protect `self` before calling getter func
                                 let rt = ctx.rt_ptr();
-                                let _ng = rt.gc_heap().protect_nodes(&[self.gc_node_ptr()]);
+                                let _ng = rt.gc_heap().protect_nodes(&[self.gc_head_ptr()]);
 
                                 fun.call(ctx, this_obj, &[])
                             } else {
@@ -76,11 +76,15 @@ impl Object {
                         }
                         JS_PROP_LAZYINIT => {
                             // instantiate lazy object
-                            let val = cur_obj.prop_slot_mut(idx).instantiate(ctx, *self);
+                            let val = cur_obj
+                                .prop_slot_mut(idx)
+                                .instantiate(ctx, Object::from_ref(self));
+
                             // modify shape property kind to NORMAL
                             cur_obj.modify_shape_property_index_flags(ctx, idx, |f| {
                                 f & !JS_PROP_TMASK
                             })?;
+
                             // set value to prop slot
                             cur_obj.set_prop_slot(
                                 idx,
@@ -132,7 +136,7 @@ impl Object {
                         let mut _ng = ctx
                             .rt_ref()
                             .gc_heap()
-                            .protect_nodes(&[self.gc_node_ptr(), cur_obj.gc_node_ptr()]);
+                            .protect_nodes(&[self.gc_head_ptr(), cur_obj.gc_node_ptr()]);
                         if let Some(n) = this_obj.gc_node_ptr() {
                             _ng.add(n);
                         }
@@ -147,7 +151,7 @@ impl Object {
                             let _rt = ctx.rt_ptr();
                             let mut _ng = _rt
                                 .gc_heap()
-                                .protect_nodes(&[self.gc_node_ptr(), cur_obj.gc_node_ptr()]);
+                                .protect_nodes(&[self.gc_head_ptr(), cur_obj.gc_node_ptr()]);
 
                             desc.getter.call(ctx, this_obj, &[])
                         } else {
@@ -170,7 +174,7 @@ impl Object {
     /// get property by prop atom.
     #[inline(always)]
     pub fn get_property(&self, ctx: &mut ContextImpl, prop: Atom) -> JSResult {
-        self.get_property_internal(ctx, prop, JSValue::Object(*self), false)
+        self.get_property_internal(ctx, prop, Object::from_ref(self).into(), false)
     }
 
     /// get property by index key.
@@ -181,7 +185,8 @@ impl Object {
     fn get_property_index(&self, idx: usize) -> Option<JSResult> {
         macro_rules! typed_array_el {
             ($ty:ident, $vtype:ident) => {
-                let ta = self.as_TypedArray().unwrap();
+                let o = Object::from_ref(self);
+                let ta = o.as_TypedArray().unwrap();
                 return if idx < ta.length() {
                     Some(Ok(JSValue::from(
                         ta.with_elements_as::<$ty, _>(|lst| lst[idx] as $vtype),
@@ -239,10 +244,10 @@ impl Object {
         None
     }
 
-    #[inline(always)]
+    #[inline]
     fn get_property_value_slow(&self, ctx: &mut ContextImpl, prop: JSValue) -> JSResult {
         let atom = prop.to_atom(ctx)?;
-        self.get_property_internal(ctx, atom, JSValue::Object(*self), false)
+        self.get_property_internal(ctx, atom, Object::from_ref(self).into(), false)
     }
 
     /// get property by prop value

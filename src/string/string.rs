@@ -762,7 +762,6 @@ impl JSValue {
 // String class exotic methods
 //
 
-/// prop is not consumed
 fn string_define_own_property(
     mut ctx: Context,
     mut this_obj: JSValue,

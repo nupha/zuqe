@@ -52,11 +52,6 @@ impl<'cc> CallContext<'cc> {
     }
 
     #[inline(always)]
-    pub(crate) const fn ctx_ptr(&self) -> ContextPtr {
-        self.ctx
-    }
-
-    #[inline(always)]
     pub fn ctx(&self) -> &ContextImpl {
         self.ctx.deref()
     }
@@ -64,6 +59,11 @@ impl<'cc> CallContext<'cc> {
     #[inline(always)]
     pub fn ctx_mut(&mut self) -> &mut ContextImpl {
         self.ctx.deref_mut()
+    }
+
+    #[inline(always)]
+    pub(crate) const fn ctx_ptr(&self) -> ContextPtr {
+        self.ctx
     }
 
     pub const fn magic(&self) -> i32 {
@@ -93,16 +93,16 @@ impl<'cc> CallContext<'cc> {
         self.this_value = this_val;
     }
 
-    /// get `nth` argument, fail-safe to JSValue::UNDEFINED.
-    #[inline(always)]
-    pub fn arg(&self, nth: usize) -> &JSValue {
-        self.args.get(nth).unwrap_or(&JSValue::UNDEFINED)
-    }
-
-    /// get argument values slice
+    /// argument values slice
     #[inline(always)]
     pub const fn arguments(&self) -> &[JSValue] {
         self.args
+    }
+
+    /// get `nth` argument, fail-safe to JSValue::UNDEFINED.
+    #[inline]
+    pub fn arg(&self, nth: usize) -> &JSValue {
+        self.args.get(nth).unwrap_or(&JSValue::UNDEFINED)
     }
 
     /// get `nth` bound data.
@@ -169,26 +169,19 @@ impl Object {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        debug_assert!(ctx.gc_heap().scope_level() > 0);
+        debug_assert!(
+            ctx.gc_heap().scope_level() > 0,
+            "call_internal(): execution scope is required"
+        );
 
         ctx.poll_interrupts()?;
 
         let is_ctor = flags & JS_CALL_FLAG_CONSTRUCTOR != 0;
+
         if unlikely(is_ctor && !self.flags().is_constructor()) {
             ctx.throw_type_error("not a constructor");
             return Err(-1);
         }
-
-        let rt = ctx.rt_ptr();
-
-        // // Note: execute in new scope
-        // let _new_gc_scope = {
-        //     let pid = rt.gc_part_id();
-        //     rt.gc_heap_mut().push_gc_scope(pid);
-        //     crate::defer_fn!({
-        //         rt.gc_heap_mut().pop_gc_scope();
-        //     })
-        // };
 
         let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
             // When calling bytecode function, a StackFrame is created for execution,
@@ -213,7 +206,7 @@ impl Object {
 
             drop(exec_scope);
 
-            // protect return value from exec_scope: attach it to current scope
+            // protect return value from exec_scope: at least add it to current scope
             if let Some(n) = ret.gc_node_ptr()
                 && unsafe { !n.as_ref().is_local() }
             {
@@ -224,7 +217,8 @@ impl Object {
 
             Ok(ret)
         } else if let Some(cb) = unsafe {
-            rt.class_registry
+            ctx.rt_ref()
+                .class_registry
                 .get_unchecked(self.class_id() as usize)
                 .call
         } {
@@ -259,7 +253,7 @@ impl Object {
         if let Ok(v) = ret_val.as_ref()
             && let Some(n) = v.gc_node()
         {
-            n.debug_assert_node_valid(rt.gc_heap());
+            n.debug_assert_node_valid(ctx.rt_ptr().gc_heap());
         }
 
         // // promote return value to upper gc scope to protect it from being gc collected.

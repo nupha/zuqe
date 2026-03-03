@@ -9,7 +9,7 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::VarRef,
-    object::{LazyInit, Object},
+    object::{LazyInit, Object, ObjectImpl},
     utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
@@ -313,13 +313,13 @@ impl JSProperty {
     }
 }
 
-impl Object {
+impl ObjectImpl {
     /// check if object is extensible.
     /// in case `self` is a Proxy object, may return Err.
     pub fn is_extensible_obj(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         #[cfg(feature = "builtin_proxy")]
         {
-            self.as_Proxy().map_or_else(
+            Object::from_ref(self).as_Proxy().map_or_else(
                 || Ok(self.flags().extensible()),
                 |p| p.is_extensible_obj(ctx),
             )
@@ -471,14 +471,14 @@ impl JSValue {
 /// Computes the effective property flags by combining input flags with default flags
 /// If a flag is specified in JS_PROP_HAS_x, it takes precedence over def_flags
 #[inline(always)]
-pub const fn get_prop_flags(flags: u32, def_flags: u32) -> u32 {
+pub(super) const fn get_prop_flags(flags: u32, def_flags: u32) -> u32 {
     let mask = (flags >> JS_PROP_HAS_SHIFT) & JS_PROP_C_W_E;
     (flags & mask) | (def_flags & !mask)
 }
 
 /// Checks if property flags are valid for property definition
 /// Returns false if the flags are invalid
-pub const fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool {
+pub(crate) const fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool {
     let has_accessor;
     let is_getset;
 

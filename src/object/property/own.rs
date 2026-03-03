@@ -10,13 +10,15 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_LAZYINIT, JS_PROP_NO_EXOTIC, JS_PROP_NORMAL,
         JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, JSPropertyDescriptor, Object,
-        get_prop_flags,
+        ObjectImpl,
     },
     utils::unlikely,
     value::JSValue,
 };
 
-impl Object {
+use super::get_prop_flags;
+
+impl ObjectImpl {
     /// Add an own property, and grow object's prop value slots.
     /// This method adds the new prop is to shape, it assumes the new prop does not exist in shape yet.
     /// Returns Err if memory error.
@@ -77,7 +79,7 @@ impl Object {
                 .as_ref()
                 .and_then(|x| x.get_own_property)
             {
-                return cb(ctx.into(), (*self).into(), prop).map(|d| d.is_some());
+                return cb(ctx.into(), Object::from_ref(self).into(), prop).map(|d| d.is_some());
             }
         }
 
@@ -125,8 +127,10 @@ impl Object {
                 }
                 JS_PROP_LAZYINIT => {
                     // Instantiate lazy object
-                    let mut this = *self;
-                    let val = this.prop_slot_mut(idx).instantiate(ctx, *self);
+                    let mut this = Object::from_ref(self);
+                    let val = this
+                        .prop_slot_mut(idx)
+                        .instantiate(ctx, Object::from_ref(self));
 
                     // modify shape property kind to NORMAL
                     this.modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
@@ -170,7 +174,7 @@ impl Object {
                 .as_ref()
                 .and_then(|x| x.get_own_property)
             {
-                return f(ctx.into(), JSValue::Object(*self), prop);
+                return f(ctx.into(), Object::from_ref(self).into(), prop);
             }
         }
 
@@ -266,9 +270,13 @@ impl Object {
                                             Ok(false)
                                         };
                                     }
-                                    if let Some(ret) =
-                                        update_array_length_fn(ctx, *self, idx, arr_len, flags)
-                                    {
+                                    if let Some(ret) = update_array_length_fn(
+                                        ctx,
+                                        Object::from_ref(self),
+                                        idx,
+                                        arr_len,
+                                        flags,
+                                    ) {
                                         return ret;
                                     }
                                 }
@@ -278,7 +286,11 @@ impl Object {
                                     match self.destruct_fast_array(ctx) {
                                         Ok(_) => {
                                             if let Some(ret) = update_array_length_fn(
-                                                ctx, *self, idx, arr_len, flags,
+                                                ctx,
+                                                Object::from_ref(self),
+                                                idx,
+                                                arr_len,
+                                                flags,
                                             ) {
                                                 return ret;
                                             }
@@ -305,9 +317,13 @@ impl Object {
                                         Ok(false)
                                     };
                                 }
-                                if let Some(ret) =
-                                    update_array_length_fn(ctx, *self, idx, arr_len, flags)
-                                {
+                                if let Some(ret) = update_array_length_fn(
+                                    ctx,
+                                    Object::from_ref(self),
+                                    idx,
+                                    arr_len,
+                                    flags,
+                                ) {
                                     return ret;
                                 }
                             }
@@ -319,14 +335,19 @@ impl Object {
                                 } else {
                                     Ok(false)
                                 };
-                            } else if let Some(ret) =
-                                update_array_length_fn(ctx, *self, idx, arr_len, flags)
-                            {
+                            } else if let Some(ret) = update_array_length_fn(
+                                ctx,
+                                Object::from_ref(self),
+                                idx,
+                                arr_len,
+                                flags,
+                            ) {
                                 return ret;
                             }
                         }
                     } else if let Some(idx) = prop.to_array_index(ctx.rt_ref())
-                        && let Some(ret) = update_array_length_fn(ctx, *self, idx, arr_len, flags)
+                        && let Some(ret) =
+                            update_array_length_fn(ctx, Object::from_ref(self), idx, arr_len, flags)
                     {
                         return ret;
                     }
@@ -350,7 +371,7 @@ impl Object {
                         if let Some(f) = pm.define_own_property {
                             return f(
                                 ctx.into(),
-                                JSValue::Object(*self),
+                                Object::from_ref(self).into(),
                                 prop,
                                 val,
                                 getter,

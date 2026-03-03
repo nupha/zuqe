@@ -432,16 +432,18 @@ impl<'a> Context<'a> {
         |ctx: &mut ContextScope| -> Result<(), i32> {
             // define name `globalThis` and `global`
             let mut gobj = ctx.global_obj();
+            let val = JSValue::from(gobj);
+
             gobj.define_property_value(
                 ctx,
                 Atom::CONST_globalThis,
-                gobj.into(),
+                val,
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )?;
             gobj.define_property_value(
                 ctx,
                 Atom::CONST_global,
-                gobj.into(),
+                val,
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )?;
 

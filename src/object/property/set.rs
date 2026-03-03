@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use gc_lite::GcNode;
+
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
@@ -12,6 +14,7 @@ use crate::{
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
         JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, Object,
+        ObjectImpl,
     },
     utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
@@ -22,7 +25,7 @@ use super::{
     JS_PROP_WRITABLE,
 };
 
-impl Object {
+impl ObjectImpl {
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     ///
@@ -105,9 +108,15 @@ impl Object {
                     JS_PROP_GETSET => {
                         return if let JSProperty::GetSet { setter, .. } = cur_obj.prop_slot(idx) {
                             let _rt = ctx.rt_ptr();
-                            let _ng = _rt.gc_heap().protect_nodes(&[self.gc_node_ptr()]);
+                            let _ng = _rt.gc_heap().protect_nodes(&[self.gc_head_ptr()]);
 
-                            call_setter(ctx, *setter, target.unwrap_or(*self).into(), val, flags)
+                            call_setter(
+                                ctx,
+                                *setter,
+                                target.unwrap_or(Object::from_ref(self)).into(),
+                                val,
+                                flags,
+                            )
                         } else {
                             unreachable!()
                         };
@@ -191,7 +200,7 @@ impl Object {
                             JSValue::Object(cur_obj),
                             prop,
                             val,
-                            target.unwrap_or(*self).into(),
+                            target.unwrap_or(Object::from_ref(self)).into(),
                             flags as _,
                         );
                     }
@@ -201,12 +210,12 @@ impl Object {
                     {
                         if desc.flags & JS_PROP_GETSET != 0 {
                             let _rt = ctx.rt_ptr();
-                            let _ng = _rt.gc_heap().protect_nodes(&[self.gc_node_ptr()]);
+                            let _ng = _rt.gc_heap().protect_nodes(&[self.gc_head_ptr()]);
 
                             return call_setter(
                                 ctx,
                                 desc.setter.as_object().copied(),
-                                target.unwrap_or(*self).into(),
+                                target.unwrap_or(Object::from_ref(self)).into(),
                                 val,
                                 flags,
                             );
@@ -246,7 +255,7 @@ impl Object {
                 fail!("object is not extensible")
             }
 
-            if target == *self {
+            if target.gc_node_ptr() == self.gc_head_ptr() {
                 if target.flags().is_exotic() {
                     if let Some(idx) = prop.to_small_int()
                         && let Some(arr) = target.as_Array_mut()
@@ -310,7 +319,7 @@ impl Object {
         prop: Atom,
         val: JSValue,
     ) -> Result<bool, i32> {
-        self.set_property_internal(ctx, prop, val, Some(*self), JS_PROP_THROW)
+        self.set_property_internal(ctx, prop, val, Some(Object::from_ref(self)), JS_PROP_THROW)
     }
 
     /// set property value with integral index key, usually used for fast arrays.
@@ -329,7 +338,7 @@ impl Object {
             JS_CLASS_ARRAY => {
                 if self.flags().extensible() {
                     let self_xref = self.gc_ref().node_info().partition_id();
-                    let this = *self;
+                    let this = Object::from_ref(self);
 
                     if self.is_fast_array()
                         && let Some(arr_data) = self.payload_mut().array_mut()
@@ -408,7 +417,7 @@ impl Object {
                 let Ok(v) = val.coerce_to_u8_clamp(ctx) else {
                     return Some(Err(-1));
                 };
-                let _ = self
+                let _ = Object::from_ref(self)
                     .as_TypedArray_mut()
                     .unwrap()
                     .set_element_int(idx as _, v as _);
@@ -423,7 +432,7 @@ impl Object {
                 let Ok(v) = val.to_i32(ctx) else {
                     return Some(Err(-1));
                 };
-                let _ = self
+                let _ = Object::from_ref(self)
                     .as_TypedArray_mut()
                     .unwrap()
                     .set_element_int(idx as _, v);
@@ -433,7 +442,7 @@ impl Object {
                 let Ok(v) = val.to_f64(ctx) else {
                     return Some(Err(-1));
                 };
-                let _ = self
+                let _ = Object::from_ref(self)
                     .as_TypedArray_mut()
                     .unwrap()
                     .set_element_float(idx as _, v);
@@ -481,7 +490,7 @@ impl Object {
 
         // slow path
         let atom = prop.to_atom(ctx)?;
-        self.set_property_internal(ctx, atom, val, Some(*self), flags)
+        self.set_property_internal(ctx, atom, val, Some(Object::from_ref(self)), flags)
     }
 
     pub fn set_property_u32(
@@ -494,7 +503,13 @@ impl Object {
             .unwrap_or_else(|| {
                 // slow path
                 let atom = Atom::from_i64(ctx.rt_ptr(), idx as i64)?;
-                self.set_property_internal(ctx, atom, val, Some(*self), JS_PROP_THROW)
+                self.set_property_internal(
+                    ctx,
+                    atom,
+                    val,
+                    Some(Object::from_ref(self)),
+                    JS_PROP_THROW,
+                )
             })
     }
 
