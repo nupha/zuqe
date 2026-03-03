@@ -3,16 +3,10 @@
 
 use std::ops::Deref;
 
-use gc_lite::GcLocal;
-
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
-    JS_CLASS_NUMBER, JS_CLASS_STRING,
-    atom::Atom,
-    context::ContextImpl,
-    number::f64_stringify,
-    object::Object,
-    string::{LocalString, StringImpl},
+    JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom, context::ContextImpl, number::f64_stringify,
+    object::ObjectImpl, string::LocalString,
 };
 
 use super::JSValue;
@@ -52,7 +46,7 @@ impl JSValue {
     }
 }
 
-impl Object {
+impl ObjectImpl {
     /// return object's toStringTag
     pub(crate) fn string_tag(&self, ctx: &mut ContextImpl) -> Result<Atom, i32> {
         let tag = if self.is_array(ctx)? {

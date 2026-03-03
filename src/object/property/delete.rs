@@ -5,14 +5,14 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
     context::ContextImpl,
-    object::{JSProperty, Object},
+    object::{JSProperty, Object, ObjectImpl},
     utils::unlikely,
     value::JSValue,
 };
 
 use super::JS_PROP_CONFIGURABLE;
 
-impl Object {
+impl ObjectImpl {
     /// Delete an own property.
     ///
     /// The property is in shape, or delete via exotic/fast-array handler.
@@ -93,12 +93,12 @@ impl Object {
                     }
                 } else {
                     // use exotic delete_property callback
-                    if let Some(cb) = ctx.rt_ptr().class_registry[self.class_id() as usize]
+                    if let Some(cb) = ctx.rt_ref().class_registry[self.class_id() as usize]
                         .exotic
                         .as_ref()
                         .and_then(|m| m.delete_property)
                     {
-                        return cb(ctx.into(), JSValue::Object(*self), prop);
+                        return cb(ctx.into(), Object::from_ref(self).into(), prop);
                     }
                 }
             }

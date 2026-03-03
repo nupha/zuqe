@@ -888,7 +888,7 @@ pub(crate) const JS_PROP_INITIAL_HASH_SIZE: usize = if cfg!(target_pointer_width
 };
 
 /// Note: all the fields are already sealed except length
-pub fn seal_template_obj(ctx: &mut ContextImpl, mut obj: JSValue) -> i32 {
+pub(crate) fn seal_template_obj(ctx: &mut ContextImpl, mut obj: JSValue) -> i32 {
     let p = unsafe { obj.as_object_mut_unchecked() };
 
     // let (_, cur_flags) = p

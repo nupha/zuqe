@@ -4,11 +4,11 @@
 use crate::{
     atom::Atom,
     context::ContextImpl,
-    object::{Object, ObjectPayload},
+    object::{Object, ObjectImpl, ObjectPayload},
     value::JSValue,
 };
 
-impl Object {
+impl ObjectImpl {
     /// test if object `self` is instance of `ctor`.
     /// Equivalent to: `self instanceof ctor`
     pub(crate) fn ordinary_instance_of(
@@ -30,7 +30,7 @@ impl Object {
 
         match ctor.get_property(ctx, Atom::CONST_prototype)? {
             JSValue::Object(proto) => {
-                let mut p = *self;
+                let mut p = Object::from_ref(self);
 
                 loop {
                     if let Some(up) = p.shape().unwrap().proto {
@@ -79,9 +79,11 @@ impl Object {
     pub fn instance_of(&self, ctx: &mut ContextImpl, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
             #[cfg(feature = "builtin_symbol")]
-            if let Some(r) =
-                o.invoke_defined(ctx, Atom::CONST_Symbol_hasInstance, &[(*self).into()])?
-            {
+            if let Some(r) = o.invoke_defined(
+                ctx,
+                Atom::CONST_Symbol_hasInstance,
+                &[Object::from_ref(self).into()],
+            )? {
                 return r.and_then(|v| v.to_bool());
             }
 

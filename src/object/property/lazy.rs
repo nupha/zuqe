@@ -11,7 +11,9 @@ use crate::{
     error::JSResult,
     function::{FieldDef, FieldDetail},
     module::ModuleDef,
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_WRITABLE, Object},
+    object::{
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_WRITABLE, Object, ObjectImpl,
+    },
     value::JSValue,
 };
 
@@ -90,7 +92,7 @@ impl JSProperty {
     }
 }
 
-impl Object {
+impl ObjectImpl {
     /// define an AutoInit property on object
     pub fn define_lazy_property(
         &mut self,

@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use gc_lite::GcNode;
 
 use crate::{
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     error::JSResult,
     object::{Object, ObjectImpl},
     utils::unlikely,

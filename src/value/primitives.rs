@@ -6,7 +6,7 @@ use crate::{
     atom::Atom,
     context::ContextImpl,
     error::JSResult,
-    object::Object,
+    object::{Object, ObjectImpl},
     value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},
 };
 
@@ -17,13 +17,13 @@ impl From<bool> for JSValue {
     }
 }
 
-impl Object {
+impl ObjectImpl {
     /// Coerce object to primitive (non-object) value
     pub fn to_primitive(&self, ctx: &mut ContextImpl, hint: i32) -> JSResult {
         let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;
         let hint = hint & !HINT_FORCE_ORDINARY;
 
-        let this: JSValue = (*self).into();
+        let this = JSValue::from(Object::from_ref(self));
 
         if !ignore_toPrimitive_method {
             // try [Symbol.toPrimitive] method
@@ -107,7 +107,7 @@ impl JSValue {
 
 /// For primitive types (number, bool, string, symbol), return prototype of associated type.
 /// Only works for primitive types, otherwise returns Null.
-pub fn JS_GetPrototypePrimitive(ctx: &mut ContextImpl, val: &JSValue) -> JSValue {
+pub(crate) fn JS_GetPrototypePrimitive(ctx: &mut ContextImpl, val: &JSValue) -> JSValue {
     match val {
         JSValue::Int(_) | JSValue::Float64(_) => ctx.class_proto(JS_CLASS_NUMBER),
         JSValue::Bool(_) => ctx.class_proto(JS_CLASS_BOOLEAN),
