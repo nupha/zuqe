@@ -8,7 +8,7 @@ use crate::{
     atom::Atom,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
-    object::{Object, ObjectPayload},
+    object::{Object, ObjectImpl, ObjectPayload},
     utils::unlikely,
     value::JSValue,
 };
@@ -148,7 +148,7 @@ pub(crate) const JS_CALL_FLAG_CONSTRUCTOR: i32 = 1 << 0;
 pub(crate) const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub(crate) const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
-impl Object {
+impl ObjectImpl {
     /// The unified place to dispatch a function call:
     /// either bytecode or native execution, either normal or constructor call.
     ///
@@ -177,18 +177,18 @@ impl Object {
         ctx.poll_interrupts()?;
 
         let is_ctor = flags & JS_CALL_FLAG_CONSTRUCTOR != 0;
-
         if unlikely(is_ctor && !self.flags().is_constructor()) {
             ctx.throw_type_error("not a constructor");
             return Err(-1);
         }
 
-        let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
+        let ret_val = if let Some(mut bfun) = Object::from_ref(self).as_BytecodeFunction().copied()
+        {
             // When calling bytecode function, a StackFrame is created for execution,
             // gc nodes self, this_obj, new_target, args are protected by the StackFrame
             let mut exec_scope = ctx.new_scope();
 
-            let ret = if is_ctor && !bf.payload().bytecode().attrs.is_derived_class_constructor {
+            let ret = if is_ctor && !bfun.payload().bytecode().attrs.is_derived_class_constructor {
                 // legacy constructor behavior
                 let this: JSValue = exec_scope
                     .create_object_from_ctor(new_target, ObjectPayload::OBJECT)
@@ -198,10 +198,10 @@ impl Object {
                     })?
                     .into();
 
-                bf.execute(&mut exec_scope, this, new_target, args, flags)
+                bfun.execute(&mut exec_scope, this, new_target, args, flags)
                     .map(|v| if v.is_object() { v } else { this })
             } else {
-                bf.execute(&mut exec_scope, this_obj, new_target, args, flags)
+                bfun.execute(&mut exec_scope, this_obj, new_target, args, flags)
             }?;
 
             drop(exec_scope);
@@ -239,7 +239,7 @@ impl Object {
 
             cb(
                 ctx.into(),
-                JSValue::Object(*self),
+                Object::from_ref(self).into(),
                 if is_ctor { new_target } else { this_obj },
                 args,
                 flags,
@@ -294,14 +294,14 @@ impl Object {
 
     #[inline(always)]
     pub fn call_ctor(&self, ctx: &mut ContextImpl, args: &[JSValue]) -> JSResult {
-        self.call_ctor_new_target(ctx, JSValue::Object(*self), args)
+        self.call_ctor_new_target(ctx, Object::from_ref(self).into(), args)
     }
 
     /// call function `self.method`
     #[inline]
     pub fn invoke(&self, ctx: &mut ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {
         self.get_property(ctx, method)
-            .and_then(|f| f.call(ctx, (*self).into(), args))
+            .and_then(|f| f.call(ctx, Object::from_ref(self).into(), args))
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.
@@ -314,7 +314,7 @@ impl Object {
     ) -> Result<Option<JSResult>, i32> {
         let f = self.get_property(ctx, method)?;
         if !f.is_undefined_or_null() {
-            Ok(Some(f.call(ctx, (*self).into(), args)))
+            Ok(Some(f.call(ctx, Object::from_ref(self).into(), args)))
         } else {
             Ok(None)
         }
@@ -330,7 +330,7 @@ impl Object {
     ) -> Result<Option<JSResult>, i32> {
         let f = self.get_property(ctx, method)?;
         if f.is_function() {
-            Ok(Some(f.call(ctx, (*self).into(), args)))
+            Ok(Some(f.call(ctx, Object::from_ref(self).into(), args)))
         } else {
             Ok(None)
         }
