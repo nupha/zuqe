@@ -533,17 +533,10 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
     }
 }
 
-fn js_async_generator_next(mut cc: CallContext) -> JSResult {
+fn js_async_generator_next(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
     let (promise, resolving_funcs) = Promise::create(&mut ctx)?;
-
-    // is this needed?
-    // let _ng = cc.ctx().rt_ref().gc_heap().protect_nodes(&[
-    //     promise.gc_node_ptr(),
-    //     resolving_funcs[0].gc_node_ptr().unwrap(),
-    //     resolving_funcs[1].gc_node_ptr().unwrap(),
-    // ]);
 
     let mut this = *cc.this();
     if let Ok(isa) = this.retrive_object_payload_mut(&mut ctx, JS_CLASS_ASYNC_GENERATOR) {

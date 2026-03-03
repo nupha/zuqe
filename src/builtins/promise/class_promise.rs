@@ -143,12 +143,13 @@ pub fn js_promise_resolve(cc: CallContext) -> JSResult {
 
     let (result_promise, resolving_funcs) = Promise::create_from_ctor(&mut ctx, this)?;
 
-    // manual protect result_promise from gc being collected,
+    // protect result_promise from gc being collected,
     // resolving_funcs[is_reject as usize] and arg0 will be protected in ::call()
-    let _ctx0 = ctx;
-    let _ng = _ctx0
-        .gc_heap()
-        .protect_nodes(&[result_promise.gc_node_ptr()]);
+    // NOT NEEDED ANY MORE
+    // let _ctx0 = ctx;
+    // let _ng = _ctx0
+    //     .gc_heap()
+    //     .protect_nodes(&[result_promise.gc_node_ptr()]);
 
     resolving_funcs[is_reject as usize].call(
         &mut ctx,
