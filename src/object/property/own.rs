@@ -20,6 +20,7 @@ impl Object {
     /// Add an own property, and grow object's prop value slots.
     /// This method adds the new prop is to shape, it assumes the new prop does not exist in shape yet.
     /// Returns Err if memory error.
+    #[inline]
     pub(crate) fn add_own_property(
         &mut self,
         ctx: &mut ContextImpl,

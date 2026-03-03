@@ -109,9 +109,7 @@ impl ObjectImpl {
         self.extend_prop_slot(extra);
         Ok(())
     }
-}
 
-impl Object {
     /// update value to property slot `idx`, handle 'writable' flag setting.
     pub(super) fn update_prop_slot_value(
         &mut self,
@@ -131,9 +129,7 @@ impl Object {
                     prs_flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0
                         && flags & JS_PROP_HAS_VALUE != 0,
                 ) {
-                    return if !val
-                        .is_same(self.prop_slot(idx).value(ctx.into(), JSValue::UNDEFINED)?)
-                    {
+                    return if !val.is_same(self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?) {
                         if ctx.can_throw(flags) {
                             ctx.throw_type_error("property is not configurable");
                             Err(-1)
@@ -228,8 +224,10 @@ impl Object {
             let res = if flags & JS_PROP_HAS_VALUE != 0 {
                 let arr_len = val.to_array_length(ctx, false)?;
                 let can_throw = ctx.can_throw(flags);
+
                 unsafe {
-                    self.as_Array_mut_unchecked()
+                    Object::from_ref(self)
+                        .as_Array_mut_unchecked()
                         .set_length(ctx, arr_len, can_throw)
                 }
             } else {
