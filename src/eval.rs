@@ -237,14 +237,14 @@ impl ContextImpl {
         eval_flags: EvalFlags,
         var_scope_idx: i32,
     ) -> JSResult {
+        debug_assert!(self.gc_heap().scope_level() > 0);
+
         // #[cfg(debug_assertions)]
         // if eval_flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
         //     panic!(
         //         "don't use JS_EVAL_FLAG_COMPILE_ONLY flag in eval().\nif you want compile only, use ::compile() method."
         //     );
         // }
-
-        debug_assert!(self.gc_heap().scope_level() > 0);
 
         let ret_val =
             match self.compile_source(source, filename, eval_type, eval_flags, var_scope_idx)? {
@@ -272,12 +272,11 @@ impl ContextImpl {
                 }
             };
 
-        // // ensure return value is valid
-        // #[cfg(debug_assertions)]
-        // if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
-        //     let n = unsafe { n.as_ref() };
-        //     debug_assert!(n.is_local() || n.is_root(), "{n:?}");
-        // }
+        #[cfg(debug_assertions)]
+        if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
+            let n = unsafe { n.as_ref() };
+            debug_assert!(n.is_local() || n.is_root(), "{n:?}");
+        }
 
         ret_val
     }
@@ -298,8 +297,8 @@ impl ContextImpl {
 }
 
 impl<'a> ContextScope<'a> {
-    /// eval `source` as global type, with global object as `this` binding.
-    /// perform eval in current execution scope, returned value is in current scope too.
+    /// Eval `source` as global type, with global object as `this` binding.
+    /// Execute in `self` scope, returned value is valid at least in `self` scope.
     pub fn eval_global(
         &mut self,
         source: &[u8],
@@ -317,7 +316,8 @@ impl<'a> ContextScope<'a> {
         )
     }
 
-    /// run script `source`, wait till execution terminates, returns the result value.
+    /// Eval script `source`, wait till execution terminates, returns the result value.
+    /// Execute in `self` scope, returned value is valid at least in `self` scope.
     pub fn run_wait(
         &mut self,
         source: &[u8],
