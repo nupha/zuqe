@@ -10,8 +10,15 @@ use crate::{
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
     JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, RuntimeImpl,
-    atom::Atom, class::ClassID, context::ContextImpl, error::JSResult, gcref_wrapper,
-    runtime::RuntimePtr, string::StringRef, utils::unlikely, value::JSValue,
+    atom::Atom,
+    class::ClassID,
+    context::{ContextImpl, ContextPtr},
+    error::JSResult,
+    gcref_wrapper,
+    runtime::RuntimePtr,
+    string::StringRef,
+    utils::unlikely,
+    value::JSValue,
 };
 
 use super::{
@@ -227,7 +234,7 @@ impl std::fmt::Display for ObjectImpl {
 
 impl ObjectImpl {
     pub(super) fn create(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         mut shape: Option<Shape>,
         payload: ObjectPayload,
     ) -> Result<Object, ObjectPayload> {
@@ -536,7 +543,7 @@ impl ObjectImpl {
     }
 
     /// only Proxy may return Err(-1)
-    pub fn prevent_extensions(&mut self, ctx: &ContextImpl) -> Result<bool, i32> {
+    pub fn prevent_extensions(&mut self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         #[cfg(feature = "builtin_proxy")]
         {
             Object(unsafe { GcRef::from_ref_unchecked(self) })
@@ -645,20 +652,22 @@ impl Object {
     }
 
     /// Seal the object.
-    pub fn seal(&mut self, ctx: &ContextImpl, freeze: bool) -> Result<(), i32> {
-        if unlikely(!self.prevent_extensions(ctx)?) {
+    pub fn seal(&self, ctx: &mut ContextImpl, freeze: bool) -> Result<(), i32> {
+        let mut this = *self;
+
+        if unlikely(!this.prevent_extensions(ctx)?) {
             ctx.throw_type_error("proxy preventExtensions handler returned false");
             Err(-1)
         } else {
-            let this = *self;
-            let _ = this.own_property_names_foreach(
+            let mut target = *self;
+            this.own_property_names_foreach(
                 ctx,
                 JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
-                |_, pkey| {
+                |cx, pkey| {
                     let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
                     if freeze
-                        && let Some(desc) = self.get_own_property(ctx, pkey.atom)?
+                        && let Some(desc) = target.get_own_property(cx, pkey.atom)?
                         && desc.flags & JS_PROP_WRITABLE != 0
                     {
                         flags |= JS_PROP_HAS_WRITABLE;
@@ -666,8 +675,8 @@ impl Object {
 
                     // equivelent to set {configurable: false},
                     // or {configurable:false, writable: false} if freeze=true
-                    self.define_property(
-                        ctx,
+                    target.define_property(
+                        cx,
                         pkey.atom,
                         JSValue::UNDEFINED,
                         JSValue::UNDEFINED,
@@ -684,14 +693,16 @@ impl Object {
     }
 
     /// check if object is sealed.
-    pub fn is_sealed(&mut self, ctx: &ContextImpl, is_frozen: bool) -> Result<bool, i32> {
+    pub fn is_sealed(&self, ctx: &mut ContextImpl, is_frozen: bool) -> Result<bool, i32> {
         const NOT_SEALED_ERR: i32 = i32::MAX;
 
         let this = *self;
 
-        if let Err(e) =
-            this.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |_, pk| {
-                if let Some(desc) = self.get_own_property(ctx, pk.atom)?
+        if let Err(e) = this.own_property_names_foreach(
+            ctx,
+            JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
+            |cx, pk| {
+                if let Some(desc) = self.get_own_property(cx, pk.atom)?
                     && (desc.flags & JS_PROP_CONFIGURABLE != 0
                         || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0)))
                 {
@@ -700,8 +711,8 @@ impl Object {
                     return Err(NOT_SEALED_ERR);
                 }
                 Ok(())
-            })
-        {
+            },
+        ) {
             return if e == NOT_SEALED_ERR {
                 Ok(false) // not sealed
             } else {
@@ -820,7 +831,7 @@ impl JSValue {
     /// - "abc" => \[object "abc"\]
     /// - Symbol() => \[object Symbol()\]
     /// - null, undefined => Error
-    pub fn objectify(&self, ctx: &ContextImpl) -> Result<Object, i32> {
+    pub fn objectify(&self, ctx: &mut ContextImpl) -> Result<Object, i32> {
         match self {
             Self::Object(o) => Ok(*o),
             Self::String(s) => s.objectify(ctx, JSValue::UNDEFINED),
@@ -856,19 +867,19 @@ impl JSValue {
     }
 
     #[inline]
-    pub fn prevent_extensions(&mut self, ctx: &ContextImpl) -> Result<bool, i32> {
+    pub fn prevent_extensions(&mut self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         self.as_object_mut()
             .map_or(Ok(false), |o| o.prevent_extensions(ctx))
     }
 
     /// Seal `self` if it is an object.
-    pub fn seal(&mut self, ctx: &ContextImpl, freeze: bool) -> Result<(), i32> {
-        self.as_object_mut().map_or(Ok(()), |o| o.seal(ctx, freeze))
+    pub fn seal(&self, ctx: &mut ContextImpl, freeze: bool) -> Result<(), i32> {
+        self.as_object().map_or(Ok(()), |o| o.seal(ctx, freeze))
     }
 
     /// check if value is sealed. Object value will check property, Non-object value is always treated as sealed.
-    pub fn is_sealed(&mut self, ctx: &ContextImpl, is_frozen: bool) -> Result<bool, i32> {
-        self.as_object_mut()
+    pub fn is_sealed(&self, ctx: &mut ContextImpl, is_frozen: bool) -> Result<bool, i32> {
+        self.as_object()
             .map_or(Ok(true), |o| o.is_sealed(ctx, is_frozen))
     }
 }
@@ -883,7 +894,7 @@ pub(crate) const JS_PROP_INITIAL_HASH_SIZE: usize = if cfg!(target_pointer_width
 };
 
 /// Note: all the fields are already sealed except length
-pub fn seal_template_obj(ctx: &ContextImpl, mut obj: JSValue) -> i32 {
+pub fn seal_template_obj(ctx: &mut ContextImpl, mut obj: JSValue) -> i32 {
     let p = unsafe { obj.as_object_mut_unchecked() };
 
     // let (_, cur_flags) = p
@@ -902,13 +913,13 @@ pub fn seal_template_obj(ctx: &ContextImpl, mut obj: JSValue) -> i32 {
     0
 }
 
-pub fn JS_SpeciesConstructor(
-    ctx: &ContextImpl,
+pub(crate) fn JS_SpeciesConstructor(
+    mut ctx: ContextPtr,
     obj: JSValue,
     default_constructor: JSValue,
 ) -> JSResult {
     if let Some(o) = obj.as_object() {
-        let ctor = o.get_property(ctx, Atom::CONST_constructor)?;
+        let ctor = o.get_property(&mut ctx, Atom::CONST_constructor)?;
 
         if unlikely(ctor.is_undefined()) {
             Ok(default_constructor)
@@ -916,7 +927,7 @@ pub fn JS_SpeciesConstructor(
             let species: JSValue = {
                 #[cfg(feature = "builtin_symbol")]
                 {
-                    o1.get_property(ctx, Atom::CONST_Symbol_species)?
+                    o1.get_property(&mut ctx, Atom::CONST_Symbol_species)?
                 }
                 #[cfg(not(feature = "builtin_symbol"))]
                 {

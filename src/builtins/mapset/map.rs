@@ -123,7 +123,12 @@ impl JSMapState {
 
     /// update or insert key-value pair.
     /// returns false if the value is updated, true if the key-value pair is inserted
-    pub fn upsert(&mut self, ctx: &ContextImpl, key: JSValue, value: JSValue) -> Result<bool, i32> {
+    pub fn upsert(
+        &mut self,
+        ctx: &mut ContextImpl,
+        key: JSValue,
+        value: JSValue,
+    ) -> Result<bool, i32> {
         let key = MapPair::normalize_key(key);
 
         if self.is_weak && !key.is_object() {
@@ -221,7 +226,7 @@ impl JSMapState {
     }
 
     /// remove an entry by key.
-    pub fn remove(&mut self, ctx: &ContextImpl, key: JSValue) {
+    pub fn remove(&mut self, ctx: &mut ContextImpl, key: JSValue) {
         let key = MapPair::normalize_key(key);
         let hash = key.hash();
 
@@ -346,29 +351,29 @@ impl MapSet {
         match class_id {
             JS_CLASS_MAP => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_fields(&ctx, js_map_proto_funcs)?;
+                obj.install_fields(&mut ctx, js_map_proto_funcs)?;
 
                 let mut ctor = ctx
                     .create_global_constructor_only("Map", js_map_constructor, 0, obj.into(), 0)
                     .unwrap();
-                ctor.install_fields(&ctx, js_map_funcs).unwrap();
+                ctor.install_fields(&mut ctx, js_map_funcs).unwrap();
 
                 Ok(Some(obj))
             }
             JS_CLASS_SET => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_fields(&ctx, js_set_proto_funcs)?;
+                obj.install_fields(&mut ctx, js_set_proto_funcs)?;
 
                 let mut ctor = ctx
                     .create_global_constructor_only("Set", js_map_constructor, 0, obj.into(), 1)
                     .unwrap();
-                ctor.install_fields(&ctx, js_set_funcs)?;
+                ctor.install_fields(&mut ctx, js_set_funcs)?;
 
                 Ok(Some(obj))
             }
             JS_CLASS_WEAKMAP => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_fields(&ctx, js_weakmap_proto_funcs)?;
+                obj.install_fields(&mut ctx, js_weakmap_proto_funcs)?;
 
                 ctx.create_global_constructor_only(
                     "WeakMap",
@@ -382,7 +387,7 @@ impl MapSet {
             }
             JS_CLASS_WEAKSET => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_fields(&ctx, js_weakset_proto_funcs)?;
+                obj.install_fields(&mut ctx, js_weakset_proto_funcs)?;
 
                 ctx.create_global_constructor_only(
                     "WeakSet",
@@ -396,12 +401,12 @@ impl MapSet {
             }
             JS_CLASS_MAP_ITERATOR => {
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                proto.install_fields(&ctx, js_map_iterator_proto_funcs)?;
+                proto.install_fields(&mut ctx, js_map_iterator_proto_funcs)?;
                 Ok(Some(proto))
             }
             JS_CLASS_SET_ITERATOR => {
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                proto.install_fields(&ctx, js_set_iterator_proto_funcs)?;
+                proto.install_fields(&mut ctx, js_set_iterator_proto_funcs)?;
                 Ok(Some(proto))
             }
             _ => {
@@ -412,7 +417,7 @@ impl MapSet {
 }
 
 impl ContextImpl {
-    pub fn create_map_with_entries(&self, entries: JSMapState) -> Result<Object, i32> {
+    pub fn create_map_with_entries(&mut self, entries: JSMapState) -> Result<Object, i32> {
         self.create_object(ObjectPayload::MAP(Box::new(entries)))
             .map_err(|_| -1)
     }

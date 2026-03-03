@@ -40,7 +40,12 @@ impl GcTrace for PropertyKey {
 }
 
 impl PropertyKey {
-    pub(crate) fn new(ctx: &ContextImpl, atom: Atom, is_enumerable: bool, is_exotic: bool) -> Self {
+    pub(crate) fn new(
+        ctx: &mut ContextImpl,
+        atom: Atom,
+        is_enumerable: bool,
+        is_exotic: bool,
+    ) -> Self {
         let kind = if let Some(idx) = atom.to_array_index(ctx.rt_ref()) {
             PropertyKeyKind::ArrayIndex(idx)
         } else if atom.desc_kind(ctx.rt_ref()) == AtomDescKind::JS_ATOM_KIND_STRING {
@@ -82,9 +87,9 @@ impl Object {
     /// 1. Then exotic properties (if has exotic `get_own_property_names`)
     pub fn own_property_names_foreach(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         flags: i32,
-        mut callback: impl FnMut(&ContextImpl, PropertyKey) -> Result<(), i32>,
+        mut callback: impl FnMut(&mut ContextImpl, PropertyKey) -> Result<(), i32>,
     ) -> Result<(), i32> {
         let enum_only = flags & JS_GPN_ENUM_ONLY != 0;
         let sh = self.shape().unwrap();
@@ -107,7 +112,8 @@ impl Object {
                         return Err(-1);
                     }
 
-                    callback(ctx, PropertyKey::new(ctx, prs.atom, is_enumerable, false))?;
+                    let pk = PropertyKey::new(ctx, prs.atom, is_enumerable, false);
+                    callback(ctx, pk)?;
                 }
             }
         }
@@ -205,7 +211,7 @@ impl Object {
     /// - Can be filtered using flags
     pub fn get_own_property_names(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         flags: i32,
     ) -> Result<Box<[PropertyKey]>, i32> {
         let mut lst = Vec::<PropertyKey>::with_capacity(16);
@@ -263,7 +269,7 @@ impl Object {
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     pub fn get_own_property_kvs(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
@@ -324,7 +330,7 @@ impl JSValue {
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     pub fn get_own_property_kvs(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
@@ -341,7 +347,7 @@ impl JSValue {
     /// - An array of [key, value] pairs (for kind = KEY_AND_VALUE)
     pub(crate) fn build_own_property_kvs_array(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> JSResult {

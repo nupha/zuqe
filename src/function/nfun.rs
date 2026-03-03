@@ -121,7 +121,7 @@ impl NFuncPayload {
                 if let Ok(v) = r
                     && iter_state != IteratorState::NotParsed
                 {
-                    js_create_iterator_result(&self.realm, v, iter_state == IteratorState::Done)
+                    js_create_iterator_result(&mut self.realm, v, iter_state == IteratorState::Done)
                 } else {
                     r
                 }
@@ -143,13 +143,13 @@ impl NFuncPayload {
             Callback::FF(f) => {
                 //debug_assert!(data.is_none(), "binding data not allowed");
                 cc.arg(0)
-                    .to_f64(&self.realm)
+                    .to_f64(&mut self.realm)
                     .map(|n| JSValue::from(unsafe { f(n) }))
             }
             Callback::FFF(f) => {
                 //debug_assert!(data.is_none(), "binding data not allowed");
-                let d1 = cc.arg(0).to_f64(&self.realm)?;
-                let d2 = cc.arg(1).to_f64(&self.realm)?;
+                let d1 = cc.arg(0).to_f64(&mut self.realm)?;
+                let d2 = cc.arg(1).to_f64(&mut self.realm)?;
                 Ok(JSValue::from(unsafe { f(d1, d2) }))
             }
         };
@@ -192,7 +192,7 @@ object_cast!(
 
 impl NativeFunction {
     pub fn class_call(
-        ctx: Context,
+        mut ctx: Context,
         func: JSValue,
         this_obj: JSValue,
         args: &[JSValue],
@@ -207,7 +207,7 @@ impl NativeFunction {
             nfunc.gc_node().debug_assert_node_valid(rt.gc_heap_mut());
         }
 
-        let (realm, args_length) = {
+        let (mut realm, args_length) = {
             let p = nfunc.payload();
             (p.realm, p.length as usize)
         };
@@ -287,7 +287,7 @@ impl NativeFunction {
     /// Create native function object.
     /// at least `length` arguments can be readable in arguments.
     pub(crate) fn create(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         callback: Callback,
         name: &str,
         length: u8,
@@ -368,7 +368,7 @@ impl ContextImpl {
     /// at least `length` arguments will be readable in arguments.
     #[inline(always)]
     pub fn create_native_function_with_data(
-        &self,
+        &mut self,
         callback: Callback,
         name: &str,
         length: u8,
@@ -390,7 +390,7 @@ impl ContextImpl {
     /// at least `length` arguments will be readable in arguments.
     #[inline(always)]
     pub fn create_native_function(
-        &self,
+        &mut self,
         callback: Callback,
         name: &str,
         length: u8,

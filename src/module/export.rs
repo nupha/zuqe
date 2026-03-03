@@ -110,7 +110,7 @@ impl GcTrace for ResolveExport {
 impl ResolveExport {
     pub(super) fn throw_syntax_error_export(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         m: &ModuleDefImpl,
         export_name: &Atom,
     ) {
@@ -154,15 +154,16 @@ impl ModuleDefImpl {
     /// Note: `local_name`, `export_name` are not consumed.
     pub(crate) fn add_export_internal(
         &mut self,
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         local_name: Atom,
         export_name: Atom,
         export_type: ExportType,
     ) -> Result<(), i32> {
         if unlikely(self.find_export(export_name).is_some()) {
+            let rt = ctx.rt_ptr();
             ctx.throw_syntax_error(&format!(
                 "duplicate exported name '{}'",
-                export_name.to_utf8(ctx.rt_ref()),
+                export_name.to_utf8(&rt),
             ));
             Err(ErrorKind::Syntax as i32)
         } else {
@@ -184,10 +185,10 @@ impl ModuleDefImpl {
     }
 
     /// declare a module export name
-    pub fn add_export(&mut self, ctx: &ContextImpl, export_name: &str) -> Result<(), i32> {
+    pub fn add_export(&mut self, ctx: &mut ContextImpl, export_name: &str) -> Result<(), i32> {
         let atom = Atom::new(ctx.rt_ptr(), export_name)?;
         self.add_export_internal(
-            ctx,
+            ctx.into(),
             Atom::NULL,
             atom,
             ExportType::JS_EXPORT_TYPE_LOCAL {
@@ -200,7 +201,7 @@ impl ModuleDefImpl {
     /// update export value
     pub(super) fn set_export_values(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         entries: &[FieldDef],
     ) -> Result<(), i32> {
         for entry in entries {
@@ -235,7 +236,7 @@ impl ModuleDefImpl {
     /// update or add a module export entry named `export_name`, with given value
     pub fn set_export_value(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         export_name: &str,
         value: JSValue,
     ) -> Result<(), i32> {
@@ -269,7 +270,7 @@ struct GetExportNamesState {
 impl ModuleDef {
     pub(crate) fn add_star_export_entry(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         req_module_idx: u16,
     ) -> Result<(), i32> {
         if self.star_export_entries.len() == self.star_export_entries.capacity() {
@@ -285,7 +286,7 @@ impl ModuleDef {
 
     fn collect_exported_names(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         s: &mut GetExportNamesState,
         from_star: bool,
     ) -> Result<(), i32> {
@@ -357,7 +358,7 @@ impl ModuleDef {
     }
 
     /// build module ns object
-    fn build_module_ns(&self, ctx: &ContextImpl) -> Result<Object, i32> {
+    fn build_module_ns(&self, ctx: &mut ContextImpl) -> Result<Object, i32> {
         let mut obj = ctx
             .create_object(ObjectPayload::MODULE_NS)
             .map_err(|_| -1)?;
@@ -459,12 +460,10 @@ impl ModuleDef {
         }
 
         #[cfg(feature = "builtin_symbol")]
-        obj.define_property_value(
-            ctx,
-            Atom::CONST_Symbol_toStringTag,
-            Atom::CONST_Module.force_string(ctx)?.into(),
-            0,
-        )?;
+        {
+            let mod_str = Atom::CONST_Module.force_string(ctx)?;
+            obj.define_property_value(ctx, Atom::CONST_Symbol_toStringTag, mod_str.into(), 0)?;
+        }
 
         obj.set_flag_extensible(false);
 
@@ -473,7 +472,7 @@ impl ModuleDef {
 
     /// get module ns object.
     /// if ns object is not initialized, initialize it and return.
-    pub fn ns(&mut self, ctx: &ContextImpl) -> Result<Object, i32> {
+    pub fn ns(&mut self, ctx: &mut ContextImpl) -> Result<Object, i32> {
         if let Some(ns) = self.module_ns {
             Ok(ns)
         } else {

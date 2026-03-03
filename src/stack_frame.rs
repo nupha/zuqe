@@ -12,7 +12,7 @@ use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 use crate::{
     Object,
     builtins::iterator::ObjectIter,
-    context::ContextImpl,
+    context::{ContextImpl, ContextPtr},
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateImpl, VarRef},
     runtime::RuntimePtr,
@@ -248,7 +248,7 @@ impl StackFrame {
     #[cold]
     pub(crate) fn handle_exception(
         &mut self,
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         pc: usize,
         mut sp: usize,
     ) -> Option<(usize, usize)> {
@@ -256,7 +256,9 @@ impl StackFrame {
             // add the backtrace information now:
             // it is not done before if the exception happens in a bytecode operation
             self.cur_pc_offset = pc;
-            ctx.build_backtrace_to(ctx.rt_ptr().exception(), None, 0);
+
+            let exc = ctx.rt_ptr().exception();
+            ctx.build_backtrace_to(exc, None, 0);
         }
 
         if unsafe { !JS_IsUncatchableError(ctx.rt_ptr().exception()) } {
@@ -296,7 +298,13 @@ impl StackFrame {
     }
 
     /// Prepare to exit bytecode execution.
-    pub(crate) fn handle_exit(&mut self, ctx: &ContextImpl, pc: usize, sp: usize, is_async: bool) {
+    pub(crate) fn handle_exit(
+        &mut self,
+        ctx: &mut ContextImpl,
+        pc: usize,
+        sp: usize,
+        is_async: bool,
+    ) {
         debug_assert_eq!(
             ctx.rt_ptr().current_stack_frame(),
             Some(&*self),

@@ -27,8 +27,8 @@ pub type ModuleNormalizeFn = fn(
 pub type ModuleLoadFn =
     fn(ctx: Context, module_name: &str, opaque: *mut ::core::ffi::c_void) -> Result<ModuleDef, i32>;
 
-pub(crate) trait ModuleInitFn: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
-impl<F> ModuleInitFn for F where F: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
+pub(crate) trait ModuleInitFn: Fn(&mut ContextImpl, &ModuleDef) -> Result<(), i32> {}
+impl<F> ModuleInitFn for F where F: Fn(&mut ContextImpl, &ModuleDef) -> Result<(), i32> {}
 
 pub struct ModuleDefImpl {
     pub(super) module_name: Atom,
@@ -157,7 +157,7 @@ impl ModuleDefImpl {
 
     /// create a native module def with module init func.
     fn create(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         name: &str,
         init: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
@@ -197,7 +197,7 @@ impl ModuleDefImpl {
     }
 
     /// get module `import.meta` object.
-    pub fn import_meta(&mut self, ctx: &ContextImpl) -> Result<Object, i32> {
+    pub fn import_meta(&mut self, ctx: &mut ContextImpl) -> Result<Object, i32> {
         if let Some(o) = self.meta_obj {
             Ok(o)
         } else {
@@ -213,7 +213,7 @@ impl ModuleDefImpl {
     /// set module import.meta props.
     pub fn set_import_meta(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         url: &str,
         is_main: bool,
     ) -> Result<(), i32> {
@@ -225,7 +225,7 @@ impl ModuleDefImpl {
     }
 
     // Make the <eval> function associated with the module, for bytecode module.
-    fn create_module_bytecode_function(&mut self, ctx: &ContextImpl) -> Result<(), i32> {
+    fn create_module_bytecode_function(&mut self, ctx: &mut ContextImpl) -> Result<(), i32> {
         debug_assert!(!self.func_created);
 
         match self.bytecode {
@@ -272,7 +272,7 @@ impl ModuleDefImpl {
 
     /// make module <eval> function from bytecode
     /// must be done before module link because of cyclic references
-    pub(super) fn create_module_function(&mut self, ctx: &ContextImpl) -> Result<(), i32> {
+    pub(super) fn create_module_function(&mut self, ctx: &mut ContextImpl) -> Result<(), i32> {
         if self.func_created {
             return Ok(());
         }
@@ -353,13 +353,9 @@ impl ModuleDef {
 impl ContextImpl {
     /// register a native module
     pub fn register_module(&mut self, name: &str, entries: &'static [FieldDef]) -> Result<(), i32> {
-        let mut md = ModuleDef::create(
-            self,
-            name,
-            |cx: &ContextImpl, m: &ModuleDef| -> Result<(), i32> {
-                m.set_export_values(cx, entries)
-            },
-        )?;
+        let mut md = ModuleDef::create(self, name, |cx, m| -> Result<(), i32> {
+            m.set_export_values(cx, entries)
+        })?;
 
         // declare export names
         for me in entries {
@@ -400,7 +396,7 @@ pub(crate) fn js_free_modules(ctx: &mut ContextImpl, flag: JSFreeModuleEnum) {
     });
 }
 
-pub(crate) fn add_module_variables(ctx: &ContextImpl, fdef: &mut FunctionDef) -> i32 {
+pub(crate) fn add_module_variables(ctx: &mut ContextImpl, fdef: &mut FunctionDef) -> i32 {
     // The imported global variables were added as closure variables
     // in js_parse_import(). We add here the module global variables.
     for i in 0..fdef.global_vars.len() {
@@ -411,7 +407,7 @@ pub(crate) fn add_module_variables(ctx: &ContextImpl, fdef: &mut FunctionDef) ->
 
         if fdef
             .add_closure_var(
-                ctx,
+                ctx.into(),
                 true,
                 false,
                 i as _,
@@ -463,7 +459,7 @@ pub(crate) const js_module_ns_exotic_methods: ClassExoticMethods = ClassExoticMe
     set_prototype: None,
 };
 
-pub(crate) fn js_create_module_var(ctx: &ContextImpl, is_lexical: bool) -> Result<VarRef, i32> {
+pub(crate) fn js_create_module_var(ctx: &mut ContextImpl, is_lexical: bool) -> Result<VarRef, i32> {
     VarRef::create(
         ctx,
         if is_lexical {
@@ -476,7 +472,10 @@ pub(crate) fn js_create_module_var(ctx: &ContextImpl, is_lexical: bool) -> Resul
 
 /// returns None if the name cannot be found.
 /// Only works with not striped bytecode functions.
-pub(super) fn get_script_or_module_name(ctx: &ContextImpl, n_stack_levels: usize) -> Option<Atom> {
+pub(super) fn get_script_or_module_name(
+    ctx: &mut ContextImpl,
+    n_stack_levels: usize,
+) -> Option<Atom> {
     // XXX: currently we just use the filename of the englobing
     // function from the debug info. May need to add a ScriptOrModule
     // info in Bytecode.
@@ -500,7 +499,7 @@ pub(super) fn get_script_or_module_name(ctx: &ContextImpl, n_stack_levels: usize
 }
 
 /// get module import.meta object of context current execution.
-pub fn js_import_meta(ctx: &ContextImpl) -> Result<Object, i32> {
+pub fn js_import_meta(ctx: &mut ContextImpl) -> Result<Object, i32> {
     if let Some(filename) = get_script_or_module_name(ctx, 0) {
         // XXX: inefficient, need to add a module or script pointer in Bytecode
         if let Some(mut m) = ctx.find_loaded_module(filename) {

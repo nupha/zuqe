@@ -33,7 +33,7 @@ impl Object {
     */
     pub(crate) fn define_property(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         value: JSValue,
         getter: JSValue,
@@ -138,7 +138,7 @@ impl Object {
                                 if flags & JS_PROP_HAS_VALUE != 0 {
                                     let xref = self.gc_node().partition_id();
                                     self.payload_mut().array_mut().unwrap().set_nth(
-                                        &mut ctx.rt_ptr(),
+                                        ctx.rt_mut(),
                                         idx,
                                         val,
                                         xref,
@@ -234,14 +234,14 @@ impl Object {
             break;
         } // loop
 
-        self.create_property(ctx, prop, val, getter, setter, flags)
+        self.create_property(ctx.into(), prop, val, getter, setter, flags)
     }
 
     /// shortcut to add or redefine a new property value.
     /// Note: `prop` is not consumed.
     pub fn define_property_value(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         val: JSValue,
         flags: u32,
@@ -262,7 +262,7 @@ impl Object {
 
     pub fn define_property_value_str(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: &str,
         val: JSValue,
         flags: u32,
@@ -274,7 +274,7 @@ impl Object {
     #[inline(always)]
     pub fn define_property_value_u32(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         idx: u32,
         val: JSValue,
         flags: u32,
@@ -285,7 +285,7 @@ impl Object {
     #[inline]
     pub fn define_property_value_i64(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         idx: i64,
         val: JSValue,
         flags: u32,
@@ -298,7 +298,7 @@ impl Object {
     #[inline(always)]
     pub fn define_property_getset(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         getter: JSValue,
         setter: JSValue,
@@ -323,7 +323,7 @@ impl Object {
     #[inline]
     pub fn define_property_desc(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         desc: JSValue,
         flags: u32,
@@ -335,7 +335,11 @@ impl Object {
     /// define multiple properties with descriptor defination object.
     ///
     /// equivelent to js `Object.defineProperties(properties)`
-    pub fn define_properties(&mut self, ctx: &ContextImpl, properties: JSValue) -> Result<(), i32> {
+    pub fn define_properties(
+        &mut self,
+        ctx: &mut ContextImpl,
+        properties: JSValue,
+    ) -> Result<(), i32> {
         let props = properties.objectify(ctx)?;
 
         // Note: each property of `props` is a descriptor object
@@ -345,9 +349,9 @@ impl Object {
         props.own_property_names_foreach(
             ctx,
             JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
-            |_, key: PropertyKey| -> Result<(), i32> {
-                let desc = props2.get_property(ctx, key.atom)?;
-                this.define_property_desc(ctx, key.atom, desc, JS_PROP_THROW)?;
+            |cx, key: PropertyKey| -> Result<(), i32> {
+                let desc = props2.get_property(cx, key.atom)?;
+                this.define_property_desc(cx, key.atom, desc, JS_PROP_THROW)?;
                 Ok(())
             },
         )
@@ -355,12 +359,18 @@ impl Object {
 
     /// define name property with value `name` in object.
     /// if name property already exists, don't define again.
-    pub fn define_name(&mut self, ctx: &ContextImpl, name: Atom, flags: u32) -> Result<bool, i32> {
+    pub fn define_name(
+        &mut self,
+        ctx: &mut ContextImpl,
+        name: Atom,
+        flags: u32,
+    ) -> Result<bool, i32> {
         if name.is_null() {
             ctx.throw_type_error("invalid name");
             Err(-1)
         } else if !self.has_name() {
-            self.define_property_value(ctx, Atom::CONST_name, name.force_string(ctx)?.into(), flags)
+            let name_str = name.force_string(ctx)?;
+            self.define_property_value(ctx, Atom::CONST_name, name_str.into(), flags)
         } else {
             Ok(false)
         }
@@ -368,13 +378,13 @@ impl Object {
 
     pub fn define_name_computed(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         str_val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
         if !self.has_name() {
             let atom = str_val.to_atom(ctx)?;
-            let name_str = js_get_function_name(ctx, atom)?;
+            let name_str = js_get_function_name(ctx.into(), atom)?;
             self.define_property_value(ctx, Atom::CONST_name, name_str.into(), flags)
         } else {
             Ok(false)
@@ -398,7 +408,7 @@ impl Object {
     #[deprecated]
     pub fn create_data_property_u32(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         idx: i64,
         val: JSValue,
         flags: u32,
@@ -420,7 +430,7 @@ impl JSValue {
     /// Note: `prop` is not consumed.
     pub(crate) fn define_property(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         val: JSValue,    // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
         getter: JSValue, // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
@@ -440,7 +450,7 @@ impl JSValue {
     #[inline(always)]
     pub fn define_property_value(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         value: JSValue,
         flags: u32,
@@ -462,7 +472,7 @@ impl JSValue {
     #[inline(always)]
     pub fn define_property_value_str(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: &str,
         val: JSValue,
         flags: u32,
@@ -474,7 +484,7 @@ impl JSValue {
     #[inline(always)]
     pub fn define_property_value_u32(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         idx: u32,
         val: JSValue,
         flags: u32,
@@ -485,7 +495,7 @@ impl JSValue {
     #[inline(always)]
     pub fn define_property_value_i64(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         idx: i64,
         val: JSValue,
         flags: u32,
@@ -497,7 +507,7 @@ impl JSValue {
     #[inline(always)]
     pub fn define_property_getset(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         getter: JSValue,
         setter: JSValue,
@@ -523,7 +533,7 @@ impl JSValue {
     #[inline(always)]
     pub fn create_data_property_u32(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         idx: i64,
         val: JSValue,
         flags: u32,

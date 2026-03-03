@@ -135,7 +135,7 @@ impl ClassDef {
 
 /// prop is not consumed
 fn js_arguments_define_own_property(
-    ctx: ContextPtr,
+    mut ctx: ContextPtr,
     this_obj: JSValue,
     prop: Atom,
     val: JSValue,
@@ -151,12 +151,12 @@ fn js_arguments_define_own_property(
             .to_array_index(ctx.rt_ref())
             .is_some_and(|i| i < obj.fast_array_count())
     {
-        obj.destruct_fast_array(&ctx)?;
+        obj.destruct_fast_array(&mut ctx)?;
     }
 
     // run the default define own property
     obj.define_property(
-        &ctx,
+        &mut ctx,
         prop,
         val,
         getter,

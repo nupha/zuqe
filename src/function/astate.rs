@@ -3,11 +3,15 @@
 
 use std::{pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    context::ContextImpl, error::JSResult, function::BCWrapper, gcref_wrapper,
-    runtime::js_check_stack_overflow, stack_frame::ExecMode, stack_frame::StackFrame,
+    context::ContextPtr,
+    error::JSResult,
+    function::BCWrapper,
+    gcref_wrapper,
+    runtime::js_check_stack_overflow,
+    stack_frame::{ExecMode, StackFrame},
     value::JSValue,
 };
 
@@ -38,7 +42,7 @@ impl GcTrace for AsyncStateImpl {
 
 impl AsyncStateImpl {
     fn new(
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         resolvings: [JSValue; 2],
         bc_func: BCWrapper,
         this_obj: JSValue,
@@ -135,7 +139,7 @@ impl AsyncStateImpl {
     }
 
     /// Resume execution of the async function.
-    pub(crate) fn resume(&mut self, ctx: &ContextImpl) -> JSResult {
+    pub(crate) fn resume(&mut self, mut ctx: ContextPtr) -> JSResult {
         debug_assert!(!self.is_completed);
 
         if js_check_stack_overflow(ctx.rt_ref(), 0) {
@@ -181,7 +185,7 @@ impl AsyncStateImpl {
 
     fn resume_call(
         &mut self,
-        caller_ctx: &ContextImpl,
+        mut caller_ctx: ContextPtr,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> JSResult {
@@ -237,21 +241,17 @@ gcref_wrapper!(AsyncState, AsyncStateImpl);
 
 impl AsyncState {
     pub(crate) fn create(
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         resolvings: [JSValue; 2],
         bc_func: BCWrapper,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {
-        let mut a_state = ctx
-            .rt_ptr()
-            .gc_alloc(AsyncStateImpl::new(
-                ctx, resolvings, bc_func, this_obj, args,
-            )?)
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+        let inner = AsyncStateImpl::new(ctx, resolvings, bc_func, this_obj, args)?;
+        let mut a_state = ctx.rt_mut().gc_alloc(inner).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
         // setup backref link: StackFrame::async_state => GcWeak<AsyncStateImpl>
         unsafe {

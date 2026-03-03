@@ -508,7 +508,7 @@ unsafe fn i64toa(buf: *mut u8, n: i64, base: u32) -> *mut u8 {
 // }
 
 // #[deprecated(note = "use f64_stringify() instead")]
-// unsafe fn js_dtoa(ctx: &ContextImpl, d: f64, radix: i32, n_digits: i32, flags: i32) -> JSValue {
+// unsafe fn js_dtoa(ctx: &mut ContextImpl, d: f64, radix: i32, n_digits: i32, flags: i32) -> JSValue {
 //     let mut buf: [u8; JS_DTOA_BUF_SIZE] = [0; JS_DTOA_BUF_SIZE];
 //     js_dtoa1(buf.as_mut_ptr(), d, radix, n_digits, flags);
 //     ctx.create_string_from_str(CStr::from_ptr(buf.as_ptr().cast()).to_str().unwrap())

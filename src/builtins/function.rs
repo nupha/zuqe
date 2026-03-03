@@ -11,23 +11,23 @@ use crate::{
 };
 
 fn js_function_call(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     if cc.length() > 0 {
         cc.this().call(
-            ctx,
+            &mut ctx,
             *cc.arg(0),
             &cc.arguments()[1..], // chop first argument (thisArg)
         )
     } else {
-        cc.this().call(ctx, JSValue::UNDEFINED, &[])
+        cc.this().call(&mut ctx, JSValue::UNDEFINED, &[])
     }
 }
 
 fn js_function_bind(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let this_val = *cc.this();
 
-    this_val.ensure_function(ctx)?;
+    this_val.ensure_function(&mut ctx)?;
 
     let mut bf = Box::new(BoundFuncObjPayload {
         func_obj: this_val,
@@ -50,12 +50,11 @@ fn js_function_bind(cc: CallContext) -> JSResult {
         }
     }
 
-    let mut func_obj = ctx
-        .create_object_with_proto(
-            Some(ctx.function_proto()),
-            ObjectPayload::BOUND_FUNCTION(bf),
-        )
-        .map_err(|_| -1)?;
+    let mut func_obj = {
+        let p = ctx.function_proto();
+        ctx.create_object_with_proto(Some(p), ObjectPayload::BOUND_FUNCTION(bf))
+            .map_err(|_| -1)?
+    };
 
     func_obj.set_flag_constructor(this_val.is_constructor());
 
@@ -63,12 +62,12 @@ fn js_function_bind(cc: CallContext) -> JSResult {
     let len_val = if cc
         .this()
         .clone()
-        .get_own_property(ctx, Atom::CONST_length)?
+        .get_own_property(&mut ctx, Atom::CONST_length)?
         .is_none()
     {
         JSValue::Int(0)
     } else {
-        let len = this_val.get_property(ctx, Atom::CONST_length)?;
+        let len = this_val.get_property(&mut ctx, Atom::CONST_length)?;
         match len {
             JSValue::Int(n) => JSValue::Int(std::cmp::max(0, n - arg_count as i32)),
             JSValue::Float64(mut d) => {
@@ -88,27 +87,32 @@ fn js_function_bind(cc: CallContext) -> JSResult {
         }
     };
 
-    func_obj.define_property_value(ctx, Atom::CONST_length, len_val, JS_PROP_CONFIGURABLE)?;
+    func_obj.define_property_value(&mut ctx, Atom::CONST_length, len_val, JS_PROP_CONFIGURABLE)?;
 
-    let name = cc.this().get_property(ctx, Atom::CONST_name)?;
+    let name = cc.this().get_property(&mut ctx, Atom::CONST_name)?;
     let name: LocalString = if let JSValue::String(s) = name {
         s.to_local()
     } else {
-        Atom::CONST_empty_string.force_string(ctx)?
+        Atom::CONST_empty_string.force_string(&mut ctx)?
     };
 
     // make bound function name.
     let bf_name = JS_ConcatString3(ctx, c"bound ", name.into(), c"")?;
-    func_obj.define_property_value(ctx, Atom::CONST_name, bf_name.into(), JS_PROP_CONFIGURABLE)?;
+    func_obj.define_property_value(
+        &mut ctx,
+        Atom::CONST_name,
+        bf_name.into(),
+        JS_PROP_CONFIGURABLE,
+    )?;
 
     Ok(func_obj.into())
 }
 
 fn js_function_toString(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let this_val = cc.this();
 
-    this_val.ensure_function(ctx)?;
+    this_val.ensure_function(&mut ctx)?;
 
     let p = unsafe { this_val.as_object_unchecked() };
 
@@ -131,31 +135,32 @@ fn js_function_toString(cc: CallContext) -> JSResult {
         _ => c"function ",
     };
     let suff = c"() { [native code] }";
-    let mut name = this_val.get_property(ctx, Atom::CONST_name)?;
+    let mut name = this_val.get_property(&mut ctx, Atom::CONST_name)?;
     if name.is_undefined() {
-        name = Atom::CONST_empty_string.force_string(ctx)?.into();
+        name = Atom::CONST_empty_string.force_string(&mut ctx)?.into();
     }
 
     JS_ConcatString3(ctx, pref, name, suff).map(JSValue::from)
 }
 
 fn js_function_hasInstance(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     if let Some(o) = cc.arg(0).as_object() {
-        o.ordinary_instance_of(ctx, *cc.this()).map(JSValue::Bool)
+        o.ordinary_instance_of(&mut ctx, *cc.this())
+            .map(JSValue::Bool)
     } else {
         Ok(JSValue::Bool(false))
     }
 }
 
 fn js_function_proto_fileName(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     if let Some(filename) = cc.this().as_object().and_then(|o| {
         o.payload()
             .bc_function()
             .and_then(|x| x.bytecode().debug.as_ref().map(|d| d.filename))
     }) {
-        filename.force_string(ctx).map(JSValue::from)
+        filename.force_string(&mut ctx).map(JSValue::from)
     } else {
         Ok(JSValue::UNDEFINED)
     }

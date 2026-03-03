@@ -245,7 +245,7 @@ impl ContextImpl {
     ///
     /// Note: The `ctor` may not necessarily be a constructor
     pub(crate) fn bind_ctor_proto_ex(
-        &self,
+        &mut self,
         mut ctor: JSValue,
         mut proto: JSValue,
         proto_flags: u32,

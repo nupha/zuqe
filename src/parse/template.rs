@@ -113,7 +113,7 @@ impl<'s> JSParseState<'s> {
 
             raw_array = self.ctx.create_array()?.into();
             template_object.define_property_value(
-                &self.ctx,
+                &mut self.ctx,
                 Atom::CONST_raw,
                 raw_array,
                 JS_PROP_THROW,
@@ -143,12 +143,14 @@ impl<'s> JSParseState<'s> {
             let string_sep = cooked.data.string_sep().unwrap();
 
             if call {
+                let str_val = self
+                    .ctx
+                    .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
+
                 raw_array.define_property_value_u32(
-                    &self.ctx,
+                    &mut self.ctx,
                     depth as _,
-                    self.ctx
-                        .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?
-                        .into(),
+                    str_val.into(),
                     JS_PROP_ENUMERABLE | JS_PROP_THROW,
                 )?;
 
@@ -156,18 +158,20 @@ impl<'s> JSParseState<'s> {
                 // syntax error if it contains invalid sequences
                 match self.parse_string(&mut tmpl, '`', Some(&mut cooked), false) {
                     Ok(_) => {
+                        let str_val = self
+                            .ctx
+                            .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
+
                         template_object.define_property_value_u32(
-                            &self.ctx,
+                            &mut self.ctx,
                             depth as _,
-                            self.ctx
-                                .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?
-                                .into(),
+                            str_val.into(),
                             JS_PROP_ENUMERABLE | JS_PROP_THROW,
                         )?;
                     }
                     Err(_) => {
                         template_object.define_property_value_u32(
-                            &self.ctx,
+                            &mut self.ctx,
                             depth as _,
                             JSValue::UNDEFINED,
                             JS_PROP_ENUMERABLE | JS_PROP_THROW,
@@ -181,10 +185,8 @@ impl<'s> JSParseState<'s> {
 
                 let sbuf = cooked.data.string().unwrap();
                 if depth == 0 || !sbuf.is_empty() {
-                    self.emit_push_const(
-                        self.ctx.create_string_from_str(&sbuf.to_utf8())?.into(),
-                        true,
-                    )?;
+                    let str = self.ctx.create_string_from_str(&sbuf.to_utf8())?;
+                    self.emit_push_const(str.into(), true)?;
 
                     if depth == 0 {
                         if string_sep == b'`' as i32 {
@@ -200,8 +202,8 @@ impl<'s> JSParseState<'s> {
             if string_sep == b'`' as i32 {
                 // template is done
                 if call {
-                    seal_template_obj(&self.ctx, raw_array);
-                    seal_template_obj(&self.ctx, template_object);
+                    seal_template_obj(&mut self.ctx, raw_array);
+                    seal_template_obj(&mut self.ctx, template_object);
                     *argc = depth + 1;
                 } else {
                     self.emit_op(OpCode::CALL_METHOD);

@@ -406,19 +406,22 @@ impl RuntimeImpl {
 
     /// get atom descriptor string by atom id.
     /// returns None if atom id is invalid.
-    pub(super) fn atom_desc_string(&self, atom_id: u32) -> Option<&StringRef> {
+    pub(super) fn atom_desc_string(&self, atom_id: u32) -> Option<StringRef> {
         debug_assert!(
             atom_id != 0 && !is_small_int_atom(atom_id),
             "not for small-int-atom or null-atom"
         );
 
         if is_const_atom(atom_id) {
-            self.atom_registry.const_atoms.get(atom_id as usize - 1)
+            self.atom_registry
+                .const_atoms
+                .get(atom_id as usize - 1)
+                .cloned()
         } else {
             self.atom_registry
                 .user_atoms
                 .get(atom_id as usize - ATOM_USER_BASE_ID as usize)
-                .and_then(|d| d.as_ref())
+                .and_then(|d| d.clone())
         }
     }
 }

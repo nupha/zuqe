@@ -20,7 +20,7 @@ use super::{
 /// dump opcodes binary in pass 1,2,3
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn dump_opcodes(
-    ctx: &ContextImpl,
+    ctx: &mut ContextImpl,
     pass: i32,
     bin: &[u8],
     args: &[JSVarDef],
@@ -418,7 +418,7 @@ pub(crate) fn dump_opcodes(
 
 impl Bytecode {
     /// dump Bytecode
-    pub fn dump(&self, ctx: &ContextImpl) {
+    pub fn dump(&self, ctx: &mut ContextImpl) {
         print!("{:?}: ", self);
 
         if let Some(debug) = self.debug.as_ref()
@@ -583,7 +583,7 @@ fn print_lines(source: &str, from_line: usize, to_line: usize) {
 
 /// dump instruction (opcode and params) at given pc.
 pub(super) fn dump_run_instruction(
-    ctx: &ContextImpl,
+    ctx: &mut ContextImpl,
     b: &Bytecode,
     pc: usize,
     sp_base: *const JSValue,
@@ -826,7 +826,7 @@ pub(super) fn dump_run_instruction(
 }
 
 pub(super) fn dump_run_stack(
-    ctx: &ContextImpl,
+    ctx: &mut ContextImpl,
     stack: &[JSValue],
     tree: bool,
     mark_count: usize,

@@ -158,7 +158,7 @@ impl GcTrace for BytecodeImpl {
 impl BytecodeImpl {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         fd: &FunctionDef,
         binary: Box<[u8]>,
         consts_section: Option<(u16, u16)>,
@@ -480,7 +480,7 @@ impl Bytecode {
     /// Will create a function object that embeds the bytecode, then eval the function.
     pub(crate) fn eval(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         this_obj: JSValue,
         captured_vars: &[VarRef],
         parent_stack_frame: Option<&mut StackFrame>,

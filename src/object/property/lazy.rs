@@ -38,7 +38,7 @@ impl GcTrace for LazyInit {
 
 impl LazyInit {
     /// apply init. returns instantiated value.
-    pub fn instantiate(&mut self, ctx: &ContextImpl, this_obj: Object) -> JSResult {
+    pub fn instantiate(&mut self, ctx: &mut ContextImpl, this_obj: Object) -> JSResult {
         match self {
             Self::Prototype => {
                 let mut obj = ctx.create_base_object()?;
@@ -94,7 +94,7 @@ impl Object {
     /// define an AutoInit property on object
     pub fn define_lazy_property(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         lazy_init: LazyInit,
         flags: u32,

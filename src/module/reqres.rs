@@ -28,7 +28,7 @@ impl GcTrace for ModuleDependency {
 impl ModuleDef {
     /// add module dependency, returns the dependency index.
     /// `module_name` is not consumed.
-    pub fn add_dependency(&mut self, ctx: &ContextImpl, module_name: Atom) -> Result<u16, i32> {
+    pub fn add_dependency(&mut self, ctx: &mut ContextImpl, module_name: Atom) -> Result<u16, i32> {
         if let Some(i) = self
             .dependencies
             .iter()
@@ -112,7 +112,7 @@ pub enum JSModuleStatus {
 }
 
 pub(super) fn js_host_resolve_imported_module(
-    ctx: ContextPtr,
+    mut ctx: ContextPtr,
     base_name: &str,
     name: &str,
 ) -> Result<ModuleDef, i32> {
@@ -120,7 +120,7 @@ pub(super) fn js_host_resolve_imported_module(
     let norm_name = if let Some(cb) = ctx.rt_ref().module_normalize_func {
         cb(ctx.into(), base_name, name, ctx.rt_ptr().module_load_opaque)
     } else {
-        js_default_module_normalize_name(&ctx, base_name, name)
+        js_default_module_normalize_name(&mut ctx, base_name, name)
     }?;
 
     let module_name = Atom::new(ctx.rt_ptr(), &norm_name)?;

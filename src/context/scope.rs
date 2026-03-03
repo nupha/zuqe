@@ -1,9 +1,13 @@
+#[cfg(debug_assertions)]
+use std::ptr::NonNull;
 use std::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
 
-use gc_lite::{GcError, GcLocal, GcNode, GcRef};
+use gc_lite::{GcError, GcHead, GcLocal, GcNode, GcRef};
+
+use crate::{Context, context::ContextPtr};
 
 use super::ContextImpl;
 
@@ -39,6 +43,18 @@ impl<'a> DerefMut for ContextScope<'a> {
     }
 }
 
+impl<'a> From<ContextScope<'a>> for ContextPtr {
+    fn from(value: ContextScope<'a>) -> Self {
+        value.ctx.into()
+    }
+}
+
+impl<'a> From<ContextScope<'a>> for Context<'a> {
+    fn from(value: ContextScope<'a>) -> Self {
+        value.ctx.into()
+    }
+}
+
 impl<'a> ContextScope<'a> {
     /// Allocate a node, and put it to scope cache to protect it.
     pub fn alloc<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
@@ -58,6 +74,24 @@ impl<'a> ContextScope<'a> {
         self.gc_heap_mut()
             .with_current_scope(|gc| gc.alloc_local(payload))
             .unwrap()
+    }
+
+    #[inline(always)]
+    pub(crate) fn ctx_ptr(&self) -> ContextPtr {
+        self.ctx.into()
+    }
+
+    /// test if given node contains in `self` scope
+    #[cfg(debug_assertions)]
+    pub fn contains(&self, node: NonNull<GcHead>) -> bool {
+        self.gc_heap()
+            .scope(self.level() as _)
+            .is_some_and(|s| s.contains(node))
+    }
+
+    #[cfg(debug_assertions)]
+    pub const fn level(&self) -> u32 {
+        self.level
     }
 }
 

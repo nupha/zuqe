@@ -37,7 +37,7 @@ pub struct ErrorText {
 
 impl ErrorText {
     /// create error text info from `value`
-    pub fn from(ctx: &ContextImpl, value: JSValue) -> Self {
+    pub fn from(ctx: &mut ContextImpl, value: JSValue) -> Self {
         let mut ret = Self {
             message: value.to_string(ctx).map_or("".to_string(), |s| {
                 s.content().encode_utf8(false).to_string()
@@ -90,7 +90,12 @@ impl ContextImpl {
     /// make error object and throw it as current exception.
     #[inline(never)]
     #[cold]
-    pub(crate) fn throw_error_internal(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
+    pub(crate) fn throw_error_internal(
+        &mut self,
+        kind: ErrorKind,
+        message: &str,
+        add_backtrace: bool,
+    ) {
         let proto = self.error_protos[kind as usize].as_object().copied();
         let exc_val = if let Ok(mut o) = self.create_object_with_proto(proto, ObjectPayload::ERROR)
         {
@@ -119,7 +124,7 @@ impl ContextImpl {
     /// old exception will be freed.
     #[inline(never)]
     #[cold]
-    pub fn throw_error(&self, kind: ErrorKind, message: &str) {
+    pub fn throw_error(&mut self, kind: ErrorKind, message: &str) {
         let rt = self.rt_ref();
 
         // add backtrace if called from a bytecode function
@@ -132,27 +137,27 @@ impl ContextImpl {
     }
 
     #[inline(always)]
-    pub fn throw_range_error(&self, message: &str) {
+    pub fn throw_range_error(&mut self, message: &str) {
         self.throw_error(ErrorKind::Range, message);
     }
 
     #[inline(always)]
-    pub fn throw_internal_error(&self, message: &str) {
+    pub fn throw_internal_error(&mut self, message: &str) {
         self.throw_error(ErrorKind::Internal, message);
     }
 
     #[inline(always)]
-    pub fn throw_stack_overflow(&self) {
+    pub fn throw_stack_overflow(&mut self) {
         self.throw_internal_error("stack overflow");
     }
 
     #[inline(always)]
-    pub fn throw_type_error(&self, message: &str) {
+    pub fn throw_type_error(&mut self, message: &str) {
         self.throw_error(ErrorKind::Type, message);
     }
 
     #[inline(always)]
-    pub fn throw_uri_error(&self, message: &str) {
+    pub fn throw_uri_error(&mut self, message: &str) {
         self.throw_error(ErrorKind::Uri, message);
     }
 
@@ -164,7 +169,7 @@ impl ContextImpl {
 
     /// returns: true=exception raised; false=no exception raised
     #[deprecated(note = "use ::can_throw() and ::throw_XXX() instead")]
-    pub(crate) fn throw_type_error_or_false(&self, flags: u32, message: &str) -> bool {
+    pub(crate) fn throw_type_error_or_false(&mut self, flags: u32, message: &str) -> bool {
         if self.can_throw(flags) {
             self.throw_type_error(message);
             true
@@ -174,43 +179,43 @@ impl ContextImpl {
     }
 
     #[inline(always)]
-    pub fn throw_type_error_not_an_object(&self) {
+    pub fn throw_type_error_not_an_object(&mut self) {
         self.throw_type_error("not an object");
     }
 
     #[inline(always)]
-    pub fn throw_type_error_not_a_symbol(&self) {
+    pub fn throw_type_error_not_a_symbol(&mut self) {
         self.throw_type_error("not a symbol");
     }
 
     #[inline(always)]
-    pub fn throw_type_error_revoked_proxy(&self) {
+    pub fn throw_type_error_revoked_proxy(&mut self) {
         self.throw_type_error("revoked proxy");
     }
 
     #[cold]
-    pub fn throw_type_error_invalid_class(&self, class_id: ClassID) {
+    pub fn throw_type_error_invalid_class(&mut self, class_id: ClassID) {
         let name = self.rt_ptr().class_registry[class_id as usize].class_name;
         self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt_ref())))
     }
 
     #[inline(always)]
-    pub fn throw_type_error_read_only(&self, atom: Atom) {
+    pub fn throw_type_error_read_only(&mut self, atom: Atom) {
         self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8(self.rt_ref())))
     }
 
     #[inline(always)]
-    pub fn throw_reference_error(&self, message: &str) {
+    pub fn throw_reference_error(&mut self, message: &str) {
         self.throw_error(ErrorKind::Reference, message)
     }
 
     #[inline(always)]
-    pub fn throw_syntax_error(&self, message: &str) {
+    pub fn throw_syntax_error(&mut self, message: &str) {
         self.throw_error(ErrorKind::Syntax, message);
     }
 
     #[cold]
-    pub fn throw_out_of_memory(&self) {
+    pub fn throw_out_of_memory(&mut self) {
         let mut rt = self.rt_ptr();
         if !rt.out_of_memory {
             rt.out_of_memory = true;
@@ -222,7 +227,7 @@ impl ContextImpl {
     #[inline(never)]
     #[cold]
     fn do_build_backtrace(
-        &self,
+        &mut self,
         mut error_obj: JSValue,
         file_line: Option<(&str, i32)>, // filename and line number
         mut backtrace_flags: i32,
@@ -311,7 +316,7 @@ impl ContextImpl {
     #[inline(never)]
     #[cold]
     pub(crate) fn build_backtrace_to(
-        &self,
+        &mut self,
         mut target: JSValue,
         file_line: Option<(&str, i32)>,
         backtrace_flags: i32,
@@ -350,7 +355,7 @@ pub(crate) fn is_backtrace_needed(obj: JSValue) -> bool {
     }
 }
 
-pub fn JS_ThrowReferenceErrorUninitialized(ctx: &ContextImpl, name: Atom) {
+pub fn JS_ThrowReferenceErrorUninitialized(ctx: &mut ContextImpl, name: Atom) {
     if name.is_null() {
         ctx.throw_reference_error("lexical variable is not initialized");
     } else {
@@ -361,12 +366,12 @@ pub fn JS_ThrowReferenceErrorUninitialized(ctx: &ContextImpl, name: Atom) {
     }
 }
 
-pub fn JS_ThrowReferenceErrorNotDefined(ctx: &ContextImpl, name: Atom) {
+pub fn JS_ThrowReferenceErrorNotDefined(ctx: &mut ContextImpl, name: Atom) {
     ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8(ctx.rt_ref())))
 }
 
 pub fn JS_ThrowReferenceErrorUninitialized2(
-    ctx: &ContextImpl,
+    ctx: &mut ContextImpl,
     b: &Bytecode,
     idx: u16,
     is_ref: bool,
@@ -382,18 +387,18 @@ pub fn JS_ThrowReferenceErrorUninitialized2(
     JS_ThrowReferenceErrorUninitialized(ctx, atom);
 }
 
-pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &ContextImpl) {
+pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &mut ContextImpl) {
     ctx.throw_type_error("ArrayBuffer is detached");
 }
 
-pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &ContextImpl, atom: Atom) {
+pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &mut ContextImpl, atom: Atom) {
     ctx.throw_type_error(&format!(
         "private class field '{}' does not exist",
         atom.to_utf8(ctx.rt_ref())
     ));
 }
 
-pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &ContextImpl, prop: Atom) {
+pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &mut ContextImpl, prop: Atom) {
     ctx.throw_syntax_error(&format!(
         "redeclaration of '{}'",
         prop.to_utf8(ctx.rt_ref())

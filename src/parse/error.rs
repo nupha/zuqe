@@ -12,7 +12,7 @@ impl<'s> JSParseState<'s> {
     /// given an exception value, build traceback and throw it as current exception.
     /// old exception will be freed.
     #[cold]
-    pub(super) fn throw(&self, exc: JSValue) {
+    pub(super) fn throw(&mut self, exc: JSValue) {
         let backtrace_flags =
             if !self.cur_func_def.is_null() && self.cur_func().attrs.backtrace_barrier {
                 JS_BACKTRACE_FLAG_SINGLE_LEVEL
@@ -20,17 +20,15 @@ impl<'s> JSParseState<'s> {
                 0
             };
 
-        self.ctx.build_backtrace_to(
-            self.ctx.rt_ptr().exception(),
-            Some((self.filename, self.line_num)),
-            backtrace_flags,
-        );
+        let exc = self.ctx.rt_ptr().exception();
+        self.ctx
+            .build_backtrace_to(exc, Some((self.filename, self.line_num)), backtrace_flags);
 
         self.ctx.throw(exc);
     }
 
     #[cold]
-    pub(super) fn throw_syntax_error(&self, message: &str) {
+    pub(super) fn throw_syntax_error(&mut self, message: &str) {
         self.ctx
             .throw_error_internal(ErrorKind::Syntax, message, false);
 
@@ -40,15 +38,14 @@ impl<'s> JSParseState<'s> {
             } else {
                 0
             };
-        self.ctx.build_backtrace_to(
-            self.ctx.rt_ptr().exception(),
-            Some((self.filename, self.line_num)),
-            backtrace_flags,
-        );
+
+        let exc = self.ctx.rt_ptr().exception();
+        self.ctx
+            .build_backtrace_to(exc, Some((self.filename, self.line_num)), backtrace_flags);
     }
 
     #[cold]
-    pub(super) fn throw_reserved_identifier_error(&self) {
+    pub(super) fn throw_reserved_identifier_error(&mut self) {
         self.throw_syntax_error(&format!(
             "'{}' is a reserved identifier",
             self.token.atom().unwrap().to_utf8(self.ctx.rt_ref()),

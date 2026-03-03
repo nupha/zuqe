@@ -228,7 +228,7 @@ impl FieldDef {
 impl Object {
     pub fn install_fields(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         entries: &'static [FieldDef],
     ) -> Result<(), i32> {
         for entry in entries {
@@ -240,7 +240,7 @@ impl Object {
 
     fn install_field_entry(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         atom: Atom,
         entry: &'static FieldDef,
     ) -> Result<(), i32> {
@@ -269,34 +269,20 @@ impl Object {
             }
             FieldDetail::GetSet { get, set } => {
                 // XXX: use autoinit again ?
+                let getter = if let Some(f) = get {
+                    ctx.create_native_function(f, &format!("get {}", entry.name), 0, entry.magic)?
+                        .into()
+                } else {
+                    JSValue::UNDEFINED
+                };
+                let setter = if let Some(f) = set {
+                    ctx.create_native_function(f, &format!("set {}", entry.name), 1, entry.magic)?
+                        .into()
+                } else {
+                    JSValue::UNDEFINED
+                };
                 return self
-                    .define_property_getset(
-                        ctx,
-                        atom,
-                        if let Some(f) = get {
-                            ctx.create_native_function(
-                                f,
-                                &format!("get {}", entry.name),
-                                0,
-                                entry.magic,
-                            )?
-                            .into()
-                        } else {
-                            JSValue::UNDEFINED
-                        },
-                        if let Some(f) = set {
-                            ctx.create_native_function(
-                                f,
-                                &format!("set {}", entry.name),
-                                1,
-                                entry.magic,
-                            )?
-                            .into()
-                        } else {
-                            JSValue::UNDEFINED
-                        },
-                        prop_flags as _,
-                    )
+                    .define_property_getset(ctx, atom, getter, setter, prop_flags as _)
                     .map(|_| ());
             }
             FieldDetail::Str(_) | FieldDetail::Object(_) => {
@@ -354,7 +340,7 @@ impl Object {
 impl JSValue {
     pub fn install_fields(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         entries: &'static [FieldDef],
     ) -> Result<(), i32> {
         if let Self::Object(o) = self {
@@ -366,7 +352,7 @@ impl JSValue {
     }
 }
 
-fn prop_name_to_atom(ctx: &ContextImpl, str: &str) -> Result<Atom, i32> {
+fn prop_name_to_atom(ctx: &mut ContextImpl, str: &str) -> Result<Atom, i32> {
     #[cfg(not(feature = "builtin_symbol"))]
     debug_assert!(
         !(str.starts_with('[') && str.ends_with(']')),

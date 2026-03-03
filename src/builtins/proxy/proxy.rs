@@ -67,7 +67,7 @@ impl ProxyPayload {
         self.is_revoked.set(true);
     }
 
-    pub fn is_extensible(&self, ctx: &ContextImpl) -> Result<bool, i32> {
+    pub fn is_extensible(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         let method = self.get_proxy_method(ctx, Atom::CONST_isExtensible)?;
         if method.is_undefined() {
             self.target.is_extensible(ctx)
@@ -91,7 +91,7 @@ impl ProxyPayload {
     }
 
     /// get proxied method. returns function object or undefined
-    pub fn get_proxy_method(&self, ctx: &ContextImpl, name: Atom) -> Result<JSValue, i32> {
+    pub fn get_proxy_method(&self, ctx: &mut ContextImpl, name: Atom) -> Result<JSValue, i32> {
         // safer to test recursion in all proxy methods
         if unlikely(js_check_stack_overflow(ctx.rt_ref(), 0)) {
             ctx.throw_stack_overflow();
@@ -108,7 +108,7 @@ impl ProxyPayload {
         }
     }
 
-    pub fn prevent_extensions(&mut self, ctx: &ContextImpl) -> Result<bool, i32> {
+    pub fn prevent_extensions(&mut self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         let method = self.get_proxy_method(ctx, Atom::CONST_preventExtensions)?;
         if method.is_undefined() {
             self.target.prevent_extensions(ctx)
@@ -126,7 +126,7 @@ impl ProxyPayload {
         }
     }
 
-    pub fn get_prototype_of(&self, ctx: &ContextImpl) -> Result<JSValue, i32> {
+    pub fn get_prototype_of(&self, ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         let method = self.get_proxy_method(ctx, Atom::CONST_getPrototypeOf)?;
         if method.is_undefined() {
             return self
@@ -161,7 +161,7 @@ impl ProxyPayload {
 
     pub fn set_prototype_of(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         proto_val: JSValue,
         throw: bool,
     ) -> Result<bool, i32> {
@@ -207,15 +207,15 @@ pub struct Proxy(pub(super) GcRef<ObjectImpl>);
 object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
-    pub fn class_initialize(ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto =
             ctx.create_native_function(Callback::Constructor(js_proxy_constructor), "Proxy", 2, 0)?;
 
         proto.set_flag_constructor(true);
-        proto.install_fields(&ctx, js_proxy_funcs).unwrap();
+        proto.install_fields(&mut ctx, js_proxy_funcs).unwrap();
 
         ctx.global_obj().define_property_value_str(
-            &ctx,
+            &mut ctx,
             "Proxy",
             proto.into(),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -225,7 +225,7 @@ impl Proxy {
     }
 
     pub fn class_call(
-        ctx: Context,
+        mut ctx: Context,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],
@@ -243,14 +243,14 @@ impl Proxy {
             return Err(-1);
         }
 
-        let method = px.get_proxy_method(&ctx, Atom::CONST_apply)?;
+        let method = px.get_proxy_method(&mut ctx, Atom::CONST_apply)?;
         if method.is_undefined() {
-            return JSValue::from(px.target).call(&ctx, this_obj, args);
+            return JSValue::from(px.target).call(&mut ctx, this_obj, args);
         }
 
         let arg_array = ctx.create_array_from_slice(args)?;
         method.call(
-            &ctx,
+            &mut ctx,
             px.handler,
             &[px.target.into(), this_obj, arg_array.into()],
         )
@@ -288,11 +288,11 @@ impl Proxy {
 
     /// get proxied method
     #[inline(always)]
-    pub fn get_method(&self, ctx: &ContextImpl, name: Atom) -> Result<JSValue, i32> {
+    pub fn get_method(&self, ctx: &mut ContextImpl, name: Atom) -> Result<JSValue, i32> {
         self.payload().get_proxy_method(ctx, name)
     }
 
-    pub fn is_array(&self, ctx: &ContextImpl) -> Result<bool, i32> {
+    pub fn is_array(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         if unlikely(js_check_stack_overflow(ctx.rt_ref(), 0)) {
             ctx.throw_stack_overflow();
             Err(-1)
@@ -308,25 +308,25 @@ impl Proxy {
     }
 
     #[inline(always)]
-    pub fn is_extensible(&self, ctx: &ContextImpl) -> Result<bool, i32> {
+    pub fn is_extensible(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         self.payload().is_extensible(ctx)
     }
 
     #[inline(always)]
-    pub fn prevent_extensions(&mut self, ctx: &ContextImpl) -> Result<bool, i32> {
+    pub fn prevent_extensions(&mut self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         self.payload_mut().prevent_extensions(ctx)
     }
 
     /// returns Object, NULL or Err.
     #[inline(always)]
-    pub fn get_prototype_of(&self, ctx: &ContextImpl) -> Result<JSValue, i32> {
+    pub fn get_prototype_of(&self, ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         self.payload().get_prototype_of(ctx)
     }
 
     #[inline(always)]
     pub fn set_prototype_of(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         proto_val: JSValue,
         throw: bool,
     ) -> Result<bool, i32> {
@@ -335,7 +335,7 @@ impl Proxy {
 }
 
 fn js_proxy_call_constructor(
-    ctx: ContextPtr,
+    mut ctx: ContextPtr,
     func_obj: &Proxy,
     new_target: JSValue,
     args: &[JSValue],
@@ -346,14 +346,14 @@ fn js_proxy_call_constructor(
         return Err(-1);
     }
 
-    let method = px.get_proxy_method(&ctx, Atom::CONST_construct)?;
+    let method = px.get_proxy_method(&mut ctx, Atom::CONST_construct)?;
     if method.is_undefined() {
-        return px.target.call_ctor_new_target(&ctx, new_target, args);
+        return px.target.call_ctor_new_target(&mut ctx, new_target, args);
     }
 
     let arg_array = ctx.create_array_from_slice(args)?;
     let ret = method.call(
-        &ctx,
+        &mut ctx,
         px.handler,
         &[px.target.into(), arg_array.into(), new_target],
     )?;
@@ -371,31 +371,30 @@ fn js_proxy_call_constructor(
 //
 
 fn js_proxy_get_own_property(
-    ctx: ContextPtr,
+    mut ctx: ContextPtr,
     obj: JSValue,
     prop: Atom,
 ) -> Result<Option<JSPropertyDescriptor>, i32> {
-    let cx = &*ctx;
-
     let Some(px) = obj.as_object_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
 
-    let method = px.get_proxy_method(cx, Atom::CONST_getOwnPropertyDescriptor)?;
+    let method = px.get_proxy_method(&mut ctx, Atom::CONST_getOwnPropertyDescriptor)?;
     if method.is_undefined() {
-        return px.target.get_own_property(cx, prop);
+        return px.target.get_own_property(&mut ctx, prop);
     }
 
-    let trap_result_obj = method.call(cx, px.handler, &[px.target.into(), prop.to_value(cx)?])?;
+    let prop_val = prop.to_value(&mut ctx)?;
+    let trap_result_obj = method.call(&mut ctx, px.handler, &[px.target.into(), prop_val])?;
     if !matches!(trap_result_obj, JSValue::Object(_) | JSValue::UNDEFINED) {
-        cx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor ");
+        ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor ");
         return Err(-1);
     }
 
-    let target_desc = px.target.get_own_property(cx, prop)?;
+    let target_desc = px.target.get_own_property(&mut ctx, prop)?;
 
     if let JSValue::Object(trap_result_obj) = trap_result_obj {
-        let result_desc = JSPropertyDescriptor::parse(cx, trap_result_obj)?;
+        let result_desc = JSPropertyDescriptor::parse(&mut ctx, trap_result_obj)?;
 
         if let Some(target_desc) = &target_desc {
             // convert result_desc.flags to defineProperty flags
@@ -410,11 +409,11 @@ fn js_proxy_get_own_property(
 
             // XXX: not complete check: need to compare value & getter/setter as in defineproperty
             if !check_define_prop_flags(target_desc.flags, flags1) {
-                cx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
+                ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
                 return Err(-1);
             }
-        } else if !px.target.is_extensible(cx)? {
-            cx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
+        } else if !px.target.is_extensible(&mut ctx)? {
+            ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
             return Err(-1);
         }
 
@@ -423,7 +422,7 @@ fn js_proxy_get_own_property(
                 .as_ref()
                 .is_none_or(|d| d.flags & JS_PROP_CONFIGURABLE != 0)
             {
-                cx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
+                ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
                 return Err(-1);
             }
 
@@ -433,7 +432,7 @@ fn js_proxy_get_own_property(
                     .is_some_and(|d| d.flags & JS_PROP_WRITABLE != 0)
             {
                 // proxy-missing-checks
-                cx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
+                ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
                 return Err(-1);
             }
         }
@@ -444,7 +443,7 @@ fn js_proxy_get_own_property(
         if let Some(desc) = target_desc
             && ((desc.flags & JS_PROP_CONFIGURABLE == 0) || !px.target.flags().extensible())
         {
-            cx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
+            ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
             return Err(-1);
         }
 
@@ -453,7 +452,7 @@ fn js_proxy_get_own_property(
 }
 
 fn js_proxy_define_own_property(
-    ctx: ContextPtr,
+    mut ctx: ContextPtr,
     obj: JSValue,
     prop: Atom,
     value: JSValue,
@@ -461,43 +460,40 @@ fn js_proxy_define_own_property(
     setter: JSValue,
     flags: i32,
 ) -> Result<bool, i32> {
-    let cx = &*ctx;
     let flags = flags as u32;
 
     let Some(px) = obj.as_object_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
 
-    let method = px.get_proxy_method(cx, Atom::CONST_defineProperty)?;
+    let method = px.get_proxy_method(&mut ctx, Atom::CONST_defineProperty)?;
     if method.is_undefined() {
         return {
             let mut t = px.target;
-            t.define_property(cx, prop, value, getter, setter, flags)
+            t.define_property(&mut ctx, prop, value, getter, setter, flags)
         };
     }
 
+    let prop_val = prop.to_value(&mut ctx)?;
+    let prop_desc = JSPropertyDescriptor {
+        value,
+        getter,
+        setter,
+        flags,
+    }
+    .make_object(&mut ctx)?;
+
     let ret = method
         .call(
-            cx,
+            &mut ctx,
             px.handler,
-            &[
-                px.target.into(),
-                prop.to_value(cx)?,
-                JSPropertyDescriptor {
-                    value,
-                    getter,
-                    setter,
-                    flags,
-                }
-                .make_object(cx)?
-                .into(),
-            ],
+            &[px.target.into(), prop_val, prop_desc.into()],
         )?
         .to_bool()?;
 
     if !ret {
         return if flags & JS_PROP_THROW != 0 {
-            cx.throw_type_error("proxy: defineProperty exception");
+            ctx.throw_type_error("proxy: defineProperty exception");
             Err(-1)
         } else {
             Ok(false)
@@ -507,22 +503,22 @@ fn js_proxy_define_own_property(
     let setting_not_configurable =
         flags & (JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE) == JS_PROP_HAS_CONFIGURABLE;
 
-    if let Some(desc) = px.target.get_own_property(cx, prop)? {
+    if let Some(desc) = px.target.get_own_property(&mut ctx, prop)? {
         if !check_define_prop_flags(desc.flags, flags)
             || (desc.flags & JS_PROP_CONFIGURABLE != 0 && setting_not_configurable)
         {
-            cx.throw_type_error("proxy: inconsistent defineProperty");
+            ctx.throw_type_error("proxy: inconsistent defineProperty");
             return Err(-1);
         }
 
         if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
             if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE) == JS_PROP_GETSET {
                 if (flags & JS_PROP_HAS_GET) != 0 && !getter.is_same(desc.getter) {
-                    cx.throw_type_error("proxy: inconsistent defineProperty");
+                    ctx.throw_type_error("proxy: inconsistent defineProperty");
                     return Err(-1);
                 }
                 if (flags & JS_PROP_HAS_SET) != 0 && !setter.is_same(desc.setter) {
-                    cx.throw_type_error("proxy: inconsistent defineProperty");
+                    ctx.throw_type_error("proxy: inconsistent defineProperty");
                     return Err(-1);
                 }
             }
@@ -531,12 +527,12 @@ fn js_proxy_define_own_property(
                 && flags & JS_PROP_WRITABLE == 0
             {
                 // missing-proxy-check feature
-                cx.throw_type_error("proxy: inconsistent defineProperty");
+                ctx.throw_type_error("proxy: inconsistent defineProperty");
                 return Err(-1);
             } else if desc.flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0
                 && !value.is_same(desc.value)
             {
-                cx.throw_type_error("proxy: inconsistent defineProperty");
+                ctx.throw_type_error("proxy: inconsistent defineProperty");
                 return Err(-1);
             }
         }
@@ -545,37 +541,42 @@ fn js_proxy_define_own_property(
                 == JS_PROP_WRITABLE
         {
             // proxy-missing-checks
-            cx.throw_type_error("proxy: inconsistent defineProperty");
+            ctx.throw_type_error("proxy: inconsistent defineProperty");
             return Err(-1);
         }
     } else if setting_not_configurable || !px.target.flags().extensible() {
-        cx.throw_type_error("proxy: inconsistent defineProperty");
+        ctx.throw_type_error("proxy: inconsistent defineProperty");
         return Err(-1);
     }
 
     Ok(true)
 }
 
-fn js_proxy_delete_property(ctx: ContextPtr, mut obj: JSValue, atom: Atom) -> Result<bool, i32> {
+fn js_proxy_delete_property(
+    mut ctx: ContextPtr,
+    mut obj: JSValue,
+    atom: Atom,
+) -> Result<bool, i32> {
     let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
         return Err(-1);
     };
 
-    let method = px.get_proxy_method(&ctx, Atom::CONST_deleteProperty)?;
+    let method = px.get_proxy_method(&mut ctx, Atom::CONST_deleteProperty)?;
     if method.is_undefined() {
-        return px.target.delete_property(&ctx, atom, 0);
+        return px.target.delete_property(&mut ctx, atom, 0);
     }
 
+    let atom_val = atom.to_value(&mut ctx)?;
     let res = method
-        .call(&ctx, px.handler, &[px.target.into(), atom.to_value(&ctx)?])?
+        .call(&mut ctx, px.handler, &[px.target.into(), atom_val])?
         .to_bool()?;
 
-    if res && let Some(desc) = px.target.get_own_property(&ctx, atom)? {
+    if res && let Some(desc) = px.target.get_own_property(&mut ctx, atom)? {
         if desc.flags & JS_PROP_CONFIGURABLE == 0 {
             ctx.throw_type_error("proxy: inconsistent deleteProperty");
             return Err(-1);
         }
-        if !px.target.is_extensible(&ctx)? {
+        if !px.target.is_extensible(&mut ctx)? {
             ctx.throw_type_error("proxy: inconsistent deleteProperty");
             return Err(-1);
         }
@@ -585,69 +586,67 @@ fn js_proxy_delete_property(ctx: ContextPtr, mut obj: JSValue, atom: Atom) -> Re
 }
 
 fn js_proxy_get_own_property_names(
-    ctx: ContextPtr,
+    mut ctx: ContextPtr,
     mut obj: Object,
 ) -> Result<Box<[PropertyKey]>, i32> {
-    let cx = &*ctx;
-
     let Some(px) = obj.as_Proxy_mut().map(|x| x.payload_mut()) else {
         return Err(-1);
     };
 
     if px.is_revoked() {
-        cx.throw_type_error_revoked_proxy();
+        ctx.throw_type_error_revoked_proxy();
         return Err(-1);
     }
 
-    let method = px.get_proxy_method(cx, Atom::CONST_ownKeys)?;
+    let method = px.get_proxy_method(&mut ctx, Atom::CONST_ownKeys)?;
     if method.is_undefined() {
         return px
             .target
-            .get_own_property_names(cx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK);
+            .get_own_property_names(&mut ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK);
     }
 
-    let prop_array = method.call(cx, px.handler, &[px.target.into()])?;
-    let len = prop_array.get_length_prop(cx)? as usize;
+    let prop_array = method.call(&mut ctx, px.handler, &[px.target.into()])?;
+    let len = prop_array.get_length_prop(&mut ctx)? as usize;
 
     let mut tab = Vec::<PropertyKey>::new();
     if len > 0 {
         tab.try_reserve_exact(len).map_err(|_| {
-            cx.throw_out_of_memory();
+            ctx.throw_out_of_memory();
             -1
         })?;
     }
 
     for i in 0..len {
-        let val = prop_array.get_property_u32(cx, i as u32)?;
+        let val = prop_array.get_property_u32(&mut ctx, i as u32)?;
 
         #[cfg(feature = "builtin_symbol")]
         if !matches!(val, JSValue::String(_) | JSValue::Symbol(_)) {
-            cx.throw_type_error("proxy: properties must be strings or symbols");
+            ctx.throw_type_error("proxy: properties must be strings or symbols");
             return Err(-1);
         }
         #[cfg(not(feature = "builtin_symbol"))]
         if !matches!(val, JSValue::String(_)) {
-            cx.throw_type_error("proxy: properties must be strings");
+            ctx.throw_type_error("proxy: properties must be strings");
             return Err(-1);
         }
 
-        let atom = val.to_atom(cx)?;
+        let atom = val.to_atom(&mut ctx)?;
 
         if !tab.is_empty() && tab.iter().any(|k| k.atom == atom) {
-            cx.throw_type_error("proxy: duplicate property");
+            ctx.throw_type_error("proxy: duplicate property");
             return Err(-1);
         }
-        tab.push(PropertyKey::new(&ctx, atom, false, false));
+        tab.push(PropertyKey::new(&mut ctx, atom, false, false));
     }
 
     // check if there are non configurable properties
-    let is_extensible = px.target.is_extensible(cx)?;
+    let is_extensible = px.target.is_extensible(&mut ctx)?;
 
     for k2 in px
         .target
-        .get_own_property_names(cx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK)?
+        .get_own_property_names(&mut ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK)?
     {
-        if let Some(desc) = px.target.get_own_property(cx, k2.atom)? {
+        if let Some(desc) = px.target.get_own_property(&mut ctx, k2.atom)? {
             // safety, property should be found
             if desc.flags & JS_PROP_CONFIGURABLE == 0 || !is_extensible {
                 if let Some(p) = tab.iter_mut().find(|p| p.atom == k2.atom) {
@@ -656,7 +655,7 @@ fn js_proxy_get_own_property_names(
                         p.is_enumerable = true;
                     }
                 } else {
-                    cx.throw_type_error("proxy: target property must be present in proxy ownKeys");
+                    ctx.throw_type_error("proxy: target property must be present in proxy ownKeys");
                     return Err(-1);
                 }
             }
@@ -667,7 +666,7 @@ fn js_proxy_get_own_property_names(
         // check that all property in 'tab' were checked
         if tab.iter().any(|p| !p.is_enumerable) {
             // found an item with is_enumerable=FALSE
-            cx.throw_type_error(
+            ctx.throw_type_error(
                 "proxy: property not present in target were returned by non extensible proxy",
             );
             return Err(-1);
@@ -677,34 +676,33 @@ fn js_proxy_get_own_property_names(
     Ok(tab.into_boxed_slice())
 }
 
-fn js_proxy_has(ctx: ContextPtr, mut obj: Object, atom: Atom) -> Result<bool, i32> {
-    let cx = &*ctx;
-
+fn js_proxy_has(mut ctx: ContextPtr, mut obj: Object, atom: Atom) -> Result<bool, i32> {
     let Some(px) = obj.as_Proxy_mut().map(|x| x.payload_mut()) else {
         return Err(-1);
     };
 
-    let method = px.get_proxy_method(cx, Atom::CONST_has)?;
+    let method = px.get_proxy_method(&mut ctx, Atom::CONST_has)?;
     if method.is_undefined() {
-        return px.target.has_property(cx, atom);
+        return px.target.has_property(&mut ctx, atom);
     }
 
+    let atom_val = atom.to_value(&mut ctx)?;
     let ret = method
-        .call(cx, px.handler, &[px.target.into(), atom.to_value(cx)?])?
+        .call(&mut ctx, px.handler, &[px.target.into(), atom_val])?
         .to_bool()?;
 
     if !ret {
-        if let Some(desc) = px.target.get_own_property(cx, atom)?
+        if let Some(desc) = px.target.get_own_property(&mut ctx, atom)?
             && (desc.flags & JS_PROP_CONFIGURABLE == 0 || !px.target.flags().extensible())
         {
-            cx.throw_type_error("proxy: inconsistent has");
+            ctx.throw_type_error("proxy: inconsistent has");
             return Err(-1);
         }
 
-        if let Some(desc) = px.target.get_own_property(cx, atom)?
+        if let Some(desc) = px.target.get_own_property(&mut ctx, atom)?
             && (desc.flags & JS_PROP_CONFIGURABLE == 0 || !px.target.flags().extensible())
         {
-            cx.throw_type_error("proxy: inconsistent has");
+            ctx.throw_type_error("proxy: inconsistent has");
             return Err(-1);
         }
     }
@@ -712,36 +710,37 @@ fn js_proxy_has(ctx: ContextPtr, mut obj: Object, atom: Atom) -> Result<bool, i3
     Ok(ret)
 }
 
-fn js_proxy_get(ctx: ContextPtr, obj: JSValue, atom: Atom, receiver: JSValue) -> JSResult {
-    let cx = &*ctx;
-
+fn js_proxy_get(mut ctx: ContextPtr, obj: JSValue, atom: Atom, receiver: JSValue) -> JSResult {
     let Some(px) = obj.as_object_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
 
-    let method = px.get_proxy_method(cx, Atom::CONST_get)?;
+    let method = px.get_proxy_method(&mut ctx, Atom::CONST_get)?;
     // Note: recursion is possible thru the prototype of s.target
     if method.is_undefined() {
-        return px.target.get_property_internal(cx, atom, receiver, false);
+        return px
+            .target
+            .get_property_internal(&mut ctx, atom, receiver, false);
     }
 
+    let atom_val = atom.to_value(&mut ctx)?;
     let ret = method.call(
-        cx,
+        &mut ctx,
         px.handler,
-        &[px.target.into(), atom.to_value(cx)?, receiver],
+        &[px.target.into(), atom_val, receiver],
     )?;
 
-    if let Some(desc) = px.target.get_own_property(cx, atom)? {
+    if let Some(desc) = px.target.get_own_property(&mut ctx, atom)? {
         if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0 {
             if !desc.value.is_same(ret) {
-                cx.throw_type_error("proxy: inconsistent get ");
+                ctx.throw_type_error("proxy: inconsistent get ");
                 return Err(-1);
             }
         } else if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE) == JS_PROP_GETSET
             && desc.getter.is_undefined()
             && !ret.is_undefined()
         {
-            cx.throw_type_error("proxy: inconsistent get ");
+            ctx.throw_type_error("proxy: inconsistent get ");
             return Err(-1);
         }
     }
@@ -750,30 +749,28 @@ fn js_proxy_get(ctx: ContextPtr, obj: JSValue, atom: Atom, receiver: JSValue) ->
 }
 
 fn js_proxy_set(
-    ctx: ContextPtr,
+    mut ctx: ContextPtr,
     obj: JSValue,
     atom: Atom,
     value: JSValue,
     receiver: JSValue,
     flags: i32,
 ) -> Result<bool, i32> {
-    let cx = &*ctx;
-
     let Some(s) = obj.as_object_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
 
-    let method = s.get_proxy_method(cx, Atom::CONST_set)?;
+    let method = s.get_proxy_method(&mut ctx, Atom::CONST_set)?;
     if method.is_undefined() {
         return s.target.set_property_internal(
-            cx,
+            ctx,
             atom,
             value,
             match receiver {
                 JSValue::NULL | JSValue::UNDEFINED => None,
                 JSValue::Object(o) => Some(o),
                 _ => {
-                    cx.throw_type_error("receiver must be an object");
+                    ctx.throw_type_error("receiver must be an object");
                     return Err(-1);
                 }
             },
@@ -781,51 +778,52 @@ fn js_proxy_set(
         );
     }
 
+    let atom_val = atom.to_value(&mut ctx)?;
     let ret = method
         .call(
-            cx,
+            &mut ctx,
             s.handler,
-            &[s.target.into(), atom.to_value(cx)?, value, receiver],
+            &[s.target.into(), atom_val, value, receiver],
         )?
         .to_bool()?;
 
     if ret {
-        if let Some(desc) = s.target.get_own_property(cx, atom)? {
+        if let Some(desc) = s.target.get_own_property(&mut ctx, atom)? {
             if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0 {
                 if !desc.value.is_same(value) {
-                    cx.throw_type_error("proxy: inconsistent set");
+                    ctx.throw_type_error("proxy: inconsistent set");
                     return Err(-1);
                 }
             } else if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE) == JS_PROP_GETSET
                 && desc.setter.is_undefined()
             {
-                cx.throw_type_error("proxy: inconsistent set");
+                ctx.throw_type_error("proxy: inconsistent set");
                 return Err(-1);
             }
         }
-    } else if cx.can_throw(flags as u32) {
-        cx.throw_type_error("proxy: cannot set property");
+    } else if ctx.can_throw(flags as u32) {
+        ctx.throw_type_error("proxy: cannot set property");
         return Err(-1);
     }
 
     Ok(ret)
 }
 
-fn js_proxy_get_prototype(ctx: ContextPtr, obj: JSValue) -> Result<JSValue, i32> {
+fn js_proxy_get_prototype(mut ctx: ContextPtr, obj: JSValue) -> Result<JSValue, i32> {
     if let Some(px) = obj.as_object_Proxy() {
-        px.get_prototype_of(&ctx)
+        px.get_prototype_of(&mut ctx)
     } else {
         Err(-1)
     }
 }
 
 fn js_proxy_set_prototype(
-    ctx: ContextPtr,
+    mut ctx: ContextPtr,
     mut obj: JSValue,
     proto_val: JSValue,
 ) -> Result<bool, i32> {
     if let Some(s) = obj.as_object_Proxy_mut() {
-        s.set_prototype_of(&ctx, proto_val, false)
+        s.set_prototype_of(&mut ctx, proto_val, false)
     } else {
         Err(-1)
     }

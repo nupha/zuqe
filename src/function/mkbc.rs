@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    atom::Atom, context::ContextImpl, module::add_module_variables, stack_frame::ExecMode,
+    atom::Atom,
+    context::{ContextImpl, ContextPtr},
+    module::add_module_variables,
+    stack_frame::ExecMode,
     value::JSValue,
 };
 
@@ -15,7 +18,7 @@ impl FunctionDef {
     /// Compile FunctionDef to Bytecode.
     ///
     /// All children functions are also created. It must be done this way to resolve all the variables.
-    pub fn create_bytecode(mut self: Box<Self>, ctx: &ContextImpl) -> Result<Bytecode, i32> {
+    pub fn create_bytecode(mut self: Box<Self>, ctx: &mut ContextImpl) -> Result<Bytecode, i32> {
         //
         // recompute scope linkage
         //
@@ -57,7 +60,7 @@ impl FunctionDef {
         // so it is necessary to create the closure variables before any
         // other variable lookup is done.
         if self.has_eval_call {
-            self.add_eval_variables(ctx);
+            self.add_eval_variables(ctx.into());
         }
 
         // add the module global variables in the closure
@@ -311,7 +314,7 @@ impl FunctionDef {
         Ok(bc)
     }
 
-    fn add_eval_variables(&mut self, ctx: &ContextImpl) {
+    fn add_eval_variables(&mut self, mut ctx: ContextPtr) {
         // in non strict mode, variables are created in the caller's environment object
         if !self.is_eval && !self.attrs.exec_mode.contains(ExecMode::STRICT) {
             self.var_object_idx = Some(self.add_var(ctx, Atom::CONST__var_).unwrap());
@@ -415,7 +418,7 @@ impl FunctionDef {
                 let vd = fd.vars.get_mut(scope_idx as usize).unwrap();
                 vd.set_is_captured(true);
                 self.get_closure_var(
-                    ctx,
+                    &mut ctx,
                     fd_ptr,
                     true,
                     false,
@@ -437,7 +440,7 @@ impl FunctionDef {
                 for (i, vd) in fd.args.iter().enumerate() {
                     if !vd.var_name.is_null() {
                         self.get_closure_var(
-                            ctx,
+                            &mut ctx,
                             fd as *const FunctionDef,
                             true,
                             true,
@@ -457,7 +460,7 @@ impl FunctionDef {
                         && !(vd.var_name.is_null() || vd.var_name == Atom::CONST__ret_)
                     {
                         self.get_closure_var(
-                            ctx,
+                            &mut ctx,
                             fd as *const FunctionDef,
                             true,
                             false,
@@ -475,7 +478,7 @@ impl FunctionDef {
                     // do not close top level last result
                     if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
                         self.get_closure_var(
-                            ctx,
+                            &mut ctx,
                             fd as *const FunctionDef,
                             true,
                             false,
@@ -495,7 +498,7 @@ impl FunctionDef {
                 if let Some(cvars) = fd.closure_vars.as_ref() {
                     for (i, cv) in cvars.iter().enumerate() {
                         self.get_closure_var(
-                            ctx,
+                            &mut ctx,
                             fd as *const FunctionDef,
                             false,
                             cv.is_arg(),

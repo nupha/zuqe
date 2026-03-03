@@ -13,11 +13,12 @@ use crate::{
 };
 
 fn js_std_open(cc: CallContext) -> JSResult {
-    let ctx = cc.context();
-    let filename = cc.arg(0).to_string(&ctx)?;
+    let mut ctx = cc.context();
+
+    let filename = cc.arg(0).to_string(&mut ctx)?;
     let mode = if cc.length() > 1 {
         cc.arg(1)
-            .to_string(&ctx)?
+            .to_string(&mut ctx)?
             .content()
             .encode_utf8(false)
             .to_string()
@@ -68,7 +69,7 @@ fn js_std_open(cc: CallContext) -> JSResult {
     };
 
     if !err_obj.is_undefined() {
-        err_obj.set_property_str(&ctx, "errno", JSValue::Int(errno))?;
+        err_obj.set_property_str(&mut ctx, "errno", JSValue::Int(errno))?;
     }
 
     if let Some(fh) = fh {
@@ -79,19 +80,21 @@ fn js_std_open(cc: CallContext) -> JSResult {
 }
 
 fn js_evalScript(mut cc: CallContext) -> JSResult {
+    let mut ctx = cc.context();
+
     let mut backtrace_barrier = false;
     let mut is_async = false;
 
     if cc.length() >= 2 {
         let options_obj = *cc.arg(1);
 
-        is_async = options_obj.get_property_str(cc.ctx(), "async")?.to_bool()?;
+        is_async = options_obj.get_property_str(&mut ctx, "async")?.to_bool()?;
         backtrace_barrier = options_obj
-            .get_property_str(cc.ctx(), "backtrace_barrier")?
+            .get_property_str(&mut ctx, "backtrace_barrier")?
             .to_bool()?;
     }
 
-    let str = cc.arg(0).to_string(cc.ctx())?;
+    let str = cc.arg(0).to_string(&mut ctx)?;
 
     thread_local! {
         static EVAL_SCRIPT_RECURSE: Cell<u32> = const { Cell::new(0) };
@@ -155,8 +158,9 @@ fn js_gc(cc: CallContext) -> JSResult {
 }
 
 fn std_exit(mut cc: CallContext) -> JSResult {
-    let n = cc.arg(0).to_i32(cc.ctx()).unwrap_or(-1);
-    cc.ctx_mut().rt_mut().stop(n);
+    let mut ctx = cc.context();
+    let n = cc.arg(0).to_i32(&mut ctx).unwrap_or(-1);
+    ctx.rt_mut().stop(n);
     Ok(JSValue::UNDEFINED)
 }
 

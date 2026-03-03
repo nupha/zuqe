@@ -70,7 +70,7 @@ impl Atom {
 
     /// get atom descriptor string.
     #[inline]
-    pub(crate) fn descriptor<'a>(&self, rt: &'a RuntimeImpl) -> &'a StringRef {
+    pub(crate) fn descriptor(&self, rt: &RuntimeImpl) -> StringRef {
         rt.atom_desc_string(self.id()).unwrap()
     }
 
@@ -139,7 +139,7 @@ impl Atom {
 
     /// Check if atom can be used as a numeric index property,
     /// if yes, returns the index.
-    pub fn to_numeric_index(&self, ctx: &ContextImpl) -> Result<Option<IntOrFloat>, i32> {
+    pub fn to_numeric_index(&self, ctx: &mut ContextImpl) -> Result<Option<IntOrFloat>, i32> {
         if let Some(n) = self.to_small_int() {
             return Ok(Some(IntOrFloat::Int64(n as _)));
         }
@@ -220,17 +220,17 @@ impl Atom {
     }
 
     #[inline]
-    pub fn is_numeric_index(&self, ctx: &ContextImpl) -> Result<bool, i32> {
+    pub fn is_numeric_index(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         self.to_numeric_index(ctx).map(|x| x.is_some())
     }
 
     /// Convert atom to String or Symbol value.
-    pub fn to_value(&self, ctx: &ContextImpl) -> Result<JSValue, i32> {
+    pub fn to_value(&self, ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::from)
         } else {
-            let s = *self.descriptor(ctx.rt_ref());
+            let s = self.descriptor(ctx.rt_ref());
             match s.atom_info().unwrap().kind() {
                 AtomKind::String => Ok(JSValue::from(s)),
                 #[cfg(feature = "builtin_symbol")]
@@ -243,7 +243,7 @@ impl Atom {
 
     /// force convert atom to string value.
     /// for anonymous symbol, ident convert to empty string value.
-    pub fn force_string(&self, ctx: &ContextImpl) -> Result<LocalString, i32> {
+    pub fn force_string(&self, ctx: &mut ContextImpl) -> Result<LocalString, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}").into_bytes())
         } else {
@@ -336,7 +336,7 @@ impl StringImpl {
 
 impl ContextImpl {
     /// create or reuse an Atom from `str`
-    pub fn create_atom_string(&self, str: &str) -> Result<LocalString, i32> {
+    pub fn create_atom_string(&mut self, str: &str) -> Result<LocalString, i32> {
         let atom = Atom::new(self.rt_ptr(), str)?;
         atom.force_string(self)
     }
@@ -346,7 +346,7 @@ impl JSValue {
     /// convert value to atom. if value is not string or symbol, corece value to string then convert to atom.
     ///
     /// Note: returned atom is cloned, caller should free it after use.
-    pub fn to_atom(&self, ctx: &ContextImpl) -> Result<Atom, i32> {
+    pub fn to_atom(&self, ctx: &mut ContextImpl) -> Result<Atom, i32> {
         let mut val = *self;
 
         loop {
@@ -401,7 +401,7 @@ impl JSValue {
 
 // /// return a string atom containing name concatenated with str1.
 // /// Note: returned atom should be freed by caller.
-// fn js_atom_concat_str_v0(ctx: &ContextImpl, name: Atom, str1: *const u8) -> Result<Atom, i32> {
+// fn js_atom_concat_str_v0(ctx: &mut ContextImpl, name: Atom, str1: *const u8) -> Result<Atom, i32> {
 //     let str_val = name.force_string(ctx)?;
 //     let astr = str_val.content().to_utf8(false);
 //     let len = astr.len();
@@ -441,7 +441,11 @@ impl JSValue {
 
 /// return a string atom containing name concatenated with str1.
 /// Note: returned atom should be freed by caller.
-pub(crate) fn js_atom_concat_str(ctx: &ContextImpl, atom: Atom, str1: &str) -> Result<Atom, i32> {
+pub(crate) fn js_atom_concat_str(
+    ctx: &mut ContextImpl,
+    atom: Atom,
+    str1: &str,
+) -> Result<Atom, i32> {
     let str_val = atom.force_string(ctx)?;
     let astr = str_val.content().encode_utf8(false);
 
@@ -460,7 +464,7 @@ pub(crate) fn js_atom_concat_str(ctx: &ContextImpl, atom: Atom, str1: &str) -> R
 
 /// Note: returned atom should be freed by caller.
 #[inline(always)]
-pub fn js_atom_concat_num(ctx: &ContextImpl, atom: Atom, n: u32) -> Result<Atom, i32> {
+pub fn js_atom_concat_num(ctx: &mut ContextImpl, atom: Atom, n: u32) -> Result<Atom, i32> {
     js_atom_concat_str(ctx, atom, &format!("{n}"))
 }
 

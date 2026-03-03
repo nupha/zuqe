@@ -11,7 +11,6 @@ use crate::{
     JS_CLASS_STRING_ITERATOR,
     atom::Atom,
     builtins::iterator::{JSIteratorKindEnum, js_create_array_iterator},
-    context::ContextImpl,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
@@ -22,16 +21,19 @@ use crate::{
     value::JSValue,
 };
 
+#[cfg(feature = "builtin_regexp")]
+use crate::context::ContextPtr;
+
 const MAGIC_INCLUDES: i32 = 1;
 const MAGIC_STARTS_WITH: i32 = 2;
 const MAGIC_ENDS_WITH: i32 = 3;
 
 pub fn js_string_constructor(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let new_target = *cc.this();
 
     let str_val = if cc.length() == 0 {
-        Atom::CONST_empty_string.force_string(ctx)?
+        Atom::CONST_empty_string.force_string(&mut ctx)?
     } else {
         #[cfg(feature = "builtin_symbol")]
         if let JSValue::Symbol(s) = cc.arg(0)
@@ -40,7 +42,7 @@ pub fn js_string_constructor(cc: CallContext) -> JSResult {
             // "Symbol(desc)"
             JS_ConcatString3(ctx, c"Symbol(", (*s).into(), c")")?
         } else {
-            cc.arg(0).to_string(ctx)?
+            cc.arg(0).to_string(&mut ctx)?
         }
 
         #[cfg(not(feature = "builtin_symbol"))]
@@ -49,7 +51,7 @@ pub fn js_string_constructor(cc: CallContext) -> JSResult {
 
     if !new_target.is_undefined() {
         // make String object using `new_target` as prototype.
-        str_val.objectify(ctx, new_target).map(JSValue::Object)
+        str_val.objectify(&mut ctx, new_target).map(JSValue::Object)
     } else {
         Ok(str_val.into())
     }
@@ -57,13 +59,13 @@ pub fn js_string_constructor(cc: CallContext) -> JSResult {
 
 /// impl for `charAt()`, `at()`, `chatCodeAt()`
 fn js_string_at(cc: CallContext) -> JSResult {
-    let cx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
-    let str = cc.this().to_string_non_undefined_or_null(cx)?;
+    let str = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
     let what = cc.magic(); // 0: charAt, 1: at, 2: charCodeAt
     let buf_len = str.len() as i32;
 
-    let mut buf_idx: i32 = cc.arg(0).to_i32_saturating(cx)?;
+    let mut buf_idx: i32 = cc.arg(0).to_i32_saturating(&mut ctx)?;
     if buf_idx < 0 && what == 1 {
         // at() allows minus index
         buf_idx += buf_len;
@@ -71,7 +73,9 @@ fn js_string_at(cc: CallContext) -> JSResult {
 
     if buf_idx < 0 || buf_idx >= buf_len {
         match what {
-            0 => Atom::CONST_empty_string.force_string(cx).map(JSValue::from),
+            0 => Atom::CONST_empty_string
+                .force_string(&mut ctx)
+                .map(JSValue::from),
             1 => Ok(JSValue::UNDEFINED),
             2 => Ok(JSValue::Float64(f64::NAN)),
             _ => unreachable!(),
@@ -83,15 +87,16 @@ fn js_string_at(cc: CallContext) -> JSResult {
             Ok(JSValue::Int(code as i32))
         } else {
             // charAt(), at() returns string
-            cx.create_string_from_char(code.into()).map(JSValue::from)
+            ctx.create_string_from_char(code.into()).map(JSValue::from)
         }
     }
 }
 
-fn js_string_codePointAt(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let s = cc.this().to_string_non_undefined_or_null(ctx)?;
-    let i: i32 = cc.arg(0).to_i32_saturating(ctx)?;
+fn js_string_codePointAt(mut cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
+    let this = *cc.this();
+    let s = this.to_string_non_undefined_or_null(cc.ctx_mut())?;
+    let i: i32 = cc.arg(0).to_i32_saturating(&mut ctx)?;
 
     if (0..s.len() as i32).contains(&i) {
         let (_, c) = s.content().chars_since(i as usize).next().unwrap();
@@ -104,22 +109,23 @@ fn js_string_codePointAt(cc: CallContext) -> JSResult {
 fn js_string_concat(cc: CallContext) -> JSResult {
     // TODO: Use more efficient method
     // XXX: should use string_buffer?
-    let ctx = cc.ctx();
-    let mut s = cc.this().to_string_non_undefined_or_null(ctx)?;
+    let mut ctx = cc.ctx_ptr();
+    let mut s = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
     for a in cc.arguments() {
-        s = s.concat(ctx, *a)?;
+        s = s.concat(&mut ctx, *a)?;
     }
     Ok(s.into())
 }
 
-fn js_string_isWellFormed(cc: CallContext) -> JSResult {
-    let p = cc.this().to_string_non_undefined_or_null(cc.ctx())?;
+fn js_string_isWellFormed(mut cc: CallContext) -> JSResult {
+    let this = *cc.this();
+    let p = this.to_string_non_undefined_or_null(cc.ctx_mut())?;
     Ok(p.chars().is_well_formed().into())
 }
 
 fn js_string_toWellFormed(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let p = cc.this().to_string_non_undefined_or_null(ctx)?;
+    let mut ctx = cc.ctx_ptr();
+    let p = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
 
     if let Some(s16) = p.content().utf16() {
         let stream = Utf16Stream::new(s16);
@@ -143,10 +149,10 @@ fn js_string_toWellFormed(cc: CallContext) -> JSResult {
 
 pub fn js_string_indexOf(cc: CallContext) -> JSResult {
     let lastIndexOf = cc.magic();
-    let cx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
-    let p = cc.this().to_string_non_undefined_or_null(cx)?;
-    let p1 = cc.arg(0).to_string(cx)?;
+    let p = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
+    let p1 = cc.arg(0).to_string(&mut ctx)?;
 
     let len = p.len() as i32;
     let v_len = p1.len() as i32;
@@ -158,7 +164,7 @@ pub fn js_string_indexOf(cc: CallContext) -> JSResult {
     if lastIndexOf != 0 {
         let mut pos = len - v_len;
         if cc.length() > 1 {
-            let d: f64 = cc.arg(1).to_f64(cx)?;
+            let d: f64 = cc.arg(1).to_f64(&mut ctx)?;
             if !d.is_nan() {
                 if d <= 0.0 {
                     pos = 0;
@@ -172,7 +178,7 @@ pub fn js_string_indexOf(cc: CallContext) -> JSResult {
         inc = -1;
     } else {
         start = if cc.length() > 1 {
-            cc.arg(1).to_i32_clamp(cx, 0, len, 0)?
+            cc.arg(1).to_i32_clamp(&mut ctx, 0, len, 0)?
         } else {
             0
         };
@@ -200,7 +206,7 @@ pub fn js_string_indexOf(cc: CallContext) -> JSResult {
 
 fn js_string_replace(cc: CallContext) -> JSResult {
     let is_replace_all = cc.magic() != 0;
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let this = *cc.this();
 
     if this.is_undefined_or_null() {
@@ -219,22 +225,22 @@ fn js_string_replace(cc: CallContext) -> JSResult {
 
         #[cfg(feature = "builtin_symbol")]
         if let Some(o) = search.as_object() {
-            let replacer = o.get_property(ctx, Atom::CONST_Symbol_replace)?;
+            let replacer = o.get_property(&mut ctx, Atom::CONST_Symbol_replace)?;
             if !replacer.is_undefined_or_null() {
-                return replacer.call(ctx, search, &[this, replacement]);
+                return replacer.call(&mut ctx, search, &[this, replacement]);
             }
         }
     }
 
-    let str = this.to_string_non_undefined_or_null(ctx)?;
+    let str = this.to_string_non_undefined_or_null(&mut ctx)?;
     let cc = str.content();
     let buf_len = cc.len();
 
-    let search_for = search.to_string(ctx)?;
+    let search_for = search.to_string(&mut ctx)?;
     let (replace_func, replace_str) = if replacement.is_function() {
         (true, None)
     } else {
-        (false, Some(replacement.to_string(ctx)?))
+        (false, Some(replacement.to_string(&mut ctx)?))
     };
 
     let mut is_first = true;
@@ -259,7 +265,7 @@ fn js_string_replace(cc: CallContext) -> JSResult {
             let replacement = if replace_func {
                 replacement
                     .call(
-                        ctx,
+                        &mut ctx,
                         JSValue::UNDEFINED,
                         &[
                             search_for.gc_ref().into(),
@@ -267,7 +273,7 @@ fn js_string_replace(cc: CallContext) -> JSResult {
                             str.gc_ref().into(),
                         ],
                     )
-                    .and_then(|v| v.to_string(ctx))
+                    .and_then(|v| v.to_string(&mut ctx))
             } else {
                 let sb = StringData::substitution_buf(
                     search_for.content(),
@@ -331,7 +337,8 @@ fn js_string_replace(cc: CallContext) -> JSResult {
 }
 
 fn js_string_split(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
+
     let this = *cc.this();
     if this.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
@@ -344,22 +351,22 @@ fn js_string_split(cc: CallContext) -> JSResult {
     #[cfg(feature = "builtin_symbol")]
     if !separator.is_undefined_or_null()
         && let Some(o) = separator.as_object()
-        && let Some(r) = o.invoke_defined(ctx, Atom::CONST_Symbol_split, &[this, limit])?
+        && let Some(r) = o.invoke_defined(&mut ctx, Atom::CONST_Symbol_split, &[this, limit])?
     {
         return r;
     }
 
     // don't change following parse order of str, limit, sep
-    let str = this.to_string_non_undefined_or_null(ctx)?;
+    let str = this.to_string_non_undefined_or_null(&mut ctx)?;
     let str_len = str.len();
 
     let lim = if limit.is_undefined() {
         0xffff_ffff
     } else {
-        limit.to_u32(ctx)?
+        limit.to_u32(&mut ctx)?
     };
 
-    let sep = separator.to_string(ctx)?;
+    let sep = separator.to_string(&mut ctx)?;
     let sep_len = sep.len();
 
     // create result array
@@ -370,7 +377,12 @@ fn js_string_split(cc: CallContext) -> JSResult {
     }
 
     if separator.is_undefined() {
-        ret_arr.define_property_value_u32(ctx, 0, str.into(), JS_PROP_C_W_E | JS_PROP_THROW)?;
+        ret_arr.define_property_value_u32(
+            &mut ctx,
+            0,
+            str.into(),
+            JS_PROP_C_W_E | JS_PROP_THROW,
+        )?;
         return Ok(ret_arr.into());
     }
 
@@ -378,7 +390,7 @@ fn js_string_split(cc: CallContext) -> JSResult {
         for (i, (_, c)) in str.content().chars().enumerate().take(lim as usize) {
             let t = ctx.create_string_from_char(c)?;
             ret_arr.define_property_value_u32(
-                ctx,
+                &mut ctx,
                 i as _,
                 t.into(),
                 JS_PROP_C_W_E | JS_PROP_THROW,
@@ -392,8 +404,13 @@ fn js_string_split(cc: CallContext) -> JSResult {
         let cc = str.content();
 
         while let Some(i) = cc.index_of(sc, cursor) {
-            let t = str.sub_string(ctx, cursor..i)?;
-            ret_arr.define_property_value_u32(ctx, idx, t.into(), JS_PROP_C_W_E | JS_PROP_THROW)?;
+            let t = str.sub_string(&mut ctx, cursor..i)?;
+            ret_arr.define_property_value_u32(
+                &mut ctx,
+                idx,
+                t.into(),
+                JS_PROP_C_W_E | JS_PROP_THROW,
+            )?;
             idx += 1;
             if idx == lim {
                 break;
@@ -405,9 +422,9 @@ fn js_string_split(cc: CallContext) -> JSResult {
             cursor = std::cmp::min(cursor, str_len);
 
             // remaining part of str
-            let t = str.sub_string(ctx, cursor..str_len)?;
+            let t = str.sub_string(&mut ctx, cursor..str_len)?;
             ret_arr.define_property_value_u32(
-                ctx,
+                &mut ctx,
                 idx as _,
                 t.into(),
                 JS_PROP_C_W_E | JS_PROP_THROW,
@@ -419,64 +436,64 @@ fn js_string_split(cc: CallContext) -> JSResult {
 }
 
 fn js_string_substring(cc: CallContext) -> JSResult {
-    let cx = cc.ctx();
-    let p = cc.this().to_string_non_undefined_or_null(cx)?;
+    let mut ctx = cc.ctx_ptr();
+    let p = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
 
     let len = p.len() as i32;
-    let a = cc.arg(0).to_i32_clamp(cx, 0, len, 0)?;
+    let a = cc.arg(0).to_i32_clamp(&mut ctx, 0, len, 0)?;
     let b = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(cx, 0, len, 0)?
+        cc.arg(1).to_i32_clamp(&mut ctx, 0, len, 0)?
     } else {
         len
     };
     let (start, end) = if a < b { (a, b) } else { (b, a) };
 
-    p.sub_string(cx, start as usize..end as usize)
+    p.sub_string(&mut ctx, start as usize..end as usize)
         .map(JSValue::from)
 }
 
 fn js_string_substr(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
-    let p = cc.this().to_string_non_undefined_or_null(ctx)?;
+    let p = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
     let len = p.len() as i32;
 
-    let a: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
+    let a: i32 = cc.arg(0).to_i32_clamp(&mut ctx, 0, len, len)?;
     let n = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(ctx, 0, len - a, 0)?
+        cc.arg(1).to_i32_clamp(&mut ctx, 0, len - a, 0)?
     } else {
         len - a
     };
 
-    p.sub_string(ctx, a as usize..(a + n) as usize)
+    p.sub_string(&mut ctx, a as usize..(a + n) as usize)
         .map(JSValue::from)
 }
 
 fn js_string_slice(cc: CallContext) -> JSResult {
-    let cx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
-    let p = cc.this().to_string_non_undefined_or_null(cx)?;
+    let p = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
     let len = p.len() as i32;
-    let start = cc.arg(0).to_i32_clamp(cx, 0, len, len)?;
+    let start = cc.arg(0).to_i32_clamp(&mut ctx, 0, len, len)?;
     let end = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(cx, 0, len, len)?
+        cc.arg(1).to_i32_clamp(&mut ctx, 0, len, len)?
     } else {
         len
     };
 
-    p.sub_string(cx, start as usize..std::cmp::max(end, start) as usize)
+    p.sub_string(&mut ctx, start as usize..std::cmp::max(end, start) as usize)
         .map(JSValue::from)
 }
 
 fn js_string_pad(cc: CallContext) -> JSResult {
     let is_pad_end = cc.magic() != 0;
-    let cx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     // don't change parse args order.
-    let str = cc.this().to_string_non_undefined_or_null(cx)?;
+    let str = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
     let len = str.len() as i32;
 
-    let mut ttl_len: i32 = cc.arg(0).to_i32_saturating(cx)?;
+    let mut ttl_len: i32 = cc.arg(0).to_i32_saturating(&mut ctx)?;
     if len >= ttl_len {
         return Ok(str.into());
     }
@@ -486,7 +503,7 @@ fn js_string_pad(cc: CallContext) -> JSResult {
     let mut fill_char = CharCode::Char(' ');
 
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
-        let s = cc.arg(1).to_string(cx)?;
+        let s = cc.arg(1).to_string(&mut ctx)?;
         if s.is_empty() {
             return Ok(str.into());
         }
@@ -499,13 +516,13 @@ fn js_string_pad(cc: CallContext) -> JSResult {
     }
 
     if ttl_len > JS_STRING_LEN_MAX as i32 {
-        cx.throw_internal_error("string too long");
+        ctx.throw_internal_error("string too long");
         return Err(-1);
     }
 
     let mut sbuf = if is_pad_end {
         str.content().to_buf().map_err(|_| {
-            cx.throw_out_of_memory();
+            ctx.throw_out_of_memory();
             -1
         })?
     } else {
@@ -538,27 +555,27 @@ fn js_string_pad(cc: CallContext) -> JSResult {
         sbuf.push_chars_iter(std::iter::repeat_n(fill_char, ttl_len as usize))
     }
     .map_err(|_| {
-        cx.throw_out_of_memory();
+        ctx.throw_out_of_memory();
         -1
     })?;
 
     if !is_pad_end {
         sbuf.push_content(str.content()).map_err(|_| {
-            cx.throw_out_of_memory();
+            ctx.throw_out_of_memory();
             -1
         })?;
     }
 
-    cx.create_string_with_buf(sbuf).map(JSValue::from)
+    ctx.create_string_with_buf(sbuf).map(JSValue::from)
 }
 
 fn js_string_repeat(cc: CallContext) -> JSResult {
-    let cx = cc.ctx();
-    let p = cc.this().to_string_non_undefined_or_null(cx)?;
+    let mut ctx = cc.ctx_ptr();
+    let p = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
 
-    let repeat: i64 = cc.arg(0).to_i64_saturating(cx)?;
+    let repeat: i64 = cc.arg(0).to_i64_saturating(&mut ctx)?;
     if !(0..=0x7fffffff).contains(&repeat) {
-        cx.throw_range_error("invalid repeat count");
+        ctx.throw_range_error("invalid repeat count");
         return Err(-1);
     }
 
@@ -568,12 +585,12 @@ fn js_string_repeat(cc: CallContext) -> JSResult {
         return Ok(p.into());
     }
     if repeat * len > JS_STRING_LEN_MAX {
-        cx.throw_internal_error("string too long");
+        ctx.throw_internal_error("string too long");
         return Err(-1);
     }
 
     let mut res_string = StringBuf::with_capacity(repeat * len, false).map_err(|_| {
-        cx.throw_out_of_memory();
+        ctx.throw_out_of_memory();
         -1
     })?;
 
@@ -585,21 +602,21 @@ fn js_string_repeat(cc: CallContext) -> JSResult {
     }
     res_string.shrink_to_fit();
 
-    cx.create_string_with_buf(res_string).map(JSValue::from)
+    ctx.create_string_with_buf(res_string).map(JSValue::from)
 }
 
 fn js_string_includes(cc: CallContext) -> JSResult {
-    let cx = cc.ctx();
-    let p = cc.this().to_string_non_undefined_or_null(cx)?;
+    let mut ctx = cc.ctx_ptr();
+    let p = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
     let arg0 = cc.arg(0);
 
     #[cfg(feature = "builtin_regexp")]
-    if super::regexp::is_regexp(cx, arg0)? {
-        cx.throw_type_error("regex not supported");
+    if super::regexp::is_regexp(ctx, arg0)? {
+        ctx.throw_type_error("regex not supported");
         return Err(-1);
     }
 
-    let pat = arg0.to_string(cx)?;
+    let pat = arg0.to_string(&mut ctx)?;
     let mut str_len = p.len();
     let pat_len = pat.len();
 
@@ -611,7 +628,7 @@ fn js_string_includes(cc: CallContext) -> JSResult {
     if cc.length() > 1 {
         let a = cc.arg(1);
         if !a.is_undefined() {
-            pos = a.to_i32_clamp(cx, 0, str_len as _, 0)? as usize;
+            pos = a.to_i32_clamp(&mut ctx, 0, str_len as _, 0)? as usize;
             if cc.magic() == MAGIC_ENDS_WITH {
                 str_len = pos;
             }
@@ -664,14 +681,14 @@ fn js_string_includes(cc: CallContext) -> JSResult {
 
 /// ensure regexp `obj` must have g flag.
 #[cfg(feature = "builtin_regexp")]
-fn check_regexp_g_flag(ctx: &ContextImpl, obj: &JSValue) -> Result<(), i32> {
+fn check_regexp_g_flag(mut ctx: ContextPtr, obj: &JSValue) -> Result<(), i32> {
     if super::regexp::is_regexp(ctx, obj)? {
-        let flags = obj.get_property(ctx, Atom::CONST_flags)?;
+        let flags = obj.get_property(&mut ctx, Atom::CONST_flags)?;
         if flags.is_undefined_or_null() {
             ctx.throw_type_error("cannot convert to object");
             return Err(-1);
         } else {
-            let s = flags.to_string(ctx)?;
+            let s = flags.to_string(&mut ctx)?;
             if s.index_of_char('g', 0).is_none() {
                 ctx.throw_type_error("regexp must have the 'g' flag");
                 return Err(-1);
@@ -687,7 +704,7 @@ const MAGIC_MATCH_SEARCH: i32 = 3;
 
 fn js_string_match(cc: CallContext) -> JSResult {
     let magic = cc.magic();
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let this = cc.this();
 
     if this.is_undefined_or_null() {
@@ -720,7 +737,7 @@ fn js_string_match(cc: CallContext) -> JSResult {
     let regexp_val = *cc.arg(0);
 
     if let JSValue::Object(o) = regexp_val {
-        let func = o.get_property(ctx, method_name)?;
+        let func = o.get_property(&mut ctx, method_name)?;
 
         #[cfg(feature = "builtin_regexp")]
         if magic == MAGIC_MATCH_ALL {
@@ -728,7 +745,7 @@ fn js_string_match(cc: CallContext) -> JSResult {
         }
 
         if !func.is_undefined_or_null() {
-            return func.call(ctx, regexp_val, std::slice::from_ref(this));
+            return func.call(&mut ctx, regexp_val, std::slice::from_ref(this));
         }
     }
 
@@ -746,16 +763,21 @@ fn js_string_match(cc: CallContext) -> JSResult {
         }
         let regexp_obj = {
             let ctor = ctx.regexp_ctor;
-            ctor.call_ctor(ctx, &args[0..args_len])?
+            ctor.call_ctor(&mut ctx, &args[0..args_len])?
         };
 
         // protect regexp_obj before .invoke()
+        let ctxptr = cc.ctx_ptr();
         let _ng = regexp_obj
             .gc_node_ptr()
-            .map(|n| ctx.gc_heap().protect_node(n));
+            .map(|n| ctxptr.gc_heap().protect_node(n));
 
-        let s = this.to_string_non_undefined_or_null(ctx)?;
-        regexp_obj.invoke(ctx, method_name, std::slice::from_ref(&JSValue::from(&s)))
+        let s = this.to_string_non_undefined_or_null(&mut ctx)?;
+        regexp_obj.invoke(
+            &mut ctx,
+            method_name,
+            std::slice::from_ref(&JSValue::from(&s)),
+        )
     }
 
     #[cfg(not(feature = "builtin_regexp"))]
@@ -765,9 +787,11 @@ fn js_string_match(cc: CallContext) -> JSResult {
     }
 }
 
-fn js_string_trim(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let str = cc.this().to_string_non_undefined_or_null(ctx)?;
+fn js_string_trim(mut cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
+
+    let this = *cc.this();
+    let str = this.to_string_non_undefined_or_null(cc.ctx_mut())?;
     let mut s = str.content().to_buf().map_err(|_| {
         ctx.throw_out_of_memory();
         -1
@@ -808,11 +832,12 @@ pub fn string_cmp(p1: &StringImpl, p2: &StringImpl, x1: usize, x2: usize, len: u
 
 /// also used for String.prototype.valueOf
 fn js_string_toString(cc: CallContext) -> Result<JSValue, i32> {
-    js_thisStringValue(cc.ctx(), *cc.this()).map(JSValue::from)
+    let ctx = cc.ctx_ptr();
+    js_thisStringValue(ctx, *cc.this()).map(JSValue::from)
 }
 
 #[inline]
-fn js_thisStringValue(ctx: &ContextImpl, this_val: JSValue) -> Result<StringRef, i32> {
+fn js_thisStringValue(mut ctx: ContextPtr, this_val: JSValue) -> Result<StringRef, i32> {
     this_val.as_string().cloned().ok_or_else(|| {
         ctx.throw_type_error("not a string");
         -1
@@ -821,9 +846,10 @@ fn js_thisStringValue(ctx: &ContextImpl, this_val: JSValue) -> Result<StringRef,
 
 fn js_string_toLowerCase(cc: CallContext) -> JSResult {
     let to_lower = cc.magic() != 0;
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
-    let p = cc.this().to_string_non_undefined_or_null(ctx)?;
+    let this = *cc.this();
+    let p = this.to_string_non_undefined_or_null(&mut ctx)?;
     if p.is_empty() {
         return Ok(p.into());
     }
@@ -882,10 +908,9 @@ fn js_string_toLowerCase(cc: CallContext) -> JSResult {
 
 #[cfg(feature = "all_unicode")]
 fn js_string_localeCompare(cc: CallContext) -> JSResult {
-    let cx = cc.ctx();
-
-    let a = cc.this().to_string_non_undefined_or_null(cx)?;
-    let b = cc.arg(0).to_string(cx)?;
+    let mut ctx = cc.ctx_ptr();
+    let a = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
+    let b = cc.arg(0).to_string(&mut ctx)?;
 
     // locale normalize
     let mut u1 = a.content().chars_lossy().nfc();
@@ -914,8 +939,8 @@ fn js_string_localeCompare(cc: CallContext) -> JSResult {
 
 #[cfg(feature = "all_unicode")]
 fn js_string_normalize(cc: CallContext) -> JSResult {
-    let cx = cc.ctx();
-    let val = cc.this().to_string_non_undefined_or_null(cx)?;
+    let mut ctx = cc.ctx_ptr();
+    let val = cc.this().to_string_non_undefined_or_null(&mut ctx)?;
 
     #[allow(clippy::upper_case_acronyms)]
     enum UnicodeNormalizationEnum {
@@ -929,16 +954,21 @@ fn js_string_normalize(cc: CallContext) -> JSResult {
     } else {
         match cc.arg(0) {
             JSValue::NULL => {
-                cx.throw_range_error("bad normalization form");
+                ctx.throw_range_error("bad normalization form");
                 return Err(-1);
             }
-            form => match form.to_string(cx)?.content().encode_utf8(false).as_ref() {
+            form => match form
+                .to_string(&mut ctx)?
+                .content()
+                .encode_utf8(false)
+                .as_ref()
+            {
                 "NFC" => UnicodeNormalizationEnum::NFC,
                 "NFD" => UnicodeNormalizationEnum::NFD,
                 "NFKC" => UnicodeNormalizationEnum::NFKC,
                 "NFKD" => UnicodeNormalizationEnum::NFKD,
                 _ => {
-                    cx.throw_range_error("bad normalization form");
+                    ctx.throw_range_error("bad normalization form");
                     return Err(-1);
                 }
             },
@@ -953,22 +983,21 @@ fn js_string_normalize(cc: CallContext) -> JSResult {
         UnicodeNormalizationEnum::NFKD => String::from_iter(chars_it.nfkd()),
     };
 
-    cx.create_string_from_utf8(ns.into_bytes())
+    ctx.create_string_from_utf8(ns.into_bytes())
         .map(JSValue::from)
 }
 
 // non-standard
-fn js_string__quote(cc: CallContext) -> JSResult {
+fn js_string__quote(mut cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
     let val = *cc.this();
     if val.is_undefined_or_null() {
-        cc.ctx()
-            .throw_type_error("undefined or null is not allowed");
+        ctx.throw_type_error("undefined or null is not allowed");
         Err(-1)
     } else {
-        let s = val.to_string(cc.ctx())?;
+        let s = val.to_string(cc.ctx_mut())?;
         let s = s.content().encode_utf8(true);
-        cc.ctx()
-            .create_string_from_utf8(format!("\"{}\"", s).into_bytes())
+        ctx.create_string_from_utf8(format!("\"{}\"", s).into_bytes())
             .map(|x| x.into())
     }
 }
@@ -1028,11 +1057,11 @@ pub const js_string_proto_funcs: &[FieldDef] = &[
 ];
 
 fn js_string_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     if let ObjectPayload::STRING_ITERATOR(it) = cc
         .this()
-        .retrive_object_payload(ctx, JS_CLASS_STRING_ITERATOR)?
+        .retrive_object_payload(&mut ctx, JS_CLASS_STRING_ITERATOR)?
     {
         match it.value() {
             JSValue::UNDEFINED => {
@@ -1071,11 +1100,11 @@ pub const js_string_iterator_proto_funcs: &[FieldDef] = &[
 ];
 
 fn js_string_fromCharCode(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let mut sbuf = StringBuf::Empty;
 
     for a in cc.arguments() {
-        let cp = a.to_i32(ctx)?;
+        let cp = a.to_i32(&mut ctx)?;
         sbuf.push_u32(cp as u32 & 0xffff).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
@@ -1086,7 +1115,7 @@ fn js_string_fromCharCode(cc: CallContext) -> JSResult {
 }
 
 fn js_string_fromCodePoint(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let mut sbuf = StringBuf::Empty;
 
     if cc.length() > 0 {
@@ -1103,7 +1132,7 @@ fn js_string_fromCodePoint(cc: CallContext) -> JSResult {
                     -1 // bad code
                 }
             } else {
-                let d: f64 = a.to_f64(ctx)?;
+                let d: f64 = a.to_f64(&mut ctx)?;
                 if d.fract() == 0.0 {
                     let n = d.trunc() as i64;
                     if !(0..=0x10ffff).contains(&n) {
@@ -1133,16 +1162,18 @@ fn js_string_fromCodePoint(cc: CallContext) -> JSResult {
 
 fn js_string_raw(cc: CallContext) -> JSResult {
     // raw(temp,...a)
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
-    let cooked = cc.arg(0).objectify(ctx)?;
-    let raw = cooked.get_property(ctx, Atom::CONST_raw)?.objectify(ctx)?;
+    let cooked = cc.arg(0).objectify(&mut ctx)?;
+    let raw = cooked
+        .get_property(&mut ctx, Atom::CONST_raw)?
+        .objectify(&mut ctx)?;
 
-    let n = raw.get_length_prop(ctx)?;
+    let n = raw.get_length_prop(&mut ctx)?;
     let mut sbuf = StringBuf::Empty;
 
     for i in 0..n {
-        let str = raw.get_property_i64(ctx, i)?.to_string(ctx)?;
+        let str = raw.get_property_i64(&mut ctx, i)?.to_string(&mut ctx)?;
         sbuf.push_content(str.content()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
@@ -1150,7 +1181,7 @@ fn js_string_raw(cc: CallContext) -> JSResult {
 
         if i < n - 1 && i + 1 < cc.length() as i64 {
             let val = cc.arg(i as usize + 1);
-            let s = val.to_string(ctx)?;
+            let s = val.to_string(&mut ctx)?;
             sbuf.push_content(s.content()).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1

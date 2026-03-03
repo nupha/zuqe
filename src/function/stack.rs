@@ -23,7 +23,7 @@ struct StackSizeState {
 
 // 'op' is only used for error indication
 fn ss_check(
-    ctx: &ContextImpl,
+    ctx: &mut ContextImpl,
     s: &mut StackSizeState,
     pos: usize,
     op: u8,
@@ -77,7 +77,7 @@ fn ss_check(
 }
 
 impl FunctionDef {
-    pub fn compute_stack_size(&mut self, ctx: &ContextImpl) -> Result<u16, i32> {
+    pub fn compute_stack_size(&mut self, ctx: &mut ContextImpl) -> Result<u16, i32> {
         let bc_ptr = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();
 

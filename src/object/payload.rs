@@ -36,7 +36,7 @@ impl ObjectImpl {
     /// throws type error.
     pub fn retrive_payload(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         class_id: ClassID,
     ) -> Result<&ObjectPayload, i32> {
         self.retrive_payload0(class_id).ok_or_else(|| {
@@ -50,7 +50,7 @@ impl ObjectImpl {
     /// throws type error.
     pub(crate) fn retrive_payload_mut(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         class_id: ClassID,
     ) -> Result<&mut ObjectPayload, i32> {
         self.retrive_payload0_mut(class_id).ok_or_else(|| {
@@ -77,7 +77,7 @@ impl JSValue {
     /// throws type error.
     pub fn retrive_object_payload(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         class_id: ClassID,
     ) -> Result<&ObjectPayload, i32> {
         if let Some(o) = self.as_object() {
@@ -93,7 +93,7 @@ impl JSValue {
     /// throws type error.
     pub fn retrive_object_payload_mut(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         class_id: ClassID,
     ) -> Result<&mut ObjectPayload, i32> {
         if let Some(o) = self.as_object_mut() {

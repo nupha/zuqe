@@ -25,7 +25,7 @@ pub const JS_PARSE_JSON_EXT: i32 = 1;
 
 impl<'s> JSParseState<'s> {
     fn json_next_token(&mut self) -> Result<(), i32> {
-        if js_check_stack_overflow(&self.ctx.rt_ptr(), 0) {
+        if js_check_stack_overflow(&mut self.ctx.rt_ptr(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
         }
@@ -263,7 +263,7 @@ impl<'s> JSParseState<'s> {
 
         let p0 = p;
 
-        if let Ok(num) = unsafe { js_atof(&self.ctx, p, &mut p, radix, flags) } {
+        if let Ok(num) = unsafe { js_atof(&mut self.ctx, p, &mut p, radix, flags) } {
             self.token.kind = TokenKind::NUMBER;
             self.token.data = TokenData::Num(num);
             Ok(unsafe { p.offset_from(p0) as usize })
@@ -325,7 +325,12 @@ impl<'s> JSParseState<'s> {
                         json_parse_expect(self, b':')?;
 
                         let prop_val = self.json_parse_value()?;
-                        val.define_property_value(&self.ctx, prop_name, prop_val, JS_PROP_C_W_E)?;
+                        val.define_property_value(
+                            &mut self.ctx,
+                            prop_name,
+                            prop_val,
+                            JS_PROP_C_W_E,
+                        )?;
 
                         if self.token.kind != TokenKind::Char(',') {
                             break;
@@ -435,7 +440,7 @@ fn json_parse_expect(s: &mut JSParseState, ch: u8) -> Result<(), i32> {
 }
 
 impl ContextImpl {
-    pub fn json_parse(&self, source: &[u8], filename: &str, flags: i32) -> JSResult {
+    pub fn json_parse(&mut self, source: &[u8], filename: &str, flags: i32) -> JSResult {
         // Note: parser will be dropped within this function.
         // so, 'source' and 'filename' are safe w/o lifetime annotation
 

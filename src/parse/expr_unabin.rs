@@ -315,7 +315,8 @@ impl<'s> JSParseState<'s> {
                 debug_assert!(fd.last_opcode_pos > 0);
                 fd.byte_code.truncate(fd.last_opcode_pos as _);
 
-                self.emit_push_const(name.force_string(&self.ctx)?.into(), true)?;
+                let name_str = name.force_string(&mut self.ctx)?;
+                self.emit_push_const(name_str.into(), true)?;
                 self.emit_op(OpCode::DELETE);
 
                 if opt_chain_label >= 0 {

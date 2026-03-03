@@ -75,14 +75,14 @@ impl<A: Write, B: Write> Clone for TeeWriter<A, B> {
 }
 
 fn js_print(cc: CallContext) -> JSResult {
-    let ctx = cc.context();
+    let mut ctx = cc.context();
 
     for i in 0..cc.length() {
         if i > 0 {
             print!(" ");
         }
         let arg = cc.arg(i);
-        let repr = arg.inspect(&ctx)?;
+        let repr = arg.inspect(&mut ctx)?;
 
         // print!("{}", repr);
 
@@ -99,22 +99,27 @@ fn js_print(cc: CallContext) -> JSResult {
 }
 
 fn js_detachArrayBuffer(cc: CallContext) -> JSResult {
+    let mut ctx = cc.context();
     if let Some(mut ab) = cc.arg(0).as_object_ArrayBuffer().copied() {
-        ab.detatch(cc.ctx());
+        ab.detatch(&mut ctx);
     }
     Ok(JSValue::UNDEFINED)
 }
 
 fn js_evalScript(cc: CallContext) -> JSResult {
-    let source = cc.arg(0).inspect(cc.ctx())?;
+    let mut ctx = cc.context();
+
+    let source = cc.arg(0).inspect(&mut ctx)?;
     cc.context()
         .new_scope()
         .eval_global(source.as_bytes(), "<eval>", EvalFlags::empty())
 }
 
 fn js_string_codePointRange(cc: CallContext) -> JSResult {
-    let mut start = cc.arg(0).to_i32(cc.ctx())? as u32;
-    let end = std::cmp::min(cc.arg(1).to_i32(cc.ctx())? as u32, 0x10ffff + 1);
+    let mut ctx = cc.context();
+
+    let mut start = cc.arg(0).to_i32(&mut ctx)? as u32;
+    let end = std::cmp::min(cc.arg(1).to_i32(&mut ctx)? as u32, 0x10ffff + 1);
     if start > end {
         start = end;
     }
@@ -133,11 +138,10 @@ fn js_string_codePointRange(cc: CallContext) -> JSResult {
                 .as_bytes(),
         );
     }
-    cc.ctx().create_string_from_utf8(buf).map(JSValue::from)
+    ctx.create_string_from_utf8(buf).map(JSValue::from)
 }
 
 fn js_createRealm(cc: CallContext) -> JSResult {
-    // let mut ctx2 = cc.context().rt_mut().create_context_ecma()?;
     let mut ctx2 = cc
         .context()
         .rt_mut()
@@ -189,20 +193,16 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         obj262.set_property_str(ctx, "createRealm", f.into())?;
     }
 
-    obj262.set_property_str(
-        ctx,
+    let gc_func = ctx.create_native_function(
+        Callback::Func(|cc| -> JSResult {
+            cc.context().rt_mut().gc_request();
+            Ok(JSValue::UNDEFINED)
+        }),
         "gc",
-        ctx.create_native_function(
-            Callback::Func(|cc| -> JSResult {
-                cc.context().rt_mut().gc_request();
-                Ok(JSValue::UNDEFINED)
-            }),
-            "gc",
-            0,
-            0,
-        )?
-        .into(),
+        0,
+        0,
     )?;
+    obj262.set_property_str(ctx, "gc", gc_func.into())?;
 
     obj262.set_property_str(ctx, "global", global)?;
     global.set_property_str(ctx, "$262", obj262.into())?;
@@ -244,7 +244,7 @@ pub fn js_module_loader(
 }
 
 fn js_module_set_import_meta(
-    ctx: Context,
+    mut ctx: Context,
     func_val: JSValue,
     use_realpath: i32,
     is_main: bool,
@@ -269,25 +269,19 @@ fn js_module_set_import_meta(
         }
         let aurl = format!("file://{}", normalized.display());
 
-        let mut meta_obj = if let Ok(m) = m.import_meta(&ctx) {
+        let mut meta_obj = if let Ok(m) = m.import_meta(&mut ctx) {
             m
         } else {
             return -1;
         };
 
+        let url_func = ctx.create_string_from_utf8(aurl.into_bytes()).unwrap();
         meta_obj
-            .define_property_value_str(
-                &ctx,
-                "url",
-                ctx.create_string_from_utf8(aurl.into_bytes())
-                    .unwrap()
-                    .into(),
-                JS_PROP_C_W_E,
-            )
+            .define_property_value_str(&mut ctx, "url", url_func.into(), JS_PROP_C_W_E)
             .unwrap();
 
         meta_obj
-            .define_property_value_str(&ctx, "main", is_main.into(), JS_PROP_C_W_E)
+            .define_property_value_str(&mut ctx, "main", is_main.into(), JS_PROP_C_W_E)
             .unwrap();
 
         0
@@ -329,7 +323,7 @@ fn run_harness(cs: &mut ContextScope, harness_files: &[PathBuf]) -> Result<(), E
         )
         .map_err(|_| {
             let exc = cs.rt_mut().take_exception();
-            ErrorText::from(&cs, exc)
+            ErrorText::from(cs, exc)
         })?;
     }
 
@@ -462,7 +456,6 @@ fn run_test_file(
 
     if !harness_files.is_empty() {
         // eval included harness files
-
         if let Err(exc) = run_harness(&mut ctx_scope, &harness_files) {
             // write to outf
             writeln!(outf, "FAIL: can't eval harness").unwrap();

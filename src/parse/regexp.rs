@@ -121,7 +121,7 @@ impl<'s> JSParseState<'s> {
 
         // pre compile regexpdata
         let regexp = RegExpData::create(
-            &self.ctx,
+            &mut self.ctx,
             pattern.content().clone(),
             flags.content().clone(),
         )?;

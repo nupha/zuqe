@@ -13,7 +13,7 @@ impl Object {
     /// Equivalent to: `self instanceof ctor`
     pub(crate) fn ordinary_instance_of(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         ctor: JSValue,
     ) -> Result<bool, i32> {
         if !ctor.is_function() {
@@ -76,7 +76,7 @@ impl Object {
 
     /// Test if value `self` is instance of `ctor`.
     /// Equivalent to `self instanceof ctor`
-    pub fn instance_of(&self, ctx: &ContextImpl, ctor: JSValue) -> Result<bool, i32> {
+    pub fn instance_of(&self, ctx: &mut ContextImpl, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
             #[cfg(feature = "builtin_symbol")]
             if let Some(r) =
@@ -127,7 +127,7 @@ impl JSValue {
 
     /// Test if value `self` is instance of `ctor`.
     /// Equivalent to `self instanceof ctor`
-    pub fn instance_of(&self, ctx: &ContextImpl, ctor: JSValue) -> Result<bool, i32> {
+    pub fn instance_of(&self, ctx: &mut ContextImpl, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
             #[cfg(feature = "builtin_symbol")]
             if let Some(r) = o.invoke_defined(

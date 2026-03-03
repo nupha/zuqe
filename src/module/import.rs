@@ -83,7 +83,7 @@ fn js_dynamic_import_job(
     name: JSValue,
 ) {
     let r = if let JSValue::String(base) = basename {
-        name.to_string(&ctx).map(|nm| {
+        name.to_string(&mut ctx).map(|nm| {
             js_load_module_internal(
                 ctx,
                 &base.content().encode_utf8(false),
@@ -99,7 +99,7 @@ fn js_dynamic_import_job(
     if r.is_err() {
         // call reject func if has error
         let err = ctx.rt_mut().take_exception();
-        let _ = resolving_funcs[1].call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+        let _ = resolving_funcs[1].call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
     }
 }
 
@@ -114,8 +114,11 @@ fn js_load_module_internal(
             if ctx.resolve_module(md).is_err() {
                 js_free_modules(&mut ctx, JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED);
                 let err = ctx.rt_ptr().take_exception();
-                let _ =
-                    resolving_funcs[1].call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+                let _ = resolving_funcs[1].call(
+                    &mut ctx,
+                    JSValue::UNDEFINED,
+                    std::slice::from_ref(&err),
+                );
                 return;
             }
 
@@ -124,7 +127,7 @@ fn js_load_module_internal(
                 Ok(mut evaluate_promise) => {
                     let evaluate_resolving_funcs = [
                         NativeFunction::create(
-                            &ctx,
+                            &mut ctx,
                             Callback::Func(js_load_module_fulfilled),
                             "",
                             0,
@@ -134,7 +137,7 @@ fn js_load_module_internal(
                         )
                         .unwrap(),
                         NativeFunction::create(
-                            &ctx,
+                            &mut ctx,
                             Callback::Func(js_load_module_rejected),
                             "",
                             0,
@@ -156,7 +159,7 @@ fn js_load_module_internal(
                 Err(_) => {
                     let err = ctx.rt_ptr().take_exception();
                     let _ = resolving_funcs[1].call(
-                        &ctx,
+                        &mut ctx,
                         JSValue::UNDEFINED,
                         std::slice::from_ref(&err),
                     );
@@ -165,12 +168,14 @@ fn js_load_module_internal(
         }
         Err(_) => {
             let err = ctx.rt_ptr().take_exception();
-            let _ = resolving_funcs[1].call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+            let _ =
+                resolving_funcs[1].call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
         }
     }
 }
 
 fn js_load_module_rejected(cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
     let error = if cc.length() >= 1 {
         *cc.arg(0)
     } else {
@@ -178,24 +183,25 @@ fn js_load_module_rejected(cc: CallContext) -> JSResult {
     };
     let _ = cc
         .data(1)
-        .call(cc.ctx(), JSValue::UNDEFINED, std::slice::from_ref(&error));
+        .call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&error));
     Ok(JSValue::UNDEFINED)
 }
 
 fn js_load_module_fulfilled(cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
     if let Ok(ns) = if let JSValue::Module(mut m) = cc.data(2) {
-        m.ns(cc.ctx())
+        m.ns(&mut ctx)
     } else {
         unreachable!()
     } {
         // resolve() with module namespace
-        let _ = cc.data(0).call(cc.ctx(), JSValue::UNDEFINED, &[ns.into()]);
+        let _ = cc.data(0).call(&mut ctx, JSValue::UNDEFINED, &[ns.into()]);
     } else {
         // reject() with error
         let err = cc.ctx().rt_ptr().take_exception();
         let _ = cc
             .data(1)
-            .call(cc.ctx(), JSValue::UNDEFINED, std::slice::from_ref(&err));
+            .call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
     }
 
     Ok(JSValue::UNDEFINED)

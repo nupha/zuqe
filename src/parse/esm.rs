@@ -166,7 +166,7 @@ impl<'s> JSParseState<'s> {
             module_name = self.parse_from_clause()?;
         }
 
-        let idx = md.add_dependency(&self.ctx, module_name)?;
+        let idx = md.add_dependency(&mut self.ctx, module_name)?;
         for imp in &mut md.import_entries[first_import..] {
             imp.req_module_idx = idx as _;
         }
@@ -286,7 +286,7 @@ impl<'s> JSParseState<'s> {
                 // Handle re-exports
                 if self.token_is_pseudo_keyword(Atom::CONST_from) {
                     let module_name = self.parse_from_clause()?;
-                    let idx = md.add_dependency(&self.ctx, module_name)?;
+                    let idx = md.add_dependency(&mut self.ctx, module_name)?;
                     for me in &mut md.export_entries[first_export..] {
                         me.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _);
                     }
@@ -319,7 +319,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     let module_name = self.parse_from_clause()?;
-                    let r = md.add_dependency(&self.ctx, module_name);
+                    let r = md.add_dependency(&mut self.ctx, module_name);
 
                     let idx = r?;
                     self.add_module_export(
@@ -330,9 +330,9 @@ impl<'s> JSParseState<'s> {
                     )?;
                 } else {
                     let module_name = self.parse_from_clause()?;
-                    let dep_idx = md.add_dependency(&self.ctx, module_name);
+                    let dep_idx = md.add_dependency(&mut self.ctx, module_name);
 
-                    md.add_star_export_entry(&self.ctx, dep_idx?)?;
+                    md.add_star_export_entry(&mut self.ctx, dep_idx?)?;
                 }
             }
 
@@ -391,7 +391,7 @@ impl<'s> JSParseState<'s> {
     /// add export name for specified module or current parsing module.
     /// `local_name`, `export_name` are not consumed.
     pub(super) fn add_module_export(
-        &self,
+        &mut self,
         md: Option<ModuleDef>,
         local_name: Atom,
         export_name: Atom,
@@ -402,7 +402,7 @@ impl<'s> JSParseState<'s> {
             self.cur_func().module.unwrap()
         });
 
-        match md.add_export_internal(&self.ctx, local_name, export_name, export_type) {
+        match md.add_export_internal(self.ctx, local_name, export_name, export_type) {
             Ok(_) => Ok(()),
             Err(e) => {
                 if e == ErrorKind::Syntax as i32 {
@@ -413,8 +413,10 @@ impl<'s> JSParseState<'s> {
                     } else {
                         0
                     };
+
+                    let exc = self.ctx.rt_ptr().exception();
                     self.ctx.build_backtrace_to(
-                        self.ctx.rt_ptr().exception(),
+                        exc,
                         Some((self.filename, self.line_num)),
                         backtrace_flags,
                     );
@@ -427,7 +429,7 @@ impl<'s> JSParseState<'s> {
     /// add import for current parsing module.
     /// `local_name`, `import_name` are not consumed.
     pub(super) fn add_module_import(
-        &self,
+        &mut self,
         mut md: ModuleDef,
         local_name: Atom,
         import_name: Atom,
@@ -450,7 +452,7 @@ impl<'s> JSParseState<'s> {
 
         let is_local = import_name == Atom::CONST__star_;
         let var_idx = self.cur_func_mut().add_closure_var(
-            &self.ctx,
+            self.ctx,
             is_local,
             false,
             md.import_entries.len() as _,

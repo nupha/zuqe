@@ -11,7 +11,7 @@ use crate::{
         js_array_iterator_next, js_create_array_iterator,
     },
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
-    context::ContextImpl,
+    context::ContextPtr,
     function::{Callback, FunctionKind, VarRef},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
@@ -19,13 +19,13 @@ use crate::{
         JS_PROP_WRITABLE, Object,
     },
     stack_frame::StackFrame,
-    string::{JS_ConcatString3, LocalString, StringImpl, StringRef},
+    string::{JS_ConcatString3, LocalString},
     utils::unlikely,
     value::JSValue,
 };
 
 #[inline(always)]
-pub(super) fn js_operator_delete(ctx: &ContextImpl, sp: *mut JSValue) -> i32 {
+pub(super) fn js_operator_delete(mut ctx: ContextPtr, sp: *mut JSValue) -> i32 {
     let (mut op1, op2) = unsafe {
         (
             std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
@@ -33,11 +33,11 @@ pub(super) fn js_operator_delete(ctx: &ContextImpl, sp: *mut JSValue) -> i32 {
         )
     };
 
-    let Ok(atom) = op2.to_atom(ctx) else {
+    let Ok(atom) = op2.to_atom(&mut ctx) else {
         return -1;
     };
 
-    let ret = op1.delete_property(ctx, atom, JS_PROP_THROW_STRICT);
+    let ret = op1.delete_property(&mut ctx, atom, JS_PROP_THROW_STRICT);
     if let Ok(b) = ret {
         unsafe {
             std::ptr::replace(sp.offset(-2), JSValue::Bool(b));
@@ -48,7 +48,7 @@ pub(super) fn js_operator_delete(ctx: &ContextImpl, sp: *mut JSValue) -> i32 {
     }
 }
 
-pub(super) fn js_operator_instanceof(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_operator_instanceof(mut ctx: ContextPtr, sp: *mut JSValue) -> Result<(), i32> {
     let (val, ctor) = unsafe {
         (
             std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
@@ -56,7 +56,7 @@ pub(super) fn js_operator_instanceof(ctx: &ContextImpl, sp: *mut JSValue) -> Res
         )
     };
 
-    let b = val.instance_of(ctx, ctor)?;
+    let b = val.instance_of(&mut ctx, ctor)?;
     unsafe {
         std::ptr::replace(sp.offset(-2), JSValue::Bool(b));
     }
@@ -65,7 +65,7 @@ pub(super) fn js_operator_instanceof(ctx: &ContextImpl, sp: *mut JSValue) -> Res
 }
 
 pub(super) fn js_operator_in(
-    ctx: &ContextImpl,
+    mut ctx: ContextPtr,
     obj: &JSValue,
     prop: &JSValue,
 ) -> Result<bool, i32> {
@@ -73,23 +73,23 @@ pub(super) fn js_operator_in(
         ctx.throw_type_error("invalid 'in' operand");
         Err(-1)
     } else {
-        let atom = prop.to_atom(ctx)?;
-        obj.has_property(ctx, atom)
+        let atom = prop.to_atom(&mut ctx)?;
+        obj.has_property(&mut ctx, atom)
     }
 }
 
 #[cfg(feature = "builtin_symbol")]
-pub(super) fn js_operator_private_in(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_operator_private_in(mut ctx: ContextPtr, sp: *mut JSValue) -> Result<(), i32> {
     let obj = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) }; // object
     let item = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) }; // field name or method function
 
     if let JSValue::Object(o) = obj {
         let ret = if item.is_object() {
             // method: use the brand
-            o.check_brand(ctx, item)?
+            o.check_brand(&mut ctx, item)?
         } else {
             // field
-            let atom = item.to_atom(ctx)?;
+            let atom = item.to_atom(&mut ctx)?;
             o.has_shape_property(atom)
         };
         unsafe {
@@ -103,7 +103,7 @@ pub(super) fn js_operator_private_in(ctx: &ContextImpl, sp: *mut JSValue) -> Res
 }
 
 pub(super) fn js_op_define_class(
-    ctx: &ContextImpl,
+    mut ctx: ContextPtr,
     sp: *mut JSValue,
     class_name: Atom,
     class_flags: i32,
@@ -131,7 +131,7 @@ pub(super) fn js_op_define_class(
             ctx.throw_type_error("parent class must be constructor ");
             return Err(-1);
         } else {
-            parent_proto = match parent_class.get_property(ctx, Atom::CONST_prototype)? {
+            parent_proto = match parent_class.get_property(&mut ctx, Atom::CONST_prototype)? {
                 JSValue::NULL => None,
                 JSValue::Object(o) => Some(o),
                 _ => {
@@ -147,35 +147,40 @@ pub(super) fn js_op_define_class(
     }
 
     let mut proto = ctx.create_base_object_with_proto(parent_proto)?;
-    let mut ctor = bc.make_closure(ctx, parent_class.to_object(), captured_vars, Some(sframe))?;
+    let mut ctor = bc.make_closure(
+        &mut ctx,
+        parent_class.to_object(),
+        captured_vars,
+        Some(sframe),
+    )?;
 
     ctor.method_set_home_object(Some(proto));
     ctor.set_flag_constructor(true);
 
     ctor.define_property_value(
-        ctx,
+        &mut ctx,
         Atom::CONST_length,
         JSValue::Int(bc.attrs.defined_arg_count as i32),
         JS_PROP_CONFIGURABLE,
     )?;
 
     if is_computed_name {
-        ctor.define_name_computed(ctx, unsafe { *sp.offset(-3) }, JS_PROP_CONFIGURABLE)?;
+        ctor.define_name_computed(&mut ctx, unsafe { *sp.offset(-3) }, JS_PROP_CONFIGURABLE)?;
     } else {
-        ctor.define_name(ctx, class_name, JS_PROP_CONFIGURABLE)?;
+        ctor.define_name(&mut ctx, class_name, JS_PROP_CONFIGURABLE)?;
     }
 
     // the constructor property must be first. It can be overridden by
     // computed property names
     proto.define_property_value(
-        ctx,
+        &mut ctx,
         Atom::CONST_constructor,
         ctor.into(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_THROW,
     )?;
 
     // set the prototype property
-    ctor.define_property_value(ctx, Atom::CONST_prototype, proto.into(), JS_PROP_THROW)?;
+    ctor.define_property_value(&mut ctx, Atom::CONST_prototype, proto.into(), JS_PROP_THROW)?;
 
     unsafe {
         std::ptr::replace(sp.offset(-2), ctor.into());
@@ -188,13 +193,17 @@ pub(super) fn js_op_define_class(
 /// test if `atom` property is true in value's \[Symbol.unscopables\] scope.
 ///
 /// `atom` is not consumed.
-pub(super) fn js_has_unscopable(ctx: &ContextImpl, obj: JSValue, atom: Atom) -> Result<bool, i32> {
+pub(super) fn js_has_unscopable(
+    mut ctx: ContextPtr,
+    obj: JSValue,
+    atom: Atom,
+) -> Result<bool, i32> {
     #[cfg(feature = "builtin_symbol")]
     if let Some(o) = obj
-        .get_property(ctx, Atom::CONST_Symbol_unscopables)?
+        .get_property(&mut ctx, Atom::CONST_Symbol_unscopables)?
         .as_object()
     {
-        o.get_property(ctx, atom)?.to_bool()
+        o.get_property(&mut ctx, atom)?.to_bool()
     } else {
         Ok(false)
     }
@@ -203,11 +212,8 @@ pub(super) fn js_has_unscopable(ctx: &ContextImpl, obj: JSValue, atom: Atom) -> 
     Ok(false)
 }
 
-pub(crate) fn js_get_function_name(
-    ctx: &ContextImpl,
-    name: Atom,
-) -> Result<LocalString, i32> {
-    let name_str = name.force_string(ctx)?;
+pub(crate) fn js_get_function_name(mut ctx: ContextPtr, name: Atom) -> Result<LocalString, i32> {
+    let name_str = name.force_string(&mut ctx)?;
     if name.is_normal_desc_string(ctx.rt_ref()) {
         JS_ConcatString3(ctx, c"[", JSValue::from(name_str.gc_ref()), c"]")
     } else {
@@ -218,8 +224,8 @@ pub(crate) fn js_get_function_name(
 /// Modify the name of a method according to the atom and
 /// 'flags'. 'flags' is a bitmask of JS_PROP_HAS_GET and
 /// JS_PROP_HAS_SET. Also set the home object of the method.
-pub fn js_method_set_properties(
-    ctx: &ContextImpl,
+pub(super) fn js_method_set_properties(
+    mut ctx: ContextPtr,
     func_obj: &mut JSValue,
     name: Atom,
     flags: u32,
@@ -233,7 +239,12 @@ pub fn js_method_set_properties(
         name_str = JS_ConcatString3(ctx, c"set ", name_str.into(), c"")?;
     }
 
-    func_obj.define_property_value(ctx, Atom::CONST_name, name_str.into(), JS_PROP_CONFIGURABLE)?;
+    func_obj.define_property_value(
+        &mut ctx,
+        Atom::CONST_name,
+        name_str.into(),
+        JS_PROP_CONFIGURABLE,
+    )?;
 
     if let Some(fo) = func_obj.as_object_BCWrapper_mut() {
         fo.method_set_home_object(home_obj.as_object().copied());
@@ -246,7 +257,7 @@ pub fn js_method_set_properties(
 /// 类似于 JavaScript 中的 `[...iterable]` 或者 `array.push(...iterable)` 操作。
 ///
 /// 操作完成后, `SP[-3]`数组中加入了来自`SP[-1]`的全部元素，`SP[-1]`没有变化，`SP[-2]`更新为结束位置index。
-pub(super) unsafe fn js_append_enumerate(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) unsafe fn js_append_enumerate(mut ctx: ContextPtr, sp: *mut JSValue) -> Result<(), i32> {
     // the index where append starts
     let mut pos = if let JSValue::Int(i) = unsafe { &*sp.offset(-2) } {
         *i
@@ -263,7 +274,7 @@ pub(super) unsafe fn js_append_enumerate(ctx: &ContextImpl, sp: *mut JSValue) ->
     };
 
     // .length property of the array
-    let len = src.get_length_prop(ctx)? as usize;
+    let len = src.get_length_prop(&mut ctx)? as usize;
 
     // XXX: further optimisations:
     //       - use ctx->array_proto_values?
@@ -273,7 +284,7 @@ pub(super) unsafe fn js_append_enumerate(ctx: &ContextImpl, sp: *mut JSValue) ->
     let is_array_iterator = {
         #[cfg(feature = "builtin_symbol")]
         {
-            src.get_property(ctx, Atom::CONST_Symbol_iterator)?
+            src.get_property(&mut ctx, Atom::CONST_Symbol_iterator)?
                 .match_native_callback(
                     Callback::Func(js_create_array_iterator),
                     JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
@@ -298,7 +309,7 @@ pub(super) unsafe fn js_append_enumerate(ctx: &ContextImpl, sp: *mut JSValue) ->
             && arr_data.len() == len
         {
             for v in arr_data.values() {
-                dest.define_property_value_u32(ctx, pos as _, *v, JS_PROP_C_W_E)?;
+                dest.define_property_value_u32(&mut ctx, pos as _, *v, JS_PROP_C_W_E)?;
                 pos += 1;
             }
             fast_done = true;
@@ -308,7 +319,7 @@ pub(super) unsafe fn js_append_enumerate(ctx: &ContextImpl, sp: *mut JSValue) ->
     if !fast_done {
         // slow path: use iterator for sparse array
         for value in it {
-            dest.define_property_value_u32(ctx, pos as _, value?, JS_PROP_C_W_E)?;
+            dest.define_property_value_u32(&mut ctx, pos as _, value?, JS_PROP_C_W_E)?;
             pos += 1;
         }
     }
@@ -321,10 +332,11 @@ pub(super) unsafe fn js_append_enumerate(ctx: &ContextImpl, sp: *mut JSValue) ->
 }
 
 /// obj -> enum_obj
-pub(super) fn js_for_in_start(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_for_in_start(mut ctx: ContextPtr, sp: *mut JSValue) -> Result<(), i32> {
     unsafe {
         let obj = std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED);
-        let it = ForInIterPayload::create(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
+        let it =
+            ForInIterPayload::create(&mut ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
 
         std::ptr::replace(sp.offset(-1), it);
 
@@ -339,7 +351,7 @@ pub(super) fn js_for_in_start(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(),
 /// 实现 JavaScript 中 for...in 循环的迭代器逻辑，用于遍历对象的可枚举属性
 /// [enum_obj, ^] -> [enum_obj, value, done, ^]
 #[inline]
-pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_for_in_next(mut ctx: ContextPtr, sp: *mut JSValue) -> Result<(), i32> {
     let mut enum_obj = unsafe {
         let v = &mut *sp.offset(-1);
         debug_assert!(v.is_object());
@@ -355,10 +367,10 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
                 // prepare enumrable names for parent proto.
                 if let Some(ob) = it.obj.take() {
                     if !it.in_prototype_chain {
-                        let done = it.prepare_prototype_chain_enum(ctx, ob)?;
+                        let done = it.prepare_prototype_chain_enum(&mut ctx, ob)?;
                         for name in it.prop_enums.iter() {
                             enum_obj.define_property_value(
-                                ctx,
+                                &mut ctx,
                                 name.atom,
                                 JSValue::NULL,
                                 JS_PROP_ENUMERABLE,
@@ -376,14 +388,16 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
                     }
 
                     // walk up prototype chain.
-                    if let Some(up) = ob.prototype(ctx)? {
+                    if let Some(up) = ob.prototype(&mut ctx)? {
                         it.obj.replace(up);
 
                         // must check for timeout to avoid infinite loop
                         ctx.poll_interrupts()?;
 
-                        let names =
-                            up.get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)?;
+                        let names = up.get_own_property_names(
+                            &mut ctx,
+                            JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM,
+                        )?;
                         it.prop_count = names.len() as _;
                         it.prop_enums = names;
                         it.idx = 0;
@@ -421,14 +435,14 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
 
                     if it.in_prototype_chain {
                         // slow case: we are in the prototype chain
-                        match enum_obj.get_own_property(ctx, prop)? {
+                        match enum_obj.get_own_property(&mut ctx, prop)? {
                             Some(_) => {
                                 continue; // already visited
                             }
                             None => {
                                 // add to the visited property list
                                 enum_obj.define_property_value(
-                                    ctx,
+                                    &mut ctx,
                                     prop,
                                     JSValue::NULL,
                                     JS_PROP_ENUMERABLE,
@@ -446,7 +460,7 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
                 if unsafe {
                     it.obj
                         .unwrap_unchecked()
-                        .get_own_property(ctx, prop)?
+                        .get_own_property(&mut ctx, prop)?
                         .is_some()
                 } {
                     break;
@@ -455,7 +469,7 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
         }
 
         unsafe {
-            *sp = prop.to_value(ctx).unwrap_or(JSValue::EXCEPTION); // value
+            *sp = prop.to_value(&mut ctx).unwrap_or(JSValue::EXCEPTION); // value
             *sp.offset(1) = JSValue::Bool(false); // done flag
         }
     } else {
@@ -468,7 +482,7 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
     Ok(())
 }
 
-pub(super) unsafe fn js_iterator_get_value_done(ctx: &ContextImpl, sp: *mut JSValue) -> i32 {
+pub(super) unsafe fn js_iterator_get_value_done(mut ctx: ContextPtr, sp: *mut JSValue) -> i32 {
     let obj = unsafe { *sp.offset(-1) };
     if !obj.is_object() {
         ctx.throw_type_error("iterator must return an object");
@@ -476,7 +490,7 @@ pub(super) unsafe fn js_iterator_get_value_done(ctx: &ContextImpl, sp: *mut JSVa
     }
 
     let mut done = false;
-    let value = JS_IteratorGetCompleteValue(ctx, obj, &mut done);
+    let value = JS_IteratorGetCompleteValue(&mut ctx, obj, &mut done);
     if value.is_exception() {
         return -1;
     }
@@ -491,7 +505,7 @@ pub(super) unsafe fn js_iterator_get_value_done(ctx: &ContextImpl, sp: *mut JSVa
 
 #[inline]
 pub(super) unsafe fn js_for_of_next(
-    ctx: &ContextImpl,
+    ctx: ContextPtr,
     sp: *mut JSValue,
     base: i32,
 ) -> Result<(), i32> {

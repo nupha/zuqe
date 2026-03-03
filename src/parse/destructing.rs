@@ -639,7 +639,7 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    fn parse_check_duplicate_parameter(&self, name: Atom) -> Result<(), i32> {
+    fn parse_check_duplicate_parameter(&mut self, name: Atom) -> Result<(), i32> {
         // Check for duplicate parameter names
         if self.cur_func().args.iter().any(|vd| vd.var_name == name) {
             self.throw_syntax_error("duplicate parameter names not allowed in this context");

@@ -217,7 +217,7 @@ impl StringImpl {
     }
 
     /// coerce string to number. if can't convert string to number, returns NAN.
-    pub fn to_number(&self, ctx: &ContextImpl) -> JSValue {
+    pub fn to_number(&self, ctx: &mut ContextImpl) -> JSValue {
         let str = self.content().encode_utf8(false);
         let str = str.as_ref().trim();
 
@@ -246,7 +246,7 @@ impl StringImpl {
     }
 
     /// convert String value to String object
-    pub fn objectify(&self, ctx: &ContextImpl, ctor: JSValue) -> Result<Object, i32> {
+    pub fn objectify(&self, ctx: &mut ContextImpl, ctor: JSValue) -> Result<Object, i32> {
         let len = self.len();
         let mut o = ctx
             .create_object_from_ctor(ctor, ObjectPayload::STRING(self.gc_ref().into()))
@@ -257,7 +257,7 @@ impl StringImpl {
     }
 
     /// treat value `other` as string, and concat self with other.
-    pub(crate) fn concat(&self, ctx: &ContextImpl, other: JSValue) -> Result<LocalString, i32> {
+    pub(crate) fn concat(&self, ctx: &mut ContextImpl, other: JSValue) -> Result<LocalString, i32> {
         let s2 = other.to_string(ctx)?;
 
         if self.is_empty() {
@@ -281,7 +281,11 @@ impl StringImpl {
 
     /// make sub string with content of given range.
     /// range is about buffer index, and end index is exclusive.
-    pub fn sub_string(&self, ctx: &ContextImpl, range: Range<usize>) -> Result<LocalString, i32> {
+    pub fn sub_string(
+        &self,
+        ctx: &mut ContextImpl,
+        range: Range<usize>,
+    ) -> Result<LocalString, i32> {
         let end = std::cmp::min(range.end, self.len());
 
         if range.start == 0 && end == self.len() {
@@ -289,10 +293,14 @@ impl StringImpl {
         } else {
             let count = end.saturating_sub(range.start);
             if count > 0 {
-                ctx.create_string_with_buf(self.content().to_buf_range(range).map_err(|_| {
+                if let Ok(sbuf) = self.content().to_buf_range(range)
+                    && let Ok(s) = ctx.create_string_with_buf(sbuf)
+                {
+                    Ok(s)
+                } else {
                     ctx.throw_out_of_memory();
-                    -1
-                })?)
+                    Err(-1)
+                }
             } else {
                 ctx.create_string_with_content(StringData::Empty)
             }
@@ -542,7 +550,7 @@ impl StringRef {
 
 impl ContextImpl {
     /// create string value from string buf.
-    pub(crate) fn create_string_with_buf(&self, sbuf: StringBuf) -> Result<LocalString, i32> {
+    pub(crate) fn create_string_with_buf(&mut self, sbuf: StringBuf) -> Result<LocalString, i32> {
         if sbuf.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
@@ -558,7 +566,7 @@ impl ContextImpl {
 
     /// create string value from string content.
     pub(crate) fn create_string_with_content(
-        &self,
+        &mut self,
         content: StringData,
     ) -> Result<LocalString, i32> {
         if content.is_empty() {
@@ -574,7 +582,7 @@ impl ContextImpl {
     }
 
     /// create string from utf8 encoded data.
-    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> Result<LocalString, i32> {
+    pub fn create_string_from_utf8(&mut self, utf8_bytes: Vec<u8>) -> Result<LocalString, i32> {
         if utf8_bytes.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else if utf8_bytes.len() > JS_STRING_LEN_MAX {
@@ -590,7 +598,7 @@ impl ContextImpl {
     }
 
     /// create string from str
-    pub fn create_string_from_str(&self, str: &str) -> Result<LocalString, i32> {
+    pub fn create_string_from_str(&mut self, str: &str) -> Result<LocalString, i32> {
         if unlikely(str.is_empty()) {
             Atom::CONST_empty_string.force_string(self)
         } else if unlikely(str.len() > JS_STRING_LEN_MAX) {
@@ -606,7 +614,7 @@ impl ContextImpl {
     }
 
     /// create string value from a single string char.
-    pub fn create_string_from_char(&self, ch: CharCode) -> Result<LocalString, i32> {
+    pub fn create_string_from_char(&mut self, ch: CharCode) -> Result<LocalString, i32> {
         let sbuf = match ch.encode_utf16(&mut [0; 2]) {
             &[b @ (0..0x80), _] => StringBuf::Ascii(vec![b as u8]),
             bb => StringBuf::Utf16(bb.to_vec()),
@@ -616,7 +624,7 @@ impl ContextImpl {
 }
 
 pub(crate) fn JS_ConcatString3(
-    ctx: &ContextImpl,
+    mut ctx: ContextPtr,
     str1: &CStr,
     str2: JSValue,
     str3: &CStr,
@@ -624,7 +632,7 @@ pub(crate) fn JS_ConcatString3(
     let p = if let JSValue::String(s) = str2 {
         s.to_local()
     } else {
-        str2.to_string(ctx)?
+        str2.to_string(&mut ctx)?
     };
 
     let len1 = str1.count_bytes();
@@ -662,7 +670,7 @@ impl JSValue {
     }
 
     /// Convert `self` to string or symbol value. (string is preferred)
-    pub fn to_string_or_symbol(&self, ctx: &ContextImpl) -> Result<Self, i32> {
+    pub fn to_string_or_symbol(&self, ctx: &mut ContextImpl) -> Result<Self, i32> {
         match self {
             Self::String(_) => {
                 Ok(*self) // as-is
@@ -710,12 +718,12 @@ impl JSValue {
 
     /// An alias for [`JSValue::to_string_or_symbol`](Self::to_string_or_symbol).
     #[inline(always)]
-    pub fn to_propkey(&self, ctx: &ContextImpl) -> Result<JSValue, i32> {
+    pub fn to_propkey(&self, ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         self.to_string_or_symbol(ctx)
     }
 
     /// Coerce value `self` to string. if `self` is symbol, returns Err.
-    pub fn to_string(&self, ctx: &ContextImpl) -> Result<LocalString, i32> {
+    pub fn to_string(&self, ctx: &mut ContextImpl) -> Result<LocalString, i32> {
         match self {
             Self::String(s) => Ok(s.to_local()),
             #[cfg(feature = "builtin_symbol")]
@@ -736,7 +744,10 @@ impl JSValue {
     }
 
     /// Coerce value `val` to string, but null or undefined are forbidden.
-    pub fn to_string_non_undefined_or_null(&self, ctx: &ContextImpl) -> Result<LocalString, i32> {
+    pub fn to_string_non_undefined_or_null(
+        &self,
+        ctx: &mut ContextImpl,
+    ) -> Result<LocalString, i32> {
         if unlikely(self.is_undefined_or_null()) {
             ctx.throw_type_error("null or undefined are forbidden");
             Err(-1)
@@ -746,7 +757,7 @@ impl JSValue {
     }
 
     /// Invoking `toLocaleString()` method.
-    pub fn to_locale_string(&self, ctx: &ContextImpl) -> Result<JSValue, i32> {
+    pub fn to_locale_string(&self, ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         if self.is_undefined_or_null() {
             self.to_string(ctx).map(|s| JSValue::from(s))
         } else {
@@ -761,7 +772,7 @@ impl JSValue {
 
 /// prop is not consumed
 fn string_define_own_property(
-    ctx: ContextPtr,
+    mut ctx: ContextPtr,
     mut this_obj: JSValue,
     prop: Atom,
     val: JSValue,
@@ -784,7 +795,7 @@ fn string_define_own_property(
         () => {
             // use clone to make `this_obj` &Value -> &mut JSValue
             return this_obj.define_property(
-                &ctx,
+                &mut ctx,
                 prop,
                 val,
                 getter,
@@ -836,7 +847,10 @@ fn string_define_own_property(
 
 pub(crate) const js_string_exotic_methods: ClassExoticMethods = ClassExoticMethods {
     get_own_property: Some(
-        |ctx: ContextPtr, obj: JSValue, prop: Atom| -> Result<Option<JSPropertyDescriptor>, i32> {
+        |mut ctx: ContextPtr,
+         obj: JSValue,
+         prop: Atom|
+         -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method for JS_CLASS_STRING object
             if let Some(idx) = prop.to_small_int()
                 && let Some(s) = obj.as_string()

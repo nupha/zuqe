@@ -6,6 +6,7 @@ use std::ptr::NonNull;
 use fallible_collections::TryCollect;
 
 use crate::{
+    ContextImpl,
     atom::{Atom, AtomKind},
     builtins::{
         generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
@@ -25,7 +26,7 @@ use crate::{
         OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
         OP_DEFINE_METHOD_SETTER,
     },
-    context::ContextImpl,
+    context::ContextPtr,
     error::{
         JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
@@ -59,7 +60,7 @@ impl Bytecode {
     #[allow(clippy::too_many_arguments)]
     pub fn run(
         &self,
-        caller_ctx: &ContextImpl, // Context of the calling environment
+        mut caller_ctx: ContextPtr, // caller's context
         func_home_obj: Option<Object>,
         stack_frame: &mut StackFrame, // The stack frame for execution
         this_obj: JSValue,            // The 'this' binding for the function execution
@@ -70,8 +71,9 @@ impl Bytecode {
         args: &[JSValue], // actual calling arguments pass in by caller, not padded length
         throwed: bool,    // Indicates if an exception has been thrown
     ) -> JSValue {
-        let mode = stack_frame.mode;
+        let mut rt = caller_ctx.rt_ptr();
         let mut realm = self.realm().unwrap(); // bytecode's context
+
         let bytecodes = self.opcodes();
         debug_assert!(
             pc_offset < bytecodes.len(),
@@ -80,6 +82,7 @@ impl Bytecode {
             bytecodes.len()
         );
 
+        let mode = stack_frame.mode;
         let cpools = self.consts();
 
         // convert offset to pointer
@@ -90,17 +93,15 @@ impl Bytecode {
 
         stack_frame.cur_sp_offset = sp_offset as _;
 
-        // make calling stack frame to be `current`
-        caller_ctx
-            .rt_ptr()
-            .push_stack_frame(NonNull::from_ref(stack_frame));
+        // setup stack_frame to be `current`
+        rt.push_stack_frame(NonNull::from_ref(stack_frame));
 
         if throwed {
             // has thrown current exception, handle it before execution.
             let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
 
             if let Some((new_pc, new_sp)) =
-                stack_frame.handle_exception(&realm, cur_pc, stack_frame.cur_sp_offset as usize)
+                stack_frame.handle_exception(realm, cur_pc, stack_frame.cur_sp_offset as usize)
             {
                 // continue execution: update pc and sp.
                 stack_frame.cur_sp_offset = new_sp as i32;
@@ -111,7 +112,7 @@ impl Bytecode {
             } else {
                 // abort execution: sp=0, pc unchanged
                 stack_frame.handle_exit(
-                    &realm,
+                    &mut realm,
                     cur_pc,
                     0,
                     self.func_kind() != FunctionKind::Normal,
@@ -119,8 +120,6 @@ impl Bytecode {
                 return JSValue::EXCEPTION;
             }
         }
-
-        let mut rt = caller_ctx.rt_ptr();
 
         /// get value at stack position `idx`
         macro_rules! SP_VAL {
@@ -311,7 +310,7 @@ impl Bytecode {
                     let dr = debug_setting.map_or(0, |s| s.dump_run);
                     if unlikely(dr != 0) {
                         super::dump::dump_run_instruction(
-                            &realm,
+                            &mut realm,
                             self,
                             unsafe { pc.offset_from(pc_base) as usize },
                             if dr == 2 { sp_base } else { std::ptr::null() },
@@ -370,7 +369,7 @@ impl Bytecode {
                         SP_PUT!(
                             0,
                             Atom::from_id(a)
-                                .to_value(&realm)
+                                .to_value(&mut realm)
                                 .unwrap_or(JSValue::EXCEPTION)
                         );
                         SP_GO!(1);
@@ -393,7 +392,7 @@ impl Bytecode {
                                     JSValue::Object(realm.global_obj())
                                 }
                                 _ => {
-                                    if let Ok(v) = this_obj.objectify(&realm) {
+                                    if let Ok(v) = this_obj.objectify(&mut realm) {
                                         v.into()
                                     } else {
                                         break State::Exception;
@@ -436,7 +435,7 @@ impl Bytecode {
                         );
                         match unsafe { std::mem::transmute::<u8, SpecialObject>(id) } {
                             SpecialObject::Arguments => {
-                                SP_PUT!(0, js_build_arguments(&realm, args));
+                                SP_PUT!(0, js_build_arguments(&mut realm, args));
                                 SP_GO!(1);
                                 if unlikely(SP_REF!(-1).is_exception()) {
                                     break State::Exception;
@@ -444,7 +443,7 @@ impl Bytecode {
                             }
                             SpecialObject::MappedArguments => {
                                 let ma = js_build_mapped_arguments(
-                                    &realm,
+                                    &mut realm,
                                     args,
                                     stack_frame,
                                     std::cmp::min(args.len() as i32, self.arg_count as i32),
@@ -490,7 +489,7 @@ impl Bytecode {
                             SpecialObject::ImportMeta => {
                                 SP_PUT!(
                                     0,
-                                    js_import_meta(&realm)
+                                    js_import_meta(&mut realm)
                                         .map_or(JSValue::EXCEPTION, JSValue::Object)
                                 );
                                 SP_GO!(1);
@@ -666,7 +665,7 @@ impl Bytecode {
 
                         if let JSValue::Bytecode(bc) = CPOOL![id] {
                             let r = bc
-                                .make_closure(&realm, None, captured_vars, Some(stack_frame))
+                                .make_closure(&mut realm, None, captured_vars, Some(stack_frame))
                                 .map_or(JSValue::EXCEPTION, |f| f.into());
                             SP_PUT!(0, r);
                             SP_GO!(1);
@@ -693,7 +692,7 @@ impl Bytecode {
                         // could have resursive call. tail_call optimization needed.
                         let func = unsafe { *call_argv.offset(-1) };
                         let ret_val = func.call_internal(
-                            &realm,
+                            &mut realm,
                             JSValue::UNDEFINED,
                             JSValue::UNDEFINED,
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
@@ -726,7 +725,7 @@ impl Bytecode {
 
                         let func = unsafe { *call_argv.offset(-2) };
                         let ret_val = func.call_internal(
-                            &realm,
+                            &mut realm,
                             JSValue::UNDEFINED,
                             unsafe { *call_argv.offset(-1) },
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
@@ -748,7 +747,7 @@ impl Bytecode {
                         }
 
                         // let ret_val = JS_CallConstructorInternal(
-                        //     &realm,
+                        //     &mut realm,
                         //     func,
                         //     unsafe { *call_argv.offset(-1) },
                         //     unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
@@ -779,7 +778,7 @@ impl Bytecode {
                         // could have recursive call.
                         let func = unsafe { *call_argv.offset(-1) };
                         let ret_val = func.call_internal(
-                            &realm,
+                            &mut realm,
                             unsafe { *call_argv.offset(-2) },
                             JSValue::UNDEFINED,
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
@@ -884,7 +883,7 @@ impl Bytecode {
                     }
                     OpCode::CHECK_BRAND => {
                         #[cfg(feature = "builtin_symbol")]
-                        if let Ok(b) = SP_REF!(-2).check_brand(&realm, SP_VAL!(-1)) {
+                        if let Ok(b) = SP_REF!(-2).check_brand(&mut realm, SP_VAL!(-1)) {
                             if unlikely(!b) {
                                 realm.throw_type_error("invalid brand on object");
                                 break State::Exception;
@@ -906,7 +905,7 @@ impl Bytecode {
                             let mut func_obj = SP_VAL!(-2);
                             let home_object = SP_VAL!(-1);
                             SP_GO!(-2);
-                            if unlikely(func_obj.add_brand(&realm, home_object).is_err()) {
+                            if unlikely(func_obj.add_brand(&mut realm, home_object).is_err()) {
                                 break State::Exception;
                             }
                         }
@@ -931,10 +930,10 @@ impl Bytecode {
                                 realm.throw_type_error_read_only(atom);
                             }
                             JS_THROW_VAR_REDECL => {
-                                JS_ThrowSyntaxErrorVarRedeclaration(&realm, atom);
+                                JS_ThrowSyntaxErrorVarRedeclaration(&mut realm, atom);
                             }
                             JS_THROW_VAR_UNINITIALIZED => {
-                                JS_ThrowReferenceErrorUninitialized(&realm, atom);
+                                JS_ThrowReferenceErrorUninitialized(&mut realm, atom);
                             }
                             JS_THROW_ERROR_DELETE_SUPER => {
                                 realm.throw_reference_error("unsupported reference to 'super'");
@@ -980,7 +979,7 @@ impl Bytecode {
                             }
                         } else {
                             func_val.call_internal(
-                                &realm,
+                                &mut realm,
                                 JSValue::UNDEFINED,
                                 JSValue::UNDEFINED,
                                 unsafe {
@@ -1010,7 +1009,7 @@ impl Bytecode {
                         let var_scope_idx = PC_FETCH!(u16) as i32 - 1; // NOTE: could be minus
                         let func_val = SP_REF!(-2);
 
-                        if let Ok(arg_list) = build_arg_list(&realm, SP_VAL!(-1)) {
+                        if let Ok(arg_list) = build_arg_list(&mut realm, SP_VAL!(-1)) {
                             let ret_val = if func_val.is_same(realm.eval_func) {
                                 if !arg_list.is_empty() {
                                     // eval(obj, ...)
@@ -1026,7 +1025,7 @@ impl Bytecode {
                                     Ok(JSValue::UNDEFINED)
                                 }
                             } else {
-                                func_val.call(&realm, JSValue::UNDEFINED, &arg_list)
+                                func_val.call(&mut realm, JSValue::UNDEFINED, &arg_list)
                             };
 
                             if let Ok(v) = ret_val {
@@ -1047,7 +1046,7 @@ impl Bytecode {
                             let re =
                                 Box::new(realm.rt_ptr().regexp_precompiled[re_id as usize].clone());
                             let regexp = crate::builtins::regexp::RegExp::from(
-                                &realm,
+                                &mut realm,
                                 JSValue::UNDEFINED,
                                 re,
                             )
@@ -1062,7 +1061,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::GET_SUPER => {
-                        if let Ok(proto) = SP_REF!(-1).prototype(&realm) {
+                        if let Ok(proto) = SP_REF!(-1).prototype(&mut realm) {
                             SP_PUT!(-1, proto);
                         } else {
                             break State::Exception;
@@ -1113,7 +1112,7 @@ impl Bytecode {
                         let atom = Atom::from_id(PC_FETCH!(u32));
 
                         if let JSValue::Bool(false) = SP_VAL!(-2) {
-                            JS_ThrowReferenceErrorNotDefined(&realm, atom);
+                            JS_ThrowReferenceErrorNotDefined(&mut realm, atom);
                             break State::Exception;
                         } else {
                             let ret = realm.set_global_var(atom, SP_VAL!(-1), 2);
@@ -1223,7 +1222,7 @@ impl Bytecode {
 
                         let val = captured_vars[idx as usize].value();
                         if unlikely(val.is_uninitialized()) {
-                            JS_ThrowReferenceErrorUninitialized2(&realm, self, idx, true);
+                            JS_ThrowReferenceErrorUninitialized2(&mut realm, self, idx, true);
                             break State::Exception;
                         } else if opcode == OpCode::GET_VAR_REF_CHECK {
                             SP_PUT!(0, val);
@@ -1236,7 +1235,7 @@ impl Bytecode {
                     OpCode::PUT_VAR_REF_CHECK_INIT => {
                         let idx = PC_FETCH!(u16);
                         if unlikely(!captured_vars[idx as usize].value().is_uninitialized()) {
-                            JS_ThrowReferenceErrorUninitialized2(&realm, self, idx, true);
+                            JS_ThrowReferenceErrorUninitialized2(&mut realm, self, idx, true);
                             break State::Exception;
                         } else {
                             captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
@@ -1245,14 +1244,16 @@ impl Bytecode {
                     }
 
                     OpCode::GET_LOC_CHECK | OpCode::GET_LOC_CHECKTHIS => {
+                        // [^] -> [value, ^]
                         let idx = PC_FETCH!(u16);
+
                         let val = VAR_REF![idx];
                         if unlikely(val.is_uninitialized()) {
                             JS_ThrowReferenceErrorUninitialized2(
                                 if opcode == OpCode::GET_LOC_CHECK {
-                                    &realm
+                                    &mut realm
                                 } else {
-                                    caller_ctx
+                                    &mut caller_ctx
                                 },
                                 self,
                                 idx,
@@ -1268,7 +1269,7 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
                         let pval = VAR_REF![idx];
                         if unlikely(pval.is_uninitialized()) {
-                            JS_ThrowReferenceErrorUninitialized2(&realm, self, idx, false);
+                            JS_ThrowReferenceErrorUninitialized2(&mut realm, self, idx, false);
                             break State::Exception;
                         } else {
                             *pval = SP_VAL!(-1);
@@ -1307,13 +1308,13 @@ impl Bytecode {
                         let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
                             Ok(captured_vars[idx as usize])
                         } else {
-                            stack_frame.get_var_ref(&realm, idx, opcode == OpCode::MAKE_ARG_REF)
+                            stack_frame.get_var_ref(&mut realm, idx, opcode == OpCode::MAKE_ARG_REF)
                         };
                         match var_ref {
                             Ok(vr) => {
                                 if unsafe { SP_MUT!(-1).as_object_mut_unchecked() }
                                     .add_own_property(
-                                        &realm,
+                                        &mut realm,
                                         atom,
                                         JS_PROP_WRITABLE | JS_PROP_VARREF,
                                         JSProperty::VarRef(vr),
@@ -1322,7 +1323,10 @@ impl Bytecode {
                                 {
                                     break State::Exception;
                                 } else {
-                                    SP_PUT!(0, atom.to_value(&realm).unwrap_or(JSValue::EXCEPTION));
+                                    SP_PUT!(
+                                        0,
+                                        atom.to_value(&mut realm).unwrap_or(JSValue::EXCEPTION)
+                                    );
                                     SP_GO!(1);
                                 }
                             }
@@ -1436,12 +1440,12 @@ impl Bytecode {
                         }
                     }
                     OpCode::FOR_IN_START => {
-                        if js_for_in_start(&realm, sp).is_err() {
+                        if js_for_in_start(realm, sp).is_err() {
                             break State::Exception;
                         }
                     }
                     OpCode::FOR_IN_NEXT => {
-                        if js_for_in_next(&realm, sp).is_err() {
+                        if js_for_in_next(realm, sp).is_err() {
                             break State::Exception;
                         }
                         SP_GO!(2);
@@ -1452,8 +1456,10 @@ impl Bytecode {
                         let is_async = opcode == OpCode::FOR_AWAIT_OF_START;
 
                         if let Ok((iter_obj, next_method)) = SP_REF!(-1)
-                            .get_iterator_must(&realm, is_async)
-                            .and_then(|o| o.get_property(&realm, Atom::CONST_next).map(|m| (o, m)))
+                            .get_iterator_must(&mut realm, is_async)
+                            .and_then(|o| {
+                                o.get_property(&mut realm, Atom::CONST_next).map(|m| (o, m))
+                            })
                         {
                             SP_PUT!(-1, JSValue::from(iter_obj));
                             SP_PUT!(0, next_method);
@@ -1466,14 +1472,14 @@ impl Bytecode {
                     }
                     OpCode::FOR_OF_NEXT => {
                         let offset = -3 - PC_FETCH!(u8) as i32;
-                        let r = unsafe { js_for_of_next(&realm, sp, offset) };
+                        let r = unsafe { js_for_of_next(realm, sp, offset) };
                         if unlikely(r.is_err()) {
                             break State::Exception;
                         }
                         SP_GO!(2);
                     }
                     OpCode::ITERATOR_GET_VALUE_DONE => {
-                        if unlikely(unsafe { js_iterator_get_value_done(&realm, sp) } != 0) {
+                        if unlikely(unsafe { js_iterator_get_value_done(realm, sp) } != 0) {
                             break State::Exception;
                         } else {
                             SP_GO!(1);
@@ -1491,7 +1497,7 @@ impl Bytecode {
 
                         // SP[-1] is iter_obj
                         if let JSValue::Object(o) = SP_VAL!(-1)
-                            && unlikely(ObjectIter::close_internal(&realm, o, false).is_err())
+                            && unlikely(ObjectIter::close_internal(realm, o, false).is_err())
                         {
                             // leave iter_obj in stack
                             break State::Exception;
@@ -1520,9 +1526,11 @@ impl Bytecode {
                         // [      -4,   -3,           -2,  -1, 0]
                         //
                         // SP[-3]: next_method, SP[-4]: iter_obj, SP[-1]: val
-                        if let Ok(ret) =
-                            SP_REF!(-3).call(&realm, SP_VAL!(-4), std::slice::from_ref(SP_REF!(-1)))
-                        {
+                        if let Ok(ret) = SP_REF!(-3).call(
+                            &mut realm,
+                            SP_VAL!(-4),
+                            std::slice::from_ref(SP_REF!(-1)),
+                        ) {
                             SP_PUT!(-1, ret);
                         } else {
                             break State::Exception;
@@ -1534,7 +1542,7 @@ impl Bytecode {
                         let flags = PC_FETCH!(u8);
 
                         if let Ok(method) = SP_REF!(-4).get_property(
-                            &realm,
+                            &mut realm,
                             if flags & 1 != 0 {
                                 Atom::CONST_throw
                             } else {
@@ -1545,7 +1553,7 @@ impl Bytecode {
                                 true
                             } else {
                                 if let Ok(ret) = method.call(
-                                    &realm,
+                                    &mut realm,
                                     SP_VAL!(-4),
                                     if flags & 2 != 0 {
                                         &[]
@@ -1587,7 +1595,7 @@ impl Bytecode {
                         // get_field2: [obj, ^] -> [obj, value, ^]
                         let atom = Atom::from_id(PC_FETCH!(u32));
 
-                        if let Ok(val) = SP_REF!(-1).get_property(&realm, atom) {
+                        if let Ok(val) = SP_REF!(-1).get_property(&mut realm, atom) {
                             if opcode == OpCode::GET_FIELD {
                                 SP_PUT!(-1, val);
                             } else {
@@ -1606,7 +1614,7 @@ impl Bytecode {
                         SP_GO!(-2);
 
                         let r = obj.set_property_internal(
-                            &realm,
+                            realm,
                             atom,
                             value,
                             None,
@@ -1640,7 +1648,7 @@ impl Bytecode {
                             let op_2 = SP_VAL!(-2);
                             let op_1 = SP_VAL!(-1);
                             let val = op_2
-                                .get_private_field(&realm, op_1)
+                                .get_private_field(&mut realm, op_1)
                                 .unwrap_or(JSValue::EXCEPTION);
                             SP_PUT!(-2, val);
                             SP_GO!(-1);
@@ -1662,7 +1670,7 @@ impl Bytecode {
                         #[cfg(feature = "builtin_symbol")]
                         {
                             let ret =
-                                SP_MUT!(-3).set_private_field(&realm, SP_VAL!(-1), SP_VAL!(-2));
+                                SP_MUT!(-3).set_private_field(&mut realm, SP_VAL!(-1), SP_VAL!(-2));
                             SP_GO!(-3);
                             if unlikely(ret.is_err()) {
                                 break State::Exception;
@@ -1679,8 +1687,11 @@ impl Bytecode {
                         // [this_obj, name, value, ^] -> [this_obj, ^]
                         #[cfg(feature = "builtin_symbol")]
                         {
-                            let ret =
-                                SP_MUT!(-3).define_private_field(&realm, SP_VAL!(-2), SP_VAL!(-1));
+                            let ret = SP_MUT!(-3).define_private_field(
+                                &mut realm,
+                                SP_VAL!(-2),
+                                SP_VAL!(-1),
+                            );
                             SP_GO!(-2);
                             if unlikely(ret.is_err()) {
                                 break State::Exception;
@@ -1697,7 +1708,7 @@ impl Bytecode {
                         // [this_obj, value, ^] -> [this_obj, ^]
                         let atom = Atom::from_id(PC_FETCH!(u32));
                         let ret = SP_MUT!(-2).define_property_value(
-                            &realm,
+                            &mut realm,
                             atom,
                             SP_VAL!(-1),
                             JS_PROP_C_W_E | JS_PROP_THROW,
@@ -1713,7 +1724,7 @@ impl Bytecode {
                         let r = SP_MUT!(-1)
                             .as_object_mut()
                             .ok_or(-1)
-                            .and_then(|o| o.define_name(&realm, atom, JS_PROP_CONFIGURABLE));
+                            .and_then(|o| o.define_name(&mut realm, atom, JS_PROP_CONFIGURABLE));
                         if unlikely(r.is_err()) {
                             break State::Exception;
                         }
@@ -1721,7 +1732,7 @@ impl Bytecode {
                     OpCode::SET_NAME_COMPUTED => {
                         // [name, value, ^] -> [name, value, ^]
                         let r = SP_MUT!(-1).as_object_mut().unwrap().define_name_computed(
-                            &realm,
+                            &mut realm,
                             SP_VAL!(-2),
                             JS_PROP_CONFIGURABLE,
                         );
@@ -1733,7 +1744,7 @@ impl Bytecode {
                         // [obj, proto, ^] -> [obj, ^]
                         let proto = SP_VAL!(-1);
                         if proto.is_object() || proto.is_null() {
-                            let r = SP_MUT!(-2).set_prototype_internal(&realm, proto, true);
+                            let r = SP_MUT!(-2).set_prototype_internal(&mut realm, proto, true);
                             if unlikely(r.is_err()) {
                                 break State::Exception;
                             }
@@ -1764,7 +1775,7 @@ impl Bytecode {
 
                         let name = if atom.is_null() {
                             // compute name from value SP[-2]
-                            if let Ok(atom) = SP_REF!(-2).to_atom(&realm) {
+                            if let Ok(atom) = SP_REF!(-2).to_atom(&mut realm) {
                                 atom
                             } else {
                                 break State::Exception;
@@ -1809,11 +1820,11 @@ impl Bytecode {
 
                         let this_obj = SP_MUT!(if is_computed { -3 } else { -2 });
                         let mut ret =
-                            js_method_set_properties(&realm, func_obj, name, flags, this_obj);
+                            js_method_set_properties(realm, func_obj, name, flags, this_obj);
 
                         if ret.is_ok() {
                             ret = this_obj
-                                .define_property(&realm, name, value, getter, setter, flags)
+                                .define_property(&mut realm, name, value, getter, setter, flags)
                                 .map(|_| ());
                         }
 
@@ -1832,7 +1843,7 @@ impl Bytecode {
                         let atom = Atom::from_id(PC_FETCH!(u32));
                         let class_flags = PC_FETCH!(u8) as u32;
                         let r = js_op_define_class(
-                            &realm,
+                            realm,
                             sp,
                             atom,
                             class_flags as _,
@@ -1847,7 +1858,7 @@ impl Bytecode {
                     OpCode::GET_ARRAY_EL => {
                         // [array, prop, ^] -> [value, ^]
                         let val = SP_REF!(-2)
-                            .get_property_value(&realm, SP_VAL!(-1))
+                            .get_property_value(&mut realm, SP_VAL!(-1))
                             .unwrap_or(JSValue::EXCEPTION);
                         let is_err = val.is_exception();
                         SP_PUT!(-2, val);
@@ -1860,7 +1871,7 @@ impl Bytecode {
                     OpCode::GET_ARRAY_EL2 => {
                         // [array, prop, ^] -> [array, value, ^]
                         let val = SP_REF!(-2)
-                            .get_property_value(&realm, SP_VAL!(-1))
+                            .get_property_value(&mut realm, SP_VAL!(-1))
                             .unwrap_or(JSValue::EXCEPTION);
                         let is_err = val.is_exception();
                         SP_PUT!(-1, val);
@@ -1872,11 +1883,12 @@ impl Bytecode {
                     OpCode::GET_REF_VALUE => {
                         // [obj, prop, ^] -> [obj, value, ^]
                         if unlikely(SP_REF!(-2).is_undefined()) {
-                            if let Ok(atom) = SP_REF!(-1).to_atom(&realm) {
-                                JS_ThrowReferenceErrorNotDefined(&realm, atom);
+                            if let Ok(atom) = SP_REF!(-1).to_atom(&mut realm) {
+                                JS_ThrowReferenceErrorNotDefined(&mut realm, atom);
                             }
                             break State::Exception;
-                        } else if let Ok(val) = SP_REF!(-2).get_property_value(&realm, SP_VAL!(-1))
+                        } else if let Ok(val) =
+                            SP_REF!(-2).get_property_value(&mut realm, SP_VAL!(-1))
                         {
                             SP_PUT!(0, val);
                             SP_GO!(1);
@@ -1885,9 +1897,13 @@ impl Bytecode {
                         }
                     }
                     OpCode::GET_SUPER_VALUE => {
-                        if let Ok(atom) = SP_REF!(-1).to_atom(&realm) {
-                            let val =
-                                SP_REF!(-2).get_property_internal(&realm, atom, SP_VAL!(-3), false);
+                        if let Ok(atom) = SP_REF!(-1).to_atom(&mut realm) {
+                            let val = SP_REF!(-2).get_property_internal(
+                                &mut realm,
+                                atom,
+                                SP_VAL!(-3),
+                                false,
+                            );
 
                             if let Ok(val) = val {
                                 // SP_TAKE!(-1);
@@ -1905,7 +1921,7 @@ impl Bytecode {
                         // [obj, prop, value, ^] -> [^]
                         let mut arr = SP_VAL!(-3);
                         let ret = arr.set_property_value(
-                            &realm,
+                            &mut realm,
                             SP_VAL!(-2),
                             SP_VAL!(-1),
                             JS_PROP_THROW_STRICT,
@@ -1926,8 +1942,8 @@ impl Bytecode {
 
                         if unlikely(obj.is_undefined()) {
                             if realm.is_strict_mode() {
-                                if let Ok(atom) = prop.to_atom(&realm) {
-                                    JS_ThrowReferenceErrorNotDefined(&realm, atom);
+                                if let Ok(atom) = prop.to_atom(&mut realm) {
+                                    JS_ThrowReferenceErrorNotDefined(&mut realm, atom);
                                 }
                                 break State::Exception;
                             }
@@ -1936,7 +1952,7 @@ impl Bytecode {
                             flags |= JS_PROP_NO_ADD;
                         }
 
-                        let ret = obj.set_property_value(&realm, prop, val, flags);
+                        let ret = obj.set_property_value(&mut realm, prop, val, flags);
                         if ret.is_err() {
                             break State::Exception;
                         }
@@ -1954,9 +1970,9 @@ impl Bytecode {
                             break State::Exception;
                         }
 
-                        if let Ok(atom) = prop.to_atom(&realm) {
+                        if let Ok(atom) = prop.to_atom(&mut realm) {
                             let ret = obj.set_property_internal(
-                                &realm,
+                                realm,
                                 atom,
                                 val,
                                 if let JSValue::Object(o) = &this_obj {
@@ -1991,9 +2007,9 @@ impl Bytecode {
                         // get_var value
                         // define_array_el
 
-                        let ret = prop.to_atom(&realm).and_then(|a| {
+                        let ret = prop.to_atom(&mut realm).and_then(|a| {
                             obj.define_property_value(
-                                &realm,
+                                &mut realm,
                                 a,
                                 value,
                                 JS_PROP_C_W_E | JS_PROP_THROW,
@@ -2009,7 +2025,7 @@ impl Bytecode {
                         // [dest, start_pos, src, ^] -> [dest, end_pos, ^]
                         // all elements from `src` are appended to `dest` array, staring from `start_pos` index
                         // after operation, end_pos of dest array if put to stack top
-                        if unsafe { js_append_enumerate(&realm, sp).is_ok() } {
+                        if unsafe { js_append_enumerate(realm, sp).is_ok() } {
                             // pop `src`
                             // SP_TAKE!(-1);
                             SP_GO!(-1);
@@ -2025,7 +2041,7 @@ impl Bytecode {
                         // 2 bits for exclusionList: SP[-1 - ((mask >> 5) & 7)]
                         let mask = PC_FETCH!(u8) as i32;
                         let r = SP_MUT!(-1 - (mask & 3)).copy_data_properties_from(
-                            &realm,
+                            realm,
                             SP_REF!(-1 - ((mask >> 2) & 7)),
                             SP_REF!(-1 - ((mask >> 5) & 7)),
                             false,
@@ -2044,12 +2060,12 @@ impl Bytecode {
                         let op1 = SP_VAL!(-2);
                         let op2 = SP_VAL!(-1);
                         let res = match opcode {
-                            OpCode::ADD => JSValue::arith_add(&realm, op1, op2),
-                            OpCode::SUB => JSValue::arith_sub(&realm, op1, op2),
-                            OpCode::MUL => JSValue::arith_mul(&realm, op1, op2),
-                            OpCode::DIV => JSValue::arith_div(&realm, op1, op2),
-                            OpCode::MOD => JSValue::arith_mod(&realm, op1, op2),
-                            OpCode::POW => JSValue::arith_pow(&realm, op1, op2),
+                            OpCode::ADD => JSValue::arith_add(&mut realm, op1, op2),
+                            OpCode::SUB => JSValue::arith_sub(&mut realm, op1, op2),
+                            OpCode::MUL => JSValue::arith_mul(&mut realm, op1, op2),
+                            OpCode::DIV => JSValue::arith_div(&mut realm, op1, op2),
+                            OpCode::MOD => JSValue::arith_mod(&mut realm, op1, op2),
+                            OpCode::POW => JSValue::arith_pow(&mut realm, op1, op2),
                             _ => unreachable!(),
                         };
 
@@ -2066,7 +2082,7 @@ impl Bytecode {
                         SP_GO!(-1);
 
                         let pv = VAR_REF![idx];
-                        if let Ok(val) = JSValue::arith_add(&realm, *pv, op1) {
+                        if let Ok(val) = JSValue::arith_add(&mut realm, *pv, op1) {
                             *pv = val;
                         } else {
                             break State::Exception;
@@ -2080,7 +2096,7 @@ impl Bytecode {
                             // + before an int or float: do nothing
                             SP_PUT!(-1, op1);
                         } else if let Ok(res) =
-                            UnaryOp::new(&realm, op1, true).map(|unary| match opcode {
+                            UnaryOp::new(&mut realm, op1, true).map(|unary| match opcode {
                                 OpCode::PLUS => unary.plus(),
                                 OpCode::NEG => unary.neg(),
                                 OpCode::INC => unary.inc(),
@@ -2096,10 +2112,10 @@ impl Bytecode {
                     }
                     OpCode::POST_INC | OpCode::POST_DEC => {
                         let op1 = SP_VAL!(-1);
-                        if let Ok(n1) = op1.to_number(&realm) {
+                        if let Ok(n1) = op1.to_number(&mut realm) {
                             SP_PUT!(-1, n1);
                             if let Ok(res) =
-                                UnaryOp::new(&realm, n1, true).map(|unary| match opcode {
+                                UnaryOp::new(&mut realm, n1, true).map(|unary| match opcode {
                                     OpCode::POST_INC => unary.inc(),
                                     OpCode::POST_DEC => unary.dec(),
                                     _ => unreachable!(),
@@ -2119,7 +2135,7 @@ impl Bytecode {
                         let op1 = VAR_REF![idx];
 
                         if let Ok(res) =
-                            UnaryOp::new(&realm, *op1, true).map(|unary| match opcode {
+                            UnaryOp::new(&mut realm, *op1, true).map(|unary| match opcode {
                                 OpCode::INC_LOC => unary.inc(),
                                 OpCode::DEC_LOC => unary.dec(),
                                 _ => unreachable!(),
@@ -2132,7 +2148,7 @@ impl Bytecode {
                     }
                     OpCode::NOT => {
                         if let Ok(res) =
-                            UnaryOp::new_int(&realm, SP_VAL!(-1)).map(|unary| unary.not())
+                            UnaryOp::new_int(&mut realm, SP_VAL!(-1)).map(|unary| unary.not())
                         {
                             SP_PUT!(-1, res);
                         } else {
@@ -2146,7 +2162,7 @@ impl Bytecode {
                     | OpCode::AND
                     | OpCode::OR
                     | OpCode::XOR => {
-                        if let Ok(new_sp) = op_binary_logic(&realm, opcode, sp) {
+                        if let Ok(new_sp) = op_binary_logic(&mut realm, opcode, sp) {
                             stack_frame.cur_sp_offset =
                                 unsafe { new_sp.offset_from(sp_base) as i32 };
                             sp = new_sp;
@@ -2159,7 +2175,7 @@ impl Bytecode {
                         let op1 = SP_VAL!(-2);
                         let op2 = SP_VAL!(-1);
 
-                        if let Ok(rel) = op1.arith_cmp(&realm, op2) {
+                        if let Ok(rel) = op1.arith_cmp(&mut realm, op2) {
                             let b = matches!(
                                 (rel, opcode),
                                 (Some(std::cmp::Ordering::Less), OpCode::LT | OpCode::LTE)
@@ -2175,7 +2191,7 @@ impl Bytecode {
                     OpCode::EQ | OpCode::NEQ => {
                         let op1 = SP_VAL!(-2);
                         let op2 = SP_VAL!(-1);
-                        if let Ok(b) = op1.arith_eq(&realm, op2) {
+                        if let Ok(b) = op1.arith_eq(&mut realm, op2) {
                             SP_PUT!(-2, JSValue::Bool(b ^ (opcode == OpCode::NEQ)));
                             SP_GO!(-1);
                         } else {
@@ -2193,7 +2209,7 @@ impl Bytecode {
 
                     OpCode::IN => {
                         // [prop, obj, ^] -> [bool, ^]
-                        if let Ok(b) = js_operator_in(&realm, SP_REF!(-1), SP_REF!(-2)) {
+                        if let Ok(b) = js_operator_in(realm, SP_REF!(-1), SP_REF!(-2)) {
                             SP_PUT!(-2, JSValue::Bool(b));
                             //  SP_TAKE!(-1);
                             SP_GO!(-1);
@@ -2203,7 +2219,7 @@ impl Bytecode {
                     }
                     OpCode::PRIVATE_IN => {
                         #[cfg(feature = "builtin_symbol")]
-                        if unlikely(crate::bytecode::js_operator_private_in(&realm, sp).is_err()) {
+                        if unlikely(crate::bytecode::js_operator_private_in(realm, sp).is_err()) {
                             break State::Exception;
                         } else {
                             SP_GO!(-1);
@@ -2216,7 +2232,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::INSTANCEOF => {
-                        if unlikely(js_operator_instanceof(&realm, sp).is_err()) {
+                        if unlikely(js_operator_instanceof(realm, sp).is_err()) {
                             break State::Exception;
                         } else {
                             SP_GO!(-1);
@@ -2227,12 +2243,12 @@ impl Bytecode {
                         let atom = op1.type_of();
                         SP_PUT!(
                             -1,
-                            atom.force_string(&realm)
+                            atom.force_string(&mut realm)
                                 .map_or(JSValue::EXCEPTION, JSValue::from)
                         );
                     }
                     OpCode::DELETE => {
-                        if unlikely(js_operator_delete(&realm, sp) != 0) {
+                        if unlikely(js_operator_delete(realm, sp) != 0) {
                             break State::Exception;
                         } else {
                             SP_GO!(-1);
@@ -2240,7 +2256,7 @@ impl Bytecode {
                     }
                     OpCode::DELETE_VAR => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
-                        match realm.global_obj().delete_property(&realm, atom, 0) {
+                        match realm.global_obj().delete_property(&mut realm, atom, 0) {
                             Ok(ret) => {
                                 SP_PUT!(0, JSValue::Bool(ret));
                                 SP_GO!(1);
@@ -2253,7 +2269,7 @@ impl Bytecode {
                     OpCode::TO_OBJECT => {
                         // [val, ^] -> [object, ^]
                         if !SP_REF!(-1).is_object() {
-                            if let Ok(o) = SP_VAL!(-1).objectify(&realm) {
+                            if let Ok(o) = SP_VAL!(-1).objectify(&mut realm) {
                                 SP_PUT!(-1, JSValue::from(o));
                             } else {
                                 break State::Exception;
@@ -2276,7 +2292,7 @@ impl Bytecode {
                             #[cfg(feature = "builtin_symbol")]
                             JSValue::Symbol(_) => {}
                             _ => {
-                                if let Ok(pk) = SP_REF!(-1).to_propkey(&realm) {
+                                if let Ok(pk) = SP_REF!(-1).to_propkey(&mut realm) {
                                     SP_PUT!(-1, pk);
                                 } else {
                                     break State::Exception;
@@ -2297,10 +2313,10 @@ impl Bytecode {
 
                         let mut env_obj = SP_VAL!(-1);
 
-                        if let Ok(ret) = env_obj.has_property(&realm, atom) {
+                        if let Ok(ret) = env_obj.has_property(&mut realm, atom) {
                             let in_env_obj = if ret {
                                 if is_with {
-                                    if let Ok(b) = js_has_unscopable(&realm, env_obj, atom) {
+                                    if let Ok(b) = js_has_unscopable(realm, env_obj, atom) {
                                         !b
                                     } else {
                                         break State::Exception;
@@ -2316,7 +2332,7 @@ impl Bytecode {
                                 // get atom in with env obj.
                                 match opcode {
                                     OpCode::WITH_GET_VAR => {
-                                        if let Ok(val) = env_obj.get_property(&realm, atom) {
+                                        if let Ok(val) = env_obj.get_property(&mut realm, atom) {
                                             SP_PUT!(-1, val);
                                         } else {
                                             break State::Exception;
@@ -2325,7 +2341,7 @@ impl Bytecode {
                                     OpCode::WITH_PUT_VAR => {
                                         // XXX: check if strict mode
                                         let ret = env_obj.set_property_internal(
-                                            &realm,
+                                            realm,
                                             atom,
                                             SP_VAL!(-2),
                                             None,
@@ -2338,7 +2354,8 @@ impl Bytecode {
                                         }
                                     }
                                     OpCode::WITH_DELETE_VAR => {
-                                        if let Ok(b) = env_obj.delete_property(&realm, atom, 0) {
+                                        if let Ok(b) = env_obj.delete_property(&mut realm, atom, 0)
+                                        {
                                             SP_PUT!(-1, JSValue::Bool(b));
                                         } else {
                                             break State::Exception;
@@ -2348,13 +2365,13 @@ impl Bytecode {
                                         // produce a pair object/propname on the stack
                                         SP_PUT!(
                                             0,
-                                            atom.to_value(&realm).unwrap_or(JSValue::EXCEPTION)
+                                            atom.to_value(&mut realm).unwrap_or(JSValue::EXCEPTION)
                                         );
                                         SP_GO!(1);
                                     }
                                     OpCode::WITH_GET_REF => {
                                         // produce a pair object/method on the stack
-                                        if let Ok(val) = env_obj.get_property(&realm, atom) {
+                                        if let Ok(val) = env_obj.get_property(&mut realm, atom) {
                                             SP_PUT!(0, val);
                                             SP_GO!(1);
                                         } else {
@@ -2363,7 +2380,7 @@ impl Bytecode {
                                     }
                                     OpCode::WITH_GET_REF_UNDEF => {
                                         // produce a pair undefined/function on the stack
-                                        if let Ok(val) = env_obj.get_property(&realm, atom) {
+                                        if let Ok(val) = env_obj.get_property(&mut realm, atom) {
                                             SP_PUT!(-1, JSValue::UNDEFINED);
                                             SP_PUT!(0, val);
                                             SP_GO!(1);
@@ -2445,7 +2462,7 @@ impl Bytecode {
                     let oi = super::opcode_info_final(opcode as u8);
                     if oi.n_push > 0 {
                         super::dump::dump_run_stack(
-                            &realm,
+                            &mut realm,
                             unsafe {
                                 std::slice::from_raw_parts(
                                     sp.offset(-(oi.n_push as isize)),
@@ -2480,7 +2497,7 @@ impl Bytecode {
                     }
 
                     stack_frame.handle_exit(
-                        &realm,
+                        &mut realm,
                         unsafe { pc.offset_from(pc_base) as usize },
                         unsafe { sp.offset_from(sp_base) as usize },
                         is_generator,
@@ -2491,7 +2508,7 @@ impl Bytecode {
 
                 State::Exception => {
                     if let Some((pc2, sp2)) =
-                        self.catch_exception(&realm, stack_frame, pc, pc_base, sp, sp_base)
+                        self.catch_exception(realm, stack_frame, pc, pc_base, sp, sp_base)
                     {
                         debug_assert_eq!(stack_frame.cur_sp_offset, unsafe {
                             sp2.offset_from(sp_base) as i32
@@ -2516,7 +2533,7 @@ impl Bytecode {
     #[inline(never)]
     fn catch_exception(
         &self,
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         stack_frame: &mut StackFrame,
         pc: *const u8,
         pc_base: *const u8,
@@ -2537,7 +2554,12 @@ impl Bytecode {
             unsafe { Some((pc_base.add(new_pc), sp_base.add(new_sp))) }
         } else {
             // abort with sp=0
-            stack_frame.handle_exit(ctx, pc_offset, 0, self.func_kind() != FunctionKind::Normal);
+            stack_frame.handle_exit(
+                &mut ctx,
+                pc_offset,
+                0,
+                self.func_kind() != FunctionKind::Normal,
+            );
             None
         }
     }

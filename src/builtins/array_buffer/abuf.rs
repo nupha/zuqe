@@ -174,7 +174,7 @@ impl ArrayBuffer {
             JS_CLASS_ARRAY_BUFFER => {
                 // ArrayBuffer
                 let mut proto = ctx.create_base_object()?;
-                proto.install_fields(&ctx, js_array_buffer_proto_funcs)?;
+                proto.install_fields(&mut ctx, js_array_buffer_proto_funcs)?;
 
                 let mut ab_func = ctx.create_global_constructor_only(
                     "ArrayBuffer",
@@ -183,14 +183,14 @@ impl ArrayBuffer {
                     proto.into(),
                     0,
                 )?;
-                ab_func.install_fields(&ctx, js_array_buffer_funcs)?;
+                ab_func.install_fields(&mut ctx, js_array_buffer_funcs)?;
 
                 Ok(Some(proto))
             }
             JS_CLASS_SHARED_ARRAY_BUFFER => {
                 // SharedArrayBuffer
                 let mut proto = ctx.create_base_object()?;
-                proto.install_fields(&ctx, js_shared_array_buffer_proto_funcs)?;
+                proto.install_fields(&mut ctx, js_shared_array_buffer_proto_funcs)?;
 
                 let mut sab_func = ctx.create_global_constructor_only(
                     "SharedArrayBuffer",
@@ -199,7 +199,7 @@ impl ArrayBuffer {
                     proto.into(),
                     0,
                 )?;
-                sab_func.install_fields(&ctx, js_shared_array_buffer_funcs)?;
+                sab_func.install_fields(&mut ctx, js_shared_array_buffer_funcs)?;
 
                 Ok(Some(proto))
             }
@@ -230,7 +230,7 @@ impl ArrayBuffer {
 
     /// Create new instance of class ARRAY_BUFFER or ARRAY_BUFFER_SHARED.
     fn create_internal(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         new_target: JSValue,
         shared: bool,
         data: ABufData,
@@ -263,7 +263,7 @@ impl ArrayBuffer {
     /// create empty array buffer instance with required capacity.
     /// `capacity` is counted in bytes.
     pub(crate) fn with_capacity_ex(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         new_target: JSValue,
         shared: bool,
         capacity: usize,
@@ -331,7 +331,7 @@ impl ArrayBuffer {
 
     #[inline(always)]
     pub fn from_data(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         new_target: JSValue,
         shared: bool,
         data: Box<[u8]>,
@@ -343,7 +343,7 @@ impl ArrayBuffer {
     /// create empty array buffer instance with required capacity.
     /// `capacity` is counted in bytes.
     #[inline(always)]
-    pub fn create(ctx: &ContextImpl, shared: bool, capacity: usize) -> Result<Self, i32> {
+    pub fn create(ctx: &mut ContextImpl, shared: bool, capacity: usize) -> Result<Self, i32> {
         Self::with_capacity_ex(
             ctx,
             JSValue::UNDEFINED,
@@ -370,7 +370,7 @@ impl ArrayBuffer {
     }
 
     /// detatch array buffer
-    pub fn detatch(&mut self, ctx: &ContextImpl) {
+    pub fn detatch(&mut self, ctx: &mut ContextImpl) {
         let abuf = self.payload_mut();
 
         if !abuf.is_detached() {
@@ -406,16 +406,16 @@ impl ArrayBuffer {
 }
 
 pub fn js_array_buffer_constructor(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let size = cc.arg(0).to_index(ctx)? as usize;
-    ArrayBuffer::with_capacity_ex(ctx, *cc.this(), false, size, std::ptr::null_mut())
+    let mut ctx = cc.ctx_ptr();
+    let size = cc.arg(0).to_index(&mut ctx)? as usize;
+    ArrayBuffer::with_capacity_ex(&mut ctx, *cc.this(), false, size, std::ptr::null_mut())
         .map(|x| x.into())
 }
 
 pub fn js_shared_array_buffer_constructor(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let size = cc.arg(0).to_index(ctx)? as usize;
-    ArrayBuffer::with_capacity_ex(ctx, *cc.this(), true, size, std::ptr::null_mut())
+    let mut ctx = cc.ctx_ptr();
+    let size = cc.arg(0).to_index(&mut ctx)? as usize;
+    ArrayBuffer::with_capacity_ex(&mut ctx, *cc.this(), true, size, std::ptr::null_mut())
         .map(|x| x.into())
 }
 

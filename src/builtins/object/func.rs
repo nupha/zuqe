@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub(crate) fn js_object_constructor(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let new_target = *cc.this();
 
     if !new_target.is_undefined() && ctx.rt_ref().current_function() != new_target {
@@ -25,35 +25,35 @@ pub(crate) fn js_object_constructor(cc: CallContext) -> JSResult {
     } else {
         match cc.arg(0) {
             JSValue::NULL | JSValue::UNDEFINED => ctx.create_base_object(),
-            a => a.objectify(ctx),
+            a => a.objectify(&mut ctx),
         }
     }
     .map(JSValue::Object)
 }
 
 pub(crate) fn js_object_create(cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
+
     let proto = cc.arg(0);
     if !proto.is_object() && !proto.is_null() {
-        cc.ctx().throw_type_error("not a prototype");
+        ctx.throw_type_error("not a prototype");
         return Err(-1);
     }
 
-    let mut obj = cc
-        .ctx()
-        .create_base_object_with_proto(proto.as_object().cloned())?;
+    let mut obj = ctx.create_base_object_with_proto(proto.as_object().cloned())?;
 
     let props = *cc.arg(1);
     if !props.is_undefined() {
-        obj.define_properties(cc.ctx(), props)?;
+        obj.define_properties(&mut ctx, props)?;
     }
     Ok(obj.into())
 }
 
 pub(crate) fn js_object_getPrototypeOf(cc: CallContext) -> JSResult {
     let magic = cc.magic();
-    let ctx = cc.ctx();
-    let val = cc.arg(0);
+    let mut ctx = cc.ctx_ptr();
 
+    let val = cc.arg(0);
     if !val.is_object() {
         // ES6 feature non-compatible with ES5.1: primitive types are accepted
         if magic != 0 || val.is_undefined_or_null() {
@@ -61,23 +61,24 @@ pub(crate) fn js_object_getPrototypeOf(cc: CallContext) -> JSResult {
             return Err(-1);
         }
     }
-    val.prototype(ctx)
+    val.prototype(&mut ctx)
 }
 
 pub(crate) fn js_object_setPrototypeOf(cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
     let mut obj = *cc.arg(0);
-    obj.set_prototype_internal(cc.ctx(), *cc.arg(1), true)?;
+    obj.set_prototype_internal(&mut ctx, *cc.arg(1), true)?;
     Ok(obj)
 }
 
 pub(crate) fn js_object_defineProperty(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     let prop = *cc.arg(1);
     let desc = *cc.arg(2);
 
     if let Some(mut obj) = cc.arg(0).as_object().copied() {
-        let atom = prop.to_atom(ctx)?;
+        let atom = prop.to_atom(&mut ctx)?;
 
         // magic = 1: Reflect.defineProperty, don't throw on failure
         // magic = 0: Object.defineProperty, throw on failure
@@ -85,7 +86,7 @@ pub(crate) fn js_object_defineProperty(cc: CallContext) -> JSResult {
         if cc.magic() == 0 {
             flags |= JS_PROP_THROW;
         }
-        let b = obj.define_property_desc(ctx, atom, desc, flags)?;
+        let b = obj.define_property_desc(&mut ctx, atom, desc, flags)?;
         Ok(if cc.magic() != 0 {
             JSValue::Bool(b)
         } else {
@@ -98,28 +99,37 @@ pub(crate) fn js_object_defineProperty(cc: CallContext) -> JSResult {
 }
 
 /// defineProperties(obj, properties)
-pub(crate) fn js_object_defineProperties(cc: CallContext) -> JSResult {
+pub(crate) fn js_object_defineProperties(mut cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
+
     let obj = cc.arg(0);
     if let Some(mut o) = obj.as_object().copied() {
-        o.define_properties(cc.ctx(), *cc.arg(1))?;
+        let arg1 = *cc.arg(1);
+        o.define_properties(cc.ctx_mut(), arg1)?;
         Ok(o.into())
     } else {
-        cc.ctx().throw_type_error_not_an_object();
+        ctx.throw_type_error_not_an_object();
         Err(-1)
     }
 }
 
 pub(crate) fn js_object_getOwnPropertyNames(cc: CallContext) -> JSResult {
-    cc.arg(0).build_own_property_kvs_array(
-        cc.ctx(),
+    let mut ctx = cc.ctx_ptr();
+
+    let arg0 = *cc.arg(0);
+    arg0.build_own_property_kvs_array(
+        &mut ctx,
         JS_GPN_INDEX_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
     )
 }
 
 pub(crate) fn js_object_getOwnPropertySymbols(cc: CallContext) -> JSResult {
-    cc.arg(0).build_own_property_kvs_array(
-        cc.ctx(),
+    let mut ctx = cc.ctx_ptr();
+
+    let arg0 = *cc.arg(0);
+    arg0.build_own_property_kvs_array(
+        &mut ctx,
         JS_GPN_SYMBOL_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
     )
@@ -132,9 +142,10 @@ pub(crate) fn js_object_keys(cc: CallContext) -> JSResult {
             ..=JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i32)
             .contains(&kind)
     );
+    let mut ctx = cc.ctx_ptr();
 
     cc.arg(0)
-        .build_own_property_kvs_array(cc.ctx(), JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK, unsafe {
+        .build_own_property_kvs_array(&mut ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK, unsafe {
             std::mem::transmute::<u8, JSIteratorKindEnum>(kind as u8)
         })
 }
@@ -146,17 +157,17 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
         "deprecated: use js_map_groupBy for Map.groupBy() instead"
     );
 
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     // check must be observed before argv[0] is accessed
     let func = cc.arg(1);
-    func.ensure_function(ctx)?;
+    func.ensure_function(&mut ctx)?;
 
     let mut groups: JSValue = {
         #[cfg(feature = "builtin_mapset")]
         if is_map {
             crate::builtins::mapset::js_map_constructor(CallContext::new_simple(
-                cc.ctx_ptr(),
+                ctx,
                 JSValue::UNDEFINED,
                 &[],
             ))?
@@ -177,7 +188,7 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
         }
 
         let val = val?;
-        let key = func.call(ctx, global, &[val, JSValue::from(idx as i64)])?;
+        let key = func.call(&mut ctx, global, &[val, JSValue::from(idx as i64)])?;
 
         // get prop value array and key atom
         let (mut props_arr, key_atom): (JSValue, Atom) = {
@@ -192,14 +203,14 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
                     Atom::NULL,
                 )
             } else {
-                let atom = key.to_atom(ctx)?;
-                (groups.get_property(ctx, atom)?, atom)
+                let atom = key.to_atom(&mut ctx)?;
+                (groups.get_property(&mut ctx, atom)?, atom)
             }
 
             #[cfg(not(feature = "builtin_mapset"))]
             {
-                let atom = key.to_atom(ctx)?;
-                (groups.get_property(ctx, atom)?, atom)
+                let atom = key.to_atom(&mut ctx)?;
+                (groups.get_property(&mut ctx, atom)?, atom)
             }
         };
 
@@ -212,21 +223,21 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
             #[cfg(feature = "builtin_mapset")]
             if is_map {
                 crate::builtins::mapset::js_map_set(CallContext::new(
-                    cc.ctx_ptr(),
+                    ctx,
                     groups,
                     &[key, props_arr],
                     0,
                     None,
                 ))?;
             } else {
-                groups.define_property_value(ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
+                groups.define_property_value(&mut ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
             }
             #[cfg(not(feature = "builtin_mapset"))]
-            groups.define_property_value(ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
+            groups.define_property_value(&mut ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
         }
 
         js_array_push(CallContext::new(
-            cc.ctx_ptr(),
+            ctx,
             props_arr,
             std::slice::from_ref(&val),
             0,
@@ -239,9 +250,9 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
 
 pub(crate) fn js_object_isExtensible(cc: CallContext) -> JSResult {
     let reflect = cc.magic();
-    let ctx = cc.ctx();
-    let obj = cc.arg(0);
+    let mut ctx = cc.ctx_ptr();
 
+    let obj = cc.arg(0);
     if !obj.is_object() {
         return if reflect != 0 {
             ctx.throw_type_error_not_an_object();
@@ -251,16 +262,16 @@ pub(crate) fn js_object_isExtensible(cc: CallContext) -> JSResult {
         };
     }
 
-    Ok(JSValue::Bool(obj.is_extensible(ctx)?))
+    Ok(JSValue::Bool(obj.is_extensible(&mut ctx)?))
 }
 
 pub(crate) fn js_object_preventExtensions(cc: CallContext) -> JSResult {
     let reflect = cc.magic() != 0;
-    let ctx = cc.ctx();
-    let arg = *cc.arg(0);
+    let mut ctx = cc.ctx_ptr();
 
+    let arg = *cc.arg(0);
     if let Some(mut obj) = arg.as_object().copied() {
-        let ret = obj.prevent_extensions(ctx)?;
+        let ret = obj.prevent_extensions(&mut ctx)?;
 
         if reflect {
             Ok(JSValue::Bool(ret))
@@ -280,7 +291,7 @@ pub(crate) fn js_object_preventExtensions(cc: CallContext) -> JSResult {
 
 pub(crate) fn js_object_getOwnPropertyDescriptor(cc: CallContext) -> JSResult {
     let reflect = cc.magic() != 0;
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     let obj = if reflect {
         // Reflect.getOwnPropertyDescriptor
@@ -290,7 +301,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(cc: CallContext) -> JSResult {
             ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
-    } else if let Ok(o) = cc.arg(0).objectify(ctx) {
+    } else if let Ok(o) = cc.arg(0).objectify(&mut ctx) {
         o
     } else {
         ctx.throw_type_error_not_an_object();
@@ -298,19 +309,19 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(cc: CallContext) -> JSResult {
     };
 
     let prop = cc.arg(1);
-    let atom = prop.to_atom(ctx)?;
+    let atom = prop.to_atom(&mut ctx)?;
 
-    if let Some(desc) = obj.get_own_property(ctx, atom)? {
+    if let Some(desc) = obj.get_own_property(&mut ctx, atom)? {
         let mut ret = ctx.create_base_object()?;
         let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
 
         if desc.flags & JS_PROP_GETSET != 0 {
-            ret.define_property_value(ctx, Atom::CONST_get, desc.getter, prop_flags)?;
-            ret.define_property_value(ctx, Atom::CONST_set, desc.setter, prop_flags)?;
+            ret.define_property_value(&mut ctx, Atom::CONST_get, desc.getter, prop_flags)?;
+            ret.define_property_value(&mut ctx, Atom::CONST_set, desc.setter, prop_flags)?;
         } else {
-            ret.define_property_value(ctx, Atom::CONST_value, desc.value, prop_flags)?;
+            ret.define_property_value(&mut ctx, Atom::CONST_value, desc.value, prop_flags)?;
             ret.define_property_value(
-                ctx,
+                &mut ctx,
                 Atom::CONST_writable,
                 JSValue::Bool(desc.flags & JS_PROP_WRITABLE != 0),
                 prop_flags,
@@ -318,13 +329,13 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(cc: CallContext) -> JSResult {
         }
 
         ret.define_property_value(
-            ctx,
+            &mut ctx,
             Atom::CONST_enumerable,
             JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0),
             prop_flags,
         )?;
         ret.define_property_value(
-            ctx,
+            &mut ctx,
             Atom::CONST_configurable,
             JSValue::Bool(desc.flags & JS_PROP_CONFIGURABLE != 0),
             prop_flags,
@@ -337,24 +348,33 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(cc: CallContext) -> JSResult {
 }
 
 pub(crate) fn js_object_getOwnPropertyDescriptors(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let obj = cc.arg(0).objectify(ctx)?;
+    let mut ctx = cc.ctx_ptr();
+    let obj = cc.arg(0).objectify(&mut ctx)?;
     let mut res_obj = ctx.create_base_object()?;
 
-    obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, pkey| {
-        let atom_value = pkey.atom.to_value(cx)?;
-        let desc = js_object_getOwnPropertyDescriptor(CallContext::new_simple(
-            cc.ctx_ptr(),
-            JSValue::UNDEFINED,
-            [obj.into(), atom_value].as_slice(),
-        ))?;
+    obj.own_property_names_foreach(
+        &mut ctx,
+        JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
+        |cx, pkey| {
+            let atom_value = pkey.atom.to_value(cx)?;
+            let desc = js_object_getOwnPropertyDescriptor(CallContext::new_simple(
+                cx.into(),
+                JSValue::UNDEFINED,
+                [obj.into(), atom_value].as_slice(),
+            ))?;
 
-        if !desc.is_undefined() {
-            res_obj.define_property_value(cx, pkey.atom, desc, JS_PROP_C_W_E | JS_PROP_THROW)?;
-        }
+            if !desc.is_undefined() {
+                res_obj.define_property_value(
+                    cx,
+                    pkey.atom,
+                    desc,
+                    JS_PROP_C_W_E | JS_PROP_THROW,
+                )?;
+            }
 
-        Ok(())
-    })?;
+            Ok(())
+        },
+    )?;
 
     Ok(res_obj.into())
 }
@@ -365,14 +385,14 @@ pub(crate) fn js_object_is(cc: CallContext) -> JSResult {
 
 /// Object.assign(obj, source1)
 pub(crate) fn js_object_assign(cc: CallContext) -> JSResult {
-    let cx = cc.ctx();
-    let mut obj = cc.arg(0).objectify(cx)?;
+    let mut ctx = cc.ctx_ptr();
+    let mut obj = cc.arg(0).objectify(&mut ctx)?;
 
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
             if !a.is_undefined_or_null() {
-                let src = a.objectify(cx)?;
-                obj.copy_data_properties_from(cx, src, None, true)?;
+                let src = a.objectify(&mut ctx)?;
+                obj.copy_data_properties_from(ctx, src, None, true)?;
             }
         }
     }
@@ -382,29 +402,33 @@ pub(crate) fn js_object_assign(cc: CallContext) -> JSResult {
 
 pub(crate) fn js_object_seal(cc: CallContext) -> JSResult {
     let freeze = cc.magic() == 1;
-    let mut obj = *cc.arg(0);
-    obj.seal(cc.ctx(), freeze)?;
+    let mut ctx = cc.ctx_ptr();
+    let obj = *cc.arg(0);
+    obj.seal(&mut ctx, freeze)?;
     Ok(obj)
 }
 
 pub(crate) fn js_object_isSealed(cc: CallContext) -> JSResult {
-    let b = cc.arg(0).clone().is_sealed(cc.ctx(), cc.magic() != 0)?;
+    let b = cc
+        .arg(0)
+        .clone()
+        .is_sealed(&mut cc.ctx_ptr(), cc.magic() != 0)?;
     Ok(JSValue::Bool(b))
 }
 
 pub(crate) fn js_object_fromEntries(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let mut obj = ctx.create_base_object()?;
     let mut enum_obj = cc.arg(0).iter(ctx)?;
 
     while let Some(r) = enum_obj.next() {
         match r {
             Ok(JSValue::Object(o)) => {
-                let key = o.get_property_u32(ctx, 0)?;
-                let value = o.get_property_u32(ctx, 1)?;
+                let key = o.get_property_u32(&mut ctx, 0)?;
+                let value = o.get_property_u32(&mut ctx, 1)?;
 
-                let atom = key.to_atom(ctx)?;
-                obj.define_property_value(ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
+                let atom = key.to_atom(&mut ctx)?;
+                obj.define_property_value(&mut ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
             }
             Ok(_) => {
                 ctx.throw_type_error_not_an_object();
@@ -423,16 +447,20 @@ pub(crate) fn js_object_fromEntries(cc: CallContext) -> JSResult {
 }
 
 pub(crate) fn js_object_hasOwn(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let obj = cc.arg(0).objectify(ctx)?;
-    let atom = cc.arg(1).to_atom(ctx)?;
-    Ok(JSValue::Bool(obj.get_own_property(ctx, atom)?.is_some()))
+    let mut ctx = cc.ctx_ptr();
+    let obj = cc.arg(0).objectify(&mut ctx)?;
+    let atom = cc.arg(1).to_atom(&mut ctx)?;
+    Ok(JSValue::Bool(
+        obj.get_own_property(&mut ctx, atom)?.is_some(),
+    ))
 }
 
 //
 // non-standard
 //
 fn js_object___getClass(cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
+
     let name = if let Some(o) = cc.arg(0).as_object() {
         let cls = &cc.ctx().rt_ptr().class_registry[o.class_id() as usize];
         cls.class_name
@@ -440,7 +468,7 @@ fn js_object___getClass(cc: CallContext) -> JSResult {
         Atom::CONST_empty_string
     };
 
-    Ok(name.force_string(cc.ctx()).unwrap().into())
+    Ok(name.force_string(&mut ctx).unwrap().into())
 }
 
 pub const js_object_funcs: &[FieldDef] = &[

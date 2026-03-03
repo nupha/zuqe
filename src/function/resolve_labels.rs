@@ -34,7 +34,7 @@ enum ResolveLabelsState {
 
 impl FunctionDef {
     /// pass 3: peephole optimizations and resolve goto/labels.
-    pub fn resolve_labels(&mut self, ctx: &ContextImpl) -> Result<(), i32> {
+    pub fn resolve_labels(&mut self, ctx: &mut ContextImpl) -> Result<(), i32> {
         let bc_ptr = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();
 

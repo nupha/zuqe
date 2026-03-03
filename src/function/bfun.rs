@@ -5,8 +5,9 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
+    ContextScope, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
+    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR,
+    JS_CLASS_GENERATOR_FUNCTION,
     atom::Atom,
     class::ClassID,
     context::{ContextImpl, ContextPtr},
@@ -209,7 +210,7 @@ impl BCWrapper {
 impl ObjectImpl {
     /// check if `self` is a function or a callable object.
     /// raise exception if not.
-    pub fn ensure_function(&self, ctx: &ContextImpl) -> Result<&Self, i32> {
+    pub fn ensure_function(&self, ctx: &mut ContextImpl) -> Result<&Self, i32> {
         if self.is_function() {
             Ok(self)
         } else {
@@ -219,7 +220,7 @@ impl ObjectImpl {
     }
 
     /// return realm context of the function object
-    pub(crate) fn realm(&self, default: ContextPtr) -> Result<ContextPtr, i32> {
+    pub(crate) fn realm(&self, mut default: ContextPtr) -> Result<ContextPtr, i32> {
         match self.payload() {
             ObjectPayload::C_FUNCTION(f) => Ok(f.realm),
 
@@ -256,7 +257,7 @@ impl ObjectImpl {
 impl JSValue {
     /// check if value `self` is a function or a callable object.
     /// raise exception if not.
-    pub fn ensure_function(&self, ctx: &ContextImpl) -> Result<&Self, i32> {
+    pub fn ensure_function(&self, ctx: &mut ContextImpl) -> Result<&Self, i32> {
         if self.is_function() {
             Ok(self)
         } else {
@@ -288,20 +289,24 @@ pub(crate) fn get_func_name(func_obj: Object) -> Option<String> {
 }
 
 /// define `length` and `name` properties on function object `func_obj`
-pub fn js_function_set_properties(ctx: &ContextImpl, mut func_obj: Object, name: Atom, len: i32) {
+pub(crate) fn js_function_set_properties(
+    ctx: &mut ContextImpl,
+    mut func_obj: Object,
+    name: Atom,
+    len: i32,
+) {
     let _ = func_obj.define_property_value(
         ctx,
         Atom::CONST_length,
         JSValue::Int(len),
         JS_PROP_CONFIGURABLE, // ES6 feature non-compatible with ES5.1: length is configurable
     );
-    let _ = func_obj.define_property_value(
-        ctx,
-        Atom::CONST_name,
-        name.force_string(ctx)
-            .map_or(JSValue::EXCEPTION, JSValue::from),
-        JS_PROP_CONFIGURABLE,
-    );
+
+    let name_val = name
+        .force_string(ctx)
+        .map_or(JSValue::EXCEPTION, JSValue::from);
+
+    let _ = func_obj.define_property_value(ctx, Atom::CONST_name, name_val, JS_PROP_CONFIGURABLE);
 }
 
 pub(crate) const fn js_function_proto(_: CallContext) -> JSResult {
@@ -361,13 +366,18 @@ impl BytecodeFunction {
                 if i != 0 {
                     buf.push(b',');
                 }
-                buf.extend_from_slice(a.to_string(&ctx)?.content().encode_utf8(false).as_bytes());
+                buf.extend_from_slice(
+                    a.to_string(&mut ctx)?
+                        .content()
+                        .encode_utf8(false)
+                        .as_bytes(),
+                );
             }
             buf.extend_from_slice(b"\n) {\n");
 
             // function body
             buf.extend_from_slice(
-                body.to_string(&ctx)?
+                body.to_string(&mut ctx)?
                     .content()
                     .encode_utf8(false)
                     .as_bytes(),
@@ -394,7 +404,7 @@ impl BytecodeFunction {
 
         if !new_target.is_undefined() {
             // set the prototype
-            let mut proto = new_target.get_property(&ctx, Atom::CONST_prototype)?;
+            let mut proto = new_target.get_property(&mut ctx, Atom::CONST_prototype)?;
             if !proto.is_object() {
                 proto = new_target
                     .as_object()
@@ -403,7 +413,7 @@ impl BytecodeFunction {
                     .map_or(JSValue::NULL, JSValue::Object);
             }
 
-            func_val.set_prototype_internal(&ctx, proto, true)?;
+            func_val.set_prototype_internal(&mut ctx, proto, true)?;
         }
 
         Ok(func_val)
@@ -419,10 +429,10 @@ impl BytecodeFunction {
         self.0.payload_mut().bc_function_mut().unwrap()
     }
 
-    /// execute bytecode
+    /// execute bytecode in given scope.
     pub(super) fn execute(
         &mut self,
-        caller_ctx: &ContextImpl,
+        scope: &mut ContextScope,
         this_obj: JSValue,
         new_target: JSValue,
         args: &[JSValue],
@@ -446,12 +456,12 @@ impl BytecodeFunction {
             bc.mode(),
         );
 
-        let mut rt = caller_ctx.rt_ptr();
+        let mut rt = scope.rt_ptr();
         let mut stack_frame = StackFrame::new((*self).into(), js_mode, [this_obj, new_target]);
 
         // ensure stack has minimal free space.
         if js_check_stack_overflow(&rt, 32) {
-            caller_ctx.throw_stack_overflow();
+            scope.throw_stack_overflow();
             return Err(-1);
         }
 
@@ -469,7 +479,7 @@ impl BytecodeFunction {
             .try_reserve_exact(buf_values_count)
             .is_err()
         {
-            caller_ctx.throw_out_of_memory();
+            scope.throw_out_of_memory();
             return Err(-1);
         }
 
@@ -513,7 +523,7 @@ impl BytecodeFunction {
         let bf = self.payload_mut();
         let ret_val = bc
             .run(
-                caller_ctx,
+                scope.ctx_ptr(),
                 bf.home_object(),
                 &mut stack_frame,
                 this_obj,

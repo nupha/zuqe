@@ -103,7 +103,7 @@ impl<'s> JSParseState<'s> {
         if is_private {
             #[cfg(feature = "builtin_symbol")]
             {
-                let fd = unsafe { &mut *self.cur_func_def };
+                let fd = self.cur_func_mut();
 
                 if let Some(idx) = find_private_class_field(fd, name, fd.scope_level) {
                     let vd = fd.vars.get_mut(idx as usize).unwrap();
@@ -136,7 +136,6 @@ impl<'s> JSParseState<'s> {
                 } else {
                     add_private_class_field(
                         self,
-                        fd,
                         name,
                         if is_set {
                             JSVarKindEnum::JS_VAR_PRIVATE_SETTER
@@ -182,12 +181,11 @@ impl<'s> JSParseState<'s> {
             // XXX: missing function name
             self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
             if is_set {
-                let setter_name = js_atom_concat_str(&self.ctx, name, "<set>")?;
+                let setter_name = js_atom_concat_str(&mut self.ctx, name, "<set>")?;
                 self.emit_atom(setter_name);
 
                 add_private_class_field(
                     self,
-                    self.cur_func_mut(),
                     setter_name,
                     JSVarKindEnum::JS_VAR_PRIVATE_SETTER,
                     is_static,
@@ -340,7 +338,6 @@ impl<'s> JSParseState<'s> {
 
                         add_private_class_field(
                             self,
-                            self.cur_func_mut(),
                             name,
                             JSVarKindEnum::JS_VAR_PRIVATE_FIELD,
                             is_static,
@@ -359,7 +356,7 @@ impl<'s> JSParseState<'s> {
                     if name.is_null() {
                         // save the computed field name into a variable
                         field_var_name = js_atom_concat_num(
-                            &self.ctx,
+                            &mut self.ctx,
                             if is_static {
                                 Atom::CONST__static_computed_field_
                             } else {
@@ -485,7 +482,6 @@ impl<'s> JSParseState<'s> {
 
                         add_private_class_field(
                             self,
-                            self.cur_func_mut(),
                             name,
                             JSVarKindEnum::JS_VAR_PRIVATE_METHOD,
                             is_static,
@@ -802,14 +798,15 @@ impl<'s> JSParseState<'s> {
 
 /// add a private field variable in the current scope
 fn add_private_class_field(
-    s: &JSParseState,
-    fd: &mut FunctionDef,
+    s: &mut JSParseState,
     name: Atom,
     var_kind: JSVarKindEnum,
     is_static: bool,
 ) -> Result<u16, i32> {
-    let idx = fd.add_scope_var(&s.ctx, name, var_kind)?;
+    let fd = s.cur_func_mut();
+    let idx = fd.add_scope_var(s.ctx, name, var_kind)?;
     let vd = fd.vars.get_mut(idx as usize).unwrap();
+
     vd.set_is_lexical(true);
     vd.set_is_const(true);
     vd.set_is_static_private(is_static);

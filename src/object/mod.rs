@@ -46,7 +46,27 @@ macro_rules! gcref_wrapper {
             }
         }
 
+        impl From<&$in_ty> for $ty {
+            #[inline(always)]
+            fn from(r: &$in_ty) -> Self {
+                Self(unsafe { GcRef::<$in_ty>::from_ref_unchecked(r) })
+            }
+        }
+
+        impl From<&mut $in_ty> for $ty {
+            #[inline(always)]
+            fn from(r: &mut $in_ty) -> Self {
+                Self(unsafe { GcRef::<$in_ty>::from_ref_unchecked(r) })
+            }
+        }
+
         impl $ty {
+            #[inline(always)]
+            pub fn from_ref(r: &$in_ty) -> Self {
+                r.into()
+                // Self(unsafe { GcRef::<$in_ty>::from_ref_unchecked(r) })
+            }
+
             #[inline(always)]
             pub(crate) const fn gc_ref(&self) -> GcRef<$in_ty> {
                 self.0

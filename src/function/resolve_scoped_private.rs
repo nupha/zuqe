@@ -13,7 +13,7 @@ use super::{FunctionDef, JSVarKindEnum, get_loc_or_ref, push_vec_atom, push_vec_
 impl FunctionDef {
     fn resolve_scope_private_field1(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         var_name: Atom,
         mut scope_level: i32,
     ) -> Result<(u16, JSVarKindEnum, bool), i32> {
@@ -104,7 +104,7 @@ impl FunctionDef {
 
     pub(super) fn resolve_scope_private_field(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         var_name: Atom,
         scope_level: i32,
         op: u8,

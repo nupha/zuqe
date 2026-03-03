@@ -229,7 +229,8 @@ impl<'s> JSParseState<'s> {
             }
             TokenKind::STRING => {
                 let sbuf = self.token.data.take_string().unwrap();
-                self.emit_push_const(self.ctx.create_string_with_buf(sbuf)?.into(), true)?;
+                let str = self.ctx.create_string_with_buf(sbuf)?;
+                self.emit_push_const(str.into(), true)?;
                 self.next_token()?;
             }
 
@@ -250,13 +251,10 @@ impl<'s> JSParseState<'s> {
 
                     // emit RegExp opcode
                     let re_id = self.token.data.regexp().unwrap();
-                    self.emit_push_const(
-                        Atom::CONST_empty_string
-                            .force_string(&self.ctx)
-                            .unwrap()
-                            .into(),
-                        false,
-                    )?;
+                    let empty_str = Atom::CONST_empty_string
+                        .force_string(&mut self.ctx)
+                        .unwrap();
+                    self.emit_push_const(empty_str.into(), false)?;
                     self.emit_push_const(JSValue::Int(re_id as i32), false)?;
                     // we use a specific opcode to be sure the correct
                     // function is called (otherwise the bytecode would have

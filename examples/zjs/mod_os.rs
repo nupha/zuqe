@@ -59,13 +59,15 @@ fn get_time_ms() -> u64 {
 }
 
 fn js_os_isatty(cc: CallContext) -> JSResult {
-    let fd = cc.arg(0).to_i32(cc.ctx())?;
+    let mut ctx = cc.context();
+    let fd = cc.arg(0).to_i32(&mut ctx)?;
     Ok(JSValue::Bool(unsafe { libc::isatty(fd) != 0 }))
 }
 
 fn js_os_ttyGetWinSize(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let fd = cc.arg(0).to_i32(ctx)?;
+    let mut ctx = cc.context();
+
+    let fd = cc.arg(0).to_i32(&mut ctx)?;
     let w: i32;
     let h: i32;
 
@@ -104,13 +106,15 @@ fn js_os_ttyGetWinSize(cc: CallContext) -> JSResult {
     }
 
     let mut obj = ctx.create_array()?;
-    obj.define_property_value_u32(ctx, 0, JSValue::Int(w), JS_PROP_C_W_E)?;
-    obj.define_property_value_u32(ctx, 1, JSValue::Int(h), JS_PROP_C_W_E)?;
+    obj.define_property_value_u32(&mut ctx, 0, JSValue::Int(w), JS_PROP_C_W_E)?;
+    obj.define_property_value_u32(&mut ctx, 1, JSValue::Int(h), JS_PROP_C_W_E)?;
     Ok(obj.into())
 }
 
 fn js_os_ttySetRaw(cc: CallContext) -> JSResult {
-    let fd = cc.arg(0).to_i32(cc.ctx())?;
+    let mut ctx = cc.context();
+
+    let fd = cc.arg(0).to_i32(&mut ctx)?;
 
     #[cfg(unix)]
     unsafe {
@@ -185,8 +189,7 @@ thread_local! {
     static TIMERS: RefCell<LinkedList<Timer>> = const { RefCell::new(LinkedList::new()) };
 }
 
-fn js_os_poll(ctx: Context) -> bool {
-    let ctx = &ctx;
+fn js_os_poll(mut ctx: Context) -> bool {
     let mut callbacks = SmallVec::<[JSValue; 16]>::new();
 
     if OS_PENDING_SIGNALS.get() != 0 {
@@ -204,8 +207,8 @@ fn js_os_poll(ctx: Context) -> bool {
         });
 
         for func in callbacks.drain(..) {
-            if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                match ctx.rt_ref().exception().to_string(ctx) {
+            if func.call(&mut ctx, JSValue::UNDEFINED, &[]).is_err() {
+                match ctx.rt_ref().exception().to_string(&mut ctx) {
                     Ok(s) => {
                         eprintln!("signal handle error: {}", s);
                     }
@@ -240,8 +243,8 @@ fn js_os_poll(ctx: Context) -> bool {
                 let diff = tmr.timeout_ms as i64 - cur_time;
                 if diff <= 0 {
                     let func = std::mem::replace(&mut tmr.func, JSValue::UNDEFINED);
-                    if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                        match ctx.rt_ref().exception().to_string(ctx) {
+                    if func.call(&mut ctx, JSValue::UNDEFINED, &[]).is_err() {
+                        match ctx.rt_ref().exception().to_string(&mut ctx) {
                             Ok(s) => {
                                 eprintln!("Timer error: {}", s);
                             }
@@ -371,10 +374,10 @@ fn js_os_poll(ctx: Context) -> bool {
     });
 
     for f in callbacks {
-        if f.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
+        if f.call(&mut ctx, JSValue::UNDEFINED, &[]).is_err() {
             eprintln!(
                 "read handler error: {}",
-                ctx.rt_ref().exception().to_string(ctx).unwrap()
+                ctx.rt_ref().exception().to_string(&mut ctx).unwrap()
             );
             break;
         }
@@ -423,9 +426,9 @@ pub fn mod_os_gc_trace(tr: &mut GcTraceCtx) {
 
 fn js_os_setReadHandler(cc: CallContext) -> JSResult {
     let magic = cc.magic() as usize;
-    let ctx = cc.ctx();
+    let mut ctx = cc.context();
 
-    let fd = cc.arg(0).to_i32(ctx)?;
+    let fd = cc.arg(0).to_i32(&mut ctx)?;
     let func = *cc.arg(1);
 
     if func.is_null() {
@@ -459,11 +462,11 @@ fn js_os_setReadHandler(cc: CallContext) -> JSResult {
 
 fn js_os_read_write(cc: CallContext) -> JSResult {
     let magic = cc.magic();
-    let ctx = cc.ctx();
+    let mut ctx = cc.context();
 
-    let fd = cc.arg(0).to_i32(ctx)?;
-    let pos = cc.arg(2).to_index(ctx)? as u64;
-    let len = cc.arg(3).to_index(ctx)? as u64;
+    let fd = cc.arg(0).to_i32(&mut ctx)?;
+    let pos = cc.arg(2).to_index(&mut ctx)? as u64;
+    let len = cc.arg(3).to_index(&mut ctx)? as u64;
 
     let mut buf_obj = *cc.arg(1);
     let buf = if let Some(ab) = buf_obj.as_object_ArrayBuffer_mut() {
@@ -497,9 +500,9 @@ fn js_os_read_write(cc: CallContext) -> JSResult {
 }
 
 fn js_os_signal(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.context();
 
-    let sig_num = cc.arg(0).to_u32(ctx)?;
+    let sig_num = cc.arg(0).to_u32(&mut ctx)?;
     if sig_num >= 64 {
         ctx.throw_range_error("invalid signal number");
         return Err(-1);

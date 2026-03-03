@@ -189,14 +189,14 @@ impl Drop for FunctionDef {
 impl FunctionDef {
     /// alloc a function def, and initialize it.
     fn new_internal(
-        ctx: &ContextImpl,
+        ctx: ContextPtr,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
         line_num: i32,
     ) -> Result<Box<Self>, i32> {
         let o = Self {
-            ctx: ctx.gc_ref().into(),
+            ctx,
             parent: std::ptr::null_mut(),
             parent_cpool_idx: -1,
             parent_scope_level: 0,
@@ -284,7 +284,7 @@ impl FunctionDef {
 
     /// create function def and attach to parent-child chain
     pub(crate) fn new(
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         parent: Option<&mut FunctionDef>,
         is_eval: bool,
         is_func_expr: bool,
@@ -348,7 +348,7 @@ impl FunctionDef {
     // }
 
     #[cfg(feature = "dump_bytecode")]
-    pub fn dump_bytecode(&self, ctx: &ContextImpl, pass: i32) {
+    pub fn dump_bytecode(&self, ctx: &mut ContextImpl, pass: i32) {
         use crate::stack_frame::ExecMode;
 
         if !self.attrs.exec_mode.contains(ExecMode::STRIP) {

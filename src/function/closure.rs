@@ -6,7 +6,7 @@ use gc_lite::{GcTrace, GcTraceCtx};
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
     atom::Atom,
-    context::ContextImpl,
+    context::{ContextImpl, ContextPtr},
     object::{JS_PROP_WRITABLE, LazyInit, Object, ObjectPayload},
     stack_frame::StackFrame,
 };
@@ -114,7 +114,7 @@ impl FunctionDef {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn get_closure_var(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         fd: *const Self,
         mut is_local: bool,
         is_arg: bool,
@@ -148,7 +148,14 @@ impl FunctionDef {
             Ok(i as u16)
         } else {
             self.add_closure_var(
-                ctx, is_local, is_arg, vidx, var_name, is_const, is_lexical, var_kind,
+                ctx.into(),
+                is_local,
+                is_arg,
+                vidx,
+                var_name,
+                is_const,
+                is_lexical,
+                var_kind,
             )
         }
     }
@@ -158,7 +165,7 @@ impl FunctionDef {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn add_closure_var(
         &mut self,
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         is_local: bool,
         is_arg: bool,
         var_idx: u16,
@@ -210,7 +217,7 @@ impl Bytecode {
     /// Create a function object with Bytecode and captured variables.
     pub(crate) fn make_closure(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         proto: Option<Object>,
         captured_vars: &[VarRef],
         parent_stack_frame: Option<&mut StackFrame>,
@@ -304,7 +311,7 @@ impl Bytecode {
 /// for direct eval compilation: add references to the variables of the calling function.
 /// scope_idx=-1 means end of scope chain at top.
 pub(crate) fn add_closure_variables(
-    ctx: &ContextImpl,
+    ctx: &mut ContextImpl,
     s: &mut FunctionDef,
     bc: &Bytecode,
     scope_idx: i32,

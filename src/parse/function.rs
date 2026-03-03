@@ -54,7 +54,7 @@ impl<'s> JSParseState<'s> {
         let parent_fd = self.cur_func_def;
 
         let mut sub_fd = FunctionDef::new(
-            &self.ctx,
+            self.ctx,
             unsafe { parent_fd.as_mut() },
             false,
             is_expr,
@@ -156,7 +156,7 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
 
-            fd1.add_arg(&self.ctx, self.token.atom().unwrap())?;
+            fd1.add_arg(&mut self.ctx, self.token.atom().unwrap())?;
             fd1.attrs.defined_arg_count = 1;
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
             if self.token.kind == TokenKind::Char('(') {
@@ -194,7 +194,7 @@ impl<'s> JSParseState<'s> {
                         fd1.emit_u16(fd1.args.len() as _);
                     } else {
                         // unnamed arg for destructuring
-                        let idx = fd1.add_arg(&self.ctx, Atom::NULL)? as i32;
+                        let idx = fd1.add_arg(&mut self.ctx, Atom::NULL)? as i32;
                         fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
                         fd1.emit_u16(idx as _);
                     }
@@ -235,7 +235,7 @@ impl<'s> JSParseState<'s> {
                     }
 
                     /* XXX: could avoid allocating an argument if rest is true */
-                    let idx = fd1.add_arg(&self.ctx, name)? as i32;
+                    let idx = fd1.add_arg(&mut self.ctx, name)? as i32;
                     self.next_token()?;
 
                     if rest {
@@ -335,7 +335,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if fd1.find_var(var_name).is_none() {
-                    fd1.add_var(&self.ctx, var_name)?;
+                    fd1.add_var(self.ctx, var_name)?;
 
                     let vname = fd1.vars.get(idx as usize).unwrap().var_name;
 
@@ -664,7 +664,7 @@ impl<'s> JSParseState<'s> {
 
                         let hf = self
                             .cur_func_mut()
-                            .add_global_var(&self.ctx, sub_func_name)?;
+                            .add_global_var(self.ctx, sub_func_name)?;
 
                         /* it is considered as defined at the top level
                         (needed for annex B.3.3.4 and B.3.3.5
@@ -680,7 +680,7 @@ impl<'s> JSParseState<'s> {
                     } else {
                         // do not call define_var to bypass lexical scope check
                         if self.cur_func().find_var(sub_func_name).is_none() {
-                            self.cur_func_mut().add_var(&self.ctx, sub_func_name)?;
+                            self.cur_func_mut().add_var(self.ctx, sub_func_name)?;
                         };
 
                         /* store directly into local var, bypass lexical catch scope */
@@ -726,7 +726,7 @@ impl<'s> JSParseState<'s> {
 
                 // the variable will be assigned at the top of the function
                 self.cur_func_mut()
-                    .add_global_var(&self.ctx, func_var_name)?
+                    .add_global_var(self.ctx, func_var_name)?
                     .cpool_idx = cp_idx;
 
                 if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
@@ -778,7 +778,7 @@ impl<'s> JSParseState<'s> {
         )
     }
 
-    fn parse_function_check_names(&self, fd: &FunctionDef, func_name: Atom) -> Result<(), i32> {
+    fn parse_function_check_names(&mut self, fd: &FunctionDef, func_name: Atom) -> Result<(), i32> {
         if fd.attrs.exec_mode.contains(ExecMode::STRICT) {
             if !fd.attrs.has_simple_parameter_list && fd.has_use_strict {
                 self.throw_syntax_error(

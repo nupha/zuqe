@@ -90,7 +90,7 @@ impl<'s> JSParseState<'s> {
     /// * `source` - Buffer containing source code
     /// * `filename` - Name of source file
     fn new_internal(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         fd: *mut FunctionDef,
         source: &'s [u8],
         filename: &'s str,
@@ -128,7 +128,7 @@ impl<'s> JSParseState<'s> {
     /// Create new parser state with root function def.
     #[inline(always)]
     pub(crate) fn new(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         fd: NonNull<FunctionDef>,
         source: &'s [u8],
         filename: &'s str,
@@ -138,7 +138,7 @@ impl<'s> JSParseState<'s> {
 
     /// Create new parser state for json (which don't have function def).
     #[inline(always)]
-    pub fn new_for_json(ctx: &ContextImpl, source: &'s [u8], filename: &'s str) -> Self {
+    pub fn new_for_json(ctx: &mut ContextImpl, source: &'s [u8], filename: &'s str) -> Self {
         Self::new_internal(ctx, std::ptr::null_mut(), source, filename)
     }
 

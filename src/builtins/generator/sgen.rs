@@ -72,8 +72,8 @@ impl GeneratorPayload {
 
     /// execute the function up to 'OP_initial_yield' opcode
     #[inline(always)]
-    pub fn resume(&mut self, ctx: &ContextImpl) -> JSResult {
-        self.async_state.resume(ctx)
+    pub fn resume(&mut self, ctx: &mut ContextImpl) -> JSResult {
+        self.async_state.resume(ctx.into())
     }
 
     /// mark generator is completed
@@ -85,14 +85,14 @@ impl GeneratorPayload {
 }
 
 pub fn js_generator_function_call(
-    ctx: Context,
+    mut ctx: Context,
     func_obj: JSValue,
     this_obj: JSValue,
     args: &[JSValue],
     _flags: i32,
 ) -> JSResult {
     let async_state = AsyncState::create(
-        &ctx,
+        ctx.into(),
         [const { JSValue::UNDEFINED }; 2],
         *func_obj.as_object_BCWrapper().unwrap(),
         this_obj,
@@ -104,13 +104,11 @@ pub fn js_generator_function_call(
     });
 
     // protect node async_state before .resume() execute bytecode.
-    let _ng = ctx
-        .rt_ref()
-        .gc_heap()
-        .protect_node(async_state.gc_node_ptr());
+    let _rt = ctx.rt_ptr();
+    let _ng = _rt.gc_heap().protect_node(async_state.gc_node_ptr());
 
     // initial execute bytecodes till OpCode::INITIAL_YIELD instruction
-    p.resume(&ctx)?;
+    p.resume(&mut ctx)?;
 
     // create Generator instance
     ctx.create_object_from_ctor(func_obj, ObjectPayload::GENERATOR(p))
@@ -120,11 +118,13 @@ pub fn js_generator_function_call(
 
 pub fn js_generator_next(cc: CallContext, iter_state: &mut IteratorState) -> JSResult {
     let magic = cc.magic();
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     *iter_state = IteratorState::Done;
 
     let mut this = *cc.this();
-    if let ObjectPayload::GENERATOR(g) = this.retrive_object_payload_mut(ctx, JS_CLASS_GENERATOR)? {
+    if let ObjectPayload::GENERATOR(g) =
+        this.retrive_object_payload_mut(&mut ctx, JS_CLASS_GENERATOR)?
+    {
         enum WhatToDo {
             ExecNoArg,
             Done,
@@ -177,7 +177,7 @@ pub fn js_generator_next(cc: CallContext, iter_state: &mut IteratorState) -> JSR
         match action {
             WhatToDo::ExecNoArg => {
                 g.set_state(GenState::JS_GENERATOR_STATE_EXECUTING);
-                let res = g.resume(ctx);
+                let res = g.resume(&mut ctx);
                 g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD);
 
                 if g.is_completed() {

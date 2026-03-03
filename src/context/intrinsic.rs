@@ -48,9 +48,9 @@ impl ContextImpl {
 
     pub(super) fn intrinsic_base_function(&mut self) {
         // FOR LEGACY: make throw type error function
-        let mut throw_type_error = self
+        let throw_type_error = self
             .create_native_function(
-                Callback::Func(|cc| {
+                Callback::Func(|mut cc| {
                     // throw only in strict mode
                     let throw = cc
                         .this()
@@ -64,7 +64,7 @@ impl ContextImpl {
                         .unwrap_or(true);
 
                     if throw {
-                        cc.ctx().throw_type_error("invalid property access");
+                        cc.ctx_mut().throw_type_error("invalid property access");
                         Err(-1)
                     } else {
                         Ok(if cc.length() == 0 {
@@ -337,13 +337,22 @@ impl ContextImpl {
             .unwrap();
 
         // pre-define builtin Symbol_XXX
-        for i in crate::atom::ATOM_CONST_SYMBOL_RANGE {
-            let a = Atom::from_id(i);
-            a.with_utf8(self.rt_ref(), |s| {
-                let str = s.split_once('.').unwrap().1; // skip "Symbol."
-                ctor.define_property_value_str(self, str, a.to_value(self).unwrap(), 0)
-                    .unwrap();
-            });
+        {
+            // let mut ctx_ptr = ContextPtr::from(self);
+            let rt = self.rt_ptr();
+
+            for i in crate::atom::ATOM_CONST_SYMBOL_RANGE {
+                let a = Atom::from_id(i);
+                let atom_val = a.to_value(self).unwrap();
+
+                ctor.define_property_value_str(
+                    self,
+                    a.to_utf8(&rt).split_once('.').unwrap().1, // skip "Symbol."
+                    atom_val,
+                    0,
+                )
+                .unwrap();
+            }
         }
 
         self.class_protos[crate::JS_CLASS_SYMBOL as usize] = obj.into();

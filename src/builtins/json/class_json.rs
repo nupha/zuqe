@@ -3,7 +3,7 @@
 
 use crate::{
     atom::Atom,
-    context::ContextImpl,
+    context::ContextPtr,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{
@@ -15,11 +15,13 @@ use crate::{
 };
 
 fn js_json_stringify(cc: CallContext) -> JSResult {
-    cc.ctx().json_stringify(*cc.arg(0), *cc.arg(1), *cc.arg(2))
+    let mut ctx = cc.ctx_ptr();
+    let mut scope = ctx.new_scope();
+    scope.json_stringify(*cc.arg(0), *cc.arg(1), *cc.arg(2))
 }
 
 fn internalize_json_property(
-    ctx: &ContextImpl,
+    mut ctx: ContextPtr,
     holder: JSValue,
     name: Atom,
     reviver: JSValue,
@@ -29,18 +31,18 @@ fn internalize_json_property(
         return Err(-1);
     }
 
-    let mut val = holder.get_property(ctx, name)?;
+    let mut val = holder.get_property(&mut ctx, name)?;
 
     if let Some(o) = val.as_object().copied() {
-        let is_array = o.is_array(ctx)?;
+        let is_array = o.is_array(&mut ctx)?;
         let len: u32;
         let pks: Box<[PropertyKey]>;
 
         if is_array {
-            len = o.get_length_prop(ctx)? as u32;
+            len = o.get_length_prop(&mut ctx)? as u32;
             pks = [].into();
         } else {
-            pks = o.get_own_property_names(ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK)?;
+            pks = o.get_own_property_names(&mut ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK)?;
             len = pks.len() as u32;
         }
 
@@ -53,26 +55,27 @@ fn internalize_json_property(
 
             let new_el = internalize_json_property(ctx, val, prop, reviver)?;
             if new_el.is_undefined() {
-                val.delete_property(ctx, prop, 0)
+                val.delete_property(&mut ctx, prop, 0)
             } else {
-                val.define_property_value(ctx, prop, new_el, JS_PROP_C_W_E)
+                val.define_property_value(&mut ctx, prop, new_el, JS_PROP_C_W_E)
             }?;
         }
     }
 
-    reviver.call(ctx, holder, &[name.to_value(ctx)?, val])
+    let name_val = name.to_value(&mut ctx)?;
+    reviver.call(&mut ctx, holder, &[name_val, val])
 }
 
 fn js_json_parse(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
-    let s = cc.arg(0).to_string(ctx)?;
+    let s = cc.arg(0).to_string(&mut ctx)?;
     let mut obj = ctx.json_parse(&s.content().encode_utf8_bytes(true), "<input>", 0)?;
 
     if cc.length() > 1 && cc.arg(1).is_function() {
         let reviver = *cc.arg(1);
         let mut root: JSValue = ctx.create_base_object()?.into();
-        root.define_property_value(ctx, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
+        root.define_property_value(&mut ctx, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
         obj = internalize_json_property(ctx, root, Atom::CONST_empty_string, reviver)?;
     }
 

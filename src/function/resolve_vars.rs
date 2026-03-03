@@ -66,7 +66,7 @@ impl FunctionDef {
     /// Converts global variable accesses to local/closure variables when needed
     /// This is the second pass of bytecode generation
     /// Handles scope resolution and variable binding
-    pub fn resolve_variables(&mut self, ctx: &ContextImpl) -> Result<(), i32> {
+    pub fn resolve_variables(&mut self, ctx: &mut ContextImpl) -> Result<(), i32> {
         let bc_buf_ptr = self.byte_code.as_mut_ptr();
         let bc_buf_len = self.byte_code.len();
 
@@ -145,7 +145,7 @@ impl FunctionDef {
                         unsafe { Atom::from_id(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))) };
                     let scope = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 5)) };
                     pos_next = self.resolve_scope_var(
-                        ctx,
+                        ctx.into(),
                         var_name,
                         scope as _,
                         op,
@@ -170,7 +170,7 @@ impl FunctionDef {
                         unsafe { Atom::from_id(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))) };
 
                     pos_next = self.resolve_scope_var(
-                        ctx,
+                        ctx.into(),
                         var_name,
                         scope as _,
                         op,

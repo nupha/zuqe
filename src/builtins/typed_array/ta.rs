@@ -3,7 +3,7 @@
 
 use std::cell::UnsafeCell;
 
-use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx, GcWeak};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
@@ -13,7 +13,7 @@ use crate::{
     atom::Atom,
     builtins::{array_buffer::ArrayBuffer, iterator::js_array_from_iterator},
     class::ClassID,
-    context::{Context, ContextImpl},
+    context::{Context, ContextImpl, ContextPtr},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::{Callback, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
@@ -190,17 +190,17 @@ impl TypedArray {
         ));
 
         let mut proto = ctx.create_base_object().unwrap();
-        proto.install_fields(&ctx, js_typed_array_base_proto_funcs)?;
+        proto.install_fields(&mut ctx, js_typed_array_base_proto_funcs)?;
 
         // TypedArray.prototype.toString must be the same object as Array.prototype.toString
         let to_string = ctx
             .class_proto(JS_CLASS_ARRAY)
             .unwrap()
-            .get_property(&ctx, Atom::CONST_toString)?;
+            .get_property(&mut ctx, Atom::CONST_toString)?;
 
         // XXX: should use alias method in JSCFunctionListEntry
         proto.define_property_value(
-            &ctx,
+            &mut ctx,
             Atom::CONST_toString,
             to_string,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -213,7 +213,7 @@ impl TypedArray {
             0,
         )?;
         typed_array_base_func
-            .install_fields(&ctx, js_typed_array_base_funcs)
+            .install_fields(&mut ctx, js_typed_array_base_funcs)
             .unwrap();
 
         ctx.bind_ctor_proto(typed_array_base_func.into(), proto.into())
@@ -228,10 +228,15 @@ impl TypedArray {
             .to_utf8(ctx.rt_ref());
 
             let mut ta_obj = ctx.create_base_object_with_proto(Some(proto))?;
-            ta_obj.define_property_value_str(&ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
+            ta_obj.define_property_value_str(
+                &mut ctx,
+                "BYTES_PER_ELEMENT",
+                JSValue::Int(nby),
+                0,
+            )?;
 
             let mut func_obj: JSValue = NativeFunction::create(
-                &ctx,
+                &mut ctx,
                 Callback::Constructor(js_typed_array_constructor),
                 &name,
                 3,
@@ -242,7 +247,12 @@ impl TypedArray {
             .into();
 
             ctx.add_global_constructor(name.as_ref(), func_obj, ta_obj.into());
-            func_obj.define_property_value_str(&ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
+            func_obj.define_property_value_str(
+                &mut ctx,
+                "BYTES_PER_ELEMENT",
+                JSValue::Int(nby),
+                0,
+            )?;
 
             ctx.class_protos[cid as usize] = ta_obj.into();
         }
@@ -395,24 +405,24 @@ impl TypedArray {
     }
 
     /// create a new TypedArray with content copied from `self` typed array.
-    pub fn create_to_new(
+    pub(crate) fn create_to_new(
         &self,
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         new_target: JSValue,
         class_id: ClassID,
     ) -> Result<Self, i32> {
         if self.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            JS_ThrowTypeErrorDetachedArrayBuffer(&mut ctx);
             return Err(-1);
         }
 
         let count = self.length();
         let size_log2 = Self::SIZE_LOG2(class_id as _);
-        let new_buf = ArrayBuffer::create(ctx, false, count << size_log2)?;
+        let new_buf = ArrayBuffer::create(&mut ctx, false, count << size_log2)?;
 
         // Note: necessary to check detacth again, because it could have been detached by side effect.
         if self.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            JS_ThrowTypeErrorDetachedArrayBuffer(&mut ctx);
             return Err(-1);
         }
 
@@ -435,8 +445,8 @@ impl TypedArray {
         } else {
             // slow path: get then set as props
             for i in 0..count {
-                let val = self.get_property_u32(ctx, i as u32)?;
-                new_ta.set_property_u32(ctx, i as u32, val)?;
+                let val = self.get_property_u32(&mut ctx, i as u32)?;
+                new_ta.set_property_u32(&mut ctx, i as u32, val)?;
             }
         }
 
@@ -446,7 +456,7 @@ impl TypedArray {
     /// create an TypedArray with array buffer, offset and count.
     /// `count`: number of elements.
     fn create(
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         new_target: JSValue,
         array_buffer: ArrayBuffer,
         offset: usize,
@@ -505,13 +515,13 @@ impl TypedArray {
     /// create an TypedArray with empty array buffer.
     /// `count`: number of elements
     pub fn with_capacity(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         new_target: JSValue,
         count: usize,
         class_id: ClassID,
     ) -> Result<Self, i32> {
         TypedArray::create(
-            ctx,
+            ContextPtr::from_ref(ctx),
             new_target,
             ArrayBuffer::create(ctx, false, count << TypedArray::SIZE_LOG2(class_id))?,
             0,
@@ -525,7 +535,7 @@ impl TypedArray {
     /// - ArrayBuffer, SharedArrayBuffer: create a TypedArray with array buffer;
     /// - An enumerable object: create a TypedArray with content from enumerated index property vals.
     pub(crate) fn create_from(
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         new_target: JSValue,
         source: JSValue,
         offset: usize,
@@ -549,7 +559,7 @@ impl TypedArray {
                         let iterator = {
                             #[cfg(feature = "builtin_symbol")]
                             {
-                                o.get_property(ctx, Atom::CONST_Symbol_iterator)?
+                                o.get_property(&mut ctx, Atom::CONST_Symbol_iterator)?
                             }
                             #[cfg(not(feature = "builtin_symbol"))]
                             JSValue::UNDEFINED
@@ -558,22 +568,22 @@ impl TypedArray {
                         let (enum_obj, count) = if !iterator.is_undefined_or_null() {
                             js_array_from_iterator(ctx, o.into(), iterator)?
                         } else {
-                            let len = o.get_length_prop(ctx)? as usize;
+                            let len = o.get_length_prop(&mut ctx)? as usize;
                             (o.into(), len)
                         };
 
                         let mut new_ta = Self::create(
                             ctx,
                             new_target,
-                            ArrayBuffer::create(ctx, false, count << size_log2)?,
+                            ArrayBuffer::create(&mut ctx, false, count << size_log2)?,
                             0,
                             count,
                             class_id,
                         )?;
 
                         for i in 0..count {
-                            let v = enum_obj.get_property_u32(ctx, i as u32)?;
-                            new_ta.set_property_u32(ctx, i as u32, v)?;
+                            let v = enum_obj.get_property_u32(&mut ctx, i as u32)?;
+                            new_ta.set_property_u32(&mut ctx, i as u32, v)?;
                         }
 
                         Ok(new_ta)

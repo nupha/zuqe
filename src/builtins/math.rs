@@ -11,7 +11,7 @@ use crate::{
 
 fn js_math_min_max(cc: CallContext) -> JSResult {
     let is_max = cc.magic() != 0;
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     if cc.length() == 0 {
         return Ok(JSValue::Float64(if is_max {
@@ -21,15 +21,15 @@ fn js_math_min_max(cc: CallContext) -> JSResult {
         }));
     }
 
-    let mut res = if let JSValue::Int(r1) = cc.arg(0).to_number(ctx)? {
+    let mut res = if let JSValue::Int(r1) = cc.arg(0).to_number(&mut ctx)? {
         IntOrFloat::Int64(r1 as _)
     } else {
-        IntOrFloat::Float64(cc.arg(0).to_f64(ctx)?)
+        IntOrFloat::Float64(cc.arg(0).to_f64(&mut ctx)?)
     };
 
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
-            match (a.to_number(ctx)?, &mut res) {
+            match (a.to_number(&mut ctx)?, &mut res) {
                 // int vs int
                 (JSValue::Int(n), IntOrFloat::Int64(mx)) => {
                     *mx = if is_max {
@@ -147,18 +147,18 @@ pub const fn js_math_round(a: f64) -> f64 {
 }
 
 fn js_math_hypot(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let mut r = 0.0;
 
     if cc.length() > 0 {
-        r = cc.arg(0).to_f64(ctx)?;
+        r = cc.arg(0).to_f64(&mut ctx)?;
 
         if cc.length() == 1 {
             r = r.abs();
         } else {
             // use the built-in function to minimize precision loss
             for v in &cc.arguments()[1..] {
-                let a = v.to_f64(ctx)?;
+                let a = v.to_f64(&mut ctx)?;
                 r = r.hypot(a);
             }
         }
@@ -168,15 +168,15 @@ fn js_math_hypot(cc: CallContext) -> JSResult {
 }
 
 fn js_math_imul(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let a = cc.arg(0).to_i32(ctx)?;
-    let b = cc.arg(1).to_i32(ctx)?;
+    let mut ctx = cc.ctx_ptr();
+    let a = cc.arg(0).to_i32(&mut ctx)?;
+    let b = cc.arg(1).to_i32(&mut ctx)?;
     Ok(JSValue::Int(a.wrapping_mul(b)))
 }
 
 fn js_math_clz32(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let a = cc.arg(0).to_u32(ctx)?;
+    let mut ctx = cc.ctx_ptr();
+    let a = cc.arg(0).to_u32(&mut ctx)?;
     let r: u32 = if a == 0 { 32 } else { a.leading_zeros() };
     Ok(JSValue::Int(r as i32))
 }

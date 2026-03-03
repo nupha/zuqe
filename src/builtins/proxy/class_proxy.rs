@@ -13,7 +13,7 @@ use crate::{
 use super::ProxyPayload;
 
 pub fn js_proxy_constructor(cc: CallContext) -> JSResult {
-    let ctx = cc.context();
+    let mut ctx = cc.ctx_ptr();
 
     let Some(target) = cc.arg(0).as_object().copied() else {
         ctx.throw_type_error_not_an_object();
@@ -41,11 +41,11 @@ fn js_proxy_revocable(cc: CallContext) -> JSResult {
     let cc2 = CallContext::new_simple(cc.ctx_ptr(), JSValue::UNDEFINED, cc.arguments());
     let proxy = js_proxy_constructor(cc2)?;
 
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     // create revoke function
     let revoke_obj = NativeFunction::create(
-        ctx,
+        &mut ctx,
         Callback::Func(|mut cc| -> JSResult {
             if let Some(px) = cc.data(0).as_object_Proxy() {
                 px.payload().set_revoked();
@@ -62,8 +62,13 @@ fn js_proxy_revocable(cc: CallContext) -> JSResult {
     )?;
 
     let mut obj = ctx.create_base_object()?;
-    obj.define_property_value(ctx, Atom::CONST_proxy, proxy, JS_PROP_C_W_E)?;
-    obj.define_property_value(ctx, Atom::CONST_revoke, revoke_obj.into(), JS_PROP_C_W_E)?;
+    obj.define_property_value(&mut ctx, Atom::CONST_proxy, proxy, JS_PROP_C_W_E)?;
+    obj.define_property_value(
+        &mut ctx,
+        Atom::CONST_revoke,
+        revoke_obj.into(),
+        JS_PROP_C_W_E,
+    )?;
 
     Ok(obj.into())
 }

@@ -37,7 +37,7 @@ object_cast!(BoundFunction, JS_CLASS_BOUND_FUNCTION);
 
 impl BoundFunction {
     pub fn class_call(
-        ctx: Context,
+        mut ctx: Context,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],
@@ -68,9 +68,9 @@ impl BoundFunction {
                     new_target = bf.func_obj;
                 }
                 bf.func_obj
-                    .call_ctor_new_target(&ctx, new_target, &arg_list)
+                    .call_ctor_new_target(&mut ctx, new_target, &arg_list)
             } else {
-                bf.func_obj.call(&ctx, bf.this_val, &arg_list)
+                bf.func_obj.call(&mut ctx, bf.this_val, &arg_list)
             }
         } else {
             unreachable!()

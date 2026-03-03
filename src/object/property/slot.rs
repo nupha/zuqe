@@ -115,7 +115,7 @@ impl Object {
     /// update value to property slot `idx`, handle 'writable' flag setting.
     pub(super) fn update_prop_slot_value(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         prs_flags: u32,
         idx: usize,
@@ -131,7 +131,9 @@ impl Object {
                     prs_flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0
                         && flags & JS_PROP_HAS_VALUE != 0,
                 ) {
-                    return if !val.is_same(self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?) {
+                    return if !val
+                        .is_same(self.prop_slot(idx).value(ctx.into(), JSValue::UNDEFINED)?)
+                    {
                         if ctx.can_throw(flags) {
                             ctx.throw_type_error("property is not configurable");
                             Err(-1)
@@ -224,12 +226,11 @@ impl Object {
         } else if prs_flags & JS_PROP_LENGTH != 0 {
             // the length property
             let res = if flags & JS_PROP_HAS_VALUE != 0 {
+                let arr_len = val.to_array_length(ctx, false)?;
+                let can_throw = ctx.can_throw(flags);
                 unsafe {
-                    self.as_Array_mut_unchecked().set_length(
-                        ctx,
-                        val.to_array_length(ctx, false)?,
-                        ctx.can_throw(flags),
-                    )
+                    self.as_Array_mut_unchecked()
+                        .set_length(ctx, arr_len, can_throw)
                 }
             } else {
                 Ok(true)
@@ -262,7 +263,7 @@ impl Object {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn update_prop_slot_getset(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         prs_flags: u32,
         idx: usize,

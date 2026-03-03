@@ -3,7 +3,7 @@
 
 use crate::{
     atom::Atom,
-    context::ContextImpl,
+    context::ContextPtr,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::ObjectPayload,
@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub fn js_boolean_constructor(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let new_target = *cc.this();
     let b = cc.arg(0).to_bool().unwrap_or(true);
 
@@ -24,7 +24,7 @@ pub fn js_boolean_constructor(cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_thisBooleanValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
+fn js_thisBooleanValue(mut ctx: ContextPtr, this_val: JSValue) -> JSResult {
     this_val.as_bool().map(JSValue::Bool).ok_or_else(|| {
         ctx.throw_type_error("not a boolean");
         -1
@@ -32,7 +32,7 @@ pub fn js_thisBooleanValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
 }
 
 fn js_boolean_toString(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     match js_thisBooleanValue(ctx, *cc.this())? {
         JSValue::Bool(true) => Atom::CONST_true,
@@ -42,12 +42,12 @@ fn js_boolean_toString(cc: CallContext) -> JSResult {
             return Err(-1);
         }
     }
-    .force_string(ctx)
+    .force_string(&mut ctx)
     .map(JSValue::from)
 }
 
 fn js_boolean_valueOf(cc: CallContext) -> JSResult {
-    js_thisBooleanValue(cc.ctx(), *cc.this())
+    js_thisBooleanValue(cc.ctx_ptr(), *cc.this())
 }
 
 pub const js_boolean_proto_funcs: &[FieldDef] = &[

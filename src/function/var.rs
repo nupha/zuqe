@@ -4,7 +4,11 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    atom::Atom, context::ContextImpl, eval::EvalType, function::FunctionDef, stack_frame::ExecMode,
+    atom::Atom,
+    context::{ContextImpl, ContextPtr},
+    eval::EvalType,
+    function::FunctionDef,
+    stack_frame::ExecMode,
 };
 
 use super::ARG_SCOPE_INDEX;
@@ -205,9 +209,9 @@ impl JSGlobalVar {
 
 impl FunctionDef {
     /// add a global variable definition
-    pub fn add_global_var(
+    pub(crate) fn add_global_var(
         &mut self,
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         name: Atom,
     ) -> Result<&mut JSGlobalVar, i32> {
         if self.global_vars.len() == self.global_vars.capacity()
@@ -255,7 +259,7 @@ impl FunctionDef {
     }
 
     /// add new argument to the function, returns arg index or error.
-    pub fn add_arg(&mut self, ctx: &ContextImpl, name: Atom) -> Result<u16, i32> {
+    pub fn add_arg(&mut self, ctx: &mut ContextImpl, name: Atom) -> Result<u16, i32> {
         // the local variable indexes are currently stored on 16 bits
         if self.args.len() >= JS_MAX_LOCAL_VARS as usize {
             ctx.throw_internal_error("too many arguments");
@@ -282,7 +286,7 @@ impl FunctionDef {
 
     /// add variable defination. return the new variable index or error.
     /// `name` is not consumed
-    pub fn add_var(&mut self, ctx: &ContextImpl, name: Atom) -> Result<u16, i32> {
+    pub fn add_var(&mut self, mut ctx: ContextPtr, name: Atom) -> Result<u16, i32> {
         if self.vars.len() >= JS_MAX_LOCAL_VARS as usize {
             ctx.throw_internal_error("too many local variables");
             return Err(-1);
@@ -305,7 +309,7 @@ impl FunctionDef {
     }
 
     /// define pseudo variable named `this`
-    pub fn add_var_this(&mut self, ctx: &ContextImpl) -> Result<u16, i32> {
+    pub fn add_var_this(&mut self, ctx: ContextPtr) -> Result<u16, i32> {
         let idx = self.add_var(ctx, Atom::CONST_this)?;
         if self.attrs.is_derived_class_constructor {
             // used to trigger 'uninitialized' checks
@@ -321,7 +325,7 @@ impl FunctionDef {
     /// `in_arg_scope`:
     /// - false: will define in the variable scope, returns var idx for `arguments`
     /// - true: will define in the argument scope. this is only needed when "eval()" may be called in the argument scope. Return 0 if OK.
-    pub fn add_arguments(&mut self, ctx: &ContextImpl, in_arg_scope: bool) -> Result<u16, i32> {
+    pub fn add_arguments(&mut self, ctx: ContextPtr, in_arg_scope: bool) -> Result<u16, i32> {
         if in_arg_scope {
             if self.arguments_arg_idx.is_none()
                 && self
@@ -353,7 +357,7 @@ impl FunctionDef {
 
     /// get or create const variable used as function/expr name.
     /// returns the variable id.
-    pub fn add_func_var(&mut self, ctx: &ContextImpl, name: Atom) -> Result<u16, i32> {
+    pub fn add_func_var(&mut self, ctx: ContextPtr, name: Atom) -> Result<u16, i32> {
         if let Some(i) = self.func_var_idx {
             Ok(i)
         } else {

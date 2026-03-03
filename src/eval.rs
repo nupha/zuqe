@@ -127,7 +127,7 @@ impl ContextImpl {
         };
 
         // create root function def.
-        let mut fd = FunctionDef::new(self, None, true, false, filename, 1)?;
+        let mut fd = FunctionDef::new(self.into(), None, true, false, filename, 1)?;
 
         fd.eval_type = eval_type;
         fd.func_name = Atom::CONST__eval_;
@@ -270,16 +270,11 @@ impl<'a> ContextScope<'a> {
                 }
             };
 
-        // // TODO: should enable this check? to ensure return value in current scope.
-        // // JSValue::eval_object() breaks this assertion now.
-        // #[cfg(debug_assertions)]
-        // if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
-        //     debug_assert!(
-        //         self.gc_heap().current_gc_scope().unwrap().contains(n),
-        //         "ctx_scope={_ctx_scope_level}, node={:?}",
-        //         unsafe { n.as_ref() }
-        //     );
-        // }
+        // ensure return value contains in `self` scope.
+        #[cfg(debug_assertions)]
+        if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
+            debug_assert!(self.contains(n), "{:?}", unsafe { n.as_ref() });
+        }
 
         ret_val
     }
@@ -356,6 +351,11 @@ impl<'a> ContextScope<'a> {
             let exc = self.rt_mut().take_exception();
             ErrorText::from(self, exc)
         })?;
+
+        #[cfg(debug_assertions)]
+        if let Some(n) = val.gc_node_ptr() {
+            debug_assert!(self.contains(n), "{val:?}");
+        }
 
         let mut promise = Promise::try_from(val).ok();
         let mut result = if let Some(p) = promise {

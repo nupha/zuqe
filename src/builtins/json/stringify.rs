@@ -4,10 +4,9 @@
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
+    ContextScope, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
     atom::Atom,
     builtins::iterator::JSIteratorKindEnum,
-    context::ContextImpl,
     error::JSResult,
     object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E},
     string::{LocalString, StringBuf, StringData, StringRef},
@@ -23,8 +22,13 @@ struct JSONStringifyContext {
     buf: StringBuf,
 }
 
-impl ContextImpl {
-    pub fn json_stringify(&self, obj: JSValue, replacer: JSValue, mut space: JSValue) -> JSResult {
+impl<'a> ContextScope<'a> {
+    pub fn json_stringify(
+        &mut self,
+        obj: JSValue,
+        replacer: JSValue,
+        mut space: JSValue,
+    ) -> JSResult {
         let mut jsc = JSONStringifyContext {
             replacer_func: JSValue::UNDEFINED,
             replacer_props: None,
@@ -123,7 +127,7 @@ impl ContextImpl {
 }
 
 fn js_json_check(
-    ctx: &ContextImpl,
+    ctx: &mut ContextScope,
     jsc: &JSONStringifyContext,
     holder: JSValue,
     val: JSValue,
@@ -146,6 +150,11 @@ fn js_json_check(
     } else {
         val
     };
+
+    #[cfg(debug_assertions)]
+    if let Some(n) = ret.gc_node_ptr() {
+        debug_assert!(ctx.contains(n), "{ret:?}");
+    }
 
     match ret {
         JSValue::Object(o) => {
@@ -170,7 +179,7 @@ fn js_json_check(
 }
 
 fn js_json_to_str(
-    ctx: &ContextImpl,
+    ctx: &mut ContextScope,
     jsc: &mut JSONStringifyContext,
     val: JSValue,
     indent: &StringBuf,
@@ -247,7 +256,6 @@ fn js_json_to_str(
 
             if val.is_array(ctx)? {
                 let len = val.get_length_prop(ctx)?;
-
                 jsc.buf.push_u8(b'[').map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
@@ -266,13 +274,9 @@ fn js_json_to_str(
                         -1
                     })?;
 
-                    let mut v = js_json_check(
-                        ctx,
-                        jsc,
-                        val,
-                        val.get_property_i64(ctx, i)?,
-                        (&ctx.create_string_from_str(&format!("{i}"))?).into(),
-                    )?;
+                    let nth = ctx.create_string_from_str(&format!("{i}"))?;
+                    let prop_val = val.get_property_i64(ctx, i)?;
+                    let mut v = js_json_check(ctx, jsc, val, prop_val, (&nth).into())?;
                     if v.is_undefined() {
                         v = JSValue::NULL;
                     }
@@ -322,15 +326,9 @@ fn js_json_to_str(
                 let mut has_content = false;
                 for k in tab.iter() {
                     let key = *k;
+                    let prop_val = val.get_property_value(ctx, key.into())?;
 
-                    let v = js_json_check(
-                        ctx,
-                        jsc,
-                        val,
-                        val.get_property_value(ctx, key.into())?,
-                        key,
-                    )?;
-
+                    let v = js_json_check(ctx, jsc, val, prop_val, key)?;
                     if !v.is_undefined() {
                         if has_content {
                             jsc.buf.push_u8(b',').map_err(|_| {
@@ -354,6 +352,8 @@ fn js_json_to_str(
                         jsc.buf.push(&qkey).unwrap();
                         jsc.buf.push_u8(b':').unwrap();
                         jsc.buf.push(&sep1).unwrap();
+
+                        println!("[O.o] level={}, v={v:?}", ctx.gc_heap().scope_level());
 
                         js_json_to_str(ctx, jsc, v, &indent1)?;
                         has_content = true;

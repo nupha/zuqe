@@ -7,12 +7,12 @@ use crate::string::{CharCode, CharCodeDecoder, StringBuf, StringData, Utf8Stream
 
 impl StringData {
     #[allow(clippy::too_many_arguments)]
-    pub fn substitution_buf<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
+    pub fn substitution_buf<NC: FnMut(&str) -> Result<Option<StringData>, i32>>(
         matched: &Self,     // 匹配到的子字符串（对应 $&）
         str: &Self,         // 原字串
         position: usize,    // 匹配发生的位置索引
         replacement: &Self, // 替换字符串或替换函数。
-        captures: impl Fn(usize) -> Result<Option<StringData>, i32>, // 捕获（对应 $1, $2 等）
+        captures: impl FnMut(usize) -> Result<Option<StringData>, i32>, // 捕获（对应 $1, $2 等）
         captures_len: usize, // 最大捕获ID
         has_named_captures: bool, // enable named_captures
         named_captures: NC, // 命名捕获（对应 $<name>）
@@ -59,15 +59,15 @@ impl StringData {
 /// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
 /// 返回: 包含替换后的字符串值
 #[allow(clippy::too_many_arguments)]
-fn do_substitution<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
-    str: &StringData,                                            // 原始字符串。
-    position: usize,                                             // 匹配发生的位置索引
-    matched: &StringData,                                        // 匹配到的子字符串（对应 $&）
-    replacement: &StringData,                                    // 替换字符串或替换函数。
-    captures: impl Fn(usize) -> Result<Option<StringData>, i32>, // 捕获（对应 $1, $2 等）
-    captures_len: usize,                                         // 最大捕获ID
-    has_named_captures: bool,                                    // enable named_captures handler
-    named_captures: NC,                                          // 命名捕获（对应 $<name>）
+fn do_substitution<NC: FnMut(&str) -> Result<Option<StringData>, i32>>(
+    str: &StringData,                                                   // 原始字符串。
+    position: usize,                                                    // 匹配发生的位置索引
+    matched: &StringData,     // 匹配到的子字符串（对应 $&）
+    replacement: &StringData, // 替换字符串或替换函数。
+    mut captures: impl FnMut(usize) -> Result<Option<StringData>, i32>, // 捕获（对应 $1, $2 等）
+    captures_len: usize,      // 最大捕获ID
+    has_named_captures: bool, // enable named_captures handler
+    mut named_captures: NC,   // 命名捕获（对应 $<name>）
 ) -> Result<StringBuf, Option<TryReserveError>> {
     // alloc result string buf
     let mut sbuf = StringBuf::with_capacity(matched.len(), false)?;

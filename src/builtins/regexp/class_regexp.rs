@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcLocal, GcNode};
+use gc_lite::GcNode;
 use lre::RegexFlags;
 use smallvec::SmallVec;
 
@@ -9,16 +9,14 @@ use crate::{
     JS_CLASS_REGEXP,
     atom::Atom,
     builtins::array::Array,
-    context::ContextImpl,
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, Callback, FieldDef, js_function_apply},
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, Object,
         ObjectPayload,
     },
-    string::{
-        CharCode, CharCodeDecoder, JS_ConcatString3, StringBuf, StringData, StringImpl, StringRef,
-    },
+    string::{CharCode, CharCodeDecoder, JS_ConcatString3, StringBuf, StringData, StringRef},
     value::JSValue,
 };
 
@@ -27,7 +25,7 @@ use super::{RegExpData, RegExpStringIterPayload, make_regexp_capture_array};
 // /* create a RegExp object from a string containing the RegExp bytecode
 // and the source pattern */
 // fn js_regexp_constructor_internal(
-//     ctx: &ContextImpl,
+//     ctx: &mut ContextImpl,
 //     ctor: JSValue,
 //     pattern: StringRef,
 //     flags: JSValue,
@@ -56,7 +54,7 @@ use super::{RegExpData, RegExpStringIterPayload, make_regexp_capture_array};
 // }
 
 pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let pat = *cc.arg(0);
     let mut flags1 = *cc.arg(1);
 
@@ -65,7 +63,7 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
     if cc.this().is_undefined() {
         // called as a function
         if pat_is_regexp && flags1.is_undefined() {
-            let ctor = pat.get_property(ctx, Atom::CONST_constructor)?;
+            let ctor = pat.get_property(&mut ctx, Atom::CONST_constructor)?;
             if ctor.is_same(ctx.rt_ref().current_function()) {
                 return Ok(pat);
             }
@@ -83,7 +81,7 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
             flags_str = if flags1.is_undefined() {
                 re.flags_str.clone()
             } else {
-                flags1.to_string(ctx).map(|s| s.content().clone())?
+                flags1.to_string(&mut ctx).map(|s| s.content().clone())?
             };
             None
         }
@@ -91,35 +89,33 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
         let mut pat_str = pat;
 
         if pat_is_regexp {
-            pat_str = pat.get_property(ctx, Atom::CONST_source)?;
+            pat_str = pat.get_property(&mut ctx, Atom::CONST_source)?;
             if flags1.is_undefined() {
-                flags1 = pat.get_property(ctx, Atom::CONST_flags)?;
+                flags1 = pat.get_property(&mut ctx, Atom::CONST_flags)?;
             }
         }
 
         if !pat_str.is_undefined() {
-            pattern = pat_str.to_string(ctx)?.content().clone();
+            pattern = pat_str.to_string(&mut ctx)?.content().clone();
         }
         if !flags1.is_undefined() {
-            flags_str = flags1.to_string(ctx)?.content().clone();
+            flags_str = flags1.to_string(&mut ctx)?.content().clone();
         }
 
         None
     };
 
+    let payload = ObjectPayload::REGEXP(Box::new(if let Some(d) = re {
+        d.clone()
+    } else {
+        RegExpData::create(&mut ctx, pattern, flags_str)?
+    }));
     let mut obj = ctx
-        .create_object_from_ctor(
-            *cc.this(),
-            ObjectPayload::REGEXP(Box::new(if let Some(d) = re {
-                d.clone()
-            } else {
-                RegExpData::create(ctx, pattern, flags_str)?
-            })),
-        )
+        .create_object_from_ctor(*cc.this(), payload)
         .map_err(|_| -1)?;
 
     obj.define_property_value(
-        ctx,
+        &mut ctx,
         Atom::CONST_lastIndex,
         JSValue::Int(0),
         JS_PROP_WRITABLE,
@@ -129,7 +125,7 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
 }
 
 fn js_get_regexp<'a>(
-    ctx: &ContextImpl,
+    mut ctx: ContextPtr,
     obj: &'a JSValue,
     throw_error: bool,
 ) -> Option<&'a RegExpData> {
@@ -143,16 +139,16 @@ fn js_get_regexp<'a>(
     }
 }
 
-pub(crate) fn is_regexp(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i32> {
+pub(crate) fn is_regexp(mut ctx: ContextPtr, obj: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(o) = obj {
         let m = {
             #[cfg(feature = "builtin_symbol")]
             {
-                o.get_property(ctx, Atom::CONST_Symbol_match)
+                o.get_property(&mut ctx, Atom::CONST_Symbol_match)
             }
             #[cfg(not(feature = "builtin_symbol"))]
             {
-                o.get_property_str(ctx, "match")
+                o.get_property_str(&mut ctx, "match")
             }
         }?;
 
@@ -167,7 +163,7 @@ pub(crate) fn is_regexp(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i32> {
 }
 
 pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let this = cc.this();
 
     if this.is_object() {
@@ -246,11 +242,11 @@ pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
 
 pub fn js_regexp_get_flag(cc: CallContext) -> JSResult {
     let mask = RegexFlags::from_bits_truncate(cc.magic() as u32);
-    let ctx = cc.ctx();
-    let this = cc.this();
+    let mut ctx = cc.ctx_ptr();
 
+    let this = *cc.this();
     if this.is_object() {
-        if let Some(re) = js_get_regexp(ctx, this, false) {
+        if let Some(re) = js_get_regexp(ctx, &this, false) {
             Ok(JSValue::Bool(!(re.flags() & mask).is_empty()))
         } else if this.is_same(
             ctx.class_proto(JS_CLASS_REGEXP)
@@ -268,7 +264,7 @@ pub fn js_regexp_get_flag(cc: CallContext) -> JSResult {
 }
 
 pub fn js_regexp_get_flags(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     if let JSValue::Object(o) = cc.this() {
         const TESTS: [(&str, u8); 8] = [
@@ -286,13 +282,15 @@ pub fn js_regexp_get_flags(cc: CallContext) -> JSResult {
         let mut pos = 0_usize;
 
         for (name, ch) in TESTS.iter() {
-            if o.get_property_str(ctx, name).and_then(|b| b.to_bool())? {
+            if o.get_property_str(&mut ctx, name)
+                .and_then(|b| b.to_bool())?
+            {
                 buf[pos] = *ch;
                 pos += 1;
             }
         }
         if pos == 0 {
-            Atom::CONST_empty_string.force_string(ctx)
+            Atom::CONST_empty_string.force_string(&mut ctx)
         } else {
             ctx.create_string_from_str(std::str::from_utf8(&buf[0..pos]).unwrap())
         }
@@ -304,7 +302,7 @@ pub fn js_regexp_get_flags(cc: CallContext) -> JSResult {
 }
 
 pub fn js_regexp_toString(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     if let JSValue::Object(_) = cc.this() {
         let Ok(mut buf) = StringBuf::with_capacity(96, false) else {
@@ -316,8 +314,8 @@ pub fn js_regexp_toString(cc: CallContext) -> JSResult {
 
         let pattern = cc
             .this()
-            .get_property(ctx, Atom::CONST_source)
-            .and_then(|v| v.to_string(ctx))?;
+            .get_property(&mut ctx, Atom::CONST_source)
+            .and_then(|v| v.to_string(&mut ctx))?;
 
         buf.push_content(pattern.content()).map_err(|_| {
             ctx.throw_out_of_memory();
@@ -331,8 +329,8 @@ pub fn js_regexp_toString(cc: CallContext) -> JSResult {
 
         let flags = cc
             .this()
-            .get_property(ctx, Atom::CONST_flags)
-            .and_then(|v| v.to_string(ctx))?;
+            .get_property(&mut ctx, Atom::CONST_flags)
+            .and_then(|v| v.to_string(&mut ctx))?;
 
         buf.push_content(flags.content()).map_err(|_| {
             ctx.throw_out_of_memory();
@@ -348,7 +346,7 @@ pub fn js_regexp_toString(cc: CallContext) -> JSResult {
 }
 
 fn js_regexp_compile(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     let _ = js_get_regexp(ctx, cc.this(), true).ok_or(-1)?;
 
@@ -368,22 +366,22 @@ fn js_regexp_compile(cc: CallContext) -> JSResult {
         flags_str = if flags1.is_undefined() {
             re1.flags_str.clone()
         } else {
-            flags1.to_string(ctx)?.content().clone()
+            flags1.to_string(&mut ctx)?.content().clone()
         }
     } else {
         pattern = if pattern1.is_undefined() {
             StringData::Empty
         } else {
-            pattern1.to_string(ctx)?.content().clone()
+            pattern1.to_string(&mut ctx)?.content().clone()
         };
         flags_str = if flags1.is_undefined() {
             StringData::Empty
         } else {
-            flags1.to_string(ctx)?.content().clone()
+            flags1.to_string(&mut ctx)?.content().clone()
         };
     }
 
-    let new_re = Box::new(RegExpData::create(ctx, pattern, flags_str)?);
+    let new_re = Box::new(RegExpData::create(&mut ctx, pattern, flags_str)?);
 
     let mut this = *cc.this();
     if let ObjectPayload::REGEXP(re0) = this.as_object_mut().unwrap().payload_mut() {
@@ -394,14 +392,14 @@ fn js_regexp_compile(cc: CallContext) -> JSResult {
         }
     }
 
-    this.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
+    this.set_property(&mut ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
 
     Ok(this)
 }
 
 pub fn js_regexp_exec(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
-    let str = cc.arg(0).to_string(ctx)?;
+    let mut ctx = cc.ctx_ptr();
+    let str = cc.arg(0).to_string(&mut ctx)?;
     Ok(regexp_exec_default(ctx, *cc.this(), str.gc_ref().into())?
         .map_or(JSValue::NULL, |a| a.into()))
 }
@@ -411,32 +409,34 @@ pub fn js_regexp_test(cc: CallContext) -> JSResult {
 }
 
 pub fn js_regexp_Symbol_match(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let this = *cc.this();
-    let str = cc.arg(0).to_string(ctx)?;
+    let str = cc.arg(0).to_string(&mut ctx)?;
 
-    let flags = this.get_property(ctx, Atom::CONST_flags)?.to_string(ctx)?;
+    let flags = this
+        .get_property(&mut ctx, Atom::CONST_flags)?
+        .to_string(&mut ctx)?;
     let is_global = flags.index_of_char('g', 0).is_some();
     if is_global {
         let is_unicode = flags
             .chars()
             .any(|(_, c)| matches!(c, CharCode::Char('u') | CharCode::Char('v')));
 
-        this.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
+        this.set_property(&mut cc.ctx_ptr(), Atom::CONST_lastIndex, JSValue::Int(0))?;
 
         let mut lst = Vec::<JSValue>::with_capacity(8);
         while let Some(mat) = regexp_exec(ctx, this, str.gc_ref().into())? {
-            let match_str = mat.get_property_u32(ctx, 0)?.to_string(ctx)?;
+            let match_str = mat.get_property_u32(&mut ctx, 0)?.to_string(&mut ctx)?;
             lst.push(JSValue::from(match_str.gc_ref()));
 
             if match_str.is_empty() {
                 // advance to next char
                 let last_index = this
-                    .get_property(ctx, Atom::CONST_lastIndex)
-                    .and_then(|v| v.to_length(ctx))?;
+                    .get_property(&mut ctx, Atom::CONST_lastIndex)
+                    .and_then(|v| v.to_length(&mut ctx))?;
 
                 this.set_property(
-                    ctx,
+                    &mut ctx,
                     Atom::CONST_lastIndex,
                     JSValue::from(
                         str.index_of_next_i64(last_index, is_unicode)
@@ -458,20 +458,22 @@ pub fn js_regexp_Symbol_match(cc: CallContext) -> JSResult {
 }
 
 pub fn js_regexp_Symbol_matchAll(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
     let this = *cc.this();
-    let str = cc.arg(0).to_string(ctx)?;
+    let str = cc.arg(0).to_string(&mut ctx)?;
 
     // make matcher: regexp object
-    let flags = this.get_property(ctx, Atom::CONST_flags)?.to_string(ctx)?;
+    let flags = this
+        .get_property(&mut ctx, Atom::CONST_flags)?
+        .to_string(&mut ctx)?;
     let ctor = JS_SpeciesConstructor(ctx, this, ctx.regexp_ctor)?;
-    let regexp = ctor.call_ctor(ctx, &[this, JSValue::from(flags.gc_ref())])?;
+    let regexp = ctor.call_ctor(&mut cc.ctx_ptr(), &[this, JSValue::from(flags.gc_ref())])?;
 
     let last_index = this
-        .get_property(ctx, Atom::CONST_lastIndex)?
-        .to_length(ctx)?;
+        .get_property(&mut ctx, Atom::CONST_lastIndex)?
+        .to_length(&mut ctx)?;
 
-    regexp.set_property(ctx, Atom::CONST_lastIndex, last_index.into())?;
+    regexp.set_property(&mut cc.ctx_ptr(), Atom::CONST_lastIndex, last_index.into())?;
 
     // make regexp string iterator object
     ctx.create_object(ObjectPayload::REGEXP_STRING_ITERATOR(
@@ -488,7 +490,7 @@ pub fn js_regexp_Symbol_matchAll(cc: CallContext) -> JSResult {
     .map_err(|_| -1)
 }
 
-fn js_is_standard_regexp(ctx: &ContextImpl, rx: Object) -> Result<bool, i32> {
+fn js_is_standard_regexp(ctx: &mut ContextImpl, rx: Object) -> Result<bool, i32> {
     let val = rx.get_property(ctx, Atom::CONST_constructor)?;
     if val.is_same(ctx.regexp_ctor) {
         let f = rx.get_property(ctx, Atom::CONST_exec)?;
@@ -500,27 +502,27 @@ fn js_is_standard_regexp(ctx: &ContextImpl, rx: Object) -> Result<bool, i32> {
 
 pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
     // [Symbol.replace](str, rep)
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     let Some(this_obj) = cc.this().as_object().copied() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
-    let str = cc.arg(0).to_string(ctx)?;
+    let str = cc.arg(0).to_string(&mut ctx)?;
     let rep = *cc.arg(1);
     let rep_is_func = rep.is_function();
     let rep_str: Option<StringData> = if !rep_is_func {
-        Some(rep.to_string(ctx)?.content().clone())
+        Some(rep.to_string(&mut ctx)?.content().clone())
     } else {
         None
     };
 
     let flags = this_obj
-        .get_property(ctx, Atom::CONST_flags)
-        .and_then(|v| v.to_string(ctx))?;
+        .get_property(&mut ctx, Atom::CONST_flags)
+        .and_then(|v| v.to_string(&mut ctx))?;
     let is_global = flags.index_of_char('g', 0).is_some();
     let is_unicode = if is_global {
-        this_obj.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
+        this_obj.set_property(&mut ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
         flags
             .chars()
             .any(|(_, c)| matches!(c, CharCode::Char('u') | CharCode::Char('v')))
@@ -554,25 +556,26 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
         }
 
         if mat
-            .get_property_u32(ctx, 0)
-            .and_then(|v| v.to_string(ctx))?
+            .get_property_u32(&mut ctx, 0)
+            .and_then(|v| v.to_string(&mut ctx))?
             .is_empty()
         {
             // empty match: advance to next char
             let last_index = this_obj
-                .get_property(ctx, Atom::CONST_lastIndex)?
-                .to_length(ctx)?;
+                .get_property(&mut ctx, Atom::CONST_lastIndex)?
+                .to_length(&mut ctx)?;
 
             let next_index = str
                 .index_of_next_i64(last_index, is_unicode)
                 .unwrap_or(last_index + 1);
 
-            this_obj.set_property(ctx, Atom::CONST_lastIndex, JSValue::from(next_index))?;
+            this_obj.set_property(&mut ctx, Atom::CONST_lastIndex, JSValue::from(next_index))?;
         }
     }
 
     // protect match results nodes
-    let _ng = ctx
+    let ctx0 = ctx;
+    let _ng = ctx0
         .gc_heap()
         .protect_nodes_iter(matche_list.iter().map(|m| m.gc_node_ptr()));
 
@@ -580,13 +583,11 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
 
     for mat in matche_list {
         let count = mat
-            .get_property(ctx, Atom::CONST_length)
-            .and_then(|v| v.to_u32(ctx))?
+            .get_property(&mut ctx, Atom::CONST_length)
+            .and_then(|v| v.to_u32(&mut ctx))?
             .max(1) as usize;
 
-        let matched = mat
-            .get_property_u32(ctx, 0)
-            .and_then(|v| v.to_string(ctx))?;
+        let matched = mat.get_property_u32(&mut ctx, 0)?.to_string(&mut ctx)?;
 
         let captures = {
             let mut lst = Vec::<JSValue>::with_capacity(
@@ -600,9 +601,9 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
             lst.push(JSValue::from(matched.gc_ref())); // [0]: matched string
 
             for i in 1..count {
-                let c = mat.get_property_u32(ctx, i as _)?;
+                let c = mat.get_property_u32(&mut ctx, i as _)?;
                 lst.push(if !c.is_undefined() {
-                    c.to_string(ctx)?.into()
+                    c.to_string(&mut ctx)?.into()
                 } else {
                     JSValue::UNDEFINED
                 });
@@ -610,20 +611,23 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
             lst
         };
 
-        let named_captures = mat.get_property(ctx, Atom::CONST_groups)?;
+        let named_captures = mat.get_property(&mut ctx, Atom::CONST_groups)?;
 
         let index = (mat
-            .get_property(ctx, Atom::CONST_index)
-            .and_then(|v| v.to_length(ctx))?
+            .get_property(&mut ctx, Atom::CONST_index)
+            .and_then(|v| v.to_length(&mut ctx))?
             .clamp(0, str.len() as i64)) as usize;
 
         let repl: StringData = if let Some(rp) = rep_str.as_ref() {
             // replacement is string
             let named_dict = if !named_captures.is_undefined() {
-                Some(named_captures.objectify(ctx)?)
+                Some(named_captures.objectify(&mut ctx)?)
             } else {
                 None
             };
+
+            let mut ctx2 = ctx;
+            let mut ctx3 = ctx;
 
             let t = StringData::substitution_buf(
                 matched.content(),
@@ -633,7 +637,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
                 |n| {
                     let v = captures.get(n).unwrap();
                     if !v.is_undefined() {
-                        Ok(Some(v.to_string(ctx)?.content().clone()))
+                        Ok(Some(v.to_string(&mut ctx2)?.content().clone()))
                     } else {
                         Ok(None)
                     }
@@ -641,9 +645,12 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
                 count,
                 named_dict.is_some(),
                 |name| {
-                    let val = named_dict.as_ref().unwrap().get_property_str(ctx, name)?;
+                    let val = named_dict
+                        .as_ref()
+                        .unwrap()
+                        .get_property_str(&mut ctx, name)?;
                     if !val.is_undefined() {
-                        Ok(Some(val.to_string(ctx)?.content().clone()))
+                        Ok(Some(val.to_string(&mut ctx3)?.content().clone()))
                     } else {
                         Ok(None)
                     }
@@ -674,7 +681,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
                 0,
                 None,
             ))?
-            .to_string(ctx)?
+            .to_string(&mut ctx)?
             .content()
             .clone()
         };
@@ -707,29 +714,31 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
 }
 
 fn js_regexp_Symbol_search(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     let Some(this_obj) = cc.this().as_object().copied() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
 
-    let prev_last_index = this_obj.get_property(ctx, Atom::CONST_lastIndex)?;
+    let prev_last_index = this_obj.get_property(&mut ctx, Atom::CONST_lastIndex)?;
     if !prev_last_index.is_same(JSValue::Int(0)) {
-        this_obj.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
+        this_obj.set_property(&mut ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
     }
 
-    let str = cc.arg(0).to_string(ctx)?;
+    let str = cc.arg(0).to_string(&mut ctx)?;
 
     let mat = regexp_exec(ctx, this_obj.into(), str.gc_ref().into())?;
-    let cur_last_index = this_obj.get_property(ctx, Atom::CONST_lastIndex)?;
+    let cur_last_index = this_obj.get_property(&mut ctx, Atom::CONST_lastIndex)?;
     if !cur_last_index.is_same(prev_last_index) {
         // restore original lastIndex
-        this_obj.set_property(ctx, Atom::CONST_lastIndex, prev_last_index)?;
+        this_obj.set_property(&mut ctx, Atom::CONST_lastIndex, prev_last_index)?;
     }
 
     if let Some(m) = mat {
-        let index = m.get_property(ctx, Atom::CONST_index)?.to_index(ctx)?;
+        let index = m
+            .get_property(&mut ctx, Atom::CONST_index)?
+            .to_index(&mut ctx)?;
         Ok(JSValue::Int(index as i32))
     } else {
         Ok(JSValue::Int(-1))
@@ -738,26 +747,26 @@ fn js_regexp_Symbol_search(cc: CallContext) -> JSResult {
 
 /// [Symbol.split](str, limit)
 pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     let Some(this_obj) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
 
-    let str = cc.arg(0).to_string(ctx)?;
+    let str = cc.arg(0).to_string(&mut ctx)?;
     let limit = cc.arg(1);
     let limit = if limit.is_undefined() {
         usize::MAX
     } else {
-        limit.to_u32(ctx)? as usize
+        limit.to_u32(&mut ctx)? as usize
     };
 
     // make RegExp as splitter
     let (splitter, flag_unicode) = {
         let mut flags = this_obj
-            .get_property(ctx, Atom::CONST_flags)?
-            .to_string(ctx)?;
+            .get_property(&mut ctx, Atom::CONST_flags)?
+            .to_string(&mut ctx)?;
         let is_unicode = flags.index_of_char('u', 0).is_some();
         if flags.index_of_char('y', 0).is_none() {
             flags = JS_ConcatString3(ctx, c"", (&flags).into(), c"y")?;
@@ -766,7 +775,7 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
         let regexp_ctor = ctx.regexp_ctor;
         let ctor = JS_SpeciesConstructor(ctx, *cc.this(), regexp_ctor)?;
 
-        let re = ctor.call_ctor(ctx, &[*cc.this(), (&flags).into()])?;
+        let re = ctor.call_ctor(&mut ctx, &[*cc.this(), (&flags).into()])?;
         (Object::try_from(re).unwrap(), is_unicode)
     };
 
@@ -781,12 +790,9 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
     if str.is_empty() {
         if regexp_exec(ctx, splitter.into(), str.gc_ref().into())?.is_none() {
             // not match: add tail, must be an empty str
-            arr.define_property_value_u32(
-                ctx,
-                idx as u32,
-                JSValue::from(&Atom::CONST_empty_string.force_string(ctx).unwrap()),
-                prop_flags,
-            )?;
+            let emp_str_val =
+                JSValue::from(&Atom::CONST_empty_string.force_string(&mut ctx).unwrap());
+            arr.define_property_value_u32(&mut ctx, idx as u32, emp_str_val, prop_flags)?;
         }
         return Ok(arr.into());
     }
@@ -797,12 +803,16 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
 
     while last_index < len {
         // match regexp from `pos`
-        splitter.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(last_index as i32))?;
+        splitter.set_property(
+            &mut ctx,
+            Atom::CONST_lastIndex,
+            JSValue::Int(last_index as i32),
+        )?;
 
         if let Some(m) = regexp_exec(ctx, splitter.into(), str.gc_ref().into())? {
             let mut next_index = splitter
-                .get_property(ctx, Atom::CONST_lastIndex)?
-                .to_length(ctx)? as usize;
+                .get_property(&mut ctx, Atom::CONST_lastIndex)?
+                .to_length(&mut ctx)? as usize;
 
             if next_index > len {
                 next_index = len;
@@ -814,18 +824,25 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
                     .index_of_next(last_index, flag_unicode)
                     .unwrap_or(len);
             } else {
-                let sub = str.sub_string(ctx, split_start..last_index)?;
-                arr.define_property_value_u32(ctx, idx as u32, JSValue::from(&sub), prop_flags)?;
+                let sub = str.sub_string(&mut ctx, split_start..last_index)?;
+                arr.define_property_value_u32(
+                    &mut ctx,
+                    idx as u32,
+                    JSValue::from(&sub),
+                    prop_flags,
+                )?;
                 idx += 1;
                 if idx == limit {
                     return Ok(arr.into());
                 }
 
                 // append captures 1.. to array
-                let ncaps = m.get_property(ctx, Atom::CONST_length)?.to_length(ctx)? as usize;
+                let ncaps = m
+                    .get_property(&mut ctx, Atom::CONST_length)?
+                    .to_length(&mut ctx)? as usize;
                 for c in 1..ncaps {
-                    let sub = m.get_property_u32(ctx, c as u32)?;
-                    arr.define_property_value_u32(ctx, idx as _, sub, prop_flags)?;
+                    let sub = m.get_property_u32(&mut ctx, c as u32)?;
+                    arr.define_property_value_u32(&mut ctx, idx as _, sub, prop_flags)?;
                     idx += 1;
                     if idx == limit {
                         return Ok(arr.into());
@@ -846,8 +863,8 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
 
     // remaining part of str
     split_start = std::cmp::min(split_start, len);
-    let rem = str.sub_string(ctx, split_start..len)?;
-    arr.define_property_value_u32(ctx, idx as u32, rem.into(), prop_flags)?;
+    let rem = str.sub_string(&mut ctx, split_start..len)?;
+    arr.define_property_value_u32(&mut ctx, idx as u32, rem.into(), prop_flags)?;
 
     Ok(arr.into())
 }
@@ -965,7 +982,7 @@ pub const js_regexp_funcs: &[FieldDef] = &[
 ];
 
 fn regexp_exec_default(
-    ctx: &ContextImpl,
+    mut ctx: ContextPtr,
     this: JSValue,
     str: StringRef,
 ) -> Result<Option<Array>, i32> {
@@ -973,24 +990,32 @@ fn regexp_exec_default(
     let re_flags = re.flags();
 
     let mut from = this
-        .get_property(ctx, Atom::CONST_lastIndex)?
-        .to_length(ctx)? as usize;
+        .get_property(&mut ctx, Atom::CONST_lastIndex)?
+        .to_length(&mut ctx)? as usize;
 
     if !re_flags.has_global() && !re_flags.has_sticky() {
         from = 0;
     }
 
     if let Some(cap_list) = re.capture(str.content(), from) {
-        let (arr, last_index) =
-            make_regexp_capture_array(ctx, str.gc_ref().into(), &cap_list, re_flags.has_indices())?;
+        let (arr, last_index) = make_regexp_capture_array(
+            &mut ctx,
+            str.gc_ref().into(),
+            &cap_list,
+            re_flags.has_indices(),
+        )?;
 
         if re_flags.has_global() || re_flags.has_sticky() {
-            this.set_property(ctx, Atom::CONST_lastIndex, JSValue::from(last_index as u32))?;
+            this.set_property(
+                &mut ctx,
+                Atom::CONST_lastIndex,
+                JSValue::from(last_index as u32),
+            )?;
         }
         Ok(Some(arr))
     } else {
         if from >= str.content().len() || re_flags.has_sticky() || re_flags.has_global() {
-            this.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
+            this.set_property(&mut ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
         }
         Ok(None)
     }
@@ -999,16 +1024,16 @@ fn regexp_exec_default(
 /// Invoke regexp.exec() method or call standard `regexp_exec_internal`.
 /// returns match result object or None.
 pub(super) fn regexp_exec(
-    ctx: &ContextImpl,
+    mut ctx: ContextPtr,
     regexp: JSValue,
     str: StringRef,
 ) -> Result<Option<Object>, i32> {
     if let Some(o) = regexp.as_object() {
-        let exec = o.get_property(ctx, Atom::CONST_exec)?;
+        let exec = o.get_property(&mut ctx, Atom::CONST_exec)?;
         if !exec.match_native_callback(Callback::Func(js_regexp_exec), 0) {
             // call method function
             let s: JSValue = str.into();
-            let ret = exec.call(ctx, regexp, std::slice::from_ref(&s))?;
+            let ret = exec.call(&mut ctx, regexp, std::slice::from_ref(&s))?;
             return match ret {
                 JSValue::Object(o) => Ok(Some(o)),
                 JSValue::NULL => Ok(None),

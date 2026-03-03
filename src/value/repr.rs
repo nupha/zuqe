@@ -21,7 +21,7 @@ impl JSValue {
     /// Get inspect representation string of `self` value.
     /// `inspect()` string is only used for interactive prompting,
     /// use `to_string()` for other cases.
-    pub fn inspect(&self, ctx: &ContextImpl) -> Result<String, i32> {
+    pub fn inspect(&self, ctx: &mut ContextImpl) -> Result<String, i32> {
         match self {
             Self::Int(i) => Ok(format!("{}", *i)),
             Self::Bool(b) => Ok(if *b { "true" } else { "false" }.into()),
@@ -54,7 +54,7 @@ impl JSValue {
 
 impl Object {
     /// return object's toStringTag
-    pub(crate) fn string_tag(&self, ctx: &ContextImpl) -> Result<Atom, i32> {
+    pub(crate) fn string_tag(&self, ctx: &mut ContextImpl) -> Result<Atom, i32> {
         let tag = if self.is_array(ctx)? {
             Atom::CONST_Array
         } else if self.is_function() {
@@ -84,7 +84,7 @@ impl Object {
         Ok(tag)
     }
 
-    pub fn inspect(&self, ctx: &ContextImpl) -> Result<String, i32> {
+    pub fn inspect(&self, ctx: &mut ContextImpl) -> Result<String, i32> {
         let tag: LocalString;
 
         #[cfg(feature = "builtin_symbol")]

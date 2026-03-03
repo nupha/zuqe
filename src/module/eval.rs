@@ -6,7 +6,7 @@ use gc_lite::GcNode;
 use crate::{
     Callback, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
-    context::ContextImpl,
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     eval::{Compiled, EvalFlags, EvalType},
     function::{CallContext, NativeFunction},
@@ -24,7 +24,7 @@ impl ModuleDefImpl {
     }
 
     /// set module status to `evaluated`
-    fn set_evaluated(&mut self, ctx: &ContextImpl) {
+    fn set_evaluated(&mut self, ctx: &mut ContextImpl) {
         debug_assert_ne!(
             self.status,
             JSModuleStatus::JS_MODULE_STATUS_EVALUATED,
@@ -128,7 +128,7 @@ impl ModuleDef {
 
         let mut stack_top: Option<ModuleDef> = None;
 
-        match m.eval_internal(ctx, 0, &mut stack_top) {
+        match m.eval_internal(ctx.into(), 0, &mut stack_top) {
             Ok(_) => {
                 debug_assert!(matches!(
                     m.status(),
@@ -173,7 +173,7 @@ impl ModuleDef {
     /// `index`: depth index
     fn eval_internal(
         &mut self,
-        ctx: &mut ContextImpl,
+        mut ctx: ContextPtr,
         index: i32,
         stack_top: &mut Option<ModuleDef>,
     ) -> Result<i32, JSValue> {
@@ -293,7 +293,7 @@ impl ModuleDef {
     }
 
     /// execute module function in async manner
-    fn execute_async_module(&self, ctx: &mut ContextImpl) -> Result<(), i32> {
+    fn execute_async_module(&self, mut ctx: ContextPtr) -> Result<(), i32> {
         debug_assert_eq!(
             self.bytecode.as_object().unwrap().class_id(),
             JS_CLASS_BYTECODE_FUNCTION,
@@ -306,35 +306,33 @@ impl ModuleDef {
 
         // Hint: `promise.then()` don't call bytecode execution inside, won't trigger gc collection,
         // protect promise, success, fail nodes is not required.
-        promise.then(
-            ctx,
-            NativeFunction::create(
-                ctx,
-                Callback::Func(ModuleDef::execute_async_fulfilled),
-                "",
-                0,
-                0,
-                None,
-                Some([JSValue::Module(*self)].into()),
-            )?
-            .into(),
-            NativeFunction::create(
-                ctx,
-                Callback::Func(ModuleDef::execute_async_rejected),
-                "",
-                0,
-                0,
-                None,
-                Some([JSValue::Module(*self)].into()),
-            )?
-            .into(),
+        let success = NativeFunction::create(
+            &mut ctx,
+            Callback::Func(ModuleDef::execute_async_fulfilled),
+            "",
+            0,
+            0,
+            None,
+            Some([JSValue::Module(*self)].into()),
         )?;
+        let fail = NativeFunction::create(
+            &mut ctx,
+            Callback::Func(ModuleDef::execute_async_rejected),
+            "",
+            0,
+            0,
+            None,
+            Some([JSValue::Module(*self)].into()),
+        )?;
+        promise.then(&mut ctx, success.into(), fail.into())?;
 
         Ok(())
     }
 
     /// async module execution callback
     fn execute_async_fulfilled(mut cc: CallContext) -> JSResult {
+        let mut ctx = cc.ctx_ptr();
+
         let JSValue::Module(mut md) = cc.data(0) else {
             unreachable!()
         };
@@ -349,10 +347,10 @@ impl ModuleDef {
         debug_assert!(md.async_evaluation());
 
         md.set_async_evaluation(false);
-        md.set_evaluated(cc.ctx());
+        md.set_evaluated(&mut ctx);
 
         let mut exec_list = Vec::<ModuleDef>::with_capacity(8);
-        gather_module_ancestors(cc.ctx(), md, &mut exec_list)?;
+        gather_module_ancestors(&mut ctx, md, &mut exec_list)?;
 
         // sort by async_evaluation timestamp
         exec_list.sort_by(|m1, m2| {
@@ -365,11 +363,11 @@ impl ModuleDef {
             if m.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
                 debug_assert!(m.eval_exception().is_some());
             } else if m.has_tla() {
-                m.execute_async_module(cc.ctx_mut())?;
+                m.execute_async_module(ctx)?;
             } else {
-                match m.execute_sync_module(cc.ctx_mut()) {
+                match m.execute_sync_module(ctx) {
                     Ok(_) => {
-                        m.set_evaluated(cc.ctx());
+                        m.set_evaluated(&mut ctx);
                     }
                     Err(e) => {
                         Self::execute_async_rejected(CallContext::new(
@@ -389,8 +387,10 @@ impl ModuleDef {
 
     /// async module execution reject callback
     fn execute_async_rejected(cc: CallContext) -> JSResult {
-        if js_check_stack_overflow(cc.ctx().rt_ref(), 0) {
-            cc.ctx().throw_stack_overflow();
+        let mut ctx = cc.ctx_ptr();
+
+        if js_check_stack_overflow(ctx.rt_ref(), 0) {
+            ctx.throw_stack_overflow();
             return Err(-1);
         }
 
@@ -420,7 +420,7 @@ impl ModuleDef {
         for m in md.async_parent_modules.iter() {
             let mut data = [JSValue::Module(*m)];
             let cc = CallContext::new(
-                cc.ctx_ptr(),
+                ctx,
                 JSValue::UNDEFINED,
                 std::slice::from_ref(err_val),
                 0,
@@ -432,16 +432,16 @@ impl ModuleDef {
         if md.promise.is_some() {
             debug_assert_eq!(md.cycle_root(), Some(md));
             let func = md.resolving_funcs[1];
-            let _ = func.call(cc.ctx(), JSValue::UNDEFINED, std::slice::from_ref(err_val));
+            let _ = func.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(err_val));
         }
 
         Ok(JSValue::UNDEFINED)
     }
 
-    fn execute_sync_module(&self, ctx: &mut ContextImpl) -> Result<(), JSValue> {
+    fn execute_sync_module(&self, mut ctx: ContextPtr) -> Result<(), JSValue> {
         if let Some(f) = self.init_func.as_ref() {
             // is native module: no asynchronous execution
-            if unlikely(f(ctx, self).is_err()) {
+            if unlikely(f(&mut ctx, self).is_err()) {
                 Err(ctx.rt_ptr().take_exception())
             } else {
                 Ok(())
@@ -469,7 +469,7 @@ impl ModuleDef {
 }
 
 fn gather_module_ancestors(
-    ctx: &ContextImpl,
+    ctx: &mut ContextImpl,
     module: ModuleDef,
     exec_list: &mut Vec<ModuleDef>,
 ) -> Result<(), i32> {

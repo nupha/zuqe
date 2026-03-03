@@ -75,16 +75,20 @@ impl ArrayIterPayload {
 /// 通常被用于实现数组的 keys、values 和 entries 方法
 pub fn js_create_array_iterator(cc: CallContext) -> JSResult {
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 & 3) };
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
+
     let this = *cc.this();
 
     let (class_id, obj) = if cc.magic() & 4 != 0 {
         (
             JS_CLASS_STRING_ITERATOR,
-            JSValue::from(this.to_string_non_undefined_or_null(ctx)?),
+            JSValue::from(this.to_string_non_undefined_or_null(&mut ctx)?),
         )
     } else {
-        (JS_CLASS_ARRAY_ITERATOR, JSValue::from(this.objectify(ctx)?))
+        (
+            JS_CLASS_ARRAY_ITERATOR,
+            JSValue::from(this.objectify(&mut ctx)?),
+        )
     };
 
     let isa = Box::new(ArrayIterPayload {
@@ -102,11 +106,11 @@ pub fn js_create_array_iterator(cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     if let ObjectPayload::ARRAY_ITERATOR(it) = cc
         .this()
-        .retrive_object_payload(ctx, JS_CLASS_ARRAY_ITERATOR)?
+        .retrive_object_payload(&mut ctx, JS_CLASS_ARRAY_ITERATOR)?
     {
         let obj = it.value();
 
@@ -119,13 +123,13 @@ pub fn js_array_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSR
         let len = if let Ok(tao) = TypedArray::try_from(obj) {
             // is typed array
             if tao.is_detached() {
-                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+                JS_ThrowTypeErrorDetachedArrayBuffer(&mut ctx);
                 return Err(-1);
             }
             tao.length() as u32
         } else {
             // is Array or String
-            it.value().get_length_prop(ctx)? as u32
+            it.value().get_length_prop(&mut ctx)? as u32
         };
 
         let idx = it.index();
@@ -140,9 +144,11 @@ pub fn js_array_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSR
 
         match it.kind {
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => Ok(JSValue::from(idx)),
-            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => it.value().get_property_u32(ctx, idx),
+            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
+                it.value().get_property_u32(&mut ctx, idx)
+            }
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                let val = it.value().get_property_u32(ctx, idx)?;
+                let val = it.value().get_property_u32(&mut ctx, idx)?;
                 let num = JSValue::from(idx);
                 ctx.create_array_with_values(vec![num, val])
                     .map(|a| a.into())

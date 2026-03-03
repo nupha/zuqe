@@ -19,7 +19,7 @@ impl From<bool> for JSValue {
 
 impl Object {
     /// Coerce object to primitive (non-object) value
-    pub fn to_primitive(&self, ctx: &ContextImpl, hint: i32) -> JSResult {
+    pub fn to_primitive(&self, ctx: &mut ContextImpl, hint: i32) -> JSResult {
         let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;
         let hint = hint & !HINT_FORCE_ORDINARY;
 
@@ -75,14 +75,14 @@ impl Object {
 
     /// Coerce object to number (Int or Float64)
     #[inline(always)]
-    pub fn to_number(&self, ctx: &ContextImpl) -> JSResult {
+    pub fn to_number(&self, ctx: &mut ContextImpl) -> JSResult {
         self.to_primitive(ctx, HINT_NUMBER)
     }
 }
 
 impl JSValue {
     /// Coerce value to primitive value. Primitive is non-object value.
-    pub fn to_primitive(&self, ctx: &ContextImpl, hint: i32) -> Result<JSValue, i32> {
+    pub fn to_primitive(&self, ctx: &mut ContextImpl, hint: i32) -> Result<JSValue, i32> {
         if let Self::Object(o) = self {
             o.to_primitive(ctx, hint)
         } else {
@@ -107,7 +107,7 @@ impl JSValue {
 
 /// For primitive types (number, bool, string, symbol), return prototype of associated type.
 /// Only works for primitive types, otherwise returns Null.
-pub fn JS_GetPrototypePrimitive(ctx: &ContextImpl, val: &JSValue) -> JSValue {
+pub fn JS_GetPrototypePrimitive(ctx: &mut ContextImpl, val: &JSValue) -> JSValue {
     match val {
         JSValue::Int(_) | JSValue::Float64(_) => ctx.class_proto(JS_CLASS_NUMBER),
         JSValue::Bool(_) => ctx.class_proto(JS_CLASS_BOOLEAN),

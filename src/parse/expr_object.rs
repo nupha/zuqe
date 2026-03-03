@@ -201,7 +201,7 @@ impl<'s> JSParseState<'s> {
                 }
                 TokenKind::NUMBER => {
                     name.replace(
-                        JSValue::from(self.token.data.number().unwrap()).to_atom(&self.ctx)?,
+                        JSValue::from(self.token.data.number().unwrap()).to_atom(&mut self.ctx)?,
                     );
                     self.next_token()?;
                 }

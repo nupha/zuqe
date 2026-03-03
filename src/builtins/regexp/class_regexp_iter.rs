@@ -13,11 +13,11 @@ use crate::{
 use super::regexp_exec;
 
 fn js_regexp_string_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = cc
         .this()
-        .retrive_object_payload(ctx, JS_CLASS_REGEXP_STRING_ITERATOR)?
+        .retrive_object_payload(&mut ctx, JS_CLASS_REGEXP_STRING_ITERATOR)?
     {
         if it.done() {
             *state = IteratorState::Done;
@@ -30,15 +30,15 @@ fn js_regexp_string_iterator_next(cc: CallContext, state: &mut IteratorState) ->
         if let Some(mat) = regexp_exec(ctx, it.regexp().into(), it.string())? {
             if it.is_global() {
                 let str = mat
-                    .get_property_i64(ctx, 0)
-                    .and_then(|x| x.to_string(ctx))?;
+                    .get_property_i64(&mut ctx, 0)
+                    .and_then(|x| x.to_string(&mut ctx))?;
 
                 if str.is_empty() {
                     // if matched is empty, advance index to next char
                     let last_index = it
                         .regexp()
-                        .get_property(ctx, Atom::CONST_lastIndex)
-                        .and_then(|v| v.to_length(ctx))
+                        .get_property(&mut ctx, Atom::CONST_lastIndex)
+                        .and_then(|v| v.to_length(&mut ctx))
                         .inspect_err(|_| {
                             *state = IteratorState::NotDone;
                         })?;
@@ -49,7 +49,7 @@ fn js_regexp_string_iterator_next(cc: CallContext, state: &mut IteratorState) ->
                         .unwrap_or(last_index + 1);
 
                     it.regexp()
-                        .set_property(ctx, Atom::CONST_lastIndex, JSValue::from(next_index))
+                        .set_property(&mut ctx, Atom::CONST_lastIndex, JSValue::from(next_index))
                         .inspect_err(|_| {
                             *state = IteratorState::NotDone;
                         })?;

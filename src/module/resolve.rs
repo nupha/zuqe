@@ -14,7 +14,7 @@ use crate::{
 impl ModuleDef {
     fn resolve_export_internal(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         export_name: Atom,
         mut expect: Option<(ModuleDef, Atom)>, // (ModuleDef, local_name_atom)
         resolving: &mut Vec<(ModuleDef, Atom)>, // (ModuleDef, export_atom), to detect circular
@@ -105,7 +105,7 @@ impl ModuleDef {
     /// optionally restricted by (expect_ModuleDef, expect_local_name)==(ModuleDef, local_name)
     pub(super) fn resolve_export(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         export_name: Atom,
         expect: Option<(ModuleDef, Atom)>, // (ModuleDef, local_name_atom)
     ) -> Result<ResolveExport, i32> {
@@ -117,7 +117,7 @@ impl ModuleDef {
     /// Resolving imports, exports.
     fn inner_module_linking(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         stack_top: &mut Option<ModuleDef>,
         index: i32,
     ) -> Result<i32, i32> {
@@ -300,7 +300,7 @@ impl ModuleDef {
     /// - 变量引用解析：建立导入变量与导出变量之间的引用关系
     /// - 循环依赖处理：使用深度优先搜索(DFS)算法处理模块间的循环依赖
     /// - 状态管理：管理模块的链接状态转换
-    pub(super) fn link(&mut self, ctx: &ContextImpl) -> Result<(), i32> {
+    pub(super) fn link(&mut self, ctx: &mut ContextImpl) -> Result<(), i32> {
         debug_assert!(matches!(
             self.status(),
             JSModuleStatus::JS_MODULE_STATUS_UNLINKED

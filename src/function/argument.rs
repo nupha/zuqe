@@ -16,7 +16,7 @@ use crate::{
 
 use super::JS_MAX_LOCAL_VARS;
 
-pub fn js_build_arguments(ctx: &ContextImpl, args: &[JSValue]) -> JSValue {
+pub(crate) fn js_build_arguments(ctx: &mut ContextImpl, args: &[JSValue]) -> JSValue {
     let mut obj = if let Ok(o) = ctx.create_object_with_proto(
         ctx.class_proto(JS_CLASS_OBJECT),
         ObjectPayload::ARGUMENTS(ArrayPayload::default()),
@@ -72,8 +72,8 @@ pub fn js_build_arguments(ctx: &ContextImpl, args: &[JSValue]) -> JSValue {
 }
 
 /// legacy arguments object: add references to the function arguments
-pub fn js_build_mapped_arguments(
-    ctx: &ContextImpl,
+pub(crate) fn js_build_mapped_arguments(
+    ctx: &mut ContextImpl,
     args: &[JSValue],
     sf: &mut StackFrame,
     arg_count: i32,
@@ -94,11 +94,12 @@ pub fn js_build_mapped_arguments(
     )?;
 
     for i in 0..arg_count {
+        let content = JSProperty::VarRef(sf.get_var_ref(ctx.into(), i as _, true)?);
         obj.add_own_property(
             ctx,
             Atom::new_small_int(i as u32),
             JS_PROP_C_W_E | JS_PROP_VARREF,
-            JSProperty::VarRef(sf.get_var_ref(ctx, i as _, true)?),
+            content,
         )?;
     }
 
@@ -126,7 +127,10 @@ pub fn js_build_mapped_arguments(
     Ok(obj)
 }
 
-pub(crate) fn build_arg_list(ctx: &ContextImpl, array_arg: JSValue) -> Result<Box<[JSValue]>, i32> {
+pub(crate) fn build_arg_list(
+    ctx: &mut ContextImpl,
+    array_arg: JSValue,
+) -> Result<Box<[JSValue]>, i32> {
     let Some(array_arg) = array_arg.as_object().copied() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);

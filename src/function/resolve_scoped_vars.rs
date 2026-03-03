@@ -4,7 +4,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, opcodes},
-    context::ContextImpl,
+    context::ContextPtr,
     error::JS_THROW_VAR_RO,
 };
 
@@ -26,7 +26,7 @@ impl FunctionDef {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn resolve_scope_var(
         &mut self,
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         var_name: Atom,
         scope_level: i32,
         op: u8,
@@ -163,7 +163,7 @@ impl FunctionDef {
                 if svar.vd.var_name == Atom::CONST__with_ && !is_pseudo_var {
                     svar.vd.set_is_captured(true);
                     match self.get_closure_var(
-                        ctx,
+                        &mut ctx,
                         cur_fd,
                         true,
                         false,
@@ -229,7 +229,7 @@ impl FunctionDef {
 
                     let cv_id = self
                         .get_closure_var(
-                            ctx,
+                            &mut ctx,
                             cur_fd,
                             true,
                             false,
@@ -257,7 +257,7 @@ impl FunctionDef {
                     vd.set_is_captured(true);
                     let cv_id = self
                         .get_closure_var(
-                            ctx,
+                            &mut ctx,
                             cur_fd,
                             true,
                             false,
@@ -297,7 +297,7 @@ impl FunctionDef {
                 if cv.var_name == var_name {
                     found_closure.replace(if cur_fd != self {
                         self.get_closure_var(
-                            ctx,
+                            &mut ctx,
                             cur_fd,
                             false,
                             cv.is_arg(),
@@ -320,7 +320,7 @@ impl FunctionDef {
                 {
                     let cv_id = if cur_fd != self {
                         self.get_closure_var(
-                            ctx,
+                            &mut ctx,
                             cur_fd,
                             false,
                             cv.is_arg(),
@@ -356,7 +356,7 @@ impl FunctionDef {
                         .set_is_captured(true);
                 }
                 self.get_closure_var(
-                    ctx,
+                    &mut ctx,
                     cur_fd,
                     true,
                     true,
@@ -374,7 +374,7 @@ impl FunctionDef {
                 };
 
                 self.get_closure_var(
-                    ctx,
+                    &mut ctx,
                     cur_fd,
                     true,
                     false,
@@ -746,7 +746,7 @@ impl FunctionDef {
     /// Resolves special pseudo variables (this, new.target, etc.)
     /// Returns the variable definition index if found.
     /// Returns None if the variable is not a pseudo variable
-    fn resolve_pseudo_var(&mut self, ctx: &ContextImpl, var_name: Atom) -> Option<u16> {
+    fn resolve_pseudo_var(&mut self, mut ctx: ContextPtr, var_name: Atom) -> Option<u16> {
         if !self.has_this_binding {
             return None;
         }

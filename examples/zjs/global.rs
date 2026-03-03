@@ -7,7 +7,7 @@ use colorized::{Colors, colorize_print, colorize_println};
 use zuqe::{CallContext, Callback, ContextImpl, JS_PROP_C_W_E, JSResult, JSValue};
 
 fn js_print(cc: CallContext) -> JSResult {
-    let ctx = cc.context();
+    let mut ctx = cc.context();
     let level = cc.magic();
     let inspect = true;
 
@@ -30,9 +30,9 @@ fn js_print(cc: CallContext) -> JSResult {
 
         colorize_print(
             if inspect {
-                arg.inspect(&ctx)?.to_string()
+                arg.inspect(&mut ctx)?.to_string()
             } else {
-                format!("{}", arg.to_string(&ctx)?.deref())
+                format!("{}", arg.to_string(&mut ctx)?.deref())
             },
             color(),
         );
@@ -46,44 +46,27 @@ pub fn setup_globals(ctx: &mut ContextImpl, script_args: &[String]) -> Result<()
     let mut global = ctx.global_obj();
 
     {
-        let printfn: JSValue = ctx
+        let printfn = ctx
             .create_native_function(Callback::Func(js_print), "print", 0, 0)
-            .unwrap()
-            .into();
+            .unwrap();
 
         let mut console = ctx.create_base_object().unwrap();
-        console.define_property_value_str(ctx, "log", printfn, JS_PROP_C_W_E)?;
-        console.define_property_value_str(
-            ctx,
-            "debug",
-            ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 1)?
-                .into(),
-            JS_PROP_C_W_E,
-        )?;
-        console.define_property_value_str(
-            ctx,
-            "info",
-            ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 2)?
-                .into(),
-            JS_PROP_C_W_E,
-        )?;
-        console.define_property_value_str(
-            ctx,
-            "warn",
-            ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 3)?
-                .into(),
-            JS_PROP_C_W_E,
-        )?;
-        console.define_property_value_str(
-            ctx,
-            "error",
-            ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 4)?
-                .into(),
-            JS_PROP_C_W_E,
-        )?;
+        console.define_property_value_str(ctx, "log", printfn.into(), JS_PROP_C_W_E)?;
+
+        let debug_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 1)?;
+        console.define_property_value_str(ctx, "debug", debug_func.into(), JS_PROP_C_W_E)?;
+
+        let info_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 2)?;
+        console.define_property_value_str(ctx, "info", info_func.into(), JS_PROP_C_W_E)?;
+
+        let warn_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 3)?;
+        console.define_property_value_str(ctx, "warn", warn_func.into(), JS_PROP_C_W_E)?;
+
+        let error_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 4)?;
+        console.define_property_value_str(ctx, "error", error_func.into(), JS_PROP_C_W_E)?;
         global.define_property_value_str(ctx, "console", console.into(), JS_PROP_C_W_E)?;
 
-        global.set_property_str(ctx, "print", printfn)?;
+        global.set_property_str(ctx, "print", printfn.into())?;
     }
 
     {

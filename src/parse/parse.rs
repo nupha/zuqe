@@ -42,7 +42,7 @@ impl<'s> JSParseState<'s> {
         if !self.is_module {
             // hidden variable <ret> for the return value
             let fd = self.cur_func_mut();
-            let idx = fd.add_var(&self.ctx, Atom::CONST__ret_)?;
+            let idx = fd.add_var(self.ctx, Atom::CONST__ret_)?;
             fd.eval_ret_idx.replace(idx);
         }
 

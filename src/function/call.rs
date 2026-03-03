@@ -160,7 +160,7 @@ impl Object {
     /// * flags & JS_CALL_FLAG_CONSTRUCTOR !=0 indicates a constructor call
     fn call_internal(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         this_obj: JSValue,
         new_target: JSValue,
         args: &[JSValue],
@@ -198,10 +198,10 @@ impl Object {
                     })?
                     .into();
 
-                bf.execute(ctx, this, new_target, args, flags)
+                bf.execute(&mut ctx.new_scope(), this, new_target, args, flags)
                     .map(|v| if v.is_object() { v } else { this })
             } else {
-                bf.execute(ctx, this_obj, new_target, args, flags)
+                bf.execute(&mut ctx.new_scope(), this_obj, new_target, args, flags)
             }
         } else if let Some(cb) = unsafe {
             rt.class_registry
@@ -252,7 +252,7 @@ impl Object {
     }
 
     #[inline(always)]
-    pub fn call(&self, ctx: &ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
+    pub fn call(&self, ctx: &mut ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
         self.call_internal(
             ctx,
             this_obj,
@@ -265,7 +265,7 @@ impl Object {
     #[inline(always)]
     pub fn call_ctor_new_target(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         new_target: JSValue,
         args: &[JSValue],
     ) -> JSResult {
@@ -279,13 +279,13 @@ impl Object {
     }
 
     #[inline(always)]
-    pub fn call_ctor(&self, ctx: &ContextImpl, args: &[JSValue]) -> JSResult {
+    pub fn call_ctor(&self, ctx: &mut ContextImpl, args: &[JSValue]) -> JSResult {
         self.call_ctor_new_target(ctx, JSValue::Object(*self), args)
     }
 
     /// call function `self.method`
     #[inline]
-    pub fn invoke(&self, ctx: &ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {
+    pub fn invoke(&self, ctx: &mut ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {
         self.get_property(ctx, method)
             .and_then(|f| f.call(ctx, (*self).into(), args))
     }
@@ -294,7 +294,7 @@ impl Object {
     /// otherwise, returns None
     pub fn invoke_defined(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         method: Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
@@ -310,7 +310,7 @@ impl Object {
     /// otherwise, returns None
     pub fn invoke_callable(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         method: Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
@@ -328,7 +328,7 @@ impl JSValue {
     /// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
     pub(crate) fn call_internal(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         this_obj: JSValue,
         new_target: JSValue,
         args: &[JSValue],
@@ -343,7 +343,7 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn call(&self, ctx: &ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
+    pub fn call(&self, ctx: &mut ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
         self.call_internal(
             ctx,
             this_obj,
@@ -356,7 +356,7 @@ impl JSValue {
     #[inline(always)]
     pub fn call_ctor_new_target(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         new_target: JSValue,
         args: &[JSValue],
     ) -> JSResult {
@@ -370,13 +370,13 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn call_ctor(&self, ctx: &ContextImpl, args: &[JSValue]) -> JSResult {
+    pub fn call_ctor(&self, ctx: &mut ContextImpl, args: &[JSValue]) -> JSResult {
         self.call_ctor_new_target(ctx, *self, args)
     }
 
     /// call function `self.method`
     #[inline(always)]
-    pub fn invoke(&self, ctx: &ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {
+    pub fn invoke(&self, ctx: &mut ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {
         let f = self.get_property(ctx, method)?;
         f.call(ctx, *self, args)
     }
@@ -385,7 +385,7 @@ impl JSValue {
     /// otherwise, returns None.
     pub fn invoke_defined(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         method: Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
@@ -401,7 +401,7 @@ impl JSValue {
     /// otherwise, returns None
     pub fn invoke_callable(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         method: Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
@@ -417,23 +417,23 @@ impl JSValue {
 
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
 pub(crate) fn js_function_apply(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx();
+    let mut ctx = cc.ctx_ptr();
 
     let this_val = *cc.this();
-    this_val.ensure_function(ctx)?;
+    this_val.ensure_function(&mut ctx)?;
 
     let this_arg = *cc.arg(0);
     let array_arg = *cc.arg(1);
 
     if array_arg.is_undefined_or_null() && cc.magic() != 2 {
         // magic: 0/1 normal or constructor apply
-        this_val.call(ctx, this_arg, &[])
+        this_val.call(&mut cc.ctx_ptr(), this_arg, &[])
     } else {
-        let arg_list = build_arg_list(ctx, array_arg)?;
+        let arg_list = build_arg_list(&mut ctx, array_arg)?;
         if cc.magic() & 1 != 0 {
             // magic: 1 constructor apply
             this_val.call_internal(
-                ctx,
+                &mut cc.ctx_ptr(),
                 JSValue::UNDEFINED,
                 this_arg,
                 &arg_list,
@@ -441,7 +441,7 @@ pub(crate) fn js_function_apply(cc: CallContext) -> JSResult {
             )
         } else {
             // magic: 0/2 normal or Reflect.apply
-            this_val.call(ctx, this_arg, arg_list.as_ref())
+            this_val.call(&mut cc.ctx_ptr(), this_arg, arg_list.as_ref())
         }
     }
 }

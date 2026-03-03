@@ -80,7 +80,7 @@ pub(super) fn promise_reaction_job(
 }
 
 pub(super) fn js_promise_resolve_thenable_job(
-    ctx: &ContextImpl,
+    ctx: &mut ContextImpl,
     promise: Promise,
     thenable: JSValue,
     then: JSValue,

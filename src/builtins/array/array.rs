@@ -143,7 +143,7 @@ impl Array {
     }
 
     /// get `length` property value
-    pub fn get_length_prop(&self, ctx: &ContextImpl) -> Result<i64, i32> {
+    pub fn get_length_prop(&self, ctx: &mut ContextImpl) -> Result<i64, i32> {
         if let JSProperty::Normal(v) = &self.prop_slot(0) {
             v.to_length(ctx)
         } else {
@@ -162,7 +162,12 @@ impl Array {
     /// - true if length is updated,
     /// - false if can't update length property and JS_THROW flag is not set,
     /// - Err if can't update length property ahd JS_THOW flag is set.
-    pub fn set_length(&mut self, ctx: &ContextImpl, length: u32, throw: bool) -> Result<bool, i32> {
+    pub fn set_length(
+        &mut self,
+        ctx: &mut ContextImpl,
+        length: u32,
+        throw: bool,
+    ) -> Result<bool, i32> {
         #[cfg(debug_assertions)]
         debug_assert!(
             self.shape().unwrap().prop_defs.first().unwrap().is_length(),
@@ -266,7 +271,7 @@ impl Array {
     /// set values to Array and enforce it to be fast array.
     pub(crate) fn set_fast_array_values(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         values: Vec<JSValue>,
     ) -> Result<(), i32> {
         debug_assert!(
@@ -303,7 +308,7 @@ impl Array {
     }
 
     /// sort array-like object `obj`.
-    pub fn sort(ctx: &ContextImpl, obj: &mut Object, cmp: Option<&JSValue>) -> Result<(), i32> {
+    pub fn sort(ctx: &mut ContextImpl, obj: &mut Object, cmp: Option<&JSValue>) -> Result<(), i32> {
         if let Some(f) = cmp {
             f.ensure_function(ctx)?;
         }
@@ -503,7 +508,11 @@ fn sort_values_default(values: &mut [(JSValue, StringData)]) {
     });
 }
 
-fn sort_values_by(ctx: &ContextImpl, values: &mut [JSValue], cmpfn: &JSValue) -> Result<(), i32> {
+fn sort_values_by(
+    ctx: &mut ContextImpl,
+    values: &mut [JSValue],
+    cmpfn: &JSValue,
+) -> Result<(), i32> {
     let mut has_err = false;
 
     values.sort_by(|a, b| {
@@ -549,7 +558,7 @@ fn sort_values_by(ctx: &ContextImpl, values: &mut [JSValue], cmpfn: &JSValue) ->
 
 impl ContextImpl {
     /// create an Array with element values
-    pub fn create_array_with_values(&self, values: Vec<JSValue>) -> Result<Array, i32> {
+    pub fn create_array_with_values(&mut self, values: Vec<JSValue>) -> Result<Array, i32> {
         let len = values.len();
 
         let mut arr = self
@@ -576,18 +585,20 @@ impl ContextImpl {
     }
 
     #[inline]
-    pub fn create_array_from_slice(&self, values: &[JSValue]) -> Result<Array, i32> {
-        self.create_array_with_values(values.iter().cloned().try_collect::<Vec<_>>().map_err(
-            |_| {
-                self.throw_out_of_memory();
-                -1
-            },
-        )?)
+    pub fn create_array_from_slice(&mut self, values: &[JSValue]) -> Result<Array, i32> {
+        if let Ok(lst) = values.iter().cloned().try_collect::<Vec<_>>()
+            && let Ok(arr) = self.create_array_with_values(lst)
+        {
+            Ok(arr)
+        } else {
+            self.throw_out_of_memory();
+            Err(-1)
+        }
     }
 
     /// create an Array object with pre-allocated capacity.
     /// `cap` is allowed no greater than i32::MAX
-    pub(super) fn create_array_with_capacity(&self, cap: usize) -> Result<Array, i32> {
+    pub(super) fn create_array_with_capacity(&mut self, cap: usize) -> Result<Array, i32> {
         if cap <= i32::MAX as usize {
             let mut lst = Vec::<JSValue>::new();
             if cap > 0 {
@@ -609,14 +620,14 @@ impl ContextImpl {
 
     /// create an empty Array
     #[inline(always)]
-    pub fn create_array(&self) -> Result<Array, i32> {
+    pub fn create_array(&mut self) -> Result<Array, i32> {
         self.create_array_with_values(Vec::new())
     }
 }
 
 impl Object {
     /// return Err if exception (proxy case) or TRUE/FALSE
-    pub fn is_array(&self, ctx: &ContextImpl) -> Result<bool, i32> {
+    pub fn is_array(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         let class_id = self.class_id();
 
         #[cfg(feature = "builtin_proxy")]
@@ -634,7 +645,7 @@ impl Object {
     /// valid elements (non UNINITIALIZED) will be added as property with integral name.
     ///
     /// Note: for Array or Arguments object only.
-    pub(crate) fn destruct_fast_array(&mut self, ctx: &ContextImpl) -> Result<(), i32> {
+    pub(crate) fn destruct_fast_array(&mut self, ctx: &mut ContextImpl) -> Result<(), i32> {
         debug_assert!(matches!(
             self.class_id(),
             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS
@@ -669,7 +680,7 @@ impl Object {
     /// returns Err if fail, true if append successfully, false if can't append due to read-only but flags indicates don't throw exception.
     pub(crate) fn add_fast_array_element(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         value: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -758,7 +769,7 @@ impl JSValue {
     /// check if `self` is an Array object
     /// return Err if exception (proxy case) or TRUE/FALSE
     #[inline]
-    pub fn is_array(&self, ctx: &ContextImpl) -> Result<bool, i32> {
+    pub fn is_array(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         self.as_object().map_or(Ok(false), |o| o.is_array(ctx))
     }
 
@@ -769,7 +780,7 @@ impl JSValue {
     }
 
     /// coerce value to array length, which is in range \[0, 2^32-1\].
-    pub fn to_array_length(&self, ctx: &ContextImpl, is_array_ctor: bool) -> Result<u32, i32> {
+    pub fn to_array_length(&self, ctx: &mut ContextImpl, is_array_ctor: bool) -> Result<u32, i32> {
         let len: u32;
 
         match self {
@@ -817,7 +828,7 @@ impl JSValue {
     }
 
     /// coerce value to array index, which is in range \[0, MAX_SAFE_INTEGER\].
-    pub fn to_index(&self, ctx: &ContextImpl) -> Result<i64, i32> {
+    pub fn to_index(&self, ctx: &mut ContextImpl) -> Result<i64, i32> {
         let i: i64 = self.to_i64_saturating(ctx)?;
         if (0..=MAX_SAFE_INTEGER).contains(&i) {
             Ok(i)

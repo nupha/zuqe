@@ -86,7 +86,7 @@ impl ShapeImpl {
 
     pub(crate) fn add_shape_properties(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         extras: &[(Atom, u32)],
     ) -> usize {
         debug_assert!(!extras.is_empty());
@@ -132,7 +132,7 @@ impl ShapeImpl {
     /// Duplicate a new shape by coping properties and proto.
     /// The new shape is allocated in current gc scope.
     /// The new shape is not registered.
-    pub(crate) fn dup(&self, ctx: &ContextImpl) -> Result<Shape, i32> {
+    pub(crate) fn dup(&self, ctx: &mut ContextImpl) -> Result<Shape, i32> {
         // clone properties
         let mut props = HashList::<ShapeProperty>::new();
         props.try_reserve(self.prop_defs.count()).map_err(|_| {
@@ -202,7 +202,7 @@ impl Shape {
     /// create a shape with prototype 'proto' and property capacity.
     /// The new shape is not registered.
     pub(crate) fn create_internal(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         proto: Option<Object>,
         prop_defs: HashList<ShapeProperty>,
     ) -> Result<Self, i32> {
@@ -223,7 +223,7 @@ impl Shape {
     /// new shape is not registered,
     /// new shape is added to GC, new shape is registered.
     pub(crate) fn create(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         proto: Option<Object>,
         prop_cap: i32,
     ) -> Result<Self, i32> {

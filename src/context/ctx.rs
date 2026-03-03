@@ -398,10 +398,30 @@ impl<'a> DerefMut for Context<'a> {
 }
 
 impl<'a> From<&ContextImpl> for Context<'a> {
-    #[inline]
+    #[inline(always)]
     fn from(c: &ContextImpl) -> Self {
         Self {
             gc_ref: unsafe { gc_lite::GcRef::from_ref_unchecked(c) },
+            _mark: PhantomData,
+        }
+    }
+}
+
+impl<'a> From<&mut ContextImpl> for Context<'a> {
+    #[inline(always)]
+    fn from(c: &mut ContextImpl) -> Self {
+        Self {
+            gc_ref: unsafe { gc_lite::GcRef::from_ref_unchecked(c) },
+            _mark: PhantomData,
+        }
+    }
+}
+
+impl<'a> From<GcRef<ContextImpl>> for Context<'a> {
+    #[inline(always)]
+    fn from(gc_ref: GcRef<ContextImpl>) -> Self {
+        Self {
+            gc_ref,
             _mark: PhantomData,
         }
     }

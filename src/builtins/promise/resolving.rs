@@ -83,12 +83,12 @@ impl PromiseResolveFunc {
                 ctx.rt_ptr().take_exception()
             });
             return Ok(JSValue::UNDEFINED);
-        } else if let Ok(then) = arg0.get_property(&ctx, Atom::CONST_then) {
+        } else if let Ok(then) = arg0.get_property(&mut ctx, Atom::CONST_then) {
             if !then.is_function() {
                 promise.fulfill_or_reject(cx, arg0, is_reject);
             } else {
                 ctx.queue_job_with_trace(
-                    move || js_promise_resolve_thenable_job(&cx, promise, arg0, then),
+                    move || js_promise_resolve_thenable_job(&mut cx, promise, arg0, then),
                     {
                         // Note: tick is performed in top-level scope, promote related gc nodes to top-level scope.
                         let top = cx.rt_ref().gc_part_hot;
@@ -275,7 +275,7 @@ impl Promise {
         success: JSValue,
         fail: JSValue,
     ) -> Result<Object, i32> {
-        let ctor = JS_SpeciesConstructor(ctx, (*self).into(), JSValue::UNDEFINED)?;
+        let ctor = JS_SpeciesConstructor(ctx.into(), (*self).into(), JSValue::UNDEFINED)?;
         let (promise2, rr) = Self::create_from_ctor(ctx, ctor)?;
 
         // Hint: self.reaction() don't call bytecode execution inside, it won't trigger gc collect,
@@ -317,15 +317,10 @@ impl Promise {
 
         if state == PromiseState::Rejected
             && !is_handled
-            && let Some(f) = ctx.rt_ptr().host_promise_rejection_tracker
+            && let Some(f) = ctx.rt_ref().host_promise_rejection_tracker
         {
-            f(
-                &ctx,
-                *self,
-                value,
-                0,
-                ctx.rt_ptr().host_promise_rejection_tracker_opaque,
-            );
+            let opaque = ctx.rt_ref().host_promise_rejection_tracker_opaque;
+            f(&mut ctx, *self, value, 0, opaque);
         }
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`

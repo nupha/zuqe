@@ -19,7 +19,7 @@ impl ContextImpl {
     /// when failed, `payload` is returned back in Err, caller should free it.
     #[inline(always)]
     pub(crate) fn create_object_with_shape(
-        &self,
+        &mut self,
         shape: Shape,
         payload: ObjectPayload,
     ) -> Result<Object, ObjectPayload> {
@@ -31,7 +31,7 @@ impl ContextImpl {
     /// - New object will apply the shape determined by `proto`, if provided.
     /// - The `payload` determines what class the new object is.
     pub fn create_object_with_proto(
-        &self,
+        &mut self,
         proto: Option<Object>,
         payload: ObjectPayload,
     ) -> Result<Object, ObjectPayload> {
@@ -59,7 +59,7 @@ impl ContextImpl {
     /// - undefined: use the `payload` kind associated class prototype,
     /// - otherwise retrieve property `ctor.prototype` for prototype.
     pub fn create_object_from_ctor(
-        &self,
+        &mut self,
         ctor: JSValue,
         payload: ObjectPayload,
     ) -> Result<Object, ObjectPayload> {
@@ -88,14 +88,14 @@ impl ContextImpl {
     /// Create object with `payload` data, applying its implied class.
     /// That means the new object's prototype and shape are determined by `payload` automatically.
     #[inline(always)]
-    pub fn create_object(&self, payload: ObjectPayload) -> Result<Object, ObjectPayload> {
+    pub fn create_object(&mut self, payload: ObjectPayload) -> Result<Object, ObjectPayload> {
         self.create_object_with_proto(self.class_proto(payload.class_id()), payload)
     }
 
     /// Create object of user defined native class
     #[inline]
     pub fn create_object_user_class(
-        &self,
+        &mut self,
         class_id: ClassID,
         opaque: *mut c_void,
     ) -> Result<Object, ObjectPayload> {
@@ -110,14 +110,14 @@ impl ContextImpl {
 
     /// create basic object with given prototype `proto`.
     #[inline(always)]
-    pub fn create_base_object_with_proto(&self, proto: Option<Object>) -> Result<Object, i32> {
+    pub fn create_base_object_with_proto(&mut self, proto: Option<Object>) -> Result<Object, i32> {
         self.create_object_with_proto(proto, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     }
 
     /// Create new basic object using default Object prototype
     #[inline(always)]
-    pub fn create_base_object(&self) -> Result<Object, i32> {
+    pub fn create_base_object(&mut self) -> Result<Object, i32> {
         self.create_object(ObjectPayload::OBJECT).map_err(|_| -1)
     }
 }

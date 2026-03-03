@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 
 use crate::{
     bytecode::OpCode,
-    context::ContextImpl,
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     number::{JSFloat64Union, js_f64_to_i32},
     utils::unlikely,
@@ -40,7 +40,7 @@ impl TwoNumbers {
 
     /// if `coerce`is true, try coerce non-number, non-boolean value to number.
     pub fn from_values(
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         val1: JSValue,
         val2: JSValue,
         coerce: bool,
@@ -56,7 +56,8 @@ impl TwoNumbers {
                 // but op1, op2 could be new created orphan gc nodes,
                 // they must be protected in loop to avoid being collected
                 // in case toPrimitive or valueOf method is user defined bytecode function.
-                let mut _ng = ctx.rt_ref().gc_heap().protect_nodes(&[]);
+                let rt = ctx.rt_ptr();
+                let mut _ng = rt.gc_heap().protect_nodes(&[]);
                 if let Some(n) = op1.gc_node_ptr() {
                     _ng.add(n);
                 }
@@ -230,7 +231,7 @@ pub(super) enum UnaryOp {
 
 impl UnaryOp {
     /// `val` is consumed
-    pub fn new(ctx: &ContextImpl, val: JSValue, allow_float: bool) -> Result<Self, i32> {
+    pub fn new(ctx: &mut ContextImpl, val: JSValue, allow_float: bool) -> Result<Self, i32> {
         match val {
             JSValue::Int(i) => Ok(UnaryOp::Int(i)),
             JSValue::Float64(f) if allow_float => Ok(UnaryOp::Float(f)),
@@ -250,7 +251,7 @@ impl UnaryOp {
 
     /// a shortcut for ::new(ctx, op1, false)
     #[inline(always)]
-    pub fn new_int(ctx: &ContextImpl, op1: JSValue) -> Result<Self, i32> {
+    pub fn new_int(ctx: &mut ContextImpl, op1: JSValue) -> Result<Self, i32> {
         match op1 {
             JSValue::Int(i) => Ok(Self::Int(i)),
             _ => op1.to_i32(ctx).map(Self::Int),
@@ -326,7 +327,7 @@ impl UnaryOp {
 
 #[inline]
 pub(super) fn op_binary_logic(
-    ctx: &ContextImpl,
+    ctx: &mut ContextImpl,
     opcode: OpCode,
     sp: *mut JSValue,
 ) -> Result<*mut JSValue, i32> {
@@ -382,7 +383,7 @@ impl JSValue {
     /// returns None only if value converted to NaN
     pub fn arith_cmp(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         other: JSValue,
     ) -> Result<Option<std::cmp::Ordering>, i32> {
         // fast path
@@ -425,7 +426,7 @@ impl JSValue {
     }
 
     /// arithmatic add of two values.
-    pub fn arith_add(ctx: &ContextImpl, mut op1: Self, mut op2: Self) -> JSResult {
+    pub fn arith_add(ctx: &mut ContextImpl, mut op1: Self, mut op2: Self) -> JSResult {
         loop {
             match (op1, op2) {
                 // path to exit:
@@ -460,34 +461,34 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn arith_sub(ctx: &ContextImpl, op1: Self, op2: Self) -> JSResult {
+    pub fn arith_sub(ctx: &mut ContextImpl, op1: Self, op2: Self) -> JSResult {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.sub())
     }
 
     #[inline(always)]
-    pub fn arith_mul(ctx: &ContextImpl, op1: Self, op2: Self) -> JSResult {
+    pub fn arith_mul(ctx: &mut ContextImpl, op1: Self, op2: Self) -> JSResult {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.mul())
     }
 
     #[inline(always)]
-    pub fn arith_div(ctx: &ContextImpl, op1: Self, op2: Self) -> JSResult {
+    pub fn arith_div(ctx: &mut ContextImpl, op1: Self, op2: Self) -> JSResult {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.div())
     }
 
     #[inline(always)]
-    pub fn arith_mod(ctx: &ContextImpl, op1: Self, op2: Self) -> JSResult {
+    pub fn arith_mod(ctx: &mut ContextImpl, op1: Self, op2: Self) -> JSResult {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.mod_())
     }
 
     #[inline(always)]
-    pub fn arith_pow(ctx: &ContextImpl, op1: Self, op2: Self) -> JSResult {
+    pub fn arith_pow(ctx: &mut ContextImpl, op1: Self, op2: Self) -> JSResult {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.pow())
     }
 
     /// test arithmatical equality (no-strict-eq): self == other?
     #[inline(always)]
-    pub fn arith_eq(&self, ctx: &ContextImpl, other: Self) -> Result<bool, i32> {
-        js_eq(ctx, *self, other)
+    pub fn arith_eq(&self, ctx: &mut ContextImpl, other: Self) -> Result<bool, i32> {
+        js_eq(ctx.into(), *self, other)
     }
 
     /// compare JSValues equality in given mode.
@@ -531,7 +532,7 @@ impl JSValue {
     }
 
     /// get order of `self` and `other`.
-    pub fn sort_cmp(&self, ctx: &ContextImpl, other: Self) -> Result<Ordering, i32> {
+    pub fn sort_cmp(&self, ctx: &mut ContextImpl, other: Self) -> Result<Ordering, i32> {
         let mut v1 = *self;
         let mut v2 = other;
 
@@ -636,7 +637,7 @@ impl JSValue {
 }
 
 /// test arith equality (no-strict eq): val1 == val2
-fn js_eq(ctx: &ContextImpl, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
+fn js_eq(mut ctx: ContextPtr, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
     if std::mem::discriminant(&val1) == std::mem::discriminant(&val2) {
         return Ok(val1 == val2);
     } else if let Some(n2) = TwoNumbers::from_values0(val1, val2) {
@@ -662,7 +663,7 @@ fn js_eq(ctx: &ContextImpl, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
 
             // number vs string
             (JSValue::Int(i), JSValue::String(s)) | (JSValue::String(s), JSValue::Int(i)) => {
-                break match s.to_number(ctx) {
+                break match s.to_number(&mut ctx) {
                     JSValue::Int(v) => v == *i,
                     JSValue::Float64(v) => v == 0.0 && *i == 0, // -0 == 0
                     _ => false,
@@ -670,7 +671,7 @@ fn js_eq(ctx: &ContextImpl, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
             }
             (JSValue::Float64(f), JSValue::String(s))
             | (JSValue::String(s), JSValue::Float64(f)) => {
-                break match s.to_number(ctx) {
+                break match s.to_number(&mut ctx) {
                     JSValue::Int(v) => v as f64 == *f,
                     JSValue::Float64(v) => v == *f,
                     _ => false,
@@ -679,7 +680,7 @@ fn js_eq(ctx: &ContextImpl, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
 
             // boolean vs string
             (JSValue::Bool(b), JSValue::String(s)) | (JSValue::String(s), JSValue::Bool(b)) => {
-                break match s.to_number(ctx) {
+                break match s.to_number(&mut ctx) {
                     JSValue::Int(v) => v == *b as i32,
                     JSValue::Float64(v) => v == 0.0 && !(*b), // -0 == false
                     _ => false,
@@ -688,8 +689,8 @@ fn js_eq(ctx: &ContextImpl, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
 
             // object vs object
             (JSValue::Object(o1), JSValue::Object(o2)) => {
-                op1 = o1.to_primitive(ctx, HINT_NONE)?;
-                op2 = o2.to_primitive(ctx, HINT_NONE)?;
+                op1 = o1.to_primitive(&mut ctx, HINT_NONE)?;
+                op2 = o2.to_primitive(&mut ctx, HINT_NONE)?;
             }
 
             // object vs number/string/boolean/string
@@ -697,23 +698,23 @@ fn js_eq(ctx: &ContextImpl, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
                 JSValue::Object(o),
                 JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_) | JSValue::String(_),
             ) => {
-                op1 = o.to_primitive(ctx, HINT_NONE)?;
+                op1 = o.to_primitive(&mut ctx, HINT_NONE)?;
             }
             (
                 JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_) | JSValue::String(_),
                 JSValue::Object(o),
             ) => {
-                op2 = o.to_primitive(ctx, HINT_NONE)?;
+                op2 = o.to_primitive(&mut ctx, HINT_NONE)?;
             }
 
             // object vs symbol
             #[cfg(feature = "builtin_symbol")]
             (JSValue::Object(o), JSValue::Symbol(_)) => {
-                op1 = o.to_primitive(ctx, HINT_NONE)?;
+                op1 = o.to_primitive(&mut ctx, HINT_NONE)?;
             }
             #[cfg(feature = "builtin_symbol")]
             (JSValue::Symbol(_), JSValue::Object(o)) => {
-                op2 = o.to_primitive(ctx, HINT_NONE)?;
+                op2 = o.to_primitive(&mut ctx, HINT_NONE)?;
             }
 
             #[cfg(debug_assertions)]

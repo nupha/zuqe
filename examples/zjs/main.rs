@@ -215,7 +215,7 @@ fn main() -> ExitCode {
         EvalFlags::empty(),
     ) {
         Ok(val) => {
-            colorize_println(val.inspect(&scope).unwrap(), GreenFg);
+            colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
             ExitCode::SUCCESS
         }
         Err(e) => {

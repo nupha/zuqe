@@ -25,7 +25,7 @@ impl Object {
     /// - Err() on failure. e.g. fail to prepare shape update, fail to convert fast array to sparse array etc.
     pub(crate) fn delete_property_internal(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
     ) -> Result<bool, i32> {
         let obj_flags = self.flags();
@@ -115,7 +115,7 @@ impl Object {
     #[inline(always)]
     pub fn delete_property(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -134,7 +134,7 @@ impl Object {
 
     pub fn delete_property_i64(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         idx: i64,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -154,7 +154,7 @@ impl JSValue {
     #[inline(always)]
     pub fn delete_property(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -165,7 +165,7 @@ impl JSValue {
     #[inline]
     pub fn delete_property_i64(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         idx: i64,
         flags: u32,
     ) -> Result<bool, i32> {

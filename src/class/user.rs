@@ -146,7 +146,7 @@ impl ContextImpl {
 
     /// create a new class instance
     pub fn new_instance(
-        &self,
+        &mut self,
         class_id: ClassID,
         ctor: JSValue,
         opaque: *mut c_void,

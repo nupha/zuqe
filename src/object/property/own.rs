@@ -24,7 +24,7 @@ impl Object {
     /// Returns Err if memory error.
     pub(crate) fn add_own_property(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
         prop_flags: u32,
         value: JSProperty,
@@ -57,7 +57,7 @@ impl Object {
     /// test if own property `prop` exists:
     /// 1. find in shape,
     /// 1. if not shape property, and if is exotic or fast array, test by exotic or array length.
-    pub fn has_own_property(&self, ctx: &ContextImpl, prop: Atom) -> Result<bool, i32> {
+    pub fn has_own_property(&self, ctx: &mut ContextImpl, prop: Atom) -> Result<bool, i32> {
         // is shape prop?
         if self.has_shape_property(prop) {
             return Ok(true);
@@ -87,7 +87,7 @@ impl Object {
     }
 
     #[inline]
-    pub fn has_own_property_str(&self, ctx: &ContextImpl, prop: &str) -> Result<bool, i32> {
+    pub fn has_own_property_str(&self, ctx: &mut ContextImpl, prop: &str) -> Result<bool, i32> {
         let atom = Atom::new(ctx.rt_ptr(), prop)?;
         self.has_own_property(ctx, atom)
     }
@@ -96,9 +96,11 @@ impl Object {
     /// Returns None if own property does not exist.
     pub fn get_own_property(
         &self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
+        let ctx_ptr = ContextPtr::from_ref(ctx);
+
         while let Some((idx, prs_flags)) = self.find_shape_property(prop) {
             let mut desc = JSPropertyDescriptor {
                 flags: prs_flags & JS_PROP_C_W_E,
@@ -107,7 +109,7 @@ impl Object {
 
             match prs_flags & JS_PROP_TMASK {
                 JS_PROP_NORMAL => {
-                    desc.value = self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?;
+                    desc.value = self.prop_slot(idx).value(ctx_ptr, JSValue::UNDEFINED)?;
                 }
                 JS_PROP_GETSET => {
                     desc.flags |= JS_PROP_GETSET;
@@ -119,7 +121,7 @@ impl Object {
                     }
                 }
                 JS_PROP_VARREF => {
-                    desc.value = self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?;
+                    desc.value = self.prop_slot(idx).value(ctx_ptr, JSValue::UNDEFINED)?;
                     if unlikely(desc.value.is_uninitialized()) {
                         JS_ThrowReferenceErrorUninitialized(ctx, prop);
                         return Err(-1);
@@ -172,7 +174,7 @@ impl Object {
                 .as_ref()
                 .and_then(|x| x.get_own_property)
             {
-                return f(ContextPtr::from(ctx.gc_ref()), JSValue::Object(*self), prop);
+                return f(ctx_ptr, JSValue::Object(*self), prop);
             }
         }
 
@@ -187,39 +189,42 @@ impl Object {
     /// - otherwise, call `Self::add_own_property()` to add a shape property.
     pub(super) fn create_property(
         &mut self,
-        ctx: &ContextImpl,
+        mut ctx: ContextPtr,
         prop: Atom,
         val: JSValue,
         getter: JSValue,
         setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let update_array_length_fn =
-            |mut arr: Object, idx: u32, cur_len: i64| -> Option<Result<bool, i32>> {
-                debug_assert!(idx < u32::MAX, "array length<=u32::MAX, so idx<u32::MAX");
+        let update_array_length_fn = |cx: &mut ContextImpl,
+                                      mut arr: Object,
+                                      idx: u32,
+                                      cur_len: i64|
+         -> Option<Result<bool, i32>> {
+            debug_assert!(idx < u32::MAX, "array length<=u32::MAX, so idx<u32::MAX");
 
-                if idx + 1 > cur_len as u32 {
-                    // first prop must be `length`
-                    let prs_flags = arr
-                        .shape()
-                        .and_then(|sh| sh.prop_defs.first().copied())
-                        .map(|p| p.flags())
-                        .unwrap(); // <-- prop length must exist.
+            if idx + 1 > cur_len as u32 {
+                // first prop must be `length`
+                let prs_flags = arr
+                    .shape()
+                    .and_then(|sh| sh.prop_defs.first().copied())
+                    .map(|p| p.flags())
+                    .unwrap(); // <-- prop length must exist.
 
-                    if unlikely(prs_flags & JS_PROP_WRITABLE == 0) {
-                        return if ctx.can_throw(flags) {
-                            ctx.throw_type_error_read_only(Atom::CONST_length);
-                            Some(Err(-1))
-                        } else {
-                            None
-                        };
+                if unlikely(prs_flags & JS_PROP_WRITABLE == 0) {
+                    return if cx.can_throw(flags) {
+                        cx.throw_type_error_read_only(Atom::CONST_length);
+                        Some(Err(-1))
                     } else {
-                        arr.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::from(idx + 1)));
-                    }
+                        None
+                    };
+                } else {
+                    arr.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::from(idx + 1)));
                 }
+            }
 
-                None
-            };
+            None
+        };
 
         let obj_flags = self.flags();
 
@@ -231,7 +236,7 @@ impl Object {
                     let Ok(arr_len) = self
                         .prop_slot(0)
                         .value(ctx, JSValue::UNDEFINED)
-                        .and_then(|v| v.to_length(ctx))
+                        .and_then(|v| v.to_length(&mut ctx))
                     else {
                         return if ctx.can_throw(flags) {
                             Err(-1)
@@ -256,25 +261,27 @@ impl Object {
                                 }
 
                                 if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
-                                    if let Err(e) = self.destruct_fast_array(ctx) {
+                                    if let Err(e) = self.destruct_fast_array(&mut ctx) {
                                         return if ctx.can_throw(flags) {
                                             Err(e)
                                         } else {
                                             Ok(false)
                                         };
                                     }
-                                    if let Some(ret) = update_array_length_fn(*self, idx, arr_len) {
+                                    if let Some(ret) =
+                                        update_array_length_fn(&mut ctx, *self, idx, arr_len)
+                                    {
                                         return ret;
                                     }
                                 }
 
                                 let prop_flags = get_prop_flags(flags, 0);
                                 if prop_flags != JS_PROP_C_W_E {
-                                    match self.destruct_fast_array(ctx) {
+                                    match self.destruct_fast_array(&mut ctx) {
                                         Ok(_) => {
-                                            if let Some(ret) =
-                                                update_array_length_fn(*self, idx, arr_len)
-                                            {
+                                            if let Some(ret) = update_array_length_fn(
+                                                &mut ctx, *self, idx, arr_len,
+                                            ) {
                                                 return ret;
                                             }
                                         }
@@ -288,43 +295,47 @@ impl Object {
                                     }
                                 } else {
                                     // fast array append element.
-                                    return self.add_fast_array_element(ctx, val, flags);
+                                    return self.add_fast_array_element(&mut ctx, val, flags);
                                 }
                             } else {
                                 // leaves a hole between `arr_idx` and `idx`,
                                 // will degrade to sparse array.
-                                if let Err(e) = self.destruct_fast_array(ctx) {
+                                if let Err(e) = self.destruct_fast_array(&mut ctx) {
                                     return if ctx.can_throw(flags) {
                                         Err(e)
                                     } else {
                                         Ok(false)
                                     };
                                 }
-                                if let Some(ret) = update_array_length_fn(*self, idx, arr_len) {
+                                if let Some(ret) =
+                                    update_array_length_fn(&mut ctx, *self, idx, arr_len)
+                                {
                                     return ret;
                                 }
                             }
                         } else if let Some(idx) = prop.to_array_index(ctx.rt_ref()) {
                             // convert fast array to sparse array
-                            if self.destruct_fast_array(ctx).is_err() {
+                            if self.destruct_fast_array(&mut ctx).is_err() {
                                 return if ctx.can_throw(flags) {
                                     Err(-1)
                                 } else {
                                     Ok(false)
                                 };
-                            } else if let Some(ret) = update_array_length_fn(*self, idx, arr_len) {
+                            } else if let Some(ret) =
+                                update_array_length_fn(&mut ctx, *self, idx, arr_len)
+                            {
                                 return ret;
                             }
                         }
                     } else if let Some(idx) = prop.to_array_index(ctx.rt_ref())
-                        && let Some(ret) = update_array_length_fn(*self, idx, arr_len)
+                        && let Some(ret) = update_array_length_fn(&mut ctx, *self, idx, arr_len)
                     {
                         return ret;
                     }
                 } // Array, Arguments
 
                 JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                    if prop.is_numeric_index(ctx)? {
+                    if prop.is_numeric_index(&mut ctx)? {
                         return if ctx.can_throw(flags) {
                             ctx.throw_type_error("cannot create numeric index in typed array");
                             Err(-1)
@@ -350,7 +361,7 @@ impl Object {
                             );
                         }
 
-                        if unlikely(!self.is_extensible(ctx)?) {
+                        if unlikely(!self.is_extensible(&mut ctx)?) {
                             return if ctx.can_throw(flags) {
                                 ctx.throw_type_error("object is not extensible");
                                 Err(-1)
@@ -380,7 +391,7 @@ impl Object {
                 flags & JS_PROP_C_W_E
             };
 
-            self.add_own_property(ctx, prop, prop_flags, {
+            self.add_own_property(&mut ctx, prop, prop_flags, {
                 if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                     // getset property
                     JSProperty::GetSet {
@@ -412,7 +423,7 @@ impl Object {
 
 impl JSValue {
     /// test if own property prop exists.
-    pub fn has_own_property(&self, ctx: &ContextImpl, prop: Atom) -> Result<bool, i32> {
+    pub fn has_own_property(&self, ctx: &mut ContextImpl, prop: Atom) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
             p.has_own_property(ctx, prop)
         } else {
@@ -421,7 +432,7 @@ impl JSValue {
         }
     }
 
-    pub fn has_own_property_str(&self, ctx: &ContextImpl, prop: &str) -> Result<bool, i32> {
+    pub fn has_own_property_str(&self, ctx: &mut ContextImpl, prop: &str) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
             p.has_own_property_str(ctx, prop)
         } else {
@@ -433,7 +444,7 @@ impl JSValue {
     /// get description of own property.
     pub fn get_own_property(
         &mut self,
-        ctx: &ContextImpl,
+        ctx: &mut ContextImpl,
         prop: Atom,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
         if let JSValue::Object(p) = self {
