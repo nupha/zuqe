@@ -28,11 +28,7 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
     // use proper proto, ensure proto is an object
     let mut proto = new_target.get_property(&mut ctx, Atom::CONST_prototype)?;
     if !proto.is_object() {
-        let ctx_p = ContextPtr::from(ctx.gc_ref());
-        let realm = new_target
-            .as_object()
-            .map_or(Ok(ctx_p), |o| o.realm(ctx_p))?;
-
+        let realm = new_target.as_object().map_or(Ok(ctx), |o| o.realm(ctx))?;
         proto = if magic < 0 {
             realm.class_proto(JS_CLASS_ERROR).unwrap().into()
         } else {
@@ -97,7 +93,7 @@ pub(crate) fn js_aggregate_error_constructor(mut ctx: ContextPtr, errors: JSValu
     let err_proto = ctx.error_protos[ErrorKind::Aggregate as usize]
         .as_object()
         .copied();
-    
+
     if let Ok(mut obj) = ctx.create_object_with_proto(err_proto, ObjectPayload::ERROR) {
         obj.define_property_value(
             &mut ctx,

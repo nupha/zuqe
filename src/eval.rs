@@ -224,12 +224,10 @@ impl ContextImpl {
             }
         }
     }
-}
 
-impl ContextImpl {
     /// compile source, then eval it.
-    pub(super) fn eval_internal(
-        &mut self,
+    pub(crate) fn eval_handler(
+        ctx: &mut ContextImpl,
         this_obj: JSValue,
         source: &[u8],
         filename: &str,
@@ -237,7 +235,7 @@ impl ContextImpl {
         eval_flags: EvalFlags,
         var_scope_idx: i32,
     ) -> JSResult {
-        debug_assert!(self.gc_heap().scope_level() > 0);
+        debug_assert!(ctx.gc_heap().scope_level() > 0);
 
         // #[cfg(debug_assertions)]
         // if eval_flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
@@ -247,12 +245,12 @@ impl ContextImpl {
         // }
 
         let ret_val =
-            match self.compile_source(source, filename, eval_type, eval_flags, var_scope_idx)? {
-                Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
+            match ctx.compile_source(source, filename, eval_type, eval_flags, var_scope_idx)? {
+                Compiled::GlobalOrIndirect(bc) => bc.eval(ctx, this_obj, &[], None),
                 Compiled::Direct(bc) => {
-                    let mut rt = self.rt_ptr();
+                    let mut rt = ctx.rt_ptr();
                     bc.eval(
-                        self,
+                        ctx,
                         this_obj,
                         rt.current_stack_frame()
                             .unwrap()
@@ -268,7 +266,7 @@ impl ContextImpl {
                 Compiled::Module(mut md) => {
                     // Problem: m has created function? m was linked?
                     // if m has not created function, should use m.eval() instead of m.eval_func()
-                    md.eval_func(self).map(|p| p.into())
+                    md.eval_func(ctx).map(|p| p.into())
                 }
             };
 
@@ -279,6 +277,33 @@ impl ContextImpl {
         }
 
         ret_val
+    }
+
+    /// TODO: use ::eval_handler() directly
+    pub(super) fn eval_internal(
+        &mut self,
+        this_obj: JSValue,
+        source: &[u8],
+        filename: &str,
+        eval_type: EvalType,
+        eval_flags: EvalFlags,
+        var_scope_idx: i32,
+    ) -> JSResult {
+        // check eval handler defined in context
+        if let Some(f) = self.eval_handler {
+            f(
+                self.into(),
+                this_obj,
+                source,
+                filename,
+                eval_type,
+                eval_flags,
+                var_scope_idx,
+            )
+        } else {
+            self.throw_type_error("eval is not supported");
+            Err(-1)
+        }
     }
 
     /// Eval `source` as module, with global object as `this` binding.

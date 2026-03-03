@@ -83,7 +83,7 @@ pub struct ContextImpl {
     pub(crate) loaded_modules: Vec<ModuleDef>,
 
     /// eval callback
-    pub(crate) eval_handle: Option<EvalFn>,
+    pub(crate) eval_handler: Option<EvalFn>,
 
     /// context level queued jobs
     pub(crate) job_list: VecDeque<Job>,
@@ -173,7 +173,7 @@ impl ContextImpl {
             random_state: 0,
             interrupt_counter: Cell::new(0),
             loaded_modules: Vec::new(),
-            eval_handle: None,
+            eval_handler: None,
 
             job_list: VecDeque::new(),
             tick_handlers: Vec::new(),

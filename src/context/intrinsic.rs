@@ -402,24 +402,50 @@ impl ContextImpl {
     }
 
     pub(super) fn intrinsic_eval(&mut self) {
-        self.eval_handle.replace(
-            |mut ctx: ContextPtr,
-             this_obj: JSValue,
-             input: &[u8],
-             filename: &str,
-             eval_type: EvalType,
-             eval_flags: EvalFlags,
-             scope_idx: i32|
-             -> JSResult {
-                ctx.new_scope()
-                    .eval_internal(this_obj, input, filename, eval_type, eval_flags, scope_idx)
-            },
-        );
+        fn eval_fn(
+            mut ctx: ContextPtr,
+            this_obj: JSValue,
+            source: &[u8],
+            filename: &str,
+            eval_type: EvalType,
+            eval_flags: EvalFlags,
+            var_scope_idx: i32,
+        ) -> JSResult {
+            let ret_val = {
+                let mut scope = ctx.new_scope();
+                ContextImpl::eval_handler(
+                    &mut scope,
+                    this_obj,
+                    source,
+                    filename,
+                    eval_type,
+                    eval_flags,
+                    var_scope_idx,
+                )
+            };
+
+            // ensure ret_val is protected
+            if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr())
+                && {
+                    let n = unsafe { n.as_ref() };
+                    !n.is_local() && !n.is_root()
+                }
+            {
+                ctx.gc_heap_mut().with_current_scope(|s| {
+                    s.add_non_local(n);
+                });
+            }
+
+            ret_val
+        }
+
+        self.eval_handler.replace(eval_fn);
 
         let eval_func: JSValue = self
             .create_native_function(Callback::Func(js_global_eval), "eval", 1, 0)
             .unwrap()
             .into();
+
         self.eval_func = eval_func;
 
         self.global_obj()

@@ -163,6 +163,7 @@ pub struct ObjectIter<'a> {
     pub(crate) done: bool,
 
     /// protect gc node target, next_method from being gc collected
+    #[deprecated(note = "eliminate this")]
     _ng: GcNodeGuard<'a>,
 }
 

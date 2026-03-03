@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use fallible_collections::TryCollect;
-use gc_lite::{GcNodeGuard, GcPartitionId};
+use gc_lite::GcPartitionId;
 
 use crate::{
     JS_CLASS_ARRAY,
@@ -364,20 +364,21 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
 
     // Note: `func.call()` statement may trigger gc collect inside,
     // we must protect allocated `ret` from being collected.
-    let mut _ng = {
-        if len > 0
-            && let Some(a) = ret.gc_node_ptr()
-        {
-            let g = unsafe {
-                std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(
-                    ctx.rt_ref().gc_heap().protect_node(a),
-                )
-            };
-            Some(g)
-        } else {
-            None
-        }
-    };
+    // DO NOT NEED ANY MORE
+    // let mut _ng = {
+    //     if len > 0
+    //         && let Some(a) = ret.gc_node_ptr()
+    //     {
+    //         let g = unsafe {
+    //             std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(
+    //                 ctx.rt_ref().gc_heap().protect_node(a),
+    //             )
+    //         };
+    //         Some(g)
+    //     } else {
+    //         None
+    //     }
+    // };
 
     let mut n = 0;
     let mut present: bool;
@@ -450,11 +451,7 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
 
         // node `arr` will be used as `this_obj` when invoking method,
         // so that StackFrame will protect arr (this_obj) from being gc collected.
-        arr.invoke(
-            &mut ctx,
-            Atom::CONST_set,
-            std::slice::from_ref(&ret),
-        )?;
+        arr.invoke(&mut ctx, Atom::CONST_set, std::slice::from_ref(&ret))?;
         ret = arr;
     }
 
@@ -531,11 +528,7 @@ pub(crate) fn js_array_reduce(cc: CallContext) -> JSResult {
 
         if present {
             let index_val = JSValue::from(k1);
-            acc = func.call(
-                &mut ctx,
-                JSValue::UNDEFINED,
-                &[acc, val, index_val, obj],
-            )?;
+            acc = func.call(&mut ctx, JSValue::UNDEFINED, &[acc, val, index_val, obj])?;
         }
     }
 
@@ -860,14 +853,7 @@ pub(crate) fn js_array_push(cc: CallContext) -> JSResult {
 
     let mut from = len;
     if unshift != 0 && cc.length() > 0 {
-        copy_sub_array(
-            &mut ctx,
-            &mut obj,
-            cc.length() as _,
-            0,
-            len as usize,
-            -1,
-        )?;
+        copy_sub_array(&mut ctx, &mut obj, cc.length() as _, 0, len as usize, -1)?;
         from = 0;
     }
 
@@ -875,11 +861,7 @@ pub(crate) fn js_array_push(cc: CallContext) -> JSResult {
         obj.set_property_i64(&mut ctx, from + i as i64, *cc.arg(i))?;
     }
 
-    obj.set_property(
-        &mut ctx,
-        Atom::CONST_length,
-        JSValue::from(new_len),
-    )?;
+    obj.set_property(&mut ctx, Atom::CONST_length, JSValue::from(new_len))?;
 
     Ok(JSValue::from(new_len))
 }
@@ -1521,13 +1503,14 @@ fn js_array_from(cc: CallContext) -> JSResult {
     let has_iterator: bool = {
         #[cfg(feature = "builtin_symbol")]
         {
-            let mut _ng = unsafe {
-                let mut _ng = ctx.rt_ref().gc_heap().protect_nodes(&[]);
-                if let Some(n) = items.gc_node_ptr() {
-                    _ng.add(n);
-                }
-                std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(_ng)
-            };
+            // NOT NEEDED ANY MORE
+            // let mut _ng = unsafe {
+            //     let mut _ng = ctx.rt_ref().gc_heap().protect_nodes(&[]);
+            //     if let Some(n) = items.gc_node_ptr() {
+            //         _ng.add(n);
+            //     }
+            //     std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(_ng)
+            // };
 
             let it = items.get_property(&mut ctx, Atom::CONST_Symbol_iterator)?;
             let has = !it.is_undefined();
@@ -1540,9 +1523,10 @@ fn js_array_from(cc: CallContext) -> JSResult {
                     ctx.create_array()?.into()
                 };
 
-                if let Some(n) = arr.gc_node_ptr() {
-                    _ng.add(n);
-                }
+                // NOT NEEDED ANY MORE
+                // if let Some(n) = arr.gc_node_ptr() {
+                //     _ng.add(n);
+                // }
 
                 let iter = items.get_iterator_must(&mut ctx, false)?;
                 let it = ObjectIter::new(ctx, iter, Atom::CONST_next)?;
@@ -1577,14 +1561,14 @@ fn js_array_from(cc: CallContext) -> JSResult {
             ctx.create_array_with_capacity(len as usize)?.into()
         };
 
-        // protect arr, src nodes
-        let _ng = unsafe {
-            let mut _ng = ctx.gc_heap().protect_node(src.gc_node_ptr());
-            if let Some(n) = arr.gc_node_ptr() {
-                _ng.add(n);
-            }
-            std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(_ng)
-        };
+        // protect arr, src nodes - NOT NEEDED ANY MORE
+        // let _ng = unsafe {
+        //     let mut _ng = ctx.gc_heap().protect_node(src.gc_node_ptr());
+        //     if let Some(n) = arr.gc_node_ptr() {
+        //         _ng.add(n);
+        //     }
+        //     std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(_ng)
+        // };
 
         for i in 0..len {
             let mut el = src.get_property_i64(&mut ctx, i)?;

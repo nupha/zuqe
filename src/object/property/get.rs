@@ -66,7 +66,7 @@ impl ObjectImpl {
                             };
                         }
                         JS_PROP_VARREF => {
-                            let val = cur_obj.prop_slot(idx).value(ctx.into(), this_obj)?;
+                            let val = cur_obj.prop_slot(idx).value(ctx, this_obj)?;
                             return if unlikely(val.is_uninitialized()) {
                                 JS_ThrowReferenceErrorUninitialized(ctx, prop);
                                 Err(-1)

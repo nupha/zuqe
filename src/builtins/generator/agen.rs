@@ -296,14 +296,15 @@ impl AGenPayload {
             js_promise_resolve(cc)?.try_into()?
         };
 
-        let generator = JSValue::Object(Object(
-            self.generator
-                .borrow()
-                .upgrade(ctx.rt_ptr().gc_heap())
-                .unwrap(),
-        ));
+        let gen_obj = self
+            .generator
+            .borrow()
+            .upgrade(ctx.rt_ptr().gc_heap())
+            .unwrap();
+
         let resolving_funcs =
-            js_async_generator_resolve_function_create(&mut ctx, generator, false)?;
+            js_async_generator_resolve_function_create(&mut ctx, gen_obj.into(), false)?;
+
         debug_assert!(resolving_funcs[0].is_function());
         debug_assert!(resolving_funcs[1].is_function());
 
@@ -319,7 +320,6 @@ impl AGenPayload {
     pub fn complete(&mut self) {
         if self.state() != AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED {
             self.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED);
-            // self.func_state.take();
         }
     }
 
@@ -370,9 +370,9 @@ impl AsyncGeneratorFunction {
             queue: Vec::with_capacity(2),
         });
 
-        // protect async_state before .resume() execute bytecode.
-        let _rt = ctx.rt_ptr();
-        let _ng = _rt.gc_heap().protect_node(s.async_state.gc_node_ptr());
+        // protect async_state before .resume() execute bytecode. - DO NO NEEDED ANY MORE
+        // let _rt = ctx.rt_ptr();
+        // let _ng = _rt.gc_heap().protect_node(s.async_state.gc_node_ptr());
 
         // execute the function till 'OpCode::INITIAL_YIELD' (no yield nor await are possible)
         s.async_state.resume(ctx.into())?;

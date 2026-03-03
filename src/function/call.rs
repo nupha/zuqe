@@ -265,6 +265,7 @@ impl ObjectImpl {
         ret_val
     }
 
+    /// For bytecode function, new scope will be created to execute bytecodes.
     #[inline(always)]
     pub fn call(&self, ctx: &mut ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
         self.call_internal(
@@ -276,6 +277,7 @@ impl ObjectImpl {
         )
     }
 
+    /// For bytecode function, new scope will be created to execute bytecodes.
     #[inline(always)]
     pub fn call_ctor_new_target(
         &self,
@@ -292,12 +294,14 @@ impl ObjectImpl {
         )
     }
 
+    /// For bytecode function, new scope will be created to execute bytecodes.
     #[inline(always)]
     pub fn call_ctor(&self, ctx: &mut ContextImpl, args: &[JSValue]) -> JSResult {
         self.call_ctor_new_target(ctx, Object::from_ref(self).into(), args)
     }
 
-    /// call function `self.method`
+    /// call function `self.method`.
+    /// For bytecode function, new scope will be created to execute bytecodes.
     #[inline]
     pub fn invoke(&self, ctx: &mut ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {
         self.get_property(ctx, method)
@@ -356,6 +360,7 @@ impl JSValue {
         }
     }
 
+    /// For bytecode function, new scope will be created to execute bytecodes.
     #[inline(always)]
     pub fn call(&self, ctx: &mut ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
         self.call_internal(
@@ -367,6 +372,7 @@ impl JSValue {
         )
     }
 
+    /// For bytecode function, new scope will be created to execute bytecodes.
     #[inline(always)]
     pub fn call_ctor_new_target(
         &self,
@@ -383,13 +389,15 @@ impl JSValue {
         )
     }
 
+    /// For bytecode function, new scope will be created to execute bytecodes.
     #[inline(always)]
     pub fn call_ctor(&self, ctx: &mut ContextImpl, args: &[JSValue]) -> JSResult {
         self.call_ctor_new_target(ctx, *self, args)
     }
 
-    /// call function `self.method`
-    #[inline(always)]
+    /// call function `self.method`.
+    /// For bytecode function, new scope will be created to execute bytecodes.
+    #[inline]
     pub fn invoke(&self, ctx: &mut ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {
         let f = self.get_property(ctx, method)?;
         f.call(ctx, *self, args)
