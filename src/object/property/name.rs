@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcNode, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_STRING,
@@ -9,7 +9,7 @@ use crate::{
     builtins::iterator::JSIteratorKindEnum,
     context::ContextImpl,
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
-    object::{JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, Object},
+    object::{JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, Object, ObjectImpl},
     string::StringRef,
     utils::unlikely,
     value::JSValue,
@@ -63,7 +63,7 @@ impl PropertyKey {
     }
 }
 
-impl Object {
+impl ObjectImpl {
     /// Iterates over all own properties of object `self` and executes `callback` for each property.
     ///
     /// This method handles three types of properties:
@@ -136,8 +136,9 @@ impl Object {
                     }
                 }
             } else if self.class_id() == JS_CLASS_STRING {
+                // String object
                 if flags & JS_GPN_INDEX_MASK != 0 {
-                    let buf_len = StringRef::try_from(*self).unwrap().len();
+                    let buf_len = StringRef::try_from(Object::from_ref(self)).unwrap().len();
 
                     for i in 0..buf_len {
                         callback(
@@ -151,7 +152,7 @@ impl Object {
                         )?;
                     }
                 }
-            } else if let Some(f) = ctx.rt_ptr().class_registry[self.class_id() as usize]
+            } else if let Some(f) = ctx.rt_ref().class_registry[self.class_id() as usize]
                 .exotic
                 .as_ref()
                 .and_then(|m| m.get_own_property_names)
@@ -159,7 +160,7 @@ impl Object {
                 // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
 
-                for pk in f(ctx.gc_ref().into(), *self)? {
+                for pk in f(ctx.into(), Object::from_ref(self))? {
                     if !has_err {
                         let atom_kind = pk.atom.desc_kind(ctx.rt_ref());
                         if (flags >> (atom_kind as u8)) & 1 != 0 {

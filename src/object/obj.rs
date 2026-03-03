@@ -546,15 +546,13 @@ impl ObjectImpl {
     pub fn prevent_extensions(&mut self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         #[cfg(feature = "builtin_proxy")]
         {
-            Object(unsafe { GcRef::from_ref_unchecked(self) })
-                .as_Proxy_mut()
-                .map_or_else(
-                    || {
-                        self.set_flag_extensible(false);
-                        Ok(true)
-                    },
-                    |p| p.prevent_extensions(ctx),
-                )
+            Object::from_ref(self).as_Proxy_mut().map_or_else(
+                || {
+                    self.set_flag_extensible(false);
+                    Ok(true)
+                },
+                |p| p.prevent_extensions(ctx),
+            )
         }
 
         #[cfg(not(feature = "builtin_proxy"))]
@@ -646,21 +644,21 @@ impl std::fmt::Debug for Object {
 }
 
 impl Object {
-    #[inline(always)]
     pub fn downgrade(&self) -> GcWeak<ObjectImpl> {
         self.0.downgrade(self.rt().gc_heap_mut())
     }
+}
 
+impl ObjectImpl {
     /// Seal the object.
-    pub fn seal(&self, ctx: &mut ContextImpl, freeze: bool) -> Result<(), i32> {
-        let mut this = *self;
-
-        if unlikely(!this.prevent_extensions(ctx)?) {
+    pub fn seal(&mut self, ctx: &mut ContextImpl, freeze: bool) -> Result<(), i32> {
+        if unlikely(!self.prevent_extensions(ctx)?) {
             ctx.throw_type_error("proxy preventExtensions handler returned false");
             Err(-1)
         } else {
-            let mut target = *self;
-            this.own_property_names_foreach(
+            let mut target = Object::from_ref(self);
+
+            let _ = self.own_property_names_foreach(
                 ctx,
                 JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
                 |cx, pkey| {
@@ -696,9 +694,7 @@ impl Object {
     pub fn is_sealed(&self, ctx: &mut ContextImpl, is_frozen: bool) -> Result<bool, i32> {
         const NOT_SEALED_ERR: i32 = i32::MAX;
 
-        let this = *self;
-
-        if let Err(e) = this.own_property_names_foreach(
+        if let Err(e) = self.own_property_names_foreach(
             ctx,
             JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
             |cx, pk| {
@@ -866,15 +862,14 @@ impl JSValue {
         }
     }
 
-    #[inline]
     pub fn prevent_extensions(&mut self, ctx: &mut ContextImpl) -> Result<bool, i32> {
         self.as_object_mut()
             .map_or(Ok(false), |o| o.prevent_extensions(ctx))
     }
 
     /// Seal `self` if it is an object.
-    pub fn seal(&self, ctx: &mut ContextImpl, freeze: bool) -> Result<(), i32> {
-        self.as_object().map_or(Ok(()), |o| o.seal(ctx, freeze))
+    pub fn seal(&mut self, ctx: &mut ContextImpl, freeze: bool) -> Result<(), i32> {
+        self.as_object_mut().map_or(Ok(()), |o| o.seal(ctx, freeze))
     }
 
     /// check if value is sealed. Object value will check property, Non-object value is always treated as sealed.
@@ -885,7 +880,6 @@ impl JSValue {
 }
 
 const JS_PROP_INITIAL_SIZE: u32 = 2;
-//pub const JS_ARRAY_INITIAL_SIZE: u32 = 2;
 
 pub(crate) const JS_PROP_INITIAL_HASH_SIZE: usize = if cfg!(target_pointer_width = "64") {
     32

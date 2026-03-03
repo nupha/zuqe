@@ -403,7 +403,7 @@ pub(crate) fn js_object_assign(cc: CallContext) -> JSResult {
 pub(crate) fn js_object_seal(cc: CallContext) -> JSResult {
     let freeze = cc.magic() == 1;
     let mut ctx = cc.ctx_ptr();
-    let obj = *cc.arg(0);
+    let mut obj = *cc.arg(0);
     obj.seal(&mut ctx, freeze)?;
     Ok(obj)
 }

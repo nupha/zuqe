@@ -48,7 +48,7 @@ impl ContextImpl {
 
     pub(super) fn intrinsic_base_function(&mut self) {
         // FOR LEGACY: make throw type error function
-        let throw_type_error = self
+        let mut throw_type_error = self
             .create_native_function(
                 Callback::Func(|mut cc| {
                     // throw only in strict mode
