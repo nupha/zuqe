@@ -3,8 +3,6 @@
 
 use std::ops::{Deref, DerefMut};
 
-use gc_lite::GcNode;
-
 use crate::{
     Context,
     atom::Atom,
@@ -154,6 +152,11 @@ impl Object {
     /// The unified place to dispatch a function call:
     /// either bytecode or native execution, either normal or constructor call.
     ///
+    /// # Note:
+    ///
+    /// For bytecode function, will create a new sub scope for execution,
+    /// return value is guaranteed to be valid at least in current scope.
+    ///
     /// # Arguments
     /// * ctx is the caller ctx.
     /// * argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
@@ -166,6 +169,8 @@ impl Object {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
+        debug_assert!(ctx.gc_heap().scope_level() > 0);
+
         ctx.poll_interrupts()?;
 
         let is_ctor = flags & JS_CALL_FLAG_CONSTRUCTOR != 0;
@@ -188,21 +193,36 @@ impl Object {
         let ret_val = if let Some(mut bf) = self.as_BytecodeFunction().copied() {
             // When calling bytecode function, a StackFrame is created for execution,
             // gc nodes self, this_obj, new_target, args are protected by the StackFrame
-            if is_ctor && !bf.payload().bytecode().attrs.is_derived_class_constructor {
+            let mut exec_scope = ctx.new_scope();
+
+            let ret = if is_ctor && !bf.payload().bytecode().attrs.is_derived_class_constructor {
                 // legacy constructor behavior
-                let this: JSValue = ctx
+                let this: JSValue = exec_scope
                     .create_object_from_ctor(new_target, ObjectPayload::OBJECT)
                     .map_err(|_| {
-                        ctx.throw_type_error("constructor must return an object");
+                        exec_scope.throw_type_error("constructor must return an object");
                         -1
                     })?
                     .into();
 
-                bf.execute(&mut ctx.new_scope(), this, new_target, args, flags)
+                bf.execute(&mut exec_scope, this, new_target, args, flags)
                     .map(|v| if v.is_object() { v } else { this })
             } else {
-                bf.execute(&mut ctx.new_scope(), this_obj, new_target, args, flags)
+                bf.execute(&mut exec_scope, this_obj, new_target, args, flags)
+            }?;
+
+            drop(exec_scope);
+
+            // protect return value from exec_scope: attach it to current scope
+            if let Some(n) = ret.gc_node_ptr()
+                && unsafe { !n.as_ref().is_local() }
+            {
+                ctx.gc_heap_mut().with_current_scope(|s| {
+                    s.add_non_local(n);
+                });
             }
+
+            Ok(ret)
         } else if let Some(cb) = unsafe {
             rt.class_registry
                 .get_unchecked(self.class_id() as usize)
@@ -224,7 +244,7 @@ impl Object {
             // }
 
             cb(
-                ContextPtr::from(ctx.gc_ref()).into(),
+                ctx.into(),
                 JSValue::Object(*self),
                 if is_ctor { new_target } else { this_obj },
                 args,

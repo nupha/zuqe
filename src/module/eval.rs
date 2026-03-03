@@ -4,7 +4,7 @@
 use gc_lite::GcNode;
 
 use crate::{
-    Callback, JS_CLASS_BYTECODE_FUNCTION,
+    Callback, ContextScope, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
     context::{ContextImpl, ContextPtr},
     error::JSResult,
@@ -85,17 +85,15 @@ impl ModuleDef {
         }
     }
 
-    /// eval the module, includes:
-    /// - create module function,
-    /// - link,
-    /// - and eval the function.
-    pub(crate) fn eval(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
-        // make module function
-        self.create_module_function(ctx)?;
-        // resolving imports, exports
-        self.link(ctx)?;
-        // evaluate module function
-        self.eval_func(ctx)
+    /// Eval the module def in following steps:
+    ///
+    /// * create module function,
+    /// * link modules,
+    /// * eval module function, returns Promise.
+    pub fn eval(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
+        self.create_module_function(ctx)?; // make module function
+        self.link(ctx)?; // resolving imports, exports
+        self.eval_func(ctx) // evaluate module function
     }
 
     /// Run the <eval> function of the module and of all its dependent modules.
@@ -108,7 +106,7 @@ impl ModuleDef {
                 | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
         ));
 
-        let mut m = match self.status() {
+        let mut md = match self.status() {
             JSModuleStatus::JS_MODULE_STATUS_LINKED => *self,
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => self.cycle_root().unwrap(),
@@ -118,7 +116,7 @@ impl ModuleDef {
         };
 
         // a promise may be created only on the cycle_root of a cycle
-        if let Some(p) = m.promise {
+        if let Some(p) = md.promise {
             return Ok(p);
         }
 
@@ -128,18 +126,18 @@ impl ModuleDef {
 
         let mut stack_top: Option<ModuleDef> = None;
 
-        match m.eval_internal(ctx.into(), 0, &mut stack_top) {
+        match md.eval_internal(ctx.into(), 0, &mut stack_top) {
             Ok(_) => {
                 debug_assert!(matches!(
-                    m.status(),
+                    md.status(),
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                         | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
                 ));
-                debug_assert!(m.eval_exception().is_none());
+                debug_assert!(md.eval_exception().is_none());
 
-                if !m.async_evaluation() {
-                    debug_assert_eq!(m.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
-                    let _ = m.resolving_funcs[0].call(
+                if !md.async_evaluation() {
+                    debug_assert_eq!(md.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
+                    let _ = md.resolving_funcs[0].call(
                         ctx,
                         JSValue::UNDEFINED,
                         std::slice::from_ref(&JSValue::UNDEFINED),
@@ -153,15 +151,15 @@ impl ModuleDef {
 
                     m1.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
                     m1.set_eval_exception(Some(result));
-                    m1.set_cycle_root(m); // spec bug: should be present
+                    m1.set_cycle_root(md); // spec bug: should be present
 
                     stack_top = m1.stack_prev.take();
                 }
 
-                debug_assert_eq!(m.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
+                debug_assert_eq!(md.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
 
-                let func_obj = m.resolving_funcs[1]; // reject func
-                let exc = m.eval_exception().unwrap();
+                let func_obj = md.resolving_funcs[1]; // reject func
+                let exc = md.eval_exception().unwrap();
                 let _ = func_obj.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
             }
         }

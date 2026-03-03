@@ -32,25 +32,57 @@ impl<'a> Drop for ContextScope<'a> {
 impl<'a> Deref for ContextScope<'a> {
     type Target = ContextImpl;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         self.ctx.deref()
     }
 }
 
 impl<'a> DerefMut for ContextScope<'a> {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.ctx.deref_mut()
     }
 }
 
 impl<'a> From<ContextScope<'a>> for ContextPtr {
+    #[inline(always)]
     fn from(value: ContextScope<'a>) -> Self {
         value.ctx.into()
     }
 }
 
+impl<'a> From<&ContextScope<'a>> for ContextPtr {
+    #[inline(always)]
+    fn from(value: &ContextScope<'a>) -> Self {
+        value.ctx.into()
+    }
+}
+
+impl<'a> From<&mut ContextScope<'a>> for ContextPtr {
+    #[inline(always)]
+    fn from(value: &mut ContextScope<'a>) -> Self {
+        value.ctx.into()
+    }
+}
+
 impl<'a> From<ContextScope<'a>> for Context<'a> {
+    #[inline(always)]
     fn from(value: ContextScope<'a>) -> Self {
+        value.ctx.into()
+    }
+}
+
+impl<'a> From<&ContextScope<'a>> for Context<'a> {
+    #[inline(always)]
+    fn from(value: &ContextScope<'a>) -> Self {
+        value.ctx.into()
+    }
+}
+
+impl<'a> From<&mut ContextScope<'a>> for Context<'a> {
+    #[inline(always)]
+    fn from(value: &mut ContextScope<'a>) -> Self {
         value.ctx.into()
     }
 }
@@ -76,11 +108,6 @@ impl<'a> ContextScope<'a> {
             .unwrap()
     }
 
-    #[inline(always)]
-    pub(crate) fn ctx_ptr(&self) -> ContextPtr {
-        self.ctx.into()
-    }
-
     /// test if given node contains in `self` scope
     #[cfg(debug_assertions)]
     pub fn contains(&self, node: NonNull<GcHead>) -> bool {
@@ -96,7 +123,7 @@ impl<'a> ContextScope<'a> {
 }
 
 impl ContextImpl {
-    /// create a context scope
+    /// create a sub scope
     pub fn new_scope(&mut self) -> ContextScope<'_> {
         let pid = self.rt_ref().gc_part_id();
         self.gc_heap_mut().push_gc_scope(pid);

@@ -596,9 +596,9 @@ impl RuntimeImpl {
                     ctx.global_var_obj = ctx.create_base_object_with_proto(None)?.into();
 
                     // don't change order
-                    let mut sc = ctx.new_scope();
-                    sc.init_core_objects()?;
-                    setup(&mut sc)?;
+                    let mut scope = ctx.new_scope();
+                    scope.init_core_objects()?;
+                    setup(&mut scope)?;
 
                     // ctx.init_core_objects()?;
                     // context_setup(&mut ctx)?;

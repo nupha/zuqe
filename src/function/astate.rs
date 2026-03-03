@@ -204,7 +204,7 @@ impl AsyncStateImpl {
         let bc = bf.bytecode();
 
         let ret_val = bc.run(
-            caller_ctx,
+            &mut caller_ctx,
             bf.home_object(),
             unsafe {
                 self.stack_frame.as_mut().get_unchecked_mut() // dedicated stack frame for async state

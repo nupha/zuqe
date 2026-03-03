@@ -392,7 +392,7 @@ impl BytecodeFunction {
         // eval script
         let mut func_val = {
             let global = ctx.global_obj();
-            ctx.new_scope().eval_internal(
+            ctx.eval_internal(
                 global.into(),
                 buf.as_slice(),
                 "<input>",
@@ -523,7 +523,7 @@ impl BytecodeFunction {
         let bf = self.payload_mut();
         let ret_val = bc
             .run(
-                scope.ctx_ptr(),
+                scope,
                 bf.home_object(),
                 &mut stack_frame,
                 this_obj,

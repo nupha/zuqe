@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 use fallible_collections::TryCollect;
 
 use crate::{
-    ContextImpl,
+    ContextImpl, ContextScope,
     atom::{Atom, AtomKind},
     builtins::{
         generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
@@ -58,9 +58,9 @@ impl Bytecode {
     /// - On exit, current stack frame will be restored back to the original one.
     /// - When exception raised (returns Err), `stack_frame` will be kept as current stack frame.
     #[allow(clippy::too_many_arguments)]
-    pub fn run(
+    pub(crate) fn run(
         &self,
-        mut caller_ctx: ContextPtr, // caller's context
+        caller_ctx: &mut ContextImpl, // caller's context
         func_home_obj: Option<Object>,
         stack_frame: &mut StackFrame, // The stack frame for execution
         this_obj: JSValue,            // The 'this' binding for the function execution
@@ -1253,7 +1253,7 @@ impl Bytecode {
                                 if opcode == OpCode::GET_LOC_CHECK {
                                     &mut realm
                                 } else {
-                                    &mut caller_ctx
+                                    caller_ctx
                                 },
                                 self,
                                 idx,

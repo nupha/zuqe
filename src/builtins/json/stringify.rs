@@ -151,11 +151,6 @@ fn js_json_check(
         val
     };
 
-    #[cfg(debug_assertions)]
-    if let Some(n) = ret.gc_node_ptr() {
-        debug_assert!(ctx.contains(n), "{ret:?}");
-    }
-
     match ret {
         JSValue::Object(o) => {
             if o.is_function() {
@@ -352,8 +347,6 @@ fn js_json_to_str(
                         jsc.buf.push(&qkey).unwrap();
                         jsc.buf.push_u8(b':').unwrap();
                         jsc.buf.push(&sep1).unwrap();
-
-                        println!("[O.o] level={}, v={v:?}", ctx.gc_heap().scope_level());
 
                         js_json_to_str(ctx, jsc, v, &indent1)?;
                         has_content = true;

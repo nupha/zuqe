@@ -226,7 +226,7 @@ impl ContextImpl {
     }
 }
 
-impl<'a> ContextScope<'a> {
+impl ContextImpl {
     /// compile source, then eval it.
     pub(super) fn eval_internal(
         &mut self,
@@ -243,6 +243,8 @@ impl<'a> ContextScope<'a> {
         //         "don't use JS_EVAL_FLAG_COMPILE_ONLY flag in eval().\nif you want compile only, use ::compile() method."
         //     );
         // }
+
+        debug_assert!(self.gc_heap().scope_level() > 0);
 
         let ret_val =
             match self.compile_source(source, filename, eval_type, eval_flags, var_scope_idx)? {
@@ -263,30 +265,32 @@ impl<'a> ContextScope<'a> {
                         rt.current_stack_frame_mut(),
                     )
                 }
-                Compiled::Module(mut m) => {
+                Compiled::Module(mut md) => {
                     // Problem: m has created function? m was linked?
                     // if m has not created function, should use m.eval() instead of m.eval_func()
-                    m.eval_func(self).map(|p| p.into())
+                    md.eval_func(self).map(|p| p.into())
                 }
             };
 
-        // ensure return value contains in `self` scope.
-        #[cfg(debug_assertions)]
-        if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
-            debug_assert!(self.contains(n), "{:?}", unsafe { n.as_ref() });
-        }
+        // // ensure return value is valid
+        // #[cfg(debug_assertions)]
+        // if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
+        //     let n = unsafe { n.as_ref() };
+        //     debug_assert!(n.is_local() || n.is_root(), "{n:?}");
+        // }
 
         ret_val
     }
 
-    /// eval `source` as module type, with global object as `this` binding.
+    /// Eval `source` as module, with global object as `this` binding.
+    ///
+    /// Compile source into module def, then eval it. Returns Promise.
     pub(crate) fn eval_module(
         &mut self,
         source: &[u8],
         filename: &str,
         strip: bool,
     ) -> Result<Promise, i32> {
-        // compile source into module, then eval it.
         let mut md = ModuleDef::compile(self, source, filename, strip)?;
         md.set_import_meta(self, filename, true)?;
         md.eval(self)
@@ -300,7 +304,7 @@ impl<'a> ContextScope<'a> {
         filename: &str,
         eval_flags: EvalFlags,
     ) -> JSResult {
-        let global = self.ctx.global_obj();
+        let global = self.global_obj();
         self.eval_internal(
             global.into(),
             source,
@@ -312,13 +316,13 @@ impl<'a> ContextScope<'a> {
     }
 
     /// run script `source`, wait till execution terminates, returns the result value.
-    pub fn run_wait(
+    pub fn run_wait<'v>(
         &mut self,
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
         eval_flags: EvalFlags,
-    ) -> Result<Value<'a>, ErrorText> {
+    ) -> Result<Value<'v>, ErrorText> {
         self.do_run_wait(source, filename, eval_type, eval_flags)
             .map(|v| v.into())
     }
@@ -332,6 +336,7 @@ impl<'a> ContextScope<'a> {
         eval_flags: EvalFlags,
     ) -> Result<JSValue, ErrorText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
+        debug_assert!(self.gc_heap().scope_level() > 0);
 
         // // create new gc scope for running source
         // let mut rt = self.rt_ptr();
@@ -353,8 +358,8 @@ impl<'a> ContextScope<'a> {
         })?;
 
         #[cfg(debug_assertions)]
-        if let Some(n) = val.gc_node_ptr() {
-            debug_assert!(self.contains(n), "{val:?}");
+        if let Some(n) = val.gc_node() {
+            debug_assert!(n.is_local() || n.is_root(), "{val:?}");
         }
 
         let mut promise = Promise::try_from(val).ok();

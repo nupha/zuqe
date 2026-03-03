@@ -30,7 +30,7 @@ impl GcTrace for ImportEntry {
     }
 }
 
-pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult {
+pub(crate) fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult {
     let basename_val: JSValue = if let Some(a) = get_script_or_module_name(ctx, 0) {
         a.to_value(ctx)?
     } else {
@@ -122,9 +122,10 @@ fn js_load_module_internal(
                 return;
             }
 
-            // eval module
+            // eval module in new scope
+
             match md.eval(&mut ctx) {
-                Ok(mut evaluate_promise) => {
+                Ok(mut promise) => {
                     let evaluate_resolving_funcs = [
                         NativeFunction::create(
                             &mut ctx,
@@ -148,9 +149,7 @@ fn js_load_module_internal(
                         .unwrap(),
                     ];
 
-                    // Hint: `evaluate_promise.then()` don't call bytecode execution inside, won't trigger gc collection,
-                    // protect gc nodes is not required.
-                    let _ = evaluate_promise.then(
+                    let _ = promise.then(
                         &mut ctx,
                         evaluate_resolving_funcs[0].into(),
                         evaluate_resolving_funcs[1].into(),

@@ -4,6 +4,7 @@
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
+    ContextScope,
     atom::{Atom, is_const_atom, is_small_int_atom},
     bytecode::{OpcodeFormat, opcode_info_final},
     context::{ContextImpl, ContextPtr},
@@ -485,7 +486,7 @@ impl Bytecode {
         captured_vars: &[VarRef],
         parent_stack_frame: Option<&mut StackFrame>,
     ) -> JSResult {
-        self.make_closure(ctx, None, captured_vars, parent_stack_frame)
-            .and_then(|f| f.call(ctx, this_obj, &[]))
+        let f = self.make_closure(ctx, None, captured_vars, parent_stack_frame)?;
+        f.call(ctx, this_obj, &[])
     }
 }
