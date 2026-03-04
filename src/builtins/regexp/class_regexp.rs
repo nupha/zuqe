@@ -575,7 +575,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
 
     // protect match results
     ctx.gc_heap_mut()
-        .protect_nodes_iter_v2(matche_list.iter().map(|m| m.gc_node_ptr()));
+        .protect_nodes_iter(matche_list.iter().map(|m| m.gc_node_ptr()));
 
     let mut pos = 0;
 

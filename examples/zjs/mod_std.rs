@@ -160,7 +160,7 @@ fn js_gc(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-fn std_exit(mut cc: CallContext) -> JSResult {
+fn std_exit(cc: CallContext) -> JSResult {
     let mut ctx = cc.context();
     let n = cc.arg(0).to_i32(&mut ctx).unwrap_or(-1);
     ctx.rt_mut().stop(n);

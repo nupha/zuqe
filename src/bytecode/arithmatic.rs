@@ -59,10 +59,10 @@ impl TwoNumbers {
                 {
                     let heap = ctx.gc_heap_mut();
                     if let Some(n) = op1.gc_node_ptr() {
-                        heap.protect_node_v2(n);
+                        heap.protect_node(n);
                     }
                     if let Some(n) = op2.gc_node_ptr() {
-                        heap.protect_node_v2(n);
+                        heap.protect_node(n);
                     }
                 }
 

@@ -16,8 +16,8 @@ use std::{
 use clap::Parser;
 use serde::Deserialize;
 use zuqe::{
-    CallContext, Callback, Context, ContextImpl, ContextScope, ErrorText, EvalFlags, EvalType,
-    JS_PROP_C_W_E, JSResult, JSValue, ModuleDef, Runtime,
+    CallContext, Callback, Context, ContextScope, ErrorText, EvalFlags, EvalType, JS_PROP_C_W_E,
+    JSResult, JSValue, ModuleDef, Runtime,
 };
 
 /// counter of "Test262:AsyncTestComplete" messages
@@ -454,6 +454,9 @@ fn run_test_file(
 
     if !harness_files.is_empty() {
         // eval included harness files
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+
         ctx.with_new_scope(|scope| {
             if let Err(exc) = run_harness(scope, &harness_files) {
                 // write to outf
@@ -467,20 +470,10 @@ fn run_test_file(
 
                 has_err = true;
             }
-        })
+        });
 
-        // if let Err(exc) = run_harness(&mut ctx_scope, &harness_files) {
-        //     // write to outf
-        //     writeln!(outf, "FAIL: can't eval harness").unwrap();
-        //     dump_error(&exc, false, false, false, outf);
-
-        //     // write to err
-        //     writeln!(errf, "{}", filename.display()).unwrap();
-        //     writeln!(outf, "FAIL: can't eval harness").unwrap();
-        //     dump_error(&exc, false, false, false, errf);
-
-        //     has_err = true;
-        // }
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
     }
 
     if !has_err {
@@ -514,6 +507,9 @@ fn run_test_file(
         .into_iter()
         .flatten()
         {
+            #[cfg(debug_assertions)]
+            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+
             let res = ctx.with_new_scope(|scope| {
                 run_test_script(
                     scope,
@@ -524,6 +520,9 @@ fn run_test_file(
                     strict,
                 )
             });
+
+            #[cfg(debug_assertions)]
+            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
 
             if let Err(exc) = res {
                 // eprintln!("TEST262 EXCEPTION: {:?}", exc.message);

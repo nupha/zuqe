@@ -81,7 +81,7 @@ impl BCWrapper {
 
         // protect promise and a_state before calling .execute()
         ctx.gc_heap_mut()
-            .protect_nodes_v2(&[promise.gc_node_ptr(), a_state.gc_node_ptr()]);
+            .protect_nodes(&[promise.gc_node_ptr(), a_state.gc_node_ptr()]);
 
         a_state.execute(ctx);
         Ok(promise)

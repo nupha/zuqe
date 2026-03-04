@@ -3,7 +3,7 @@
 
 use std::{marker::PhantomData, ptr::NonNull};
 
-use gc_lite::{GcHead, GcNodeGuard, GcTrace, GcTraceCtx};
+use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 
 use crate::{
     atom::Atom,

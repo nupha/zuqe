@@ -57,7 +57,7 @@ impl ObjectImpl {
                             } = cur_obj.prop_slot(idx)
                             {
                                 // protect `self` before calling getter
-                                ctx.gc_heap_mut().protect_node_v2(self.gc_head_ptr());
+                                ctx.gc_heap_mut().protect_node(self.gc_head_ptr());
                                 fun.call(ctx, this_obj, &[])
                             } else {
                                 Ok(JSValue::UNDEFINED)
