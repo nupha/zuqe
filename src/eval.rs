@@ -190,7 +190,7 @@ impl ContextImpl {
         #[cfg(debug_assertions)]
         debug_assert!(
             self.gc_heap()
-                .current_gc_scope()
+                .current_scope()
                 .unwrap()
                 .contains(bc.gc_node_ptr()),
             "{:?}",

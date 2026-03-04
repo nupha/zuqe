@@ -222,9 +222,9 @@ impl ObjectImpl {
                 .get_unchecked(self.class_id() as usize)
                 .call
         } {
-            // Note: calling class defined exotic callback (e.g. bound function, native function, async function etc)
-            // do not have stack frame,
-            // gc node self, this_obj, new_target, args should be protected manually.
+            // calling class defined exotic callback (e.g. bound function, native function, async function etc)
+
+            // self, this_obj, new_target, args should be protected
             // ### WE'RE USING GC SCOPE, THIS SHOULD NOT BE NEEDED.
             // let mut _fg = rt.gc_heap().protect_node(self.gc_node_ptr());
             // if let Some(n) = this_obj.gc_node_ptr() {
@@ -395,7 +395,7 @@ impl JSValue {
         self.call_ctor_new_target(ctx, *self, args)
     }
 
-    /// call function `self.method`.
+    /// Call `self.method` function.
     /// For bytecode function, new scope will be created to execute bytecodes.
     #[inline]
     pub fn invoke(&self, ctx: &mut ContextImpl, method: Atom, args: &[JSValue]) -> JSResult {

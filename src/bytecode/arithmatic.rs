@@ -56,13 +56,14 @@ impl TwoNumbers {
                 // but op1, op2 could be new created orphan gc nodes,
                 // they must be protected in loop to avoid being collected
                 // in case toPrimitive or valueOf method is user defined bytecode function.
-                let rt = ctx.rt_ptr();
-                let mut _ng = rt.gc_heap().protect_nodes(&[]);
-                if let Some(n) = op1.gc_node_ptr() {
-                    _ng.add(n);
-                }
-                if let Some(n) = op2.gc_node_ptr() {
-                    _ng.add(n);
+                {
+                    let heap = ctx.gc_heap_mut();
+                    if let Some(n) = op1.gc_node_ptr() {
+                        heap.protect_node_v2(n);
+                    }
+                    if let Some(n) = op2.gc_node_ptr() {
+                        heap.protect_node_v2(n);
+                    }
                 }
 
                 op1 = op1.to_number(ctx)?;

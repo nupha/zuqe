@@ -766,11 +766,10 @@ fn js_string_match(cc: CallContext) -> JSResult {
             f.call_ctor(&mut ctx, &args[0..args_len])?
         };
 
-        // protect regexp_obj before .invoke() - DO NOT NEEDED ANY MORE
-        // let ctxptr = cc.ctx_ptr();
-        // let _ng = regexp_obj
-        //     .gc_node_ptr()
-        //     .map(|n| ctxptr.gc_heap().protect_node(n));
+        // protect regexp_obj before calling ::invoke()
+        // if let Some(n) = regexp_obj.gc_node_ptr() {
+        //     ctx.gc_heap_mut().protect_node_v2(n);
+        // }
 
         let s = this.to_string_non_undefined_or_null(&mut ctx)?;
         regexp_obj.invoke(

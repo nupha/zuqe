@@ -573,11 +573,9 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
         }
     }
 
-    // protect match results nodes
-    let ctx0 = ctx;
-    let _ng = ctx0
-        .gc_heap()
-        .protect_nodes_iter(matche_list.iter().map(|m| m.gc_node_ptr()));
+    // protect match results
+    ctx.gc_heap_mut()
+        .protect_nodes_iter_v2(matche_list.iter().map(|m| m.gc_node_ptr()));
 
     let mut pos = 0;
 
@@ -666,7 +664,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
         } else {
             // replacement is function
             js_function_apply(CallContext::new(
-                cc.ctx_ptr(),
+                ctx,
                 rep,
                 &[JSValue::UNDEFINED, {
                     // make arguments: captures + extras

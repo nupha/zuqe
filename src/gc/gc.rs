@@ -114,7 +114,7 @@ impl RuntimeImpl {
     pub fn gc_scope<R>(&mut self, f: impl FnOnce(&GcContext) -> R) -> R {
         let pid = self.gc_part_id();
         self.gc_heap_mut().push_gc_scope(pid);
-        let gc = self.gc_heap().current_gc_scope().unwrap();
+        let gc = self.gc_heap().current_scope().unwrap();
         let r = f(gc);
         self.gc_heap_mut().pop_gc_scope();
         r

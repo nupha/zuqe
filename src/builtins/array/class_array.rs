@@ -362,23 +362,12 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
         _ => JSValue::UNDEFINED,
     };
 
-    // Note: `func.call()` statement may trigger gc collect inside,
-    // we must protect allocated `ret` from being collected.
-    // DO NOT NEED ANY MORE
-    // let mut _ng = {
-    //     if len > 0
-    //         && let Some(a) = ret.gc_node_ptr()
-    //     {
-    //         let g = unsafe {
-    //             std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(
-    //                 ctx.rt_ref().gc_heap().protect_node(a),
-    //             )
-    //         };
-    //         Some(g)
-    //     } else {
-    //         None
-    //     }
-    // };
+    // protect ret before func.call()
+    // if len > 0
+    //     && let Some(n) = ret.gc_node_ptr()
+    // {
+    //     ctx.gc_heap_mut().protect_node_v2(n);
+    // }
 
     let mut n = 0;
     let mut present: bool;
@@ -800,8 +789,8 @@ pub(crate) fn js_array_toString(cc: CallContext) -> JSResult {
 pub(crate) fn js_array_pop(cc: CallContext) -> JSResult {
     let shift = cc.magic() == 1;
     let mut ctx = cc.ctx_ptr();
-    let mut this = cc.this().objectify(&mut ctx)?;
 
+    let mut this = cc.this().objectify(&mut ctx)?;
     let length = this.get_length_prop(&mut ctx)?;
 
     let mut res = JSValue::UNDEFINED;
@@ -812,9 +801,9 @@ pub(crate) fn js_array_pop(cc: CallContext) -> JSResult {
 
         res = if this.is_fast_array()
             && let Some(arr_data) = this.payload_mut().array_mut()
+            && arr_data.len() == length as usize
         {
             // fast array
-            debug_assert_eq!(arr_data.len(), length as usize);
             if shift {
                 arr_data.remove(0)
             } else {
@@ -1503,14 +1492,10 @@ fn js_array_from(cc: CallContext) -> JSResult {
     let has_iterator: bool = {
         #[cfg(feature = "builtin_symbol")]
         {
-            // NOT NEEDED ANY MORE
-            // let mut _ng = unsafe {
-            //     let mut _ng = ctx.rt_ref().gc_heap().protect_nodes(&[]);
-            //     if let Some(n) = items.gc_node_ptr() {
-            //         _ng.add(n);
-            //     }
-            //     std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(_ng)
-            // };
+            // protect items - NOT NEEDED ANY MORE
+            // if let Some(n) = items.gc_node_ptr() {
+            //     ctx.gc_heap_mut().protect_node_v2(n);
+            // }
 
             let it = items.get_property(&mut ctx, Atom::CONST_Symbol_iterator)?;
             let has = !it.is_undefined();
@@ -1562,13 +1547,10 @@ fn js_array_from(cc: CallContext) -> JSResult {
         };
 
         // protect arr, src nodes - NOT NEEDED ANY MORE
-        // let _ng = unsafe {
-        //     let mut _ng = ctx.gc_heap().protect_node(src.gc_node_ptr());
-        //     if let Some(n) = arr.gc_node_ptr() {
-        //         _ng.add(n);
-        //     }
-        //     std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(_ng)
-        // };
+        // ctx.gc_heap_mut().protect_node_v2(src.gc_node_ptr());
+        // if let Some(n) = arr.gc_node_ptr() {
+        //     ctx.gc_heap_mut().protect_node_v2(n);
+        // }
 
         for i in 0..len {
             let mut el = src.get_property_i64(&mut ctx, i)?;

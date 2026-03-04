@@ -140,14 +140,7 @@ pub(crate) fn js_promise_resolve(cc: CallContext) -> JSResult {
     }
 
     let (result_promise, resolving_funcs) = Promise::create_from_ctor(&mut ctx, this)?;
-
-    // protect result_promise from gc being collected,
-    // resolving_funcs[is_reject as usize] and arg0 will be protected in ::call()
-    // NOT NEEDED ANY MORE
-    // let _ctx0 = ctx;
-    // let _ng = _ctx0
-    //     .gc_heap()
-    //     .protect_nodes(&[result_promise.gc_node_ptr()]);
+    debug_assert!(result_promise.gc_node().is_local());
 
     resolving_funcs[is_reject as usize].call(
         &mut ctx,
@@ -169,18 +162,18 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
     }
 
     let (result_promise, resolving_funcs) = Promise::create_from_ctor(&mut ctx, this)?;
+    debug_assert!(result_promise.gc_node().is_local());
 
-    // IMPORTANT: `result_promise` should keep alive in gc within this function
-    // protect to prevent them being collected (possibally in bytecode exeution, e.g. promise_resolve.call etc)
-    // let mut _lk = unsafe {
-    //     std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(
-    //         ctx.rt_ref().gc_heap().protect_nodes(&[
-    //             result_promise.gc_node_ptr(),
-    //             resolving_funcs[0].gc_node_ptr().unwrap(),
-    //             resolving_funcs[1].gc_node_ptr().unwrap(),
-    //         ]),
-    //     )
-    // };
+    // protect `resolving_funcs` before promise.call()
+    // {
+    //     let heap = ctx.gc_heap_mut();
+    //     if let Some(n) = resolving_funcs[0].gc_node_ptr() {
+    //         heap.protect_node(n);
+    //     }
+    //     if let Some(n) = resolving_funcs[1].gc_node_ptr() {
+    //         heap.protect_node(n);
+    //     }
+    // }
 
     let fail_reject = |cx: &mut ContextImpl| -> JSResult {
         let error = cx.rt_ptr().take_exception();
@@ -217,13 +210,11 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
         return fail_reject(&mut ctx);
     }
 
-    // IMPORTANT: `arr`, `resolve_element_env`, `it.target`, `it.next`
-    // should keep alive in gc within this function
-    // _lk.add(arr.gc_node_ptr());
-    // _lk.add(resolve_element_env.as_object().unwrap().gc_node_ptr());
-    // _lk.add(it.target.gc_node_ptr());
-    // if let Some(n) = it.next_method.gc_node_ptr() {
-    //     _lk.add(n);
+    // protect arr, resolve_element_env - THEY'RE IN SCOPE, NOT NEEDED ANY MORE
+    // {
+    //     let heap=ctx.gc_heap_mut();
+    //     heap.protect_node(arr.gc_node_ptr());
+    //     heap.protect_node(resolve_element_env.as_object().unwrap().gc_node_ptr());
     // }
 
     let mut values: JSValue = arr.into();
@@ -365,18 +356,18 @@ pub fn js_promise_race(cc: CallContext) -> JSResult {
     }
 
     let (promise, resolving_funcs) = Promise::create_from_ctor(&mut ctx, this)?;
+    debug_assert!(promise.gc_node().is_local());
 
-    // IMPORTANT: these values are intermediate, to prevent them be collected (possibally in promise_resolve.call),
-    // we temporarily set them as root, and unset from root at function exit.
-    // let mut _ng = unsafe {
-    //     std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(ctx.gc_heap().protect_nodes(
-    //         &[
-    //             promise.gc_node_ptr(),
-    //             resolving_funcs[0].as_object().unwrap().gc_node_ptr(),
-    //             resolving_funcs[1].as_object().unwrap().gc_node_ptr(),
-    //         ],
-    //     ))
-    // };
+    // protect resoving_funcs before calling promise.call()
+    // {
+    //     let heap = ctx.gc_heap_mut();
+    //     if let Some(n) = resolving_funcs[0].gc_node_ptr() {
+    //         heap.protect_node_v2(n);
+    //     }
+    //     if let Some(n) = resolving_funcs[1].gc_node_ptr() {
+    //         heap.protect_node_v2(n);
+    //     }
+    // }
 
     let fail_reject = |cx: &mut ContextImpl| -> JSResult {
         let error = cx.rt_ptr().take_exception();
@@ -396,13 +387,6 @@ pub fn js_promise_race(cc: CallContext) -> JSResult {
         let Ok(mut it) = cc.arg(0).iter(ctx) else {
             return fail_reject(&mut ctx);
         };
-
-        // IMPORTANT: these values are intermediate, to prevent them be collected (possibally in promise_resolve.call),
-        // we must temporaraily set then as root, and unset from root at function exit.
-        // _ng.add(it.target.gc_node_ptr());
-        // if let Some(n) = it.next_method.gc_node_ptr() {
-        //     _ng.add(n);
-        // }
 
         while let Some(item) = it.next() {
             if let Ok(val) = item {
@@ -436,6 +420,8 @@ pub fn js_promise_withResolvers(cc: CallContext) -> JSResult {
     }
 
     let (result_promise, resolving_funcs) = Promise::create_from_ctor(&mut ctx, this)?;
+    debug_assert!(result_promise.gc_node().is_local());
+
     let mut obj = ctx.create_base_object()?;
 
     obj.define_property_value(
