@@ -105,7 +105,7 @@ impl<'a> ContextScope<'a> {
     }
 
     #[inline(always)]
-    pub fn depth(&self) -> u8 {
+    pub const fn depth(&self) -> u8 {
         self.depth
     }
 

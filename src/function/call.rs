@@ -205,7 +205,6 @@ impl ObjectImpl {
                     }?;
 
                 scope.promote_value(ret);
-
                 Ok(ret)
             })
 

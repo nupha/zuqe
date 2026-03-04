@@ -101,37 +101,29 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
     };
 
     let mut ctx = cc.ctx_ptr();
-    let (promise, resolving_funcs) = Promise::create(&mut ctx)?;
 
-    // promise, resolving_funcs are protected
-    debug_assert!(promise.gc_node().is_protected());
+    let (promise, resolving_funcs) = Promise::create(&mut ctx)?;
+    debug_assert!(promise.gc_node().is_root_or_local());
     debug_assert!(
         resolving_funcs[0]
             .as_object()
             .unwrap()
             .gc_node()
-            .is_protected()
+            .is_root_or_local()
     );
     debug_assert!(
         resolving_funcs[1]
             .as_object()
             .unwrap()
             .gc_node()
-            .is_protected()
+            .is_root_or_local()
     );
 
-    // // To avoid gc collect intermediate resolving_funcs, put it to root temporarily
-    // let mut rt_ptr = ctx.rt_ptr();
-    // {
-    //     let heap = rt_ptr.gc_heap_mut();
-    //     heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), true);
-    //     heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), true);
-    // }
-    // crate::defer!({
-    //     let heap = rt_ptr.gc_heap_mut();
-    //     heap.set_root(resolving_funcs[0].as_object().unwrap().gc_ref(), false);
-    //     heap.set_root(resolving_funcs[1].as_object().unwrap().gc_ref(), false);
-    // });
+    // protect resolving_funcs
+    // ctx.gc_heap_mut().protect_nodes(&[
+    //     resolving_funcs[0].gc_node_ptr().unwrap(),
+    //     resolving_funcs[1].gc_node_ptr().unwrap(),
+    // ]);
 
     let this_val = cc.this();
     let p = unsafe { this_val.as_object_unchecked() };
