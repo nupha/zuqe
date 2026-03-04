@@ -203,7 +203,10 @@ fn main() -> ExitCode {
         })
         .unwrap();
 
-    ctx.with_new_scope(|scope| {
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+
+    let ec = ctx.with_new_scope(|scope| {
         match scope.run_wait(
             script.as_bytes(),
             &filename,
@@ -227,7 +230,12 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         }
-    })
+    });
+
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+
+    ec
 }
 
 fn js_module_loader(
