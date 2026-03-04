@@ -111,13 +111,9 @@ impl RuntimeImpl {
         self.gc_alloc_local_in(self.gc_part_id(), data)
     }
 
-    pub fn gc_scope<R>(&mut self, f: impl FnOnce(&GcContext) -> R) -> R {
+    pub fn with_gc_scope<R>(&mut self, f: impl FnOnce(&GcContext) -> R) -> R {
         let pid = self.gc_part_id();
-        self.gc_heap_mut().push_gc_scope(pid);
-        let gc = self.gc_heap().current_scope().unwrap();
-        let r = f(gc);
-        self.gc_heap_mut().pop_gc_scope();
-        r
+        self.gc_heap_mut().with_new_scope(pid, f)
     }
 
     /// collect garbage

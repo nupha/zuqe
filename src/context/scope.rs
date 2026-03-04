@@ -1,29 +1,25 @@
-#[cfg(debug_assertions)]
-use std::ptr::NonNull;
 use std::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
+    ptr::NonNull,
 };
 
-use gc_lite::{GcError, GcHead, GcLocal, GcNode, GcRef};
+use gc_lite::{GcContext, GcError, GcHead, GcLocal, GcNode, GcRef};
 
-use crate::{Context, context::ContextPtr};
+use crate::{Context, JSValue, context::ContextPtr};
 
 use super::ContextImpl;
 
 pub struct ContextScope<'a> {
-    pub(crate) ctx: GcRef<ContextImpl>,
-
-    #[cfg(debug_assertions)]
-    level: u32,
-
+    pub(crate) ctx: ContextPtr,
+    pub(crate) depth: u8,
     _mark: PhantomData<&'a ()>,
 }
 
 impl<'a> Drop for ContextScope<'a> {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
-        debug_assert_eq!(self.level, self.ctx.gc_heap().scope_level() as u32);
+        debug_assert_eq!(self.depth(), self.ctx.gc_heap().scope_max_depth());
 
         self.ctx.gc_heap_mut().pop_gc_scope();
     }
@@ -48,21 +44,21 @@ impl<'a> DerefMut for ContextScope<'a> {
 impl<'a> From<ContextScope<'a>> for ContextPtr {
     #[inline(always)]
     fn from(value: ContextScope<'a>) -> Self {
-        value.ctx.into()
+        value.ctx
     }
 }
 
 impl<'a> From<&ContextScope<'a>> for ContextPtr {
     #[inline(always)]
     fn from(value: &ContextScope<'a>) -> Self {
-        value.ctx.into()
+        value.ctx
     }
 }
 
 impl<'a> From<&mut ContextScope<'a>> for ContextPtr {
     #[inline(always)]
     fn from(value: &mut ContextScope<'a>) -> Self {
-        value.ctx.into()
+        value.ctx
     }
 }
 
@@ -108,33 +104,46 @@ impl<'a> ContextScope<'a> {
             .unwrap()
     }
 
+    #[inline(always)]
+    pub fn depth(&self) -> u8 {
+        self.depth
+    }
+
+    /// get gc context
+    unsafe fn gc_scope(&self) -> &GcContext<'_> {
+        debug_assert!(self.depth() <= self.ctx.gc_heap().scope_max_depth());
+        self.ctx.gc_heap().scope(self.depth).unwrap()
+    }
+
+    pub fn promote_value(&mut self, val: JSValue) {
+        unsafe {
+            self.gc_scope().set_promote(val.gc_node_ptr());
+        }
+    }
+
     /// test if given node contains in `self` scope
     #[cfg(debug_assertions)]
     pub fn contains(&self, node: NonNull<GcHead>) -> bool {
         self.gc_heap()
-            .scope(self.level() as _)
+            .scope(self.depth() as _)
             .is_some_and(|s| s.contains(node))
-    }
-
-    #[cfg(debug_assertions)]
-    pub const fn level(&self) -> u32 {
-        self.level
     }
 }
 
 impl ContextImpl {
-    /// create a sub scope
-    pub fn new_scope(&mut self) -> ContextScope<'_> {
+    fn new_scope(&mut self) -> ContextScope<'_> {
         let pid = self.rt_ref().gc_part_id();
-        self.gc_heap_mut().push_gc_scope(pid);
+        let ctx = ContextPtr::from_ref(self);
+        let s = self.gc_heap_mut().push_gc_scope(pid);
 
         ContextScope {
-            ctx: self.gc_ref(),
-
-            #[cfg(debug_assertions)]
-            level: self.gc_heap().scope_level() as u32,
-
+            ctx,
+            depth: s.depth(),
             _mark: PhantomData,
         }
+    }
+
+    pub fn with_new_scope<T>(&mut self, f: impl FnOnce(&mut ContextScope<'_>) -> T) -> T {
+        f(&mut self.new_scope())
     }
 }

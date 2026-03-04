@@ -170,7 +170,7 @@ impl ObjectImpl {
         flags: i32,
     ) -> JSResult {
         debug_assert!(
-            ctx.gc_heap().scope_level() > 0,
+            ctx.gc_heap().scope_max_depth() > 0,
             "call_internal(): execution scope is required"
         );
 
@@ -186,36 +186,59 @@ impl ObjectImpl {
         {
             // When calling bytecode function, a StackFrame is created for execution,
             // gc nodes self, this_obj, new_target, args are protected by the StackFrame
-            let mut exec_scope = ctx.new_scope();
+            ctx.with_new_scope(|scope| -> JSResult {
+                let ret =
+                    if is_ctor && !bfun.payload().bytecode().attrs.is_derived_class_constructor {
+                        // legacy constructor behavior
+                        let this: JSValue = scope
+                            .create_object_from_ctor(new_target, ObjectPayload::OBJECT)
+                            .map_err(|_| {
+                                scope.throw_type_error("constructor must return an object");
+                                -1
+                            })?
+                            .into();
 
-            let ret = if is_ctor && !bfun.payload().bytecode().attrs.is_derived_class_constructor {
-                // legacy constructor behavior
-                let this: JSValue = exec_scope
-                    .create_object_from_ctor(new_target, ObjectPayload::OBJECT)
-                    .map_err(|_| {
-                        exec_scope.throw_type_error("constructor must return an object");
-                        -1
-                    })?
-                    .into();
+                        bfun.execute(scope, this, new_target, args, flags)
+                            .map(|v| if v.is_object() { v } else { this })
+                    } else {
+                        bfun.execute(scope, this_obj, new_target, args, flags)
+                    }?;
 
-                bfun.execute(&mut exec_scope, this, new_target, args, flags)
-                    .map(|v| if v.is_object() { v } else { this })
-            } else {
-                bfun.execute(&mut exec_scope, this_obj, new_target, args, flags)
-            }?;
+                scope.promote_value(ret);
 
-            drop(exec_scope);
+                Ok(ret)
+            })
 
-            // protect return value from exec_scope: at least add it to current scope
-            if let Some(n) = ret.gc_node_ptr()
-                && unsafe { !n.as_ref().is_local() }
-            {
-                ctx.gc_heap_mut().with_current_scope(|s| {
-                    s.add_non_local(n);
-                });
-            }
+            // let mut exec_scope = ctx.new_scope();
+            // let ret = if is_ctor && !bfun.payload().bytecode().attrs.is_derived_class_constructor {
+            //     // legacy constructor behavior
+            //     let this: JSValue = exec_scope
+            //         .create_object_from_ctor(new_target, ObjectPayload::OBJECT)
+            //         .map_err(|_| {
+            //             exec_scope.throw_type_error("constructor must return an object");
+            //             -1
+            //         })?
+            //         .into();
 
-            Ok(ret)
+            //     bfun.execute(&mut exec_scope, this, new_target, args, flags)
+            //         .map(|v| if v.is_object() { v } else { this })
+            // } else {
+            //     bfun.execute(&mut exec_scope, this_obj, new_target, args, flags)
+            // }?;
+
+            // exec_scope.promote_value(ret);
+
+            // drop(exec_scope);
+            // // protect return value from exec_scope: at least add it to current scope
+            // if let Some(n) = ret.gc_node_ptr()
+            //     && unsafe { !n.as_ref().is_local() }
+            // {
+            //     ctx.gc_heap_mut().with_current_scope(|s| {
+            //         s.add_non_local(n);
+            //     });
+            // }
+
+            // Ok(ret)
         } else if let Some(cb) = unsafe {
             ctx.rt_ref()
                 .class_registry

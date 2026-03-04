@@ -188,7 +188,7 @@ fn main() -> ExitCode {
 
     // create context
     let mut ctx = rt
-        .create_context(|ctx| {
+        .create_context(|mut ctx| {
             Context::ECMA_CONTEXT_SETUP(ctx)?;
 
             // use File class
@@ -203,31 +203,31 @@ fn main() -> ExitCode {
         })
         .unwrap();
 
-    let mut scope = ctx.new_scope();
-
-    match scope.run_wait(
-        script.as_bytes(),
-        &filename,
-        if is_module {
-            EvalType::Module
-        } else {
-            EvalType::Global
-        },
-        EvalFlags::empty(),
-    ) {
-        Ok(val) => {
-            colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            let mut err_msg = e.message;
-            if let Some(tb) = e.traceback {
-                err_msg = format!("{err_msg}\n{tb}");
+    ctx.with_new_scope(|scope| {
+        match scope.run_wait(
+            script.as_bytes(),
+            &filename,
+            if is_module {
+                EvalType::Module
+            } else {
+                EvalType::Global
+            },
+            EvalFlags::empty(),
+        ) {
+            Ok(val) => {
+                colorize_println(val.inspect(scope).unwrap(), GreenFg);
+                ExitCode::SUCCESS
             }
-            colorize_println(err_msg, RedFg);
-            ExitCode::FAILURE
+            Err(e) => {
+                let mut err_msg = e.message;
+                if let Some(tb) = e.traceback {
+                    err_msg = format!("{err_msg}\n{tb}");
+                }
+                colorize_println(err_msg, RedFg);
+                ExitCode::FAILURE
+            }
         }
-    }
+    })
 }
 
 fn js_module_loader(

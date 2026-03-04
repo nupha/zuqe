@@ -4,7 +4,8 @@
 use std::cell::Cell;
 
 use zuqe::{
-    CallContext, ContextImpl, EvalFlags, FieldDef, JS_SetUncatchableError, JSResult, JSValue,
+    CallContext, Context, ContextImpl, EvalFlags, FieldDef, JS_SetUncatchableError, JSResult,
+    JSValue,
 };
 
 use crate::{
@@ -122,30 +123,32 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
         flags |= EvalFlags::COMPILE_TO_ASYNC;
     }
 
-    let ret = cc.ctx_mut().new_scope().eval_global(
-        str.content().encode_utf8_bytes(true).as_ref(),
-        "<evalScript>",
-        flags,
-    );
+    let ret = ctx.with_new_scope(|scope| {
+        scope.eval_global(
+            str.content().encode_utf8_bytes(true).as_ref(),
+            "<evalScript>",
+            flags,
+        )
+    });
+
     let lev = EVAL_SCRIPT_RECURSE.with(|s| {
         let n = s.get();
         s.set(n - 1);
         n - 1
     });
-
     if lev == 0 {
         /* remove the interrupt handler */
-        cc.ctx_mut().rt_mut().unset_interrupt_handler();
+        ctx.rt_mut().unset_interrupt_handler();
 
         OS_PENDING_SIGNALS.with(|s| {
             let n = s.get() & !(1_u64 << libc::SIGINT);
             s.set(n);
         });
 
-        /* convert the uncatchable "interrupted" error into a normal error
-        so that it can be caught by the REPL */
         if ret.is_err() {
-            JS_SetUncatchableError(cc.ctx().rt_ref().exception(), false);
+            // convert the uncatchable "interrupted" error into a normal error
+            // so that it can be caught by the REPL
+            JS_SetUncatchableError(ctx.rt_ref().exception(), false);
         }
     }
 
@@ -196,7 +199,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
     ),
 ];
 
-pub fn init_mod_std(ctx: &mut ContextImpl) -> Result<(), i32> {
+pub fn init_mod_std(mut ctx: Context) -> Result<(), i32> {
     ctx.register_module("std", MOD_STD_ENTRIES)?;
     Ok(())
 }

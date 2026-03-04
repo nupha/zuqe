@@ -110,9 +110,7 @@ fn js_evalScript(cc: CallContext) -> JSResult {
     let mut ctx = cc.context();
 
     let source = cc.arg(0).inspect(&mut ctx)?;
-    cc.context()
-        .new_scope()
-        .eval_global(source.as_bytes(), "<eval>", EvalFlags::empty())
+    ctx.with_new_scope(|scope| scope.eval_global(source.as_bytes(), "<eval>", EvalFlags::empty()))
 }
 
 fn js_string_codePointRange(cc: CallContext) -> JSResult {
@@ -142,20 +140,20 @@ fn js_string_codePointRange(cc: CallContext) -> JSResult {
 }
 
 fn js_createRealm(cc: CallContext) -> JSResult {
-    let mut ctx2 = cc
+    let ctx2 = cc
         .context()
         .rt_mut()
         .create_context(Context::ECMA_CONTEXT_SETUP)?;
 
-    setup_ctx_test262_helpers(&mut ctx2)
+    setup_ctx_test262_helpers(ctx2)
 }
 
-fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
+fn setup_ctx_test262_helpers(mut ctx: Context) -> Result<JSValue, i32> {
     let mut global = JSValue::Object(ctx.global_obj());
 
     {
         let s = ctx.create_native_function(Callback::Func(js_print), "print", 1, 0)?;
-        global.set_property_str(ctx, "print", s.into())?;
+        global.set_property_str(&mut ctx, "print", s.into())?;
     }
 
     // $262
@@ -168,12 +166,12 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
             1,
             0,
         )?;
-        obj262.set_property_str(ctx, "detachArrayBuffer", f.into())?;
+        obj262.set_property_str(&mut ctx, "detachArrayBuffer", f.into())?;
     }
 
     {
         let f = ctx.create_native_function(Callback::Func(js_evalScript), "evalScript", 1, 0)?;
-        obj262.set_property_str(ctx, "evalScript", f.into())?;
+        obj262.set_property_str(&mut ctx, "evalScript", f.into())?;
     }
 
     {
@@ -185,12 +183,12 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
                 0,
             )?
             .into();
-        obj262.set_property_str(ctx, "codePointRange", f)?;
+        obj262.set_property_str(&mut ctx, "codePointRange", f)?;
     }
 
     {
         let f = ctx.create_native_function(Callback::Func(js_createRealm), "createRealm", 1, 0)?;
-        obj262.set_property_str(ctx, "createRealm", f.into())?;
+        obj262.set_property_str(&mut ctx, "createRealm", f.into())?;
     }
 
     let gc_func = ctx.create_native_function(
@@ -202,10 +200,10 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         0,
         0,
     )?;
-    obj262.set_property_str(ctx, "gc", gc_func.into())?;
+    obj262.set_property_str(&mut ctx, "gc", gc_func.into())?;
 
-    obj262.set_property_str(ctx, "global", global)?;
-    global.set_property_str(ctx, "$262", obj262.into())?;
+    obj262.set_property_str(&mut ctx, "global", global)?;
+    global.set_property_str(&mut ctx, "$262", obj262.into())?;
 
     Ok(obj262.into())
 }
@@ -332,7 +330,7 @@ fn run_harness(scope: &mut ContextScope, harness_files: &[PathBuf]) -> Result<()
 }
 
 fn run_test_script(
-    ctx: &mut ContextScope,
+    scope: &mut ContextScope,
     script: &str,
     filename: &Path,
     is_module: bool,
@@ -343,7 +341,7 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    ctx.new_scope().run_wait(
+    scope.run_wait(
         script.as_bytes(),
         filename.as_os_str().to_str().unwrap(),
         if is_module {
@@ -452,23 +450,37 @@ fn run_test_file(
         })
         .unwrap();
 
-    let mut ctx_scope = ctx.new_scope();
     let mut has_err = false;
 
     if !harness_files.is_empty() {
         // eval included harness files
-        if let Err(exc) = run_harness(&mut ctx_scope, &harness_files) {
-            // write to outf
-            writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(&exc, false, false, false, outf);
+        ctx.with_new_scope(|scope| {
+            if let Err(exc) = run_harness(scope, &harness_files) {
+                // write to outf
+                writeln!(outf, "FAIL: can't eval harness").unwrap();
+                dump_error(&exc, false, false, false, outf);
 
-            // write to err
-            writeln!(errf, "{}", filename.display()).unwrap();
-            writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(&exc, false, false, false, errf);
+                // write to err
+                writeln!(errf, "{}", filename.display()).unwrap();
+                writeln!(outf, "FAIL: can't eval harness").unwrap();
+                dump_error(&exc, false, false, false, errf);
 
-            has_err = true;
-        }
+                has_err = true;
+            }
+        })
+
+        // if let Err(exc) = run_harness(&mut ctx_scope, &harness_files) {
+        //     // write to outf
+        //     writeln!(outf, "FAIL: can't eval harness").unwrap();
+        //     dump_error(&exc, false, false, false, outf);
+
+        //     // write to err
+        //     writeln!(errf, "{}", filename.display()).unwrap();
+        //     writeln!(outf, "FAIL: can't eval harness").unwrap();
+        //     dump_error(&exc, false, false, false, errf);
+
+        //     has_err = true;
+        // }
     }
 
     if !has_err {
@@ -502,14 +514,18 @@ fn run_test_file(
         .into_iter()
         .flatten()
         {
-            if let Err(exc) = run_test_script(
-                &mut ctx_scope,
-                content.as_str(),
-                filename,
-                is_module,
-                is_async,
-                strict,
-            ) {
+            let res = ctx.with_new_scope(|scope| {
+                run_test_script(
+                    scope,
+                    content.as_str(),
+                    filename,
+                    is_module,
+                    is_async,
+                    strict,
+                )
+            });
+
+            if let Err(exc) = res {
                 // eprintln!("TEST262 EXCEPTION: {:?}", exc.message);
 
                 if let Some(neg) = &negative {

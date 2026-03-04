@@ -11,17 +11,24 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_global_eval(mut cc: CallContext) -> JSResult {
-    let global = cc.ctx().global_obj();
+pub(crate) fn js_global_eval(cc: CallContext) -> JSResult {
+    let mut ctx = cc.ctx_ptr();
+
+    let global = ctx.global_obj();
     let val = *cc.arg(0);
 
-    val.eval_object(
-        &mut cc.ctx_mut().new_scope(),
-        global.into(),
-        EvalType::Indirect,
-        EvalFlags::empty(),
-        -1,
-    )
+    ctx.with_new_scope(|scope| -> JSResult {
+        let r = val.eval_object(
+            scope,
+            global.into(),
+            EvalType::Indirect,
+            EvalFlags::empty(),
+            -1,
+        )?;
+
+        scope.promote_value(r);
+        Ok(r)
+    })
 }
 
 pub const MAGIC_NUM_IS_NAN: i32 = 1;

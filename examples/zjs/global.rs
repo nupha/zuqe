@@ -4,7 +4,7 @@
 use std::ops::Deref;
 
 use colorized::{Colors, colorize_print, colorize_println};
-use zuqe::{CallContext, Callback, ContextImpl, JS_PROP_C_W_E, JSResult, JSValue};
+use zuqe::{CallContext, Callback, Context, ContextImpl, JS_PROP_C_W_E, JSResult, JSValue};
 
 fn js_print(cc: CallContext) -> JSResult {
     let mut ctx = cc.context();
@@ -42,7 +42,7 @@ fn js_print(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn setup_globals(ctx: &mut ContextImpl, script_args: &[String]) -> Result<(), i32> {
+pub fn setup_globals(mut ctx: Context, script_args: &[String]) -> Result<(), i32> {
     let mut global = ctx.global_obj();
 
     {
@@ -51,22 +51,22 @@ pub fn setup_globals(ctx: &mut ContextImpl, script_args: &[String]) -> Result<()
             .unwrap();
 
         let mut console = ctx.create_base_object().unwrap();
-        console.define_property_value_str(ctx, "log", printfn.into(), JS_PROP_C_W_E)?;
+        console.define_property_value_str(&mut ctx, "log", printfn.into(), JS_PROP_C_W_E)?;
 
         let debug_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 1)?;
-        console.define_property_value_str(ctx, "debug", debug_func.into(), JS_PROP_C_W_E)?;
+        console.define_property_value_str(&mut ctx, "debug", debug_func.into(), JS_PROP_C_W_E)?;
 
         let info_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 2)?;
-        console.define_property_value_str(ctx, "info", info_func.into(), JS_PROP_C_W_E)?;
+        console.define_property_value_str(&mut ctx, "info", info_func.into(), JS_PROP_C_W_E)?;
 
         let warn_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 3)?;
-        console.define_property_value_str(ctx, "warn", warn_func.into(), JS_PROP_C_W_E)?;
+        console.define_property_value_str(&mut ctx, "warn", warn_func.into(), JS_PROP_C_W_E)?;
 
         let error_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 4)?;
-        console.define_property_value_str(ctx, "error", error_func.into(), JS_PROP_C_W_E)?;
-        global.define_property_value_str(ctx, "console", console.into(), JS_PROP_C_W_E)?;
+        console.define_property_value_str(&mut ctx, "error", error_func.into(), JS_PROP_C_W_E)?;
+        global.define_property_value_str(&mut ctx, "console", console.into(), JS_PROP_C_W_E)?;
 
-        global.set_property_str(ctx, "print", printfn.into())?;
+        global.set_property_str(&mut ctx, "print", printfn.into())?;
     }
 
     {
@@ -85,7 +85,7 @@ pub fn setup_globals(ctx: &mut ContextImpl, script_args: &[String]) -> Result<()
             args.push(s.into());
         }
         let arr = ctx.create_array_with_values(args)?;
-        global.set_property_str(ctx, "scriptArgs", arr.into())?;
+        global.set_property_str(&mut ctx, "scriptArgs", arr.into())?;
     }
 
     // for debug

@@ -130,13 +130,13 @@ impl ObjectImpl {
                 {
                     if let Some(cb) = pm.get_property {
                         // protect self, cur_obj, this_obj before calling handler
-                        {
-                            let heap = ctx.gc_heap_mut();
-                            heap.protect_nodes_v2(&[self.gc_head_ptr(), cur_obj.gc_head_ptr()]);
-                            if let Some(n) = this_obj.gc_node_ptr() {
-                                heap.protect_node_v2(n);
-                            }
-                        }
+                        // {
+                        //     let heap = ctx.gc_heap_mut();
+                        //     heap.protect_nodes_v2(&[self.gc_head_ptr(), cur_obj.gc_head_ptr()]);
+                        //     if let Some(n) = this_obj.gc_node_ptr() {
+                        //         heap.protect_node_v2(n);
+                        //     }
+                        // }
 
                         // XXX: should pass throw_ref_error
                         return cb(ctx.gc_ref().into(), cur_obj.into(), prop, this_obj);
@@ -147,13 +147,13 @@ impl ObjectImpl {
                     {
                         return if unlikely(desc.flags & JS_PROP_GETSET != 0) {
                             // protect self, cur_obj, this_obj before calling getter
-                            {
-                                let heap = ctx.gc_heap_mut();
-                                heap.protect_nodes_v2(&[self.gc_head_ptr(), cur_obj.gc_head_ptr()]);
-                                if let Some(n) = this_obj.gc_node_ptr() {
-                                    heap.protect_node_v2(n);
-                                }
-                            }
+                            // {
+                            //     let heap = ctx.gc_heap_mut();
+                            //     heap.protect_nodes_v2(&[self.gc_head_ptr(), cur_obj.gc_head_ptr()]);
+                            //     if let Some(n) = this_obj.gc_node_ptr() {
+                            //         heap.protect_node_v2(n);
+                            //     }
+                            // }
 
                             desc.getter.call(ctx, this_obj, &[])
                         } else {

@@ -351,7 +351,7 @@ impl RuntimeImpl {
 
         debug_assert!(self.cur_stack_frame.is_null());
         debug_assert_eq!(
-            self.gc_heap().scope_level(),
+            self.gc_heap().scope_max_depth(),
             0,
             "all gc scope must be cleared"
         );

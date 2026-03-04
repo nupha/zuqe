@@ -82,8 +82,7 @@ pub struct ContextImpl {
     /// List of loaded modules
     pub(crate) loaded_modules: Vec<ModuleDef>,
 
-    /// eval handler
-    pub(crate) eval_handler: Option<EvalFn>,
+    pub(crate) allow_eval: bool,
 
     /// context level queued jobs
     pub(crate) job_list: VecDeque<Job>,
@@ -173,7 +172,8 @@ impl ContextImpl {
             random_state: 0,
             interrupt_counter: Cell::new(0),
             loaded_modules: Vec::new(),
-            eval_handler: None,
+
+            allow_eval: true,
 
             job_list: VecDeque::new(),
             tick_handlers: Vec::new(),
@@ -428,20 +428,20 @@ impl<'a> From<GcRef<ContextImpl>> for Context<'a> {
 }
 
 impl<'a> Context<'a> {
-    pub const ECMA_CONTEXT_SETUP: fn(&mut ContextScope) -> Result<(), i32> =
-        |ctx: &mut ContextScope| -> Result<(), i32> {
+    pub const ECMA_CONTEXT_SETUP: fn(Context) -> Result<(), i32> =
+        |mut ctx: Context| -> Result<(), i32> {
             // define name `globalThis` and `global`
             let mut gobj = ctx.global_obj();
             let val = JSValue::from(gobj);
 
             gobj.define_property_value(
-                ctx,
+                &mut ctx,
                 Atom::CONST_globalThis,
                 val,
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )?;
             gobj.define_property_value(
-                ctx,
+                &mut ctx,
                 Atom::CONST_global,
                 val,
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
@@ -510,21 +510,21 @@ impl<'a> Context<'a> {
 
             // setup global
             {
-                gobj.install_fields(ctx, js_global_props)?;
+                gobj.install_fields(&mut ctx, js_global_props)?;
 
                 // Reflect: lazy init
                 #[cfg(feature = "builtin_reflect")]
-                gobj.install_fields(ctx, crate::builtins::reflect::js_reflect_obj)?;
+                gobj.install_fields(&mut ctx, crate::builtins::reflect::js_reflect_obj)?;
 
                 // JSON: lazy init
                 #[cfg(feature = "builtin_json")]
-                gobj.install_fields(ctx, crate::builtins::json::js_json_obj)?;
+                gobj.install_fields(&mut ctx, crate::builtins::json::js_json_obj)?;
 
                 // Math: lazy init
                 #[cfg(feature = "builtin_math")]
                 {
                     ctx.init_random_seed();
-                    gobj.install_fields(ctx, crate::builtins::math::js_math_obj)?;
+                    gobj.install_fields(&mut ctx, crate::builtins::math::js_math_obj)?;
                 }
             }
 
@@ -578,7 +578,7 @@ impl RuntimeImpl {
     /// Create context with setup.
     pub fn create_context<'a>(
         &mut self,
-        setup: impl FnOnce(&mut ContextScope) -> Result<(), i32>,
+        setup: impl FnOnce(Context) -> Result<(), i32>,
     ) -> Result<Context<'a>, i32> {
         let inner = ContextImpl::new(self)?;
 
@@ -591,19 +591,15 @@ impl RuntimeImpl {
                 // setup context.
                 // Note: in case of exception, ContextImpl node will be purged in mark-sweep.
                 {
-                    let mut ctx = ContextPtr(gc_ref);
+                    let mut ctx = Context::from(gc_ref);
                     // make global namespace
                     ctx.global_obj = ctx.create_base_object()?.into();
                     // make global var object
                     ctx.global_var_obj = ctx.create_base_object_with_proto(None)?.into();
 
                     // don't change order
-                    let mut scope = ctx.new_scope();
-                    scope.init_core_objects()?;
-                    setup(&mut scope)?;
-
-                    // ctx.init_core_objects()?;
-                    // context_setup(&mut ctx)?;
+                    ctx.init_core_objects()?;
+                    setup(ctx)?;
                 }
 
                 Ok(Context {

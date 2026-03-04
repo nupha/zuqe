@@ -240,7 +240,7 @@ impl JSFile {
     pub fn register(mut rt: Runtime) -> Result<ClassID, i32> {
         let class_id = rt
             .clone()
-            .gc_scope({
+            .with_gc_scope({
                 |_: &GcContext| {
                     rt.register_class(
                         &ClassDef::new("File")

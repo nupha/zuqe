@@ -16,8 +16,16 @@ use crate::{
 
 fn js_json_stringify(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let mut scope = ctx.new_scope();
-    scope.json_stringify(*cc.arg(0), *cc.arg(1), *cc.arg(2))
+
+    let obj = *cc.arg(0);
+    let replacer = *cc.arg(1);
+    let space = *cc.arg(2);
+
+    ctx.with_new_scope(|scope| -> JSResult {
+        let r = scope.json_stringify(obj, replacer, space)?;
+        scope.promote_value(r);
+        Ok(r)
+    })
 }
 
 fn internalize_json_property(

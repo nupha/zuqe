@@ -401,45 +401,55 @@ impl ContextImpl {
             .unwrap();
     }
 
+    #[deprecated]
     pub(super) fn intrinsic_eval(&mut self) {
-        fn eval_fn(
-            mut ctx: ContextPtr,
-            this_obj: JSValue,
-            source: &[u8],
-            filename: &str,
-            eval_type: EvalType,
-            eval_flags: EvalFlags,
-            var_scope_idx: i32,
-        ) -> JSResult {
-            let ret_val = {
-                let mut scope = ctx.new_scope();
-                ContextImpl::eval_handler(
-                    &mut scope,
-                    this_obj,
-                    source,
-                    filename,
-                    eval_type,
-                    eval_flags,
-                    var_scope_idx,
-                )
-            };
+        // fn eval_fn(
+        //     mut ctx: ContextPtr,
+        //     this_obj: JSValue,
+        //     source: &[u8],
+        //     filename: &str,
+        //     eval_type: EvalType,
+        //     eval_flags: EvalFlags,
+        //     var_scope_idx: i32,
+        // ) -> JSResult {
+        //     let ret_val = {
+        //         ctx.with_new_scope(|scope| {
+        //             let ret = ContextImpl::eval_handler(
+        //                 scope,
+        //                 this_obj,
+        //                 source,
+        //                 filename,
+        //                 eval_type,
+        //                 eval_flags,
+        //                 var_scope_idx,
+        //             );
 
-            // ensure ret_val is protected
-            if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr())
-                && {
-                    let n = unsafe { n.as_ref() };
-                    !n.is_local() && !n.is_root()
-                }
-            {
-                ctx.gc_heap_mut().with_current_scope(|s| {
-                    s.add_non_local(n);
-                });
-            }
+        //             // ::promote_value() has been done inside::eval_global()
+        //             // if let Ok(v) = ret {
+        //             //     scope.promote_value(v);
+        //             //     Ok(v)
+        //             // } else {
+        //             //     ret
+        //             // }
 
-            ret_val
-        }
+        //             ret
+        //         })
+        //     };
 
-        self.eval_handler.replace(eval_fn);
+        //     // ensure ret_val is protected
+        //     if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr())
+        //         && {
+        //             let n = unsafe { n.as_ref() };
+        //             !n.is_local() && !n.is_root()
+        //         }
+        //     {
+        //         ctx.gc_heap_mut().with_current_scope(|s| {
+        //             s.add_non_local(n);
+        //         });
+        //     }
+
+        //     ret_val
+        // }
 
         let eval_func: JSValue = self
             .create_native_function(Callback::Func(js_global_eval), "eval", 1, 0)

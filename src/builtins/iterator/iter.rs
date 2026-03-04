@@ -216,7 +216,7 @@ impl<'a> ObjectIter<'a> {
 
         // protect target, next_method to avoid being collected while iterating
         {
-            debug_assert!(ctx.gc_heap().scope_level() > 0);
+            debug_assert!(ctx.gc_heap().scope_max_depth() > 0);
 
             let mut cnt = 0;
             let mut protects: [*mut GcHead; 2] = [std::ptr::null_mut(), std::ptr::null_mut()];
@@ -325,7 +325,7 @@ impl<'a> ObjectIter<'a> {
 
         // prevent pending_exc from being collected
         {
-            debug_assert!(ctx.gc_heap().scope_level() > 0);
+            debug_assert!(ctx.gc_heap().scope_max_depth() > 0);
 
             if let Some(n) = pending_exc.gc_node_ptr()
                 && unsafe {

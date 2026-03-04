@@ -88,12 +88,12 @@ impl ContextImpl {
 
         #[cfg(debug_assertions)]
         let _check_scope_level = {
-            let l = self.gc_heap().scope_level();
+            let l = self.gc_heap().scope_max_depth();
             debug_assert!(l > 0, "expect gc scope for compile_source");
 
             let rt = self.rt_ptr();
             crate::defer_fn!({
-                debug_assert_eq!(rt.gc_heap().scope_level(), l);
+                debug_assert_eq!(rt.gc_heap().scope_max_depth(), l);
             })
         };
 
@@ -226,7 +226,7 @@ impl ContextImpl {
     }
 
     /// compile source, then eval it.
-    pub(crate) fn eval_handler(
+    fn eval_handler(
         ctx: &mut ContextImpl,
         this_obj: JSValue,
         source: &[u8],
@@ -235,7 +235,7 @@ impl ContextImpl {
         eval_flags: EvalFlags,
         var_scope_idx: i32,
     ) -> JSResult {
-        debug_assert!(ctx.gc_heap().scope_level() > 0);
+        debug_assert!(ctx.gc_heap().scope_max_depth() > 0);
 
         // #[cfg(debug_assertions)]
         // if eval_flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
@@ -270,16 +270,15 @@ impl ContextImpl {
                 }
             };
 
-        #[cfg(debug_assertions)]
-        if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
-            let n = unsafe { n.as_ref() };
-            debug_assert!(n.is_local() || n.is_root(), "{n:?}");
-        }
+        // #[cfg(debug_assertions)]
+        // if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
+        //     let n = unsafe { n.as_ref() };
+        //     debug_assert!(n.is_local() || n.is_root(), "{n:?}");
+        // }
 
         ret_val
     }
 
-    /// TODO: use ::eval_handler() directly
     pub(super) fn eval_internal(
         &mut self,
         this_obj: JSValue,
@@ -289,10 +288,11 @@ impl ContextImpl {
         eval_flags: EvalFlags,
         var_scope_idx: i32,
     ) -> JSResult {
-        // check eval handler defined in context
-        if let Some(f) = self.eval_handler {
-            f(
-                self.into(),
+        debug_assert!(self.gc_heap().scope_max_depth() > 0);
+
+        if self.allow_eval {
+            Self::eval_handler(
+                self,
                 this_obj,
                 source,
                 filename,
@@ -323,7 +323,7 @@ impl ContextImpl {
 
 impl<'a> ContextScope<'a> {
     /// Eval `source` as global type, with global object as `this` binding.
-    /// Execute in `self` scope, returned value is valid at least in `self` scope.
+    /// Execute in `self` scope, returned value will be promoted to upper scope.
     pub fn eval_global(
         &mut self,
         source: &[u8],
@@ -331,14 +331,18 @@ impl<'a> ContextScope<'a> {
         eval_flags: EvalFlags,
     ) -> JSResult {
         let global = self.global_obj();
-        self.eval_internal(
+
+        let ret_val = self.eval_internal(
             global.into(),
             source,
             filename,
             EvalType::Global,
             eval_flags,
             -1,
-        )
+        )?;
+
+        self.promote_value(ret_val);
+        Ok(ret_val)
     }
 
     /// Eval script `source`, wait till execution terminates, returns the result value.
