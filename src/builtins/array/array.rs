@@ -372,57 +372,6 @@ impl Array {
             return Ok(()); // early exit for fast array
         }
 
-        // LEGACY
-        // if let Some(fa) = obj.with_fast_array_values_mut(|lst| -> Result<(), i32> {
-        //     debug_assert!(lst.len() <= arr_len as usize);
-
-        //     if let Some(cmp) = cmp {
-        //         let mut slots = Vec::<JSValue>::new();
-        //         slots.try_reserve_exact(lst.len()).map_err(|_| {
-        //             ctx.throw_out_of_memory();
-        //             -1
-        //         })?;
-        //         slots.extend(lst.iter().filter(|x| !x.is_undefined()).cloned());
-
-        //         sort_values_by(ctx, &mut slots, cmp)?;
-
-        //         let slots_len = slots.len();
-        //         for (i, v) in slots.into_iter().enumerate() {
-        //             lst[i] = v;
-        //         }
-
-        //         lst.iter_mut()
-        //             .skip(slots_len)
-        //             .for_each(|x| *x = JSValue::UNDEFINED);
-        //     } else {
-        //         let mut slots = Vec::<(JSValue, StringData)>::new();
-        //         slots.try_reserve_exact(lst.len()).map_err(|_| {
-        //             ctx.throw_out_of_memory();
-        //             -1
-        //         })?;
-
-        //         for v in lst.iter().filter(|v| !v.is_undefined()) {
-        //             let s = v.to_string(ctx)?;
-        //             slots.push((*v, s.content().clone()));
-        //         }
-
-        //         sort_values_default(&mut slots);
-
-        //         let slots_len = slots.len();
-        //         for (i, (v, _)) in slots.into_iter().enumerate() {
-        //             lst[i] = v;
-        //         }
-
-        //         lst.iter_mut()
-        //             .skip(slots_len)
-        //             .for_each(|x| *x = JSValue::UNDEFINED);
-        //     }
-
-        //     Ok(())
-        // }) {
-        //     return fa; // early exit for fast array
-        // }
-
         //
         // slow path: `obj` is sparse array.
         //

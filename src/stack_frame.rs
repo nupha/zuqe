@@ -42,6 +42,7 @@ pub struct StackFrame {
 
     /// store Runtime pointer, initialized to func_obj.rt() at first.
     /// used to keep access to Runtime in case has been func_obj disposed.
+    #[deprecated(note = "no use")]
     pub(crate) rt: RuntimePtr,
 
     /// Associated function of this stack frame, could be:
@@ -162,22 +163,10 @@ impl StackFrame {
         }
     }
 
-    /// get runtime pointer
-    #[inline(always)]
-    pub(crate) const fn rt(&self) -> RuntimePtr {
-        self.rt
-    }
-
     /// get parent stack frame
     #[inline(always)]
     pub const fn parent(&self) -> Option<&StackFrame> {
         unsafe { self.prev.cast::<StackFrame>().as_ref() }
-    }
-
-    /// get parent stack frame
-    #[inline(always)]
-    pub const fn parent_mut(&mut self) -> Option<&mut StackFrame> {
-        unsafe { self.prev.cast::<StackFrame>().as_mut() }
     }
 
     /// Returns the base pointer of the stack in this frame.

@@ -4,7 +4,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcContext, GcError, GcHead, GcLocal, GcNode, GcRef};
+use gc_lite::{GcContext, GcError, GcHead, GcNode, GcRef};
 
 use crate::{Context, JSValue, context::ContextPtr};
 
@@ -94,13 +94,6 @@ impl<'a> ContextScope<'a> {
     pub fn alloc_root<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
         self.gc_heap_mut()
             .with_current_scope(|gc| gc.alloc_root(payload))
-            .unwrap()
-    }
-
-    #[deprecated]
-    pub fn alloc_local<T: GcNode>(&mut self, payload: T) -> Result<GcLocal<T>, (GcError, T)> {
-        self.gc_heap_mut()
-            .with_current_scope(|gc| gc.alloc_local(payload))
             .unwrap()
     }
 

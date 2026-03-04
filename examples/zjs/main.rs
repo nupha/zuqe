@@ -188,18 +188,17 @@ fn main() -> ExitCode {
 
     // create context
     let mut ctx = rt
-        .create_context(|mut ctx| {
-            Context::ECMA_CONTEXT_SETUP(ctx)?;
+        .create_context(|mut cx| {
+            Context::ECMA_CONTEXT_SETUP(cx)?;
 
             // use File class
-            ctx.use_class(class_id_file).unwrap();
+            cx.use_class(class_id_file).unwrap();
 
             // register native modules
-            init_mod_std(ctx).unwrap();
-            init_mod_os(ctx).unwrap();
+            init_mod_std(cx).unwrap();
+            init_mod_os(cx).unwrap();
 
-            setup_globals(ctx, &args.script_args).unwrap();
-            Ok(())
+            setup_globals(cx, &args.script_args)
         })
         .unwrap();
 

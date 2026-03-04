@@ -107,7 +107,7 @@ impl JSValue {
 }
 
 impl AsyncState {
-    pub(crate) fn class_call(
+    pub fn class_call(
         ctx: Context,
         func_obj: JSValue,
         _this: JSValue,
@@ -168,7 +168,7 @@ impl AsyncState {
 
             // Handle await expression
             let mut promise = if let Ok(v) = js_promise_resolve(CallContext::new_simple(
-                ctx.gc_ref().into(),
+                ctx,
                 ctx.promise_ctor,
                 std::slice::from_ref(&value),
             )) {

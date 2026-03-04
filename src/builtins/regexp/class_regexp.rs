@@ -124,11 +124,7 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-fn js_get_regexp<'a>(
-    mut ctx: ContextPtr,
-    obj: &'a JSValue,
-    throw_error: bool,
-) -> Option<&'a RegExpData> {
+fn js_get_regexp(mut ctx: ContextPtr, obj: &JSValue, throw_error: bool) -> Option<&RegExpData> {
     if let Some(ObjectPayload::REGEXP(re)) = obj.retrive_object_payload0(JS_CLASS_REGEXP) {
         Some(re)
     } else {

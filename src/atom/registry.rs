@@ -421,7 +421,7 @@ impl RuntimeImpl {
             self.atom_registry
                 .user_atoms
                 .get(atom_id as usize - ATOM_USER_BASE_ID as usize)
-                .and_then(|d| d.clone())
+                .and_then(|d| *d)
         }
     }
 }

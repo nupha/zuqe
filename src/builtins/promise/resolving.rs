@@ -91,17 +91,17 @@ impl PromiseResolveFunc {
                     move || js_promise_resolve_thenable_job(&mut cx, promise, arg0, then),
                     {
                         // Note: tick is performed in top-level scope, promote related gc nodes to top-level scope.
-                        let top = cx.rt_ref().gc_part_hot;
+                        let pid = cx.rt_ref().gc_part_hot;
                         let heap = cx.rt_mut().gc_heap_mut();
 
                         for ch in prf.gc_children(heap) {
-                            heap.set_xref(top, ch);
+                            heap.set_xref(pid, ch);
                         }
                         if let Some(n) = arg0.gc_node_ptr() {
-                            heap.set_xref(top, n);
+                            heap.set_xref(pid, n);
                         }
                         if let Some(n) = then.gc_node_ptr() {
-                            heap.set_xref(top, n);
+                            heap.set_xref(pid, n);
                         }
 
                         move |tr| {

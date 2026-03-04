@@ -4,7 +4,7 @@
 use gc_lite::GcNode;
 
 use crate::{
-    Callback, ContextScope, JS_CLASS_BYTECODE_FUNCTION,
+    Callback, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
     context::{ContextImpl, ContextPtr},
     error::JSResult,
@@ -328,7 +328,7 @@ impl ModuleDef {
     }
 
     /// async module execution callback
-    fn execute_async_fulfilled(mut cc: CallContext) -> JSResult {
+    fn execute_async_fulfilled(cc: CallContext) -> JSResult {
         let mut ctx = cc.ctx_ptr();
 
         let JSValue::Module(mut md) = cc.data(0) else {
