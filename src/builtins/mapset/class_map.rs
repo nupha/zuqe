@@ -367,7 +367,8 @@ fn js_map_groupBy(cc: CallContext) -> JSResult {
 
     let mut groups = Vec::<(JSValue, Vec<JSValue>)>::with_capacity(16);
 
-    for (idx, val) in cc.arg(0).iter(ctx)?.enumerate() {
+    let it = cc.arg(0).iter(ctx)?;
+    for (idx, val) in it.enumerate() {
         if idx as i64 >= MAX_SAFE_INTEGER {
             ctx.throw_type_error("too many elements");
             return Err(-1);

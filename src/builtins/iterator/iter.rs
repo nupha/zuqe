@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcNodeGuard, GcTrace, GcTraceCtx};
+use std::{marker::PhantomData, ptr::NonNull};
+
+use gc_lite::{GcHead, GcNodeGuard, GcTrace, GcTraceCtx};
 
 use crate::{
     atom::Atom,
@@ -161,10 +163,16 @@ pub struct ObjectIter<'a> {
     pub(crate) next_method: JSValue,
     pub(crate) ctx: ContextPtr,
     pub(crate) done: bool,
+    _mark: PhantomData<&'a ()>,
+}
 
-    /// protect gc node target, next_method from being gc collected
-    #[deprecated(note = "eliminate this")]
-    _ng: GcNodeGuard<'a>,
+impl Drop for ObjectIter<'_> {
+    fn drop(&mut self) {
+        if !self.done {
+            let has_exc = !self.ctx.rt_ref().exception().is_undefined_or_null();
+            let _ = self.close(has_exc);
+        }
+    }
 }
 
 impl<'a> Iterator for ObjectIter<'a> {
@@ -180,15 +188,6 @@ impl<'a> Iterator for ObjectIter<'a> {
             if done { None } else { Some(Ok(value)) }
         } else {
             Some(Err(-1))
-        }
-    }
-}
-
-impl Drop for ObjectIter<'_> {
-    fn drop(&mut self) {
-        if !self.done {
-            let has_exc = !self.ctx.rt_ptr().exception().is_undefined_or_null();
-            let _ = self.close(has_exc);
         }
     }
 }
@@ -209,29 +208,49 @@ impl<'a> From<ObjectIter<'a>> for JSValue {
 impl<'a> ObjectIter<'a> {
     /// `next` is the name of method used to fetch the __next__ value when iterating.
     pub(crate) fn new(mut ctx: ContextPtr, target: Object, next: Atom) -> Result<Self, i32> {
-        let mut _ng = unsafe {
-            let rt = ctx.rt_ptr();
-            std::mem::transmute::<GcNodeGuard<'_>, GcNodeGuard<'static>>(
-                rt.gc_heap().protect_nodes(&[target.gc_node_ptr()]),
-            )
-        };
-
         let next_method = if !next.is_null() {
             target.get_property(&mut ctx, next)?
         } else {
             JSValue::UNDEFINED
         };
 
-        if let Some(n) = next_method.gc_node_ptr() {
-            _ng.add(n);
+        // protect target, next_method to avoid being collected while iterating
+        {
+            debug_assert!(ctx.gc_heap().scope_level() > 0);
+
+            let mut cnt = 0;
+            let mut protects: [*mut GcHead; 2] = [std::ptr::null_mut(), std::ptr::null_mut()];
+
+            let n = target.gc_node_ptr();
+            let h = unsafe { n.as_ref() };
+            if !h.is_local() && !h.is_root() {
+                protects[cnt] = n.as_ptr();
+                cnt += 1;
+            }
+
+            if let Some(n) = next_method.gc_node_ptr() {
+                let h = unsafe { n.as_ref() };
+                if !h.is_local() && !h.is_root() {
+                    protects[cnt] = n.as_ptr();
+                    cnt += 1;
+                }
+            }
+
+            if cnt > 0 {
+                ctx.gc_heap_mut().with_current_scope(|s| {
+                    for n in protects.into_iter().take(cnt) {
+                        s.add_non_local(unsafe { NonNull::new_unchecked(n) });
+                    }
+                });
+            }
         }
 
         Ok(Self {
             target,
-            done: next_method.is_undefined(),
             next_method,
+            done: next_method.is_undefined(),
             ctx,
-            _ng,
+            _mark: PhantomData,
         })
     }
 
@@ -305,17 +324,20 @@ impl<'a> ObjectIter<'a> {
         };
 
         // prevent pending_exc from being collected
-        debug_assert!(ctx.gc_heap().scope_level() > 0);
-        if let Some(n) = pending_exc.gc_node_ptr()
-            && unsafe {
-                let n = n.as_ref();
-                !n.is_local() && !n.is_root()
-            }
         {
-            // add to current scope to protect it.
-            ctx.gc_heap_mut().with_current_scope(|s| {
-                s.add_non_local(n);
-            });
+            debug_assert!(ctx.gc_heap().scope_level() > 0);
+
+            if let Some(n) = pending_exc.gc_node_ptr()
+                && unsafe {
+                    let n = n.as_ref();
+                    !n.is_local() && !n.is_root()
+                }
+            {
+                // add to current scope to protect it.
+                ctx.gc_heap_mut().with_current_scope(|s| {
+                    s.add_non_local(n);
+                });
+            }
         }
 
         if let Ok(method) = obj.get_property(ctx, Atom::CONST_return) {
@@ -497,8 +519,7 @@ impl JSValue {
         })
     }
 
-    /// Return an object that implements `Iterator` trait to iterate JSValue.
-    /// The iterator uses `next()` method to retrive next value.
+    /// Return ObjectIter to iterate JSValue.
     pub(crate) fn iter(&self, mut ctx: ContextPtr) -> Result<ObjectIter<'_>, i32> {
         let target = self.get_iterator_must(&mut ctx, false)?;
         ObjectIter::new(ctx, target, Atom::CONST_next)

@@ -82,7 +82,7 @@ pub struct ContextImpl {
     /// List of loaded modules
     pub(crate) loaded_modules: Vec<ModuleDef>,
 
-    /// eval callback
+    /// eval handler
     pub(crate) eval_handler: Option<EvalFn>,
 
     /// context level queued jobs

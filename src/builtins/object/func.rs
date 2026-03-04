@@ -179,9 +179,10 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
         ctx.create_base_object_with_proto(None)?.into()
     };
 
-    let global = ctx.global_obj;
+    let global = JSValue::from(ctx.global_obj());
 
-    for (idx, val) in cc.arg(0).iter(ctx)?.enumerate() {
+    let it = cc.arg(0).iter(ctx)?;
+    for (idx, val) in it.enumerate() {
         if idx >= MAX_SAFE_INTEGER as usize {
             ctx.throw_type_error("too many elements");
             return Err(-1);
@@ -196,7 +197,7 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
             if is_map {
                 (
                     crate::builtins::mapset::js_map_get(CallContext::new_simple(
-                        cc.ctx_ptr(),
+                        ctx,
                         groups,
                         std::slice::from_ref(&key),
                     ))?,
@@ -416,6 +417,7 @@ pub(crate) fn js_object_isSealed(cc: CallContext) -> JSResult {
 
 pub(crate) fn js_object_fromEntries(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
+
     let mut obj = ctx.create_base_object()?;
     let mut enum_obj = cc.arg(0).iter(ctx)?;
 
