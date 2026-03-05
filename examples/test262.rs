@@ -242,7 +242,7 @@ pub fn js_module_loader(
             Ok(md)
         }
         Err(_) => {
-            ctx.throw_reference_error(&format!("could not load module filename '{module_name}'"));
+            ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
             Err(-1)
         }
     }

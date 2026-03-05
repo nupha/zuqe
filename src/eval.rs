@@ -263,7 +263,7 @@ impl ContextImpl {
             let mut md =
                 ModuleDef::compile(self, source, filename, flags.contains(EvalFlags::STRIP))?;
             md.set_import_meta(self, filename, true)?;
-            md.eval(self).map(JSValue::from)
+            md.evaluate(self).map(JSValue::from)
         } else {
             let global = self.global_obj();
             self.compile_then_run(global.into(), source, filename, EvalType::Global, flags, -1)

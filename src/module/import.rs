@@ -122,9 +122,7 @@ fn js_load_module_internal(
                 return;
             }
 
-            // eval module in new scope
-
-            match md.eval(&mut ctx) {
+            match md.evaluate(&mut ctx) {
                 Ok(mut promise) => {
                     let evaluate_resolving_funcs = [
                         NativeFunction::create(

@@ -85,15 +85,17 @@ impl ModuleDef {
         }
     }
 
-    /// Eval the module def in following steps:
+    /// Evaluate the module def to promised module name space object.
+    ///
+    /// Proceeding in following steps:
     ///
     /// * create module function,
     /// * link modules,
-    /// * eval module function, returns Promise.
-    pub fn eval(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
+    /// * run module function, returns Promise of name space object.
+    pub fn evaluate(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
         self.create_module_function(ctx)?; // make module function
         self.link(ctx)?; // resolving imports, exports
-        self.run_function(ctx) // evaluate module function
+        self.run_function(ctx) // run module function
     }
 
     /// Run the function of the module and of all its dependent modules.
