@@ -5,7 +5,7 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
-    ContextScope, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
+    ScopedContext, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
     JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR,
     JS_CLASS_GENERATOR_FUNCTION,
     atom::Atom,
@@ -439,7 +439,7 @@ impl BytecodeFunction {
     /// Run Bytecode Function in given scope.
     pub(super) fn call(
         &mut self,
-        scope: &mut ContextScope,
+        scope: &mut ScopedContext,
         this_obj: JSValue,
         new_target: JSValue,
         args: &[JSValue],

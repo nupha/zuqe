@@ -16,8 +16,8 @@ use std::{
 use clap::Parser;
 use serde::Deserialize;
 use zuqe::{
-    CallContext, Callback, Context, ContextScope, ErrorText, EvalFlags, EvalType, JS_PROP_C_W_E,
-    JSResult, JSValue, ModuleDef, Runtime,
+    CallContext, Callback, Context, ErrorText, EvalFlags, EvalType, JS_PROP_C_W_E, JSResult,
+    JSValue, ModuleDef, Runtime, ScopedContext,
 };
 
 /// counter of "Test262:AsyncTestComplete" messages
@@ -313,7 +313,7 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(scope: &mut ContextScope, harness_files: &[PathBuf]) -> Result<(), ErrorText> {
+fn run_harness(scope: &mut ScopedContext, harness_files: &[PathBuf]) -> Result<(), ErrorText> {
     for file in harness_files {
         let src = std::fs::read_to_string(file)
             .inspect_err(|_| {
@@ -338,7 +338,7 @@ fn run_harness(scope: &mut ContextScope, harness_files: &[PathBuf]) -> Result<()
 }
 
 fn run_test_script(
-    scope: &mut ContextScope,
+    scope: &mut ScopedContext,
     script: &str,
     filename: &Path,
     is_module: bool,

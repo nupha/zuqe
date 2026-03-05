@@ -6,7 +6,7 @@ use std::{ops::Deref, ptr::NonNull};
 use crate::{
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextImpl, ContextScope},
+    context::{ContextImpl, ScopedContext},
     error::{ErrorText, JSResult},
     function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
@@ -271,7 +271,7 @@ impl ContextImpl {
     }
 }
 
-impl<'a> ContextScope<'a> {
+impl<'a> ScopedContext<'a> {
     /// Eval source in current scope.
     ///
     /// Compile source then run. Return value will be promoted to upper scope if needed.
@@ -404,7 +404,7 @@ impl JSValue {
     /// - otherwise returns as-is.
     pub(crate) fn eval_object(
         &self,
-        ctx: &mut ContextScope,
+        ctx: &mut ScopedContext,
         this_obj: JSValue,
         eval_type: EvalType,
         eval_flags: EvalFlags,

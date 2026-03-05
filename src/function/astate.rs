@@ -6,7 +6,7 @@ use std::{pin::Pin, ptr::NonNull};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    ContextScope,
+    ScopedContext,
     context::ContextPtr,
     error::JSResult,
     function::BCWrapper,
@@ -191,7 +191,7 @@ impl AsyncStateImpl {
     /// Resume executing async function in given scope
     fn resume_call(
         &mut self,
-        scope: &mut ContextScope,
+        scope: &mut ScopedContext,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> JSResult {

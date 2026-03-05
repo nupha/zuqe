@@ -4,7 +4,7 @@
 use smallvec::SmallVec;
 
 use crate::{
-    ContextScope, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
+    ScopedContext, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
     atom::Atom,
     builtins::iterator::JSIteratorKindEnum,
     error::JSResult,
@@ -22,7 +22,7 @@ struct JSONStringifyContext {
     buf: StringBuf,
 }
 
-impl<'a> ContextScope<'a> {
+impl<'a> ScopedContext<'a> {
     pub fn json_stringify(
         &mut self,
         obj: JSValue,
@@ -127,7 +127,7 @@ impl<'a> ContextScope<'a> {
 }
 
 fn js_json_check(
-    ctx: &mut ContextScope,
+    ctx: &mut ScopedContext,
     jsc: &JSONStringifyContext,
     holder: JSValue,
     val: JSValue,
@@ -174,7 +174,7 @@ fn js_json_check(
 }
 
 fn js_json_to_str(
-    ctx: &mut ContextScope,
+    ctx: &mut ScopedContext,
     jsc: &mut JSONStringifyContext,
     val: JSValue,
     indent: &StringBuf,

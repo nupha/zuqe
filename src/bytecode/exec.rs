@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 use fallible_collections::TryCollect;
 
 use crate::{
-    ContextImpl, ContextScope,
+    ScopedContext,
     atom::{Atom, AtomKind},
     builtins::{
         generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
@@ -59,7 +59,7 @@ impl Bytecode {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn execute(
         &self,
-        scope: &mut ContextScope, // caller's scoped context
+        scope: &mut ScopedContext, // caller's scoped context
         func_home_obj: Option<Object>,
         stack_frame: &mut StackFrame, // The stack frame for execution
         this_obj: JSValue,            // The 'this' binding for the function execution

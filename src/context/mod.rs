@@ -9,7 +9,7 @@ mod scope;
 
 pub use {
     ctx::{Context, ContextImpl},
-    scope::ContextScope,
+    scope::ScopedContext,
 };
 
 pub(crate) use ctx::ContextPtr;
