@@ -70,6 +70,17 @@ impl Bytecode {
         args: &[JSValue], // actual calling arguments pass in by caller, not padded length
         throwed: bool,    // Indicates if an exception has been thrown
     ) -> JSValue {
+        // when entring this routine (at start or resume executing bytecodes),
+        // current scope should have no local nodes, they should have been flushed.
+        debug_assert_eq!(
+            scope.gc_heap().current_scope().unwrap().count(),
+            0,
+            "current scope should not have local gc nodes"
+        );
+
+        #[cfg(debug_assertions)]
+        let _exec_scope = scope.depth();
+
         let mut rt = scope.rt_ptr();
         let mut realm = self.realm().unwrap(); // bytecode's context
 
@@ -309,7 +320,7 @@ impl Bytecode {
                     let dr = debug_setting.map_or(0, |s| s.dump_run);
                     if unlikely(dr != 0) {
                         super::dump::dump_run_instruction(
-                            &mut realm,
+                            scope,
                             self,
                             unsafe { pc.offset_from(pc_base) as usize },
                             if dr == 2 { sp_base } else { std::ptr::null() },
@@ -430,6 +441,7 @@ impl Bytecode {
                             (SpecialObject::Arguments as u8..=SpecialObject::ImportMeta as u8)
                                 .contains(&id)
                         );
+
                         match unsafe { std::mem::transmute::<u8, SpecialObject>(id) } {
                             SpecialObject::Arguments => {
                                 SP_PUT!(0, js_build_arguments(&mut realm, args));
@@ -688,6 +700,7 @@ impl Bytecode {
 
                         // could have resursive call. tail_call optimization needed.
                         let func = unsafe { *call_argv.offset(-1) };
+
                         let ret_val = func.call_internal(
                             &mut realm,
                             JSValue::UNDEFINED,
@@ -2484,11 +2497,22 @@ impl Bytecode {
 
                 #[cfg(debug_assertions)]
                 {
+                    debug_assert!(
+                        scope.gc_scope().get_promote().is_none(),
+                        "promote gc node is not allowed in this function"
+                    );
+                    debug_assert_eq!(scope.depth(), _exec_scope);
+
+                    // flush nodes in current scope after each instruction
+                    scope.flush();
+
                     // perform garbage collect after each opcode execution to strictly ensure gc is correct.
                     rt.gc_collect();
                 }
                 #[cfg(not(debug_assertions))]
                 if rt.gc_req {
+                    // flush nodes in current scope
+                    scope.flush();
                     rt.gc_collect();
                 }
             }; // opcodes loop
@@ -2509,6 +2533,8 @@ impl Bytecode {
                         is_generator,
                     );
 
+                    // flush nodes in current scope before exit
+                    scope.flush();
                     return ret_val;
                 }
 
@@ -2523,6 +2549,8 @@ impl Bytecode {
                         sp = sp2;
                         continue 'restart;
                     } else {
+                        // flush nodes in current scope before exit
+                        scope.flush();
                         return JSValue::EXCEPTION;
                     }
                 }

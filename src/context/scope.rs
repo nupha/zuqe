@@ -103,15 +103,17 @@ impl<'a> ScopedContext<'a> {
     }
 
     /// get gc context
-    unsafe fn gc_scope(&self) -> &GcScope<'_> {
+    pub(crate) fn gc_scope(&self) -> &GcScope<'_> {
         debug_assert!(self.depth() <= self.ctx.gc_heap().scope_max_depth());
         self.ctx.gc_heap().scope(self.depth).unwrap()
     }
 
     pub fn set_promote_value(&mut self, val: JSValue) {
-        unsafe {
-            self.gc_scope().set_promote(val.gc_node_ptr());
-        }
+        self.gc_scope().set_promote(val.gc_node_ptr());
+    }
+
+    pub fn flush(&self) {
+        self.gc_scope().flush();
     }
 
     /// test if given node contains in `self` scope
@@ -124,7 +126,7 @@ impl<'a> ScopedContext<'a> {
 }
 
 impl ContextImpl {
-    fn new_scope(&mut self) -> ScopedContext<'_> {
+    pub(crate) fn new_scope(&mut self) -> ScopedContext<'_> {
         let pid = self.rt_ref().gc_part_id();
         let ctx = ContextPtr::from_ref(self);
         let s = self.gc_heap_mut().push_gc_scope(pid);

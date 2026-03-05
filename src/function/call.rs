@@ -186,23 +186,29 @@ impl ObjectImpl {
         {
             // When calling bytecode function, a StackFrame is created for execution,
             // gc nodes self, this_obj, new_target, args are protected by the StackFrame
-            ctx.with_new_scope(|scope| -> JSResult {
-                let ret =
-                    if is_ctor && !bfun.payload().bytecode().attrs.is_derived_class_constructor {
-                        // legacy constructor behavior
-                        let this: JSValue = scope
-                            .create_object_from_ctor(new_target, ObjectPayload::OBJECT)
-                            .map_err(|_| {
-                                scope.throw_type_error("constructor must return an object");
-                                -1
-                            })?
-                            .into();
+            let is_legacy_ctor =
+                is_ctor && !bfun.payload().bytecode().attrs.is_derived_class_constructor;
 
-                        bfun.call(scope, this, new_target, args, flags)
-                            .map(|v| if v.is_object() { v } else { this })
-                    } else {
-                        bfun.call(scope, this_obj, new_target, args, flags)
-                    }?;
+            let this: JSValue = if is_legacy_ctor {
+                // legacy constructor behavior.
+                ctx.create_object_from_ctor(new_target, ObjectPayload::OBJECT)
+                    .map_err(|_| {
+                        ctx.throw_type_error("constructor must return an object");
+                        -1
+                    })?
+                    .into()
+            } else {
+                this_obj
+            };
+
+            ctx.with_new_scope(|scope| -> JSResult {
+                let ret = if is_legacy_ctor {
+                    // legacy constructor behavior.
+                    bfun.call(scope, this, new_target, args, flags)
+                        .map(|v| if v.is_object() { v } else { this })
+                } else {
+                    bfun.call(scope, this, new_target, args, flags)
+                }?;
 
                 scope.set_promote_value(ret);
                 Ok(ret)
