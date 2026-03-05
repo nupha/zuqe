@@ -11,7 +11,7 @@ use crate::{
     function::{
         Callback, CallbackFn, GetterFn, IteratorFn, JSCFunctionFF, JSCFunctionFFF, SetterFn,
     },
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, Object, ObjectImpl},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, ObjectImpl},
     value::JSValue,
 };
 

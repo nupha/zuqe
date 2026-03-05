@@ -4,7 +4,7 @@
 use std::ops::Deref;
 
 use colorized::{Colors, colorize_print, colorize_println};
-use zuqe::{CallContext, Callback, Context, ContextImpl, JS_PROP_C_W_E, JSResult, JSValue};
+use zuqe::{CallContext, Callback, Context, JS_PROP_C_W_E, JSResult, JSValue};
 
 fn js_print(cc: CallContext) -> JSResult {
     let mut ctx = cc.context();

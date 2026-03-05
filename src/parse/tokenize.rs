@@ -215,7 +215,7 @@ impl<'s> JSParseState<'s> {
     // which will soon use up stack space, and cause stack overflow.
     #[inline(never)]
     pub(super) fn next_token(&mut self) -> Result<TokenKind, i32> {
-        if js_check_stack_overflow(&mut self.ctx.rt_ptr(), 0) {
+        if js_check_stack_overflow(self.ctx.rt_mut(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
         }

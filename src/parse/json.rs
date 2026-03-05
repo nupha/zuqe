@@ -25,7 +25,7 @@ pub const JS_PARSE_JSON_EXT: i32 = 1;
 
 impl<'s> JSParseState<'s> {
     fn json_next_token(&mut self) -> Result<(), i32> {
-        if js_check_stack_overflow(&mut self.ctx.rt_ptr(), 0) {
+        if js_check_stack_overflow(self.ctx.rt_mut(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
         }

@@ -746,7 +746,7 @@ impl FunctionDef {
     /// Resolves special pseudo variables (this, new.target, etc.)
     /// Returns the variable definition index if found.
     /// Returns None if the variable is not a pseudo variable
-    fn resolve_pseudo_var(&mut self, mut ctx: ContextPtr, var_name: Atom) -> Option<u16> {
+    fn resolve_pseudo_var(&mut self, ctx: ContextPtr, var_name: Atom) -> Option<u16> {
         if !self.has_this_binding {
             return None;
         }

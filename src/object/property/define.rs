@@ -236,7 +236,7 @@ impl ObjectImpl {
             break;
         } // loop
 
-        self.create_property(ctx.into(), prop, val, getter, setter, flags)
+        self.create_property(ctx, prop, val, getter, setter, flags)
     }
 
     /// shortcut to add or redefine a new property value.

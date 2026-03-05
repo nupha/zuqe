@@ -4,8 +4,7 @@
 use std::cell::Cell;
 
 use zuqe::{
-    CallContext, Context, ContextImpl, EvalFlags, EvalType, FieldDef, JS_SetUncatchableError,
-    JSResult, JSValue,
+    CallContext, Context, EvalFlags, EvalType, FieldDef, JS_SetUncatchableError, JSResult, JSValue,
 };
 
 use crate::{

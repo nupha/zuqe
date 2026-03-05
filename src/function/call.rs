@@ -129,7 +129,7 @@ impl<'cc> CallContext<'cc> {
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum IteratorState {
+pub enum IteratorState {
     /// iterator is not done
     NotDone,
     /// iterator is done

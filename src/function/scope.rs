@@ -6,7 +6,7 @@ use std::{marker::PhantomData, ptr::NonNull};
 use crate::{
     atom::Atom,
     bytecode::OpCodeTemp,
-    context::{ContextImpl, ContextPtr},
+    context::ContextPtr,
     function::{FunctionDef, JSVarKindEnum},
 };
 
@@ -94,7 +94,7 @@ impl FunctionDef {
     /// `name` is not consumed.
     pub(crate) fn add_scope_var(
         &mut self,
-        mut ctx: ContextPtr,
+        ctx: ContextPtr,
         name: Atom,
         var_kind: JSVarKindEnum,
     ) -> Result<u16, i32> {

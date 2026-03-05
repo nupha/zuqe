@@ -7,7 +7,7 @@ use crate::{
     atom::Atom,
     builtins::promise::Promise,
     class::ClassExoticMethods,
-    context::{Context, ContextImpl, ContextPtr},
+    context::{Context, ContextImpl},
     function::{BFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, VarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},

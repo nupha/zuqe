@@ -195,7 +195,7 @@ fn js_load_module_fulfilled(cc: CallContext) -> JSResult {
         let _ = cc.data(0).call(&mut ctx, JSValue::UNDEFINED, &[ns.into()]);
     } else {
         // reject() with error
-        let err = cc.ctx().rt_ptr().take_exception();
+        let err = ctx.rt_ptr().take_exception();
         let _ = cc
             .data(1)
             .call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));

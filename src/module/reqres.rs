@@ -120,7 +120,7 @@ pub(super) fn js_host_resolve_imported_module(
     let norm_name = if let Some(cb) = ctx.rt_ref().module_normalize_func {
         cb(ctx.into(), base_name, name, ctx.rt_ptr().module_load_opaque)
     } else {
-        js_default_module_normalize_name(&mut ctx, base_name, name)
+        js_default_module_normalize_name(&ctx, base_name, name)
     }?;
 
     let module_name = Atom::new(ctx.rt_ptr(), &norm_name)?;
