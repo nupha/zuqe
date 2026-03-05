@@ -4,7 +4,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcContext, GcError, GcHead, GcNode, GcRef};
+use gc_lite::{GcError, GcHead, GcNode, GcRef, GcScope};
 
 use crate::{Context, JSValue, context::ContextPtr};
 
@@ -103,7 +103,7 @@ impl<'a> ScopedContext<'a> {
     }
 
     /// get gc context
-    unsafe fn gc_scope(&self) -> &GcContext<'_> {
+    unsafe fn gc_scope(&self) -> &GcScope<'_> {
         debug_assert!(self.depth() <= self.ctx.gc_heap().scope_max_depth());
         self.ctx.gc_heap().scope(self.depth).unwrap()
     }

@@ -12,7 +12,7 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-use gc_lite::GcContext;
+use gc_lite::GcScope;
 use zuqe::{
     CallContext, ClassDef, ClassID, Context, FieldDef, JSResult, JSValue, Object, Runtime,
     RuntimeImpl,
@@ -241,7 +241,7 @@ impl JSFile {
         let class_id = rt
             .clone()
             .with_gc_scope({
-                |_: &GcContext| {
+                |_: &GcScope| {
                     rt.register_class(
                         &ClassDef::new("File")
                             .initialize(Self::handle_init)

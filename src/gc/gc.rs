@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use gc_lite::{
-    GcContext, GcError, GcHeap, GcLocal, GcNode, GcPartition, GcPartitionId, GcRef, GcTrace,
+    GcError, GcHeap, GcLocal, GcNode, GcPartition, GcPartitionId, GcRef, GcScope, GcTrace,
     GcTraceCtx, gc_type_register,
 };
 
@@ -111,7 +111,7 @@ impl RuntimeImpl {
         self.gc_alloc_local_in(self.gc_part_id(), data)
     }
 
-    pub fn with_gc_scope<R>(&mut self, f: impl FnOnce(&GcContext) -> R) -> R {
+    pub fn with_gc_scope<R>(&mut self, f: impl FnOnce(&GcScope) -> R) -> R {
         let pid = self.gc_part_id();
         self.gc_heap_mut().with_new_scope(pid, f)
     }
