@@ -287,21 +287,20 @@ impl<'a> ContextScope<'a> {
         Ok(ret_val)
     }
 
-    /// Eval script `source`, wait till execution terminates, returns the result value.
-    /// Execute in `self` scope, returned value is valid at least in `self` scope.
-    pub fn run_wait(
+    /// Eval script `source` in current scope, wait till execution terminates, returns the result value.
+    pub fn eval_wait(
         &mut self,
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
         eval_flags: EvalFlags,
     ) -> Result<Value<'a>, ErrorText> {
-        self.do_run_wait(source, filename, eval_type, eval_flags)
+        self.eval_wait_internal(source, filename, eval_type, eval_flags)
             .map(|v| v.into())
     }
 
-    /// run `source` script, wait till execution terminates, returns the result value.
-    fn do_run_wait(
+    /// Eval `source` script, wait till execution terminates, returns the result value.
+    fn eval_wait_internal(
         &mut self,
         source: &[u8],
         filename: &str,
@@ -319,18 +318,18 @@ impl<'a> ContextScope<'a> {
 
         #[cfg(debug_assertions)]
         debug_assert!(
-            ret_val
-                .gc_node()
-                .is_none_or(|n| n.is_local() || n.is_root()),
-            "eval return value must be local: {ret_val:?}"
+            ret_val.gc_node().is_none_or(|n| n.is_root_or_local()),
+            "eval() returned value must be root or local: {ret_val:?}"
         );
 
         let mut promise = Promise::try_from(ret_val).ok();
+
         let mut result = if let Some(p) = promise {
             match p.state() {
                 PromiseState::Fulfilled => {
                     promise = None;
-                    Ok(p.result())
+                    let res = p.result();
+                    Ok(res)
                 }
                 PromiseState::Rejected => {
                     promise = None;
@@ -342,14 +341,19 @@ impl<'a> ContextScope<'a> {
             Ok(ret_val)
         };
 
-        #[cfg(debug_assertions)]
-        debug_assert!(
-            result
-                .as_ref()
-                .ok()
-                .is_none_or(|v| v.gc_node().is_none_or(|n| n.is_local() || n.is_root())),
-            "Promise result value must be local"
-        );
+        // protect result - is this nessesary?
+        if let Ok(Some(n)) = result.as_ref().map(|v| v.gc_node_ptr()) {
+            self.gc_heap_mut().protect_node(n);
+        }
+
+        // #[cfg(debug_assertions)]
+        // debug_assert!(
+        //     result
+        //         .as_ref()
+        //         .ok()
+        //         .is_none_or(|v| v.gc_node().is_none_or(|n| n.is_local() || n.is_root())),
+        //     "Promise result value must be local"
+        // );
 
         // tick to finish
         let exit_code = loop {

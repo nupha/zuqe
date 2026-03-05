@@ -206,7 +206,7 @@ fn main() -> ExitCode {
     debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
 
     let ec = ctx.with_new_scope(|scope| {
-        match scope.run_wait(
+        match scope.eval_wait(
             script.as_bytes(),
             &filename,
             if is_module {
