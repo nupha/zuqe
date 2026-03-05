@@ -429,8 +429,8 @@ impl BytecodeFunction {
         self.0.payload_mut().bc_function_mut().unwrap()
     }
 
-    /// execute bytecode in given scope.
-    pub(super) fn execute(
+    /// Run Bytecode Function in given scope.
+    pub(super) fn run(
         &mut self,
         scope: &mut ContextScope,
         this_obj: JSValue,
@@ -522,7 +522,7 @@ impl BytecodeFunction {
         let self_node = self.gc_node_ptr();
         let bf = self.payload_mut();
         let ret_val = bc
-            .run(
+            .execute(
                 scope,
                 bf.home_object(),
                 &mut stack_frame,

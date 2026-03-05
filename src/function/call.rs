@@ -198,46 +198,15 @@ impl ObjectImpl {
                             })?
                             .into();
 
-                        bfun.execute(scope, this, new_target, args, flags)
+                        bfun.run(scope, this, new_target, args, flags)
                             .map(|v| if v.is_object() { v } else { this })
                     } else {
-                        bfun.execute(scope, this_obj, new_target, args, flags)
+                        bfun.run(scope, this_obj, new_target, args, flags)
                     }?;
 
                 scope.set_return_value(ret);
                 Ok(ret)
             })
-
-            // let mut exec_scope = ctx.new_scope();
-            // let ret = if is_ctor && !bfun.payload().bytecode().attrs.is_derived_class_constructor {
-            //     // legacy constructor behavior
-            //     let this: JSValue = exec_scope
-            //         .create_object_from_ctor(new_target, ObjectPayload::OBJECT)
-            //         .map_err(|_| {
-            //             exec_scope.throw_type_error("constructor must return an object");
-            //             -1
-            //         })?
-            //         .into();
-
-            //     bfun.execute(&mut exec_scope, this, new_target, args, flags)
-            //         .map(|v| if v.is_object() { v } else { this })
-            // } else {
-            //     bfun.execute(&mut exec_scope, this_obj, new_target, args, flags)
-            // }?;
-
-            // exec_scope.promote_value(ret);
-
-            // drop(exec_scope);
-            // // protect return value from exec_scope: at least add it to current scope
-            // if let Some(n) = ret.gc_node_ptr()
-            //     && unsafe { !n.as_ref().is_local() }
-            // {
-            //     ctx.gc_heap_mut().with_current_scope(|s| {
-            //         s.add_non_local(n);
-            //     });
-            // }
-
-            // Ok(ret)
         } else if let Some(cb) = unsafe {
             ctx.rt_ref()
                 .class_registry

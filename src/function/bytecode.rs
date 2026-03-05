@@ -4,7 +4,6 @@
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    ContextScope,
     atom::{Atom, is_const_atom, is_small_int_atom},
     bytecode::{OpcodeFormat, opcode_info_final},
     context::{ContextImpl, ContextPtr},
@@ -476,10 +475,8 @@ impl std::fmt::Debug for Bytecode {
 }
 
 impl Bytecode {
-    /// Execute Bytecode with captured variables and returns result value.
-    ///
-    /// Will create a function object that embeds the bytecode, then eval the function.
-    pub(crate) fn eval(
+    /// Create Function from `self` Bytecode with captured variables, then runs the function.
+    pub(crate) fn run_as_function(
         &self,
         ctx: &mut ContextImpl,
         this_obj: JSValue,

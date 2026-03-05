@@ -58,7 +58,7 @@ impl Bytecode {
     /// - On exit, current stack frame will be restored back to the original one.
     /// - When exception raised (returns Err), `stack_frame` will be kept as current stack frame.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn run(
+    pub(crate) fn execute(
         &self,
         caller_ctx: &mut ContextImpl, // caller's context
         func_home_obj: Option<Object>,

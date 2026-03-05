@@ -203,7 +203,7 @@ impl AsyncStateImpl {
         let bf = func.payload_mut();
         let bc = bf.bytecode();
 
-        let ret_val = bc.run(
+        let ret_val = bc.execute(
             &mut caller_ctx,
             bf.home_object(),
             unsafe {

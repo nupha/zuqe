@@ -216,10 +216,10 @@ impl ContextImpl {
 
         if self.allow_eval {
             match self.compile_source(source, filename, eval_type, eval_flags, var_scope_idx)? {
-                Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
+                Compiled::GlobalOrIndirect(bc) => bc.run_as_function(self, this_obj, &[], None),
                 Compiled::Direct(bc) => {
                     let mut rt = self.rt_ptr();
-                    bc.eval(
+                    bc.run_as_function(
                         self,
                         this_obj,
                         rt.current_stack_frame()

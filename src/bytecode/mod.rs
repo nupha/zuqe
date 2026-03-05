@@ -4,8 +4,8 @@
 include!(concat!(env!("OUT_DIR"), "/opcodes.rs"));
 
 mod dump;
+mod exec;
 mod operators;
-mod run;
 
 pub mod arithmatic;
 
