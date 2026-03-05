@@ -372,7 +372,7 @@ impl AsyncGeneratorFunction {
 
         // protect s.async_state before .resume() executes bytecode. - NOT NEEDED ANY MORE
         // ctx.gc_heap_mut()
-        //     .protect_node_v2(s.async_state.gc_node_ptr());
+        //     .protect_node(s.async_state.gc_node_ptr());
 
         // execute the function till 'OpCode::INITIAL_YIELD' (no yield nor await are possible)
         s.async_state.resume(ctx.into())?;

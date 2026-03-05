@@ -437,7 +437,7 @@ impl BytecodeFunction {
     }
 
     /// Run Bytecode Function in given scope.
-    pub(super) fn run(
+    pub(super) fn call(
         &mut self,
         scope: &mut ContextScope,
         this_obj: JSValue,

@@ -6,6 +6,7 @@ use std::{pin::Pin, ptr::NonNull};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
+    ContextScope,
     context::ContextPtr,
     error::JSResult,
     function::BCWrapper,
@@ -147,15 +148,19 @@ impl AsyncStateImpl {
             return Err(-1);
         }
 
-        let mut ret = self.resume_call(ctx, self.this_val, unsafe {
-            std::slice::from_raw_parts(self.arg_ptr().as_ptr(), self.arg_count())
+        let mut ret_val = ctx.with_new_scope(|scope| -> JSResult {
+            let r = self.resume_call(scope, self.this_val, unsafe {
+                std::slice::from_raw_parts(self.arg_ptr().as_ptr(), self.arg_count())
+            })?;
+            scope.set_promote_value(r);
+            Ok(r)
         });
 
-        let completed = match ret {
+        let completed = match ret_val {
             Ok(JSValue::UNDEFINED) => {
                 debug_assert!(self.stack_frame.cur_sp_offset > 0);
                 // get stack top value
-                ret = Ok(unsafe {
+                ret_val = Ok(unsafe {
                     std::ptr::replace(
                         // HINT: stack_cur_ptr advances the stack_top pointer by 1.
                         // subtract 1 is the exact addr for stack_top.
@@ -180,16 +185,17 @@ impl AsyncStateImpl {
             }
         }
 
-        ret
+        ret_val
     }
 
+    /// Resume executing async function in given scope
     fn resume_call(
         &mut self,
-        mut caller_ctx: ContextPtr,
+        scope: &mut ContextScope,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> JSResult {
-        caller_ctx.poll_interrupts()?;
+        scope.poll_interrupts()?;
 
         let throw_flag = self.throw_flag;
 
@@ -204,7 +210,7 @@ impl AsyncStateImpl {
         let bc = bf.bytecode();
 
         let ret_val = bc.execute(
-            &mut caller_ctx,
+            scope,
             bf.home_object(),
             unsafe {
                 self.stack_frame.as_mut().get_unchecked_mut() // dedicated stack frame for async state
@@ -220,7 +226,7 @@ impl AsyncStateImpl {
 
         // Note: closure values could be allocated in stack-frame's gc scope during execution,
         // before stack-frame is dropping, promote closure values up to func's gc scope.
-        let mut rt = caller_ctx.rt_ptr();
+        let mut rt = scope.rt_ptr();
         for vr in bf.closure_var_refs() {
             if let Some(n) = vr.value().gc_node_ptr() {
                 rt.gc_heap_mut().bind(func_node, n);

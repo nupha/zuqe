@@ -198,10 +198,10 @@ impl ObjectImpl {
                             })?
                             .into();
 
-                        bfun.run(scope, this, new_target, args, flags)
+                        bfun.call(scope, this, new_target, args, flags)
                             .map(|v| if v.is_object() { v } else { this })
                     } else {
-                        bfun.run(scope, this_obj, new_target, args, flags)
+                        bfun.call(scope, this_obj, new_target, args, flags)
                     }?;
 
                 scope.set_promote_value(ret);
