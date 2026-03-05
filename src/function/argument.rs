@@ -16,7 +16,8 @@ use crate::{
 
 use super::JS_MAX_LOCAL_VARS;
 
-pub(crate) fn js_build_arguments(ctx: &mut ContextImpl, args: &[JSValue]) -> JSValue {
+/// Make Arguments class instance with values.
+pub(crate) fn js_build_arguments(ctx: &mut ContextImpl, values: &[JSValue]) -> JSValue {
     let mut obj = if let Ok(o) = ctx.create_object_with_proto(
         ctx.class_proto(JS_CLASS_OBJECT),
         ObjectPayload::ARGUMENTS(ArrayPayload::default()),
@@ -31,20 +32,20 @@ pub(crate) fn js_build_arguments(ctx: &mut ContextImpl, args: &[JSValue]) -> JSV
         ctx,
         Atom::CONST_length,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        JSProperty::Normal(JSValue::Int(args.len() as i32)),
+        JSProperty::Normal(JSValue::Int(values.len() as i32)),
     )
     .unwrap();
 
-    if !args.is_empty() && obj.is_fast_array() {
+    if !values.is_empty() && obj.is_fast_array() {
         // initialize fast array values
         let xref = obj.gc_node().partition_id();
         let arr_data = obj.as_Array_mut().unwrap().payload_mut();
-        if arr_data.reserve(args.len()).is_err() {
+        if arr_data.reserve(values.len()).is_err() {
             ctx.throw_out_of_memory();
             return JSValue::EXCEPTION;
         }
 
-        arr_data.extend(&mut ctx.rt_ptr(), args.iter().copied(), xref);
+        arr_data.extend(&mut ctx.rt_ptr(), values.iter().copied(), xref);
     }
 
     #[cfg(feature = "builtin_symbol")]
@@ -94,7 +95,7 @@ pub(crate) fn js_build_mapped_arguments(
     )?;
 
     for i in 0..arg_count {
-        let content = JSProperty::VarRef(sf.get_var_ref(ctx.into(), i as _, true)?);
+        let content = JSProperty::VarRef(sf.get_var_ref(ctx, i as _, true)?);
         obj.add_own_property(
             ctx,
             Atom::new_small_int(i as u32),

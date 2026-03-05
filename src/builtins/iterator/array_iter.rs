@@ -105,7 +105,7 @@ pub fn js_create_array_iterator(cc: CallContext) -> JSResult {
     .map_err(|_| -1)
 }
 
-pub fn js_array_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult {
+pub(crate) fn js_array_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
     if let ObjectPayload::ARRAY_ITERATOR(it) = cc
@@ -113,7 +113,6 @@ pub fn js_array_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSR
         .retrive_object_payload(&mut ctx, JS_CLASS_ARRAY_ITERATOR)?
     {
         let obj = it.value();
-
         if obj.is_undefined() {
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);

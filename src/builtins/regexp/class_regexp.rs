@@ -9,7 +9,7 @@ use crate::{
     JS_CLASS_REGEXP,
     atom::Atom,
     builtins::array::Array,
-    context::{ContextImpl, ContextPtr},
+    context::ContextPtr,
     error::JSResult,
     function::{CallContext, Callback, FieldDef, js_function_apply},
     object::{
@@ -21,37 +21,6 @@ use crate::{
 };
 
 use super::{RegExpData, RegExpStringIterPayload, make_regexp_capture_array};
-
-// /* create a RegExp object from a string containing the RegExp bytecode
-// and the source pattern */
-// fn js_regexp_constructor_internal(
-//     ctx: &mut ContextImpl,
-//     ctor: JSValue,
-//     pattern: StringRef,
-//     flags: JSValue,
-// ) -> Result<RegExp, i32> {
-//     if !flags.is_undefined() {
-//         RegExp::create(
-//             ctx,
-//             ctor,
-//             pattern.content().clone(),
-//             flags.to_string(ctx)?.content().clone(),
-//         )
-//     } else {
-//         RegExp::create(
-//             ctx,
-//             ctor,
-//             pattern.content().clone(),
-//             if flags.is_undefined() {
-//                 Atom::CONST_empty_string.force_string(ctx)
-//             } else {
-//                 flags.to_string(ctx)
-//             }?
-//             .content()
-//             .clone(),
-//         )
-//     }
-// }
 
 pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
@@ -487,15 +456,15 @@ pub fn js_regexp_Symbol_matchAll(cc: CallContext) -> JSResult {
     .map_err(|_| -1)
 }
 
-fn js_is_standard_regexp(ctx: &mut ContextImpl, rx: Object) -> Result<bool, i32> {
-    let val = rx.get_property(ctx, Atom::CONST_constructor)?;
-    if val.is_same(ctx.regexp_ctor) {
-        let f = rx.get_property(ctx, Atom::CONST_exec)?;
-        Ok(f.match_native_callback(Callback::Func(js_regexp_exec), 0))
-    } else {
-        Ok(false)
-    }
-}
+// fn js_is_standard_regexp(ctx: &mut ContextImpl, rx: Object) -> Result<bool, i32> {
+//     let val = rx.get_property(ctx, Atom::CONST_constructor)?;
+//     if val.is_same(ctx.regexp_ctor) {
+//         let f = rx.get_property(ctx, Atom::CONST_exec)?;
+//         Ok(f.match_native_callback(Callback::Func(js_regexp_exec), 0))
+//     } else {
+//         Ok(false)
+//     }
+// }
 
 pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
     // [Symbol.replace](str, rep)

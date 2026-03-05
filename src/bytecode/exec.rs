@@ -6,7 +6,6 @@ use std::ptr::NonNull;
 use fallible_collections::TryCollect;
 
 use crate::{
-    ScopedContext,
     atom::{Atom, AtomKind},
     builtins::{
         generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
@@ -25,7 +24,7 @@ use crate::{
         OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
         OP_DEFINE_METHOD_SETTER,
     },
-    context::ContextPtr,
+    context::{ContextPtr, ScopedContext},
     error::{
         JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,

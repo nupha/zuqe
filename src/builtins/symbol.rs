@@ -59,8 +59,8 @@ impl ContextImpl {
 
 pub fn js_symbol_constructor(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let new_target = cc.this();
 
+    let new_target = cc.this();
     if !new_target.is_undefined() {
         ctx.throw_type_error("not a constructor");
         return Err(-1);

@@ -126,7 +126,7 @@ impl<'a> ScopedContext<'a> {
 }
 
 impl ContextImpl {
-    pub(crate) fn new_scope(&mut self) -> ScopedContext<'_> {
+    pub fn new_scope(&mut self) -> ScopedContext<'_> {
         let pid = self.rt_ref().gc_part_id();
         let ctx = ContextPtr::from_ref(self);
         let s = self.gc_heap_mut().push_gc_scope(pid);

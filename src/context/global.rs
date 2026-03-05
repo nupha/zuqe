@@ -53,9 +53,8 @@ impl ContextImpl {
     }
 
     /// 'def_flags' is 0 or JS_PROP_CONFIGURABLE.
-    /// `func` is not consumed.
     /// XXX: could support exotic global object.
-    pub fn define_global_function(
+    pub(crate) fn define_global_function(
         &mut self,
         prop: Atom,
         func: JSValue,
@@ -90,7 +89,7 @@ impl ContextImpl {
     /// def_flags is (0, DEFINE_GLOBAL_LEX_VAR) |
     ///   JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE
     // XXX: could support exotic global object.
-    pub fn define_global_var(&mut self, prop: Atom, def_flags: u32) -> Result<(), i32> {
+    pub(crate) fn define_global_var(&mut self, prop: Atom, def_flags: u32) -> Result<(), i32> {
         let (mut ob, flags, val) = if def_flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
             (
                 self.global_var_obj(),
@@ -114,7 +113,7 @@ impl ContextImpl {
 
     /// flags is 0, DEFINE_GLOBAL_LEX_VAR or DEFINE_GLOBAL_FUNC_VAR
     /// XXX: could support exotic global object.
-    pub fn define_global_var_checked(&mut self, prop: Atom, flags: u32) -> Result<(), i32> {
+    pub(crate) fn define_global_var_checked(&mut self, prop: Atom, flags: u32) -> Result<(), i32> {
         let gobj = self.global_obj();
         let prs = gobj.find_shape_property(prop).map(|(_, flags)| flags);
 
@@ -157,7 +156,7 @@ impl ContextImpl {
         Ok(())
     }
 
-    pub fn get_global_var(&mut self, prop: Atom, throw_ref_error: bool) -> JSResult {
+    pub(crate) fn get_global_var(&mut self, prop: Atom, throw_ref_error: bool) -> JSResult {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
 
@@ -182,7 +181,7 @@ impl ContextImpl {
     }
 
     /// used for strict variable access: test if the variable exists
-    pub fn check_global_var(&mut self, prop: Atom) -> Result<bool, i32> {
+    pub(crate) fn check_global_var(&mut self, prop: Atom) -> Result<bool, i32> {
         // no exotic behavior is possible in global_var_obj
         let p = self.global_var_obj();
         if p.has_shape_property(prop) {
@@ -232,7 +231,7 @@ impl ContextImpl {
             }
 
             let gobj = self.global_obj();
-            gobj.set_property_internal(self.into(), prop, val, Some(gobj), flags1)
+            gobj.set_property_internal(self, prop, val, Some(gobj), flags1)
         }
     }
 }
