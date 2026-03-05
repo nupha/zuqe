@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 use fallible_collections::TryCollect;
 
 use crate::{
-    ContextImpl,
+    ContextImpl, ContextScope,
     atom::{Atom, AtomKind},
     builtins::{
         generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
@@ -59,7 +59,7 @@ impl Bytecode {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn execute(
         &self,
-        caller_ctx: &mut ContextImpl, // caller's context
+        scope: &mut ContextScope, // caller's scoped context
         func_home_obj: Option<Object>,
         stack_frame: &mut StackFrame, // The stack frame for execution
         this_obj: JSValue,            // The 'this' binding for the function execution
@@ -70,7 +70,7 @@ impl Bytecode {
         args: &[JSValue], // actual calling arguments pass in by caller, not padded length
         throwed: bool,    // Indicates if an exception has been thrown
     ) -> JSValue {
-        let mut rt = caller_ctx.rt_ptr();
+        let mut rt = scope.rt_ptr();
         let mut realm = self.realm().unwrap(); // bytecode's context
 
         let bytecodes = self.opcodes();
@@ -856,10 +856,11 @@ impl Bytecode {
                         break State::Done(JSValue::UNDEFINED, false);
                     }
                     OpCode::CHECK_CTOR_RETURN => {
-                        // return TRUE if 'this' should be returned
+                        // [this, ^] -> [this, bool, ^]
+                        // put TRUE if 'this' should be returned
                         if !SP_REF!(-1).is_object() {
                             if unlikely(!SP_REF!(-1).is_undefined()) {
-                                caller_ctx.throw_type_error(
+                                scope.throw_type_error(
                                     "derived class constructor must return an object or undefined",
                                 );
                                 break State::Exception;
@@ -1248,13 +1249,13 @@ impl Bytecode {
                         // [^] -> [value, ^]
                         let idx = PC_FETCH!(u16);
 
-                        let val = VAR_REF![idx];
-                        if unlikely(val.is_uninitialized()) {
+                        let value = VAR_REF![idx];
+                        if unlikely(value.is_uninitialized()) {
                             JS_ThrowReferenceErrorUninitialized2(
                                 if opcode == OpCode::GET_LOC_CHECK {
                                     &mut realm
                                 } else {
-                                    caller_ctx
+                                    scope
                                 },
                                 self,
                                 idx,
@@ -1262,7 +1263,7 @@ impl Bytecode {
                             );
                             break State::Exception;
                         } else {
-                            SP_PUT!(0, *val);
+                            SP_PUT!(0, *value);
                             SP_GO!(1);
                         }
                     }
