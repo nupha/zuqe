@@ -204,7 +204,7 @@ impl ObjectImpl {
                         bfun.run(scope, this_obj, new_target, args, flags)
                     }?;
 
-                scope.set_return_value(ret);
+                scope.set_promote_value(ret);
                 Ok(ret)
             })
         } else if let Some(cb) = unsafe {

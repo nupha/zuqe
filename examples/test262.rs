@@ -110,7 +110,14 @@ fn js_evalScript(cc: CallContext) -> JSResult {
     let mut ctx = cc.context();
 
     let source = cc.arg(0).inspect(&mut ctx)?;
-    ctx.with_new_scope(|scope| scope.eval_global(source.as_bytes(), "<eval>", EvalFlags::empty()))
+    ctx.with_new_scope(|scope| {
+        scope.eval(
+            source.as_bytes(),
+            "<eval>",
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+    })
 }
 
 fn js_string_codePointRange(cc: CallContext) -> JSResult {
@@ -315,9 +322,10 @@ fn run_harness(scope: &mut ContextScope, harness_files: &[PathBuf]) -> Result<()
             .unwrap();
 
         scope
-            .eval_global(
+            .eval(
                 src.as_bytes(),
                 file.as_os_str().to_string_lossy().as_ref(),
+                EvalType::Global,
                 EvalFlags::empty(),
             )
             .map_err(|_| {

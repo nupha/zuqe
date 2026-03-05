@@ -54,15 +54,16 @@ pub(crate) enum Compiled {
 }
 
 impl ContextImpl {
-    /// compile `source` according to `flags` mode, don't eval.
-    /// - `filename` is used to identify the module.
-    pub(crate) fn compile_source(
+    /// Compile `source` to bytecode or module def, don't run.
+    ///
+    /// In module type, `filename` is used to identify the module.
+    pub(crate) fn compile(
         &mut self,
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
-        eval_flags: EvalFlags,
-        scope_idx: i32,
+        flags: EvalFlags,
+        var_scope_idx: i32,
     ) -> Result<Compiled, i32> {
         #[cfg(debug_assertions)]
         let _check_scope_level = {
@@ -89,10 +90,10 @@ impl ContextImpl {
             (Some(bc), None, mode)
         } else {
             let mut mode = ExecMode::empty();
-            if eval_flags.contains(EvalFlags::STRICT) {
+            if flags.contains(EvalFlags::STRICT) {
                 mode |= ExecMode::STRICT;
             }
-            if eval_flags.contains(EvalFlags::STRIP) {
+            if flags.contains(EvalFlags::STRIP) {
                 mode |= ExecMode::STRIP;
             }
             if eval_type == EvalType::Module {
@@ -110,7 +111,7 @@ impl ContextImpl {
         fd.eval_type = eval_type;
         fd.func_name = Atom::CONST__eval_;
         fd.has_this_binding = eval_type != EvalType::Direct;
-        fd.attrs.backtrace_barrier = eval_flags.contains(EvalFlags::BACKTRACE_BARRIER);
+        fd.attrs.backtrace_barrier = flags.contains(EvalFlags::BACKTRACE_BARRIER);
         fd.attrs.exec_mode = js_mode;
 
         if let Some(bc) = &frame_func_bc {
@@ -122,14 +123,14 @@ impl ContextImpl {
             fd.attrs.super_allowed = bc.attrs.super_allowed;
             fd.attrs.arguments_allowed = bc.attrs.arguments_allowed;
 
-            add_closure_variables(self, &mut fd, bc, scope_idx)?;
+            add_closure_variables(self, &mut fd, bc, var_scope_idx)?;
         } else {
             debug_assert_ne!(eval_type, EvalType::Direct, "can't be direct eval type");
             fd.attrs.arguments_allowed = true;
         }
 
         fd.module = frame_module;
-        if fd.module.is_some() || eval_flags.contains(EvalFlags::COMPILE_TO_ASYNC) {
+        if fd.module.is_some() || flags.contains(EvalFlags::COMPILE_TO_ASYNC) {
             fd.in_function_body = true;
             fd.attrs.func_kind = FunctionKind::Async;
         }
@@ -203,7 +204,8 @@ impl ContextImpl {
         }
     }
 
-    pub(super) fn eval_internal(
+    /// Compile source first, then run as function
+    fn compile_then_run(
         &mut self,
         this_obj: JSValue,
         source: &[u8],
@@ -215,7 +217,7 @@ impl ContextImpl {
         debug_assert!(self.gc_heap().scope_max_depth() > 0);
 
         if self.allow_eval {
-            match self.compile_source(source, filename, eval_type, eval_flags, var_scope_idx)? {
+            match self.compile(source, filename, eval_type, eval_flags, var_scope_idx)? {
                 Compiled::GlobalOrIndirect(bc) => bc.run_as_function(self, this_obj, &[], None),
                 Compiled::Direct(bc) => {
                     let mut rt = self.rt_ptr();
@@ -236,7 +238,7 @@ impl ContextImpl {
                 Compiled::Module(mut md) => {
                     // Problem: m has created function? m was linked?
                     // if m has not created function, should use m.eval() instead of m.eval_func()
-                    md.eval_func(self).map(|p| p.into())
+                    md.run_function(self).map(|p| p.into())
                 }
             }
         } else {
@@ -245,42 +247,43 @@ impl ContextImpl {
         }
     }
 
-    /// Eval `source` as module, with global object as `this` binding.
+    /// Generic eval entry for global or module.
     ///
-    /// Compile source into module def, then eval it. Returns Promise.
-    pub(crate) fn eval_module(
+    /// Compile source and run to get result.
+    pub(crate) fn eval(
         &mut self,
         source: &[u8],
         filename: &str,
-        strip: bool,
-    ) -> Result<Promise, i32> {
-        let mut md = ModuleDef::compile(self, source, filename, strip)?;
-        md.set_import_meta(self, filename, true)?;
-        md.eval(self)
+        eval_type: EvalType,
+        flags: EvalFlags,
+    ) -> JSResult {
+        if eval_type == EvalType::Module {
+            // compile source into module def, then run the module def.
+            // returns Promise
+            let mut md =
+                ModuleDef::compile(self, source, filename, flags.contains(EvalFlags::STRIP))?;
+            md.set_import_meta(self, filename, true)?;
+            md.eval(self).map(JSValue::from)
+        } else {
+            let global = self.global_obj();
+            self.compile_then_run(global.into(), source, filename, EvalType::Global, flags, -1)
+        }
     }
 }
 
 impl<'a> ContextScope<'a> {
-    /// Eval `source` as global type, with global object as `this` binding.
-    /// Execute in `self` scope, returned value will be promoted to upper scope.
-    pub fn eval_global(
+    /// Eval source in current scope.
+    ///
+    /// Compile source then run. Return value will be promoted to upper scope if needed.
+    pub fn eval(
         &mut self,
         source: &[u8],
         filename: &str,
-        eval_flags: EvalFlags,
+        eval_type: EvalType,
+        flags: EvalFlags,
     ) -> JSResult {
-        let global = self.global_obj();
-
-        let ret_val = self.eval_internal(
-            global.into(),
-            source,
-            filename,
-            EvalType::Global,
-            eval_flags,
-            -1,
-        )?;
-
-        self.set_return_value(ret_val);
+        let ret_val = ContextImpl::eval(self, source, filename, eval_type, flags)?;
+        self.set_promote_value(ret_val);
         Ok(ret_val)
     }
 
@@ -307,24 +310,22 @@ impl<'a> ContextScope<'a> {
     ) -> Result<JSValue, ErrorText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
-        let val = if eval_type == EvalType::Module {
-            self.eval_module(source, filename, eval_flags.contains(EvalFlags::STRIP))
-                .map(|p| p.into())
-        } else {
-            self.eval_global(source, filename, eval_flags)
-        }
-        .map_err(|_| {
-            let exc = self.rt_mut().take_exception();
-            ErrorText::from(self, exc)
-        })?;
+        let ret_val = self
+            .eval(source, filename, eval_type, eval_flags)
+            .map_err(|_| {
+                let exc = self.rt_mut().take_exception();
+                ErrorText::from(self, exc)
+            })?;
 
         #[cfg(debug_assertions)]
         debug_assert!(
-            val.gc_node().is_none_or(|n| n.is_local() || n.is_root()),
-            "eval return value must be local: {val:?}"
+            ret_val
+                .gc_node()
+                .is_none_or(|n| n.is_local() || n.is_root()),
+            "eval return value must be local: {ret_val:?}"
         );
 
-        let mut promise = Promise::try_from(val).ok();
+        let mut promise = Promise::try_from(ret_val).ok();
         let mut result = if let Some(p) = promise {
             match p.state() {
                 PromiseState::Fulfilled => {
@@ -338,7 +339,7 @@ impl<'a> ContextScope<'a> {
                 _ => Ok(JSValue::UNDEFINED),
             }
         } else {
-            Ok(val)
+            Ok(ret_val)
         };
 
         #[cfg(debug_assertions)]
@@ -406,7 +407,7 @@ impl JSValue {
         var_scope_idx: i32,
     ) -> JSResult {
         if let Self::String(s) = self {
-            ctx.eval_internal(
+            ctx.compile_then_run(
                 this_obj,
                 s.content().encode_utf8_bytes(true).as_ref(),
                 "<string>",

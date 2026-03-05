@@ -390,17 +390,24 @@ impl BytecodeFunction {
         buf.extend_from_slice(b"\n})");
 
         // eval script
-        let mut func_val = {
-            let global = ctx.global_obj();
-            ctx.eval_internal(
-                global.into(),
-                buf.as_slice(),
-                "<input>",
-                EvalType::Indirect,
-                EvalFlags::empty(),
-                -1,
-            )?
-        };
+        let mut ret_val = ctx.eval(
+            buf.as_slice(),
+            "<input>",
+            EvalType::Indirect,
+            EvalFlags::empty(),
+        )?;
+
+        // let mut ret_val = {
+        //     let global = ctx.global_obj();
+        //     ctx.compile_then_run(
+        //         global.into(),
+        //         buf.as_slice(),
+        //         "<input>",
+        //         EvalType::Indirect,
+        //         EvalFlags::empty(),
+        //         -1,
+        //     )?
+        // };
 
         if !new_target.is_undefined() {
             // set the prototype
@@ -413,10 +420,10 @@ impl BytecodeFunction {
                     .map_or(JSValue::NULL, JSValue::Object);
             }
 
-            func_val.set_prototype_internal(&mut ctx, proto, true)?;
+            ret_val.set_prototype_internal(&mut ctx, proto, true)?;
         }
 
-        Ok(func_val)
+        Ok(ret_val)
     }
 
     #[inline(always)]

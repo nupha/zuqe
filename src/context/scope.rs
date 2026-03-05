@@ -108,7 +108,7 @@ impl<'a> ContextScope<'a> {
         self.ctx.gc_heap().scope(self.depth).unwrap()
     }
 
-    pub fn set_return_value(&mut self, val: JSValue) {
+    pub fn set_promote_value(&mut self, val: JSValue) {
         unsafe {
             self.gc_scope().set_promote(val.gc_node_ptr());
         }

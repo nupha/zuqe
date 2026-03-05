@@ -4,8 +4,8 @@
 use std::cell::Cell;
 
 use zuqe::{
-    CallContext, Context, ContextImpl, EvalFlags, FieldDef, JS_SetUncatchableError, JSResult,
-    JSValue,
+    CallContext, Context, ContextImpl, EvalFlags, EvalType, FieldDef, JS_SetUncatchableError,
+    JSResult, JSValue,
 };
 
 use crate::{
@@ -124,9 +124,10 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
     }
 
     let ret = ctx.with_new_scope(|scope| {
-        scope.eval_global(
+        scope.eval(
             str.content().encode_utf8_bytes(true).as_ref(),
             "<evalScript>",
+            EvalType::Global,
             flags,
         )
     });

@@ -68,7 +68,7 @@ impl ModuleDef {
         filename: &str,
         strip: bool,
     ) -> Result<Self, i32> {
-        if let Compiled::Module(md) = ctx.compile_source(
+        if let Compiled::Module(md) = ctx.compile(
             source,
             filename,
             EvalType::Module,
@@ -93,11 +93,11 @@ impl ModuleDef {
     pub fn eval(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
         self.create_module_function(ctx)?; // make module function
         self.link(ctx)?; // resolving imports, exports
-        self.eval_func(ctx) // evaluate module function
+        self.run_function(ctx) // evaluate module function
     }
 
-    /// Run the <eval> function of the module and of all its dependent modules.
-    pub(crate) fn eval_func(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
+    /// Run the function of the module and of all its dependent modules.
+    pub(crate) fn run_function(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
         debug_assert!(matches!(
             self.status(),
             JSModuleStatus::JS_MODULE_STATUS_UNLINKED

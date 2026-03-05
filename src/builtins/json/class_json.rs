@@ -23,7 +23,7 @@ fn js_json_stringify(cc: CallContext) -> JSResult {
 
     ctx.with_new_scope(|scope| -> JSResult {
         let r = scope.json_stringify(obj, replacer, space)?;
-        scope.set_return_value(r);
+        scope.set_promote_value(r);
         Ok(r)
     })
 }

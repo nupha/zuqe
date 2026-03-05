@@ -26,7 +26,7 @@ pub(crate) fn js_global_eval(cc: CallContext) -> JSResult {
             -1,
         )?;
 
-        scope.set_return_value(r);
+        scope.set_promote_value(r);
         Ok(r)
     })
 }
