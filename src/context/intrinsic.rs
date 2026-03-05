@@ -23,9 +23,8 @@ use crate::{
             js_string_proto_funcs,
         },
     },
-    context::{ContextImpl, ContextPtr},
-    error::{ErrorKind, JSResult, STD_ERROR_NAMES},
-    eval::{EvalFlags, EvalType},
+    context::ContextImpl,
+    error::{ErrorKind, STD_ERROR_NAMES},
     function::{BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
@@ -401,56 +400,7 @@ impl ContextImpl {
             .unwrap();
     }
 
-    #[deprecated]
     pub(super) fn intrinsic_eval(&mut self) {
-        // fn eval_fn(
-        //     mut ctx: ContextPtr,
-        //     this_obj: JSValue,
-        //     source: &[u8],
-        //     filename: &str,
-        //     eval_type: EvalType,
-        //     eval_flags: EvalFlags,
-        //     var_scope_idx: i32,
-        // ) -> JSResult {
-        //     let ret_val = {
-        //         ctx.with_new_scope(|scope| {
-        //             let ret = ContextImpl::eval_handler(
-        //                 scope,
-        //                 this_obj,
-        //                 source,
-        //                 filename,
-        //                 eval_type,
-        //                 eval_flags,
-        //                 var_scope_idx,
-        //             );
-
-        //             // ::promote_value() has been done inside::eval_global()
-        //             // if let Ok(v) = ret {
-        //             //     scope.promote_value(v);
-        //             //     Ok(v)
-        //             // } else {
-        //             //     ret
-        //             // }
-
-        //             ret
-        //         })
-        //     };
-
-        //     // ensure ret_val is protected
-        //     if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr())
-        //         && {
-        //             let n = unsafe { n.as_ref() };
-        //             !n.is_local() && !n.is_root()
-        //         }
-        //     {
-        //         ctx.gc_heap_mut().with_current_scope(|s| {
-        //             s.add_non_local(n);
-        //         });
-        //     }
-
-        //     ret_val
-        // }
-
         let eval_func: JSValue = self
             .create_native_function(Callback::Func(js_global_eval), "eval", 1, 0)
             .unwrap()

@@ -6,7 +6,7 @@ use std::{ops::Deref, ptr::NonNull};
 use crate::{
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextImpl, ContextPtr, ContextScope},
+    context::{ContextImpl, ContextScope},
     error::{ErrorText, JSResult},
     function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
@@ -44,18 +44,6 @@ bitflags::bitflags! {
     }
 }
 
-/// callback to handle `eval`, returns eval result.
-/// `input` is script source.
-pub(super) type EvalFn = fn(
-    ctx: ContextPtr,
-    this_obj: JSValue,
-    input: &[u8],
-    filename: &str,
-    eval_type: EvalType,
-    eval_flags: EvalFlags,
-    scope_idx: i32,
-) -> JSResult;
-
 pub(crate) enum Compiled {
     /// compiled for global or indirect mode.
     GlobalOrIndirect(Bytecode),
@@ -76,16 +64,6 @@ impl ContextImpl {
         eval_flags: EvalFlags,
         scope_idx: i32,
     ) -> Result<Compiled, i32> {
-        // let _gc_scope_for_parse = {
-        //     let pid = self.rt_ref().gc_part_id();
-        //     self.gc_heap_mut().push_gc_scope(pid);
-
-        //     let mut rt = self.rt_ptr();
-        //     crate::defer_fn!({
-        //         rt.gc_heap_mut().pop_gc_scope();
-        //     })
-        // };
-
         #[cfg(debug_assertions)]
         let _check_scope_level = {
             let l = self.gc_heap().scope_max_depth();
@@ -225,9 +203,8 @@ impl ContextImpl {
         }
     }
 
-    /// compile source, then eval it.
-    fn eval_handler(
-        ctx: &mut ContextImpl,
+    pub(super) fn eval_internal(
+        &mut self,
         this_obj: JSValue,
         source: &[u8],
         filename: &str,
@@ -235,22 +212,15 @@ impl ContextImpl {
         eval_flags: EvalFlags,
         var_scope_idx: i32,
     ) -> JSResult {
-        debug_assert!(ctx.gc_heap().scope_max_depth() > 0);
+        debug_assert!(self.gc_heap().scope_max_depth() > 0);
 
-        // #[cfg(debug_assertions)]
-        // if eval_flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
-        //     panic!(
-        //         "don't use JS_EVAL_FLAG_COMPILE_ONLY flag in eval().\nif you want compile only, use ::compile() method."
-        //     );
-        // }
-
-        let ret_val =
-            match ctx.compile_source(source, filename, eval_type, eval_flags, var_scope_idx)? {
-                Compiled::GlobalOrIndirect(bc) => bc.eval(ctx, this_obj, &[], None),
+        if self.allow_eval {
+            match self.compile_source(source, filename, eval_type, eval_flags, var_scope_idx)? {
+                Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
                 Compiled::Direct(bc) => {
-                    let mut rt = ctx.rt_ptr();
+                    let mut rt = self.rt_ptr();
                     bc.eval(
-                        ctx,
+                        self,
                         this_obj,
                         rt.current_stack_frame()
                             .unwrap()
@@ -266,40 +236,9 @@ impl ContextImpl {
                 Compiled::Module(mut md) => {
                     // Problem: m has created function? m was linked?
                     // if m has not created function, should use m.eval() instead of m.eval_func()
-                    md.eval_func(ctx).map(|p| p.into())
+                    md.eval_func(self).map(|p| p.into())
                 }
-            };
-
-        // #[cfg(debug_assertions)]
-        // if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
-        //     let n = unsafe { n.as_ref() };
-        //     debug_assert!(n.is_local() || n.is_root(), "{n:?}");
-        // }
-
-        ret_val
-    }
-
-    pub(super) fn eval_internal(
-        &mut self,
-        this_obj: JSValue,
-        source: &[u8],
-        filename: &str,
-        eval_type: EvalType,
-        eval_flags: EvalFlags,
-        var_scope_idx: i32,
-    ) -> JSResult {
-        debug_assert!(self.gc_heap().scope_max_depth() > 0);
-
-        if self.allow_eval {
-            Self::eval_handler(
-                self,
-                this_obj,
-                source,
-                filename,
-                eval_type,
-                eval_flags,
-                var_scope_idx,
-            )
+            }
         } else {
             self.throw_type_error("eval is not supported");
             Err(-1)
@@ -341,7 +280,7 @@ impl<'a> ContextScope<'a> {
             -1,
         )?;
 
-        self.promote_value(ret_val);
+        self.set_return_value(ret_val);
         Ok(ret_val)
     }
 

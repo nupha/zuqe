@@ -204,7 +204,7 @@ impl ObjectImpl {
                         bfun.execute(scope, this_obj, new_target, args, flags)
                     }?;
 
-                scope.promote_value(ret);
+                scope.set_return_value(ret);
                 Ok(ret)
             })
 

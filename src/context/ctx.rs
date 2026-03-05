@@ -23,7 +23,6 @@ use crate::{
     },
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES},
-    eval::EvalFn,
     function::{Callback, NativeFunction, js_function_proto},
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
@@ -34,8 +33,6 @@ use crate::{
     stack_frame::ExecMode,
     value::JSValue,
 };
-
-use super::ContextScope;
 
 /// An execution context, holds environment with global object, calling stack, and execution state.
 pub struct ContextImpl {
