@@ -12,7 +12,7 @@ use crate::{
 
 pub fn js_boolean_constructor(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let new_target = *cc.this();
+    let new_target = cc.this();
     let b = cc.arg(0).to_bool().unwrap_or(true);
 
     if !new_target.is_undefined() {
@@ -34,7 +34,7 @@ fn js_thisBooleanValue(mut ctx: ContextPtr, this_val: JSValue) -> JSResult {
 fn js_boolean_toString(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    match js_thisBooleanValue(ctx, *cc.this())? {
+    match js_thisBooleanValue(ctx, cc.this())? {
         JSValue::Bool(true) => Atom::CONST_true,
         JSValue::Bool(false) => Atom::CONST_false,
         _ => {
@@ -47,7 +47,7 @@ fn js_boolean_toString(cc: CallContext) -> JSResult {
 }
 
 fn js_boolean_valueOf(cc: CallContext) -> JSResult {
-    js_thisBooleanValue(cc.ctx_ptr(), *cc.this())
+    js_thisBooleanValue(cc.ctx_ptr(), cc.this())
 }
 
 pub const js_boolean_proto_funcs: &[FieldDef] = &[

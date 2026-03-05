@@ -41,18 +41,19 @@ pub(super) fn js_dataview_constructor(cc: CallContext) -> JSResult {
         None
     };
 
-    DataView::create(&mut ctx, *cc.this(), buffer, offset as _, length).map(|o| o.into())
+    DataView::create(&mut ctx, cc.this(), buffer, offset as _, length).map(|o| o.into())
 }
 
 fn js_dataview_getValue(cc: CallContext) -> JSResult {
+    let class_id = cc.magic() as ClassID;
     let mut ctx = cc.ctx_ptr();
 
-    let Some(dataview) = cc.this().as_object_DataView() else {
+    let this = cc.this();
+    let Some(dataview) = this.as_object_DataView() else {
         ctx.throw_type_error_invalid_class(JS_CLASS_DATAVIEW);
         return Err(-1);
     };
 
-    let class_id = cc.magic() as ClassID;
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
     let pos = cc.arg(0).to_index(&mut ctx)? as usize;
 
@@ -153,7 +154,7 @@ fn js_dataview_getValue(cc: CallContext) -> JSResult {
 
 fn js_dataview_setValue(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let mut this = *cc.this();
+    let mut this = cc.this();
 
     let dv = this
         .retrive_object_payload(&mut ctx, JS_CLASS_DATAVIEW)?

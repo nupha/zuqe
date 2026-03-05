@@ -20,7 +20,7 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let mut ctx = cc.ctx_ptr();
 
-    let mut new_target = *cc.this();
+    let mut new_target = cc.this();
     if new_target.is_undefined() {
         new_target = ctx.rt_ref().current_function();
     }

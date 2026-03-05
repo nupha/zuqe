@@ -414,7 +414,7 @@ impl ModuleDef {
         debug_assert!(md.eval_exception().is_none());
         debug_assert!(md.async_evaluation());
 
-        md.set_eval_exception(Some(*err_val));
+        md.set_eval_exception(Some(err_val));
         md.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
 
         for m in md.async_parent_modules.iter() {
@@ -422,7 +422,7 @@ impl ModuleDef {
             let cc = CallContext::new(
                 ctx,
                 JSValue::UNDEFINED,
-                std::slice::from_ref(err_val),
+                std::slice::from_ref(&err_val),
                 0,
                 Some(&mut data),
             );
@@ -432,7 +432,7 @@ impl ModuleDef {
         if md.promise.is_some() {
             debug_assert_eq!(md.cycle_root(), Some(md));
             let func = md.resolving_funcs[1];
-            let _ = func.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(err_val));
+            let _ = func.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
         }
 
         Ok(JSValue::UNDEFINED)

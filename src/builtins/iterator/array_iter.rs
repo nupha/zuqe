@@ -77,7 +77,7 @@ pub fn js_create_array_iterator(cc: CallContext) -> JSResult {
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 & 3) };
     let mut ctx = cc.ctx_ptr();
 
-    let this = *cc.this();
+    let this = cc.this();
 
     let (class_id, obj) = if cc.magic() & 4 != 0 {
         (

@@ -17,9 +17,9 @@ use crate::{
 fn js_json_stringify(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let obj = *cc.arg(0);
-    let replacer = *cc.arg(1);
-    let space = *cc.arg(2);
+    let obj = cc.arg(0);
+    let replacer = cc.arg(1);
+    let space = cc.arg(2);
 
     ctx.with_new_scope(|scope| -> JSResult {
         let r = scope.json_stringify(obj, replacer, space)?;
@@ -81,7 +81,7 @@ fn js_json_parse(cc: CallContext) -> JSResult {
     let mut obj = ctx.json_parse(&s.content().encode_utf8_bytes(true), "<input>", 0)?;
 
     if cc.length() > 1 && cc.arg(1).is_function() {
-        let reviver = *cc.arg(1);
+        let reviver = cc.arg(1);
         let mut root: JSValue = ctx.create_base_object()?.into();
         root.define_property_value(&mut ctx, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
         obj = internalize_json_property(ctx, root, Atom::CONST_empty_string, reviver)?;

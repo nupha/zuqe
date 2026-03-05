@@ -49,7 +49,7 @@ pub const special_reduceRight: i32 = 1;
 
 pub(crate) fn js_array_constructor(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let new_target = *cc.this();
+    let new_target = cc.this();
 
     let (mut arr, len) = if cc.length() == 1 && cc.arg(0).is_number() {
         // new Array(capacity) case
@@ -135,7 +135,7 @@ fn JS_ArraySpeciesCreate(mut ctx: ContextPtr, obj: JSValue, len_val: JSValue) ->
 
 /// check `obj[Symbol.isConcatSpreabable]` property
 #[cfg(feature = "builtin_symbol")]
-pub fn JS_isConcatSpreadable(ctx: &mut ContextImpl, obj: &JSValue) -> Result<bool, i32> {
+pub fn JS_isConcatSpreadable(ctx: &mut ContextImpl, obj: JSValue) -> Result<bool, i32> {
     if obj.is_object() {
         let s = obj.get_property(ctx, Atom::CONST_Symbol_isConcatSpreadable)?;
         if !s.is_undefined() {
@@ -213,7 +213,7 @@ fn js_array_with(cc: CallContext) -> JSResult {
             })?;
 
         // modify element
-        dst[idx as usize] = *cc.arg(1);
+        dst[idx as usize] = cc.arg(1);
         dst
     } else {
         // slow path
@@ -242,7 +242,7 @@ fn js_array_with(cc: CallContext) -> JSResult {
         }
 
         // the modified element
-        dst.push(*cc.arg(1));
+        dst.push(cc.arg(1));
 
         // idx+1..end
         for i in (idx + 1)..len {
@@ -287,7 +287,7 @@ fn js_array_concat(cc: CallContext) -> JSResult {
     let mut n = 0;
 
     for i in -1..cc.length() as i32 {
-        let v = if i < 0 { &this } else { cc.arg(i as usize) };
+        let v = if i < 0 { this } else { cc.arg(i as usize) };
 
         let spreadable: bool = {
             #[cfg(feature = "builtin_symbol")]
@@ -316,7 +316,7 @@ fn js_array_concat(cc: CallContext) -> JSResult {
                 return Err(-1);
             }
 
-            arr.define_property_value_i64(&mut ctx, n, *v, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            arr.define_property_value_i64(&mut ctx, n, v, JS_PROP_C_W_E | JS_PROP_THROW)?;
             n += 1;
         }
     }
@@ -333,7 +333,7 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
     let len: i64;
 
     if special & special_TA != 0 {
-        obj = *cc.this();
+        obj = cc.this();
         len = js_typed_array_get_length_internal(ctx, obj)? as i64;
     } else {
         obj = cc.this().objectify(&mut ctx)?.into();
@@ -342,7 +342,7 @@ pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
 
     let func = cc.arg(0);
     let this_arg = if cc.length() > 1 {
-        *cc.arg(1)
+        cc.arg(1)
     } else {
         JSValue::UNDEFINED
     };
@@ -454,7 +454,7 @@ pub(crate) fn js_array_reduce(cc: CallContext) -> JSResult {
     let obj: JSValue;
     let len: i64;
     if special & special_TA != 0 {
-        obj = *cc.this();
+        obj = cc.this();
         len = js_typed_array_get_length_internal(ctx, obj)? as i64;
     } else {
         obj = cc.this().objectify(&mut ctx)?.into();
@@ -468,7 +468,7 @@ pub(crate) fn js_array_reduce(cc: CallContext) -> JSResult {
     let mut k = 0;
 
     if cc.length() > 1 {
-        acc = *cc.arg(1);
+        acc = cc.arg(1);
     } else {
         loop {
             if k >= len {
@@ -544,7 +544,7 @@ fn js_array_fill(cc: CallContext) -> JSResult {
 
     // XXX: should special case fast arrays
     while start < end {
-        obj.set_property_i64(&mut ctx, start, *cc.arg(0))?;
+        obj.set_property_i64(&mut ctx, start, cc.arg(0))?;
         start += 1;
     }
 
@@ -561,9 +561,9 @@ fn js_array_find(cc: CallContext) -> JSResult {
     let func = cc.arg(0);
     func.ensure_function(&mut ctx)?;
 
-    let this_val = *cc.this();
+    let this_val = cc.this();
     let this_arg = if cc.length() > 1 {
-        *cc.arg(1)
+        cc.arg(1)
     } else {
         JSValue::UNDEFINED
     };
@@ -621,7 +621,7 @@ fn js_array_indexOf(cc: CallContext) -> JSResult {
             0
         };
 
-        let target = *cc.arg(0);
+        let target = cc.arg(0);
 
         // fast path: fast array
         if this.is_fast_array()
@@ -847,7 +847,7 @@ pub(crate) fn js_array_push(cc: CallContext) -> JSResult {
     }
 
     for i in 0..cc.length() {
-        obj.set_property_i64(&mut ctx, from + i as i64, *cc.arg(i))?;
+        obj.set_property_i64(&mut ctx, from + i as i64, cc.arg(i))?;
     }
 
     obj.set_property(&mut ctx, Atom::CONST_length, JSValue::from(new_len))?;
@@ -1149,7 +1149,7 @@ pub(crate) fn js_array_slice(cc: CallContext) -> JSResult {
         }
 
         for i in 0..item_count {
-            obj.set_property_i64(&mut ctx, start + i as i64, *cc.arg(i as usize + 2))?;
+            obj.set_property_i64(&mut ctx, start + i as i64, cc.arg(i as usize + 2))?;
         }
 
         obj.set_property(&mut ctx, Atom::CONST_length, JSValue::from(new_len))?;
@@ -1205,7 +1205,7 @@ fn js_array_toSpliced(cc: CallContext) -> JSResult {
             // fast array
             new_lst.extend(arr_data.values().iter().take(start as usize));
             for j in 0..add {
-                new_lst.push(*cc.arg((2 + j) as usize));
+                new_lst.push(cc.arg((2 + j) as usize));
             }
             new_lst.extend(arr_data.values().iter().skip((start + del) as usize));
         } else {
@@ -1221,7 +1221,7 @@ fn js_array_toSpliced(cc: CallContext) -> JSResult {
             }
 
             for i in 0..add {
-                new_lst.push(*cc.arg((2 + i) as usize));
+                new_lst.push(cc.arg((2 + i) as usize));
             }
 
             for i in (start + del)..len {
@@ -1285,9 +1285,9 @@ pub(crate) fn js_array_flatten(cc: CallContext) -> JSResult {
     let mut this_arg = JSValue::UNDEFINED;
 
     if map != 0 {
-        mapper_func = *cc.arg(0);
+        mapper_func = cc.arg(0);
         if cc.length() > 1 {
-            this_arg = *cc.arg(1);
+            this_arg = cc.arg(1);
         }
         mapper_func.ensure_function(&mut ctx)?;
     } else if cc.length() > 0 && !cc.arg(0).is_undefined() {
@@ -1475,12 +1475,12 @@ fn js_array_from(cc: CallContext) -> JSResult {
     let mut this_arg = JSValue::UNDEFINED;
 
     if cc.length() > 1 {
-        mapfn = *cc.arg(1);
+        mapfn = cc.arg(1);
         if !mapfn.is_undefined() {
             mapfn.ensure_function(&mut ctx)?;
             mapping = true;
             if cc.length() > 2 {
-                this_arg = *cc.arg(2);
+                this_arg = cc.arg(2);
             }
         }
     }
@@ -1581,7 +1581,7 @@ fn js_array_of(cc: CallContext) -> JSResult {
     };
 
     for i in 0..cc.length() {
-        arr.define_property_value_u32(&mut ctx, i as _, *cc.arg(i), JS_PROP_THROW)?;
+        arr.define_property_value_u32(&mut ctx, i as _, cc.arg(i), JS_PROP_THROW)?;
     }
 
     arr.set_property(

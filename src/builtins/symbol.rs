@@ -91,7 +91,7 @@ pub fn js_thisSymbolValue(ctx: &mut ContextImpl, val: JSValue) -> JSResult {
 fn js_symbol_toString(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let val = js_thisSymbolValue(&mut ctx, *cc.this())?;
+    let val = js_thisSymbolValue(&mut ctx, cc.this())?;
     // formatted as 'Symbol(XXX)'
     let repr = val.inspect(&mut ctx)?.into_bytes();
     ctx.create_string_from_utf8(repr).map(JSValue::from)
@@ -99,13 +99,13 @@ fn js_symbol_toString(cc: CallContext) -> JSResult {
 
 fn js_symbol_valueOf(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    js_thisSymbolValue(&mut ctx, *cc.this())
+    js_thisSymbolValue(&mut ctx, cc.this())
 }
 
 fn js_symbol_get_description(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    if let JSValue::Symbol(s) = js_thisSymbolValue(&mut ctx, *cc.this())? {
+    if let JSValue::Symbol(s) = js_thisSymbolValue(&mut ctx, cc.this())? {
         if s.content().is_ident() {
             Ok(JSValue::UNDEFINED)
         } else {
@@ -137,7 +137,7 @@ fn js_symbol_keyFor(cc: CallContext) -> JSResult {
         if s.atom_info().unwrap().kind() != AtomKind::GlobalSymbol {
             Ok(JSValue::UNDEFINED)
         } else {
-            Ok(JSValue::from(*s))
+            Ok(JSValue::from(s))
         }
     } else {
         ctx.throw_type_error_not_a_symbol();

@@ -5,9 +5,8 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
-    ScopedContext, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
-    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR,
-    JS_CLASS_GENERATOR_FUNCTION,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, ScopedContext,
     atom::Atom,
     class::ClassID,
     context::{ContextImpl, ContextPtr},
@@ -257,7 +256,7 @@ impl ObjectImpl {
 impl JSValue {
     /// check if value `self` is a function or a callable object.
     /// raise exception if not.
-    pub fn ensure_function(&self, ctx: &mut ContextImpl) -> Result<&Self, i32> {
+    pub fn ensure_function(self, ctx: &mut ContextImpl) -> Result<Self, i32> {
         if self.is_function() {
             Ok(self)
         } else {
@@ -332,7 +331,7 @@ impl BytecodeFunction {
 
         // XXX: add a specific eval mode so that Function("}), ({") is rejected
 
-        let new_target = *cc.this();
+        let new_target = cc.this();
         let func_kind = unsafe { std::mem::transmute::<u8, FunctionKind>(cc.magic() as u8) };
 
         //

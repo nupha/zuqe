@@ -55,10 +55,10 @@ use super::{RegExpData, RegExpStringIterPayload, make_regexp_capture_array};
 
 pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let pat = *cc.arg(0);
-    let mut flags1 = *cc.arg(1);
+    let pat = cc.arg(0);
+    let mut flags1 = cc.arg(1);
 
-    let pat_is_regexp = is_regexp(ctx, &pat)?;
+    let pat_is_regexp = is_regexp(ctx, pat)?;
 
     if cc.this().is_undefined() {
         // called as a function
@@ -111,7 +111,7 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
         RegExpData::create(&mut ctx, pattern, flags_str)?
     }));
     let mut obj = ctx
-        .create_object_from_ctor(*cc.this(), payload)
+        .create_object_from_ctor(cc.this(), payload)
         .map_err(|_| -1)?;
 
     obj.define_property_value(
@@ -135,7 +135,7 @@ fn js_get_regexp(mut ctx: ContextPtr, obj: &JSValue, throw_error: bool) -> Optio
     }
 }
 
-pub(crate) fn is_regexp(mut ctx: ContextPtr, obj: &JSValue) -> Result<bool, i32> {
+pub(crate) fn is_regexp(mut ctx: ContextPtr, obj: JSValue) -> Result<bool, i32> {
     if let JSValue::Object(o) = obj {
         let m = {
             #[cfg(feature = "builtin_symbol")]
@@ -151,7 +151,7 @@ pub(crate) fn is_regexp(mut ctx: ContextPtr, obj: &JSValue) -> Result<bool, i32>
         if !m.is_undefined() {
             m.to_bool()
         } else {
-            Ok(js_get_regexp(ctx, obj, false).is_some())
+            Ok(js_get_regexp(ctx, &obj, false).is_some())
         }
     } else {
         Ok(false)
@@ -171,7 +171,7 @@ pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
             return ctx.create_string_from_str("(?:)").map(JSValue::from);
         }
 
-        let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
+        let re = js_get_regexp(ctx, &this, true).ok_or(-1)?;
         if re.pattern.is_empty() {
             return ctx.create_string_from_str("(?:)").map(JSValue::from);
         }
@@ -240,7 +240,7 @@ pub fn js_regexp_get_flag(cc: CallContext) -> JSResult {
     let mask = RegexFlags::from_bits_truncate(cc.magic() as u32);
     let mut ctx = cc.ctx_ptr();
 
-    let this = *cc.this();
+    let this = cc.this();
     if this.is_object() {
         if let Some(re) = js_get_regexp(ctx, &this, false) {
             Ok(JSValue::Bool(!(re.flags() & mask).is_empty()))
@@ -344,7 +344,8 @@ pub fn js_regexp_toString(cc: CallContext) -> JSResult {
 fn js_regexp_compile(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let _ = js_get_regexp(ctx, cc.this(), true).ok_or(-1)?;
+    let this = cc.this();
+    let _ = js_get_regexp(ctx, &this, true).ok_or(-1)?;
 
     let pattern1 = cc.arg(0);
     let flags1 = cc.arg(1);
@@ -352,7 +353,7 @@ fn js_regexp_compile(cc: CallContext) -> JSResult {
     let pattern: StringData;
     let flags_str: StringData;
 
-    if let Some(re1) = js_get_regexp(ctx, pattern1, false) {
+    if let Some(re1) = js_get_regexp(ctx, &pattern1, false) {
         if flags1.is_undefined() {
             ctx.throw_type_error("flags must be undefined");
             return Err(-1);
@@ -379,7 +380,7 @@ fn js_regexp_compile(cc: CallContext) -> JSResult {
 
     let new_re = Box::new(RegExpData::create(&mut ctx, pattern, flags_str)?);
 
-    let mut this = *cc.this();
+    let mut this = cc.this();
     if let ObjectPayload::REGEXP(re0) = this.as_object_mut().unwrap().payload_mut() {
         // replace the regexp data of payload
         unsafe {
@@ -396,7 +397,7 @@ fn js_regexp_compile(cc: CallContext) -> JSResult {
 pub fn js_regexp_exec(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
     let str = cc.arg(0).to_string(&mut ctx)?;
-    Ok(regexp_exec_default(ctx, *cc.this(), str.gc_ref().into())?
+    Ok(regexp_exec_default(ctx, cc.this(), str.gc_ref().into())?
         .map_or(JSValue::NULL, |a| a.into()))
 }
 
@@ -406,7 +407,7 @@ pub fn js_regexp_test(cc: CallContext) -> JSResult {
 
 pub fn js_regexp_Symbol_match(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let this = *cc.this();
+    let this = cc.this();
     let str = cc.arg(0).to_string(&mut ctx)?;
 
     let flags = this
@@ -455,7 +456,7 @@ pub fn js_regexp_Symbol_match(cc: CallContext) -> JSResult {
 
 pub fn js_regexp_Symbol_matchAll(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let this = *cc.this();
+    let this = cc.this();
     let str = cc.arg(0).to_string(&mut ctx)?;
 
     // make matcher: regexp object
@@ -505,7 +506,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
         return Err(-1);
     };
     let str = cc.arg(0).to_string(&mut ctx)?;
-    let rep = *cc.arg(1);
+    let rep = cc.arg(1);
     let rep_is_func = rep.is_function();
     let rep_str: Option<StringData> = if !rep_is_func {
         Some(rep.to_string(&mut ctx)?.content().clone())
@@ -743,7 +744,8 @@ fn js_regexp_Symbol_search(cc: CallContext) -> JSResult {
 pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let Some(this_obj) = cc.this().as_object() else {
+    let this = cc.this();
+    let Some(this_obj) = this.as_object().copied() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
@@ -767,9 +769,9 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
         }
 
         let regexp_ctor = ctx.regexp_ctor;
-        let ctor = JS_SpeciesConstructor(ctx, *cc.this(), regexp_ctor)?;
+        let ctor = JS_SpeciesConstructor(ctx, this, regexp_ctor)?;
 
-        let re = ctor.call_ctor(&mut ctx, &[*cc.this(), (&flags).into()])?;
+        let re = ctor.call_ctor(&mut ctx, &[this, (&flags).into()])?;
         (Object::try_from(re).unwrap(), is_unicode)
     };
 

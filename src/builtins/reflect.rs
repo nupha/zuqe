@@ -19,7 +19,7 @@ fn js_reflect_apply(cc: CallContext) -> JSResult {
     let ctx = cc.ctx_ptr();
     let cc2 = CallContext::new(
         ctx,
-        *cc.arg(0),
+        cc.arg(0),
         if cc.length() == 0 {
             &[]
         } else {
@@ -33,8 +33,8 @@ fn js_reflect_apply(cc: CallContext) -> JSResult {
 
 fn js_reflect_construct(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let func = *cc.arg(0);
-    let array_arg = *cc.arg(1);
+    let func = cc.arg(0);
+    let array_arg = cc.arg(1);
 
     let new_target = if cc.length() > 2 {
         let target = cc.arg(2);
@@ -42,7 +42,7 @@ fn js_reflect_construct(cc: CallContext) -> JSResult {
             ctx.throw_type_error("not a constructor");
             return Err(-1);
         }
-        *target
+        target
     } else {
         func
     };
@@ -54,7 +54,7 @@ fn js_reflect_construct(cc: CallContext) -> JSResult {
 fn js_reflect_deleteProperty(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    if let JSValue::Object(mut obj) = *cc.arg(0) {
+    if let JSValue::Object(mut obj) = cc.arg(0) {
         let atom = cc.arg(1).to_atom(&mut ctx)?;
         let ret = obj.delete_property(&mut ctx, atom, 0);
         ret.map(JSValue::Bool)
@@ -66,11 +66,11 @@ fn js_reflect_deleteProperty(cc: CallContext) -> JSResult {
 
 fn js_reflect_get(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let obj = *cc.arg(0);
+    let obj = cc.arg(0);
 
     if obj.is_object() {
         let prop = cc.arg(1);
-        let receiver = if cc.length() > 2 { *cc.arg(2) } else { obj };
+        let receiver = if cc.length() > 2 { cc.arg(2) } else { obj };
         let atom = prop.to_atom(&mut ctx)?;
         obj.get_property_internal(&mut ctx, atom, receiver, false)
     } else {
@@ -97,8 +97,8 @@ fn js_reflect_set(cc: CallContext) -> JSResult {
 
     let target = cc.arg(0);
     if let Some(o) = target.as_object() {
-        let prop = *cc.arg(1);
-        let val = *cc.arg(2);
+        let prop = cc.arg(1);
+        let val = cc.arg(2);
         let receiver = if cc.length() > 3 { cc.arg(3) } else { target };
         let atom = prop.to_atom(&mut ctx)?;
 
@@ -107,7 +107,7 @@ fn js_reflect_set(cc: CallContext) -> JSResult {
             atom,
             val,
             match receiver {
-                JSValue::Object(o) => Some(*o),
+                JSValue::Object(o) => Some(o),
                 JSValue::NULL | JSValue::UNDEFINED => None,
                 _ => None,
             },
@@ -122,8 +122,8 @@ fn js_reflect_set(cc: CallContext) -> JSResult {
 
 fn js_reflect_setPrototypeOf(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let mut val = *cc.arg(0);
-    val.set_prototype_internal(&mut ctx, *cc.arg(1), false)
+    let mut val = cc.arg(0);
+    val.set_prototype_internal(&mut ctx, cc.arg(1), false)
         .map(JSValue::Bool)
 }
 

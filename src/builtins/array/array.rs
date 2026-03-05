@@ -308,7 +308,11 @@ impl Array {
     }
 
     /// sort array-like object `obj`.
-    pub fn sort(ctx: &mut ContextImpl, obj: &mut Object, cmp: Option<&JSValue>) -> Result<(), i32> {
+    pub(crate) fn sort(
+        ctx: &mut ContextImpl,
+        obj: &mut Object,
+        cmp: Option<JSValue>,
+    ) -> Result<(), i32> {
         if let Some(f) = cmp {
             f.ensure_function(ctx)?;
         }
@@ -460,7 +464,7 @@ fn sort_values_default(values: &mut [(JSValue, StringData)]) {
 fn sort_values_by(
     ctx: &mut ContextImpl,
     values: &mut [JSValue],
-    cmpfn: &JSValue,
+    cmpfn: JSValue,
 ) -> Result<(), i32> {
     let mut has_err = false;
 

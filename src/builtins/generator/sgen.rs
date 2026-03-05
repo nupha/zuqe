@@ -120,7 +120,7 @@ pub fn js_generator_next(cc: CallContext, iter_state: &mut IteratorState) -> JSR
     let mut ctx = cc.ctx_ptr();
     *iter_state = IteratorState::Done;
 
-    let mut this = *cc.this();
+    let mut this = cc.this();
     if let ObjectPayload::GENERATOR(g) =
         this.retrive_object_payload_mut(&mut ctx, JS_CLASS_GENERATOR)?
     {
@@ -141,7 +141,7 @@ pub fn js_generator_next(cc: CallContext, iter_state: &mut IteratorState) -> JSR
             GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR
             | GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD => {
                 // SP[-1] was set to JS_UNDEFINED in the previous call
-                let val = *cc.arg(0);
+                let val = cc.arg(0);
 
                 if magic == GEN_MAGIC_THROW
                     && g.state() == GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD
@@ -206,9 +206,9 @@ pub fn js_generator_next(cc: CallContext, iter_state: &mut IteratorState) -> JSR
                 // execution is finished
                 match magic {
                     GEN_MAGIC_NEXT => Ok(JSValue::UNDEFINED),
-                    GEN_MAGIC_RETURN => Ok(*cc.arg(0)),
+                    GEN_MAGIC_RETURN => Ok(cc.arg(0)),
                     GEN_MAGIC_THROW => {
-                        ctx.throw(*cc.arg(0));
+                        ctx.throw(cc.arg(0));
                         Err(-1)
                     }
                     _ => {

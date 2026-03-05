@@ -19,8 +19,8 @@ pub struct CallContext<'cc> {
     ctx: ContextPtr,
     this_value: JSValue,
     args: &'cc [JSValue],
-    magic: i32,
     data: Option<&'cc mut [JSValue]>,
+    magic: i32,
 }
 
 impl<'cc> CallContext<'cc> {
@@ -78,14 +78,8 @@ impl<'cc> CallContext<'cc> {
 
     /// get `this` value
     #[inline(always)]
-    pub const fn this(&self) -> &JSValue {
-        &self.this_value
-    }
-
-    /// get `this` value ref
-    #[inline(always)]
-    pub const fn this_mut(&mut self) -> &mut JSValue {
-        &mut self.this_value
+    pub const fn this(&self) -> JSValue {
+        self.this_value
     }
 
     /// set new `this` value, drop old `this`.
@@ -101,8 +95,8 @@ impl<'cc> CallContext<'cc> {
 
     /// get `nth` argument, fail-safe to JSValue::UNDEFINED.
     #[inline]
-    pub fn arg(&self, nth: usize) -> &JSValue {
-        self.args.get(nth).unwrap_or(&JSValue::UNDEFINED)
+    pub fn arg(&self, nth: usize) -> JSValue {
+        self.args.get(nth).copied().unwrap_or(JSValue::UNDEFINED)
     }
 
     /// get `nth` bound data.
@@ -135,7 +129,7 @@ impl<'cc> CallContext<'cc> {
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum IteratorState {
+pub(crate) enum IteratorState {
     /// iterator is not done
     NotDone,
     /// iterator is done
@@ -438,11 +432,11 @@ impl JSValue {
 pub(crate) fn js_function_apply(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let this_val = *cc.this();
+    let this_val = cc.this();
     this_val.ensure_function(&mut ctx)?;
 
-    let this_arg = *cc.arg(0);
-    let array_arg = *cc.arg(1);
+    let this_arg = cc.arg(0);
+    let array_arg = cc.arg(1);
 
     if array_arg.is_undefined_or_null() && cc.magic() != 2 {
         // magic: 0/1 normal or constructor apply

@@ -15,7 +15,7 @@ pub(crate) fn js_global_eval(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
     let global = ctx.global_obj();
-    let val = *cc.arg(0);
+    let val = cc.arg(0);
 
     ctx.with_new_scope(|scope| -> JSResult {
         let r = val.eval_object(

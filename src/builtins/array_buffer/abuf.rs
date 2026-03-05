@@ -408,14 +408,14 @@ impl ArrayBuffer {
 pub fn js_array_buffer_constructor(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
     let size = cc.arg(0).to_index(&mut ctx)? as usize;
-    ArrayBuffer::with_capacity_ex(&mut ctx, *cc.this(), false, size, std::ptr::null_mut())
+    ArrayBuffer::with_capacity_ex(&mut ctx, cc.this(), false, size, std::ptr::null_mut())
         .map(|x| x.into())
 }
 
 pub fn js_shared_array_buffer_constructor(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
     let size = cc.arg(0).to_index(&mut ctx)? as usize;
-    ArrayBuffer::with_capacity_ex(&mut ctx, *cc.this(), true, size, std::ptr::null_mut())
+    ArrayBuffer::with_capacity_ex(&mut ctx, cc.this(), true, size, std::ptr::null_mut())
         .map(|x| x.into())
 }
 

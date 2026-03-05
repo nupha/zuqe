@@ -559,7 +559,7 @@ pub(crate) fn js_create_iterator_result(
     Ok(obj.into())
 }
 
-pub(crate) fn iterator_to_array(mut ctx: ContextPtr, items: &JSValue) -> JSResult {
+pub(crate) fn iterator_to_array(mut ctx: ContextPtr, items: JSValue) -> JSResult {
     let it = items.iter(ctx)?;
     let mut arr = ctx.create_array()?;
     for (i, v) in it.enumerate() {

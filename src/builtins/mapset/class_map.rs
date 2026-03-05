@@ -21,7 +21,7 @@ pub fn js_map_constructor(cc: CallContext) -> JSResult {
     let is_weak = matches!(magic, 2 | 3);
     let mut ctx = cc.ctx_ptr();
 
-    let new_target = *cc.this();
+    let new_target = cc.this();
 
     let isa = Box::new(JSMapState::new(is_weak, 8));
     let obj = ctx
@@ -41,7 +41,7 @@ pub fn js_map_constructor(cc: CallContext) -> JSResult {
     let arr = if cc.length() > 0 {
         cc.arg(0)
     } else {
-        &JSValue::UNDEFINED
+        JSValue::UNDEFINED
     };
 
     if !arr.is_undefined_or_null() {
@@ -80,7 +80,7 @@ pub fn js_map_constructor(cc: CallContext) -> JSResult {
 pub(crate) fn js_map_get(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let key = *cc.arg(0);
+    let key = cc.arg(0);
     cc.this()
         .retrive_object_payload(&mut ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| {
@@ -95,9 +95,9 @@ pub(crate) fn js_map_set(cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let mut ctx = cc.ctx_ptr();
 
-    let mut this = *cc.this();
-    let mut key = *cc.arg(0);
-    let val = *cc.arg(1);
+    let mut this = cc.this();
+    let mut key = cc.arg(0);
+    let val = cc.arg(1);
 
     let s = this
         .retrive_object_payload_mut(&mut ctx, JS_CLASS_MAP + magic as ClassID)?
@@ -134,8 +134,8 @@ fn js_map_delete(cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let mut ctx = cc.ctx_ptr();
 
-    let this = *cc.this();
-    let mut key = *cc.arg(0);
+    let this = cc.this();
+    let mut key = cc.arg(0);
 
     let mut this2 = this;
     this2
@@ -161,7 +161,7 @@ fn js_map_delete(cc: CallContext) -> JSResult {
 
 fn js_map_has(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let key = *cc.arg(0);
+    let key = cc.arg(0);
     cc.this()
         .retrive_object_payload(&mut ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| r.mapset().unwrap().find(&ctx, key).is_some().into())
@@ -170,7 +170,7 @@ fn js_map_has(cc: CallContext) -> JSResult {
 fn js_map_clear(cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let mut ctx = cc.ctx_ptr();
-    let mut this = *cc.this();
+    let mut this = cc.this();
 
     this.retrive_object_payload_mut(&mut ctx, JS_CLASS_MAP + magic as ClassID)
         .map(|isa| {
@@ -191,11 +191,11 @@ fn js_map_forEach(cc: CallContext) -> JSResult {
     let is_set = magic & 1 == 1;
     let mut ctx = cc.ctx_ptr();
 
-    let func = *cc.arg(0);
+    let func = cc.arg(0);
     func.ensure_function(&mut ctx)?;
 
-    let this_arg = *cc.arg(1);
-    let mut this = *cc.this();
+    let this_arg = cc.arg(1);
+    let mut this = cc.this();
 
     // lock map, and ensure `this` is an object of expected class_id.
     this.retrive_object_payload_mut(&mut ctx, JS_CLASS_MAP + magic as ClassID)?
@@ -259,7 +259,7 @@ pub(crate) fn js_create_map_iterator(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
     // ensure `this` is an object of expected class_id
-    let this = *cc.this();
+    let this = cc.this();
     let _ = this.retrive_object_payload(&mut ctx, JS_CLASS_MAP + (cc.magic() & 3) as ClassID)?;
 
     // create iterator object
@@ -367,7 +367,9 @@ fn js_map_groupBy(cc: CallContext) -> JSResult {
 
     let mut groups = Vec::<(JSValue, Vec<JSValue>)>::with_capacity(16);
 
-    let it = cc.arg(0).iter(ctx)?;
+    let obj = cc.arg(0);
+    let it = obj.iter(ctx)?;
+
     for (idx, val) in it.enumerate() {
         if idx as i64 >= MAX_SAFE_INTEGER {
             ctx.throw_type_error("too many elements");

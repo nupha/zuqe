@@ -64,15 +64,15 @@ fn js_file_get_desc_mut<'a>(mut ctx: Context, obj: JSValue) -> Result<&'a mut Fi
 
 fn js_file_fileno(cc: CallContext) -> JSResult {
     let ctx = cc.context();
-    let fh = js_file_get_desc_mut(ctx, *cc.this())?;
+    let fh = js_file_get_desc_mut(ctx, cc.this())?;
     Ok(JSValue::Int(fh.as_raw_fd()))
 }
 
 fn js_file_readAsString(cc: CallContext) -> JSResult {
     let mut ctx = cc.context();
-    let fh = js_file_get_desc_mut(ctx, *cc.this())?;
+    let fh = js_file_get_desc_mut(ctx, cc.this())?;
 
-    let max_size_val = *cc.arg(0);
+    let max_size_val = cc.arg(0);
     let max_size = if !max_size_val.is_undefined() {
         Some(std::cmp::min(max_size_val.to_index(&mut ctx)?, usize::MAX as i64) as usize)
     } else {
@@ -132,7 +132,7 @@ pub(super) fn js_file_puts(cc: CallContext) -> JSResult {
     let mut ctx = cc.context();
 
     let fh = if magic == 1 {
-        js_file_get_desc_mut(ctx, *cc.this())?
+        js_file_get_desc_mut(ctx, cc.this())?
     } else {
         &mut FileDesc::Stdout
     };
@@ -168,7 +168,7 @@ pub(super) fn js_file_puts(cc: CallContext) -> JSResult {
 }
 
 fn js_file_flush(cc: CallContext) -> JSResult {
-    match js_file_get_desc_mut(cc.context(), *cc.this())? {
+    match js_file_get_desc_mut(cc.context(), cc.this())? {
         FileDesc::File(f) => {
             let _ = f.flush().inspect_err(|e| {
                 eprintln!("flush file error: {}", e);
@@ -193,7 +193,7 @@ fn js_file_flush(cc: CallContext) -> JSResult {
 fn js_file_close(cc: CallContext) -> JSResult {
     let mut ctx = cc.context();
 
-    let mut this = *cc.this();
+    let mut this = cc.this();
     let u = this
         .retrive_object_payload_mut(&mut ctx, JSFile::class_id())?
         .other_mut()

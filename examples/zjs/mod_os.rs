@@ -429,7 +429,7 @@ fn js_os_setReadHandler(cc: CallContext) -> JSResult {
     let mut ctx = cc.context();
 
     let fd = cc.arg(0).to_i32(&mut ctx)?;
-    let func = *cc.arg(1);
+    let func = cc.arg(1);
 
     if func.is_null() {
         RW_HANDLERS.with(|lut| {
@@ -468,7 +468,7 @@ fn js_os_read_write(cc: CallContext) -> JSResult {
     let pos = cc.arg(2).to_index(&mut ctx)? as u64;
     let len = cc.arg(3).to_index(&mut ctx)? as u64;
 
-    let mut buf_obj = *cc.arg(1);
+    let mut buf_obj = cc.arg(1);
     let buf = if let Some(ab) = buf_obj.as_object_ArrayBuffer_mut() {
         ab.payload_mut()
     } else {
@@ -508,7 +508,7 @@ fn js_os_signal(cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let func = *cc.arg(1);
+    let func = cc.arg(1);
 
     if func.is_undefined_or_null() {
         SIG_HANDLERS.with(|lut| lut.borrow_mut().remove(&sig_num));

@@ -29,7 +29,7 @@ pub(crate) fn js_object_toString(cc: CallContext) -> JSResult {
 }
 
 pub(crate) fn js_object_toLocaleString(mut cc: CallContext) -> JSResult {
-    let this = *cc.this();
+    let this = cc.this();
     this.invoke(cc.ctx_mut(), Atom::CONST_toString, &[])
 }
 
@@ -49,7 +49,7 @@ pub(crate) fn js_object_hasOwnProperty(cc: CallContext) -> JSResult {
 }
 
 pub(crate) fn js_object_isPrototypeOf(cc: CallContext) -> JSResult {
-    if let JSValue::Object(ctor) = *cc.arg(0) {
+    if let JSValue::Object(ctor) = cc.arg(0) {
         let mut ctx = cc.ctx_ptr();
 
         let obj = cc.this().objectify(&mut ctx)?;
@@ -100,13 +100,13 @@ pub(crate) fn js_object_getset___proto__(cc: CallContext) -> JSResult {
         Ok(p.map_or(JSValue::NULL, JSValue::Object))
     } else {
         // setter
-        let mut this_val = *cc.this();
+        let mut this_val = cc.this();
         if this_val.is_undefined_or_null() {
             ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
 
-        let proto = *cc.arg(0);
+        let proto = cc.arg(0);
         if !proto.is_object() && !proto.is_null() {
             // `proto` is neither an object nor null
             Ok(JSValue::UNDEFINED)

@@ -289,18 +289,24 @@ impl Promise {
                 ctx.throw_type_error("resolving function already set");
                 return Err(-1);
             } else {
-                let _ = cc.replace_data(i, *cc.arg(i));
+                let _ = cc.replace_data(i, cc.arg(i));
             }
         }
         Ok(JSValue::UNDEFINED)
     }
 
     /// the native callback for Promise constructor function
-    pub fn class_constructor(mut cc: CallContext) -> JSResult {
+    pub fn class_constructor(cc: CallContext) -> JSResult {
         let mut ctx = cc.ctx_ptr();
-        let this = *cc.this();
-        let executor = *cc.arg(0).ensure_function(&mut ctx)?.as_object().unwrap();
-        Promise::from_executor(cc.ctx_mut(), executor, this).map(|p| p.into())
+        let this = cc.this();
+        let executor = cc
+            .arg(0)
+            .ensure_function(&mut ctx)?
+            .as_object()
+            .copied()
+            .unwrap();
+
+        Promise::from_executor(&mut ctx, executor, this).map(|p| p.into())
     }
 
     pub fn class_init(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
@@ -408,13 +414,13 @@ pub fn js_promise_all_resolve_element(mut cc: CallContext) -> JSResult {
             } else {
                 Atom::CONST_value
             },
-            *cc.arg(0),
+            cc.arg(0),
             JS_PROP_C_W_E,
         )?;
 
         ob.into()
     } else {
-        *cc.arg(0)
+        cc.arg(0)
     };
 
     values.define_property_value_u32(&mut ctx, index as u32, obj, JS_PROP_C_W_E)?;

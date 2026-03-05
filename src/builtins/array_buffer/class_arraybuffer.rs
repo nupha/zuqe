@@ -48,8 +48,8 @@ fn js_array_buffer_slice(cc: CallContext) -> JSResult {
     let class_id = cc.magic() as ClassID;
     let mut ctx = cc.ctx_ptr();
 
-    let abuf = cc
-        .this()
+    let this = cc.this();
+    let abuf = this
         .retrive_object_payload(&mut ctx, class_id)
         .map(|isa| isa.array_buffer().unwrap())?;
 
@@ -67,7 +67,7 @@ fn js_array_buffer_slice(cc: CallContext) -> JSResult {
     };
 
     let new_len = std::cmp::max(end - start, 0);
-    let ctor = JS_SpeciesConstructor(ctx, *cc.this(), JSValue::UNDEFINED)?;
+    let ctor = JS_SpeciesConstructor(ctx, this, JSValue::UNDEFINED)?;
 
     let mut new_obj = if ctor.is_undefined() {
         ArrayBuffer::with_capacity_ex(
@@ -86,7 +86,7 @@ fn js_array_buffer_slice(cc: CallContext) -> JSResult {
         .retrive_object_payload(&mut ctx, class_id)
         .map(|isa| isa.array_buffer().unwrap())?;
 
-    if unlikely(new_obj.is_same(*cc.this())) {
+    if unlikely(new_obj.is_same(this)) {
         ctx.throw_type_error("cannot use identical ArrayBuffer");
         Err(-1)
     } else if unlikely(new_abuf.is_detached()) {

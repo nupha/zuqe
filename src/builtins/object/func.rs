@@ -17,7 +17,7 @@ use crate::{
 
 pub(crate) fn js_object_constructor(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let new_target = *cc.this();
+    let new_target = cc.this();
 
     if !new_target.is_undefined() && ctx.rt_ref().current_function() != new_target {
         ctx.create_object_from_ctor(new_target, ObjectPayload::OBJECT)
@@ -42,7 +42,7 @@ pub(crate) fn js_object_create(cc: CallContext) -> JSResult {
 
     let mut obj = ctx.create_base_object_with_proto(proto.as_object().cloned())?;
 
-    let props = *cc.arg(1);
+    let props = cc.arg(1);
     if !props.is_undefined() {
         obj.define_properties(&mut ctx, props)?;
     }
@@ -66,16 +66,16 @@ pub(crate) fn js_object_getPrototypeOf(cc: CallContext) -> JSResult {
 
 pub(crate) fn js_object_setPrototypeOf(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let mut obj = *cc.arg(0);
-    obj.set_prototype_internal(&mut ctx, *cc.arg(1), true)?;
+    let mut obj = cc.arg(0);
+    obj.set_prototype_internal(&mut ctx, cc.arg(1), true)?;
     Ok(obj)
 }
 
 pub(crate) fn js_object_defineProperty(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let prop = *cc.arg(1);
-    let desc = *cc.arg(2);
+    let prop = cc.arg(1);
+    let desc = cc.arg(2);
 
     if let Some(mut obj) = cc.arg(0).as_object().copied() {
         let atom = prop.to_atom(&mut ctx)?;
@@ -104,7 +104,7 @@ pub(crate) fn js_object_defineProperties(mut cc: CallContext) -> JSResult {
 
     let obj = cc.arg(0);
     if let Some(mut o) = obj.as_object().copied() {
-        let arg1 = *cc.arg(1);
+        let arg1 = cc.arg(1);
         o.define_properties(cc.ctx_mut(), arg1)?;
         Ok(o.into())
     } else {
@@ -116,7 +116,7 @@ pub(crate) fn js_object_defineProperties(mut cc: CallContext) -> JSResult {
 pub(crate) fn js_object_getOwnPropertyNames(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let arg0 = *cc.arg(0);
+    let arg0 = cc.arg(0);
     arg0.build_own_property_kvs_array(
         &mut ctx,
         JS_GPN_INDEX_MASK,
@@ -127,7 +127,7 @@ pub(crate) fn js_object_getOwnPropertyNames(cc: CallContext) -> JSResult {
 pub(crate) fn js_object_getOwnPropertySymbols(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let arg0 = *cc.arg(0);
+    let arg0 = cc.arg(0);
     arg0.build_own_property_kvs_array(
         &mut ctx,
         JS_GPN_SYMBOL_MASK,
@@ -181,7 +181,9 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
 
     let global = JSValue::from(ctx.global_obj());
 
-    let it = cc.arg(0).iter(ctx)?;
+    let obj = cc.arg(0);
+    let it = obj.iter(ctx)?;
+
     for (idx, val) in it.enumerate() {
         if idx >= MAX_SAFE_INTEGER as usize {
             ctx.throw_type_error("too many elements");
@@ -270,7 +272,7 @@ pub(crate) fn js_object_preventExtensions(cc: CallContext) -> JSResult {
     let reflect = cc.magic() != 0;
     let mut ctx = cc.ctx_ptr();
 
-    let arg = *cc.arg(0);
+    let arg = cc.arg(0);
     if let Some(mut obj) = arg.as_object().copied() {
         let ret = obj.prevent_extensions(&mut ctx)?;
 
@@ -297,7 +299,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(cc: CallContext) -> JSResult {
     let obj = if reflect {
         // Reflect.getOwnPropertyDescriptor
         if let JSValue::Object(p) = cc.arg(0) {
-            *p
+            p
         } else {
             ctx.throw_type_error_not_an_object();
             return Err(-1);
@@ -381,7 +383,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptors(cc: CallContext) -> JSResult {
 }
 
 pub(crate) fn js_object_is(cc: CallContext) -> JSResult {
-    Ok(JSValue::Bool(cc.arg(0).is_same(*cc.arg(1))))
+    Ok(JSValue::Bool(cc.arg(0).is_same(cc.arg(1))))
 }
 
 /// Object.assign(obj, source1)
@@ -404,7 +406,7 @@ pub(crate) fn js_object_assign(cc: CallContext) -> JSResult {
 pub(crate) fn js_object_seal(cc: CallContext) -> JSResult {
     let freeze = cc.magic() == 1;
     let mut ctx = cc.ctx_ptr();
-    let mut obj = *cc.arg(0);
+    let mut obj = cc.arg(0);
     obj.seal(&mut ctx, freeze)?;
     Ok(obj)
 }
@@ -418,8 +420,9 @@ pub(crate) fn js_object_isSealed(cc: CallContext) -> JSResult {
 pub(crate) fn js_object_fromEntries(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let mut obj = ctx.create_base_object()?;
-    let mut enum_obj = cc.arg(0).iter(ctx)?;
+    let target = cc.arg(0);
+    let mut enum_obj = target.iter(ctx)?;
+    let mut ret = ctx.create_base_object()?;
 
     while let Some(r) = enum_obj.next() {
         match r {
@@ -428,7 +431,7 @@ pub(crate) fn js_object_fromEntries(cc: CallContext) -> JSResult {
                 let value = o.get_property_u32(&mut ctx, 1)?;
 
                 let atom = key.to_atom(&mut ctx)?;
-                obj.define_property_value(&mut ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
+                ret.define_property_value(&mut ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
             }
             Ok(_) => {
                 ctx.throw_type_error_not_an_object();
@@ -443,7 +446,7 @@ pub(crate) fn js_object_fromEntries(cc: CallContext) -> JSResult {
         }
     }
 
-    Ok(obj.into())
+    Ok(ret.into())
 }
 
 pub(crate) fn js_object_hasOwn(cc: CallContext) -> JSResult {

@@ -15,7 +15,7 @@ fn js_function_call(cc: CallContext) -> JSResult {
     if cc.length() > 0 {
         cc.this().call(
             &mut ctx,
-            *cc.arg(0),
+            cc.arg(0),
             &cc.arguments()[1..], // chop first argument (thisArg)
         )
     } else {
@@ -25,13 +25,13 @@ fn js_function_call(cc: CallContext) -> JSResult {
 
 fn js_function_bind(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let this_val = *cc.this();
+    let this_val = cc.this();
 
     this_val.ensure_function(&mut ctx)?;
 
     let mut bf = Box::new(BoundFuncObjPayload {
         func_obj: this_val,
-        this_val: *cc.arg(0), // argument #0 is for `this`
+        this_val: cc.arg(0), // argument #0 is for `this`
         bind_args: Vec::new(),
     });
 
@@ -146,7 +146,7 @@ fn js_function_toString(cc: CallContext) -> JSResult {
 fn js_function_hasInstance(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
     if let Some(o) = cc.arg(0).as_object() {
-        o.ordinary_instance_of(&mut ctx, *cc.this())
+        o.ordinary_instance_of(&mut ctx, cc.this())
             .map(JSValue::Bool)
     } else {
         Ok(JSValue::Bool(false))

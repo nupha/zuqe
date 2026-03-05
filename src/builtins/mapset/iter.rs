@@ -47,7 +47,7 @@ fn js_map_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult 
     let magic = cc.magic();
 
     let is_set = magic & 1 != 0;
-    let mut this = *cc.this();
+    let mut this = cc.this();
 
     *state = IteratorState::NotDone;
 

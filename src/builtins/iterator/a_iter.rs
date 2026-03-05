@@ -68,7 +68,7 @@ impl ContextImpl {
 }
 
 fn js_async_from_sync_iterator_unwrap(mut cc: CallContext) -> JSResult {
-    let arg0 = *cc.arg(0);
+    let arg0 = cc.arg(0);
     let done = cc.data(0).to_bool()?;
     js_create_iterator_result(cc.ctx_mut(), arg0, done)
 }
@@ -143,9 +143,9 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
                 Ok(fval) => {
                     if fval.is_undefined_or_null() {
                         let (err, is_reject) = if cc.magic() == GEN_MAGIC_RETURN {
-                            (js_create_iterator_result(&mut ctx, *cc.arg(0), true)?, 0)
+                            (js_create_iterator_result(&mut ctx, cc.arg(0), true)?, 0)
                         } else {
-                            (*cc.arg(0), 1)
+                            (cc.arg(0), 1)
                         };
                         return Ok(done_resolve(
                             &mut ctx,

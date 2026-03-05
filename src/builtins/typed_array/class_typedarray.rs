@@ -87,7 +87,7 @@ pub(crate) fn js_typed_array___speciesCreate(
 
 pub fn js_typed_array_constructor(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let new_target = *cc.this();
+    let new_target = cc.this();
     let class_id = cc.magic() as ClassID;
 
     let ta = if let JSValue::Object(p) = cc.arg(0) {
@@ -134,9 +134,9 @@ pub fn js_typed_array_constructor(cc: CallContext) -> JSResult {
                 }
             };
 
-            TypedArray::create_from(ctx, new_target, (*p).into(), offset, len, class_id as _)
+            TypedArray::create_from(ctx, new_target, p.into(), offset, len, class_id as _)
         } else {
-            TypedArray::create_from(ctx, new_target, *cc.arg(0), 0, 0, class_id as _)
+            TypedArray::create_from(ctx, new_target, cc.arg(0), 0, 0, class_id as _)
         }
     } else {
         let len = cc.arg(0).to_index(&mut ctx)? as usize;
@@ -170,7 +170,7 @@ fn js_typed_array_from(cc: CallContext) -> JSResult {
     let items = cc.arg(0);
 
     let mut mapping = false;
-    let mut mapfn = &JSValue::UNDEFINED;
+    let mut mapfn = JSValue::UNDEFINED;
     let mut this_arg = JSValue::UNDEFINED;
 
     let argc = cc.length();
@@ -180,7 +180,7 @@ fn js_typed_array_from(cc: CallContext) -> JSResult {
             mapfn.ensure_function(&mut ctx)?;
             mapping = true;
             if argc > 2 {
-                this_arg = *cc.arg(2);
+                this_arg = cc.arg(2);
             }
         }
     }
@@ -208,7 +208,7 @@ fn js_typed_array_from(cc: CallContext) -> JSResult {
 
     let len = arr.get_length_prop(&mut ctx)?;
     let len_val = JSValue::from(len);
-    let mut res_ta = js_typed_array_create(cc.ctx_ptr(), *cc.this(), &[len_val])?;
+    let mut res_ta = js_typed_array_create(cc.ctx_ptr(), cc.this(), &[len_val])?;
 
     for i in 0..len {
         let mut el = arr.get_property_i64(&mut ctx, i)?;
@@ -223,9 +223,9 @@ fn js_typed_array_from(cc: CallContext) -> JSResult {
 
 fn js_typed_array_of(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let mut obj = js_typed_array_create(ctx, *cc.this(), &[JSValue::Int(cc.length() as i32)])?;
+    let mut obj = js_typed_array_create(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)])?;
     for i in 0..cc.length() {
-        obj.set_property_u32(&mut ctx, i as u32, *cc.arg(i))?;
+        obj.set_property_u32(&mut ctx, i as u32, cc.arg(i))?;
     }
     Ok(obj)
 }
@@ -243,7 +243,7 @@ pub const js_typed_array_base_funcs: &[FieldDef] = &[
 
 pub fn js_typed_array_get_length(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    TypedArray::try_from(*cc.this())
+    TypedArray::try_from(cc.this())
         .map(|p| JSValue::Int(p.length() as i32))
         .map_err(|_| {
             ctx.throw_type_error("not a TypedArray");
@@ -280,7 +280,8 @@ fn js_typed_array_getter(cc: CallContext) -> JSResult {
 fn js_typed_array_at(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let Some(ta) = cc.this().as_object_TypedArray() else {
+    let this = cc.this();
+    let Some(ta) = this.as_object_TypedArray() else {
         ctx.throw_type_error("not a TypedArray");
         return Err(-1);
     };
@@ -299,14 +300,15 @@ fn js_typed_array_at(cc: CallContext) -> JSResult {
     if unlikely(idx < 0 || idx >= len) {
         Ok(JSValue::UNDEFINED)
     } else {
-        cc.this().get_property_value(&mut ctx, JSValue::from(idx))
+        this.get_property_value(&mut ctx, JSValue::from(idx))
     }
 }
 
 fn js_typed_array_with(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let Some(ta) = cc.this().as_object_TypedArray() else {
+    let this = cc.this();
+    let Some(ta) = this.as_object_TypedArray() else {
         ctx.throw_type_error("not a TypedArray");
         return Err(-1);
     };
@@ -331,8 +333,8 @@ fn js_typed_array_with(cc: CallContext) -> JSResult {
 
 fn js_typed_array_set_internal(
     mut ctx: ContextPtr,
-    dst: &mut JSValue,
-    src: &JSValue,
+    mut dst: JSValue,
+    src: JSValue,
     offset: &JSValue,
 ) -> JSResult {
     // don't change order
@@ -428,11 +430,11 @@ fn js_typed_array_set_internal(
 
 fn js_typed_array_set(cc: CallContext) -> JSResult {
     let offset = if cc.length() > 1 {
-        *cc.arg(1)
+        cc.arg(1)
     } else {
         JSValue::UNDEFINED
     };
-    js_typed_array_set_internal(cc.ctx_ptr(), &mut cc.this().clone(), cc.arg(0), &offset)
+    js_typed_array_set_internal(cc.ctx_ptr(), cc.this(), cc.arg(0), &offset)
 }
 
 pub(crate) fn js_create_typed_array_iterator(cc: CallContext) -> JSResult {
@@ -466,7 +468,7 @@ fn js_typed_array_get_toStringTag(cc: CallContext) -> JSResult {
 fn js_typed_array_copyWithin(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let len = js_typed_array_get_length_internal(ctx, *cc.this())? as i32;
+    let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
     let to: i32 = cc.arg(0).to_i32_clamp(&mut ctx, 0, len, len)?;
     let from: i32 = cc.arg(1).to_i32_clamp(&mut ctx, 0, len, len)?;
     let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
@@ -477,7 +479,7 @@ fn js_typed_array_copyWithin(cc: CallContext) -> JSResult {
 
     let count = std::cmp::min(final_ - from, len - to);
     if count > 0 {
-        let mut tao = TypedArray::try_from(*cc.this())?;
+        let mut tao = TypedArray::try_from(cc.this())?;
         if unlikely(tao.is_detached()) {
             JS_ThrowTypeErrorDetachedArrayBuffer(&mut ctx);
             return Err(-1);
@@ -497,12 +499,12 @@ fn js_typed_array_copyWithin(cc: CallContext) -> JSResult {
         });
     }
 
-    Ok(*cc.this())
+    Ok(cc.this())
 }
 
 fn js_typed_array_fill(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let len = js_typed_array_get_length_internal(ctx, *cc.this())? as i32;
+    let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
 
     // we are sure cc.this() is a TypedArray
     let mut ta = *cc.this().as_object_TypedArray().unwrap();
@@ -630,12 +632,12 @@ fn js_typed_array_fill(cc: CallContext) -> JSResult {
 
 fn js_typed_array_find(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let this_val = *cc.this();
+    let this_val = cc.this();
     let len = js_typed_array_get_length_internal(ctx, this_val)? as i32;
     let func = cc.arg(0).ensure_function(&mut ctx)?;
 
     let this_arg = if cc.length() > 1 {
-        *cc.arg(1)
+        cc.arg(1)
     } else {
         JSValue::UNDEFINED
     };
@@ -678,9 +680,9 @@ fn js_typed_array_find(cc: CallContext) -> JSResult {
 }
 
 fn js_typed_array_reverse(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+    let ctx = cc.ctx_ptr();
 
-    let len = js_typed_array_get_length_internal(ctx, *cc.this())?;
+    let len = js_typed_array_get_length_internal(ctx, cc.this())?;
     if len > 0 {
         let mut ta = *cc.this().as_object_TypedArray().unwrap();
 
@@ -718,13 +720,13 @@ fn js_typed_array_reverse(cc: CallContext) -> JSResult {
 
         Ok(ta.into())
     } else {
-        Ok(*cc.this())
+        Ok(cc.this())
     }
 }
 
 fn js_typed_array_toReversed(mut cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let tao = TypedArray::try_from(*cc.this()).map_err(|_| {
+    let tao = TypedArray::try_from(cc.this()).map_err(|_| {
         ctx.throw_type_error("not a TypedArray");
         -1
     })?;
@@ -737,7 +739,7 @@ fn js_typed_array_toReversed(mut cc: CallContext) -> JSResult {
 fn js_typed_array_slice(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let len = js_typed_array_get_length_internal(ctx, *cc.this())?;
+    let len = js_typed_array_get_length_internal(ctx, cc.this())?;
     let start = cc.arg(0).to_i32_clamp(&mut ctx, 0, len as _, len as _)? as usize;
     let final_ = if !cc.arg(1).is_undefined() {
         cc.arg(1).to_i32_clamp(&mut ctx, 0, len as _, len as _)? as usize
@@ -745,7 +747,7 @@ fn js_typed_array_slice(cc: CallContext) -> JSResult {
         len as usize
     };
 
-    let this_val = *cc.this();
+    let this_val = cc.this();
     let count = final_.saturating_sub(start);
     let shift = TypedArray::SIZE_LOG2(cc.this().as_object().unwrap().class_id());
 
@@ -832,9 +834,9 @@ fn js_typed_array_slice(cc: CallContext) -> JSResult {
 
 fn js_typed_array_subarray(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let this_val = *cc.this();
+    let this = cc.this();
 
-    let Some(ta) = cc.this().as_object_TypedArray() else {
+    let Some(ta) = this.as_object_TypedArray().copied() else {
         ctx.throw_type_error("not a TypedArray");
         return Err(-1);
     };
@@ -856,10 +858,10 @@ fn js_typed_array_subarray(cc: CallContext) -> JSResult {
     let count = final_.saturating_sub(start);
 
     js_typed_array___speciesCreate(
-        cc.ctx_ptr(),
+        ctx,
         JSValue::UNDEFINED,
         &[
-            this_val,
+            this,
             ta.array_buffer().into(), // array buffer
             JSValue::Int(byte_offset as i32),
             JSValue::Int(count as i32),
@@ -1001,12 +1003,12 @@ fn call_cmp_fn(
 fn js_typed_array_sort(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let cmp = *cc.arg(0);
+    let cmp = cc.arg(0);
     if unlikely(!cmp.is_undefined()) {
         cmp.ensure_function(&mut ctx)?;
     }
 
-    let this_val = *cc.this();
+    let this_val = cc.this();
     let len = js_typed_array_get_length_internal(ctx, this_val)?;
 
     if len > 1 {
@@ -1035,9 +1037,7 @@ fn js_typed_array_sort(cc: CallContext) -> JSResult {
                         let mut has_error = false;
                         slice.sort_by(|a, b| {
                             if !has_error {
-                                if let Ok(r) =
-                                    call_cmp_fn(&mut ctx, cmp, $cvt(*a), $cvt(*b))
-                                {
+                                if let Ok(r) = call_cmp_fn(&mut ctx, cmp, $cvt(*a), $cvt(*b)) {
                                     r
                                 } else {
                                     has_error = true;
@@ -1116,12 +1116,9 @@ fn js_typed_array_sort(cc: CallContext) -> JSResult {
                     let mut has_error = false;
                     slice.sort_by(|a, b| {
                         if !has_error {
-                            if let Ok(r) = call_cmp_fn(
-                                &mut ctx,
-                                cmp_fn,
-                                JSValue::from(*a),
-                                JSValue::from(*b),
-                            ) {
+                            if let Ok(r) =
+                                call_cmp_fn(&mut ctx, cmp_fn, JSValue::from(*a), JSValue::from(*b))
+                            {
                                 r
                             } else {
                                 has_error = true;
@@ -1157,7 +1154,7 @@ fn js_typed_array_sort(cc: CallContext) -> JSResult {
 fn js_typed_array_toSorted(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let Some(p) = cc.this().as_object_TypedArray() else {
+    let Some(p) = cc.this().as_object_TypedArray().copied() else {
         ctx.throw_type_error("not a TypedArray");
         return Err(-1);
     };
@@ -1171,7 +1168,7 @@ fn js_typed_array_join(cc: CallContext) -> JSResult {
     let to_locale = cc.magic() != 0;
     let mut ctx = cc.ctx_ptr();
 
-    let this = *cc.this();
+    let this = cc.this();
 
     let n = js_typed_array_get_length_internal(ctx, this)?;
     let sep: String = if !to_locale && cc.length() > 0 && !cc.arg(0).is_undefined() {
@@ -1222,7 +1219,7 @@ fn js_typed_array_indexOf(cc: CallContext) -> JSResult {
     let special = cc.magic();
     let mut ctx = cc.ctx_ptr();
 
-    let len = js_typed_array_get_length_internal(ctx, *cc.this())? as i32;
+    let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
     if len == 0 {
         return Ok(if special == special_includes {
             JSValue::Bool(false)
@@ -1270,7 +1267,7 @@ fn js_typed_array_indexOf(cc: CallContext) -> JSResult {
         inc = 1;
     }
 
-    let ta = cc.this().as_object_TypedArray().unwrap();
+    let ta = *cc.this().as_object_TypedArray().unwrap();
     let mut res = -1;
 
     if ta.is_detached() {
@@ -1294,11 +1291,11 @@ fn js_typed_array_indexOf(cc: CallContext) -> JSResult {
     match cc.arg(0) {
         JSValue::Int(i) => {
             is_int = true;
-            v64 = *i as i64;
+            v64 = i as i64;
             d = v64 as f64;
         }
         JSValue::Float64(f) => {
-            d = *f;
+            d = f;
             v64 = d as i64;
             is_int = v64 as f64 == d;
         }

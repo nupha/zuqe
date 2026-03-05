@@ -174,7 +174,7 @@ fn js_load_module_internal(
 fn js_load_module_rejected(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
     let error = if cc.length() >= 1 {
-        *cc.arg(0)
+        cc.arg(0)
     } else {
         JSValue::UNDEFINED
     };

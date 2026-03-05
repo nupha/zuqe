@@ -57,7 +57,7 @@ fn js_std_open(cc: CallContext) -> JSResult {
         }
     }
 
-    let mut err_obj = *cc.arg(2);
+    let mut err_obj = cc.arg(2);
     let mut errno = 0;
 
     let fh = match opts.open(filename.content().encode_utf8(false).as_ref()) {
@@ -87,7 +87,7 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
     let mut is_async = false;
 
     if cc.length() >= 2 {
-        let options_obj = *cc.arg(1);
+        let options_obj = cc.arg(1);
 
         is_async = options_obj.get_property_str(&mut ctx, "async")?.to_bool()?;
         backtrace_barrier = options_obj

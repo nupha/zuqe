@@ -30,7 +30,7 @@ const MAGIC_ENDS_WITH: i32 = 3;
 
 pub fn js_string_constructor(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let new_target = *cc.this();
+    let new_target = cc.this();
 
     let str_val = if cc.length() == 0 {
         Atom::CONST_empty_string.force_string(&mut ctx)?
@@ -40,7 +40,7 @@ pub fn js_string_constructor(cc: CallContext) -> JSResult {
             && new_target.is_undefined()
         {
             // "Symbol(desc)"
-            JS_ConcatString3(ctx, c"Symbol(", (*s).into(), c")")?
+            JS_ConcatString3(ctx, c"Symbol(", s.into(), c")")?
         } else {
             cc.arg(0).to_string(&mut ctx)?
         }
@@ -94,7 +94,7 @@ fn js_string_at(cc: CallContext) -> JSResult {
 
 fn js_string_codePointAt(mut cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let this = *cc.this();
+    let this = cc.this();
     let s = this.to_string_non_undefined_or_null(cc.ctx_mut())?;
     let i: i32 = cc.arg(0).to_i32_saturating(&mut ctx)?;
 
@@ -118,7 +118,7 @@ fn js_string_concat(cc: CallContext) -> JSResult {
 }
 
 fn js_string_isWellFormed(mut cc: CallContext) -> JSResult {
-    let this = *cc.this();
+    let this = cc.this();
     let p = this.to_string_non_undefined_or_null(cc.ctx_mut())?;
     Ok(p.chars().is_well_formed().into())
 }
@@ -207,20 +207,20 @@ pub fn js_string_indexOf(cc: CallContext) -> JSResult {
 fn js_string_replace(cc: CallContext) -> JSResult {
     let is_replace_all = cc.magic() != 0;
     let mut ctx = cc.ctx_ptr();
-    let this = *cc.this();
+    let this = cc.this();
 
     if this.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
         return Err(-1);
     }
 
-    let search = *cc.arg(0);
-    let replacement = *cc.arg(1);
+    let search = cc.arg(0);
+    let replacement = cc.arg(1);
 
     if !search.is_undefined_or_null() {
         #[cfg(feature = "builtin_regexp")]
         if is_replace_all {
-            check_regexp_g_flag(ctx, &search)?;
+            check_regexp_g_flag(ctx, search)?;
         }
 
         #[cfg(feature = "builtin_symbol")]
@@ -339,14 +339,14 @@ fn js_string_replace(cc: CallContext) -> JSResult {
 fn js_string_split(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let this = *cc.this();
+    let this = cc.this();
     if this.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
         return Err(-1);
     }
 
     let separator = cc.arg(0);
-    let limit = *cc.arg(1);
+    let limit = cc.arg(1);
 
     #[cfg(feature = "builtin_symbol")]
     if !separator.is_undefined_or_null()
@@ -681,7 +681,7 @@ fn js_string_includes(cc: CallContext) -> JSResult {
 
 /// ensure regexp `obj` must have g flag.
 #[cfg(feature = "builtin_regexp")]
-fn check_regexp_g_flag(mut ctx: ContextPtr, obj: &JSValue) -> Result<(), i32> {
+fn check_regexp_g_flag(mut ctx: ContextPtr, obj: JSValue) -> Result<(), i32> {
     if super::regexp::is_regexp(ctx, obj)? {
         let flags = obj.get_property(&mut ctx, Atom::CONST_flags)?;
         if flags.is_undefined_or_null() {
@@ -734,18 +734,18 @@ fn js_string_match(cc: CallContext) -> JSResult {
         }
     };
 
-    let regexp_val = *cc.arg(0);
+    let regexp_val = cc.arg(0);
 
     if let JSValue::Object(o) = regexp_val {
         let func = o.get_property(&mut ctx, method_name)?;
 
         #[cfg(feature = "builtin_regexp")]
         if magic == MAGIC_MATCH_ALL {
-            check_regexp_g_flag(ctx, &regexp_val)?;
+            check_regexp_g_flag(ctx, regexp_val)?;
         }
 
         if !func.is_undefined_or_null() {
-            return func.call(&mut ctx, regexp_val, std::slice::from_ref(this));
+            return func.call(&mut ctx, regexp_val, std::slice::from_ref(&this));
         }
     }
 
@@ -789,7 +789,7 @@ fn js_string_match(cc: CallContext) -> JSResult {
 fn js_string_trim(mut cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let this = *cc.this();
+    let this = cc.this();
     let str = this.to_string_non_undefined_or_null(cc.ctx_mut())?;
     let mut s = str.content().to_buf().map_err(|_| {
         ctx.throw_out_of_memory();
@@ -832,7 +832,7 @@ pub fn string_cmp(p1: &StringImpl, p2: &StringImpl, x1: usize, x2: usize, len: u
 /// also used for String.prototype.valueOf
 fn js_string_toString(cc: CallContext) -> Result<JSValue, i32> {
     let ctx = cc.ctx_ptr();
-    js_thisStringValue(ctx, *cc.this()).map(JSValue::from)
+    js_thisStringValue(ctx, cc.this()).map(JSValue::from)
 }
 
 #[inline]
@@ -847,7 +847,7 @@ fn js_string_toLowerCase(cc: CallContext) -> JSResult {
     let to_lower = cc.magic() != 0;
     let mut ctx = cc.ctx_ptr();
 
-    let this = *cc.this();
+    let this = cc.this();
     let p = this.to_string_non_undefined_or_null(&mut ctx)?;
     if p.is_empty() {
         return Ok(p.into());
@@ -989,7 +989,7 @@ fn js_string_normalize(cc: CallContext) -> JSResult {
 // non-standard
 fn js_string__quote(mut cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let val = *cc.this();
+    let val = cc.this();
     if val.is_undefined_or_null() {
         ctx.throw_type_error("undefined or null is not allowed");
         Err(-1)

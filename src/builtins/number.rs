@@ -25,7 +25,7 @@ pub fn js_number_constructor(cc: CallContext) -> JSResult {
         cc.arg(0).to_numeric(&mut ctx)?
     };
 
-    let new_target = *cc.this();
+    let new_target = cc.this();
     if !new_target.is_undefined() {
         ctx.create_object_from_ctor(new_target, ObjectPayload::NUMBER(val))
             .map(JSValue::Object)
@@ -113,14 +113,14 @@ pub(super) fn js_parseFloat(cc: CallContext) -> JSResult {
 
 fn js_number_valueOf(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    js_thisNumberValue(&mut ctx, *cc.this())
+    js_thisNumberValue(&mut ctx, cc.this())
 }
 
 fn js_number_toString(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
     let to_locale_string = cc.magic() != 0;
-    let val = js_thisNumberValue(&mut ctx, *cc.this())?;
+    let val = js_thisNumberValue(&mut ctx, cc.this())?;
     let d: f64 = val.to_f64(&mut ctx)?;
 
     let radix = if to_locale_string || cc.arg(0).is_undefined() {
@@ -142,7 +142,7 @@ fn js_number_toString(cc: CallContext) -> JSResult {
 fn js_number_toPrecision(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let d = js_thisNumberValue(&mut ctx, *cc.this())?.to_f64(&mut ctx)?;
+    let d = js_thisNumberValue(&mut ctx, cc.this())?.to_f64(&mut ctx)?;
 
     let a0 = cc.arg(0);
     let s: Cow<str> = if a0.is_undefined() {
@@ -183,7 +183,7 @@ fn js_number_toPrecision(cc: CallContext) -> JSResult {
 
 fn js_number_toExponential(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let val = js_thisNumberValue(&mut ctx, *cc.this())?;
+    let val = js_thisNumberValue(&mut ctx, cc.this())?;
     let d: f64 = val.to_f64(&mut ctx)?;
 
     let a0 = cc.arg(0);
@@ -217,7 +217,7 @@ fn js_number_toExponential(cc: CallContext) -> JSResult {
 
 fn js_number_toFixed(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let d = js_thisNumberValue(&mut ctx, *cc.this())?.to_f64(&mut ctx)?;
+    let d = js_thisNumberValue(&mut ctx, cc.this())?.to_f64(&mut ctx)?;
     let f = cc.arg(0).to_i32_saturating(&mut ctx)?;
 
     let s = if unlikely(!(0..=100).contains(&f)) {

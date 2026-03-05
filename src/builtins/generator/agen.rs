@@ -487,7 +487,7 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
     let is_reject = cc.magic() & 1 != 0;
     let mut ctx = cc.ctx_ptr();
 
-    let arg = *cc.arg(0);
+    let arg = cc.arg(0);
     let mut data0 = *cc.data(0).as_object().unwrap();
     if let ObjectPayload::ASYNC_GENERATOR(s) = data0.payload_mut() {
         if cc.magic() >= 2 {
@@ -538,7 +538,7 @@ fn js_async_generator_next(cc: CallContext) -> JSResult {
 
     let (promise, resolving_funcs) = Promise::create(&mut ctx)?;
 
-    let mut this = *cc.this();
+    let mut this = cc.this();
     if let Ok(isa) = this.retrive_object_payload_mut(&mut ctx, JS_CLASS_ASYNC_GENERATOR) {
         let ObjectPayload::ASYNC_GENERATOR(s) = isa else {
             unreachable!()
@@ -546,7 +546,7 @@ fn js_async_generator_next(cc: CallContext) -> JSResult {
 
         let req = Box::new(JSAsyncGeneratorRequest {
             completion_type: cc.magic(),
-            result: *cc.arg(0),
+            result: cc.arg(0),
             promise: promise.into(),
             resolving_funcs,
         });

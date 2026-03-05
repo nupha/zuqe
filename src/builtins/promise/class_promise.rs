@@ -25,9 +25,9 @@ use super::{
 fn js_promise_then(mut cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let mut this = *cc.this();
+    let mut this = cc.this();
     if let Some(p) = this.as_object_Promise_mut() {
-        p.then(&mut ctx, *cc.arg(0), *cc.arg(1)).map(|p| p.into())
+        p.then(&mut ctx, cc.arg(0), cc.arg(1)).map(|p| p.into())
     } else {
         cc.ctx_mut()
             .throw_type_error_invalid_class(JS_CLASS_PROMISE);
@@ -38,11 +38,8 @@ fn js_promise_then(mut cc: CallContext) -> JSResult {
 fn js_promise_catch(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    cc.this().invoke(
-        &mut ctx,
-        Atom::CONST_then,
-        &[JSValue::UNDEFINED, *cc.arg(0)],
-    )
+    cc.this()
+        .invoke(&mut ctx, Atom::CONST_then, &[JSValue::UNDEFINED, cc.arg(0)])
 }
 
 fn js_promise_then_finally_func(cc: CallContext) -> JSResult {
@@ -74,7 +71,7 @@ fn js_promise_then_finally_func(cc: CallContext) -> JSResult {
         0, // resolve function has length=0
         cc.magic() as _,
         None,
-        Some([*cc.arg(0)].into()), // data: argument#0
+        Some([cc.arg(0)].into()), // data: argument#0
     )?
     .into();
 
@@ -85,12 +82,12 @@ fn js_promise_then_finally_func(cc: CallContext) -> JSResult {
 
 pub fn js_promise_finally(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
-    let on_finally = *cc.arg(0);
+    let on_finally = cc.arg(0);
 
     let then_funcs: [JSValue; 2] = if !on_finally.is_function() {
         [on_finally, on_finally]
     } else {
-        let ctor = JS_SpeciesConstructor(ctx, *cc.this(), JSValue::UNDEFINED)?;
+        let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
         [
             NativeFunction::create(
                 &mut ctx,
@@ -123,18 +120,18 @@ pub(crate) fn js_promise_resolve(cc: CallContext) -> JSResult {
     let is_reject = cc.magic() != 0;
     let mut ctx = cc.ctx_ptr();
 
-    let this = *cc.this();
+    let this = cc.this();
     if !this.is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
-    let arg0 = *cc.arg(0);
+    let arg0 = cc.arg(0);
 
     if !is_reject && arg0.retrive_object_payload0(JS_CLASS_PROMISE).is_some() {
         // resolve and argument #0 is Promise
         let ctor = arg0.get_property(&mut ctx, Atom::CONST_constructor)?;
-        if ctor.is_same(*cc.this()) {
+        if ctor.is_same(cc.this()) {
             return Ok(arg0);
         }
     }
@@ -155,7 +152,7 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
     let is_promise_any = cc.magic() == PROMISE_MAGIC_any;
     let mut ctx = cc.ctx_ptr();
 
-    let this = *cc.this();
+    let this = cc.this();
     if !this.is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -191,7 +188,8 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
         return fail_reject(&mut ctx);
     };
 
-    let Ok(mut it) = cc.arg(0).iter(ctx) else {
+    let obj = cc.arg(0);
+    let Ok(mut it) = obj.iter(ctx) else {
         return fail_reject(&mut ctx);
     };
     let Ok(arr) = ctx.create_array() else {
@@ -223,7 +221,7 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
     while let Some(a) = it.next() {
         if let Ok(item) = a {
             let Ok(next_promise) =
-                promise_resolve.call(&mut ctx, *cc.this(), std::slice::from_ref(&item))
+                promise_resolve.call(&mut ctx, cc.this(), std::slice::from_ref(&item))
             else {
                 return fail_reject(&mut ctx);
             };
@@ -349,7 +347,7 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
 pub fn js_promise_race(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let this = *cc.this();
+    let this = cc.this();
     if !this.is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -384,7 +382,8 @@ pub fn js_promise_race(cc: CallContext) -> JSResult {
     ) {
         fail_reject(&mut ctx)
     } else {
-        let Ok(mut it) = cc.arg(0).iter(ctx) else {
+        let obj = cc.arg(0);
+        let Ok(mut it) = obj.iter(ctx) else {
             return fail_reject(&mut ctx);
         };
 
@@ -413,7 +412,7 @@ pub fn js_promise_race(cc: CallContext) -> JSResult {
 pub fn js_promise_withResolvers(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
 
-    let this = *cc.this();
+    let this = cc.this();
     if !this.is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
