@@ -6,7 +6,7 @@ use gc_lite::GcNode;
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_TAG_INT},
-    bytecode::js_get_function_name,
+    bytecode::operators::js_get_function_name,
     context::ContextImpl,
     number::IntOrFloat,
     object::{

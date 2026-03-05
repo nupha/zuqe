@@ -19,7 +19,7 @@ use crate::{
 use super::{FunctionKind, closure::ClosureVar, var::JSVarDef};
 
 #[derive(Debug)]
-pub struct BytecodeDebugInfo {
+pub(crate) struct BytecodeDebugInfo {
     pub filename: Atom,
     pub line_num: i32,
     pub source: Option<String>,
@@ -42,7 +42,7 @@ pub const PC2LINE_OP_FIRST: i32 = 1;
 pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
 
 #[derive(Debug, Clone)]
-pub struct BytecodeAttrs {
+pub(crate) struct BytecodeAttrs {
     pub(crate) func_kind: FunctionKind,
     /// true if a prototype field is necessary
     pub(crate) has_prototype: bool,

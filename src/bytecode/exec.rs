@@ -15,11 +15,10 @@ use crate::{
     bytecode::{
         OpCode, SpecialObject,
         arithmatic::{UnaryOp, op_binary_logic},
-        js_for_of_next,
         operators::{
-            js_append_enumerate, js_for_in_next, js_for_in_start, js_has_unscopable,
-            js_iterator_get_value_done, js_method_set_properties, js_op_define_class,
-            js_operator_delete, js_operator_in, js_operator_instanceof,
+            js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next,
+            js_has_unscopable, js_iterator_get_value_done, js_method_set_properties,
+            js_op_define_class, js_operator_delete, js_operator_in, js_operator_instanceof,
         },
     },
     class::{
@@ -416,12 +415,10 @@ impl Bytecode {
                     }
                     OpCode::OBJECT => {
                         // [^] -> [obj, ^]
-                        SP_PUT!(
-                            0,
-                            realm
-                                .create_base_object()
-                                .map_or(JSValue::EXCEPTION, JSValue::Object)
-                        );
+                        let obj = realm
+                            .create_base_object()
+                            .map_or(JSValue::EXCEPTION, JSValue::Object);
+                        SP_PUT!(0, obj);
                         SP_GO!(1);
                         if unlikely(SP_REF!(-1).is_exception()) {
                             break State::Exception;
@@ -2225,7 +2222,9 @@ impl Bytecode {
                     }
                     OpCode::PRIVATE_IN => {
                         #[cfg(feature = "builtin_symbol")]
-                        if unlikely(crate::bytecode::js_operator_private_in(realm, sp).is_err()) {
+                        if unlikely(
+                            crate::bytecode::operators::js_operator_private_in(realm, sp).is_err(),
+                        ) {
                             break State::Exception;
                         } else {
                             SP_GO!(-1);
