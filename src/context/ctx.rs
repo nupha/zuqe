@@ -64,11 +64,10 @@ pub struct ContextImpl {
 
     /// 传统的全局对象（类似ES3的全局环境），存储普通的全局变量（如var声明的变量）
     /// 默认WRITABLE，权限更宽松
-    pub(crate) global_obj: JSValue, // TODO: use Object instead
-
+    pub(crate) global_obj: Option<Object>,
     /// let/const或特殊标记(DEFINE_GLOBAL_LEX_VAR)定义的变量
     /// 强调CONFIGURABLE和约束写权限, 禁止复杂属性行为（如代理式操作）
-    pub(crate) global_var_obj: JSValue, // TODO: use Object instead
+    pub(crate) global_var_obj: Option<Object>,
 
     /// Random number generator state
     pub(crate) random_state: u64,
@@ -111,10 +110,15 @@ impl GcTrace for ContextImpl {
 
         self.throw_type_error.trace(tr);
         self.eval_func.trace(tr);
-        self.global_obj.trace(tr);
-        self.global_var_obj.trace(tr);
         self.error_protos.iter().for_each(|x| x.trace(tr));
         self.loaded_modules.iter().for_each(|x| x.trace(tr));
+
+        if let Some(o) = self.global_obj.as_ref() {
+            o.trace(tr)
+        };
+        if let Some(o) = self.global_var_obj.as_ref() {
+            o.trace(tr)
+        };
 
         // pending jobs
         self.job_list.iter().for_each(|x| x.trace(tr));
@@ -163,8 +167,8 @@ impl ContextImpl {
             throw_type_error: JSValue::UNDEFINED,
             eval_func: JSValue::UNDEFINED,
 
-            global_obj: JSValue::UNDEFINED,
-            global_var_obj: JSValue::UNDEFINED,
+            global_obj: None,
+            global_var_obj: None,
 
             random_state: 0,
             interrupt_counter: Cell::new(0),
@@ -217,13 +221,27 @@ impl ContextImpl {
     /// get global object
     #[inline(always)]
     pub fn global_obj(&self) -> Object {
-        unsafe { *self.global_obj.as_object_unchecked() }
+        #[cfg(debug_assertions)]
+        {
+            self.global_obj.unwrap()
+        }
+        #[cfg(not(debug_assertions))]
+        unsafe {
+            self.global_obj.unwrap_unchecked()
+        }
     }
 
     /// get global var object
     #[inline(always)]
     pub fn global_var_obj(&self) -> Object {
-        unsafe { *self.global_var_obj.as_object_unchecked() }
+        #[cfg(debug_assertions)]
+        {
+            self.global_var_obj.unwrap()
+        }
+        #[cfg(not(debug_assertions))]
+        unsafe {
+            self.global_var_obj.unwrap_unchecked()
+        }
     }
 
     /// initialize random state
@@ -364,8 +382,8 @@ impl ContextImpl {
         self.async_iterator_proto.take();
         self.array_proto_values = JSValue::UNDEFINED;
         self.throw_type_error = JSValue::UNDEFINED;
-        self.global_obj = JSValue::UNDEFINED;
-        self.global_var_obj = JSValue::UNDEFINED;
+        self.global_obj.take();
+        self.global_var_obj.take();
         self.eval_func = JSValue::UNDEFINED;
     }
 }
@@ -589,13 +607,17 @@ impl RuntimeImpl {
                 // Note: in case of exception, ContextImpl node will be purged in mark-sweep.
                 {
                     let mut ctx = Context::from(gc_ref);
-                    // make global namespace
-                    ctx.global_obj = ctx.create_base_object()?.into();
-                    // make global var object
-                    ctx.global_var_obj = ctx.create_base_object_with_proto(None)?.into();
 
-                    // don't change order
+                    // DON'T CHANGE FOLLOWING ORDER
+
+                    // base object must be initialized before creating global
                     ctx.init_core_objects()?;
+                    // make global namespace
+                    ctx.global_obj = Some(ctx.create_base_object()?);
+                    // make global var object
+                    ctx.global_var_obj = Some(ctx.create_base_object_with_proto(None)?);
+
+                    // user initialization
                     setup(ctx)?;
                 }
 
