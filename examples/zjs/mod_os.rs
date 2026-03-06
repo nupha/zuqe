@@ -374,10 +374,11 @@ fn js_os_poll(mut ctx: Context) -> bool {
 
     for f in callbacks {
         if f.call(&mut ctx, JSValue::UNDEFINED, &[]).is_err() {
-            eprintln!(
-                "read handler error: {}",
-                ctx.rt_ref().exception().to_string(&mut ctx).unwrap()
-            );
+            // read handler error
+            // eprintln!(
+            //     "read handler error: {}",
+            //     ctx.rt_ref().exception().to_string(&mut ctx).unwrap()
+            // );
             break;
         }
     }
