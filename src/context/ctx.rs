@@ -445,26 +445,48 @@ impl<'a> From<GcRef<ContextImpl>> for Context<'a> {
 impl<'a> Context<'a> {
     pub const ECMA_CONTEXT_SETUP: fn(Context) -> Result<(), i32> =
         |mut ctx: Context| -> Result<(), i32> {
-            // define name `globalThis` and `global`
-            let mut gobj = ctx.global_obj();
-            let val = JSValue::from(gobj);
+            // setup global namespace
+            {
+                let mut gobj = ctx.global_obj();
 
-            gobj.define_property_value(
-                &mut ctx,
-                Atom::CONST_globalThis,
-                val,
-                JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-            )?;
-            gobj.define_property_value(
-                &mut ctx,
-                Atom::CONST_global,
-                val,
-                JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-            )?;
+                // define name `globalThis` and `global`
+                let val = JSValue::from(gobj);
+                gobj.define_property_value(
+                    &mut ctx,
+                    Atom::CONST_globalThis,
+                    val,
+                    JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+                )?;
+                gobj.define_property_value(
+                    &mut ctx,
+                    Atom::CONST_global,
+                    val,
+                    JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+                )?;
+
+                // global funcs
+                gobj.install_fields(&mut ctx, js_global_props)?;
+
+                // Reflect: lazy init
+                #[cfg(feature = "builtin_reflect")]
+                gobj.install_fields(&mut ctx, crate::builtins::reflect::js_reflect_obj)?;
+
+                // JSON: lazy init
+                #[cfg(feature = "builtin_json")]
+                gobj.install_fields(&mut ctx, crate::builtins::json::js_json_obj)?;
+
+                // Math: lazy init
+                #[cfg(feature = "builtin_math")]
+                {
+                    ctx.init_random_seed();
+                    gobj.install_fields(&mut ctx, crate::builtins::math::js_math_obj)?;
+                }
+            }
 
             //
             // init intrinsic base classes
             //
+
             ctx.intrinsic_base_object(); // Object
             ctx.intrinsic_base_function(); // Function
             ctx.intrinsic_base_errors(); // Error
@@ -522,26 +544,6 @@ impl<'a> Context<'a> {
             use_classes.push(crate::JS_CLASS_DATE);
 
             ctx.use_classes(&use_classes)?;
-
-            // setup global
-            {
-                gobj.install_fields(&mut ctx, js_global_props)?;
-
-                // Reflect: lazy init
-                #[cfg(feature = "builtin_reflect")]
-                gobj.install_fields(&mut ctx, crate::builtins::reflect::js_reflect_obj)?;
-
-                // JSON: lazy init
-                #[cfg(feature = "builtin_json")]
-                gobj.install_fields(&mut ctx, crate::builtins::json::js_json_obj)?;
-
-                // Math: lazy init
-                #[cfg(feature = "builtin_math")]
-                {
-                    ctx.init_random_seed();
-                    gobj.install_fields(&mut ctx, crate::builtins::math::js_math_obj)?;
-                }
-            }
 
             Ok(())
         };
