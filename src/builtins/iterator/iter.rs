@@ -254,7 +254,8 @@ impl<'a> ObjectIter<'a> {
         })
     }
 
-    /// calling `method` on `enum_obj` to iterate next value
+    /// calling `method` on `enum_obj` to iterate next value.
+    /// retrived value must be an object, otherwise TypeError will be raised.
     pub(super) fn apply_next(
         mut ctx: ContextPtr,
         enum_obj: Object,
@@ -269,11 +270,13 @@ impl<'a> ObjectIter<'a> {
             let cc = CallContext::new(ctx, enum_obj.into(), args, nfun.magic as _, None);
             let mut state = IteratorState::NotDone;
             let ret = f(cc, &mut state)?;
+
+            debug_assert!(ret.is_object());
             return Ok((ret, state));
         }
 
         // generic case: call `method`
-        if let JSValue::Object(o) = method.call(&mut ctx, JSValue::Object(enum_obj), args)? {
+        if let JSValue::Object(o) = method.call(&mut ctx, enum_obj.into(), args)? {
             Ok((o.into(), IteratorState::NotParsed))
         } else {
             ctx.throw_type_error("iterator must return an object");
@@ -317,6 +320,8 @@ impl<'a> ObjectIter<'a> {
         obj: Object,
         has_exception: bool,
     ) -> Result<(), i32> {
+        debug_assert!(ctx.gc_heap().scope_max_depth() > 0);
+
         let pending_exc = if has_exception {
             ctx.rt_mut().take_exception()
         } else {
@@ -325,13 +330,8 @@ impl<'a> ObjectIter<'a> {
 
         // prevent pending_exc from being collected
         {
-            debug_assert!(ctx.gc_heap().scope_max_depth() > 0);
-
             if let Some(n) = pending_exc.gc_node_ptr()
-                && unsafe {
-                    let n = n.as_ref();
-                    !n.is_local() && !n.is_root()
-                }
+                && unsafe { !n.as_ref().is_root_or_local() }
             {
                 // add to current scope to protect it.
                 ctx.gc_heap_mut().with_current_scope(|s| {
@@ -342,24 +342,21 @@ impl<'a> ObjectIter<'a> {
 
         if let Ok(method) = obj.get_property(ctx, Atom::CONST_return) {
             if !method.is_undefined_or_null() {
-                let ret = method.call(ctx, obj.into(), &[])?;
-                if pending_exc.is_undefined_or_null() && !ret.is_object() {
+                let ret = method.call(ctx, obj.into(), &[]);
+                if !has_exception && !ret?.is_object() {
                     ctx.throw_type_error_not_an_object();
                     return Err(-1);
                 }
             }
+        } else if !has_exception {
+            return Err(-1);
+        }
 
-            if !pending_exc.is_undefined_or_null() {
-                ctx.throw(pending_exc);
-                Err(-1)
-            } else {
-                Ok(())
-            }
-        } else {
-            if !pending_exc.is_undefined_or_null() {
-                ctx.throw(pending_exc);
-            }
+        if has_exception {
+            ctx.throw(pending_exc);
             Err(-1)
+        } else {
+            Ok(())
         }
     }
 

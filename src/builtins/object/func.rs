@@ -440,6 +440,7 @@ pub(crate) fn js_object_fromEntries(cc: CallContext) -> JSResult {
             Err(_) => {
                 // fail calling next()
                 // close the iterator object, preserving pending exception
+                debug_assert!(!enum_obj.done);
                 let _ = enum_obj.close(true);
                 return Err(-1);
             }

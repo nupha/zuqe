@@ -50,11 +50,11 @@ pub struct ContextImpl {
 
     pub(crate) function_ctor: JSValue,
     pub(crate) array_ctor: JSValue,
-    #[cfg(feature = "builtin_regexp")]
-    pub(crate) regexp_ctor: JSValue,
     pub(crate) promise_ctor: JSValue,
     pub(crate) iterator_proto: Option<Object>,
     pub(crate) async_iterator_proto: Option<Object>,
+    #[cfg(feature = "builtin_regexp")]
+    pub(crate) regexp_ctor: JSValue,
 
     pub(crate) throw_type_error: JSValue,
     pub(crate) array_proto_values: JSValue,
@@ -220,7 +220,7 @@ impl ContextImpl {
 
     /// get global object
     #[inline(always)]
-    pub fn global_obj(&self) -> Object {
+    pub const fn global_obj(&self) -> Object {
         #[cfg(debug_assertions)]
         {
             self.global_obj.unwrap()
@@ -233,7 +233,7 @@ impl ContextImpl {
 
     /// get global var object
     #[inline(always)]
-    pub fn global_var_obj(&self) -> Object {
+    pub const fn global_var_obj(&self) -> Object {
         #[cfg(debug_assertions)]
         {
             self.global_var_obj.unwrap()
