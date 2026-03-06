@@ -151,7 +151,7 @@ impl RuntimeImpl {
     /// Same `str` will return the matched existing atom.
     fn register_atom(&mut self, str: StringRef, mut atom_kind: AtomKind) -> Result<Atom, i32> {
         // match for existing atoms, don't register twice for same content.
-        let (mut desc_str, hash): (StringRef, u32) = match atom_kind {
+        let (desc_str, hash): (StringRef, u32) = match atom_kind {
             #[cfg(feature = "builtin_symbol")]
             AtomKind::String | AtomKind::GlobalSymbol => {
                 debug_assert!(!str.content().is_ident());
@@ -194,9 +194,9 @@ impl RuntimeImpl {
                                     .as_ref()
                                     .unwrap();
                                 let at = ds.atom_info().unwrap();
+
                                 if at.kind() == atom_kind && ss.eq(ds) {
-                                    // found existing atom, reuse it.
-                                    return Ok(Atom(at.id()));
+                                    return Ok(Atom(at.id())); // found existing atom, reuse it.
                                 }
                             }
                         }
@@ -216,8 +216,7 @@ impl RuntimeImpl {
                         return Ok(Atom(at.id()));
                     }
 
-                    // make new string with same content under given runtime,
-                    // without atom info
+                    // make new string with same content under given runtime, without atom info
                     str.copy_to_new(self.into())?
                 } else {
                     str
@@ -239,13 +238,13 @@ impl RuntimeImpl {
                                     return Ok(Atom(id));
                                 }
                             } else {
-                                let d = a_reg.user_atoms[id as usize - ATOM_USER_BASE_ID as usize]
+                                let ds = a_reg.user_atoms[id as usize - ATOM_USER_BASE_ID as usize]
                                     .as_ref()
                                     .unwrap();
-                                let at = d.str.atom_info().unwrap();
-                                if at.kind() == atom_kind && d.str == ss {
-                                    // found existing atom, reuse it.
-                                    return Ok(Atom(at.id()));
+
+                                let at = ds.str.atom_info().unwrap();
+                                if at.kind() == atom_kind && ds.str == ss {
+                                    return Ok(Atom(at.id())); // found existing atom, reuse it.
                                 }
                             }
                         }
@@ -283,7 +282,6 @@ impl RuntimeImpl {
         };
 
         debug_assert!(desc_str.atom_info().is_none());
-        // desc_str = desc_str.copy_to_new(self.into())?;
 
         if self.atom_registry.hash_lut.len() == self.atom_registry.hash_lut.capacity() {
             self.atom_registry
@@ -314,11 +312,11 @@ impl RuntimeImpl {
         };
 
         match self.atom_registry.hash_lut.entry(hash) {
-            Entry::Vacant(kv) => {
-                kv.insert(vec![atom_id]);
-            }
             Entry::Occupied(kv) => {
                 kv.into_mut().push(atom_id);
+            }
+            Entry::Vacant(kv) => {
+                kv.insert(vec![atom_id]);
             }
         }
 
