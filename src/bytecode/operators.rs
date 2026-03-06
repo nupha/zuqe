@@ -19,7 +19,7 @@ use crate::{
         JS_PROP_WRITABLE, Object,
     },
     stack_frame::StackFrame,
-    string::{JS_ConcatString3, LocalString},
+    string::{JS_ConcatString3, StringRef},
     utils::unlikely,
     value::JSValue,
 };
@@ -212,7 +212,7 @@ pub(super) fn js_has_unscopable(
     Ok(false)
 }
 
-pub(crate) fn js_get_function_name(mut ctx: ContextPtr, name: Atom) -> Result<LocalString, i32> {
+pub(crate) fn js_get_function_name(mut ctx: ContextPtr, name: Atom) -> Result<StringRef, i32> {
     let name_str = name.force_string(&mut ctx)?;
     if name.is_normal_desc_string(ctx.rt_ref()) {
         JS_ConcatString3(ctx, c"[", JSValue::from(name_str.gc_ref()), c"]")

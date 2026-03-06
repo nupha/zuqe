@@ -303,7 +303,7 @@ impl ContextImpl {
                 err.define_property_value(
                     self,
                     Atom::CONST_message,
-                    JSValue::from(&msg),
+                    JSValue::from(msg),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
                 .unwrap();

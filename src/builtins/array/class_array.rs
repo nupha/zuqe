@@ -22,7 +22,7 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, Object, ObjectPayload},
     runtime::js_check_stack_overflow,
-    string::{LocalString, StringBuf},
+    string::{StringBuf, StringRef},
     value::JSValue,
 };
 
@@ -731,7 +731,7 @@ pub(crate) fn js_array_join(cc: CallContext) -> JSResult {
     let len = obj.get_length_prop(&mut ctx)?;
 
     let mut c = b',' as i32; // default separator
-    let mut p: Option<LocalString> = None;
+    let mut p: Option<StringRef> = None;
 
     if !to_locale_string && cc.length() > 0 && !cc.arg(0).is_undefined() {
         let sep = cc.arg(0).to_string(&mut ctx)?;
@@ -759,10 +759,10 @@ pub(crate) fn js_array_join(cc: CallContext) -> JSResult {
 
         let el = obj.get_property_i64(&mut ctx, i)?;
         if !el.is_undefined_or_null() {
-            let ss: LocalString = if to_locale_string {
+            let ss: StringRef = if to_locale_string {
                 el.to_locale_string(&mut ctx)?.to_string(&mut ctx)?
             } else if let JSValue::String(s) = el {
-                s.to_local()
+                s
             } else {
                 el.to_string(&mut ctx)?
             };

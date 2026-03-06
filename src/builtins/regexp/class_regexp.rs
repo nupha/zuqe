@@ -734,13 +734,13 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
             .to_string(&mut ctx)?;
         let is_unicode = flags.index_of_char('u', 0).is_some();
         if flags.index_of_char('y', 0).is_none() {
-            flags = JS_ConcatString3(ctx, c"", (&flags).into(), c"y")?;
+            flags = JS_ConcatString3(ctx, c"", flags.into(), c"y")?;
         }
 
         let regexp_ctor = ctx.regexp_ctor;
         let ctor = JS_SpeciesConstructor(ctx, this, regexp_ctor)?;
 
-        let re = ctor.call_ctor(&mut ctx, &[this, (&flags).into()])?;
+        let re = ctor.call_ctor(&mut ctx, &[this, flags.into()])?;
         (Object::try_from(re).unwrap(), is_unicode)
     };
 
@@ -756,7 +756,7 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
         if regexp_exec(ctx, splitter.into(), str.gc_ref().into())?.is_none() {
             // not match: add tail, must be an empty str
             let emp_str_val =
-                JSValue::from(&Atom::CONST_empty_string.force_string(&mut ctx).unwrap());
+                JSValue::from(Atom::CONST_empty_string.force_string(&mut ctx).unwrap());
             arr.define_property_value_u32(&mut ctx, idx as u32, emp_str_val, prop_flags)?;
         }
         return Ok(arr.into());
@@ -793,7 +793,7 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
                 arr.define_property_value_u32(
                     &mut ctx,
                     idx as u32,
-                    JSValue::from(&sub),
+                    JSValue::from(sub),
                     prop_flags,
                 )?;
                 idx += 1;

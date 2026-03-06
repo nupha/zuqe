@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     object::JS_PROP_CONFIGURABLE,
-    string::{LocalString, StringData, StringRef},
+    string::{StringData, StringRef},
     value::JSValue,
 };
 
@@ -30,7 +30,7 @@ impl ContextImpl {
                 self.throw_out_of_memory();
                 -1
             })?;
-            Atom::from_string_as_is(self.rt_ptr(), (&s).into(), atom_kind)?
+            Atom::from_string_as_is(self.rt_ptr(), s, atom_kind)?
         };
 
         let sym = JSValue::Symbol(atom.descriptor(self.rt_ref()));
@@ -66,12 +66,12 @@ pub fn js_symbol_constructor(cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let str: Option<LocalString> = if cc.arg(0).is_undefined() {
+    let str: Option<StringRef> = if cc.arg(0).is_undefined() {
         None
     } else {
         Some(cc.arg(0).to_string(&mut ctx)?)
     };
-    ctx.create_symbol(str.map(|s| (&s).into()), AtomKind::Symbol)
+    ctx.create_symbol(str.map(|s| s), AtomKind::Symbol)
 }
 
 //
@@ -128,7 +128,7 @@ pub const js_symbol_proto_funcs: &[FieldDef] = &[
 fn js_symbol_for(cc: CallContext) -> JSResult {
     let mut ctx = cc.ctx_ptr();
     let s = cc.arg(0).to_string(&mut ctx)?;
-    ctx.create_symbol(Some((&s).into()), AtomKind::GlobalSymbol)
+    ctx.create_symbol(Some(s), AtomKind::GlobalSymbol)
 }
 
 fn js_symbol_keyFor(cc: CallContext) -> JSResult {

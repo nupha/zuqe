@@ -4,21 +4,21 @@
 use smallvec::SmallVec;
 
 use crate::{
-    ScopedContext, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
+    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext,
     atom::Atom,
     builtins::iterator::JSIteratorKindEnum,
     error::JSResult,
     object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E},
-    string::{LocalString, StringBuf, StringData, StringRef},
+    string::{StringBuf, StringData, StringRef},
     value::JSValue,
 };
 
 struct JSONStringifyContext {
     replacer_func: JSValue,
-    replacer_props: Option<Vec<LocalString>>,
+    replacer_props: Option<Vec<StringRef>>,
     stack: SmallVec<[JSValue; 16]>,
     gap: StringData,
-    empty: LocalString,
+    empty: StringRef,
     buf: StringBuf,
 }
 
@@ -43,14 +43,14 @@ impl<'a> ScopedContext<'a> {
         } else if replacer.is_array(self)? {
             let n = replacer.get_length_prop(self)?;
 
-            let mut keylst = Vec::<LocalString>::new();
+            let mut keylst = Vec::<StringRef>::new();
             keylst.try_reserve_exact(n as usize).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })?;
 
             for i in 0..n {
-                let k: LocalString = match replacer.get_property_i64(self, i)? {
+                let k: StringRef = match replacer.get_property_i64(self, i)? {
                     JSValue::Object(o) => {
                         if matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
                             JSValue::Object(o).to_string(self)?
@@ -58,7 +58,7 @@ impl<'a> ScopedContext<'a> {
                             continue; // symbols are ignored
                         }
                     }
-                    JSValue::String(s) => s.to_local(),
+                    JSValue::String(s) => s,
                     v if v.is_number() => v.to_string(self)?,
                     _ => {
                         continue; // ignored
@@ -114,8 +114,7 @@ impl<'a> ScopedContext<'a> {
         let mut wrapper: JSValue = self.create_base_object()?.into();
         wrapper.define_property_value(self, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
 
-        let empty = &jsc.empty;
-        let val = js_json_check(self, &jsc, wrapper, obj, empty.into())?;
+        let val = js_json_check(self, &jsc, wrapper, obj, jsc.empty)?;
         if val.is_undefined() {
             return Ok(JSValue::UNDEFINED);
         }
@@ -271,7 +270,7 @@ fn js_json_to_str(
 
                     let nth = ctx.create_string_from_str(&format!("{i}"))?;
                     let prop_val = val.get_property_i64(ctx, i)?;
-                    let mut v = js_json_check(ctx, jsc, val, prop_val, (&nth).into())?;
+                    let mut v = js_json_check(ctx, jsc, val, prop_val, nth)?;
                     if v.is_undefined() {
                         v = JSValue::NULL;
                     }
@@ -293,7 +292,7 @@ fn js_json_to_str(
                     // because jsc will be borrowed mut later.
                     // guarantee `replacer_props` won't be modified in this function
                     let lst = unsafe { std::slice::from_raw_parts(lst.as_ptr(), lst.len()) };
-                    lst.iter().map(|x| x.to_ref()).collect::<Vec<_>>().into()
+                    lst.iter().cloned().collect::<Vec<_>>().into()
                 } else {
                     // query own property names.
                     let kvs = val.get_own_property_kvs(

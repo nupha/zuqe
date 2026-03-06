@@ -6,7 +6,7 @@ use std::ops::Deref;
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
     JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom, context::ContextImpl, number::f64_stringify,
-    object::ObjectImpl, string::LocalString,
+    object::ObjectImpl, string::StringRef,
 };
 
 use super::JSValue;
@@ -79,14 +79,14 @@ impl ObjectImpl {
     }
 
     pub fn inspect(&self, ctx: &mut ContextImpl) -> Result<String, i32> {
-        let tag: LocalString;
+        let tag: StringRef;
 
         #[cfg(feature = "builtin_symbol")]
         {
             tag = if let JSValue::String(s) =
                 self.get_property(ctx, Atom::CONST_Symbol_toStringTag)?
             {
-                s.to_local()
+                s
             } else {
                 self.string_tag(ctx).and_then(|a| a.force_string(ctx))?
             };

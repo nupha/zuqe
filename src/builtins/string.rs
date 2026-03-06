@@ -3,7 +3,6 @@
 
 use std::ops::Deref;
 
-use gc_lite::GcNode;
 #[cfg(feature = "all_unicode")]
 use unicode_normalization::UnicodeNormalization;
 
@@ -15,8 +14,8 @@ use crate::{
     function::{CallContext, FieldDef, IteratorState},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
     string::{
-        CharCode, CharCodeDecoder, JS_ConcatString3, JS_STRING_LEN_MAX, LocalString, StringBuf,
-        StringData, StringImpl, StringRef, Utf16Stream,
+        CharCode, CharCodeDecoder, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringData,
+        StringImpl, StringRef, Utf16Stream,
     },
     value::JSValue,
 };
@@ -499,7 +498,7 @@ fn js_string_pad(cc: CallContext) -> JSResult {
     }
     ttl_len -= len;
 
-    let mut fill_str: Option<LocalString> = None;
+    let mut fill_str: Option<StringRef> = None;
     let mut fill_char = CharCode::Char(' ');
 
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
@@ -775,7 +774,7 @@ fn js_string_match(cc: CallContext) -> JSResult {
         regexp_obj.invoke(
             &mut ctx,
             method_name,
-            std::slice::from_ref(&JSValue::from(&s)),
+            std::slice::from_ref(&JSValue::from(s)),
         )
     }
 

@@ -6,7 +6,7 @@ use crate::{
     error::JSResult,
     function::{BoundFuncObjPayload, CallContext, FieldDef, FunctionKind, js_function_apply},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
-    string::{JS_ConcatString3, LocalString},
+    string::{JS_ConcatString3, StringRef},
     value::JSValue,
 };
 
@@ -90,8 +90,8 @@ fn js_function_bind(cc: CallContext) -> JSResult {
     func_obj.define_property_value(&mut ctx, Atom::CONST_length, len_val, JS_PROP_CONFIGURABLE)?;
 
     let name = cc.this().get_property(&mut ctx, Atom::CONST_name)?;
-    let name: LocalString = if let JSValue::String(s) = name {
-        s.to_local()
+    let name: StringRef = if let JSValue::String(s) = name {
+        s
     } else {
         Atom::CONST_empty_string.force_string(&mut ctx)?
     };

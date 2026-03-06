@@ -14,7 +14,7 @@ use crate::{
     atom::{is_const_atom, is_small_int_atom},
     number::parse_u32,
     runtime::RuntimePtr,
-    string::{LocalString, StringData, StringImpl, StringRef},
+    string::{StringData, StringImpl, StringRef},
     utils::hash_u32_from_base,
 };
 
@@ -151,7 +151,7 @@ impl RuntimeImpl {
     /// Same `str` will return the matched existing atom.
     fn register_atom(&mut self, str: StringRef, mut atom_kind: AtomKind) -> Result<Atom, i32> {
         // match for existing atoms, don't register twice for same content.
-        let (mut desc_str, hash): (LocalString, u32) = match atom_kind {
+        let (mut desc_str, hash): (StringRef, u32) = match atom_kind {
             #[cfg(feature = "builtin_symbol")]
             AtomKind::String | AtomKind::GlobalSymbol => {
                 debug_assert!(!str.content().is_ident());
@@ -165,7 +165,7 @@ impl RuntimeImpl {
                     // make new string with same content under given runtime, without atom info
                     str.copy_to_new(self.into())?
                 } else {
-                    StringImpl::to_local(&str)
+                    str
                 };
 
                 let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
@@ -258,17 +258,17 @@ impl RuntimeImpl {
             #[cfg(feature = "builtin_symbol")]
             AtomKind::Symbol | AtomKind::Private => {
                 // these atom types are distinct, even they have same string content.
-                let ss: LocalString = if str.content().is_ident() {
+                let ss: StringRef = if str.content().is_ident() {
                     debug_assert_eq!(
                         atom_kind,
                         AtomKind::Symbol,
                         "ident string type is only for anonymous symbol"
                     );
-                    StringImpl::to_local(&str)
+                    str
                 } else if str.atom_info().is_some() {
                     str.copy_to_new(self.into())? // clone content as a new jsstring
                 } else {
-                    StringImpl::to_local(&str)
+                    str
                 };
 
                 let hash = if atom_kind == AtomKind::Symbol {
@@ -462,7 +462,7 @@ impl Atom {
             Ok(Self::new_small_int(i))
         } else {
             let s = StringRef::create_str(rt, str)?;
-            Self::from_string(rt, (&s).into(), kind)
+            Self::from_string(rt, s, kind)
         }
     }
 
@@ -471,7 +471,7 @@ impl Atom {
             Ok(Self::new_small_int(n as u32))
         } else {
             let s = StringRef::create_utf8(rt, format!("{n}").into_bytes())?;
-            Self::from_string(rt, (&s).into(), AtomKind::String)
+            Self::from_string(rt, s, AtomKind::String)
         }
     }
 
