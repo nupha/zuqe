@@ -255,7 +255,6 @@ impl<'a> ObjectIter<'a> {
     }
 
     /// calling `method` on `enum_obj` to iterate next value.
-    /// retrived value must be an object, otherwise TypeError will be raised.
     pub(super) fn apply_next(
         mut ctx: ContextPtr,
         enum_obj: Object,
@@ -271,11 +270,10 @@ impl<'a> ObjectIter<'a> {
             let mut state = IteratorState::NotDone;
             let ret = f(cc, &mut state)?;
 
-            debug_assert!(ret.is_object());
             return Ok((ret, state));
         }
 
-        // generic case: call `method`
+        // generic case: call `method` - must return an object.
         if let JSValue::Object(o) = method.call(&mut ctx, enum_obj.into(), args)? {
             Ok((o.into(), IteratorState::NotParsed))
         } else {

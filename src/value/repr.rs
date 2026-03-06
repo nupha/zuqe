@@ -46,7 +46,7 @@ impl JSValue {
 
 impl ObjectImpl {
     /// Represent object in "[object <Tag>]" format
-    pub fn repr(&self, ctx: &mut ContextImpl) -> Result<String, i32> {
+    pub(crate) fn repr(&self, ctx: &mut ContextImpl) -> Result<String, i32> {
         let atom = if self.is_array(ctx)? {
             Atom::CONST_Array
         } else if self.is_function() {
