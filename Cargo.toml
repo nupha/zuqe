@@ -11,6 +11,7 @@ license = "Apache-2.0"
 
 [features]
 all_unicode = ["unicode-xid", "unicode-normalization"]
+
 builtin_symbol = []
 builtin_proxy = []
 builtin_mapset = []
@@ -19,10 +20,13 @@ builtin_reflect = []
 builtin_json = []
 builtin_date = ["libc"]
 builtin_math = []
+
 dump_bytecode = []
+debug_gc = []
 
 default = [
     "all_unicode",
+
     "builtin_symbol",
     "builtin_mapset",
     "builtin_proxy",
@@ -31,7 +35,9 @@ default = [
     "builtin_json",
     "builtin_date",
     "builtin_math",
+
     #"dump_bytecode",
+    #"debug_gc",
 ]
 
 [profile.release]

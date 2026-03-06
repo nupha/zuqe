@@ -2494,7 +2494,7 @@ impl Bytecode {
                     }
                 }
 
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "debug_gc")]
                 {
                     debug_assert!(
                         scope.gc_scope().get_promote().is_none(),
@@ -2504,14 +2504,13 @@ impl Bytecode {
 
                     // flush nodes in current scope after each instruction
                     scope.flush();
-
                     // perform garbage collect after each opcode execution to strictly ensure gc is correct.
                     rt.gc_collect();
                 }
-                #[cfg(not(debug_assertions))]
+
+                #[cfg(not(feature = "debug_gc"))]
                 if rt.gc_req {
-                    // flush nodes in current scope
-                    scope.flush();
+                    scope.flush(); // flush nodes in current scope
                     rt.gc_collect();
                 }
             }; // opcodes loop

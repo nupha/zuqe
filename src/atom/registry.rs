@@ -47,6 +47,13 @@ impl AtomRegistry {
     }
 }
 
+/// Result of string atom registration
+enum RegisterStringResult {
+    /// Atom already exists with the given ID
+    Existing(u32),
+    Descriptor(StringRef, u32),
+}
+
 impl RuntimeImpl {
     /// init atom regisry: load const atoms
     pub(crate) fn init_const_atoms(&mut self) {
@@ -146,113 +153,74 @@ impl RuntimeImpl {
         }
     }
 
-    /// register user atom with string desciptor.
-    /// (in case of creating an anonymous symbol, str desc should be ident-type-string)
-    /// Same `str` will return the matched existing atom.
+    /// Common logic for registering String atoms (both with and without builtin_symbol feature)
+    fn register_string_atom_common(
+        &mut self,
+        str: StringRef,
+        atom_kind: AtomKind,
+    ) -> Result<RegisterStringResult, i32> {
+        debug_assert!(!str.content().is_ident());
+
+        let ss = if let Some(a) = str.atom_info() {
+            // already registerd as atom
+            if a.kind() == atom_kind {
+                return Ok(RegisterStringResult::Existing(a.id()));
+            }
+            // make new string with same content under given runtime, without atom info
+            str.copy_to_new(self.into())?
+        } else {
+            str
+        };
+
+        let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
+        let a_reg = &mut self.atom_registry;
+
+        // check for reuse: match registered atoms for (hash, atom_type, string_content)
+        if let Some(kv) = a_reg.hash_lut.get(&hash) {
+            for &id in kv {
+                let atom_id = id as u32;
+                if is_const_atom(atom_id) {
+                    if a_reg.const_atoms[atom_id as usize - 1]
+                        .atom_info()
+                        .unwrap()
+                        .kind()
+                        == atom_kind
+                    {
+                        return Ok(RegisterStringResult::Existing(atom_id));
+                    }
+                } else {
+                    let ds = a_reg.user_atoms[atom_id as usize - ATOM_USER_BASE_ID as usize]
+                        .as_ref()
+                        .unwrap();
+                    let at = ds.atom_info().unwrap();
+                    if at.kind() == atom_kind && ss.eq(ds) {
+                        return Ok(RegisterStringResult::Existing(at.id()));
+                    }
+                }
+            }
+        }
+
+        Ok(RegisterStringResult::Descriptor(ss, hash))
+    }
+
+    /// Register user atom with `str` desciptor
+    /// (in case of creating an anonymous symbol, str desc should be ident-type-string).
+    /// Check for atom reuse in prior to perform real registering.
     fn register_atom(&mut self, str: StringRef, mut atom_kind: AtomKind) -> Result<Atom, i32> {
         // match for existing atoms, don't register twice for same content.
         let (desc_str, hash): (StringRef, u32) = match atom_kind {
             #[cfg(feature = "builtin_symbol")]
             AtomKind::String | AtomKind::GlobalSymbol => {
-                debug_assert!(!str.content().is_ident());
-
-                let ss = if let Some(a) = str.atom_info() {
-                    // already registerd as atom
-                    if a.kind() == atom_kind {
-                        return Ok(Atom(a.id()));
-                    }
-
-                    // make new string with same content under given runtime, without atom info
-                    str.copy_to_new(self.into())?
-                } else {
-                    str
-                };
-
-                let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
-                let a_reg = &mut self.atom_registry;
-
-                // match registered atoms for hash, type and content
-                match a_reg.hash_lut.entry(hash) {
-                    Entry::Vacant(kv) => {
-                        kv.insert(Vec::with_capacity(1)); // prepare new entry for hash
-                    }
-                    Entry::Occupied(kv) => {
-                        for &id in kv.get() {
-                            let atom_id = id as u32;
-                            if is_const_atom(atom_id) {
-                                if a_reg.const_atoms[atom_id as usize - 1]
-                                    .atom_info()
-                                    .unwrap()
-                                    .kind()
-                                    == atom_kind
-                                {
-                                    return Ok(Atom(atom_id));
-                                }
-                            } else {
-                                let ds = a_reg.user_atoms
-                                    [atom_id as usize - ATOM_USER_BASE_ID as usize]
-                                    .as_ref()
-                                    .unwrap();
-                                let at = ds.atom_info().unwrap();
-
-                                if at.kind() == atom_kind && ss.eq(ds) {
-                                    return Ok(Atom(at.id())); // found existing atom, reuse it.
-                                }
-                            }
-                        }
-                    }
+                match self.register_string_atom_common(str, atom_kind)? {
+                    RegisterStringResult::Existing(atom_id) => return Ok(Atom(atom_id)),
+                    RegisterStringResult::Descriptor(ss, hash) => (ss, hash),
                 }
-
-                (ss, hash)
             }
-
             #[cfg(not(feature = "builtin_symbol"))]
-            AtomKind::String => {
-                debug_assert!(!str.content().is_ident());
-
-                let ss = if let Some(at) = str.atom_info() {
-                    // already registerd as atom
-                    if at.kind() == atom_kind {
-                        return Ok(Atom(at.id()));
-                    }
-
-                    // make new string with same content under given runtime, without atom info
-                    str.copy_to_new(self.into())?
-                } else {
-                    str
-                };
-
-                let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
-                let a_reg = &mut self.atom_registry;
-
-                // match registered atoms for hash, type and content
-                match a_reg.atom_hash_lut.entry(hash) {
-                    Entry::Vacant(kv) => {
-                        kv.insert(Vec::with_capacity(1)); // prepare new entry for hash
-                    }
-                    Entry::Occupied(kv) => {
-                        for aid in kv.get() {
-                            let id = aid.get() as u32;
-                            if is_const_atom(id) {
-                                if a_reg.const_atoms[id as usize].atom_info().kind() == atom_kind {
-                                    return Ok(Atom(id));
-                                }
-                            } else {
-                                let ds = a_reg.user_atoms[id as usize - ATOM_USER_BASE_ID as usize]
-                                    .as_ref()
-                                    .unwrap();
-
-                                let at = ds.str.atom_info().unwrap();
-                                if at.kind() == atom_kind && ds.str == ss {
-                                    return Ok(Atom(at.id())); // found existing atom, reuse it.
-                                }
-                            }
-                        }
-                    }
-                }
-
-                (ss, hash)
-            }
+            AtomKind::String => match self.register_string_atom_common(str, atom_kind)? {
+                RegisterStringResult::Existing(atom_id) => return Ok(Atom(atom_id)),
+                RegisterStringResult::Descriptor(ss, hash) => (ss, hash),
+            },
 
             #[cfg(feature = "builtin_symbol")]
             AtomKind::Symbol | AtomKind::Private => {
