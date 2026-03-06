@@ -20,8 +20,8 @@ pub(crate) fn js_object_toString(cc: CallContext) -> JSResult {
     let txt = match cc.this() {
         JSValue::NULL => "[object Null]".to_string(),
         JSValue::UNDEFINED => "[object Undefined]".to_string(),
-        JSValue::Object(o) => o.inspect(&mut ctx)?,
-        v => v.objectify(&mut ctx)?.inspect(&mut ctx)?,
+        JSValue::Object(o) => o.repr(&mut ctx)?,
+        v => v.objectify(&mut ctx)?.repr(&mut ctx)?,
     };
 
     ctx.create_string_from_utf8(txt.into_bytes())

@@ -782,7 +782,7 @@ pub(crate) fn js_array_toString(cc: CallContext) -> JSResult {
     obj.invoke_callable(&mut ctx, Atom::CONST_join, &[])?
         .unwrap_or_else(|| {
             // use builtin `Object.prototype.toString`
-            js_object_toString(CallContext::new(cc.ctx_ptr(), obj.into(), &[], 0, None))
+            js_object_toString(CallContext::new(ctx, obj.into(), &[], 0, None))
         })
 }
 

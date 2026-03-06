@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ops::Deref;
-
 use crate::{
-    JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
-    JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom, context::ContextImpl, number::f64_stringify,
-    object::ObjectImpl, string::StringRef,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BOOLEAN, JS_CLASS_ERROR,
+    JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom, context::ContextImpl,
+    number::f64_stringify, object::ObjectImpl, string::StringRef,
 };
 
 use super::JSValue;
@@ -47,9 +45,9 @@ impl JSValue {
 }
 
 impl ObjectImpl {
-    /// return object's toStringTag
-    pub(crate) fn string_tag(&self, ctx: &mut ContextImpl) -> Result<Atom, i32> {
-        let tag = if self.is_array(ctx)? {
+    /// Represent object in "[object <Tag>]" format
+    pub fn repr(&self, ctx: &mut ContextImpl) -> Result<String, i32> {
+        let atom = if self.is_array(ctx)? {
             Atom::CONST_Array
         } else if self.is_function() {
             Atom::CONST_Function
@@ -60,43 +58,47 @@ impl ObjectImpl {
                 | JS_CLASS_MAPPED_ARGUMENTS
                 | JS_CLASS_ERROR
                 | JS_CLASS_BOOLEAN
-                | JS_CLASS_NUMBER) => ctx.rt_ptr().class_registry[cid as usize].class_name,
+                | JS_CLASS_NUMBER) => ctx.rt_ref().class_registry[cid as usize].class_name,
 
                 #[cfg(feature = "builtin_regexp")]
                 crate::JS_CLASS_REGEXP => {
-                    ctx.rt_ptr().class_registry[crate::JS_CLASS_REGEXP as usize].class_name
+                    ctx.rt_ref().class_registry[crate::JS_CLASS_REGEXP as usize].class_name
                 }
                 #[cfg(feature = "builtin_date")]
                 crate::JS_CLASS_DATE => {
-                    ctx.rt_ptr().class_registry[crate::JS_CLASS_DATE as usize].class_name
+                    ctx.rt_ref().class_registry[crate::JS_CLASS_DATE as usize].class_name
                 }
 
                 _ => Atom::CONST_Object,
             }
         };
 
-        Ok(tag)
-    }
-
-    pub fn inspect(&self, ctx: &mut ContextImpl) -> Result<String, i32> {
-        let tag: StringRef;
-
-        #[cfg(feature = "builtin_symbol")]
-        {
-            tag = if let JSValue::String(s) =
-                self.get_property(ctx, Atom::CONST_Symbol_toStringTag)?
-            {
+        let tag: StringRef = {
+            #[cfg(feature = "builtin_symbol")]
+            if let JSValue::String(s) = self.get_property(ctx, Atom::CONST_Symbol_toStringTag)? {
                 s
             } else {
-                self.string_tag(ctx).and_then(|a| a.force_string(ctx))?
-            };
-        }
+                atom.force_string(ctx)?
+            }
+            #[cfg(not(feature = "builtin_symbol"))]
+            atom.force_string(ctx)?
+        };
 
-        #[cfg(not(feature = "builtin_symbol"))]
-        {
-            tag = self.to_string_tag(ctx).and_then(|a| a.force_string(ctx))?;
-        }
+        Ok(format!("[object {tag}]"))
+    }
 
-        Ok(format!("[object {}]", tag.deref()))
+    /// Print object.
+    ///
+    /// Now simply output "Array(n)" or "ClassName { }" format.
+    /// TODO: should show detailed info inside later.
+    pub fn inspect(&self, ctx: &mut ContextImpl) -> Result<String, i32> {
+        match self.class_id() {
+            JS_CLASS_ARRAY => Ok(format!("Array({})", self.payload().array().unwrap().len())),
+            class_id => {
+                let atom = ctx.rt_ref().class_registry[class_id as usize].class_name;
+                let name = atom.force_string(ctx)?;
+                Ok(format!("{} {{ }}", name.encode_utf8(false)))
+            }
+        }
     }
 }

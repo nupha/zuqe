@@ -38,18 +38,21 @@ pub fn js_proxy_constructor(cc: CallContext) -> JSResult {
 }
 
 fn js_proxy_revocable(cc: CallContext) -> JSResult {
-    let cc2 = CallContext::new_simple(cc.ctx_ptr(), JSValue::UNDEFINED, cc.arguments());
-    let proxy = js_proxy_constructor(cc2)?;
-
     let mut ctx = cc.ctx_ptr();
 
+    let proxy = js_proxy_constructor(CallContext::new_simple(
+        ctx,
+        JSValue::UNDEFINED,
+        cc.arguments(),
+    ))?;
+
     // create revoke function
-    let revoke_obj = NativeFunction::create(
+    let revoke_func = NativeFunction::create(
         &mut ctx,
         Callback::Func(|mut cc| -> JSResult {
             if let Some(px) = cc.data(0).as_object_Proxy() {
                 px.payload().set_revoked();
-                // clear attached data (Proxy value)
+                // clear attached data 0: the Proxy value
                 let _ = cc.replace_data(0, JSValue::NULL);
             }
             Ok(JSValue::UNDEFINED)
@@ -66,7 +69,7 @@ fn js_proxy_revocable(cc: CallContext) -> JSResult {
     obj.define_property_value(
         &mut ctx,
         Atom::CONST_revoke,
-        revoke_obj.into(),
+        revoke_func.into(),
         JS_PROP_C_W_E,
     )?;
 
