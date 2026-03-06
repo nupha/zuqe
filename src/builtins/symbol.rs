@@ -71,7 +71,7 @@ pub fn js_symbol_constructor(cc: CallContext) -> JSResult {
     } else {
         Some(cc.arg(0).to_string(&mut ctx)?)
     };
-    ctx.create_symbol(str.map(|s| s), AtomKind::Symbol)
+    ctx.create_symbol(str, AtomKind::Symbol)
 }
 
 //

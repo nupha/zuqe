@@ -115,14 +115,11 @@ impl std::fmt::Display for StringImpl {
 
 impl std::fmt::Debug for StringImpl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = self.content().encode_utf8(true);
-        write!(f, "{s}")
-
-        // f.debug_struct("StringImpl")
-        //     .field("rt", &self.rt)
-        //     .field("content", &self.content)
-        //     .field("atom_info", &self.atom_info)
-        //     .finish()
+        let s = self.content().encode_utf8(false);
+        f.debug_struct("StringImpl")
+            .field("content", &s)
+            .field("atom_info", &self.atom_info)
+            .finish()
     }
 }
 

@@ -282,7 +282,8 @@ impl RuntimeImpl {
             }
         };
 
-        desc_str = desc_str.copy_to_new(self.into())?;
+        debug_assert!(desc_str.atom_info().is_none());
+        // desc_str = desc_str.copy_to_new(self.into())?;
 
         if self.atom_registry.hash_lut.len() == self.atom_registry.hash_lut.capacity() {
             self.atom_registry
