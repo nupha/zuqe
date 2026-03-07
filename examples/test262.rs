@@ -319,8 +319,7 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorT
             })
             .unwrap();
 
-        let scope = ctx.new_scope();
-        scope
+        ctx.new_scope()
             .eval(
                 src.as_bytes(),
                 file.as_os_str().to_string_lossy().as_ref(),

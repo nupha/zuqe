@@ -286,8 +286,8 @@ impl ContextImpl {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
         // eval in new sub scope
-        let scope = self.new_scope();
-        let ret_val = scope
+        let ret_val = self
+            .new_scope()
             .eval(source, filename, eval_type, eval_flags)
             .map_err(|_| {
                 let exc = self.rt_mut().take_exception();

@@ -1,5 +1,4 @@
 use std::{
-    marker::PhantomData,
     ops::{Deref, DerefMut},
     ptr::NonNull,
 };
@@ -12,16 +11,13 @@ use super::ContextImpl;
 
 pub struct ScopedContext<'a> {
     pub(crate) ctx: ContextPtr,
-    pub(crate) depth: u8,
-    _mark: PhantomData<&'a ()>,
+    pub(crate) gc_scope: GcScope<'a>,
 }
 
+#[cfg(debug_assertions)]
 impl<'a> Drop for ScopedContext<'a> {
     fn drop(&mut self) {
-        #[cfg(debug_assertions)]
         debug_assert_eq!(self.depth(), self.ctx.gc_heap().scope_max_depth());
-
-        self.ctx.gc_heap_mut().pop_gc_scope();
     }
 }
 
@@ -98,14 +94,14 @@ impl<'a> ScopedContext<'a> {
     }
 
     #[inline(always)]
-    pub const fn depth(&self) -> u8 {
-        self.depth
+    pub fn depth(&self) -> u8 {
+        self.gc_scope.depth()
     }
 
     /// get gc scope
     pub(crate) fn gc(&self) -> &GcScope<'_> {
         debug_assert!(self.depth() <= self.ctx.gc_heap().scope_max_depth());
-        self.ctx.gc_heap().scope(self.depth).unwrap()
+        &self.gc_scope
     }
 
     /// Set promote value before scope dropping, after call this, scope is dropped.
@@ -134,12 +130,8 @@ impl ContextImpl {
     pub fn new_scope(&mut self) -> ScopedContext<'_> {
         let pid = self.rt_ref().gc_part_id();
         let ctx = ContextPtr::from_ref(self);
-        let s = self.gc_heap_mut().push_gc_scope(pid);
+        let gc_scope = self.gc_heap_mut().new_scope(pid);
 
-        ScopedContext {
-            ctx,
-            depth: s.depth(),
-            _mark: PhantomData,
-        }
+        ScopedContext { ctx, gc_scope }
     }
 }
