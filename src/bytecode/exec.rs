@@ -1938,7 +1938,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::PUT_ARRAY_EL => {
-                        // [obj, prop, value, ^] -> [^]
+                        // [arr, prop, value, ^] -> [^]
                         let mut arr = SP_VAL!(-3);
                         let ret = arr.set_property_value(
                             &mut realm,

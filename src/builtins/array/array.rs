@@ -665,6 +665,7 @@ impl ObjectImpl {
         if let Some(arr_len) = len
             && new_len > arr_len as usize
         {
+            // grow list
             let r = self
                 .shape()
                 .and_then(|sh| sh.prop_defs.first().map(|p| p.flags()))

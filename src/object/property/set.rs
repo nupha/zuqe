@@ -330,7 +330,7 @@ impl ObjectImpl {
     fn set_property_index(
         &mut self,
         ctx: &mut ContextImpl,
-        idx: usize,
+        index: usize,
         val: JSValue,
         flags: u32,
     ) -> Option<Result<bool, i32>> {
@@ -343,10 +343,10 @@ impl ObjectImpl {
                     if self.is_fast_array()
                         && let Some(arr_data) = self.payload_mut().array_mut()
                     {
-                        match idx.cmp(&arr_data.len()) {
+                        match index.cmp(&arr_data.len()) {
                             std::cmp::Ordering::Less => {
                                 // update existing
-                                arr_data.set_nth(&mut ctx.rt_ptr(), idx, val, self_xref);
+                                arr_data.set_nth(&mut ctx.rt_ptr(), index, val, self_xref);
                                 Some(Ok(true)) // fast array exit
                             }
                             std::cmp::Ordering::Equal => {
@@ -378,7 +378,8 @@ impl ObjectImpl {
                                     }
                                     proto = sh1.proto;
                                 }
-                                // append element
+
+                                // ok to append array element
                                 Some(self.add_fast_array_element(ctx, val, flags))
                             }
                             std::cmp::Ordering::Greater => {
@@ -399,8 +400,8 @@ impl ObjectImpl {
                 if self.is_fast_array()
                     && let Some(arr_data) = self.payload_mut().array_mut()
                 {
-                    if idx < arr_data.len() {
-                        arr_data.set_nth(&mut ctx.rt_ptr(), idx, val, self_xref);
+                    if index < arr_data.len() {
+                        arr_data.set_nth(&mut ctx.rt_ptr(), index, val, self_xref);
                         Some(Ok(true))
                     } else {
                         None
@@ -420,7 +421,7 @@ impl ObjectImpl {
                 let _ = Object::from_ref(self)
                     .as_TypedArray_mut()
                     .unwrap()
-                    .set_element_int(idx as _, v as _);
+                    .set_element_int(index as _, v as _);
                 Some(Ok(true))
             }
             JS_CLASS_INT8_ARRAY
@@ -435,7 +436,7 @@ impl ObjectImpl {
                 let _ = Object::from_ref(self)
                     .as_TypedArray_mut()
                     .unwrap()
-                    .set_element_int(idx as _, v);
+                    .set_element_int(index as _, v);
                 Some(Ok(true))
             }
             JS_CLASS_FLOAT32_ARRAY | JS_CLASS_FLOAT64_ARRAY => {
@@ -445,7 +446,7 @@ impl ObjectImpl {
                 let _ = Object::from_ref(self)
                     .as_TypedArray_mut()
                     .unwrap()
-                    .set_element_float(idx as _, v);
+                    .set_element_float(index as _, v);
                 Some(Ok(true))
             }
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
@@ -485,7 +486,8 @@ impl ObjectImpl {
         if let Some(idx) = index_key
             && let Some(r) = self.set_property_index(ctx, idx, val, flags)
         {
-            return r; // early exit fast path
+            // early exit fast path
+            return r;
         }
 
         // slow path
