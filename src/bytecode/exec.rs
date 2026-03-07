@@ -2496,6 +2496,8 @@ impl Bytecode {
                         scope.gc().get_promote().is_none(),
                         "promote gc node is not allowed in this function"
                     );
+
+                    #[cfg(debug_assertions)]
                     debug_assert_eq!(scope.depth(), _exec_scope);
 
                     // flush nodes in current scope after each instruction

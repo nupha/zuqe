@@ -465,9 +465,14 @@ fn run_test_file(
 
     // make runtime & context
     let mut rt = Runtime::create().unwrap();
+
+    // for panic="abort" config, use install_panic_handler to free gc allocated nodes
+    #[cfg(debug_assertions)]
+    rt.install_panic_handler();
+
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
-    let mut ctx = rt
+    let ctx = rt
         .create_context(|ctx| {
             Context::ECMA_CONTEXT_SETUP(ctx)?;
             setup_ctx_test262_helpers(ctx)?;
