@@ -252,7 +252,7 @@ impl ContextImpl {
     /// Generic eval entry for either global or module mode.
     ///
     /// Compile source and run to get result.
-    pub(crate) fn eval_script(
+    pub(crate) fn eval_internal(
         &mut self,
         source: &[u8],
         filename: &str,
@@ -388,7 +388,7 @@ impl<'a> ScopedContext<'a> {
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> JSResult {
-        let ret = ContextImpl::eval_script(&mut self, source, filename, eval_type, flags);
+        let ret = ContextImpl::eval_internal(&mut self, source, filename, eval_type, flags);
         if let Ok(r) = ret {
             self.set_return_value(r);
         }

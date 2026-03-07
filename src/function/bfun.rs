@@ -26,7 +26,7 @@ use super::{Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, VarRef};
 
 /// Special index for argument scope.
 /// This is same to `FunctionDef::body_scope`, which was automatically pushed
-/// when creating root function def in `eval_internal()`.
+/// when creating root function def in `compile_and_run()`.
 pub const ARG_SCOPE_INDEX: i32 = 1;
 
 /// to mark end of arugment vars chain.
@@ -389,24 +389,12 @@ impl BytecodeFunction {
         buf.extend_from_slice(b"\n})");
 
         // eval script
-        let mut ret_val = ctx.eval_script(
+        let mut ret_val = ctx.eval_internal(
             buf.as_slice(),
             "<input>",
             EvalType::Indirect,
             EvalFlags::empty(),
         )?;
-
-        // let mut ret_val = {
-        //     let global = ctx.global_obj();
-        //     ctx.compile_then_run(
-        //         global.into(),
-        //         buf.as_slice(),
-        //         "<input>",
-        //         EvalType::Indirect,
-        //         EvalFlags::empty(),
-        //         -1,
-        //     )?
-        // };
 
         if !new_target.is_undefined() {
             // set the prototype

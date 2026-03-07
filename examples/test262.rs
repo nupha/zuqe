@@ -17,7 +17,7 @@ use clap::Parser;
 use serde::Deserialize;
 use zuqe::{
     CallContext, Callback, Context, ErrorText, EvalFlags, EvalType, JS_PROP_C_W_E, JSResult,
-    JSValue, ModuleDef, Runtime, ScopedContext,
+    JSValue, ModuleDef, Runtime,
 };
 
 /// counter of "Test262:AsyncTestComplete" messages

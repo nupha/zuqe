@@ -127,7 +127,7 @@ impl ModuleDef {
 
         let mut stack_top: Option<ModuleDef> = None;
 
-        match md.eval_internal(ctx.into(), 0, &mut stack_top) {
+        match md.run_internal(ctx.into(), 0, &mut stack_top) {
             Ok(_) => {
                 debug_assert!(matches!(
                     md.status(),
@@ -170,7 +170,7 @@ impl ModuleDef {
 
     /// InnerModuleEvaluation, returns depth index or Err value.
     /// `index`: depth index
-    fn eval_internal(
+    fn run_internal(
         &mut self,
         mut ctx: ContextPtr,
         index: i32,
@@ -212,7 +212,7 @@ impl ModuleDef {
 
         for i in 0..self.dependencies.len() {
             let mut m1 = self.dependencies[i].module.unwrap();
-            index = m1.eval_internal(ctx, index, stack_top)?;
+            index = m1.run_internal(ctx, index, stack_top)?;
 
             debug_assert!(matches!(
                 m1.status(),
