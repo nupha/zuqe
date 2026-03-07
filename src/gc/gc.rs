@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use gc_lite::{
-    GcError, GcHeap, GcNode, GcPartition, GcPartitionId, GcRef, GcScope, GcTrace, GcTraceCtx,
+    GcError, GcHeap, GcNode, GcPartition, GcPartitionId, GcRef, GcTrace, GcTraceCtx,
     gc_type_register,
 };
 

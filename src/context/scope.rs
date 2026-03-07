@@ -148,6 +148,7 @@ impl ContextImpl {
         ScopedContext { ctx, gc_scope }
     }
 
+    // TODO: move this to Context::with_new_scope()
     pub fn with_new_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
         let s = self.new_scope();
         f(s)
