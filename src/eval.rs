@@ -3,12 +3,10 @@
 
 use std::{ops::Deref, ptr::NonNull};
 
-use gc_lite::GcNode;
-
 use crate::{
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextImpl, ContextPtr, ScopedContext},
+    context::{ContextImpl, ScopedContext},
     error::{ErrorText, JSResult},
     function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
@@ -309,9 +307,12 @@ impl<'a> ScopedContext<'a> {
             })?;
 
         // `ret_val` could be used in tick() phase, must ensure it's alive then.
-        if let Some(n) = ret_val.gc_node_ptr() {
-            self.gc().add_non_local(n);
-        }
+        // Note: ret_val should already be root or local node.
+        debug_assert!(ret_val.gc_node().is_none_or(|h| h.is_root_or_local()));
+        // This is usually not needed:
+        // if let Some(n) = ret_val.gc_node_ptr() {
+        //     self.gc().add_non_local(n);
+        // }
 
         let mut promise = Promise::try_from(ret_val).ok();
         let mut result = if let Some(p) = promise {
