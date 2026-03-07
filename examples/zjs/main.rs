@@ -204,10 +204,10 @@ fn main() -> ExitCode {
         .unwrap();
 
     #[cfg(debug_assertions)]
-    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0, "no scope now");
 
-    let ec = {
-        let ret = ctx.eval_wait(
+    let ret = ctx.with_new_scope(|scope| {
+        scope.eval_wait(
             script.as_bytes(),
             &filename,
             if is_module {
@@ -216,28 +216,28 @@ fn main() -> ExitCode {
                 EvalType::Global
             },
             EvalFlags::empty(),
-        );
+        )
+    });
 
-        match ret {
-            Ok(val) => {
-                colorize_println(val.inspect(&mut ctx).unwrap(), GreenFg);
-                ExitCode::SUCCESS
+    let exit_code = match ret {
+        Ok(val) => {
+            colorize_println(val.inspect(&mut ctx).unwrap(), GreenFg);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            let mut err_msg = e.message;
+            if let Some(tb) = e.traceback {
+                err_msg = format!("{err_msg}\n{tb}");
             }
-            Err(e) => {
-                let mut err_msg = e.message;
-                if let Some(tb) = e.traceback {
-                    err_msg = format!("{err_msg}\n{tb}");
-                }
-                colorize_println(err_msg, RedFg);
-                ExitCode::FAILURE
-            }
+            colorize_println(err_msg, RedFg);
+            ExitCode::FAILURE
         }
     };
 
     #[cfg(debug_assertions)]
     debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
 
-    ec
+    exit_code
 }
 
 fn js_module_loader(

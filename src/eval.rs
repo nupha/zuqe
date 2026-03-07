@@ -271,28 +271,47 @@ impl ContextImpl {
             self.compile_then_run(global.into(), source, filename, EvalType::Global, flags, -1)
         }
     }
+}
 
-    /// Eval `source` script, wait till execution terminates.
-    /// Returns the result value.
+impl<'a> ScopedContext<'a> {
+    /// Eval source in `self` scope.
     ///
-    /// Eval is performed in a sub scope internally.
-    pub fn eval_wait(
-        &mut self,
+    /// Compile source then run. Return value will be promoted to upper scope.
+    pub fn eval(
+        mut self,
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
-        eval_flags: EvalFlags,
+        flags: EvalFlags,
+    ) -> JSResult {
+        let ret = ContextImpl::eval_internal(&mut self, source, filename, eval_type, flags);
+        if let Ok(r) = ret {
+            self.set_return_value(r);
+        }
+        ret
+    }
+
+    /// Eval `source` script in `self` scope, wait till all pending jobs are finished.
+    /// Returns the result value.
+    pub fn eval_wait(
+        mut self,
+        source: &[u8],
+        filename: &str,
+        eval_type: EvalType,
+        flags: EvalFlags,
     ) -> Result<JSValue, ErrorText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
-        // eval in new sub scope
-        let ret_val = self
-            .new_scope()
-            .eval(source, filename, eval_type, eval_flags)
+        let ret_val = ContextImpl::eval_internal(&mut self, source, filename, eval_type, flags)
             .map_err(|_| {
                 let exc = self.rt_mut().take_exception();
-                ErrorText::from(self, exc)
+                ErrorText::from(&mut self, exc)
             })?;
+
+        // `ret_val` could be used in tick() phase, must ensure it's alive then.
+        if let Some(n) = ret_val.gc_node_ptr() {
+            self.gc().add_non_local(n);
+        }
 
         let mut promise = Promise::try_from(ret_val).ok();
         let mut result = if let Some(p) = promise {
@@ -304,7 +323,7 @@ impl ContextImpl {
                 }
                 PromiseState::Rejected => {
                     promise = None;
-                    Err(ErrorText::from(self, p.result()))
+                    Err(ErrorText::from(&mut self, p.result()))
                 }
                 _ => Ok(JSValue::UNDEFINED),
             }
@@ -312,34 +331,9 @@ impl ContextImpl {
             Ok(ret_val)
         };
 
-        let mut ctx = ContextPtr::from(self.gc_ref());
-        let mut _guard_scope: Option<ScopedContext> = None;
-
-        // protect nodes for tick phase.
-        if let Some(p) = promise {
-            // `promise` will be accessed in tick() phase, must ensure it's alive then.
-            // should protect promise (promise will then trace result), if it's not local or root
-            if !p.gc_node().is_root_or_local() {
-                let s = self.new_scope();
-                s.gc().add_non_local(p.gc_node_ptr());
-                _guard_scope = Some(s);
-            }
-        } else {
-            // protect `result` - to guard the case when `result` is not promise, but there are pending jobs to tick.
-            if let Ok(Some(n)) = result.as_ref().map(|v| v.gc_node_ptr())
-                && unsafe { !n.as_ref().is_root_or_local() }
-            {
-                if _guard_scope.is_none() {
-                    let s = self.new_scope();
-                    _guard_scope = Some(s);
-                }
-                _guard_scope.as_ref().unwrap().gc().add_non_local(n);
-            }
-        }
-
         // tick to finish
         let exit_code = loop {
-            match ctx.rt_mut().tick() {
+            match self.rt_mut().tick() {
                 Ok(TickStatus::Continue) => {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                     continue;
@@ -363,36 +357,17 @@ impl ContextImpl {
                     break code;
                 }
                 Err(_) => {
-                    let exc = ctx.rt_mut().take_exception();
-                    result = Err(ErrorText::from(&mut ctx, exc));
+                    let exc = self.rt_mut().take_exception();
+                    result = Err(ErrorText::from(&mut self, exc));
                     break -1;
                 }
             }
         };
 
-        match result {
-            Ok(v) => Ok(v),
-            Err(e) => Err(e),
+        if let Ok(v) = result {
+            self.set_return_value(v);
         }
-    }
-}
-
-impl<'a> ScopedContext<'a> {
-    /// Eval source in `self` scope.
-    ///
-    /// Compile source then run. Return value will be promoted to upper scope.
-    pub fn eval(
-        mut self,
-        source: &[u8],
-        filename: &str,
-        eval_type: EvalType,
-        flags: EvalFlags,
-    ) -> JSResult {
-        let ret = ContextImpl::eval_internal(&mut self, source, filename, eval_type, flags);
-        if let Ok(r) = ret {
-            self.set_return_value(r);
-        }
-        ret
+        result
     }
 }
 

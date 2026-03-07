@@ -350,36 +350,22 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    ctx.eval_wait(
-        script.as_bytes(),
-        filename.as_os_str().to_str().unwrap(),
-        if is_module {
-            EvalType::Module
-        } else {
-            EvalType::Global
-        },
-        if is_strict {
-            EvalFlags::STRICT
-        } else {
-            EvalFlags::empty()
-        },
-    )?;
-
-    // let scope = ctx.new_scope();
-    // scope.eval_wait(
-    //     script.as_bytes(),
-    //     filename.as_os_str().to_str().unwrap(),
-    //     if is_module {
-    //         EvalType::Module
-    //     } else {
-    //         EvalType::Global
-    //     },
-    //     if is_strict {
-    //         EvalFlags::STRICT
-    //     } else {
-    //         EvalFlags::empty()
-    //     },
-    // )?;
+    ctx.with_new_scope(|scope| {
+        scope.eval_wait(
+            script.as_bytes(),
+            filename.as_os_str().to_str().unwrap(),
+            if is_module {
+                EvalType::Module
+            } else {
+                EvalType::Global
+            },
+            if is_strict {
+                EvalFlags::STRICT
+            } else {
+                EvalFlags::empty()
+            },
+        )
+    })?;
 
     if is_async {
         // test if the test called $DONE() once
