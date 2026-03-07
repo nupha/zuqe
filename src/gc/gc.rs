@@ -8,7 +8,7 @@ use gc_lite::{
 
 use crate::{
     context::ContextImpl,
-    function::{AsyncStateImpl, BytecodeImpl, ScopedVarsIterMut, VarRefImpl},
+    function::{AsyncStateImpl, BytecodeImpl, VarRefImpl},
     module::ModuleDefImpl,
     object::{ObjectImpl, ShapeImpl},
     runtime::RuntimeImpl,

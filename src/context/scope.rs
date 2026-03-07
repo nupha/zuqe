@@ -129,6 +129,8 @@ impl<'a> ScopedContext<'a> {
 }
 
 impl ContextImpl {
+    /// Create a stacked context sub scope.
+    /// This scope is closed automatically at ScopedContext is dropped.
     pub fn new_scope(&mut self) -> ScopedContext<'_> {
         let pid = self.rt_ref().gc_part_id();
         let ctx = ContextPtr::from_ref(self);
@@ -139,9 +141,5 @@ impl ContextImpl {
             depth: s.depth(),
             _mark: PhantomData,
         }
-    }
-
-    pub fn with_new_scope<T>(&mut self, f: impl FnOnce(&mut ScopedContext<'_>) -> T) -> T {
-        f(&mut self.new_scope())
     }
 }

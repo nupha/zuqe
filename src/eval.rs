@@ -15,7 +15,7 @@ use crate::{
     parse::JSParseState,
     runtime::TickStatus,
     stack_frame::ExecMode,
-    value::{JSValue, Value},
+    value::JSValue,
 };
 
 #[repr(u8)]
@@ -276,7 +276,7 @@ impl ContextImpl {
     /// Returns the result value.
     ///
     /// Eval is performed in a sub scope internally.
-    pub fn eval_wait_v2(
+    pub fn eval_wait(
         &mut self,
         source: &[u8],
         filename: &str,
@@ -402,7 +402,7 @@ impl JSValue {
     /// - otherwise returns as-is.
     pub(crate) fn eval_object(
         &self,
-        ctx: &mut ScopedContext,
+        ctx: &mut ContextImpl,
         this_obj: JSValue,
         eval_type: EvalType,
         eval_flags: EvalFlags,

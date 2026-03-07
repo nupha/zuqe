@@ -206,7 +206,7 @@ fn main() -> ExitCode {
     debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
 
     let ec = {
-        let ret = ctx.eval_wait_v2(
+        let ret = ctx.eval_wait(
             script.as_bytes(),
             &filename,
             if is_module {

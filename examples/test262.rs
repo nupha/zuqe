@@ -348,7 +348,7 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    ctx.eval_wait_v2(
+    ctx.eval_wait(
         script.as_bytes(),
         filename.as_os_str().to_str().unwrap(),
         if is_module {

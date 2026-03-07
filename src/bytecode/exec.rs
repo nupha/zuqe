@@ -976,15 +976,13 @@ impl Bytecode {
                                 // in case `eval(obj, ...)`
                                 // where call_argv[0] is the `obj` arg, call_argv[-1] is `eval` func
                                 let obj = unsafe { &*call_argv };
-                                realm.with_new_scope(|scope| {
-                                    obj.eval_object(
-                                        scope,
-                                        JSValue::UNDEFINED,
-                                        EvalType::Direct,
-                                        EvalFlags::empty(),
-                                        scope_idx as _,
-                                    )
-                                })
+                                obj.eval_object(
+                                    &mut realm.new_scope(), // <-- eval in new sub scope
+                                    JSValue::UNDEFINED,
+                                    EvalType::Direct,
+                                    EvalFlags::empty(),
+                                    scope_idx as _,
+                                )
                             } else {
                                 // eval() returns undefined
                                 Ok(JSValue::UNDEFINED)
@@ -1025,15 +1023,13 @@ impl Bytecode {
                             let ret_val = if func_val.is_same(realm.eval_func) {
                                 if !arg_list.is_empty() {
                                     // eval(obj, ...)
-                                    realm.with_new_scope(|scope| {
-                                        arg_list[0].eval_object(
-                                            scope,
-                                            JSValue::UNDEFINED,
-                                            EvalType::Direct,
-                                            EvalFlags::empty(),
-                                            var_scope_idx,
-                                        )
-                                    })
+                                    arg_list[0].eval_object(
+                                        &mut realm.new_scope(), // <-- eval in new sub scope
+                                        JSValue::UNDEFINED,
+                                        EvalType::Direct,
+                                        EvalFlags::empty(),
+                                        var_scope_idx,
+                                    )
                                 } else {
                                     // eval() returns undefined
                                     Ok(JSValue::UNDEFINED)
