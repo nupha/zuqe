@@ -140,7 +140,8 @@ impl<'a> ScopedContext<'a> {
 impl ContextImpl {
     /// Create a stacked context sub scope.
     /// This scope is closed automatically at ScopedContext is dropped.
-    pub(crate) fn new_scope(&mut self) -> ScopedContext<'_> {
+    // TODO: move this to Context::new_scope()
+    fn new_scope(&mut self) -> ScopedContext<'_> {
         let pid = self.rt_ref().gc_part_id();
         let ctx = ContextPtr::from_ref(self);
         let gc_scope = self.gc_heap_mut().new_scope(pid);
