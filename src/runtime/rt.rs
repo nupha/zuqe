@@ -105,6 +105,16 @@ impl Drop for RuntimeImpl {
 }
 
 impl RuntimeImpl {
+    pub(crate) unsafe fn panic_free_gc(&mut self) {
+        self.cur_exception = JSValue::UNDEFINED;
+        self.context_list.clear();
+        self.shape_registry.clear();
+
+        let pid = self.gc_part_id();
+        self.gc_heap_mut()
+            .remove_partition(pid, GcHeap::DUMMY_DISPOSE_CALLBACK);
+    }
+
     pub(super) fn new() -> Result<Self, i32> {
         // create gc heap and partition for this runtime
         let mut gc_heap = GcHeap::new(&GC_TYPE_REGISTRY);

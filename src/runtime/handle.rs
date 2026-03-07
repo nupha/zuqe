@@ -8,7 +8,18 @@ use std::{
     rc::Rc,
 };
 
+#[cfg(not(debug_assertions))]
+use std::sync::{
+    Once,
+    atomic::{AtomicPtr, Ordering},
+};
+
 use crate::runtime::RuntimeImpl;
+
+#[cfg(not(debug_assertions))]
+static PANIC_RUNTIME: AtomicPtr<RuntimeImpl> = AtomicPtr::new(std::ptr::null_mut());
+#[cfg(not(debug_assertions))]
+static PANIC_HOOK: Once = Once::new();
 
 /// A ref counted handle to runtime.
 /// When last handle dropped, associated runtime will be dropped.
@@ -42,6 +53,27 @@ impl Runtime {
 
         Ok(Self(rt))
     }
+
+    #[cfg(not(debug_assertions))]
+    pub fn install_panic_handler(&self) {
+        let rt_ptr = self.deref() as *const RuntimeImpl as *mut RuntimeImpl;
+        PANIC_RUNTIME.store(rt_ptr, Ordering::SeqCst);
+
+        PANIC_HOOK.call_once(|| {
+            std::panic::set_hook(Box::new(|info| {
+                if let Some(rt) = unsafe { PANIC_RUNTIME.load(Ordering::SeqCst).as_mut() } {
+                    unsafe {
+                        rt.panic_free_gc();
+                    }
+                }
+
+                eprintln!("{info}");
+            }));
+        });
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn install_panic_handler(&self) {}
 }
 
 /// A light-weight runtime raw ptr.

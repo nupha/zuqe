@@ -151,6 +151,7 @@ fn main() -> ExitCode {
     };
 
     let mut rt = Runtime::create().unwrap();
+    rt.install_panic_handler();
 
     // memory-limit
     {
