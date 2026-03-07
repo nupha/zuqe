@@ -21,10 +21,7 @@ fn js_json_stringify(cc: CallContext) -> JSResult {
     let replacer = cc.arg(1);
     let space = cc.arg(2);
 
-    let mut scope = ctx.new_scope();
-    let r = scope.json_stringify(obj, replacer, space)?;
-    scope.set_return_value(r);
-    Ok(r)
+    ctx.with_new_scope(|scope| scope.json_stringify(obj, replacer, space))
 }
 
 fn internalize_json_property(

@@ -24,7 +24,7 @@ struct JSONStringifyContext {
 
 impl<'a> ScopedContext<'a> {
     pub fn json_stringify(
-        &mut self,
+        mut self,
         obj: JSValue,
         replacer: JSValue,
         mut space: JSValue,
@@ -32,7 +32,7 @@ impl<'a> ScopedContext<'a> {
         let mut jsc = JSONStringifyContext {
             replacer_func: JSValue::UNDEFINED,
             replacer_props: None,
-            empty: Atom::CONST_empty_string.force_string(self).unwrap(),
+            empty: Atom::CONST_empty_string.force_string(&mut self).unwrap(),
             gap: StringData::Empty,
             buf: StringBuf::Empty,
             stack: SmallVec::new(),
@@ -40,8 +40,8 @@ impl<'a> ScopedContext<'a> {
 
         if replacer.is_function() {
             jsc.replacer_func = replacer;
-        } else if replacer.is_array(self)? {
-            let n = replacer.get_length_prop(self)?;
+        } else if replacer.is_array(&mut self)? {
+            let n = replacer.get_length_prop(&mut self)?;
 
             let mut keylst = Vec::<StringRef>::new();
             keylst.try_reserve_exact(n as usize).map_err(|_| {
@@ -50,16 +50,16 @@ impl<'a> ScopedContext<'a> {
             })?;
 
             for i in 0..n {
-                let k: StringRef = match replacer.get_property_i64(self, i)? {
+                let k: StringRef = match replacer.get_property_i64(&mut self, i)? {
                     JSValue::Object(o) => {
                         if matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
-                            JSValue::Object(o).to_string(self)?
+                            JSValue::Object(o).to_string(&mut self)?
                         } else {
                             continue; // symbols are ignored
                         }
                     }
                     JSValue::String(s) => s,
-                    v if v.is_number() => v.to_string(self)?,
+                    v if v.is_number() => v.to_string(&mut self)?,
                     _ => {
                         continue; // ignored
                     }
@@ -77,17 +77,17 @@ impl<'a> ScopedContext<'a> {
         if let Some(p) = space.as_object() {
             match p.class_id() {
                 JS_CLASS_NUMBER => {
-                    space = space.to_number(self)?;
+                    space = space.to_number(&mut self)?;
                 }
                 JS_CLASS_STRING => {
-                    space = space.to_string(self)?.into();
+                    space = space.to_string(&mut self)?.into();
                 }
                 _ => {}
             }
         }
 
         if space.is_number() {
-            let n = space.to_i32_clamp(self, 0, 10, 0)? as usize;
+            let n = space.to_i32_clamp(&mut self, 0, 10, 0)? as usize;
             jsc.gap = if n == 0 {
                 StringData::Empty
             } else {
@@ -112,16 +112,22 @@ impl<'a> ScopedContext<'a> {
         }
 
         let mut wrapper: JSValue = self.create_base_object()?.into();
-        wrapper.define_property_value(self, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
+        wrapper.define_property_value(&mut self, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
 
-        let val = js_json_check(self, &jsc, wrapper, obj, jsc.empty)?;
+        let val = js_json_check(&mut self, &jsc, wrapper, obj, jsc.empty)?;
         if val.is_undefined() {
             return Ok(JSValue::UNDEFINED);
         }
 
-        js_json_to_str(self, &mut jsc, val, &StringBuf::Empty)?;
+        js_json_to_str(&mut self, &mut jsc, val, &StringBuf::Empty)?;
         jsc.buf.shrink_to_fit();
-        self.create_string_with_buf(jsc.buf).map(JSValue::from)
+        let res_str = self.create_string_with_buf(jsc.buf).map(JSValue::from);
+
+        if let Ok(s) = res_str {
+            self.set_return_value(s);
+        }
+
+        res_str
     }
 }
 
