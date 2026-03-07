@@ -115,6 +115,19 @@ impl<'a> ScopedContext<'a> {
         self.gc().flush();
     }
 
+    /// Create a sub scope.
+    /// This scope is closed automatically at ScopedContext is dropped.
+    fn new_scope(&mut self) -> ScopedContext<'_> {
+        let ctx = self.ctx;
+        let gc_scope = self.gc_scope.new_scope();
+        ScopedContext { ctx, gc_scope }
+    }
+
+    pub fn with_new_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
+        let s = self.new_scope();
+        f(s)
+    }
+
     /// test if given node contains in `self` scope
     #[cfg(debug_assertions)]
     pub fn contains(&self, node: NonNull<GcHead>) -> bool {
@@ -127,11 +140,16 @@ impl<'a> ScopedContext<'a> {
 impl ContextImpl {
     /// Create a stacked context sub scope.
     /// This scope is closed automatically at ScopedContext is dropped.
-    pub fn new_scope(&mut self) -> ScopedContext<'_> {
+    pub(crate) fn new_scope(&mut self) -> ScopedContext<'_> {
         let pid = self.rt_ref().gc_part_id();
         let ctx = ContextPtr::from_ref(self);
         let gc_scope = self.gc_heap_mut().new_scope(pid);
 
         ScopedContext { ctx, gc_scope }
+    }
+
+    pub fn with_new_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
+        let s = self.new_scope();
+        f(s)
     }
 }

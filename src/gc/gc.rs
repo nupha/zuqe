@@ -63,8 +63,6 @@ impl RuntimeImpl {
         partition_id: GcPartitionId,
         data: T,
     ) -> Result<GcRef<T>, (GcError, T)> {
-        // let r = self.gc_heap_mut().alloc(partition_id, data);
-
         let r = if let Some(scope) = self.gc_heap().current_scope() {
             // alloc local in scope
             debug_assert_eq!(scope.partition_id(), partition_id);
@@ -84,11 +82,6 @@ impl RuntimeImpl {
     #[inline(always)]
     pub fn gc_alloc<T: GcNode>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         self.gc_alloc_in(self.gc_part_id(), data)
-    }
-
-    pub fn with_gc_scope<R>(&mut self, f: impl FnOnce(&GcScope) -> R) -> R {
-        let pid = self.gc_part_id();
-        self.gc_heap_mut().with_new_scope(pid, f)
     }
 
     /// collect garbage

@@ -122,12 +122,14 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
         flags |= EvalFlags::COMPILE_TO_ASYNC;
     }
 
-    let ret = ctx.new_scope().eval(
-        str.content().encode_utf8_bytes(true).as_ref(),
-        "<evalScript>",
-        EvalType::Global,
-        flags,
-    );
+    let ret = ctx.with_new_scope(|scope| {
+        scope.eval(
+            str.content().encode_utf8_bytes(true).as_ref(),
+            "<evalScript>",
+            EvalType::Global,
+            flags,
+        )
+    });
 
     let lev = EVAL_SCRIPT_RECURSE.with(|s| {
         let n = s.get();

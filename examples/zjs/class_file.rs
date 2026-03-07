@@ -239,16 +239,11 @@ impl JSFile {
     /// register class
     pub fn register(mut rt: Runtime) -> Result<ClassID, i32> {
         let class_id = rt
-            .clone()
-            .with_gc_scope({
-                |_: &GcScope| {
-                    rt.register_class(
-                        &ClassDef::new("File")
-                            .initialize(Self::handle_init)
-                            .finalize_opaque(Self::handle_fini),
-                    )
-                }
-            })
+            .register_class(
+                &ClassDef::new("File")
+                    .initialize(Self::handle_init)
+                    .finalize_opaque(Self::handle_fini),
+            )
             .expect("register class File failed");
 
         // save assigned class_id
