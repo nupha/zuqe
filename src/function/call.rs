@@ -190,16 +190,15 @@ impl ObjectImpl {
                 this_obj
             };
 
-            let mut scope = ctx.new_scope();
-            let ret = if is_legacy_ctor {
-                // legacy constructor behavior.
-                bfun.call(&mut scope, this, new_target, args, flags)
-                    .map(|v| if v.is_object() { v } else { this })
-            } else {
-                bfun.call(&mut scope, this, new_target, args, flags)
-            }?;
-            scope.set_return_value(ret);
-            Ok(ret)
+            ctx.with_new_scope(|scope| {
+                if is_legacy_ctor {
+                    // legacy constructor behavior.
+                    bfun.call(scope, this, new_target, args, flags)
+                        .map(|v| if v.is_object() { v } else { this })
+                } else {
+                    bfun.call(scope, this, new_target, args, flags)
+                }
+            })
         } else if let Some(cb) = unsafe {
             ctx.rt_ref()
                 .class_registry

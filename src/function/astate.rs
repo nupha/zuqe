@@ -148,13 +148,11 @@ impl AsyncStateImpl {
             return Err(-1);
         }
 
-        let mut scope = ctx.new_scope();
-        let mut ret_val = self.resume_call(&mut scope, self.this_val, unsafe {
-            std::slice::from_raw_parts(self.arg_ptr().as_ptr(), self.arg_count())
+        let mut ret_val = ctx.with_new_scope(|scope| {
+            self.resume_call(scope, self.this_val, unsafe {
+                std::slice::from_raw_parts(self.arg_ptr().as_ptr(), self.arg_count())
+            })
         });
-        if let Ok(r) = ret_val {
-            scope.set_return_value(r);
-        }
 
         let completed = match ret_val {
             Ok(JSValue::UNDEFINED) => {
@@ -191,7 +189,7 @@ impl AsyncStateImpl {
     /// Resume executing async function in given scope
     fn resume_call(
         &mut self,
-        scope: &mut ScopedContext,
+        mut scope: ScopedContext,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> JSResult {
@@ -210,7 +208,7 @@ impl AsyncStateImpl {
         let bc = bf.bytecode();
 
         let ret_val = bc.execute(
-            scope,
+            &mut scope,
             bf.home_object(),
             unsafe {
                 self.stack_frame.as_mut().get_unchecked_mut() // dedicated stack frame for async state
@@ -233,7 +231,12 @@ impl AsyncStateImpl {
             }
         }
 
-        ret_val.err()
+        let res = ret_val.err();
+        if let Ok(v) = res {
+            scope.set_return_value(v);
+        }
+
+        res
     }
 }
 

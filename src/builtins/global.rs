@@ -17,29 +17,18 @@ pub(crate) fn js_global_eval(cc: CallContext) -> JSResult {
     let global = ctx.global_obj();
     let val = cc.arg(0);
 
-    let mut scope = ctx.new_scope();
-    let r = val.eval_object(
-        &mut scope,
-        global.into(),
-        EvalType::Indirect,
-        EvalFlags::empty(),
-        -1,
-    )?;
-    scope.set_return_value(r);
-    Ok(r)
+    ctx.with_new_scope(|mut scope| -> JSResult {
+        let r = val.eval_object(
+            &mut scope,
+            global.into(),
+            EvalType::Indirect,
+            EvalFlags::empty(),
+            -1,
+        )?;
 
-    // ctx.with_new_scope(|scope| -> JSResult {
-    //     let r = val.eval_object(
-    //         scope,
-    //         global.into(),
-    //         EvalType::Indirect,
-    //         EvalFlags::empty(),
-    //         -1,
-    //     )?;
-
-    //     scope.set_return_value(r);
-    //     Ok(r)
-    // })
+        scope.set_return_value(r);
+        Ok(r)
+    })
 }
 
 pub const MAGIC_NUM_IS_NAN: i32 = 1;

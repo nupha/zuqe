@@ -426,7 +426,7 @@ impl BytecodeFunction {
     /// Run Bytecode Function in given scope.
     pub(super) fn call(
         &mut self,
-        scope: &mut ScopedContext,
+        mut scope: ScopedContext,
         this_obj: JSValue,
         new_target: JSValue,
         args: &[JSValue],
@@ -517,7 +517,7 @@ impl BytecodeFunction {
         let bf = self.payload_mut();
         let ret_val = bc
             .execute(
-                scope,
+                &mut scope,
                 bf.home_object(),
                 &mut stack_frame,
                 this_obj,
@@ -539,6 +539,9 @@ impl BytecodeFunction {
             }
         }
 
+        if let Ok(v) = ret_val {
+            scope.set_return_value(v);
+        }
         ret_val
     }
 }
