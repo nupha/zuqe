@@ -475,7 +475,7 @@ impl std::fmt::Debug for Bytecode {
 }
 
 impl Bytecode {
-    /// Create Function from `self` Bytecode with captured variables, then runs the function.
+    /// Create Function from `self` Bytecode with captured variables, then calls the function.
     pub(crate) fn run_as_function(
         &self,
         ctx: &mut ContextImpl,

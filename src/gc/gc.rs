@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use gc_lite::{
-    GcError, GcHeap, GcLocal, GcNode, GcPartition, GcPartitionId, GcRef, GcScope, GcTrace,
-    GcTraceCtx, gc_type_register,
+    GcError, GcHeap, GcNode, GcPartition, GcPartitionId, GcRef, GcScope, GcTrace, GcTraceCtx,
+    gc_type_register,
 };
 
 use crate::{
     context::ContextImpl,
-    function::{AsyncStateImpl, BytecodeImpl, VarRefImpl},
+    function::{AsyncStateImpl, BytecodeImpl, ScopedVarsIterMut, VarRefImpl},
     module::ModuleDefImpl,
     object::{ObjectImpl, ShapeImpl},
     runtime::RuntimeImpl,
@@ -63,35 +63,16 @@ impl RuntimeImpl {
         partition_id: GcPartitionId,
         data: T,
     ) -> Result<GcRef<T>, (GcError, T)> {
-        let r = self
-            .gc_heap_mut()
-            .with_current_scope(|scope| {
-                debug_assert_eq!(scope.partition_id(), partition_id);
-                scope.alloc(data)
-            })
-            .expect("expect gc scope");
+        // let r = self.gc_heap_mut().alloc(partition_id, data);
 
-        if self.gc_top_scope().should_gc() {
-            self.gc_req = true;
-        }
-
-        r
-    }
-
-    /// alloc data in given gc partition_id
-    #[deprecated]
-    pub(crate) fn gc_alloc_local_in<T: GcNode>(
-        &mut self,
-        partition_id: GcPartitionId,
-        data: T,
-    ) -> Result<GcLocal<T>, (GcError, T)> {
-        let r = self
-            .gc_heap_mut()
-            .with_current_scope(|scope| {
-                debug_assert_eq!(scope.partition_id(), partition_id);
-                scope.alloc_local(data)
-            })
-            .expect("expect gc scope");
+        let r = if let Some(scope) = self.gc_heap().current_scope() {
+            // alloc local in scope
+            debug_assert_eq!(scope.partition_id(), partition_id);
+            scope.alloc_local(data)
+        } else {
+            // alloc raw
+            unsafe { self.gc_heap_mut().alloc_raw(partition_id, data) }
+        };
 
         if self.gc_top_scope().should_gc() {
             self.gc_req = true;
@@ -103,12 +84,6 @@ impl RuntimeImpl {
     #[inline(always)]
     pub fn gc_alloc<T: GcNode>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         self.gc_alloc_in(self.gc_part_id(), data)
-    }
-
-    #[inline(always)]
-    #[deprecated]
-    pub fn gc_alloc_local<T: GcNode>(&mut self, data: T) -> Result<GcLocal<T>, (GcError, T)> {
-        self.gc_alloc_local_in(self.gc_part_id(), data)
     }
 
     pub fn with_gc_scope<R>(&mut self, f: impl FnOnce(&GcScope) -> R) -> R {

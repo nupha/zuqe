@@ -148,13 +148,13 @@ impl AsyncStateImpl {
             return Err(-1);
         }
 
-        let mut ret_val = ctx.with_new_scope(|scope| -> JSResult {
-            let r = self.resume_call(scope, self.this_val, unsafe {
-                std::slice::from_raw_parts(self.arg_ptr().as_ptr(), self.arg_count())
-            })?;
-            scope.set_promote_value(r);
-            Ok(r)
+        let mut scope = ctx.new_scope();
+        let mut ret_val = self.resume_call(&mut scope, self.this_val, unsafe {
+            std::slice::from_raw_parts(self.arg_ptr().as_ptr(), self.arg_count())
         });
+        if let Ok(r) = ret_val {
+            scope.set_return_value(r);
+        }
 
         let completed = match ret_val {
             Ok(JSValue::UNDEFINED) => {

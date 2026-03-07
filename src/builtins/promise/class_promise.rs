@@ -136,8 +136,7 @@ pub(crate) fn js_promise_resolve(cc: CallContext) -> JSResult {
         }
     }
 
-    let (result_promise, resolving_funcs) = Promise::create_from_ctor(&mut ctx, this)?;
-    debug_assert!(result_promise.gc_node().is_local());
+    let (wrap_promise, resolving_funcs) = Promise::create_from_ctor(&mut ctx, this)?;
 
     resolving_funcs[is_reject as usize].call(
         &mut ctx,
@@ -145,7 +144,7 @@ pub(crate) fn js_promise_resolve(cc: CallContext) -> JSResult {
         std::slice::from_ref(&arg0),
     )?;
 
-    Ok(result_promise.into())
+    Ok(wrap_promise.into())
 }
 
 pub fn js_promise_all(cc: CallContext) -> JSResult {

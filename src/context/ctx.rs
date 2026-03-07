@@ -603,7 +603,7 @@ impl RuntimeImpl {
         let ctx = self
             .gc_heap_mut()
             .with_new_scope(pid, |gc| -> Result<Context<'a>, i32> {
-                let gc_ref = gc.alloc(inner).map_err(|_| -1)?;
+                let gc_ref = gc.alloc_local(inner).map_err(|_| -1)?;
 
                 // setup context.
                 // Note: in case of exception, ContextImpl node will be purged in mark-sweep.

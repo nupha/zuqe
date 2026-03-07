@@ -37,7 +37,7 @@ default = [
     "builtin_math",
 
     #"dump_bytecode",
-    #"debug_gc",
+    "debug_gc",
 ]
 
 [profile.release]

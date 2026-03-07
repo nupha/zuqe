@@ -37,7 +37,7 @@ impl ContextImpl {
     ) -> Result<Object, ObjectPayload> {
         // find shape by prototype
         let shape = {
-            match self.rt_ptr().find_shape_by_proto(proto) {
+            match self.rt_ref().find_shape_by_proto(proto) {
                 Some(sh) => sh,
                 None => {
                     if let Ok(sh) = Shape::create(self, proto, 0) {

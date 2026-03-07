@@ -389,7 +389,7 @@ impl BytecodeFunction {
         buf.extend_from_slice(b"\n})");
 
         // eval script
-        let mut ret_val = ctx.eval(
+        let mut ret_val = ctx.eval_script(
             buf.as_slice(),
             "<input>",
             EvalType::Indirect,

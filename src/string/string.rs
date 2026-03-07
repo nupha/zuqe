@@ -7,7 +7,7 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use gc_lite::{GcLocal, GcNode, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_STRING,
@@ -352,27 +352,6 @@ impl From<GcRef<StringImpl>> for JSValue {
     #[inline(always)]
     fn from(value: GcRef<StringImpl>) -> Self {
         Self::String(StringRef(value))
-    }
-}
-
-impl From<GcLocal<StringImpl>> for JSValue {
-    #[inline(always)]
-    fn from(value: GcLocal<StringImpl>) -> Self {
-        Self::String(StringRef(value.gc_ref()))
-    }
-}
-
-impl From<&GcLocal<StringImpl>> for JSValue {
-    #[inline(always)]
-    fn from(value: &GcLocal<StringImpl>) -> Self {
-        Self::String(StringRef(value.gc_ref()))
-    }
-}
-
-impl From<&GcLocal<StringImpl>> for StringRef {
-    #[inline(always)]
-    fn from(value: &GcLocal<StringImpl>) -> Self {
-        StringRef(value.gc_ref())
     }
 }
 

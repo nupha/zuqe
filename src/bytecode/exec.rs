@@ -2497,7 +2497,7 @@ impl Bytecode {
                 #[cfg(feature = "debug_gc")]
                 {
                     debug_assert!(
-                        scope.gc_scope().get_promote().is_none(),
+                        scope.gc().get_promote().is_none(),
                         "promote gc node is not allowed in this function"
                     );
                     debug_assert_eq!(scope.depth(), _exec_scope);

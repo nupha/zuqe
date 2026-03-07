@@ -206,7 +206,7 @@ impl Shape {
         proto: Option<Object>,
         prop_defs: HashList<ShapeProperty>,
     ) -> Result<Self, i32> {
-        ctx.rt_ptr()
+        ctx.rt_mut()
             .gc_alloc(ShapeImpl::new(proto, prop_defs)?)
             .map(|s| {
                 debug_assert_eq!(s.use_count, 1);

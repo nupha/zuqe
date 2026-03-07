@@ -110,14 +110,12 @@ fn js_evalScript(cc: CallContext) -> JSResult {
     let mut ctx = cc.context();
 
     let source = cc.arg(0).inspect(&mut ctx)?;
-    ctx.with_new_scope(|scope| {
-        scope.eval(
-            source.as_bytes(),
-            "<eval>",
-            EvalType::Global,
-            EvalFlags::empty(),
-        )
-    })
+    ctx.new_scope().eval(
+        source.as_bytes(),
+        "<eval>",
+        EvalType::Global,
+        EvalFlags::empty(),
+    )
 }
 
 fn js_string_codePointRange(cc: CallContext) -> JSResult {
@@ -313,7 +311,7 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(scope: &mut ScopedContext, harness_files: &[PathBuf]) -> Result<(), ErrorText> {
+fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorText> {
     for file in harness_files {
         let src = std::fs::read_to_string(file)
             .inspect_err(|_| {
@@ -321,6 +319,7 @@ fn run_harness(scope: &mut ScopedContext, harness_files: &[PathBuf]) -> Result<(
             })
             .unwrap();
 
+        let scope = ctx.new_scope();
         scope
             .eval(
                 src.as_bytes(),
@@ -329,8 +328,8 @@ fn run_harness(scope: &mut ScopedContext, harness_files: &[PathBuf]) -> Result<(
                 EvalFlags::empty(),
             )
             .map_err(|_| {
-                let exc = scope.rt_mut().take_exception();
-                ErrorText::from(scope, exc)
+                let exc = ctx.rt_mut().take_exception();
+                ErrorText::from(&mut ctx, exc)
             })?;
     }
 
@@ -338,7 +337,7 @@ fn run_harness(scope: &mut ScopedContext, harness_files: &[PathBuf]) -> Result<(
 }
 
 fn run_test_script(
-    scope: &mut ScopedContext,
+    mut ctx: Context,
     script: &str,
     filename: &Path,
     is_module: bool,
@@ -349,7 +348,7 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    scope.eval_wait(
+    ctx.eval_wait_v2(
         script.as_bytes(),
         filename.as_os_str().to_str().unwrap(),
         if is_module {
@@ -363,6 +362,22 @@ fn run_test_script(
             EvalFlags::empty()
         },
     )?;
+
+    // let scope = ctx.new_scope();
+    // scope.eval_wait(
+    //     script.as_bytes(),
+    //     filename.as_os_str().to_str().unwrap(),
+    //     if is_module {
+    //         EvalType::Module
+    //     } else {
+    //         EvalType::Global
+    //     },
+    //     if is_strict {
+    //         EvalFlags::STRICT
+    //     } else {
+    //         EvalFlags::empty()
+    //     },
+    // )?;
 
     if is_async {
         // test if the test called $DONE() once
@@ -465,20 +480,18 @@ fn run_test_file(
         #[cfg(debug_assertions)]
         debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
 
-        ctx.with_new_scope(|scope| {
-            if let Err(exc) = run_harness(scope, &harness_files) {
-                // write to outf
-                writeln!(outf, "FAIL: can't eval harness").unwrap();
-                dump_error(&exc, false, false, false, outf);
+        if let Err(exc) = run_harness(ctx, &harness_files) {
+            // write to outf
+            writeln!(outf, "FAIL: can't eval harness").unwrap();
+            dump_error(&exc, false, false, false, outf);
 
-                // write to err
-                writeln!(errf, "{}", filename.display()).unwrap();
-                writeln!(outf, "FAIL: can't eval harness").unwrap();
-                dump_error(&exc, false, false, false, errf);
+            // write to err
+            writeln!(errf, "{}", filename.display()).unwrap();
+            writeln!(outf, "FAIL: can't eval harness").unwrap();
+            dump_error(&exc, false, false, false, errf);
 
-                has_err = true;
-            }
-        });
+            has_err = true;
+        }
 
         #[cfg(debug_assertions)]
         debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
@@ -518,16 +531,18 @@ fn run_test_file(
             #[cfg(debug_assertions)]
             debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
 
-            let res = ctx.with_new_scope(|scope| {
-                run_test_script(
-                    scope,
-                    content.as_str(),
-                    filename,
-                    is_module,
-                    is_async,
-                    strict,
-                )
-            });
+            let res = run_test_script(ctx, content.as_str(), filename, is_module, is_async, strict);
+
+            // let res = ctx.with_new_scope(|scope| {
+            //     run_test_script(
+            //         scope,
+            //         content.as_str(),
+            //         filename,
+            //         is_module,
+            //         is_async,
+            //         strict,
+            //     )
+            // });
 
             #[cfg(debug_assertions)]
             debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);

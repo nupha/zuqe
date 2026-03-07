@@ -163,11 +163,6 @@ impl ObjectImpl {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        debug_assert!(
-            ctx.gc_heap().scope_max_depth() > 0,
-            "call_internal(): execution scope is required"
-        );
-
         ctx.poll_interrupts()?;
 
         let is_ctor = flags & JS_CALL_FLAG_CONSTRUCTOR != 0;
@@ -195,18 +190,16 @@ impl ObjectImpl {
                 this_obj
             };
 
-            ctx.with_new_scope(|scope| -> JSResult {
-                let ret = if is_legacy_ctor {
-                    // legacy constructor behavior.
-                    bfun.call(scope, this, new_target, args, flags)
-                        .map(|v| if v.is_object() { v } else { this })
-                } else {
-                    bfun.call(scope, this, new_target, args, flags)
-                }?;
-
-                scope.set_promote_value(ret);
-                Ok(ret)
-            })
+            let mut scope = ctx.new_scope();
+            let ret = if is_legacy_ctor {
+                // legacy constructor behavior.
+                bfun.call(&mut scope, this, new_target, args, flags)
+                    .map(|v| if v.is_object() { v } else { this })
+            } else {
+                bfun.call(&mut scope, this, new_target, args, flags)
+            }?;
+            scope.set_return_value(ret);
+            Ok(ret)
         } else if let Some(cb) = unsafe {
             ctx.rt_ref()
                 .class_registry
@@ -256,7 +249,6 @@ impl ObjectImpl {
         ret_val
     }
 
-    /// For bytecode function, new scope will be created to execute bytecodes.
     #[inline(always)]
     pub fn call(&self, ctx: &mut ContextImpl, this_obj: JSValue, args: &[JSValue]) -> JSResult {
         self.call_internal(

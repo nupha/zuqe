@@ -107,11 +107,11 @@ pub struct Promise(GcRef<ObjectImpl>);
 
 object_cast!(Promise, JS_CLASS_PROMISE);
 
-impl GcTrace for Promise {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        tr.add(self.0);
-    }
-}
+// impl GcTrace for Promise {
+//     fn trace(&self, tr: &mut GcTraceCtx) {
+//         tr.add(self.0);
+//     }
+// }
 
 impl Promise {
     /// create Promise object with given executor function.

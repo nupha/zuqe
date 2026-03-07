@@ -60,8 +60,7 @@ impl ModuleDefImpl {
 }
 
 impl ModuleDef {
-    /// compile `source` to module def.
-    /// `filename` is used to identify the module.
+    /// Compile `source` to module def. `filename` is used to identify the module.
     pub fn compile(
         ctx: &mut ContextImpl,
         source: &[u8],

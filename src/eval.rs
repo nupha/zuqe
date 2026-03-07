@@ -3,10 +3,12 @@
 
 use std::{ops::Deref, ptr::NonNull};
 
+use gc_lite::GcNode;
+
 use crate::{
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextImpl, ScopedContext},
+    context::{ContextImpl, ContextPtr, ScopedContext},
     error::{ErrorText, JSResult},
     function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
@@ -247,10 +249,10 @@ impl ContextImpl {
         }
     }
 
-    /// Generic eval entry for global or module.
+    /// Generic eval entry for either global or module mode.
     ///
     /// Compile source and run to get result.
-    pub(crate) fn eval(
+    pub(crate) fn eval_script(
         &mut self,
         source: &[u8],
         filename: &str,
@@ -269,38 +271,12 @@ impl ContextImpl {
             self.compile_then_run(global.into(), source, filename, EvalType::Global, flags, -1)
         }
     }
-}
 
-impl<'a> ScopedContext<'a> {
-    /// Eval source in current scope.
+    /// Eval `source` script, wait till execution terminates.
+    /// Returns the result value.
     ///
-    /// Compile source then run. Return value will be promoted to upper scope if needed.
-    pub fn eval(
-        &mut self,
-        source: &[u8],
-        filename: &str,
-        eval_type: EvalType,
-        flags: EvalFlags,
-    ) -> JSResult {
-        let ret_val = ContextImpl::eval(self, source, filename, eval_type, flags)?;
-        self.set_promote_value(ret_val);
-        Ok(ret_val)
-    }
-
-    /// Eval script `source` in current scope, wait till execution terminates, returns the result value.
-    pub fn eval_wait(
-        &mut self,
-        source: &[u8],
-        filename: &str,
-        eval_type: EvalType,
-        eval_flags: EvalFlags,
-    ) -> Result<Value<'a>, ErrorText> {
-        self.eval_wait_internal(source, filename, eval_type, eval_flags)
-            .map(|v| v.into())
-    }
-
-    /// Eval `source` script, wait till execution terminates, returns the result value.
-    fn eval_wait_internal(
+    /// Eval is performed in a sub scope internally.
+    pub fn eval_wait_v2(
         &mut self,
         source: &[u8],
         filename: &str,
@@ -309,21 +285,16 @@ impl<'a> ScopedContext<'a> {
     ) -> Result<JSValue, ErrorText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
-        let ret_val = self
+        // eval in new sub scope
+        let scope = self.new_scope();
+        let ret_val = scope
             .eval(source, filename, eval_type, eval_flags)
             .map_err(|_| {
                 let exc = self.rt_mut().take_exception();
                 ErrorText::from(self, exc)
             })?;
 
-        #[cfg(debug_assertions)]
-        debug_assert!(
-            ret_val.gc_node().is_none_or(|n| n.is_root_or_local()),
-            "eval() returned value must be root or local: {ret_val:?}"
-        );
-
         let mut promise = Promise::try_from(ret_val).ok();
-
         let mut result = if let Some(p) = promise {
             match p.state() {
                 PromiseState::Fulfilled => {
@@ -341,23 +312,34 @@ impl<'a> ScopedContext<'a> {
             Ok(ret_val)
         };
 
-        // protect result - is this nessesary?
-        if let Ok(Some(n)) = result.as_ref().map(|v| v.gc_node_ptr()) {
-            self.gc_heap_mut().protect_node(n);
-        }
+        let mut ctx = ContextPtr::from(self.gc_ref());
+        let mut _guard_scope: Option<ScopedContext> = None;
 
-        // #[cfg(debug_assertions)]
-        // debug_assert!(
-        //     result
-        //         .as_ref()
-        //         .ok()
-        //         .is_none_or(|v| v.gc_node().is_none_or(|n| n.is_local() || n.is_root())),
-        //     "Promise result value must be local"
-        // );
+        // protect nodes for tick phase.
+        if let Some(p) = promise {
+            // `promise` will be accessed in tick() phase, must ensure it's alive then.
+            // should protect promise (promise will then trace result), if it's not local or root
+            if !p.gc_node().is_root_or_local() {
+                let s = self.new_scope();
+                s.gc().add_non_local(p.gc_node_ptr());
+                _guard_scope = Some(s);
+            }
+        } else {
+            // protect `result` - to guard the case when `result` is not promise, but there are pending jobs to tick.
+            if let Ok(Some(n)) = result.as_ref().map(|v| v.gc_node_ptr())
+                && unsafe { !n.as_ref().is_root_or_local() }
+            {
+                if _guard_scope.is_none() {
+                    let s = self.new_scope();
+                    _guard_scope = Some(s);
+                }
+                _guard_scope.as_ref().unwrap().gc().add_non_local(n);
+            }
+        }
 
         // tick to finish
         let exit_code = loop {
-            match self.rt_mut().tick() {
+            match ctx.rt_mut().tick() {
                 Ok(TickStatus::Continue) => {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                     continue;
@@ -375,17 +357,14 @@ impl<'a> ScopedContext<'a> {
                             PromiseState::Pending => {
                                 #[cfg(debug_assertions)]
                                 eprintln!("warn: has pending Promise when exit");
-                                // self.throw_type_error("Promise is pending");
-                                // let exc = rt.take_exception();
-                                // result = Err(ErrorText::from(self, exc));
                             }
                         }
                     }
                     break code;
                 }
                 Err(_) => {
-                    let exc = self.rt_mut().take_exception();
-                    result = Err(ErrorText::from(self, exc));
+                    let exc = ctx.rt_mut().take_exception();
+                    result = Err(ErrorText::from(&mut ctx, exc));
                     break -1;
                 }
             }
@@ -395,6 +374,25 @@ impl<'a> ScopedContext<'a> {
             Ok(v) => Ok(v),
             Err(e) => Err(e),
         }
+    }
+}
+
+impl<'a> ScopedContext<'a> {
+    /// Eval source in `self` scope.
+    ///
+    /// Compile source then run. Return value will be promoted to upper scope.
+    pub fn eval(
+        mut self,
+        source: &[u8],
+        filename: &str,
+        eval_type: EvalType,
+        flags: EvalFlags,
+    ) -> JSResult {
+        let ret = ContextImpl::eval_script(&mut self, source, filename, eval_type, flags);
+        if let Ok(r) = ret {
+            self.set_return_value(r);
+        }
+        ret
     }
 }
 

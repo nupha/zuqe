@@ -276,13 +276,11 @@ impl Promise {
         fail: JSValue,
     ) -> Result<Object, i32> {
         let ctor = JS_SpeciesConstructor(ctx.into(), (*self).into(), JSValue::UNDEFINED)?;
-        let (promise2, rr) = Self::create_from_ctor(ctx, ctor)?;
-        debug_assert!(promise2.gc_node().is_local());
+        let (wrap_promise, rr) = Self::create_from_ctor(ctx, ctor)?;
 
         // Hint: self.reaction() don't call bytecode execution inside
         self.reaction(ctx, [success, fail], rr)?;
-
-        Ok(promise2)
+        Ok(wrap_promise)
     }
 
     /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.

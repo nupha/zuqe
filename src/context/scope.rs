@@ -85,9 +85,9 @@ impl<'a> From<&mut ScopedContext<'a>> for Context<'a> {
 
 impl<'a> ScopedContext<'a> {
     /// Allocate a node, and put it to scope cache to protect it.
-    pub fn alloc<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
+    pub fn alloc_local<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
         self.gc_heap_mut()
-            .with_current_scope(|gc| gc.alloc(payload))
+            .with_current_scope(|gc| gc.alloc_local(payload))
             .unwrap()
     }
 
@@ -102,18 +102,21 @@ impl<'a> ScopedContext<'a> {
         self.depth
     }
 
-    /// get gc context
-    pub(crate) fn gc_scope(&self) -> &GcScope<'_> {
+    /// get gc scope
+    pub(crate) fn gc(&self) -> &GcScope<'_> {
         debug_assert!(self.depth() <= self.ctx.gc_heap().scope_max_depth());
         self.ctx.gc_heap().scope(self.depth).unwrap()
     }
 
-    pub fn set_promote_value(&mut self, val: JSValue) {
-        self.gc_scope().set_promote(val.gc_node_ptr());
+    /// Set promote value before scope dropping, after call this, scope is dropped.
+    /// That means a scope can only promote value once.
+    pub fn set_return_value(self, val: JSValue) {
+        self.gc().set_promote(val.gc_node_ptr());
     }
 
+    /// flush protected nodes inside.
     pub fn flush(&self) {
-        self.gc_scope().flush();
+        self.gc().flush();
     }
 
     /// test if given node contains in `self` scope

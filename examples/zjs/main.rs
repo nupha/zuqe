@@ -205,8 +205,8 @@ fn main() -> ExitCode {
     #[cfg(debug_assertions)]
     debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
 
-    let ec = ctx.with_new_scope(|scope| {
-        match scope.eval_wait(
+    let ec = {
+        let ret = ctx.eval_wait_v2(
             script.as_bytes(),
             &filename,
             if is_module {
@@ -215,9 +215,11 @@ fn main() -> ExitCode {
                 EvalType::Global
             },
             EvalFlags::empty(),
-        ) {
+        );
+
+        match ret {
             Ok(val) => {
-                colorize_println(val.inspect(scope).unwrap(), GreenFg);
+                colorize_println(val.inspect(&mut ctx).unwrap(), GreenFg);
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -229,7 +231,7 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         }
-    });
+    };
 
     #[cfg(debug_assertions)]
     debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
