@@ -47,6 +47,7 @@ fn js_proxy_revocable(cc: CallContext) -> JSResult {
     ))?;
 
     // create revoke function
+    let func_proto = ctx.function_proto();
     let revoke_func = NativeFunction::create(
         &mut ctx,
         Callback::Func(|mut cc| -> JSResult {
@@ -60,7 +61,7 @@ fn js_proxy_revocable(cc: CallContext) -> JSResult {
         "",
         0,
         0,
-        None,
+        Some(func_proto),
         Some([proxy].into()),
     )?;
 
