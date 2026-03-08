@@ -250,10 +250,8 @@ impl ObjectImpl {
                             let list_count = self.fast_array_count();
                             if idx == list_count {
                                 if unlikely(!self.flags().extensible()) {
-                                    return if ctx.throw_type_error_or_false(
-                                        flags as _,
-                                        "object is not extensible",
-                                    ) {
+                                    return if ctx.can_throw(flags) {
+                                        ctx.throw_type_error("object is not extensible");
                                         Err(-1)
                                     } else {
                                         Ok(false)

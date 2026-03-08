@@ -80,9 +80,7 @@ pub const PROP_TYPE_PRIVATE: i32 = 1 << 4;
 
 // Get property names flags
 /// Include array or string index properties
-pub const JS_GPN_INDEX_MASK: i32 = 1 << 0;
-#[deprecated(note = "renamed to JS_GPN_INDEX_MASK")]
-pub const JS_GPN_STRING_MASK: i32 = 1 << 0;
+pub const JS_GPN_INDEX_MASK: i32 = 1 << 0; // a.k.a. JS_GPN_STRING_MASK
 /// Include symbol properties
 pub const JS_GPN_SYMBOL_MASK: i32 = 1 << 1;
 /// Include private properties
