@@ -17,19 +17,19 @@ use crate::{
 };
 
 fn js_reflect_apply(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let cc2 = CallContext::new(
-        ctx.into(),
-        cc.arg(0),
-        if cc.length() == 0 {
-            &[]
-        } else {
-            &cc.arguments()[1..]
-        },
-        2,
-        None,
-    );
-
-    js_function_apply(ctx, cc2)
+    js_function_apply(
+        ctx,
+        CallContext::new(
+            cc.arg(0),
+            if cc.length() == 0 {
+                &[]
+            } else {
+                &cc.arguments()[1..]
+            },
+            2,
+            None,
+        ),
+    )
 }
 
 fn js_reflect_construct(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

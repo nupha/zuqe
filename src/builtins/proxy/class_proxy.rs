@@ -36,8 +36,10 @@ pub fn js_proxy_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
 }
 
 fn js_proxy_revocable(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let cc2 = CallContext::new_simple(ctx.into(), JSValue::UNDEFINED, cc.arguments());
-    let proxy = js_proxy_constructor(ctx, cc2)?;
+    let proxy = js_proxy_constructor(
+        ctx,
+        CallContext::new_simple(JSValue::UNDEFINED, cc.arguments()),
+    )?;
 
     // create revoke function
     let func_proto = ctx.function_proto();

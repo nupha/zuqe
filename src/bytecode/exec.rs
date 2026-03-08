@@ -851,9 +851,10 @@ impl Bytecode {
                         let op_1 = SP_VAL!(-1);
                         SP_GO!(-3);
 
-                        let args = [op_2, op_1];
-                        let cc = CallContext::new(realm_scope.ctx_ptr, op_3, &args, magic, None);
-                        if let Ok(res) = js_function_apply(&mut realm_scope, cc) {
+                        if let Ok(res) = js_function_apply(
+                            &mut realm_scope,
+                            CallContext::new(op_3, &[op_2, op_1], magic, None),
+                        ) {
                             SP_PUT!(0, res);
                             SP_GO!(1);
                         } else {

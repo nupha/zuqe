@@ -15,7 +15,6 @@ use crate::{
 use super::build_arg_list;
 
 pub struct CallContext<'cc> {
-    ctx: ContextPtr,
     this_value: JSValue,
     args: &'cc [JSValue],
     data: Option<&'cc mut [JSValue]>,
@@ -23,15 +22,13 @@ pub struct CallContext<'cc> {
 }
 
 impl<'cc> CallContext<'cc> {
-    pub(crate) fn new(
-        ctx: ContextPtr,
+    pub(crate) const fn new(
         this_value: JSValue,
         args: &'cc [JSValue],
         magic: i32,
         data: Option<&'cc mut [JSValue]>,
     ) -> Self {
         Self {
-            ctx: ctx.gc_ref().into(),
             this_value,
             args,
             magic,
@@ -40,29 +37,8 @@ impl<'cc> CallContext<'cc> {
     }
 
     #[inline(always)]
-    pub(crate) fn new_simple(ctx: ContextPtr, this: JSValue, args: &'cc [JSValue]) -> Self {
-        Self::new(ctx, this, args, 0, None)
-    }
-
-    /// Context handle
-    #[inline(always)]
-    pub fn context(&self) -> Context<'cc> {
-        Context::from(self.ctx.gc_ref())
-    }
-
-    #[inline(always)]
-    pub fn ctx(&self) -> &ContextImpl {
-        self.ctx.deref()
-    }
-
-    #[inline(always)]
-    pub fn ctx_mut(&mut self) -> &mut ContextImpl {
-        self.ctx.deref_mut()
-    }
-
-    #[inline(always)]
-    pub(crate) const fn ctx_ptr(&self) -> ContextPtr {
-        self.ctx
+    pub(crate) const fn new_simple(this: JSValue, args: &'cc [JSValue]) -> Self {
+        Self::new(this, args, 0, None)
     }
 
     #[inline(always)]

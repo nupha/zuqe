@@ -367,15 +367,15 @@ impl ModuleDef {
                         m.set_evaluated(ctx);
                     }
                     Err(e) => {
-                        let mut data = [JSValue::Module(m)];
-                        let cc2 = CallContext::new(
-                            ctx.into(),
-                            JSValue::UNDEFINED,
-                            std::slice::from_ref(&e),
-                            0,
-                            Some(&mut data),
-                        );
-                        Self::execute_async_rejected(ctx, cc2)?;
+                        Self::execute_async_rejected(
+                            ctx,
+                            CallContext::new(
+                                JSValue::UNDEFINED,
+                                std::slice::from_ref(&e),
+                                0,
+                                Some(&mut [JSValue::Module(m)]),
+                            ),
+                        )?;
                     }
                 }
             }
@@ -415,15 +415,16 @@ impl ModuleDef {
         md.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
 
         for m in md.async_parent_modules.iter() {
-            let mut data = [JSValue::Module(*m)];
-            let cc = CallContext::new(
-                ctx.into(),
-                JSValue::UNDEFINED,
-                std::slice::from_ref(&err_val),
-                0,
-                Some(&mut data),
-            );
-            Self::execute_async_rejected(ctx, cc).unwrap();
+            Self::execute_async_rejected(
+                ctx,
+                CallContext::new(
+                    JSValue::UNDEFINED,
+                    std::slice::from_ref(&err_val),
+                    0,
+                    Some(&mut [JSValue::Module(*m)]),
+                ),
+            )
+            .unwrap();
         }
 
         if md.promise.is_some() {

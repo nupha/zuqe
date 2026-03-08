@@ -75,13 +75,7 @@ pub(crate) fn js_typed_array___speciesCreate(
     if ctor.is_undefined() {
         js_typed_array_constructor(
             ctx,
-            CallContext::new(
-                ctx.ctx_ptr,
-                JSValue::UNDEFINED,
-                args_list,
-                ta.class_id() as _,
-                None,
-            ),
+            CallContext::new(JSValue::UNDEFINED, args_list, ta.class_id() as _, None),
         )
     } else {
         js_typed_array_create(ctx, ctor, args_list)
@@ -1135,10 +1129,9 @@ fn js_typed_array_toSorted(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         ctx.throw_type_error("not a TypedArray");
         return Err(-1);
     };
-    let arr = p.create_to_new(ctx, JSValue::UNDEFINED, p.class_id())?;
 
-    let cc = CallContext::new_simple(ctx.into(), arr.into(), cc.arguments());
-    js_typed_array_sort(ctx, cc)
+    let arr = p.create_to_new(ctx, JSValue::UNDEFINED, p.class_id())?;
+    js_typed_array_sort(ctx, CallContext::new_simple(arr.into(), cc.arguments()))
 }
 
 fn js_typed_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

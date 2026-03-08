@@ -90,13 +90,7 @@ pub(crate) fn js_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
 
 fn JS_ArraySpeciesCreate(ctx: &mut ScopedContext, obj: JSValue, len_val: JSValue) -> JSResult {
     if !obj.is_array(ctx)? {
-        let cc = CallContext::new(
-            ctx.into(),
-            JSValue::UNDEFINED,
-            std::slice::from_ref(&len_val),
-            0,
-            None,
-        );
+        let cc = CallContext::new(JSValue::UNDEFINED, std::slice::from_ref(&len_val), 0, None);
         return js_array_constructor(ctx, cc);
     }
 
@@ -123,12 +117,10 @@ fn JS_ArraySpeciesCreate(ctx: &mut ScopedContext, obj: JSValue, len_val: JSValue
     }
 
     if ctor.is_undefined() {
-        let cc = CallContext::new_simple(
-            ctx.into(),
-            JSValue::UNDEFINED,
-            std::slice::from_ref(&len_val),
-        );
-        js_array_constructor(ctx, cc)
+        js_array_constructor(
+            ctx,
+            CallContext::new_simple(JSValue::UNDEFINED, std::slice::from_ref(&len_val)),
+        )
     } else {
         ctor.call_ctor(ctx, std::slice::from_ref(&len_val))
     }
@@ -762,8 +754,7 @@ pub(crate) fn js_array_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     obj.invoke_callable(ctx, Atom::CONST_join, &[])?
         .unwrap_or_else(|| {
             // use builtin `Object.prototype.toString`
-            let cc2 = CallContext::new(ctx.into(), obj.into(), &[], 0, None);
-            js_object_toString(ctx, cc2)
+            js_object_toString(ctx, CallContext::new_simple(obj.into(), &[]))
         })
 }
 

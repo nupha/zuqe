@@ -154,8 +154,10 @@ pub(crate) fn js_object_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     let mut groups: JSValue = {
         #[cfg(feature = "builtin_mapset")]
         if is_map {
-            let cc2 = CallContext::new_simple(ctx.into(), JSValue::UNDEFINED, &[]);
-            crate::builtins::mapset::js_map_constructor(ctx, cc2)?
+            crate::builtins::mapset::js_map_constructor(
+                ctx,
+                CallContext::new_simple(JSValue::UNDEFINED, &[]),
+            )?
         } else {
             ctx.create_base_object_with_proto(None)?.into()
         }
@@ -185,7 +187,7 @@ pub(crate) fn js_object_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSR
                 (
                     crate::builtins::mapset::js_map_get(
                         ctx,
-                        CallContext::new_simple(ctx.ctx_ptr, groups, std::slice::from_ref(&key)),
+                        CallContext::new_simple(groups, std::slice::from_ref(&key)),
                     )?,
                     Atom::NULL,
                 )
@@ -211,7 +213,7 @@ pub(crate) fn js_object_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSR
             if is_map {
                 crate::builtins::mapset::js_map_set(
                     ctx,
-                    CallContext::new(ctx.ctx_ptr, groups, &[key, props_arr], 0, None),
+                    CallContext::new(groups, &[key, props_arr], 0, None),
                 )?;
             } else {
                 groups.define_property_value(ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
@@ -222,7 +224,7 @@ pub(crate) fn js_object_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSR
 
         js_array_push(
             ctx,
-            CallContext::new(ctx.ctx_ptr, props_arr, std::slice::from_ref(&val), 0, None),
+            CallContext::new(props_arr, std::slice::from_ref(&val), 0, None),
         )?;
     }
 
@@ -339,11 +341,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptors(
         let atom_value = pkey.atom.to_value(cx)?;
         let desc = js_object_getOwnPropertyDescriptor(
             cx,
-            CallContext::new_simple(
-                cx.ctx_ptr,
-                JSValue::UNDEFINED,
-                [obj.into(), atom_value].as_slice(),
-            ),
+            CallContext::new_simple(JSValue::UNDEFINED, [obj.into(), atom_value].as_slice()),
         )?;
 
         if !desc.is_undefined() {
@@ -431,8 +429,7 @@ pub(crate) fn js_object_hasOwn(ctx: &mut ScopedContext, cc: CallContext) -> JSRe
 //
 fn js_object___getClass(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let name = if let Some(o) = cc.arg(0).as_object() {
-        let cls = &cc.ctx().rt_ptr().class_registry[o.class_id() as usize];
-        cls.class_name
+        ctx.rt_ref().class_registry[o.class_id() as usize].class_name
     } else {
         Atom::CONST_empty_string
     };

@@ -274,9 +274,12 @@ impl<'a> ObjectIter<'a> {
         {
             // fast path for the built-in iterators,
             // avoid creating the intermediate result object
-            let cc = CallContext::new(ctx.into(), enum_obj.into(), args, nfun.magic as _, None);
             let mut state = IteratorState::NotDone;
-            let ret = f(ctx, cc, &mut state)?;
+            let ret = f(
+                ctx,
+                CallContext::new(enum_obj.into(), args, nfun.magic as _, None),
+                &mut state,
+            )?;
 
             return Ok((ret, state));
         }

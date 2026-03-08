@@ -105,7 +105,7 @@ fn js_evalScript(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
 
     if lev == 1 {
         /* install the interrupt handler */
-        cc.ctx_mut().rt_mut().set_interrupt_handler(|_| {
+        ctx.rt_mut().set_interrupt_handler(|_| {
             let s = OS_PENDING_SIGNALS.get();
             (s >> libc::SIGINT) & 1 != 0 // break if has SIGINT
         });
@@ -153,7 +153,7 @@ fn js_evalScript(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
 }
 
 fn js_gc(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    cc.context().rt_mut().gc_request();
+    ctx.rt_mut().gc_request();
     Ok(JSValue::UNDEFINED)
 }
 

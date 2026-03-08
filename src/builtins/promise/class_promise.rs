@@ -45,7 +45,7 @@ fn js_promise_then_finally_func(ctx: &mut ScopedContext, cc: CallContext) -> JSR
 
     let promise = js_promise_resolve(
         ctx,
-        CallContext::new_simple(ctx.ctx_ptr, ctor, std::slice::from_ref(&res)),
+        CallContext::new_simple(ctor, std::slice::from_ref(&res)),
     )?;
 
     // create inner resolving function for finally()

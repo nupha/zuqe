@@ -247,7 +247,6 @@ impl AGenPayload {
 
     fn completed_return(&self, ctx: &mut ScopedContext, value: JSValue) -> Result<(), i32> {
         let cc = CallContext::new(
-            ctx.into(),
             ctx.promise_ctor,
             std::slice::from_ref(&value),
             0, // is_reject=0
@@ -260,14 +259,15 @@ impl AGenPayload {
                 // A poisoned .constructor property is observable and the resulting
                 // exception should be delivered to the catch handler.
                 let exc = ctx.rt_mut().take_exception();
-                let cc = CallContext::new(
-                    ctx.into(),
-                    ctx.promise_ctor,
-                    std::slice::from_ref(&exc),
-                    1, // is_reject=1
-                    None,
-                );
-                js_promise_resolve(ctx, cc)?
+                js_promise_resolve(
+                    ctx,
+                    CallContext::new(
+                        ctx.promise_ctor,
+                        std::slice::from_ref(&exc),
+                        1, // is_reject=1
+                        None,
+                    ),
+                )?
             }
         }
         .try_into()?;
@@ -290,11 +290,11 @@ impl AGenPayload {
     }
 
     fn _await(&self, ctx: &mut ScopedContext, value: JSValue) -> Result<(), i32> {
-        let mut promise: Promise = {
-            let cc =
-                CallContext::new_simple(ctx.into(), ctx.promise_ctor, std::slice::from_ref(&value));
-            js_promise_resolve(ctx, cc)?.try_into()?
-        };
+        let mut promise: Promise = js_promise_resolve(
+            ctx,
+            CallContext::new_simple(ctx.promise_ctor, std::slice::from_ref(&value)),
+        )?
+        .try_into()?;
 
         let gen_obj = self
             .generator

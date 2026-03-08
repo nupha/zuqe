@@ -167,9 +167,10 @@ impl AsyncState {
             };
 
             // Handle await expression
-            let cc =
-                CallContext::new_simple(ctx.into(), ctx.promise_ctor, std::slice::from_ref(&value));
-            let mut promise = if let Ok(v) = js_promise_resolve(ctx, cc) {
+            let mut promise = if let Ok(v) = js_promise_resolve(
+                ctx,
+                CallContext::new_simple(ctx.promise_ctor, std::slice::from_ref(&value)),
+            ) {
                 Promise::try_from(v).unwrap()
             } else {
                 let exc = ctx.rt_mut().take_exception();

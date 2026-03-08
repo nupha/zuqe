@@ -628,8 +628,7 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
                 }
                 ctx.create_array_with_values(aa)?.into()
             }];
-            let cc2 = CallContext::new(ctx.ctx_ptr, rep, &args, 0, None);
-            js_function_apply(ctx, cc2)?
+            js_function_apply(ctx, CallContext::new_simple(rep, &args))?
                 .to_string(ctx)?
                 .content()
                 .clone()

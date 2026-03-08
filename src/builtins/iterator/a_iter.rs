@@ -182,13 +182,10 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
             };
 
             let mut value_wrapper_promise: Promise = {
-                let cc = CallContext::new_simple(
-                    ctx.into(),
-                    ctx.promise_ctor,
-                    std::slice::from_ref(&value),
-                );
-
-                if let Ok(r) = js_promise_resolve(ctx, cc) {
+                if let Ok(r) = js_promise_resolve(
+                    ctx,
+                    CallContext::new_simple(ctx.promise_ctor, std::slice::from_ref(&value)),
+                ) {
                     r.try_into()?
                 } else {
                     let exc = ctx.rt_mut().take_exception();

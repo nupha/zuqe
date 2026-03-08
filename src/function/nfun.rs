@@ -98,13 +98,7 @@ impl NFuncPayload {
         flags: i32,
         xref_scope: GcPartitionId,
     ) -> JSResult {
-        let mut cc = CallContext::new(
-            self.realm,
-            this_value,
-            args,
-            self.magic as _,
-            self.data.as_deref_mut(),
-        );
+        let mut cc = CallContext::new(this_value, args, self.magic as _, self.data.as_deref_mut());
 
         // call in new scope
         let mut realm_scope = self.realm.new_scope();
