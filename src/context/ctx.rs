@@ -17,6 +17,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_DATAVIEW, JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY,
     JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
+    ScopedContext,
     atom::Atom,
     builtins::{
         array::ArrayPayload, error::js_error_proto_funcs, global::js_global_props, promise::Job,
@@ -83,7 +84,7 @@ pub struct ContextImpl {
     /// context level queued jobs
     pub(crate) job_list: VecDeque<Job>,
     /// user defined tick handlers
-    pub(crate) tick_handlers: Vec<fn(Context) -> bool>,
+    pub(crate) tick_handlers: Vec<fn(&mut ScopedContext) -> bool>,
 
     /// User data pointer
     pub(crate) user_opaque: *mut std::ffi::c_void,
@@ -262,6 +263,37 @@ impl ContextImpl {
             .is_some_and(|sf| sf.mode.contains(ExecMode::STRICT))
     }
 
+    fn finalize(&mut self) {
+        self.job_list.clear();
+
+        // free loaded modules
+        js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);
+        #[cfg(debug_assertions)]
+        debug_assert!(self.loaded_modules.is_empty());
+
+        self.array_shape.take();
+        self.function_ctor = JSValue::UNDEFINED;
+        self.array_ctor = JSValue::UNDEFINED;
+        #[cfg(feature = "builtin_regexp")]
+        {
+            self.regexp_ctor = JSValue::UNDEFINED;
+        }
+        self.promise_ctor = JSValue::UNDEFINED;
+
+        self.class_protos.clear();
+        self.error_protos = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
+
+        self.iterator_proto.take();
+        self.async_iterator_proto.take();
+        self.array_proto_values = JSValue::UNDEFINED;
+        self.throw_type_error = JSValue::UNDEFINED;
+        self.global_obj.take();
+        self.global_var_obj.take();
+        self.eval_func = JSValue::UNDEFINED;
+    }
+}
+
+impl<'c> ScopedContext<'c> {
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
     /// No Atom should be allocated by this function.
     fn init_core_objects(&mut self) -> Result<(), i32> {
@@ -357,35 +389,6 @@ impl ContextImpl {
 
         Ok(())
     }
-
-    fn finalize(&mut self) {
-        self.job_list.clear();
-
-        // free loaded modules
-        js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);
-        #[cfg(debug_assertions)]
-        debug_assert!(self.loaded_modules.is_empty());
-
-        self.array_shape.take();
-        self.function_ctor = JSValue::UNDEFINED;
-        self.array_ctor = JSValue::UNDEFINED;
-        #[cfg(feature = "builtin_regexp")]
-        {
-            self.regexp_ctor = JSValue::UNDEFINED;
-        }
-        self.promise_ctor = JSValue::UNDEFINED;
-
-        self.class_protos.clear();
-        self.error_protos = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
-
-        self.iterator_proto.take();
-        self.async_iterator_proto.take();
-        self.array_proto_values = JSValue::UNDEFINED;
-        self.throw_type_error = JSValue::UNDEFINED;
-        self.global_obj.take();
-        self.global_var_obj.take();
-        self.eval_func = JSValue::UNDEFINED;
-    }
 }
 
 /// Handle to context with lifetime
@@ -443,8 +446,8 @@ impl<'a> From<GcRef<ContextImpl>> for Context<'a> {
 }
 
 impl<'a> Context<'a> {
-    pub const ECMA_CONTEXT_SETUP: fn(Context) -> Result<(), i32> =
-        |mut ctx: Context| -> Result<(), i32> {
+    pub const ECMA_CONTEXT_SETUP: fn(&mut ScopedContext) -> Result<(), i32> =
+        |ctx: &mut ScopedContext| -> Result<(), i32> {
             // setup global namespace
             {
                 let mut gobj = ctx.global_obj();
@@ -452,34 +455,34 @@ impl<'a> Context<'a> {
                 // define name `globalThis` and `global`
                 let val = JSValue::from(gobj);
                 gobj.define_property_value(
-                    &mut ctx,
+                    ctx,
                     Atom::CONST_globalThis,
                     val,
                     JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
                 )?;
                 gobj.define_property_value(
-                    &mut ctx,
+                    ctx,
                     Atom::CONST_global,
                     val,
                     JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
                 )?;
 
                 // global funcs
-                gobj.install_fields(&mut ctx, js_global_props)?;
+                gobj.install_fields(ctx, js_global_props)?;
 
                 // Reflect: lazy init
                 #[cfg(feature = "builtin_reflect")]
-                gobj.install_fields(&mut ctx, crate::builtins::reflect::js_reflect_obj)?;
+                gobj.install_fields(ctx, crate::builtins::reflect::js_reflect_obj)?;
 
                 // JSON: lazy init
                 #[cfg(feature = "builtin_json")]
-                gobj.install_fields(&mut ctx, crate::builtins::json::js_json_obj)?;
+                gobj.install_fields(ctx, crate::builtins::json::js_json_obj)?;
 
                 // Math: lazy init
                 #[cfg(feature = "builtin_math")]
                 {
                     ctx.init_random_seed();
-                    gobj.install_fields(&mut ctx, crate::builtins::math::js_math_obj)?;
+                    gobj.install_fields(ctx, crate::builtins::math::js_math_obj)?;
                 }
             }
 
@@ -595,7 +598,7 @@ impl RuntimeImpl {
     /// Create context with setup.
     pub fn create_context<'a>(
         &mut self,
-        setup: impl FnOnce(Context) -> Result<(), i32>,
+        setup: impl FnOnce(&mut ScopedContext) -> Result<(), i32>,
     ) -> Result<Context<'a>, i32> {
         let inner = ContextImpl::new(self)?;
 
@@ -610,17 +613,21 @@ impl RuntimeImpl {
                 {
                     let mut ctx = Context::from(gc_ref);
 
-                    // DON'T CHANGE FOLLOWING ORDER
+                    ctx.with_new_scope(|mut scope| -> Result<(), i32> {
+                        // DON'T CHANGE FOLLOWING ORDER
 
-                    // base object must be initialized before creating global
-                    ctx.init_core_objects()?;
-                    // make global namespace
-                    ctx.global_obj = Some(ctx.create_base_object()?);
-                    // make global var object
-                    ctx.global_var_obj = Some(ctx.create_base_object_with_proto(None)?);
+                        // base object must be initialized before creating global
+                        scope.init_core_objects()?;
+                        // make global namespace
+                        scope.global_obj = Some(scope.create_base_object()?);
+                        // make global var object
+                        scope.global_var_obj = Some(scope.create_base_object_with_proto(None)?);
 
-                    // user initialization
-                    setup(ctx)?;
+                        // user initialization
+                        setup(&mut scope)?;
+
+                        Ok(())
+                    })?;
                 }
 
                 Ok(Context {

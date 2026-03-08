@@ -10,7 +10,7 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    Object,
+    Object, ScopedContext,
     builtins::iterator::ObjectIter,
     context::{ContextImpl, ContextPtr},
     error::{JS_IsUncatchableError, is_backtrace_needed},
@@ -237,7 +237,7 @@ impl StackFrame {
     #[cold]
     pub(crate) fn handle_exception(
         &mut self,
-        mut ctx: ContextPtr,
+        ctx: &mut ScopedContext,
         pc: usize,
         mut sp: usize,
     ) -> Option<(usize, usize)> {
@@ -270,7 +270,7 @@ impl StackFrame {
                         if let JSValue::Object(o) =
                             unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) }
                         {
-                            let _ = ObjectIter::close_iter_internal(&mut ctx, o, true);
+                            let _ = ObjectIter::close_iter_internal(ctx, o, true);
                         }
                     } else {
                         unsafe {
@@ -289,7 +289,7 @@ impl StackFrame {
     /// Prepare to exit bytecode execution.
     pub(crate) fn handle_exit(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         pc: usize,
         sp: usize,
         is_async: bool,

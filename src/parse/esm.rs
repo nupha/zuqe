@@ -37,12 +37,15 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        let module_name = self
-            .ctx
-            .create_string_with_buf(self.token.data.take_string().unwrap())
-            .and_then(|s| s.to_atom(self.ctx.rt_ptr(), AtomKind::String))?;
+        let module_name = {
+            let mut scope = self.ctx.new_scope_legacy();
+            scope
+                .create_string_with_buf(self.token.data.take_string().unwrap())
+                .and_then(|s| s.to_atom(scope.rt_ptr(), AtomKind::String))?
+        };
 
         self.next_token()?;
+
         Ok(module_name)
     }
 
@@ -166,7 +169,7 @@ impl<'s> JSParseState<'s> {
             module_name = self.parse_from_clause()?;
         }
 
-        let idx = md.add_dependency(&mut self.ctx, module_name)?;
+        let idx = md.add_dependency(&mut self.ctx.new_scope_legacy(), module_name)?;
         for imp in &mut md.import_entries[first_import..] {
             imp.req_module_idx = idx as _;
         }
@@ -286,7 +289,7 @@ impl<'s> JSParseState<'s> {
                 // Handle re-exports
                 if self.token_is_pseudo_keyword(Atom::CONST_from) {
                     let module_name = self.parse_from_clause()?;
-                    let idx = md.add_dependency(&mut self.ctx, module_name)?;
+                    let idx = md.add_dependency(&mut self.ctx.new_scope_legacy(), module_name)?;
                     for me in &mut md.export_entries[first_export..] {
                         me.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _);
                     }
@@ -319,7 +322,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     let module_name = self.parse_from_clause()?;
-                    let r = md.add_dependency(&mut self.ctx, module_name);
+                    let r = md.add_dependency(&mut self.ctx.new_scope_legacy(), module_name);
 
                     let idx = r?;
                     self.add_module_export(
@@ -330,9 +333,9 @@ impl<'s> JSParseState<'s> {
                     )?;
                 } else {
                     let module_name = self.parse_from_clause()?;
-                    let dep_idx = md.add_dependency(&mut self.ctx, module_name);
+                    let dep_idx = md.add_dependency(&mut self.ctx.new_scope_legacy(), module_name);
 
-                    md.add_star_export_entry(&mut self.ctx, dep_idx?)?;
+                    md.add_star_export_entry(&mut self.ctx.new_scope_legacy(), dep_idx?)?;
                 }
             }
 
@@ -402,28 +405,33 @@ impl<'s> JSParseState<'s> {
             self.cur_func().module.unwrap()
         });
 
-        match md.add_export_internal(self.ctx, local_name, export_name, export_type) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                if e == ErrorKind::Syntax as i32 {
-                    let backtrace_flags = if !self.cur_func_def.is_null()
-                        && self.cur_func().attrs.backtrace_barrier
-                    {
-                        JS_BACKTRACE_FLAG_SINGLE_LEVEL
-                    } else {
-                        0
-                    };
+        self.ctx
+            .with_current_scope(|mut scope| {
+                match md.add_export_internal(&mut scope, local_name, export_name, export_type) {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        if e == ErrorKind::Syntax as i32 {
+                            let fd = self.cur_func_def;
 
-                    let exc = self.ctx.rt_ptr().exception();
-                    self.ctx.build_backtrace_to(
-                        exc,
-                        Some((self.filename, self.line_num)),
-                        backtrace_flags,
-                    );
+                            let backtrace_flags =
+                                if !fd.is_null() && unsafe { (*fd).attrs.backtrace_barrier } {
+                                    JS_BACKTRACE_FLAG_SINGLE_LEVEL
+                                } else {
+                                    0
+                                };
+
+                            let exc = scope.rt_mut().exception();
+                            scope.build_backtrace_to(
+                                exc,
+                                Some((self.filename, self.line_num)),
+                                backtrace_flags,
+                            );
+                        }
+                        Err(e)
+                    }
                 }
-                Err(e)
-            }
-        }
+            })
+            .unwrap()
     }
 
     /// add import for current parsing module.
@@ -450,21 +458,25 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
+        let mut scope = self.ctx.new_scope_legacy();
         let is_local = import_name == Atom::CONST__star_;
-        let var_idx = self.cur_func_mut().add_closure_var(
-            self.ctx,
-            is_local,
-            false,
-            md.import_entries.len() as _,
-            local_name,
-            true,
-            true,
-            JSVarKindEnum::JS_VAR_NORMAL,
-        )?;
+
+        let var_idx = unsafe {
+            (*self.cur_func_def).add_closure_var(
+                &mut scope,
+                is_local,
+                false,
+                md.import_entries.len() as _,
+                local_name,
+                true,
+                true,
+                JSVarKindEnum::JS_VAR_NORMAL,
+            )?
+        };
 
         if md.import_entries.len() == md.import_entries.capacity() {
             md.import_entries.try_reserve(2).map_err(|_| {
-                self.ctx.throw_out_of_memory();
+                scope.throw_out_of_memory();
                 -1
             })?;
         }

@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
-    RuntimeImpl,
+    RuntimeImpl, ScopedContext,
     atom::{ATOM_CONST_COUNT, AtomDescKind, AtomKind},
     context::ContextImpl,
     number::IntOrFloat,
@@ -139,7 +139,7 @@ impl Atom {
 
     /// Check if atom can be used as a numeric index property,
     /// if yes, returns the index.
-    pub fn to_numeric_index(&self, ctx: &mut ContextImpl) -> Result<Option<IntOrFloat>, i32> {
+    pub fn to_numeric_index(&self, ctx: &mut ScopedContext) -> Result<Option<IntOrFloat>, i32> {
         if let Some(n) = self.to_small_int() {
             return Ok(Some(IntOrFloat::Int64(n as _)));
         }
@@ -220,12 +220,12 @@ impl Atom {
     }
 
     #[inline]
-    pub fn is_numeric_index(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
+    pub fn is_numeric_index(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {
         self.to_numeric_index(ctx).map(|x| x.is_some())
     }
 
     /// Convert atom to String or Symbol value.
-    pub fn to_value(&self, ctx: &mut ContextImpl) -> Result<JSValue, i32> {
+    pub fn to_value(&self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::from)
@@ -243,7 +243,7 @@ impl Atom {
 
     /// force convert atom to string value.
     /// for anonymous symbol, ident convert to empty string value.
-    pub fn force_string(&self, ctx: &mut ContextImpl) -> Result<StringRef, i32> {
+    pub fn force_string(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}").into_bytes())
         } else {
@@ -334,7 +334,7 @@ impl StringImpl {
     }
 }
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     /// create or reuse an Atom from `str`
     pub fn create_atom_string(&mut self, str: &str) -> Result<StringRef, i32> {
         let atom = Atom::new(self.rt_ptr(), str)?;
@@ -346,7 +346,7 @@ impl JSValue {
     /// convert value to atom. if value is not string or symbol, corece value to string then convert to atom.
     ///
     /// Note: returned atom is cloned, caller should free it after use.
-    pub fn to_atom(&self, ctx: &mut ContextImpl) -> Result<Atom, i32> {
+    pub fn to_atom(&self, ctx: &mut ScopedContext) -> Result<Atom, i32> {
         let mut val = *self;
 
         loop {
@@ -442,7 +442,7 @@ impl JSValue {
 /// return a string atom containing name concatenated with str1.
 /// Note: returned atom should be freed by caller.
 pub(crate) fn js_atom_concat_str(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     atom: Atom,
     str1: &str,
 ) -> Result<Atom, i32> {
@@ -464,7 +464,7 @@ pub(crate) fn js_atom_concat_str(
 
 /// Note: returned atom should be freed by caller.
 #[inline(always)]
-pub fn js_atom_concat_num(ctx: &mut ContextImpl, atom: Atom, n: u32) -> Result<Atom, i32> {
+pub fn js_atom_concat_num(ctx: &mut ScopedContext, atom: Atom, n: u32) -> Result<Atom, i32> {
     js_atom_concat_str(ctx, atom, &format!("{n}"))
 }
 

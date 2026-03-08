@@ -6,10 +6,10 @@ use std::ptr::NonNull;
 use gc_lite::{GcNode, GcPartitionId, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
+    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, ScopedContext,
     atom::Atom,
     builtins::iterator::js_create_iterator_result,
-    context::{Context, ContextImpl, ContextPtr},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
@@ -20,10 +20,11 @@ use crate::{
 
 use super::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR, js_function_set_properties};
 
-pub type CallbackFn = fn(cc: CallContext) -> JSResult;
-pub type GetterFn = fn(cc: CallContext) -> JSResult;
-pub type SetterFn = fn(cc: CallContext) -> JSResult;
-pub type IteratorFn = fn(cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
+pub type CallbackFn = fn(ctx: &mut ScopedContext, cc: CallContext) -> JSResult;
+pub type GetterFn = fn(ctx: &mut ScopedContext, cc: CallContext) -> JSResult;
+pub type SetterFn = fn(ctx: &mut ScopedContext, cc: CallContext) -> JSResult;
+pub type IteratorFn =
+    fn(ctx: &mut ScopedContext, cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
 
 pub type JSCFunctionFF = unsafe fn(f64) -> f64;
 pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
@@ -105,51 +106,53 @@ impl NFuncPayload {
             self.data.as_deref_mut(),
         );
 
+        let mut scope = self.realm.new_scope_legacy();
+
         let ret_val: JSResult = match self.callback {
-            Callback::Func(f) => f(cc),
+            Callback::Func(f) => f(&mut scope, cc),
             Callback::Getter(f) => {
                 debug_assert_eq!(cc.length(), 0);
-                f(cc)
+                f(&mut scope, cc)
             }
             Callback::Setter(f) => {
                 debug_assert_eq!(cc.length(), 1);
-                f(cc)
+                f(&mut scope, cc)
             }
             Callback::IteratorNext(f) => {
                 let mut iter_state = IteratorState::NotDone;
-                let r = f(cc, &mut iter_state);
+                let r = f(&mut scope, cc, &mut iter_state);
                 if let Ok(v) = r
                     && iter_state != IteratorState::NotParsed
                 {
-                    js_create_iterator_result(&mut self.realm, v, iter_state == IteratorState::Done)
+                    js_create_iterator_result(&mut scope, v, iter_state == IteratorState::Done)
                 } else {
                     r
                 }
             }
             Callback::Constructor(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                    self.realm.throw_type_error("must be called with new");
+                    scope.throw_type_error("must be called with new");
                     return Err(-1);
                 }
-                f(cc)
+                f(&mut scope, cc)
             }
             Callback::ConstructorOrFunc(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                     cc.set_this(JSValue::UNDEFINED); // set this_value to undefined
                 }
-                f(cc)
+                f(&mut scope, cc)
             }
 
             Callback::FF(f) => {
                 //debug_assert!(data.is_none(), "binding data not allowed");
                 cc.arg(0)
-                    .to_f64(&mut self.realm)
+                    .to_f64(&mut scope)
                     .map(|n| JSValue::from(unsafe { f(n) }))
             }
             Callback::FFF(f) => {
                 //debug_assert!(data.is_none(), "binding data not allowed");
-                let d1 = cc.arg(0).to_f64(&mut self.realm)?;
-                let d2 = cc.arg(1).to_f64(&mut self.realm)?;
+                let d1 = cc.arg(0).to_f64(&mut scope)?;
+                let d2 = cc.arg(1).to_f64(&mut scope)?;
                 Ok(JSValue::from(unsafe { f(d1, d2) }))
             }
         };
@@ -160,20 +163,14 @@ impl NFuncPayload {
             debug_assert!(!data.is_empty());
             for v in data {
                 if let Some(n) = v.gc_node_ptr() {
-                    self.realm.rt_ptr().gc_heap_mut().set_xref(xref_scope, n);
+                    scope.rt_ptr().gc_heap_mut().set_xref(xref_scope, n);
                 }
             }
         }
 
-        // promote gc scope of return value
-        if let Ok(Some(n)) = ret_val.as_ref().map(JSValue::gc_node_ptr) {
-            #[cfg(debug_assertions)]
-            unsafe {
-                n.as_ref()
-                    .debug_assert_node_valid(self.realm.rt_ref().gc_heap());
-            }
-
-            self.realm.rt_ptr().gc_heap_mut().set_xref(xref_scope, n);
+        // promote return value
+        if let Ok(v) = ret_val {
+            scope.set_return_value(v);
         }
 
         ret_val
@@ -192,7 +189,7 @@ object_cast!(
 
 impl NativeFunction {
     pub fn class_call(
-        mut ctx: Context,
+        ctx: &mut ScopedContext,
         func: JSValue,
         this_obj: JSValue,
         args: &[JSValue],
@@ -207,10 +204,7 @@ impl NativeFunction {
             nfunc.gc_node().debug_assert_node_valid(rt.gc_heap_mut());
         }
 
-        let (mut realm, args_length) = {
-            let p = nfunc.payload();
-            (p.realm, p.length as usize)
-        };
+        let args_length = nfunc.payload().length as usize;
 
         // better to always check stack overflow
         if js_check_stack_overflow(&rt, std::mem::size_of::<JSValue>() * args_length) {
@@ -237,7 +231,8 @@ impl NativeFunction {
                 .local_buf
                 .try_reserve_exact(args_length)
                 .map_err(|_| {
-                    realm.throw_out_of_memory();
+                    let mut realm = nfunc.payload().realm;
+                    realm.new_scope_legacy().throw_out_of_memory();
                     -1
                 })?;
 
@@ -269,7 +264,7 @@ impl NativeFunction {
 
     // TODO: shall we combine this with `::class_call()`?
     pub fn class_call_with_data(
-        _ctx: Context,
+        ctx: &mut ScopedContext,
         func_obj: JSValue,
         this_val: JSValue,
         args: &[JSValue],
@@ -287,7 +282,7 @@ impl NativeFunction {
     /// Create native function object.
     /// at least `length` arguments can be readable in arguments.
     pub(crate) fn create(
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         callback: Callback,
         name: &str,
         length: u8,
@@ -363,7 +358,7 @@ impl JSValue {
     }
 }
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     /// Create native function object with callback and binding data, using function proto as proto object.
     /// at least `length` arguments will be readable in arguments.
     #[inline(always)]

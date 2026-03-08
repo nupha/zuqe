@@ -3,7 +3,7 @@
 
 use std::ops::RangeInclusive;
 
-use crate::{context::ContextImpl, error::JSResult, value::JSValue};
+use crate::{ScopedContext, context::ContextImpl, error::JSResult, value::JSValue};
 
 pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 pub const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;
@@ -173,7 +173,7 @@ impl JSValue {
 
     /// test if the value is an intergral number.
     /// returns Err if test has exception.
-    pub fn is_integral(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
+    pub fn is_integral(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {
         if !self.is_number() {
             Ok(false)
         } else {
@@ -186,7 +186,7 @@ impl JSValue {
     /// returns JSValue::Int, JSValue::Float64 value, or Err.
     ///
     /// Because BigInt is not supported, JSToNumberHintEnum does not effect
-    fn to_num_internal(self, ctx: &mut ContextImpl, _flag: JSToNumberHintEnum) -> JSResult {
+    fn to_num_internal(self, ctx: &mut ScopedContext, _flag: JSToNumberHintEnum) -> JSResult {
         let mut val = self;
 
         loop {
@@ -228,18 +228,18 @@ impl JSValue {
 
     /// Convert value to number Int or Float64 (could be NaN).
     #[inline(always)]
-    pub fn to_number(&self, ctx: &mut ContextImpl) -> Result<JSValue, i32> {
+    pub fn to_number(&self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         self.to_num_internal(ctx, JSToNumberHintEnum::TON_FLAG_NUMBER)
     }
 
     /// Convert value to Int, Float64 (could be NaN) value, or Err.
     /// Because BigInt is not supported, this method is same as coerce_to_number()
     #[inline(always)]
-    pub fn to_numeric(&self, ctx: &mut ContextImpl) -> Result<JSValue, i32> {
+    pub fn to_numeric(&self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         self.to_num_internal(ctx, JSToNumberHintEnum::TON_FLAG_NUMERIC)
     }
 
-    pub fn coerce_to_u8_clamp(&self, ctx: &mut ContextImpl) -> Result<u8, i32> {
+    pub fn coerce_to_u8_clamp(&self, ctx: &mut ScopedContext) -> Result<u8, i32> {
         let mut val = *self;
 
         let res: i32 = loop {
@@ -275,7 +275,7 @@ impl JSValue {
     }
 
     /// coerce value to i32.
-    pub fn to_i32(&self, ctx: &mut ContextImpl) -> Result<i32, i32> {
+    pub fn to_i32(&self, ctx: &mut ScopedContext) -> Result<i32, i32> {
         let mut val = *self;
 
         let ret: i32 = loop {
@@ -305,7 +305,7 @@ impl JSValue {
     }
 
     // Note: the integer value is saturated to 32 bits
-    pub fn to_i32_saturating(&self, ctx: &mut ContextImpl) -> Result<i32, i32> {
+    pub fn to_i32_saturating(&self, ctx: &mut ScopedContext) -> Result<i32, i32> {
         let mut val = *self;
 
         let ret: i32 = loop {
@@ -348,7 +348,7 @@ impl JSValue {
 
     pub fn to_i32_clamp(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         min: i32,
         max: i32,
         min_offset: i32,
@@ -366,11 +366,11 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn to_u32(&self, ctx: &mut ContextImpl) -> Result<u32, i32> {
+    pub fn to_u32(&self, ctx: &mut ScopedContext) -> Result<u32, i32> {
         self.to_i32(ctx).map(|v| v as u32)
     }
 
-    pub fn to_i64_saturating(&self, ctx: &mut ContextImpl) -> Result<i64, i32> {
+    pub fn to_i64_saturating(&self, ctx: &mut ScopedContext) -> Result<i64, i32> {
         let mut val = *self;
 
         let res: i64 = loop {
@@ -410,7 +410,7 @@ impl JSValue {
     /// [min, max] is inclusive range.
     pub fn to_i64_clamp(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         min: i64,
         max: i64,
         neg_offset: i64,
@@ -428,7 +428,7 @@ impl JSValue {
     }
 
     /// coerce value to f64.
-    pub fn to_f64(&self, ctx: &mut ContextImpl) -> Result<f64, i32> {
+    pub fn to_f64(&self, ctx: &mut ScopedContext) -> Result<f64, i32> {
         match self {
             JSValue::Int(i) => Ok(*i as f64),
             JSValue::Bool(b) => Ok(*b as i32 as f64),
@@ -453,7 +453,7 @@ impl JSValue {
 
     /// convert value to length between \[0, MAX_SAFE_INTEGER\].
     #[inline]
-    pub fn to_length(&self, ctx: &mut ContextImpl) -> Result<i64, i32> {
+    pub fn to_length(&self, ctx: &mut ScopedContext) -> Result<i64, i32> {
         self.to_i64_clamp(ctx, 0, MAX_SAFE_INTEGER, 0)
     }
 }

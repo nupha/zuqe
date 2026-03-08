@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use gc_lite::GcNode;
 
 use crate::{
+    ScopedContext,
     context::ContextImpl,
     error::JSResult,
     object::{Object, ObjectImpl},
@@ -60,7 +61,7 @@ impl ObjectImpl {
     /// - Some(object) if object has prototype
     /// - None if object has no prototype.
     /// - Err(_) in case Proxy object calling getPrototypeOf() failed.
-    pub fn prototype(&self, ctx: &mut ContextImpl) -> Result<Option<Object>, i32> {
+    pub fn prototype(&self, ctx: &mut ScopedContext) -> Result<Option<Object>, i32> {
         if self.flags().is_exotic()
             && let Some(f) = ctx
                 .rt_ref()
@@ -82,7 +83,7 @@ impl ObjectImpl {
     /// - `throw_flag`: Whether to throw on error
     pub(crate) fn set_prototype_internal(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         proto_val: JSValue,
         throw_flag: bool,
     ) -> Result<bool, i32> {
@@ -171,7 +172,7 @@ impl JSValue {
     /// Get prototype of value.
     /// Returns an object value if it has prototype, NULL for no prototype.
     /// Returns Err in case of Proxy object.
-    pub fn prototype(&self, ctx: &mut ContextImpl) -> JSResult {
+    pub fn prototype(&self, ctx: &mut ScopedContext) -> JSResult {
         if let Self::Object(o) = self {
             Ok(o.prototype(ctx)?.map_or(JSValue::NULL, JSValue::Object))
         } else {
@@ -184,7 +185,7 @@ impl JSValue {
     /// - `throw_flag`: Whether to throw on error
     pub(crate) fn set_prototype_internal(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         proto_val: JSValue,
         throw_flag: bool,
     ) -> Result<bool, i32> {

@@ -6,7 +6,7 @@ use std::{cell::Cell, rc::Rc};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_PROMISE,
+    JS_CLASS_PROMISE, ScopedContext,
     atom::Atom,
     builtins::error::js_aggregate_error_constructor,
     class::ClassID,
@@ -117,7 +117,11 @@ impl Promise {
     /// create Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
     /// `executor` must be a callable object.
-    fn from_executor(ctx: &mut ContextImpl, executor: Object, ctor: JSValue) -> Result<Self, i32> {
+    fn from_executor(
+        ctx: &mut ScopedContext,
+        executor: Object,
+        ctor: JSValue,
+    ) -> Result<Self, i32> {
         executor.ensure_function(ctx)?;
 
         // create js object of promise class
@@ -149,7 +153,7 @@ impl Promise {
     ///  - when provided, will call this function to create customized Promise object,
     ///  - when it is `undefined`, creates default Promise object.
     pub(super) fn create_from_ctor(
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         ctor: JSValue,
     ) -> Result<(Object, [JSValue; 2]), i32> {
         let executor = NativeFunction::create(
@@ -191,7 +195,7 @@ impl Promise {
     /// create default Promise and its associated resolving functions.
     /// returns a Promise object and \[resolve, reject\] functions pair.
     #[inline]
-    pub fn create(ctx: &mut ContextImpl) -> Result<(Self, [JSValue; 2]), i32> {
+    pub fn create(ctx: &mut ScopedContext) -> Result<(Self, [JSValue; 2]), i32> {
         Self::create_from_ctor(ctx, JSValue::UNDEFINED).map(|(p, rr)| {
             debug_assert_eq!(p.class_id(), JS_CLASS_PROMISE);
             (Self(p.0), rr)
@@ -201,7 +205,7 @@ impl Promise {
     /// create and returns \[resolve, reject\] function pairs for `self` promise object.
     pub(super) fn create_resolving_functions(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
     ) -> Result<[JSValue; 2], i32> {
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED]; // [resolve, reject]
         let resolved_flag = Rc::new(Cell::new(false));
@@ -281,9 +285,7 @@ impl Promise {
     /// callback to execute a promise:
     /// setting resolve and reject functions as attaching data of 'executor'.
     /// arg#0: resolve function, arg#1: reject function
-    fn executor_handler(mut cc: CallContext) -> JSResult {
-        let mut ctx = cc.ctx_ptr();
-
+    fn executor_handler(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
         for i in 0..2 {
             if !cc.data(i).is_undefined() {
                 ctx.throw_type_error("resolving function already set");
@@ -296,22 +298,21 @@ impl Promise {
     }
 
     /// the native callback for Promise constructor function
-    pub fn class_constructor(cc: CallContext) -> JSResult {
-        let mut ctx = cc.ctx_ptr();
+    pub fn class_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let this = cc.this();
         let executor = cc
             .arg(0)
-            .ensure_function(&mut ctx)?
+            .ensure_function(ctx)?
             .as_object()
             .copied()
             .unwrap();
 
-        Promise::from_executor(&mut ctx, executor, this).map(|p| p.into())
+        Promise::from_executor(ctx, executor, this).map(|p| p.into())
     }
 
-    pub fn class_init(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = ctx.create_base_object()?;
-        proto.install_fields(&mut ctx, js_promise_proto_funcs)?;
+        proto.install_fields(ctx, js_promise_proto_funcs)?;
 
         let mut ctor: JSValue = ctx
             .create_native_function(
@@ -321,11 +322,11 @@ impl Promise {
                 0,
             )?
             .into();
-        ctor.install_fields(&mut ctx, js_promise_funcs)?;
+        ctor.install_fields(ctx, js_promise_funcs)?;
         ctx.bind_ctor_proto(ctor, proto.into())?;
 
         ctx.global_obj()
-            .define_property_value_str(&mut ctx, "Promise", ctor, JS_PROP_C_W_E)?;
+            .define_property_value_str(ctx, "Promise", ctor, JS_PROP_C_W_E)?;
         ctx.promise_ctor = ctor;
 
         Ok(Some(proto))
@@ -333,7 +334,7 @@ impl Promise {
 
     /// see ECMAScript spec `Promise.resolve()` and `Promise.reject()` for details.
     fn from_resolve_or_reject_value(
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         value: &JSValue,
         is_reject: bool,
     ) -> Result<Self, i32> {
@@ -349,14 +350,14 @@ impl Promise {
     /// Create an Promise with resolving a value.
     /// see ECMAScript spec `Promise.resolve()` for details.
     #[inline(always)]
-    pub fn from_resolve_value(ctx: &mut ContextImpl, value: &JSValue) -> Result<Self, i32> {
+    pub fn from_resolve_value(ctx: &mut ScopedContext, value: &JSValue) -> Result<Self, i32> {
         Self::from_resolve_or_reject_value(ctx, value, false)
     }
 
     /// Create an Promise with rejecting a value.
     /// see ECMAScript spec `Promise.reject()` for details.
     #[inline(always)]
-    pub fn from_reject_value(ctx: &mut ContextImpl, value: &JSValue) -> Result<Self, i32> {
+    pub fn from_reject_value(ctx: &mut ScopedContext, value: &JSValue) -> Result<Self, i32> {
         Self::from_resolve_or_reject_value(ctx, value, true)
     }
 }
@@ -366,7 +367,7 @@ pub const PROMISE_MAGIC_allSettled: i32 = 1;
 pub const PROMISE_MAGIC_any: i32 = 2;
 
 pub(crate) fn remainingElementsCount_add(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     mut resolve_element_env: JSValue,
     addend: i32,
 ) -> Result<i32, i32> {
@@ -378,16 +379,15 @@ pub(crate) fn remainingElementsCount_add(
     Ok(if remainingElementsCount == 0 { 1 } else { 0 })
 }
 
-pub fn js_promise_all_resolve_element(mut cc: CallContext) -> JSResult {
+pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
     let resolve_type = cc.magic() & 3;
     let is_reject = cc.magic() & 4 != 0;
-    let mut ctx = cc.ctx_ptr();
 
     let alreadyCalled = cc.data(0).to_bool()?;
     let mut values = cc.data(2);
     let resolve = cc.data(3);
     let resolve_element_env = cc.data(4);
-    let index = cc.data(1).to_i32(&mut ctx)?;
+    let index = cc.data(1).to_i32(ctx)?;
 
     if alreadyCalled {
         return Ok(JSValue::UNDEFINED);
@@ -401,14 +401,9 @@ pub fn js_promise_all_resolve_element(mut cc: CallContext) -> JSResult {
         let status_val =
             ctx.create_string_from_str(if is_reject { "rejected" } else { "fulfilled" })?;
 
+        ob.define_property_value(ctx, Atom::CONST_status, status_val.into(), JS_PROP_C_W_E)?;
         ob.define_property_value(
-            &mut ctx,
-            Atom::CONST_status,
-            status_val.into(),
-            JS_PROP_C_W_E,
-        )?;
-        ob.define_property_value(
-            &mut ctx,
+            ctx,
             if is_reject {
                 Atom::CONST_reason
             } else {
@@ -423,16 +418,16 @@ pub fn js_promise_all_resolve_element(mut cc: CallContext) -> JSResult {
         cc.arg(0)
     };
 
-    values.define_property_value_u32(&mut ctx, index as u32, obj, JS_PROP_C_W_E)?;
+    values.define_property_value_u32(ctx, index as u32, obj, JS_PROP_C_W_E)?;
 
-    match remainingElementsCount_add(&mut ctx, resolve_element_env, -1)? {
+    match remainingElementsCount_add(ctx, resolve_element_env, -1)? {
         1 => {
             let arg = if resolve_type == PROMISE_MAGIC_any {
                 js_aggregate_error_constructor(ctx, values).err()?
             } else {
                 values
             };
-            resolve.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&arg))?;
+            resolve.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&arg))?;
         }
         0 => {}
         _ => {

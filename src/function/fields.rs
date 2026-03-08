@@ -6,6 +6,7 @@ use std::ptr::NonNull;
 use gc_lite::GcNode;
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::{Context, ContextImpl, ContextPtr},
     function::{
@@ -37,7 +38,7 @@ pub enum FieldDetail {
     Float64(f64),
     Undefined,
     /// user defined value build func
-    Build(fn(Context) -> Result<JSValue, i32>),
+    Build(fn(&mut ScopedContext) -> Result<JSValue, i32>),
 }
 
 #[derive(Debug, Clone)]
@@ -158,7 +159,7 @@ impl FieldDef {
 
     pub const fn BUILD(
         name: &'static str,
-        f: fn(Context) -> Result<JSValue, i32>,
+        f: fn(&mut ScopedContext) -> Result<JSValue, i32>,
         prop_flags: u32,
     ) -> Self {
         Self {
@@ -228,7 +229,7 @@ impl FieldDef {
 impl ObjectImpl {
     pub fn install_fields(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         entries: &'static [FieldDef],
     ) -> Result<(), i32> {
         for entry in entries {
@@ -240,7 +241,7 @@ impl ObjectImpl {
 
     fn install_field_entry(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         atom: Atom,
         entry: &'static FieldDef,
     ) -> Result<(), i32> {
@@ -306,7 +307,7 @@ impl ObjectImpl {
                 val = JSValue::UNDEFINED;
             }
             FieldDetail::Build(f) => {
-                val = f(ContextPtr::from(ctx.gc_ref()).into())?;
+                val = f(ctx)?;
             }
 
             FieldDetail::Alias { name, base } => {
@@ -340,7 +341,7 @@ impl ObjectImpl {
 impl JSValue {
     pub fn install_fields(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         entries: &'static [FieldDef],
     ) -> Result<(), i32> {
         if let Self::Object(o) = self {
@@ -352,7 +353,7 @@ impl JSValue {
     }
 }
 
-fn prop_name_to_atom(ctx: &mut ContextImpl, str: &str) -> Result<Atom, i32> {
+fn prop_name_to_atom(ctx: &mut ScopedContext, str: &str) -> Result<Atom, i32> {
     #[cfg(not(feature = "builtin_symbol"))]
     debug_assert!(
         !(str.starts_with('[') && str.ends_with(']')),

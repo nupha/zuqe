@@ -6,7 +6,7 @@ use std::{cell::Cell, ffi::c_void, ptr::NonNull};
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
-    ClassDef, USER_CLASS_ID_START,
+    ClassDef, ScopedContext, USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
     class::ClassID,
     context::{ContextImpl, ContextPtr},
@@ -72,7 +72,7 @@ impl RuntimeImpl {
     }
 }
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     pub fn use_classes(&mut self, class_ids: &[ClassID]) -> Result<(), i32> {
         if let Some(mx) = class_ids.iter().max().copied() {
             if self.rt_ptr().class_registry.get(mx as usize).is_some() {
@@ -99,7 +99,7 @@ impl ContextImpl {
                             .get(class_id as usize)
                             .and_then(|c| c.initialize)
                         {
-                            let r = f(ContextPtr::from(self.gc_ref()).into(), class_id)?;
+                            let r = f(self, class_id)?;
                             if let Some(proto) = r {
                                 self.class_protos[class_id as usize] = proto.into();
                             } else if !self.class_protos[class_id as usize].is_object() {

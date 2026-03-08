@@ -12,6 +12,7 @@ pub(crate) use {class_def::*, meta::*, user::*};
 use std::ffi::c_void;
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::Context,
     error::JSResult,
@@ -23,7 +24,7 @@ use crate::{
 pub type ClassID = u16;
 
 pub type ClassCallFn = fn(
-    ctx: Context,
+    ctx: &mut ScopedContext,
     func_obj: JSValue,
     this_val: JSValue,
     args: &[JSValue],
@@ -32,13 +33,14 @@ pub type ClassCallFn = fn(
 
 /// Initialize class proto, constructor to context.
 /// Returns the class proto object created for given `ctx`.
-pub type ClassInitializeFn = fn(ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32>;
+pub type ClassInitializeFn =
+    fn(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32>;
 
 /// class instance finalize callback.
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
 
 pub type DefineOwnPropertyFn = fn(
-    ctx: Context,
+    ctx: &mut ScopedContext,
     target: JSValue,
     prop: Atom,
     val: JSValue,
@@ -47,20 +49,24 @@ pub type DefineOwnPropertyFn = fn(
     flags: i32,
 ) -> Result<bool, i32>;
 
-pub type HasPropertyFn = fn(ctx: Context, target: Object, prop: Atom) -> Result<bool, i32>;
+pub type HasPropertyFn =
+    fn(ctx: &mut ScopedContext, target: Object, prop: Atom) -> Result<bool, i32>;
 
 /// TODO: change target type to Object
-pub type GetOwnPropertyFn =
-    fn(ctx: Context, target: JSValue, prop: Atom) -> Result<Option<JSPropertyDescriptor>, i32>;
+pub type GetOwnPropertyFn = fn(
+    ctx: &mut ScopedContext,
+    target: JSValue,
+    prop: Atom,
+) -> Result<Option<JSPropertyDescriptor>, i32>;
 
 pub type GetOwnPropertyNamesFn =
-    fn(ctx: Context, target: Object) -> Result<Box<[PropertyKey]>, i32>;
+    fn(ctx: &mut ScopedContext, target: Object) -> Result<Box<[PropertyKey]>, i32>;
 
 pub type GetPropertyFn =
-    fn(ctx: Context, target: JSValue, prop: Atom, this_obj: JSValue) -> JSResult;
+    fn(ctx: &mut ScopedContext, target: JSValue, prop: Atom, this_obj: JSValue) -> JSResult;
 
 pub type SetPropertyFn = fn(
-    ctx: Context,
+    ctx: &mut ScopedContext,
     target: JSValue,
     prop: Atom,
     val: JSValue,
@@ -69,9 +75,11 @@ pub type SetPropertyFn = fn(
 ) -> Result<bool, i32>;
 
 /// TODO: change target type to Object
-pub type DeletePropertyFn = fn(ctx: Context, target: JSValue, prop: Atom) -> Result<bool, i32>;
-pub type GetPrototypeFn = fn(ctx: Context, obj: JSValue) -> JSResult;
-pub type SetPrototypeFn = fn(ctx: Context, obj: JSValue, proto_val: JSValue) -> Result<bool, i32>;
+pub type DeletePropertyFn =
+    fn(ctx: &mut ScopedContext, target: JSValue, prop: Atom) -> Result<bool, i32>;
+pub type GetPrototypeFn = fn(ctx: &mut ScopedContext, obj: JSValue) -> JSResult;
+pub type SetPrototypeFn =
+    fn(ctx: &mut ScopedContext, obj: JSValue, proto_val: JSValue) -> Result<bool, i32>;
 
 /// free user class instance handler
 pub type FreeObjFn = fn(rt: &mut RuntimeImpl, opaque: *mut c_void, id: usize);

@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 use gc_lite::{GcHead, GcNode};
 
 use crate::{
-    JS_CLASS_MODULE_NS,
+    JS_CLASS_MODULE_NS, ScopedContext,
     atom::Atom,
     context::ContextImpl,
     object::{LazyInit, Object, ObjectImpl},
@@ -113,7 +113,7 @@ impl ObjectImpl {
     /// update value to property slot `idx`, handle 'writable' flag setting.
     pub(super) fn update_prop_slot_value(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         prs_flags: u32,
         idx: usize,
@@ -188,7 +188,7 @@ impl ObjectImpl {
                             };
                         }
                     } else {
-                        vref.set_value(&mut ctx.rt_ptr(), val);
+                        vref.set_value(ctx.rt_mut(), val);
                     }
                 }
 
@@ -261,7 +261,7 @@ impl ObjectImpl {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn update_prop_slot_getset(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         prs_flags: u32,
         idx: usize,

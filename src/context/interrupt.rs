@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     context::ContextImpl,
     error::JS_SetUncatchableError,
     runtime::{InterruptFn, RuntimeImpl},
@@ -22,7 +23,7 @@ impl RuntimeImpl {
     }
 }
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     #[inline(never)]
     pub(crate) fn poll_interrupts(&mut self) -> Result<(), i32> {
         let rt = self.rt_ptr();

@@ -181,7 +181,7 @@ impl<'s> JSParseState<'s> {
             // XXX: missing function name
             self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
             if is_set {
-                let setter_name = js_atom_concat_str(&mut self.ctx, name, "<set>")?;
+                let setter_name = js_atom_concat_str(&mut self.ctx.new_scope_legacy(), name, "<set>")?;
                 self.emit_atom(setter_name);
 
                 add_private_class_field(
@@ -356,7 +356,7 @@ impl<'s> JSParseState<'s> {
                     if name.is_null() {
                         // save the computed field name into a variable
                         field_var_name = js_atom_concat_num(
-                            &mut self.ctx,
+                            &mut self.ctx.new_scope_legacy(),
                             if is_static {
                                 Atom::CONST__static_computed_field_
                             } else {
@@ -543,7 +543,7 @@ impl<'s> JSParseState<'s> {
             if src_len > 0 {
                 let mut src = Vec::<u8>::new();
                 src.try_reserve_exact(src_len).map_err(|_| {
-                    self.ctx.throw_out_of_memory();
+                    self.ctx.new_scope_legacy().throw_out_of_memory();
                     -1
                 })?;
                 unsafe {
@@ -803,8 +803,10 @@ fn add_private_class_field(
     var_kind: JSVarKindEnum,
     is_static: bool,
 ) -> Result<u16, i32> {
-    let fd = s.cur_func_mut();
-    let idx = fd.add_scope_var(s.ctx, name, var_kind)?;
+    // let fd = s.cur_func_mut();
+    let fd = unsafe { &mut *s.cur_func_def };
+
+    let idx = fd.add_scope_var(&mut s.ctx.new_scope_legacy(), name, var_kind)?;
     let vd = fd.vars.get_mut(idx as usize).unwrap();
 
     vd.set_is_lexical(true);

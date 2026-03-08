@@ -4,7 +4,7 @@
 use std::{borrow::Cow, io::Write};
 
 use crate::{
-    JS_CLASS_ERROR,
+    JS_CLASS_ERROR, ScopedContext,
     atom::Atom,
     class::ClassID,
     context::ContextImpl,
@@ -37,7 +37,7 @@ pub struct ErrorText {
 
 impl ErrorText {
     /// create error text info from `value`
-    pub fn from(ctx: &mut ContextImpl, value: JSValue) -> Self {
+    pub fn from(ctx: &mut ScopedContext, value: JSValue) -> Self {
         let mut ret = Self {
             message: value.to_string(ctx).map_or("".to_string(), |s| {
                 s.content().encode_utf8(false).to_string()
@@ -86,7 +86,9 @@ impl ContextImpl {
     pub(crate) fn throw(&self, obj: JSValue) {
         self.rt_ptr().set_exception(obj);
     }
+}
 
+impl<'c> ScopedContext<'c> {
     /// make error object and throw it as current exception.
     #[inline(never)]
     #[cold]
@@ -355,7 +357,7 @@ pub(crate) fn is_backtrace_needed(obj: JSValue) -> bool {
     }
 }
 
-pub fn JS_ThrowReferenceErrorUninitialized(ctx: &mut ContextImpl, name: Atom) {
+pub fn JS_ThrowReferenceErrorUninitialized(ctx: &mut ScopedContext, name: Atom) {
     if name.is_null() {
         ctx.throw_reference_error("lexical variable is not initialized");
     } else {
@@ -366,12 +368,12 @@ pub fn JS_ThrowReferenceErrorUninitialized(ctx: &mut ContextImpl, name: Atom) {
     }
 }
 
-pub fn JS_ThrowReferenceErrorNotDefined(ctx: &mut ContextImpl, name: Atom) {
+pub fn JS_ThrowReferenceErrorNotDefined(ctx: &mut ScopedContext, name: Atom) {
     ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8(ctx.rt_ref())))
 }
 
 pub fn JS_ThrowReferenceErrorUninitialized2(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     b: &Bytecode,
     idx: u16,
     is_ref: bool,
@@ -387,18 +389,18 @@ pub fn JS_ThrowReferenceErrorUninitialized2(
     JS_ThrowReferenceErrorUninitialized(ctx, atom);
 }
 
-pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &mut ContextImpl) {
+pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &mut ScopedContext) {
     ctx.throw_type_error("ArrayBuffer is detached");
 }
 
-pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &mut ContextImpl, atom: Atom) {
+pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &mut ScopedContext, atom: Atom) {
     ctx.throw_type_error(&format!(
         "private class field '{}' does not exist",
         atom.to_utf8(ctx.rt_ref())
     ));
 }
 
-pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &mut ContextImpl, prop: Atom) {
+pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &mut ScopedContext, prop: Atom) {
     ctx.throw_syntax_error(&format!(
         "redeclaration of '{}'",
         prop.to_utf8(ctx.rt_ref())

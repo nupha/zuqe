@@ -5,6 +5,7 @@ use std::cell::Cell;
 
 use zuqe::{
     CallContext, Context, EvalFlags, EvalType, FieldDef, JS_SetUncatchableError, JSResult, JSValue,
+    ScopedContext,
 };
 
 use crate::{
@@ -12,13 +13,11 @@ use crate::{
     mod_os::OS_PENDING_SIGNALS,
 };
 
-fn js_std_open(cc: CallContext) -> JSResult {
-    let mut ctx = cc.context();
-
-    let filename = cc.arg(0).to_string(&mut ctx)?;
+fn js_std_open(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let filename = cc.arg(0).to_string(ctx)?;
     let mode = if cc.length() > 1 {
         cc.arg(1)
-            .to_string(&mut ctx)?
+            .to_string(ctx)?
             .content()
             .encode_utf8(false)
             .to_string()
@@ -69,7 +68,7 @@ fn js_std_open(cc: CallContext) -> JSResult {
     };
 
     if !err_obj.is_undefined() {
-        err_obj.set_property_str(&mut ctx, "errno", JSValue::Int(errno))?;
+        err_obj.set_property_str(ctx, "errno", JSValue::Int(errno))?;
     }
 
     if let Some(fh) = fh {
@@ -79,22 +78,20 @@ fn js_std_open(cc: CallContext) -> JSResult {
     }
 }
 
-fn js_evalScript(mut cc: CallContext) -> JSResult {
-    let mut ctx = cc.context();
-
+fn js_evalScript(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
     let mut backtrace_barrier = false;
     let mut is_async = false;
 
     if cc.length() >= 2 {
         let options_obj = cc.arg(1);
 
-        is_async = options_obj.get_property_str(&mut ctx, "async")?.to_bool()?;
+        is_async = options_obj.get_property_str(ctx, "async")?.to_bool()?;
         backtrace_barrier = options_obj
-            .get_property_str(&mut ctx, "backtrace_barrier")?
+            .get_property_str(ctx, "backtrace_barrier")?
             .to_bool()?;
     }
 
-    let str = cc.arg(0).to_string(&mut ctx)?;
+    let str = cc.arg(0).to_string(ctx)?;
 
     thread_local! {
         static EVAL_SCRIPT_RECURSE: Cell<u32> = const { Cell::new(0) };
@@ -155,14 +152,13 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
     ret
 }
 
-fn js_gc(cc: CallContext) -> JSResult {
+fn js_gc(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     cc.context().rt_mut().gc_request();
     Ok(JSValue::UNDEFINED)
 }
 
-fn std_exit(cc: CallContext) -> JSResult {
-    let mut ctx = cc.context();
-    let n = cc.arg(0).to_i32(&mut ctx).unwrap_or(-1);
+fn std_exit(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let n = cc.arg(0).to_i32(ctx).unwrap_or(-1);
     ctx.rt_mut().stop(n);
     Ok(JSValue::UNDEFINED)
 }
@@ -199,7 +195,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
     ),
 ];
 
-pub fn init_mod_std(mut ctx: Context) -> Result<(), i32> {
+pub fn init_mod_std(ctx: &mut ScopedContext) -> Result<(), i32> {
     ctx.register_module("std", MOD_STD_ENTRIES)?;
     Ok(())
 }

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     atom::{Atom, js_atom_concat_str},
     bytecode::opcodes,
     context::ContextImpl,
@@ -13,7 +14,7 @@ use super::{FunctionDef, JSVarKindEnum, get_loc_or_ref, push_vec_atom, push_vec_
 impl FunctionDef {
     fn resolve_scope_private_field1(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         var_name: Atom,
         mut scope_level: i32,
     ) -> Result<(u16, JSVarKindEnum, bool), i32> {
@@ -104,7 +105,7 @@ impl FunctionDef {
 
     pub(super) fn resolve_scope_private_field(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         var_name: Atom,
         scope_level: i32,
         op: u8,

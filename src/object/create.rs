@@ -6,7 +6,7 @@ use std::ffi::c_void;
 use gc_lite::GcNode;
 
 use crate::{
-    USER_CLASS_ID_START,
+    ScopedContext, USER_CLASS_ID_START,
     atom::Atom,
     class::{ClassID, OtherPayload},
     context::{ContextImpl, ContextPtr},
@@ -14,7 +14,7 @@ use crate::{
     value::JSValue,
 };
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     /// create object using `shape` and `payload`.
     /// when failed, `payload` is returned back in Err, caller should free it.
     #[inline(always)]

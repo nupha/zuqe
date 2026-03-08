@@ -4,7 +4,7 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_GENERATOR,
     JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_STRING,
-    JS_CLASS_STRING_ITERATOR,
+    JS_CLASS_STRING_ITERATOR, ScopedContext,
     atom::Atom,
     builtins::{
         array::{
@@ -34,7 +34,7 @@ use crate::{
     value::JSValue,
 };
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     pub(super) fn intrinsic_base_object(&mut self) {
         let mut obj = self.class_proto(JS_CLASS_OBJECT).unwrap();
         obj.install_fields(self, js_object_proto_funcs).unwrap();
@@ -49,7 +49,7 @@ impl ContextImpl {
         // FOR LEGACY: make throw type error function
         let mut throw_type_error = self
             .create_native_function(
-                Callback::Func(|mut cc| {
+                Callback::Func(|ctx, mut cc| {
                     // throw only in strict mode
                     let throw = cc
                         .this()
@@ -63,7 +63,7 @@ impl ContextImpl {
                         .unwrap_or(true);
 
                     if throw {
-                        cc.ctx_mut().throw_type_error("invalid property access");
+                        ctx.throw_type_error("invalid property access");
                         Err(-1)
                     } else {
                         Ok(if cc.length() == 0 {
@@ -262,11 +262,9 @@ impl ContextImpl {
     }
 
     pub(super) fn intrinsic_base_boolean(&mut self) {
+        let object_proto = self.class_proto(JS_CLASS_OBJECT);
         let mut bool_obj = self
-            .create_object_with_proto(
-                self.class_proto(JS_CLASS_OBJECT),
-                ObjectPayload::BOOLEAN(false),
-            )
+            .create_object_with_proto(object_proto, ObjectPayload::BOOLEAN(false))
             .unwrap();
 
         bool_obj
@@ -368,8 +366,9 @@ impl ContextImpl {
         self.class_protos[JS_CLASS_GENERATOR as usize] = proto;
 
         // generator function prototype
+        let function_proto = self.function_proto();
         let mut generator_function = self
-            .create_base_object_with_proto(Some(self.function_proto()))
+            .create_base_object_with_proto(Some(function_proto))
             .unwrap();
         generator_function
             .install_fields(self, js_generator_function_proto_funcs)

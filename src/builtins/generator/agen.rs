@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, ScopedContext,
     builtins::{
         iterator::js_create_iterator_result,
         promise::{Promise, js_promise_resolve},
@@ -98,7 +98,7 @@ impl AGenPayload {
         self.async_state.set_throw_flag(is_reject);
     }
 
-    pub(crate) fn resume_next(&mut self, mut ctx: ContextPtr) {
+    pub(crate) fn resume_next(&mut self, ctx: &mut ScopedContext) {
         enum State {
             Resume,
             Done,
@@ -125,7 +125,7 @@ impl AGenPayload {
                 }
                 AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED => {
                     if completion_type == GEN_MAGIC_NEXT {
-                        self.resolve(&mut ctx, JSValue::UNDEFINED, true);
+                        self.resolve(ctx, JSValue::UNDEFINED, true);
                     } else if completion_type == GEN_MAGIC_RETURN {
                         self.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_AWAITING_RETURN);
                         if unlikely(self.completed_return(ctx, result).is_err()) {
@@ -133,13 +133,13 @@ impl AGenPayload {
                                 "{}",
                                 ctx.rt_ptr()
                                     .exception()
-                                    .to_string(&mut ctx)
+                                    .to_string(ctx)
                                     .map(|s| s.content().encode_utf8(false).to_string())
                                     .unwrap_or("Error".to_string())
                             );
                         }
                     } else {
-                        self.reject(&mut ctx, result);
+                        self.reject(ctx, result);
                     }
                     State::Done
                 }
@@ -189,12 +189,12 @@ impl AGenPayload {
                         match func_ret {
                             Ok(val) => {
                                 self.complete();
-                                self.resolve(&mut ctx, val, true);
+                                self.resolve(ctx, val, true);
                             }
                             Err(_) => {
                                 let exc = ctx.rt_mut().take_exception();
                                 self.complete();
-                                self.reject(&mut ctx, exc);
+                                self.reject(ctx, exc);
                             }
                         }
                     } else {
@@ -225,7 +225,7 @@ impl AGenPayload {
                                 } else {
                                     AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD
                                 });
-                                self.resolve(&mut ctx, value, false);
+                                self.resolve(ctx, value, false);
                             }
                             FUNC_RET_AWAIT => {
                                 if self._await(ctx, value).is_err() {
@@ -245,15 +245,15 @@ impl AGenPayload {
         }
     }
 
-    fn completed_return(&self, mut ctx: ContextPtr, value: JSValue) -> Result<(), i32> {
+    fn completed_return(&self, ctx: &mut ScopedContext, value: JSValue) -> Result<(), i32> {
         let cc = CallContext::new(
-            ctx,
+            ctx.into(),
             ctx.promise_ctor,
             std::slice::from_ref(&value),
             0, // is_reject=0
             None,
         );
-        let mut promise: Promise = match js_promise_resolve(cc) {
+        let mut promise: Promise = match js_promise_resolve(ctx, cc) {
             Ok(r) => r,
             Err(_) => {
                 // Fail looking up JS_ATOM_constructor when is_reject==0.
@@ -261,13 +261,13 @@ impl AGenPayload {
                 // exception should be delivered to the catch handler.
                 let exc = ctx.rt_mut().take_exception();
                 let cc = CallContext::new(
-                    ctx,
+                    ctx.into(),
                     ctx.promise_ctor,
                     std::slice::from_ref(&exc),
                     1, // is_reject=1
                     None,
                 );
-                js_promise_resolve(cc)?
+                js_promise_resolve(ctx, cc)?
             }
         }
         .try_into()?;
@@ -278,38 +278,38 @@ impl AGenPayload {
                 .upgrade(ctx.rt_ptr().gc_heap())
                 .unwrap(),
         ));
-        let resolving_funcs =
-            js_async_generator_resolve_function_create(&mut ctx, generator, true)?;
+        let resolving_funcs = js_async_generator_resolve_function_create(ctx, generator, true)?;
         debug_assert!(resolving_funcs[0].is_function());
         debug_assert!(resolving_funcs[1].is_function());
 
         promise.reaction(
-            &mut ctx,
+            ctx,
             resolving_funcs,
             [JSValue::UNDEFINED, JSValue::UNDEFINED],
         )
     }
 
-    fn _await(&self, mut ctx: ContextPtr, value: JSValue) -> Result<(), i32> {
+    fn _await(&self, ctx: &mut ScopedContext, value: JSValue) -> Result<(), i32> {
         let mut promise: Promise = {
-            let cc = CallContext::new_simple(ctx, ctx.promise_ctor, std::slice::from_ref(&value));
-            js_promise_resolve(cc)?.try_into()?
+            let cc =
+                CallContext::new_simple(ctx.into(), ctx.promise_ctor, std::slice::from_ref(&value));
+            js_promise_resolve(ctx, cc)?.try_into()?
         };
 
         let gen_obj = self
             .generator
             .borrow()
-            .upgrade(ctx.rt_ptr().gc_heap())
+            .upgrade(ctx.rt_ref().gc_heap())
             .unwrap();
 
         let resolving_funcs =
-            js_async_generator_resolve_function_create(&mut ctx, gen_obj.into(), false)?;
+            js_async_generator_resolve_function_create(ctx, gen_obj.into(), false)?;
 
         debug_assert!(resolving_funcs[0].is_function());
         debug_assert!(resolving_funcs[1].is_function());
 
         promise.reaction(
-            &mut ctx,
+            ctx,
             resolving_funcs,
             // no need to create 'thrownawayCapability' as in the spec
             [JSValue::UNDEFINED, JSValue::UNDEFINED],
@@ -323,7 +323,7 @@ impl AGenPayload {
         }
     }
 
-    fn resolve_or_reject(&mut self, ctx: &mut ContextImpl, result: &JSValue, is_reject: bool) {
+    fn resolve_or_reject(&mut self, ctx: &mut ScopedContext, result: &JSValue, is_reject: bool) {
         let req = self.queue.remove(0);
         req.resolving_funcs[is_reject as usize]
             .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(result))
@@ -331,13 +331,13 @@ impl AGenPayload {
     }
 
     #[inline]
-    pub fn resolve(&mut self, ctx: &mut ContextImpl, value: JSValue, done: bool) {
+    pub fn resolve(&mut self, ctx: &mut ScopedContext, value: JSValue, done: bool) {
         let result = js_create_iterator_result(ctx, value, done).unwrap_or(JSValue::EXCEPTION);
         self.resolve_or_reject(ctx, &result, false);
     }
 
     #[inline(always)]
-    pub fn reject(&mut self, ctx: &mut ContextImpl, exception: JSValue) {
+    pub fn reject(&mut self, ctx: &mut ScopedContext, exception: JSValue) {
         self.resolve_or_reject(ctx, &exception, true);
     }
 }
@@ -351,7 +351,7 @@ object_cast!(AsyncGeneratorFunction, JS_CLASS_ASYNC_GENERATOR_FUNCTION);
 
 impl AsyncGeneratorFunction {
     pub fn class_call(
-        mut ctx: Context,
+        ctx: &mut ScopedContext,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],
@@ -393,7 +393,7 @@ impl AsyncGeneratorFunction {
         Ok(obj.into())
     }
 
-    pub fn class_init(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
         debug_assert!(
             matches!(
                 class_id,
@@ -411,7 +411,7 @@ impl AsyncGeneratorFunction {
         let aiter_proto = ctx.async_iterator_proto()?;
         let agen_proto: JSValue = {
             let mut o = ctx.create_base_object_with_proto(Some(aiter_proto))?;
-            o.install_fields(&mut ctx, js_async_generator_proto_funcs)?;
+            o.install_fields(ctx, js_async_generator_proto_funcs)?;
             o.into()
         };
 
@@ -419,7 +419,7 @@ impl AsyncGeneratorFunction {
 
         // AsyncGeneratorFunction
         let mut o = ctx.create_base_object_with_proto(Some(func_proto))?;
-        o.install_fields(&mut ctx, js_async_generator_function_proto_funcs)?;
+        o.install_fields(ctx, js_async_generator_function_proto_funcs)?;
         let agen_func: JSValue = o.into();
 
         ctx.bind_ctor_proto_ex(
@@ -430,7 +430,7 @@ impl AsyncGeneratorFunction {
         )?;
 
         let ctor: JSValue = NativeFunction::create(
-            &mut ctx,
+            ctx,
             Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
             "AsyncGeneratorFunction",
             1,
@@ -451,7 +451,7 @@ impl AsyncGeneratorFunction {
 
 /// create pair of functions to handle fullfil and reject.
 fn js_async_generator_resolve_function_create(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     generator: JSValue,
     is_resume_next: bool,
 ) -> Result<[JSValue; 2], i32> {
@@ -483,9 +483,8 @@ fn js_async_generator_resolve_function_create(
     Ok(resolving_funcs)
 }
 
-fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
+fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let is_reject = cc.magic() & 1 != 0;
-    let mut ctx = cc.ctx_ptr();
 
     let arg = cc.arg(0);
     let mut data0 = *cc.data(0).as_object().unwrap();
@@ -500,9 +499,9 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
 
             s.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED);
             if is_reject {
-                s.reject(&mut ctx, arg);
+                s.reject(ctx, arg);
             } else {
-                s.resolve(&mut ctx, arg, true);
+                s.resolve(ctx, arg, true);
             }
         } else {
             // restart function execution after await()
@@ -524,7 +523,7 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
                 }
             }
 
-            s.resume_next(cc.ctx_ptr());
+            s.resume_next(ctx);
         }
 
         Ok(JSValue::UNDEFINED)
@@ -533,13 +532,11 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
     }
 }
 
-fn js_async_generator_next(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
-    let (promise, resolving_funcs) = Promise::create(&mut ctx)?;
+fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let (promise, resolving_funcs) = Promise::create(ctx)?;
 
     let mut this = cc.this();
-    if let Ok(isa) = this.retrive_object_payload_mut(&mut ctx, JS_CLASS_ASYNC_GENERATOR) {
+    if let Ok(isa) = this.retrive_object_payload_mut(ctx, JS_CLASS_ASYNC_GENERATOR) {
         let ObjectPayload::ASYNC_GENERATOR(s) = isa else {
             unreachable!()
         };
@@ -553,11 +550,11 @@ fn js_async_generator_next(cc: CallContext) -> JSResult {
         s.queue.push(req);
 
         if s.state() != AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING {
-            s.resume_next(cc.ctx_ptr());
+            s.resume_next(ctx);
         }
     } else {
-        let err = cc.ctx().rt_ptr().take_exception();
-        resolving_funcs[1].call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&err))?;
+        let err = ctx.rt_ptr().take_exception();
+        resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err))?;
     }
 
     Ok(promise.into())

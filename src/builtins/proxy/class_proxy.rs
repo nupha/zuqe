@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    Callback,
+    Callback, ScopedContext,
     atom::Atom,
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunction},
@@ -12,9 +12,7 @@ use crate::{
 
 use super::ProxyPayload;
 
-pub fn js_proxy_constructor(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+pub fn js_proxy_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Some(target) = cc.arg(0).as_object().copied() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -37,20 +35,15 @@ pub fn js_proxy_constructor(cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-fn js_proxy_revocable(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
-    let proxy = js_proxy_constructor(CallContext::new_simple(
-        ctx,
-        JSValue::UNDEFINED,
-        cc.arguments(),
-    ))?;
+fn js_proxy_revocable(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let cc2 = CallContext::new_simple(ctx.into(), JSValue::UNDEFINED, cc.arguments());
+    let proxy = js_proxy_constructor(ctx, cc2)?;
 
     // create revoke function
     let func_proto = ctx.function_proto();
     let revoke_func = NativeFunction::create(
-        &mut ctx,
-        Callback::Func(|mut cc| -> JSResult {
+        ctx,
+        Callback::Func(|_, mut cc| -> JSResult {
             if let Some(px) = cc.data(0).as_object_Proxy() {
                 px.payload().set_revoked();
                 // clear attached data 0: the Proxy value
@@ -66,13 +59,8 @@ fn js_proxy_revocable(cc: CallContext) -> JSResult {
     )?;
 
     let mut obj = ctx.create_base_object()?;
-    obj.define_property_value(&mut ctx, Atom::CONST_proxy, proxy, JS_PROP_C_W_E)?;
-    obj.define_property_value(
-        &mut ctx,
-        Atom::CONST_revoke,
-        revoke_func.into(),
-        JS_PROP_C_W_E,
-    )?;
+    obj.define_property_value(ctx, Atom::CONST_proxy, proxy, JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, Atom::CONST_revoke, revoke_func.into(), JS_PROP_C_W_E)?;
 
     Ok(obj.into())
 }

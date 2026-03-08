@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    Context, RuntimeImpl,
+    Context, RuntimeImpl, ScopedContext,
     atom::Atom,
     class::{ClassCallFn, ClassInitializeFn, FreeObjFn, GetPrototypeFn, SetPrototypeFn},
     function::FunctionDef,
@@ -134,7 +134,7 @@ impl ClassDef {
 }
 
 fn js_arguments_define_own_property(
-    mut ctx: Context,
+    ctx: &mut ScopedContext,
     this_obj: JSValue,
     prop: Atom,
     val: JSValue,
@@ -150,12 +150,12 @@ fn js_arguments_define_own_property(
             .to_array_index(ctx.rt_ref())
             .is_some_and(|i| i < obj.fast_array_count())
     {
-        obj.destruct_fast_array(&mut ctx)?;
+        obj.destruct_fast_array(ctx)?;
     }
 
     // run the default define own property
     obj.define_property(
-        &mut ctx,
+        ctx,
         prop,
         val,
         getter,

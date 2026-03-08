@@ -12,7 +12,7 @@ use std::{io::Write, process::ExitCode};
 
 use clap::Parser;
 use colorized::{Colors::*, colorize_println};
-use zuqe::{Context, EvalFlags, EvalType, ModuleDef, Runtime};
+use zuqe::{Context, EvalFlags, EvalType, ModuleDef, Runtime, ScopedContext};
 
 use crate::{
     class_file::JSFile,
@@ -221,7 +221,7 @@ fn main() -> ExitCode {
 
     let exit_code = match ret {
         Ok(val) => {
-            colorize_println(val.inspect(&mut ctx).unwrap(), GreenFg);
+            colorize_println(val.inspect(&mut ctx.new_scope()).unwrap(), GreenFg);
             ExitCode::SUCCESS
         }
         Err(e) => {
@@ -241,13 +241,13 @@ fn main() -> ExitCode {
 }
 
 fn js_module_loader(
-    mut ctx: Context,
+    ctx: &mut ScopedContext,
     module_name: &str,
     _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     match std::fs::read(module_name) {
         Ok(buf) => {
-            let md = ModuleDef::compile(&mut ctx, &buf, module_name, false)?;
+            let md = ModuleDef::compile(ctx, &buf, module_name, false)?;
             Ok(md)
         }
         Err(_) => {

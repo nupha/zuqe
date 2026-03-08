@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use crate::{context::ContextImpl, object::ObjectImpl, value::JSValue};
+use crate::{ScopedContext, context::ContextImpl, object::ObjectImpl, value::JSValue};
 
 include!(concat!(env!("OUT_DIR"), "/class_payload.rs"));
 
@@ -36,7 +36,7 @@ impl ObjectImpl {
     /// throws type error.
     pub fn retrive_payload(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         class_id: ClassID,
     ) -> Result<&ObjectPayload, i32> {
         self.retrive_payload0(class_id).ok_or_else(|| {
@@ -50,7 +50,7 @@ impl ObjectImpl {
     /// throws type error.
     pub(crate) fn retrive_payload_mut(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         class_id: ClassID,
     ) -> Result<&mut ObjectPayload, i32> {
         self.retrive_payload0_mut(class_id).ok_or_else(|| {
@@ -77,7 +77,7 @@ impl JSValue {
     /// throws type error.
     pub fn retrive_object_payload(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         class_id: ClassID,
     ) -> Result<&ObjectPayload, i32> {
         if let Some(o) = self.as_object() {
@@ -93,7 +93,7 @@ impl JSValue {
     /// throws type error.
     pub fn retrive_object_payload_mut(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         class_id: ClassID,
     ) -> Result<&mut ObjectPayload, i32> {
         if let Some(o) = self.as_object_mut() {

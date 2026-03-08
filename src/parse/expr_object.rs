@@ -192,17 +192,23 @@ impl<'s> JSParseState<'s> {
             match self.token.kind {
                 TokenKind::STRING => {
                     let sbuf = self.token.data.take_string().unwrap();
-                    name.replace(
-                        self.ctx
-                            .create_string_with_buf(sbuf)
-                            .and_then(|s| s.to_atom(self.ctx.rt_ptr(), AtomKind::String))?,
-                    );
+                    {
+                        let mut scope = self.ctx.new_scope_legacy();
+                        name.replace(
+                            scope
+                                .create_string_with_buf(sbuf)
+                                .and_then(|s| s.to_atom(scope.rt_ptr(), AtomKind::String))?,
+                        );
+                    }
                     self.next_token()?;
                 }
                 TokenKind::NUMBER => {
-                    name.replace(
-                        JSValue::from(self.token.data.number().unwrap()).to_atom(&mut self.ctx)?,
-                    );
+                    {
+                        let mut scope = self.ctx.new_scope_legacy();
+                        name.replace(
+                            JSValue::from(self.token.data.number().unwrap()).to_atom(&mut scope)?,
+                        );
+                    }
                     self.next_token()?;
                 }
                 TokenKind::Char('[') => {

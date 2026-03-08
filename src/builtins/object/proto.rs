@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::ContextImpl,
     error::JSResult,
@@ -14,49 +15,42 @@ use crate::{
     value::JSValue,
 };
 
-pub(crate) fn js_object_toString(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+pub(crate) fn js_object_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let txt = match cc.this() {
         JSValue::NULL => "[object Null]".to_string(),
         JSValue::UNDEFINED => "[object Undefined]".to_string(),
-        JSValue::Object(o) => o.repr(&mut ctx)?,
-        v => v.objectify(&mut ctx)?.repr(&mut ctx)?,
+        JSValue::Object(o) => o.repr(ctx)?,
+        v => v.objectify(ctx)?.repr(ctx)?,
     };
 
     ctx.create_string_from_utf8(txt.into_bytes())
         .map(JSValue::from)
 }
 
-pub(crate) fn js_object_toLocaleString(mut cc: CallContext) -> JSResult {
+pub(crate) fn js_object_toLocaleString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    this.invoke(cc.ctx_mut(), Atom::CONST_toString, &[])
+    this.invoke(ctx, Atom::CONST_toString, &[])
 }
 
-pub(crate) fn js_object_valueOf(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+pub(crate) fn js_object_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    this.objectify(&mut ctx).map(JSValue::Object)
+    this.objectify(ctx).map(JSValue::Object)
 }
 
-pub(crate) fn js_object_hasOwnProperty(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+pub(crate) fn js_object_hasOwnProperty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // must be done first
-    let atom = cc.arg(0).to_atom(&mut ctx)?;
-    let obj = cc.this().objectify(&mut ctx)?;
-    Ok(obj.get_own_property(&mut ctx, atom)?.is_some().into())
+    let atom = cc.arg(0).to_atom(ctx)?;
+    let obj = cc.this().objectify(ctx)?;
+    Ok(obj.get_own_property(ctx, atom)?.is_some().into())
 }
 
-pub(crate) fn js_object_isPrototypeOf(cc: CallContext) -> JSResult {
+pub(crate) fn js_object_isPrototypeOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(ctor) = cc.arg(0) {
-        let mut ctx = cc.ctx_ptr();
-
-        let obj = cc.this().objectify(&mut ctx)?;
+        let obj = cc.this().objectify(ctx)?;
         let mut cur_obj = ctor;
 
         let b = loop {
-            if let Some(p) = cur_obj.prototype(&mut ctx)? {
+            if let Some(p) = cur_obj.prototype(ctx)? {
                 if p == obj {
                     break true;
                 } else {
@@ -76,27 +70,21 @@ pub(crate) fn js_object_isPrototypeOf(cc: CallContext) -> JSResult {
     }
 }
 
-pub(crate) fn js_object_propertyIsEnumerable(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-    let obj = cc.this().objectify(&mut ctx)?;
-    let atom = cc.arg(0).to_atom(&mut ctx)?;
+pub(crate) fn js_object_propertyIsEnumerable(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().objectify(ctx)?;
+    let atom = cc.arg(0).to_atom(ctx)?;
 
-    Ok(if let Some(desc) = obj.get_own_property(&mut ctx, atom)? {
+    Ok(if let Some(desc) = obj.get_own_property(ctx, atom)? {
         JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0)
     } else {
         JSValue::Bool(false)
     })
 }
 
-pub(crate) fn js_object_getset___proto__(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+pub(crate) fn js_object_getset___proto__(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if cc.length() == 0 {
         // getter
-        let p = cc
-            .this()
-            .objectify(&mut ctx)
-            .and_then(|o| o.prototype(&mut ctx))?;
+        let p = cc.this().objectify(ctx).and_then(|o| o.prototype(ctx))?;
         Ok(p.map_or(JSValue::NULL, JSValue::Object))
     } else {
         // setter
@@ -112,7 +100,7 @@ pub(crate) fn js_object_getset___proto__(cc: CallContext) -> JSResult {
             Ok(JSValue::UNDEFINED)
         } else {
             // `proto` is an object or null
-            this_val.set_prototype_internal(&mut ctx, proto, true)?;
+            this_val.set_prototype_internal(ctx, proto, true)?;
             Ok(JSValue::UNDEFINED)
         }
     }
@@ -120,7 +108,7 @@ pub(crate) fn js_object_getset___proto__(cc: CallContext) -> JSResult {
 
 // magic = 1 if called as __defineSetter__
 unsafe fn js_object___defineGetter__(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     this_val: JSValue,
     _argc: i32,
     argv: *mut JSValue,
@@ -169,7 +157,7 @@ unsafe fn js_object___defineGetter__(
 }
 
 unsafe fn js_object___lookupGetter__(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     this_val: JSValue,
     argc: i32,
     argv: *mut JSValue,

@@ -32,8 +32,8 @@ pub mod regexp;
 #[cfg(feature = "builtin_symbol")]
 pub mod symbol;
 
-use crate::{error::JSResult, function::CallContext};
+use crate::{context::ScopedContext, error::JSResult, function::CallContext};
 
-pub const fn js_get_this(cc: CallContext) -> JSResult {
+pub const fn js_get_this(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(cc.this())
 }

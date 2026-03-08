@@ -10,6 +10,7 @@ use crate::{
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
     JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, RuntimeImpl,
+    ScopedContext,
     atom::Atom,
     class::ClassID,
     context::{ContextImpl, ContextPtr},
@@ -234,7 +235,7 @@ impl std::fmt::Display for ObjectImpl {
 
 impl ObjectImpl {
     pub(super) fn create(
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         mut shape: Option<Shape>,
         payload: ObjectPayload,
     ) -> Result<Object, ObjectPayload> {
@@ -389,19 +390,6 @@ impl ObjectImpl {
             .unwrap();
         }
 
-        // // get directly referenced children nodes, bind nodes relation
-        // {
-        //     let mut rt = ctx.rt_ptr();
-        //     let heap = rt.gc_heap_mut();
-        //     let children = obj.gc_children(heap);
-        //     if !children.is_empty() {
-        //         let obj_node = obj.gc_node_ptr();
-        //         for ch in children {
-        //             heap.bind(obj_node, ch);
-        //         }
-        //     }
-        // }
-
         Ok(obj)
     }
 
@@ -543,7 +531,7 @@ impl ObjectImpl {
     }
 
     /// only Proxy may return Err(-1)
-    pub fn prevent_extensions(&mut self, ctx: &mut ContextImpl) -> Result<bool, i32> {
+    pub fn prevent_extensions(&mut self, ctx: &mut ScopedContext) -> Result<bool, i32> {
         #[cfg(feature = "builtin_proxy")]
         {
             Object::from_ref(self).as_Proxy_mut().map_or_else(
@@ -651,7 +639,7 @@ impl Object {
 
 impl ObjectImpl {
     /// Seal the object.
-    pub fn seal(&mut self, ctx: &mut ContextImpl, freeze: bool) -> Result<(), i32> {
+    pub fn seal(&mut self, ctx: &mut ScopedContext, freeze: bool) -> Result<(), i32> {
         if unlikely(!self.prevent_extensions(ctx)?) {
             ctx.throw_type_error("proxy preventExtensions handler returned false");
             Err(-1)
@@ -691,7 +679,7 @@ impl ObjectImpl {
     }
 
     /// check if object is sealed.
-    pub fn is_sealed(&self, ctx: &mut ContextImpl, is_frozen: bool) -> Result<bool, i32> {
+    pub fn is_sealed(&self, ctx: &mut ScopedContext, is_frozen: bool) -> Result<bool, i32> {
         const NOT_SEALED_ERR: i32 = i32::MAX;
 
         if let Err(e) = self.own_property_names_foreach(
@@ -827,7 +815,7 @@ impl JSValue {
     /// - "abc" => \[object "abc"\]
     /// - Symbol() => \[object Symbol()\]
     /// - null, undefined => Error
-    pub fn objectify(&self, ctx: &mut ContextImpl) -> Result<Object, i32> {
+    pub fn objectify(&self, ctx: &mut ScopedContext) -> Result<Object, i32> {
         match self {
             Self::Object(o) => Ok(*o),
             Self::String(s) => s.objectify(ctx, JSValue::UNDEFINED),
@@ -862,18 +850,18 @@ impl JSValue {
         }
     }
 
-    pub fn prevent_extensions(&mut self, ctx: &mut ContextImpl) -> Result<bool, i32> {
+    pub fn prevent_extensions(&mut self, ctx: &mut ScopedContext) -> Result<bool, i32> {
         self.as_object_mut()
             .map_or(Ok(false), |o| o.prevent_extensions(ctx))
     }
 
     /// Seal `self` if it is an object.
-    pub fn seal(&mut self, ctx: &mut ContextImpl, freeze: bool) -> Result<(), i32> {
+    pub fn seal(&mut self, ctx: &mut ScopedContext, freeze: bool) -> Result<(), i32> {
         self.as_object_mut().map_or(Ok(()), |o| o.seal(ctx, freeze))
     }
 
     /// check if value is sealed. Object value will check property, Non-object value is always treated as sealed.
-    pub fn is_sealed(&self, ctx: &mut ContextImpl, is_frozen: bool) -> Result<bool, i32> {
+    pub fn is_sealed(&self, ctx: &mut ScopedContext, is_frozen: bool) -> Result<bool, i32> {
         self.as_object()
             .map_or(Ok(true), |o| o.is_sealed(ctx, is_frozen))
     }
@@ -888,7 +876,7 @@ pub(crate) const JS_PROP_INITIAL_HASH_SIZE: usize = if cfg!(target_pointer_width
 };
 
 /// Note: all the fields are already sealed except length
-pub(crate) fn seal_template_obj(ctx: &mut ContextImpl, mut obj: JSValue) -> i32 {
+pub(crate) fn seal_template_obj(ctx: &mut ScopedContext, mut obj: JSValue) -> i32 {
     let p = unsafe { obj.as_object_mut_unchecked() };
 
     // let (_, cur_flags) = p
@@ -908,12 +896,12 @@ pub(crate) fn seal_template_obj(ctx: &mut ContextImpl, mut obj: JSValue) -> i32 
 }
 
 pub(crate) fn JS_SpeciesConstructor(
-    mut ctx: ContextPtr,
+    ctx: &mut ScopedContext,
     obj: JSValue,
     default_constructor: JSValue,
 ) -> JSResult {
     if let Some(o) = obj.as_object() {
-        let ctor = o.get_property(&mut ctx, Atom::CONST_constructor)?;
+        let ctor = o.get_property(ctx, Atom::CONST_constructor)?;
 
         if unlikely(ctor.is_undefined()) {
             Ok(default_constructor)
@@ -921,7 +909,7 @@ pub(crate) fn JS_SpeciesConstructor(
             let species: JSValue = {
                 #[cfg(feature = "builtin_symbol")]
                 {
-                    o1.get_property(&mut ctx, Atom::CONST_Symbol_species)?
+                    o1.get_property(ctx, Atom::CONST_Symbol_species)?
                 }
                 #[cfg(not(feature = "builtin_symbol"))]
                 {

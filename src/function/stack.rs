@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     bytecode::{OP_COUNT_FINAL, OpCode, OpcodeFormat, opcode_info_final, opcodes},
     context::ContextImpl,
     utils::read_from_ptr,
@@ -23,7 +24,7 @@ struct StackSizeState {
 
 // 'op' is only used for error indication
 fn ss_check(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     s: &mut StackSizeState,
     pos: usize,
     op: u8,
@@ -77,7 +78,7 @@ fn ss_check(
 }
 
 impl FunctionDef {
-    pub fn compute_stack_size(&mut self, ctx: &mut ContextImpl) -> Result<u16, i32> {
+    pub fn compute_stack_size(&mut self, ctx: &mut ScopedContext) -> Result<u16, i32> {
         let bc_ptr = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();
 

@@ -15,7 +15,7 @@ use std::os::windows::io::AsRawHandle;
 use gc_lite::GcScope;
 use zuqe::{
     CallContext, ClassDef, ClassID, Context, FieldDef, JSResult, JSValue, Object, Runtime,
-    RuntimeImpl,
+    RuntimeImpl, ScopedContext,
 };
 
 #[derive(Debug)]
@@ -47,9 +47,12 @@ impl FileDesc {
     }
 }
 
-fn js_file_get_desc_mut<'a>(mut ctx: Context, obj: JSValue) -> Result<&'a mut FileDesc, i32> {
+fn js_file_get_desc_mut<'a>(
+    ctx: &mut ScopedContext,
+    obj: JSValue,
+) -> Result<&'a mut FileDesc, i32> {
     let opaque = obj
-        .retrive_object_payload(&mut ctx, JSFile::class_id())?
+        .retrive_object_payload(ctx, JSFile::class_id())?
         .other()
         .unwrap()
         .opaque();
@@ -62,19 +65,17 @@ fn js_file_get_desc_mut<'a>(mut ctx: Context, obj: JSValue) -> Result<&'a mut Fi
     }
 }
 
-fn js_file_fileno(cc: CallContext) -> JSResult {
-    let ctx = cc.context();
+fn js_file_fileno(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let fh = js_file_get_desc_mut(ctx, cc.this())?;
     Ok(JSValue::Int(fh.as_raw_fd()))
 }
 
-fn js_file_readAsString(cc: CallContext) -> JSResult {
-    let mut ctx = cc.context();
+fn js_file_readAsString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let fh = js_file_get_desc_mut(ctx, cc.this())?;
 
     let max_size_val = cc.arg(0);
     let max_size = if !max_size_val.is_undefined() {
-        Some(std::cmp::min(max_size_val.to_index(&mut ctx)?, usize::MAX as i64) as usize)
+        Some(std::cmp::min(max_size_val.to_index(ctx)?, usize::MAX as i64) as usize)
     } else {
         None
     };
@@ -127,9 +128,8 @@ fn js_file_readAsString(cc: CallContext) -> JSResult {
     ctx.create_string_from_utf8(buf).map(JSValue::from)
 }
 
-pub(super) fn js_file_puts(cc: CallContext) -> JSResult {
+pub(super) fn js_file_puts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
-    let mut ctx = cc.context();
 
     let fh = if magic == 1 {
         js_file_get_desc_mut(ctx, cc.this())?
@@ -138,7 +138,7 @@ pub(super) fn js_file_puts(cc: CallContext) -> JSResult {
     };
 
     for arg in cc.arguments() {
-        let s = arg.to_string(&mut ctx)?;
+        let s = arg.to_string(ctx)?;
         let s = s.content().encode_utf8(false);
 
         match fh {
@@ -167,8 +167,8 @@ pub(super) fn js_file_puts(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_file_flush(cc: CallContext) -> JSResult {
-    match js_file_get_desc_mut(cc.context(), cc.this())? {
+fn js_file_flush(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    match js_file_get_desc_mut(ctx, cc.this())? {
         FileDesc::File(f) => {
             let _ = f.flush().inspect_err(|e| {
                 eprintln!("flush file error: {}", e);
@@ -190,12 +190,10 @@ fn js_file_flush(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_file_close(cc: CallContext) -> JSResult {
-    let mut ctx = cc.context();
-
+fn js_file_close(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut this = cc.this();
     let u = this
-        .retrive_object_payload_mut(&mut ctx, JSFile::class_id())?
+        .retrive_object_payload_mut(ctx, JSFile::class_id())?
         .other_mut()
         .unwrap();
 
@@ -220,9 +218,9 @@ const CLASS_FILE_PROTO: &[FieldDef] = &[
 pub struct JSFile;
 
 impl JSFile {
-    fn handle_init(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    fn handle_init(ctx: &mut ScopedContext, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = ctx.create_base_object()?;
-        proto.install_fields(&mut ctx, CLASS_FILE_PROTO)?;
+        proto.install_fields(ctx, CLASS_FILE_PROTO)?;
         Ok(Some(proto))
     }
     fn handle_fini(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
@@ -257,7 +255,7 @@ impl JSFile {
         Self::CLASS_ID.with(|x| x.get())
     }
 
-    fn new_instance_internal(mut ctx: Context, fd: FileDesc) -> Result<Object, i32> {
+    fn new_instance_internal(ctx: &mut ScopedContext, fd: FileDesc) -> Result<Object, i32> {
         let class_id = Self::class_id();
         let opaque = Box::into_raw(Box::new(fd)).cast::<c_void>();
         ctx.create_object_user_class(class_id, opaque).map_err(|e| {
@@ -266,16 +264,16 @@ impl JSFile {
             -1
         })
     }
-    pub fn new_instance(ctx: Context, fh: std::fs::File) -> Result<Object, i32> {
+    pub fn new_instance(ctx: &mut ScopedContext, fh: std::fs::File) -> Result<Object, i32> {
         Self::new_instance_internal(ctx, FileDesc::File(fh))
     }
-    pub fn new_instance_stdin(ctx: Context) -> Result<Object, i32> {
+    pub fn new_instance_stdin(ctx: &mut ScopedContext) -> Result<Object, i32> {
         Self::new_instance_internal(ctx, FileDesc::Stdin)
     }
-    pub fn new_instance_stdout(ctx: Context) -> Result<Object, i32> {
+    pub fn new_instance_stdout(ctx: &mut ScopedContext) -> Result<Object, i32> {
         Self::new_instance_internal(ctx, FileDesc::Stdout)
     }
-    pub fn new_instance_stderr(ctx: Context) -> Result<Object, i32> {
+    pub fn new_instance_stderr(ctx: &mut ScopedContext) -> Result<Object, i32> {
         Self::new_instance_internal(ctx, FileDesc::Stderr)
     }
 }

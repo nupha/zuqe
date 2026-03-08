@@ -4,7 +4,7 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, ScopedContext,
     atom::Atom,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
@@ -113,7 +113,7 @@ impl Default for JSPropertyDescriptor {
 
 impl JSPropertyDescriptor {
     /// Parse an object to JSPropertyDescriptor.
-    pub(crate) fn parse(ctx: &mut ContextImpl, desc: Object) -> Result<Self, i32> {
+    pub(crate) fn parse(ctx: &mut ScopedContext, desc: Object) -> Result<Self, i32> {
         let mut flags: u32 = 0;
         let mut value: JSValue = JSValue::UNDEFINED;
         let mut getter: JSValue = JSValue::UNDEFINED;
@@ -184,7 +184,7 @@ impl JSPropertyDescriptor {
 
     /// Parse a value to JSPropertyDescriptor.
     #[inline]
-    pub(crate) fn from_value(ctx: &mut ContextImpl, desc: JSValue) -> Result<Self, i32> {
+    pub(crate) fn from_value(ctx: &mut ScopedContext, desc: JSValue) -> Result<Self, i32> {
         if let Some(o) = desc.as_object() {
             Self::parse(ctx, *o)
         } else {
@@ -194,7 +194,7 @@ impl JSPropertyDescriptor {
     }
 
     /// build object from descriptor
-    pub fn make_object(&self, ctx: &mut ContextImpl) -> Result<Object, i32> {
+    pub fn make_object(&self, ctx: &mut ScopedContext) -> Result<Object, i32> {
         let mut ret = ctx.create_base_object()?;
 
         if self.flags & JS_PROP_HAS_GET != 0 {
@@ -291,7 +291,7 @@ impl Default for JSProperty {
 
 impl JSProperty {
     /// retrive property value
-    pub(super) fn value(&self, ctx: &mut ContextImpl, this_obj: JSValue) -> JSResult {
+    pub(super) fn value(&self, ctx: &mut ScopedContext, this_obj: JSValue) -> JSResult {
         match self {
             Self::Normal(v) => {
                 debug_assert!(!v.is_exception());
@@ -316,7 +316,7 @@ impl JSProperty {
 impl ObjectImpl {
     /// check if object is extensible.
     /// in case `self` is a Proxy object, may return Err.
-    pub fn is_extensible_obj(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
+    pub fn is_extensible_obj(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {
         #[cfg(feature = "builtin_proxy")]
         {
             Object::from_ref(self).as_Proxy().map_or_else(
@@ -331,7 +331,7 @@ impl ObjectImpl {
     }
 
     /// test if property `prop` exists, check along proto chain.
-    pub fn has_property(&self, ctx: &mut ContextImpl, prop: Atom) -> Result<bool, i32> {
+    pub fn has_property(&self, ctx: &mut ScopedContext, prop: Atom) -> Result<bool, i32> {
         for cur_obj in self.shape_proto_iter(true) {
             if cur_obj.flags().is_exotic()
                 && let Some(cb) = ctx.rt_ptr().class_registry[cur_obj.class_id() as usize]
@@ -360,7 +360,7 @@ impl ObjectImpl {
     /// equivelent to js `Object::assign(self, source)`
     pub(crate) fn copy_data_properties_from(
         &mut self,
-        mut ctx: ContextPtr,
+        ctx: &mut ScopedContext,
         source: Object,
         excluded: Option<Object>,
         setprop: bool,
@@ -378,18 +378,16 @@ impl ObjectImpl {
             gpn_flags &= !JS_GPN_ENUM_ONLY;
         }
 
-        for k in source.get_own_property_names(&mut ctx, gpn_flags)? {
+        for k in source.get_own_property_names(ctx, gpn_flags)? {
             if let Some(excl) = excluded {
-                let skip = excl
-                    .get_own_property(&mut ctx, k.atom)
-                    .map(|x| x.is_some())?;
+                let skip = excl.get_own_property(ctx, k.atom).map(|x| x.is_some())?;
                 if skip {
                     continue; // excluded prop, skip
                 }
             }
 
             if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
-                if let Some(desc) = source.get_own_property(&mut ctx, k.atom)? {
+                if let Some(desc) = source.get_own_property(ctx, k.atom)? {
                     if desc.flags & JS_PROP_ENUMERABLE == 0 {
                         continue; // skip if non enumerable
                     }
@@ -398,11 +396,11 @@ impl ObjectImpl {
                 }
             }
 
-            let val = source.get_property(&mut ctx, k.atom)?;
+            let val = source.get_property(ctx, k.atom)?;
             if setprop {
-                self.set_property(&mut ctx, k.atom, val)?;
+                self.set_property(ctx, k.atom, val)?;
             } else {
-                self.define_property_value(&mut ctx, k.atom, val, JS_PROP_C_W_E)?;
+                self.define_property_value(ctx, k.atom, val, JS_PROP_C_W_E)?;
             }
         }
 
@@ -413,14 +411,14 @@ impl ObjectImpl {
     /// if _length_ property is null or undefined, returns 0.
     ///
     /// Returned length is in range \[0, MAX_SAFE_INTEGER\]
-    pub fn get_length_prop(&self, ctx: &mut ContextImpl) -> Result<i64, i32> {
+    pub fn get_length_prop(&self, ctx: &mut ScopedContext) -> Result<i64, i32> {
         self.get_property(ctx, Atom::CONST_length)?.to_length(ctx)
     }
 }
 
 impl JSValue {
     /// return Err() if exception (Proxy object only) or TRUE/FALSE
-    pub fn is_extensible(&self, ctx: &mut ContextImpl) -> Result<bool, i32> {
+    pub fn is_extensible(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {
         if let Self::Object(p) = self {
             p.is_extensible_obj(ctx)
         } else {
@@ -428,7 +426,7 @@ impl JSValue {
         }
     }
 
-    pub fn has_property(&self, ctx: &mut ContextImpl, prop: Atom) -> Result<bool, i32> {
+    pub fn has_property(&self, ctx: &mut ScopedContext, prop: Atom) -> Result<bool, i32> {
         if let Self::Object(p) = self {
             p.has_property(ctx, prop)
         } else {
@@ -440,7 +438,7 @@ impl JSValue {
     /// equivelent to js `Object::assign(self, source)`
     pub(crate) fn copy_data_properties_from(
         &mut self,
-        mut ctx: ContextPtr,
+        ctx: &mut ScopedContext,
         source: &Self,
         excluded: &Self,
         setprop: bool,
@@ -448,7 +446,7 @@ impl JSValue {
         if let Self::Object(src_obj) = source {
             if let Self::Object(o) = self {
                 o.copy_data_properties_from(ctx, *src_obj, excluded.as_object().copied(), setprop)
-            } else if let JSValue::Object(mut p) = JS_GetPrototypePrimitive(&mut ctx, self) {
+            } else if let JSValue::Object(mut p) = JS_GetPrototypePrimitive(ctx, self) {
                 p.copy_data_properties_from(ctx, *src_obj, excluded.as_object().copied(), setprop)
             } else {
                 ctx.throw_type_error_not_an_object();
@@ -463,7 +461,7 @@ impl JSValue {
     /// if _length_ property is null or undefined, returns 0.
     ///
     /// Returned length is in range \[0, MAX_SAFE_INTEGER\]
-    pub fn get_length_prop(&self, ctx: &mut ContextImpl) -> Result<i64, i32> {
+    pub fn get_length_prop(&self, ctx: &mut ScopedContext) -> Result<i64, i32> {
         self.get_property(ctx, Atom::CONST_length)?.to_length(ctx)
     }
 }

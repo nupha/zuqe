@@ -4,6 +4,7 @@
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::{ContextImpl, ContextPtr},
     module::ModuleDef,
@@ -28,7 +29,11 @@ impl GcTrace for ModuleDependency {
 impl ModuleDef {
     /// add module dependency, returns the dependency index.
     /// `module_name` is not consumed.
-    pub fn add_dependency(&mut self, ctx: &mut ContextImpl, module_name: Atom) -> Result<u16, i32> {
+    pub fn add_dependency(
+        &mut self,
+        ctx: &mut ScopedContext,
+        module_name: Atom,
+    ) -> Result<u16, i32> {
         if let Some(i) = self
             .dependencies
             .iter()
@@ -67,7 +72,9 @@ impl ContextImpl {
             }
         })
     }
+}
 
+impl<'c> ScopedContext<'c> {
     /// Load all the required modules (dependent modules) for module 'm'.
     /// TODO: migrate to ModuleDef::resolve()
     pub fn resolve_module(&mut self, mut m: ModuleDef) -> Result<(), i32> {
@@ -78,7 +85,7 @@ impl ContextImpl {
             // resolve dependency modules
             for dep in m.dependencies.iter_mut() {
                 let m1 = js_host_resolve_imported_module_atom(
-                    self.gc_ref().into(),
+                    self,
                     &base_module_name,
                     &dep.module_name,
                 )?;
@@ -112,15 +119,15 @@ pub enum JSModuleStatus {
 }
 
 pub(super) fn js_host_resolve_imported_module(
-    mut ctx: ContextPtr,
+    ctx: &mut ScopedContext,
     base_name: &str,
     name: &str,
 ) -> Result<ModuleDef, i32> {
     // normalize module name
     let norm_name = if let Some(cb) = ctx.rt_ref().module_normalize_func {
-        cb(ctx.into(), base_name, name, ctx.rt_ptr().module_load_opaque)
+        cb(ctx, base_name, name, ctx.rt_ptr().module_load_opaque)
     } else {
-        js_default_module_normalize_name(&ctx, base_name, name)
+        js_default_module_normalize_name(ctx, base_name, name)
     }?;
 
     let module_name = Atom::new(ctx.rt_ptr(), &norm_name)?;
@@ -132,7 +139,7 @@ pub(super) fn js_host_resolve_imported_module(
 
     // load module
     if let Some(cb) = ctx.rt_ptr().module_load_func {
-        cb(ctx.into(), &norm_name, ctx.rt_ptr().module_load_opaque)
+        cb(ctx, &norm_name, ctx.rt_ptr().module_load_opaque)
     } else {
         #[cfg(debug_assertions)]
         println!("WARN: module loader function is not set, can't import module.");
@@ -144,7 +151,7 @@ pub(super) fn js_host_resolve_imported_module(
 
 #[inline(always)]
 fn js_host_resolve_imported_module_atom(
-    ctx: ContextPtr,
+    ctx: &mut ScopedContext,
     base_module_name: &Atom,
     module_name1: &Atom,
 ) -> Result<ModuleDef, i32> {
@@ -155,7 +162,7 @@ fn js_host_resolve_imported_module_atom(
 
 /// default module filename normalizer
 fn js_default_module_normalize_name(
-    _: &ContextImpl,
+    _: &mut ScopedContext,
     base_name: &str,
     name: &str,
 ) -> Result<String, i32> {

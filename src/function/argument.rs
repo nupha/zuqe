@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_OBJECT,
+    JS_CLASS_OBJECT, ScopedContext,
     atom::Atom,
     builtins::array::ArrayPayload,
     context::ContextImpl,
@@ -17,9 +17,10 @@ use crate::{
 use super::JS_MAX_LOCAL_VARS;
 
 /// Make Arguments class instance with values.
-pub(crate) fn js_build_arguments(ctx: &mut ContextImpl, values: &[JSValue]) -> JSValue {
+pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) -> JSValue {
+    let object_proto = ctx.class_proto(JS_CLASS_OBJECT);
     let mut obj = if let Ok(o) = ctx.create_object_with_proto(
-        ctx.class_proto(JS_CLASS_OBJECT),
+        object_proto,
         ObjectPayload::ARGUMENTS(ArrayPayload::default()),
     ) {
         o
@@ -45,7 +46,7 @@ pub(crate) fn js_build_arguments(ctx: &mut ContextImpl, values: &[JSValue]) -> J
             return JSValue::EXCEPTION;
         }
 
-        arr_data.extend(&mut ctx.rt_ptr(), values.iter().copied(), xref);
+        arr_data.extend(ctx.rt_mut(), values.iter().copied(), xref);
     }
 
     #[cfg(feature = "builtin_symbol")]
@@ -74,7 +75,7 @@ pub(crate) fn js_build_arguments(ctx: &mut ContextImpl, values: &[JSValue]) -> J
 
 /// legacy arguments object: add references to the function arguments
 pub(crate) fn js_build_mapped_arguments(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     args: &[JSValue],
     sf: &mut StackFrame,
     arg_count: i32,
@@ -129,7 +130,7 @@ pub(crate) fn js_build_mapped_arguments(
 }
 
 pub(crate) fn build_arg_list(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     array_arg: JSValue,
 ) -> Result<Box<[JSValue]>, i32> {
     let Some(array_arg) = array_arg.as_object().copied() else {

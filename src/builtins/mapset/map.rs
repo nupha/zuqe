@@ -7,7 +7,7 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_WEAKMAP,
-    JS_CLASS_WEAKSET,
+    JS_CLASS_WEAKSET, ScopedContext,
     class::ClassID,
     context::{Context, ContextImpl},
     object::{Object, ObjectImpl, ObjectPayload},
@@ -125,7 +125,7 @@ impl JSMapState {
     /// returns false if the value is updated, true if the key-value pair is inserted
     pub fn upsert(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         key: JSValue,
         value: JSValue,
     ) -> Result<bool, i32> {
@@ -345,35 +345,35 @@ object_cast!(
 );
 
 impl MapSet {
-    pub fn class_init(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
         let iter_proto = ctx.iterator_proto()?;
 
         match class_id {
             JS_CLASS_MAP => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_fields(&mut ctx, js_map_proto_funcs)?;
+                obj.install_fields(ctx, js_map_proto_funcs)?;
 
                 let mut ctor = ctx
                     .create_global_constructor_only("Map", js_map_constructor, 0, obj.into(), 0)
                     .unwrap();
-                ctor.install_fields(&mut ctx, js_map_funcs).unwrap();
+                ctor.install_fields(ctx, js_map_funcs).unwrap();
 
                 Ok(Some(obj))
             }
             JS_CLASS_SET => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_fields(&mut ctx, js_set_proto_funcs)?;
+                obj.install_fields(ctx, js_set_proto_funcs)?;
 
                 let mut ctor = ctx
                     .create_global_constructor_only("Set", js_map_constructor, 0, obj.into(), 1)
                     .unwrap();
-                ctor.install_fields(&mut ctx, js_set_funcs)?;
+                ctor.install_fields(ctx, js_set_funcs)?;
 
                 Ok(Some(obj))
             }
             JS_CLASS_WEAKMAP => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_fields(&mut ctx, js_weakmap_proto_funcs)?;
+                obj.install_fields(ctx, js_weakmap_proto_funcs)?;
 
                 ctx.create_global_constructor_only(
                     "WeakMap",
@@ -387,7 +387,7 @@ impl MapSet {
             }
             JS_CLASS_WEAKSET => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_fields(&mut ctx, js_weakset_proto_funcs)?;
+                obj.install_fields(ctx, js_weakset_proto_funcs)?;
 
                 ctx.create_global_constructor_only(
                     "WeakSet",
@@ -401,12 +401,12 @@ impl MapSet {
             }
             JS_CLASS_MAP_ITERATOR => {
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                proto.install_fields(&mut ctx, js_map_iterator_proto_funcs)?;
+                proto.install_fields(ctx, js_map_iterator_proto_funcs)?;
                 Ok(Some(proto))
             }
             JS_CLASS_SET_ITERATOR => {
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                proto.install_fields(&mut ctx, js_set_iterator_proto_funcs)?;
+                proto.install_fields(ctx, js_set_iterator_proto_funcs)?;
                 Ok(Some(proto))
             }
             _ => {
@@ -416,7 +416,7 @@ impl MapSet {
     }
 }
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     pub fn create_map_with_entries(&mut self, entries: JSMapState) -> Result<Object, i32> {
         self.create_object(ObjectPayload::MAP(Box::new(entries)))
             .map_err(|_| -1)

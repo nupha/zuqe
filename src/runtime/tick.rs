@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use crate::context::{Context, ContextImpl};
+use crate::{
+    ScopedContext,
+    context::{Context, ContextImpl},
+};
 
 use super::RuntimeImpl;
 
 impl ContextImpl {
-    pub fn add_tick_handler(&mut self, f: fn(Context) -> bool) {
+    pub fn add_tick_handler(&mut self, f: fn(&mut ScopedContext) -> bool) {
         self.tick_handlers.push(f);
     }
 
@@ -33,9 +36,12 @@ impl RuntimeImpl {
         self.execute_all_jobs().map_err(|_| -1)?;
 
         let mut need_next_tick = false;
-        for c in self.context_list.iter() {
-            for f in c.tick_handlers.iter() {
-                if f((*c).into()) {
+        for ctx in self.context_list.iter().copied() {
+            let mut cx2 = Context::from(ctx);
+            let mut scope = ctx.current_scope().unwrap_or_else(|| cx2.new_scope());
+
+            for f in ctx.tick_handlers.iter() {
+                if f(&mut scope) {
                     need_next_tick = true;
                 }
             }

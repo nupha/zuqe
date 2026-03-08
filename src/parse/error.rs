@@ -20,7 +20,7 @@ impl<'s> JSParseState<'s> {
                 0
             };
 
-        self.ctx.build_backtrace_to(
+        self.ctx.new_scope_legacy().build_backtrace_to(
             err_val,
             Some((self.filename, self.line_num)),
             backtrace_flags,
@@ -31,19 +31,20 @@ impl<'s> JSParseState<'s> {
 
     #[cold]
     pub(super) fn throw_syntax_error(&mut self, message: &str) {
-        self.ctx
-            .throw_error_internal(ErrorKind::Syntax, message, false);
+        let mut scope = self.ctx.new_scope_legacy();
 
-        let backtrace_flags =
-            if !self.cur_func_def.is_null() && self.cur_func().attrs.backtrace_barrier {
-                JS_BACKTRACE_FLAG_SINGLE_LEVEL
-            } else {
-                0
-            };
+        scope.throw_error_internal(ErrorKind::Syntax, message, false);
 
-        let exc = self.ctx.rt_ptr().exception();
-        self.ctx
-            .build_backtrace_to(exc, Some((self.filename, self.line_num)), backtrace_flags);
+        let backtrace_flags = if !self.cur_func_def.is_null()
+            && unsafe { (*self.cur_func_def).attrs.backtrace_barrier }
+        {
+            JS_BACKTRACE_FLAG_SINGLE_LEVEL
+        } else {
+            0
+        };
+
+        let exc = scope.rt_mut().exception();
+        scope.build_backtrace_to(exc, Some((self.filename, self.line_num)), backtrace_flags);
     }
 
     #[cold]

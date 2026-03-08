@@ -3,6 +3,7 @@
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
+    ScopedContext,
     builtins::js_get_this,
     class::ClassID,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
@@ -18,18 +19,15 @@ use super::ArrayBuffer;
 // Prototype
 //
 
-fn js_array_buffer_get_byteLength(cc: CallContext) -> JSResult {
+fn js_array_buffer_get_byteLength(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let class_id = cc.magic() as ClassID;
-    let mut ctx = cc.ctx_ptr();
 
     cc.this()
-        .retrive_object_payload(&mut ctx, class_id)
+        .retrive_object_payload(ctx, class_id)
         .map(|isa| JSValue::from(isa.array_buffer().unwrap().byte_length() as i64))
 }
 
-fn js_array_buffer_detached(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+fn js_array_buffer_detached(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     cc.this()
         .as_object()
         .filter(|o| o.class_id() == JS_CLASS_ARRAY_BUFFER)
@@ -44,24 +42,23 @@ fn js_array_buffer_detached(cc: CallContext) -> JSResult {
         })
 }
 
-fn js_array_buffer_slice(cc: CallContext) -> JSResult {
+fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let class_id = cc.magic() as ClassID;
-    let mut ctx = cc.ctx_ptr();
 
     let this = cc.this();
     let abuf = this
-        .retrive_object_payload(&mut ctx, class_id)
+        .retrive_object_payload(ctx, class_id)
         .map(|isa| isa.array_buffer().unwrap())?;
 
     if abuf.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(&mut ctx);
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
 
     let len = abuf.byte_length() as i64;
-    let start: i64 = cc.arg(0).to_i64_clamp(&mut ctx, 0, len, len)?;
+    let start: i64 = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
     let end = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i64_clamp(&mut ctx, 0, len, len)?
+        cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
     } else {
         len
     };
@@ -71,7 +68,7 @@ fn js_array_buffer_slice(cc: CallContext) -> JSResult {
 
     let mut new_obj = if ctor.is_undefined() {
         ArrayBuffer::with_capacity_ex(
-            &mut ctx,
+            ctx,
             JSValue::UNDEFINED,
             cc.magic() as ClassID == JS_CLASS_SHARED_ARRAY_BUFFER,
             new_len as usize,
@@ -79,18 +76,18 @@ fn js_array_buffer_slice(cc: CallContext) -> JSResult {
         )
         .map(|x| x.into())
     } else {
-        ctor.call_ctor(&mut ctx, &[JSValue::from(new_len)])
+        ctor.call_ctor(ctx, &[JSValue::from(new_len)])
     }?;
 
     let new_abuf = new_obj
-        .retrive_object_payload(&mut ctx, class_id)
+        .retrive_object_payload(ctx, class_id)
         .map(|isa| isa.array_buffer().unwrap())?;
 
     if unlikely(new_obj.is_same(this)) {
         ctx.throw_type_error("cannot use identical ArrayBuffer");
         Err(-1)
     } else if unlikely(new_abuf.is_detached()) {
-        JS_ThrowTypeErrorDetachedArrayBuffer(&mut ctx);
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         Err(-1)
     } else if unlikely(new_abuf.byte_length() < new_len as usize) {
         ctx.throw_type_error("new ArrayBuffer is too small");
@@ -98,12 +95,12 @@ fn js_array_buffer_slice(cc: CallContext) -> JSResult {
     } else {
         // must test again because of side effects
         if abuf.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(&mut ctx);
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
 
         let new_abuf_mut = new_obj
-            .retrive_object_payload_mut(&mut ctx, class_id)
+            .retrive_object_payload_mut(ctx, class_id)
             .map(|isa| isa.array_buffer_mut().unwrap())?;
 
         abuf.with_bytes(|src| {
@@ -163,7 +160,7 @@ pub const js_shared_array_buffer_proto_funcs: &[FieldDef] = &[
 // static methods
 //
 
-fn js_array_buffer_isView(cc: CallContext) -> JSResult {
+fn js_array_buffer_isView(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let res = if let JSValue::Object(p) = cc.arg(0)
         && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_DATAVIEW).contains(&p.class_id())
     {

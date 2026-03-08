@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_MAP,
+    JS_CLASS_MAP, ScopedContext,
     atom::Atom,
     builtins::{iterator::JSIteratorKindEnum, js_get_this},
     class::ClassID,
@@ -15,11 +15,10 @@ use crate::{
 
 use super::{JSMapIteratorData, JSMapState, MapPair};
 
-pub fn js_map_constructor(cc: CallContext) -> JSResult {
+pub fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let is_set = magic & 1 == 1;
     let is_weak = matches!(magic, 2 | 3);
-    let mut ctx = cc.ctx_ptr();
 
     let new_target = cc.this();
 
@@ -46,7 +45,7 @@ pub fn js_map_constructor(cc: CallContext) -> JSResult {
 
     if !arr.is_undefined_or_null() {
         let adder = obj.get_property(
-            &mut ctx,
+            ctx,
             if is_set {
                 Atom::CONST_add
             } else {
@@ -62,11 +61,11 @@ pub fn js_map_constructor(cc: CallContext) -> JSResult {
         for el in arr.iter(ctx)? {
             let item = el?;
             if is_set {
-                adder.call(&mut ctx, obj, &[item])?;
+                adder.call(ctx, obj, &[item])?;
             } else if let Some(o) = item.as_object() {
-                let key = o.get_property_u32(&mut ctx, 0)?;
-                let value = o.get_property_u32(&mut ctx, 1)?;
-                adder.call(&mut ctx, obj, &[key, value])?;
+                let key = o.get_property_u32(ctx, 0)?;
+                let value = o.get_property_u32(ctx, 1)?;
+                adder.call(ctx, obj, &[key, value])?;
             } else {
                 ctx.throw_type_error_not_an_object();
                 return Err(-1);
@@ -77,12 +76,10 @@ pub fn js_map_constructor(cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub(crate) fn js_map_get(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+pub(crate) fn js_map_get(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let key = cc.arg(0);
     cc.this()
-        .retrive_object_payload(&mut ctx, JS_CLASS_MAP + cc.magic() as ClassID)
+        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| {
             r.mapset()
                 .unwrap()
@@ -91,16 +88,15 @@ pub(crate) fn js_map_get(cc: CallContext) -> JSResult {
         })
 }
 
-pub(crate) fn js_map_set(cc: CallContext) -> JSResult {
+pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
-    let mut ctx = cc.ctx_ptr();
 
     let mut this = cc.this();
     let mut key = cc.arg(0);
     let val = cc.arg(1);
 
     let s = this
-        .retrive_object_payload_mut(&mut ctx, JS_CLASS_MAP + magic as ClassID)?
+        .retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)?
         .mapset_mut()
         .unwrap();
 
@@ -110,7 +106,7 @@ pub(crate) fn js_map_set(cc: CallContext) -> JSResult {
     }
 
     if s.upsert(
-        &mut ctx,
+        ctx,
         key,
         if magic & 1 == 1 {
             JSValue::UNDEFINED // set or weakset
@@ -130,21 +126,20 @@ pub(crate) fn js_map_set(cc: CallContext) -> JSResult {
     Ok(this)
 }
 
-fn js_map_delete(cc: CallContext) -> JSResult {
+fn js_map_delete(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
-    let mut ctx = cc.ctx_ptr();
 
     let this = cc.this();
     let mut key = cc.arg(0);
 
     let mut this2 = this;
     this2
-        .retrive_object_payload_mut(&mut ctx, JS_CLASS_MAP + magic as ClassID)
+        .retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)
         .map(|isa| {
             let s = isa.mapset_mut().unwrap();
 
             if s.find(&ctx, key).is_some() {
-                s.remove(&mut ctx, key);
+                s.remove(ctx, key);
 
                 if s.is_weak() {
                     key.as_object_mut()
@@ -159,46 +154,43 @@ fn js_map_delete(cc: CallContext) -> JSResult {
         })
 }
 
-fn js_map_has(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+fn js_map_has(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let key = cc.arg(0);
     cc.this()
-        .retrive_object_payload(&mut ctx, JS_CLASS_MAP + cc.magic() as ClassID)
+        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| r.mapset().unwrap().find(&ctx, key).is_some().into())
 }
 
-fn js_map_clear(cc: CallContext) -> JSResult {
+fn js_map_clear(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
-    let mut ctx = cc.ctx_ptr();
+
     let mut this = cc.this();
 
-    this.retrive_object_payload_mut(&mut ctx, JS_CLASS_MAP + magic as ClassID)
+    this.retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)
         .map(|isa| {
             isa.mapset_mut().unwrap().clear();
             JSValue::UNDEFINED
         })
 }
 
-fn js_map_get_size(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+fn js_map_get_size(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     cc.this()
-        .retrive_object_payload(&mut ctx, JS_CLASS_MAP + cc.magic() as ClassID)
+        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| JSValue::Int(r.mapset().unwrap().len() as i32))
 }
 
-fn js_map_forEach(cc: CallContext) -> JSResult {
+fn js_map_forEach(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let is_set = magic & 1 == 1;
-    let mut ctx = cc.ctx_ptr();
 
     let func = cc.arg(0);
-    func.ensure_function(&mut ctx)?;
+    func.ensure_function(ctx)?;
 
     let this_arg = cc.arg(1);
     let mut this = cc.this();
 
     // lock map, and ensure `this` is an object of expected class_id.
-    this.retrive_object_payload_mut(&mut ctx, JS_CLASS_MAP + magic as ClassID)?
+    this.retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)?
         .mapset_mut()
         .unwrap()
         .lock();
@@ -222,7 +214,7 @@ fn js_map_forEach(cc: CallContext) -> JSResult {
             if let Some((key, val)) = pair
                 && func
                     .call(
-                        &mut ctx,
+                        ctx,
                         this_arg,
                         &if is_set {
                             [key, key, this]
@@ -252,15 +244,14 @@ fn js_map_forEach(cc: CallContext) -> JSResult {
     }
 }
 
-pub(crate) fn js_create_map_iterator(cc: CallContext) -> JSResult {
+pub(crate) fn js_create_map_iterator(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     debug_assert!(matches!(cc.magic() >> 2, 0..=2));
 
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 >> 2) };
-    let mut ctx = cc.ctx_ptr();
 
     // ensure `this` is an object of expected class_id
     let this = cc.this();
-    let _ = this.retrive_object_payload(&mut ctx, JS_CLASS_MAP + (cc.magic() & 3) as ClassID)?;
+    let _ = this.retrive_object_payload(ctx, JS_CLASS_MAP + (cc.magic() & 3) as ClassID)?;
 
     // create iterator object
     let isa = Box::new(JSMapIteratorData {
@@ -352,12 +343,11 @@ pub const js_weakset_proto_funcs: &[FieldDef] = &[
     FieldDef::STR("[Symbol.toStringTag]", "WeakSet", JS_PROP_CONFIGURABLE),
 ];
 
-fn js_map_groupBy(cc: CallContext) -> JSResult {
+fn js_map_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // check must be observed before argv[0] is accessed
-    let mut ctx = cc.ctx_ptr();
 
     let func = cc.arg(1);
-    func.ensure_function(&mut ctx)?;
+    func.ensure_function(ctx)?;
 
     let this_val = if ctx.is_strict_mode() {
         JSValue::UNDEFINED
@@ -377,7 +367,7 @@ fn js_map_groupBy(cc: CallContext) -> JSResult {
         }
 
         let val = val?;
-        let key = func.call(&mut ctx, this_val, &[val, JSValue::from(idx as u32)])?;
+        let key = func.call(ctx, this_val, &[val, JSValue::from(idx as u32)])?;
         let key = MapPair::normalize_key(key);
 
         if let Some(i) = groups.iter().position(|(k, _)| k == &key) {
@@ -393,7 +383,7 @@ fn js_map_groupBy(cc: CallContext) -> JSResult {
     for (key, mut lst) in groups {
         lst.shrink_to_fit();
         let arr = ctx.create_array_with_values(lst)?;
-        ms.upsert(&mut ctx, key, arr.into())?;
+        ms.upsert(ctx, key, arr.into())?;
     }
 
     ctx.create_map_with_entries(ms).map(JSValue::Object)

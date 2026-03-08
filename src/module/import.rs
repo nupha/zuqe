@@ -4,7 +4,7 @@
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
-    Callback,
+    Callback, ScopedContext,
     atom::Atom,
     builtins::promise::Promise,
     context::{ContextImpl, ContextPtr},
@@ -30,7 +30,7 @@ impl GcTrace for ImportEntry {
     }
 }
 
-pub(crate) fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult {
+pub(crate) fn js_dynamic_import(ctx: &mut ScopedContext, specifier: JSValue) -> JSResult {
     let basename_val: JSValue = if let Some(a) = get_script_or_module_name(ctx, 0) {
         a.to_value(ctx)?
     } else {
@@ -46,7 +46,12 @@ pub(crate) fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JS
 
     ctx.queue_job_with_trace(
         move || {
-            js_dynamic_import_job(cx, resolving_funcs, basename_val, specifier);
+            js_dynamic_import_job(
+                &mut cx.new_scope_legacy(),
+                resolving_funcs,
+                basename_val,
+                specifier,
+            );
             Ok(JSValue::UNDEFINED)
         },
         {
@@ -77,13 +82,13 @@ pub(crate) fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JS
 }
 
 fn js_dynamic_import_job(
-    mut ctx: ContextPtr,
+    ctx: &mut ScopedContext,
     resolving_funcs: [JSValue; 2],
     basename: JSValue,
     name: JSValue,
 ) {
     let r = if let JSValue::String(base) = basename {
-        name.to_string(&mut ctx).map(|nm| {
+        name.to_string(ctx).map(|nm| {
             js_load_module_internal(
                 ctx,
                 &base.content().encode_utf8(false),
@@ -99,12 +104,12 @@ fn js_dynamic_import_job(
     if r.is_err() {
         // call reject func if has error
         let err = ctx.rt_mut().take_exception();
-        let _ = resolving_funcs[1].call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+        let _ = resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
     }
 }
 
 fn js_load_module_internal(
-    mut ctx: ContextPtr,
+    ctx: &mut ScopedContext,
     basename: &str,
     filename: &str,
     resolving_funcs: &[JSValue; 2],
@@ -112,21 +117,18 @@ fn js_load_module_internal(
     match js_host_resolve_imported_module(ctx, basename, filename) {
         Ok(mut md) => {
             if ctx.resolve_module(md).is_err() {
-                js_free_modules(&mut ctx, JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED);
+                js_free_modules(ctx, JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED);
                 let exc = ctx.rt_mut().take_exception();
-                let _ = resolving_funcs[1].call(
-                    &mut ctx,
-                    JSValue::UNDEFINED,
-                    std::slice::from_ref(&exc),
-                );
+                let _ =
+                    resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
                 return;
             }
 
-            match md.evaluate(&mut ctx) {
+            match md.evaluate(ctx) {
                 Ok(mut promise) => {
                     let evaluate_resolving_funcs = [
                         NativeFunction::create(
-                            &mut ctx,
+                            ctx,
                             Callback::Func(js_load_module_fulfilled),
                             "",
                             0,
@@ -136,7 +138,7 @@ fn js_load_module_internal(
                         )
                         .unwrap(),
                         NativeFunction::create(
-                            &mut ctx,
+                            ctx,
                             Callback::Func(js_load_module_rejected),
                             "",
                             0,
@@ -148,7 +150,7 @@ fn js_load_module_internal(
                     ];
 
                     let _ = promise.then(
-                        &mut ctx,
+                        ctx,
                         evaluate_resolving_funcs[0].into(),
                         evaluate_resolving_funcs[1].into(),
                     );
@@ -156,7 +158,7 @@ fn js_load_module_internal(
                 Err(_) => {
                     let exc = ctx.rt_mut().take_exception();
                     let _ = resolving_funcs[1].call(
-                        &mut ctx,
+                        ctx,
                         JSValue::UNDEFINED,
                         std::slice::from_ref(&exc),
                     );
@@ -165,14 +167,12 @@ fn js_load_module_internal(
         }
         Err(_) => {
             let exc = ctx.rt_mut().take_exception();
-            let _ =
-                resolving_funcs[1].call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
+            let _ = resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
         }
     }
 }
 
-fn js_load_module_rejected(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+fn js_load_module_rejected(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let error = if cc.length() >= 1 {
         cc.arg(0)
     } else {
@@ -180,25 +180,24 @@ fn js_load_module_rejected(cc: CallContext) -> JSResult {
     };
     let _ = cc
         .data(1)
-        .call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&error));
+        .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&error));
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_load_module_fulfilled(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+fn js_load_module_fulfilled(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Ok(ns) = if let JSValue::Module(mut m) = cc.data(2) {
-        m.ns(&mut ctx)
+        m.ns(ctx)
     } else {
         unreachable!()
     } {
         // resolve() with module namespace
-        let _ = cc.data(0).call(&mut ctx, JSValue::UNDEFINED, &[ns.into()]);
+        let _ = cc.data(0).call(ctx, JSValue::UNDEFINED, &[ns.into()]);
     } else {
         // reject() with error
         let err = ctx.rt_ptr().take_exception();
         let _ = cc
             .data(1)
-            .call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+            .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
     }
 
     Ok(JSValue::UNDEFINED)

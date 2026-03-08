@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::{ContextImpl, ContextPtr},
     module::add_module_variables,
@@ -18,7 +19,7 @@ impl FunctionDef {
     /// Compile FunctionDef to Bytecode.
     ///
     /// All children functions are also created. It must be done this way to resolve all the variables.
-    pub fn create_bytecode(mut self: Box<Self>, ctx: &mut ContextImpl) -> Result<Bytecode, i32> {
+    pub fn create_bytecode(mut self: Box<Self>, ctx: &mut ScopedContext) -> Result<Bytecode, i32> {
         //
         // recompute scope linkage
         //
@@ -314,7 +315,7 @@ impl FunctionDef {
         Ok(bc)
     }
 
-    fn add_eval_variables(&mut self, mut ctx: ContextPtr) {
+    fn add_eval_variables(&mut self, ctx: &mut ScopedContext) {
         // in non strict mode, variables are created in the caller's environment object
         if !self.is_eval && !self.attrs.exec_mode.contains(ExecMode::STRICT) {
             self.var_object_idx = Some(self.add_var(ctx, Atom::CONST__var_).unwrap());
@@ -418,7 +419,7 @@ impl FunctionDef {
                 let vd = fd.vars.get_mut(scope_idx as usize).unwrap();
                 vd.set_is_captured(true);
                 self.get_closure_var(
-                    &mut ctx,
+                    ctx,
                     fd_ptr,
                     true,
                     false,
@@ -440,7 +441,7 @@ impl FunctionDef {
                 for (i, vd) in fd.args.iter().enumerate() {
                     if !vd.var_name.is_null() {
                         self.get_closure_var(
-                            &mut ctx,
+                            ctx,
                             fd as *const FunctionDef,
                             true,
                             true,
@@ -460,7 +461,7 @@ impl FunctionDef {
                         && !(vd.var_name.is_null() || vd.var_name == Atom::CONST__ret_)
                     {
                         self.get_closure_var(
-                            &mut ctx,
+                            ctx,
                             fd as *const FunctionDef,
                             true,
                             false,
@@ -478,7 +479,7 @@ impl FunctionDef {
                     // do not close top level last result
                     if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
                         self.get_closure_var(
-                            &mut ctx,
+                            ctx,
                             fd as *const FunctionDef,
                             true,
                             false,
@@ -498,7 +499,7 @@ impl FunctionDef {
                 if let Some(cvars) = fd.closure_vars.as_ref() {
                     for (i, cv) in cvars.iter().enumerate() {
                         self.get_closure_var(
-                            &mut ctx,
+                            ctx,
                             fd as *const FunctionDef,
                             false,
                             cv.is_arg(),

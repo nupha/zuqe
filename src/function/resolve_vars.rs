@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     context::ContextImpl,
@@ -66,7 +67,7 @@ impl FunctionDef {
     /// Converts global variable accesses to local/closure variables when needed
     /// This is the second pass of bytecode generation
     /// Handles scope resolution and variable binding
-    pub fn resolve_variables(&mut self, ctx: &mut ContextImpl) -> Result<(), i32> {
+    pub fn resolve_variables(&mut self, ctx: &mut ScopedContext) -> Result<(), i32> {
         let bc_buf_ptr = self.byte_code.as_mut_ptr();
         let bc_buf_len = self.byte_code.len();
 

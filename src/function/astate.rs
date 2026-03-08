@@ -61,7 +61,9 @@ impl AsyncStateImpl {
         let mut local_buf = {
             let mut lst = Vec::<JSValue>::new();
             lst.try_reserve_exact(buf_len).map_err(|_| {
-                ctx.throw_out_of_memory();
+                ctx.with_current_scope(|mut scope| {
+                    scope.throw_out_of_memory();
+                });
                 -1
             })?;
 
@@ -140,7 +142,7 @@ impl AsyncStateImpl {
     }
 
     /// Resume execution of the async function.
-    pub(crate) fn resume(&mut self, mut ctx: ContextPtr) -> JSResult {
+    pub(crate) fn resume(&mut self, ctx: &mut ScopedContext) -> JSResult {
         debug_assert!(!self.is_completed);
 
         if js_check_stack_overflow(ctx.rt_ref(), 0) {
@@ -258,7 +260,10 @@ impl AsyncState {
     ) -> Result<Self, i32> {
         let inner = AsyncStateImpl::new(ctx, resolvings, bc_func, this_obj, args)?;
         let mut a_state = ctx.rt_mut().gc_alloc(inner).map_err(|_| {
-            ctx.throw_out_of_memory();
+            ctx.with_current_scope(|mut scope| {
+                scope.throw_out_of_memory();
+            })
+            .unwrap();
             -1
         })?;
 

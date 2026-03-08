@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     builtins::number::{js_parseFloat, js_parseInt},
     error::JSResult,
     eval::{EvalFlags, EvalType},
@@ -11,9 +12,7 @@ use crate::{
     value::JSValue,
 };
 
-pub(crate) fn js_global_eval(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+pub(crate) fn js_global_eval(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let global = ctx.global_obj();
     let val = cc.arg(0);
 
@@ -34,9 +33,8 @@ pub(crate) fn js_global_eval(cc: CallContext) -> JSResult {
 pub const MAGIC_NUM_IS_NAN: i32 = 1;
 pub const MAGIC_NUM_IS_FINITE: i32 = 2;
 
-pub(crate) fn js_global_isNaN_isFinite(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-    let d = cc.arg(0).to_f64(&mut ctx)?;
+pub(crate) fn js_global_isNaN_isFinite(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let d = cc.arg(0).to_f64(ctx)?;
     let b = match cc.magic() {
         MAGIC_NUM_IS_NAN => f64::is_nan(d),
         MAGIC_NUM_IS_FINITE => f64::is_finite(d),
@@ -53,11 +51,10 @@ const fn is_uri_reserved(c: u32) -> bool {
     )
 }
 
-fn js_global_decodeURI(cc: CallContext) -> JSResult {
+fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let is_component = cc.magic() == 1;
-    let mut ctx = cc.ctx_ptr();
 
-    let str = cc.arg(0).to_string(&mut ctx)?;
+    let str = cc.arg(0).to_string(ctx)?;
     let len = str.len();
 
     let mut buf = StringBuf::with_capacity(len, false).map_err(|_| {

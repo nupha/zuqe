@@ -36,6 +36,7 @@ pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2; // Statement has assignment operato
 /// including the current position, token, scope, and parsing context.
 pub struct JSParseState<'s> {
     /// JavaScript context pointer for runtime operations
+    /// FIXME: use &mut ScopedContext instead
     pub(super) ctx: ContextPtr,
 
     /// Source file name being parsed

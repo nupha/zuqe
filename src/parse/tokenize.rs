@@ -803,7 +803,7 @@ impl<'s> JSParseState<'s> {
 
         let ret = unsafe {
             js_atof(
-                &mut self.ctx,
+                &mut self.ctx.new_scope_legacy(),
                 ptr,
                 &mut p,
                 0,

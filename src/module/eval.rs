@@ -4,7 +4,7 @@
 use gc_lite::GcNode;
 
 use crate::{
-    Callback, JS_CLASS_BYTECODE_FUNCTION,
+    Callback, JS_CLASS_BYTECODE_FUNCTION, ScopedContext,
     builtins::promise::{Promise, PromiseState},
     context::{ContextImpl, ContextPtr},
     error::JSResult,
@@ -24,7 +24,7 @@ impl ModuleDefImpl {
     }
 
     /// set module status to `evaluated`
-    fn set_evaluated(&mut self, ctx: &mut ContextImpl) {
+    fn set_evaluated(&mut self, ctx: &mut ScopedContext) {
         debug_assert_ne!(
             self.status,
             JSModuleStatus::JS_MODULE_STATUS_EVALUATED,
@@ -62,7 +62,7 @@ impl ModuleDefImpl {
 impl ModuleDef {
     /// Compile `source` to module def. `filename` is used to identify the module.
     pub fn compile(
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         source: &[u8],
         filename: &str,
         strip: bool,
@@ -91,14 +91,14 @@ impl ModuleDef {
     /// * create module function,
     /// * link modules,
     /// * run module function, returns Promise of name space object.
-    pub fn evaluate(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
+    pub fn evaluate(&mut self, ctx: &mut ScopedContext) -> Result<Promise, i32> {
         self.create_module_function(ctx)?; // make module function
         self.link(ctx)?; // resolving imports, exports
         self.run_function(ctx) // run module function
     }
 
     /// Run the function of the module and of all its dependent modules.
-    pub(crate) fn run_function(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
+    pub(crate) fn run_function(&mut self, ctx: &mut ScopedContext) -> Result<Promise, i32> {
         debug_assert!(matches!(
             self.status(),
             JSModuleStatus::JS_MODULE_STATUS_UNLINKED
@@ -127,7 +127,7 @@ impl ModuleDef {
 
         let mut stack_top: Option<ModuleDef> = None;
 
-        match md.run_internal(ctx.into(), 0, &mut stack_top) {
+        match md.run_internal(ctx, 0, &mut stack_top) {
             Ok(_) => {
                 debug_assert!(matches!(
                     md.status(),
@@ -172,7 +172,7 @@ impl ModuleDef {
     /// `index`: depth index
     fn run_internal(
         &mut self,
-        mut ctx: ContextPtr,
+        ctx: &mut ScopedContext,
         index: i32,
         stack_top: &mut Option<ModuleDef>,
     ) -> Result<i32, JSValue> {
@@ -292,7 +292,7 @@ impl ModuleDef {
     }
 
     /// execute module function in async manner
-    fn execute_async_module(&self, mut ctx: ContextPtr) -> Result<(), i32> {
+    fn execute_async_module(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
         debug_assert_eq!(
             self.bytecode.as_object().unwrap().class_id(),
             JS_CLASS_BYTECODE_FUNCTION,
@@ -306,7 +306,7 @@ impl ModuleDef {
         // Hint: `promise.then()` don't call bytecode execution inside, won't trigger gc collection,
         // protect promise, success, fail nodes is not required.
         let success = NativeFunction::create(
-            &mut ctx,
+            ctx,
             Callback::Func(ModuleDef::execute_async_fulfilled),
             "",
             0,
@@ -315,7 +315,7 @@ impl ModuleDef {
             Some([JSValue::Module(*self)].into()),
         )?;
         let fail = NativeFunction::create(
-            &mut ctx,
+            ctx,
             Callback::Func(ModuleDef::execute_async_rejected),
             "",
             0,
@@ -323,15 +323,13 @@ impl ModuleDef {
             None,
             Some([JSValue::Module(*self)].into()),
         )?;
-        promise.then(&mut ctx, success.into(), fail.into())?;
+        promise.then(ctx, success.into(), fail.into())?;
 
         Ok(())
     }
 
     /// async module execution callback
-    fn execute_async_fulfilled(cc: CallContext) -> JSResult {
-        let mut ctx = cc.ctx_ptr();
-
+    fn execute_async_fulfilled(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let JSValue::Module(mut md) = cc.data(0) else {
             unreachable!()
         };
@@ -346,10 +344,10 @@ impl ModuleDef {
         debug_assert!(md.async_evaluation());
 
         md.set_async_evaluation(false);
-        md.set_evaluated(&mut ctx);
+        md.set_evaluated(ctx);
 
         let mut exec_list = Vec::<ModuleDef>::with_capacity(8);
-        gather_module_ancestors(&mut ctx, md, &mut exec_list)?;
+        gather_module_ancestors(ctx, md, &mut exec_list)?;
 
         // sort by async_evaluation timestamp
         exec_list.sort_by(|m1, m2| {
@@ -366,16 +364,18 @@ impl ModuleDef {
             } else {
                 match m.execute_sync_module(ctx) {
                     Ok(_) => {
-                        m.set_evaluated(&mut ctx);
+                        m.set_evaluated(ctx);
                     }
                     Err(e) => {
-                        Self::execute_async_rejected(CallContext::new(
-                            cc.ctx_ptr(),
+                        let mut data = [JSValue::Module(m)];
+                        let cc2 = CallContext::new(
+                            ctx.into(),
                             JSValue::UNDEFINED,
                             std::slice::from_ref(&e),
                             0,
-                            Some(&mut [JSValue::Module(m)]),
-                        ))?;
+                            Some(&mut data),
+                        );
+                        Self::execute_async_rejected(ctx, cc2)?;
                     }
                 }
             }
@@ -385,9 +385,7 @@ impl ModuleDef {
     }
 
     /// async module execution reject callback
-    fn execute_async_rejected(cc: CallContext) -> JSResult {
-        let mut ctx = cc.ctx_ptr();
-
+    fn execute_async_rejected(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         if js_check_stack_overflow(ctx.rt_ref(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
@@ -419,28 +417,28 @@ impl ModuleDef {
         for m in md.async_parent_modules.iter() {
             let mut data = [JSValue::Module(*m)];
             let cc = CallContext::new(
-                ctx,
+                ctx.into(),
                 JSValue::UNDEFINED,
                 std::slice::from_ref(&err_val),
                 0,
                 Some(&mut data),
             );
-            Self::execute_async_rejected(cc).unwrap();
+            Self::execute_async_rejected(ctx, cc).unwrap();
         }
 
         if md.promise.is_some() {
             debug_assert_eq!(md.cycle_root(), Some(md));
             let func = md.resolving_funcs[1];
-            let _ = func.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
+            let _ = func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
         }
 
         Ok(JSValue::UNDEFINED)
     }
 
-    fn execute_sync_module(&self, mut ctx: ContextPtr) -> Result<(), JSValue> {
+    fn execute_sync_module(&self, ctx: &mut ScopedContext) -> Result<(), JSValue> {
         if let Some(f) = self.init_func.as_ref() {
             // is native module: no asynchronous execution
-            if unlikely(f(&mut ctx, self).is_err()) {
+            if unlikely(f(ctx, self).is_err()) {
                 Err(ctx.rt_mut().take_exception())
             } else {
                 Ok(())
@@ -468,7 +466,7 @@ impl ModuleDef {
 }
 
 fn gather_module_ancestors(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     module: ModuleDef,
     exec_list: &mut Vec<ModuleDef>,
 ) -> Result<(), i32> {

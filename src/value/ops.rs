@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::ContextImpl,
     object::{Object, ObjectImpl, ObjectPayload},
@@ -13,7 +14,7 @@ impl ObjectImpl {
     /// Equivalent to: `self instanceof ctor`
     pub(crate) fn ordinary_instance_of(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         ctor: JSValue,
     ) -> Result<bool, i32> {
         if !ctor.is_function() {
@@ -76,7 +77,7 @@ impl ObjectImpl {
 
     /// Test if value `self` is instance of `ctor`.
     /// Equivalent to `self instanceof ctor`
-    pub fn instance_of(&self, ctx: &mut ContextImpl, ctor: JSValue) -> Result<bool, i32> {
+    pub fn instance_of(&self, ctx: &mut ScopedContext, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
             #[cfg(feature = "builtin_symbol")]
             if let Some(r) = o.invoke_defined(
@@ -129,7 +130,7 @@ impl JSValue {
 
     /// Test if value `self` is instance of `ctor`.
     /// Equivalent to `self instanceof ctor`
-    pub fn instance_of(&self, ctx: &mut ContextImpl, ctor: JSValue) -> Result<bool, i32> {
+    pub fn instance_of(&self, ctx: &mut ScopedContext, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
             #[cfg(feature = "builtin_symbol")]
             if let Some(r) = o.invoke_defined(

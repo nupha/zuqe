@@ -209,7 +209,7 @@ impl BCWrapper {
 impl ObjectImpl {
     /// check if `self` is a function or a callable object.
     /// raise exception if not.
-    pub fn ensure_function(&self, ctx: &mut ContextImpl) -> Result<&Self, i32> {
+    pub fn ensure_function(&self, ctx: &mut ScopedContext) -> Result<&Self, i32> {
         if self.is_function() {
             Ok(self)
         } else {
@@ -241,7 +241,11 @@ impl ObjectImpl {
             #[cfg(feature = "builtin_proxy")]
             ObjectPayload::PROXY(px) => {
                 if px.is_revoked() {
-                    default.throw_type_error_revoked_proxy();
+                    default
+                        .with_current_scope(|mut scope| {
+                            scope.throw_type_error_revoked_proxy();
+                        })
+                        .unwrap();
                     Err(-1)
                 } else {
                     px.target().realm(default)
@@ -256,7 +260,7 @@ impl ObjectImpl {
 impl JSValue {
     /// check if value `self` is a function or a callable object.
     /// raise exception if not.
-    pub fn ensure_function(self, ctx: &mut ContextImpl) -> Result<Self, i32> {
+    pub fn ensure_function(self, ctx: &mut ScopedContext) -> Result<Self, i32> {
         if self.is_function() {
             Ok(self)
         } else {
@@ -289,7 +293,7 @@ pub(crate) fn get_func_name(func_obj: Object) -> Option<String> {
 
 /// define `length` and `name` properties on function object `func_obj`
 pub(crate) fn js_function_set_properties(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     mut func_obj: Object,
     name: Atom,
     len: i32,
@@ -308,7 +312,7 @@ pub(crate) fn js_function_set_properties(
     let _ = func_obj.define_property_value(ctx, Atom::CONST_name, name_val, JS_PROP_CONFIGURABLE);
 }
 
-pub(crate) const fn js_function_proto(_: CallContext) -> JSResult {
+pub(crate) const fn js_function_proto(_: &mut ScopedContext, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
@@ -325,9 +329,8 @@ impl BytecodeFunction {
     /// ```js
     /// const f = new Function("a", "b", "return a+b")
     /// ```
-    pub fn class_constructor(cc: CallContext) -> JSResult {
+    pub fn class_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         debug_assert!((0..4).contains(&cc.magic()));
-        let mut ctx = cc.ctx_ptr();
 
         // XXX: add a specific eval mode so that Function("}), ({") is rejected
 
@@ -365,22 +368,12 @@ impl BytecodeFunction {
                 if i != 0 {
                     buf.push(b',');
                 }
-                buf.extend_from_slice(
-                    a.to_string(&mut ctx)?
-                        .content()
-                        .encode_utf8(false)
-                        .as_bytes(),
-                );
+                buf.extend_from_slice(a.to_string(ctx)?.content().encode_utf8(false).as_bytes());
             }
             buf.extend_from_slice(b"\n) {\n");
 
             // function body
-            buf.extend_from_slice(
-                body.to_string(&mut ctx)?
-                    .content()
-                    .encode_utf8(false)
-                    .as_bytes(),
-            );
+            buf.extend_from_slice(body.to_string(ctx)?.content().encode_utf8(false).as_bytes());
         } else {
             // no arguments
             buf.extend_from_slice(b") {\n");
@@ -398,16 +391,16 @@ impl BytecodeFunction {
 
         if !new_target.is_undefined() {
             // set the prototype
-            let mut proto = new_target.get_property(&mut ctx, Atom::CONST_prototype)?;
+            let mut proto = new_target.get_property(ctx, Atom::CONST_prototype)?;
             if !proto.is_object() {
                 proto = new_target
                     .as_object()
-                    .map_or(Ok(ctx), |o| o.realm(ctx))?
+                    .map_or(Ok(ctx.into()), |o| o.realm(ctx.into()))?
                     .class_proto(func_kind.class_id())
                     .map_or(JSValue::NULL, JSValue::Object);
             }
 
-            ret_val.set_prototype_internal(&mut ctx, proto, true)?;
+            ret_val.set_prototype_internal(ctx, proto, true)?;
         }
 
         Ok(ret_val)

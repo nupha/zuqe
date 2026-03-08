@@ -302,7 +302,7 @@ impl FunctionDef {
 
             if parent.children.len() == parent.children.capacity() {
                 parent.children.try_reserve(8).map_err(|_| {
-                    ctx.throw_out_of_memory();
+                    ctx.new_scope_legacy().throw_out_of_memory();
                     -1
                 })?;
             }

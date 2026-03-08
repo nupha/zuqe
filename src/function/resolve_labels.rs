@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     bytecode::{OpCode, SpecialObject, opcode_info_intermediate, opcodes},
     context::ContextImpl,
     function::{
@@ -34,7 +35,7 @@ enum ResolveLabelsState {
 
 impl FunctionDef {
     /// pass 3: peephole optimizations and resolve goto/labels.
-    pub fn resolve_labels(&mut self, ctx: &mut ContextImpl) -> Result<(), i32> {
+    pub fn resolve_labels(&mut self, ctx: &mut ScopedContext) -> Result<(), i32> {
         let bc_ptr = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();
 

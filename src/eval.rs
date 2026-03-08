@@ -53,7 +53,7 @@ pub(crate) enum Compiled {
     Module(ModuleDef),
 }
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     /// Compile `source` to bytecode or module def, don't run.
     ///
     /// In module type, `filename` is used to identify the module.
@@ -269,10 +269,8 @@ impl ContextImpl {
             self.compile_then_run(global.into(), source, filename, EvalType::Global, flags, -1)
         }
     }
-}
 
-impl<'a> ScopedContext<'a> {
-    /// Eval source in `self` scope.
+    /// Eval source in dedicated scope.
     ///
     /// Compile source then run. Return value will be promoted to upper scope.
     pub fn eval(
@@ -282,7 +280,7 @@ impl<'a> ScopedContext<'a> {
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> JSResult {
-        let ret = ContextImpl::eval_internal(&mut self, source, filename, eval_type, flags);
+        let ret = self.eval_internal(source, filename, eval_type, flags);
         if let Ok(r) = ret {
             self.set_return_value(r);
         }
@@ -300,7 +298,8 @@ impl<'a> ScopedContext<'a> {
     ) -> Result<JSValue, ErrorText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
-        let ret_val = ContextImpl::eval_internal(&mut self, source, filename, eval_type, flags)
+        let ret_val = self
+            .eval_internal(source, filename, eval_type, flags)
             .map_err(|_| {
                 let exc = self.rt_mut().take_exception();
                 ErrorText::from(&mut self, exc)
@@ -378,7 +377,7 @@ impl JSValue {
     /// - otherwise returns as-is.
     pub(crate) fn eval_object(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         this_obj: JSValue,
         eval_type: EvalType,
         eval_flags: EvalFlags,

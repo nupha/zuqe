@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
-    JS_CLASS_UINT32_ARRAY,
+    JS_CLASS_UINT32_ARRAY, ScopedContext,
     atom::{Atom, JS_ATOM_MAX_INT},
     context::ContextImpl,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
@@ -24,7 +24,7 @@ impl ObjectImpl {
     /// walk up proto chain and get property in shape or by exotic handler.
     pub(crate) fn get_property_internal(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         this_obj: JSValue,
         throw_ref_error: bool,
@@ -76,7 +76,7 @@ impl ObjectImpl {
                             // instantiate lazy object
                             let val = cur_obj
                                 .prop_slot_mut(idx)
-                                .instantiate(ctx, Object::from_ref(self));
+                                .instantiate(Object::from_ref(self));
 
                             // modify shape property kind to NORMAL
                             cur_obj.modify_shape_property_index_flags(ctx, idx, |f| {
@@ -139,11 +139,11 @@ impl ObjectImpl {
                         // }
 
                         // XXX: should pass throw_ref_error
-                        return cb(ctx.gc_ref().into(), cur_obj.into(), prop, this_obj);
+                        return cb(ctx, cur_obj.into(), prop, this_obj);
                     }
 
                     if let Some(cb) = pm.get_own_property
-                        && let Some(desc) = cb(ctx.into(), JSValue::Object(cur_obj), prop)?
+                        && let Some(desc) = cb(ctx, JSValue::Object(cur_obj), prop)?
                     {
                         return if unlikely(desc.flags & JS_PROP_GETSET != 0) {
                             // protect self, cur_obj, this_obj before calling getter
@@ -175,7 +175,7 @@ impl ObjectImpl {
 
     /// get property by prop atom.
     #[inline(always)]
-    pub fn get_property(&self, ctx: &mut ContextImpl, prop: Atom) -> JSResult {
+    pub fn get_property(&self, ctx: &mut ScopedContext, prop: Atom) -> JSResult {
         self.get_property_internal(ctx, prop, Object::from_ref(self).into(), false)
     }
 
@@ -247,13 +247,13 @@ impl ObjectImpl {
     }
 
     #[inline]
-    fn get_property_value_slow(&self, ctx: &mut ContextImpl, prop: JSValue) -> JSResult {
+    fn get_property_value_slow(&self, ctx: &mut ScopedContext, prop: JSValue) -> JSResult {
         let atom = prop.to_atom(ctx)?;
         self.get_property_internal(ctx, atom, Object::from_ref(self).into(), false)
     }
 
     /// get property by prop value
-    pub fn get_property_value(&self, ctx: &mut ContextImpl, prop: JSValue) -> JSResult {
+    pub fn get_property_value(&self, ctx: &mut ScopedContext, prop: JSValue) -> JSResult {
         // fast path: check if prop is an index
         match prop {
             JSValue::Int(i) if i >= 0 => {
@@ -279,13 +279,13 @@ impl ObjectImpl {
     }
 
     #[inline]
-    pub fn get_property_u32(&self, ctx: &mut ContextImpl, idx: u32) -> JSResult {
+    pub fn get_property_u32(&self, ctx: &mut ScopedContext, idx: u32) -> JSResult {
         self.get_property_index(idx as usize)
             .unwrap_or_else(|| self.get_property_value_slow(ctx, JSValue::from(idx)))
     }
 
     #[inline]
-    pub fn get_property_i64(&self, ctx: &mut ContextImpl, idx: i64) -> JSResult {
+    pub fn get_property_i64(&self, ctx: &mut ScopedContext, idx: i64) -> JSResult {
         if (0..u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
@@ -295,7 +295,7 @@ impl ObjectImpl {
     }
 
     #[inline(always)]
-    pub fn get_property_str(&self, ctx: &mut ContextImpl, prop: &str) -> JSResult {
+    pub fn get_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> JSResult {
         let atom = Atom::new(ctx.rt_ptr(), prop)?;
         self.get_property(ctx, atom)
     }
@@ -305,7 +305,7 @@ impl ObjectImpl {
     /// Returns Err for exception, Ok(Some(_)) if property exists, Ok(None) if proprty does not exist.
     pub fn try_get_property_i64(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         idx: i64,
     ) -> Result<Option<JSValue>, i32> {
         if (0..=JS_ATOM_MAX_INT as i64).contains(&idx) {
@@ -333,7 +333,7 @@ impl ObjectImpl {
 impl JSValue {
     pub(crate) fn get_property_internal(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         this_obj: JSValue,
         throw_ref_error: bool,
@@ -359,9 +359,9 @@ impl JSValue {
                 }
             }
             v @ (Self::NULL | Self::UNDEFINED) => {
+                let prop_str = prop.to_utf8(ctx.rt_ref());
                 ctx.throw_type_error(&format!(
-                    "cannot read property '{}' of {}",
-                    prop.to_utf8(ctx.rt_ref()),
+                    "cannot read property '{prop_str}' of {}",
                     if v.is_undefined() {
                         "undefined"
                     } else {
@@ -385,13 +385,13 @@ impl JSValue {
 
     /// get property by prop atom
     #[inline(always)]
-    pub fn get_property(&self, ctx: &mut ContextImpl, prop: Atom) -> JSResult {
+    pub fn get_property(&self, ctx: &mut ScopedContext, prop: Atom) -> JSResult {
         self.get_property_internal(ctx, prop, *self, false)
     }
 
     /// get property by prop value
     #[inline]
-    pub fn get_property_value(&self, ctx: &mut ContextImpl, prop: JSValue) -> JSResult {
+    pub fn get_property_value(&self, ctx: &mut ScopedContext, prop: JSValue) -> JSResult {
         if let JSValue::Object(o) = self {
             o.get_property_value(ctx, prop)
         } else {
@@ -402,18 +402,18 @@ impl JSValue {
 
     /// get property by str prop
     #[inline(always)]
-    pub fn get_property_str(&self, ctx: &mut ContextImpl, prop: &str) -> JSResult {
+    pub fn get_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> JSResult {
         let atom = Atom::new(ctx.rt_ptr(), prop)?;
         self.get_property(ctx, atom)
     }
 
     /// get property by u32 prop
     #[inline(always)]
-    pub fn get_property_u32(&self, ctx: &mut ContextImpl, idx: u32) -> JSResult {
+    pub fn get_property_u32(&self, ctx: &mut ScopedContext, idx: u32) -> JSResult {
         self.get_property_value(ctx, JSValue::from(idx))
     }
 
-    pub fn get_property_i64(&self, ctx: &mut ContextImpl, idx: i64) -> JSResult {
+    pub fn get_property_i64(&self, ctx: &mut ScopedContext, idx: i64) -> JSResult {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
@@ -427,7 +427,7 @@ impl JSValue {
     /// Returns Err for exception, Ok(Some(_)) if property exists, Ok(None) if proprty does not exist.
     pub fn try_get_property_i64(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         idx: i64,
     ) -> Result<Option<JSValue>, i32> {
         if (0..=JS_ATOM_MAX_INT as i64).contains(&idx) {

@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
-    JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, ScopedContext,
     atom::Atom,
     context::ContextImpl,
     error::JS_ThrowReferenceErrorNotDefined,
@@ -36,7 +36,7 @@ impl ObjectImpl {
     /// - None: add new property is not allowed.
     pub(crate) fn set_property_internal(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         val: JSValue,
         target: Option<Object>,
@@ -125,7 +125,7 @@ impl ObjectImpl {
                     JS_PROP_LAZYINIT => {
                         let val = {
                             let this = cur_obj;
-                            cur_obj.prop_slot_mut(idx).instantiate(ctx, this)
+                            cur_obj.prop_slot_mut(idx).instantiate(this)
                         };
 
                         // modify shape property kind to NORMAL
@@ -315,7 +315,7 @@ impl ObjectImpl {
     #[inline(always)]
     pub fn set_property(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         val: JSValue,
     ) -> Result<bool, i32> {
@@ -329,7 +329,7 @@ impl ObjectImpl {
     /// - None: when the property was not set, perform slow path is needed.
     fn set_property_index(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         index: usize,
         val: JSValue,
         flags: u32,
@@ -346,7 +346,7 @@ impl ObjectImpl {
                         match index.cmp(&arr_data.len()) {
                             std::cmp::Ordering::Less => {
                                 // update existing
-                                arr_data.set_nth(&mut ctx.rt_ptr(), index, val, self_xref);
+                                arr_data.set_nth(ctx.rt_mut(), index, val, self_xref);
                                 Some(Ok(true)) // fast array exit
                             }
                             std::cmp::Ordering::Equal => {
@@ -401,7 +401,7 @@ impl ObjectImpl {
                     && let Some(arr_data) = self.payload_mut().array_mut()
                 {
                     if index < arr_data.len() {
-                        arr_data.set_nth(&mut ctx.rt_ptr(), index, val, self_xref);
+                        arr_data.set_nth(ctx.rt_mut(), index, val, self_xref);
                         Some(Ok(true))
                     } else {
                         None
@@ -460,7 +460,7 @@ impl ObjectImpl {
     /// flags can be JS_PROP_THROW or JS_PROP_THROW_STRICT
     pub fn set_property_value(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: JSValue,
         val: JSValue,
         flags: u32,
@@ -497,7 +497,7 @@ impl ObjectImpl {
 
     pub fn set_property_u32(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         idx: u32,
         val: JSValue,
     ) -> Result<bool, i32> {
@@ -518,7 +518,7 @@ impl ObjectImpl {
     #[inline]
     pub fn set_property_i64(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         idx: i64,
         val: JSValue,
     ) -> Result<bool, i32> {
@@ -533,7 +533,7 @@ impl ObjectImpl {
     #[inline]
     pub fn set_property_str(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: &str,
         val: JSValue,
     ) -> Result<bool, i32> {
@@ -550,7 +550,7 @@ impl JSValue {
     /// For other cases,  `receiver` should be None, suggesting it's same to `self`.
     pub(crate) fn set_property_internal(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         val: Self,
         receiver: Option<Object>,
@@ -569,14 +569,19 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn set_property(&self, ctx: &mut ContextImpl, prop: Atom, val: Self) -> Result<bool, i32> {
+    pub fn set_property(
+        &self,
+        ctx: &mut ScopedContext,
+        prop: Atom,
+        val: Self,
+    ) -> Result<bool, i32> {
         self.set_property_internal(ctx, prop, val, None, JS_PROP_THROW)
     }
 
     #[inline]
     pub fn set_property_value(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Self,
         val: Self,
         flags: u32,
@@ -592,7 +597,7 @@ impl JSValue {
     #[inline]
     pub fn set_property_u32(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         idx: u32,
         val: Self,
     ) -> Result<bool, i32> {
@@ -606,7 +611,7 @@ impl JSValue {
     #[inline]
     pub fn set_property_i64(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         idx: i64,
         val: Self,
     ) -> Result<bool, i32> {
@@ -620,7 +625,7 @@ impl JSValue {
     #[inline]
     pub fn set_property_str(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: &str,
         val: Self,
     ) -> Result<bool, i32> {
@@ -631,7 +636,7 @@ impl JSValue {
 
 #[inline(always)]
 fn call_setter(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     setter: Option<Object>,
     this_obj: JSValue,
     value: JSValue,

@@ -6,7 +6,7 @@ use std::{cell::Cell, rc::Rc};
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
+    JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION, ScopedContext,
     atom::Atom,
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
@@ -48,7 +48,7 @@ object_cast!(
 
 impl PromiseResolveFunc {
     pub fn class_call(
-        mut ctx: Context,
+        ctx: &mut ScopedContext,
         func_obj: JSValue,
         _this_val: JSValue,
         args: &[JSValue],
@@ -72,23 +72,32 @@ impl PromiseResolveFunc {
         };
 
         let mut promise = s.promise;
-        let mut cx: ContextPtr = ctx.into();
 
         if is_reject || !arg0.is_object() {
-            promise.fulfill_or_reject(cx, arg0, is_reject);
+            promise.fulfill_or_reject(ctx, arg0, is_reject);
             return Ok(JSValue::UNDEFINED);
         } else if unlikely(arg0.is_same(promise.into())) {
-            promise.reject(cx, {
+            let exc = {
                 ctx.throw_type_error("promise self resolution");
                 ctx.rt_mut().take_exception()
-            });
+            };
+            promise.reject(ctx, exc);
             return Ok(JSValue::UNDEFINED);
-        } else if let Ok(then) = arg0.get_property(&mut ctx, Atom::CONST_then) {
+        } else if let Ok(then) = arg0.get_property(ctx, Atom::CONST_then) {
             if !then.is_function() {
-                promise.fulfill_or_reject(cx, arg0, is_reject);
+                promise.fulfill_or_reject(ctx, arg0, is_reject);
             } else {
+                let mut cx: ContextPtr = ctx.into();
+
                 ctx.queue_job_with_trace(
-                    move || js_promise_resolve_thenable_job(&mut cx, promise, arg0, then),
+                    move || {
+                        js_promise_resolve_thenable_job(
+                            &mut cx.new_scope_legacy(),
+                            promise,
+                            arg0,
+                            then,
+                        )
+                    },
                     {
                         // Note: tick is performed in top-level scope, promote related gc nodes to top-level scope.
                         let pid = cx.rt_ref().gc_part_hot;
@@ -113,7 +122,8 @@ impl PromiseResolveFunc {
                 );
             }
         } else {
-            promise.reject(cx, cx.rt_mut().take_exception());
+            let exc = ctx.rt_mut().take_exception();
+            promise.reject(ctx, exc);
         }
 
         Ok(JSValue::UNDEFINED)
@@ -235,7 +245,7 @@ impl Promise {
                 ctx.queue_job_with_trace(
                     move || {
                         promise_reaction_job(
-                            &mut cx,
+                            &mut cx.new_scope_legacy(),
                             act.resolving_funcs,
                             act.handler,
                             is_reject,
@@ -271,11 +281,11 @@ impl Promise {
     /// `resolve` and `reject` are callback functions.
     pub fn then(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         success: JSValue,
         fail: JSValue,
     ) -> Result<Object, i32> {
-        let ctor = JS_SpeciesConstructor(ctx.into(), (*self).into(), JSValue::UNDEFINED)?;
+        let ctor = JS_SpeciesConstructor(ctx, (*self).into(), JSValue::UNDEFINED)?;
         let (wrap_promise, rr) = Self::create_from_ctor(ctx, ctor)?;
 
         // Hint: self.reaction() don't call bytecode execution inside
@@ -288,7 +298,7 @@ impl Promise {
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     pub(super) fn fulfill_or_reject(
         &mut self,
-        mut ctx: ContextPtr,
+        ctx: &mut ScopedContext,
         value: JSValue,
         is_reject: bool,
     ) {
@@ -318,19 +328,19 @@ impl Promise {
             && let Some(f) = ctx.rt_ref().host_promise_rejection_tracker
         {
             let opaque = ctx.rt_ref().host_promise_rejection_tracker_opaque;
-            f(&mut ctx, *self, value, 0, opaque);
+            f(ctx, *self, value, 0, opaque);
         }
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
         let mut reactions = self.payload_mut().take_reactions();
-        let mut cx = ctx;
+        let mut cx = ContextPtr::from(ctx.gc_ref());
 
         for act in reactions[is_reject as usize].drain(..) {
             // queue reaction in job list to resolve in next tick
             ctx.queue_job_with_trace(
                 move || {
                     promise_reaction_job(
-                        &mut cx,
+                        &mut cx.new_scope_legacy(),
                         act.resolving_funcs,
                         act.handler,
                         is_reject,
@@ -363,7 +373,7 @@ impl Promise {
     /// Reject promise with `value`.
     /// A shortcut to `fulfill_or_reject()` with is_reject=true.
     #[inline(always)]
-    pub(super) fn reject(&mut self, ctx: ContextPtr, value: JSValue) {
+    pub(super) fn reject(&mut self, ctx: &mut ScopedContext, value: JSValue) {
         self.fulfill_or_reject(ctx, value, true);
     }
 }

@@ -4,6 +4,7 @@
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
+    ScopedContext,
     atom::{Atom, is_const_atom, is_small_int_atom},
     bytecode::{OpcodeFormat, opcode_info_final},
     context::{ContextImpl, ContextPtr},
@@ -478,7 +479,7 @@ impl Bytecode {
     /// Create Function from `self` Bytecode with captured variables, then calls the function.
     pub(crate) fn run_as_function(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         this_obj: JSValue,
         captured_vars: &[VarRef],
         parent_stack_frame: Option<&mut StackFrame>,

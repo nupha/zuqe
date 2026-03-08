@@ -19,12 +19,16 @@ impl<'s> JSParseState<'s> {
         name: Atom,
         var_def_type: JSVarDefEnum,
     ) -> Result<u32, i32> {
-        let fd = self.cur_func_mut();
+        let fd = unsafe { &mut *self.cur_func_def }; // self.cur_func_mut();
         let mut var_id: u32;
 
         match var_def_type {
             JSVarDefEnum::JS_VAR_DEF_WITH => {
-                var_id = fd.add_scope_var(self.ctx, name, JSVarKindEnum::JS_VAR_NORMAL)? as u32;
+                var_id = fd.add_scope_var(
+                    &mut self.ctx.new_scope_legacy(),
+                    name,
+                    JSVarKindEnum::JS_VAR_NORMAL,
+                )? as u32;
             }
             JSVarDefEnum::JS_VAR_DEF_LET
             | JSVarDefEnum::JS_VAR_DEF_CONST
@@ -85,7 +89,7 @@ impl<'s> JSParseState<'s> {
                     && matches!(fd.eval_type, EvalType::Global | EvalType::Module)
                     && fd.scope_level == fd.body_scope
                 {
-                    let hf = fd.add_global_var(self.ctx, name)?;
+                    let hf = fd.add_global_var(&mut self.ctx.new_scope_legacy(), name)?;
                     hf.set_is_lexical(true);
                     hf.set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
                     var_id = GLOBAL_VAR_OFFSET as u32;
@@ -97,14 +101,16 @@ impl<'s> JSParseState<'s> {
                     } else {
                         JSVarKindEnum::JS_VAR_NORMAL
                     };
-                    var_id = fd.add_scope_var(self.ctx, name, var_kind)? as u32;
+                    var_id = fd.add_scope_var(&mut self.ctx.new_scope_legacy(), name, var_kind)? as u32;
                     let vd = fd.vars.get_mut(var_id as usize).unwrap();
                     vd.set_is_lexical(true);
                     vd.set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
                 }
             }
             JSVarDefEnum::JS_VAR_DEF_CATCH => {
-                var_id = fd.add_scope_var(self.ctx, name, JSVarKindEnum::JS_VAR_CATCH)? as u32;
+                var_id =
+                    fd.add_scope_var(&mut self.ctx.new_scope_legacy(), name, JSVarKindEnum::JS_VAR_CATCH)?
+                        as u32;
             }
             JSVarDefEnum::JS_VAR_DEF_VAR => {
                 if fd.find_lexical_decl(name, fd.scope_first, false).is_some() {
@@ -122,14 +128,14 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
 
-                    fd.add_global_var(self.ctx, name)?;
+                    fd.add_global_var(&mut self.ctx.new_scope_legacy(), name)?;
                     var_id = GLOBAL_VAR_OFFSET as u32;
                 } else {
                     var_id = if let Some(id) = fd.find_var(name) {
                         // the variable already exists, don't add it again
                         id
                     } else {
-                        let id = fd.add_var(self.ctx, name)?;
+                        let id = fd.add_var(&mut self.ctx.new_scope_legacy(), name)?;
                         if name == Atom::CONST_arguments && fd.has_arguments_binding {
                             fd.arguments_var_idx.replace(id);
                         }

@@ -229,7 +229,7 @@ impl<'s> JSParseState<'s> {
             }
             TokenKind::STRING => {
                 let sbuf = self.token.data.take_string().unwrap();
-                let str = self.ctx.create_string_with_buf(sbuf)?;
+                let str = self.ctx.new_scope_legacy().create_string_with_buf(sbuf)?;
                 self.emit_push_const(str.into(), true)?;
                 self.next_token()?;
             }
@@ -252,7 +252,7 @@ impl<'s> JSParseState<'s> {
                     // emit RegExp opcode
                     let re_id = self.token.data.regexp().unwrap();
                     let empty_str = Atom::CONST_empty_string
-                        .force_string(&mut self.ctx)
+                        .force_string(&mut self.ctx.new_scope_legacy())
                         .unwrap();
                     self.emit_push_const(empty_str.into(), false)?;
                     self.emit_push_const(JSValue::Int(re_id as i32), false)?;

@@ -4,7 +4,7 @@
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_DATAVIEW,
+    JS_CLASS_DATAVIEW, ScopedContext,
     builtins::array_buffer::ArrayBuffer,
     class::ClassID,
     context::{Context, ContextImpl},
@@ -95,11 +95,11 @@ pub struct DataView(GcRef<ObjectImpl>);
 object_cast!(DataView, JS_CLASS_DATAVIEW);
 
 impl DataView {
-    pub fn class_init(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
         debug_assert_eq!(class_id, JS_CLASS_DATAVIEW);
 
         let mut dv_obj = ctx.create_base_object()?;
-        dv_obj.install_fields(&mut ctx, js_dataview_proto_funcs)?;
+        dv_obj.install_fields(ctx, js_dataview_proto_funcs)?;
 
         let dv_ctor: JSValue = ctx
             .create_native_function(
@@ -118,7 +118,7 @@ impl DataView {
 
     /// create a DataView with AarrayBuffer, offset and length.
     pub(crate) fn create(
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         ctor: JSValue,
         array_buffer: ArrayBuffer,
         offset: usize,
@@ -184,7 +184,7 @@ impl DataView {
 
     /// Get underlying array buffer byte offset.
     /// When underlaying array buffer is detached, returns Err.
-    pub(super) fn array_buffer_byte_offset(&self, ctx: &mut ContextImpl) -> Result<usize, i32> {
+    pub(super) fn array_buffer_byte_offset(&self, ctx: &mut ScopedContext) -> Result<usize, i32> {
         if self.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             Err(-1)

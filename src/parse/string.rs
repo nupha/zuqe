@@ -187,7 +187,7 @@ impl<'s> JSParseState<'s> {
                 // add char_code to string buf
                 if sbuf.capacity() == sbuf.len() {
                     sbuf.try_reserve_exact(32).map_err(|_| {
-                        self.ctx.throw_out_of_memory();
+                        self.ctx.new_scope_legacy().throw_out_of_memory();
                         -1
                     })?;
                 }

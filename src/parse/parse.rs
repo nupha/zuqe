@@ -41,8 +41,8 @@ impl<'s> JSParseState<'s> {
 
         if !self.is_module {
             // hidden variable <ret> for the return value
-            let fd = self.cur_func_mut();
-            let idx = fd.add_var(self.ctx, Atom::CONST__ret_)?;
+            let fd = unsafe { &mut *self.cur_func_def }; //self.cur_func_mut();
+            let idx = fd.add_var(&mut self.ctx.new_scope_legacy(), Atom::CONST__ret_)?;
             fd.eval_ret_idx.replace(idx);
         }
 
@@ -157,7 +157,7 @@ impl<'s> JSParseState<'s> {
 
             if buf.capacity() - buf.len() <= 6 {
                 buf.try_reserve(6).map_err(|_| {
-                    self.ctx.throw_out_of_memory();
+                    self.ctx.new_scope_legacy().throw_out_of_memory();
                     -1
                 })?;
             }

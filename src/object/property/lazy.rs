@@ -6,6 +6,7 @@ use std::ptr::NonNull;
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
@@ -40,7 +41,7 @@ impl GcTrace for LazyInit {
 
 impl LazyInit {
     /// apply init. returns instantiated value.
-    pub fn instantiate(&mut self, ctx: &mut ContextImpl, this_obj: Object) -> JSResult {
+    pub fn instantiate(&mut self, ctx: &mut ScopedContext, this_obj: Object) -> JSResult {
         match self {
             Self::Prototype => {
                 let mut obj = ctx.create_base_object()?;
@@ -83,9 +84,15 @@ impl JSProperty {
     /// `this_obj` is the `this` bind used to call instantiate function.
     ///
     /// Note: will panic if property is not lazy type.
-    pub(super) fn instantiate(&mut self, _ctx: &ContextImpl, this_obj: Object) -> JSResult {
+    pub(super) fn instantiate(&mut self, this_obj: Object) -> JSResult {
         if let JSProperty::LazyInit { realm, init_type } = self {
-            init_type.instantiate(realm, this_obj)
+            realm
+                .with_current_scope(|mut scope| {
+                    let ret_val = init_type.instantiate(&mut scope, this_obj)?;
+                    scope.set_return_value(ret_val);
+                    Ok(ret_val)
+                })
+                .unwrap()
         } else {
             unreachable!("expect lazy property, but got {:?}", self);
         }
@@ -96,7 +103,7 @@ impl ObjectImpl {
     /// define an AutoInit property on object
     pub fn define_lazy_property(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         lazy_init: LazyInit,
         flags: u32,
@@ -108,12 +115,14 @@ impl ObjectImpl {
             prop.to_utf8(ctx.rt_ref())
         );
 
+        let realm = ContextPtr::from(ctx.gc_ref());
+
         self.add_own_property(
             ctx,
             prop,
             (flags & JS_PROP_C_W_E) | JS_PROP_LAZYINIT,
             JSProperty::LazyInit {
-                realm: ContextPtr::from(ctx.gc_ref()),
+                realm,
                 init_type: lazy_init,
             },
         )

@@ -3,6 +3,7 @@
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    ScopedContext,
     atom::{Atom, JS_ATOM_MAX_INT},
     context::ContextImpl,
     object::{JSProperty, Object, ObjectImpl},
@@ -23,7 +24,7 @@ impl ObjectImpl {
     /// - Err() on failure. e.g. fail to prepare shape update, fail to convert fast array to sparse array etc.
     pub(crate) fn delete_property_internal(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
     ) -> Result<bool, i32> {
         let obj_flags = self.flags();
@@ -98,7 +99,7 @@ impl ObjectImpl {
                         .as_ref()
                         .and_then(|m| m.delete_property)
                     {
-                        return cb(ctx.into(), Object::from_ref(self).into(), prop);
+                        return cb(ctx, Object::from_ref(self).into(), prop);
                     }
                 }
             }
@@ -113,7 +114,7 @@ impl ObjectImpl {
     #[inline(always)]
     pub fn delete_property(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -132,7 +133,7 @@ impl ObjectImpl {
 
     pub fn delete_property_i64(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         idx: i64,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -152,7 +153,7 @@ impl JSValue {
     #[inline(always)]
     pub fn delete_property(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -163,7 +164,7 @@ impl JSValue {
     #[inline]
     pub fn delete_property_i64(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         idx: i64,
         flags: u32,
     ) -> Result<bool, i32> {

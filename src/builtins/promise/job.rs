@@ -3,7 +3,9 @@
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
-use crate::{context::ContextImpl, error::JSResult, runtime::RuntimeImpl, value::JSValue};
+use crate::{
+    ScopedContext, context::ContextImpl, error::JSResult, runtime::RuntimeImpl, value::JSValue,
+};
 
 use super::Promise;
 
@@ -42,7 +44,7 @@ impl ContextImpl {
 }
 
 pub(super) fn promise_reaction_job(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     resolving: [JSValue; 2],
     handler: JSValue,
     is_reject: bool,
@@ -80,7 +82,7 @@ pub(super) fn promise_reaction_job(
 }
 
 pub(super) fn js_promise_resolve_thenable_job(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     promise: Promise,
     thenable: JSValue,
     then: JSValue,
@@ -100,9 +102,10 @@ impl RuntimeImpl {
     /// Returns Err when has fail in executing job,
     /// remainder jobs are still in queue in this case.
     pub(crate) fn execute_all_jobs(&mut self) -> Result<(), i32> {
-        for ctx in self.context_list.iter() {
-            let mut cx = *ctx;
-            while let Some(mut job) = cx.job_list.pop_front() {
+        for &ctx in self.context_list.iter() {
+            let mut ctx = ctx;
+
+            while let Some(mut job) = ctx.job_list.pop_front() {
                 self.gc_cur_job_trace = job.gc_trace.take();
                 job.run()?;
                 self.gc_cur_job_trace = None;

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     atom::{Atom, AtomKind},
     context::ContextImpl,
     error::JSResult,
@@ -11,7 +12,7 @@ use crate::{
     value::JSValue,
 };
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     /// `str` is None for anonymous symbol.
     pub fn create_symbol(&mut self, str: Option<StringRef>, atom_kind: AtomKind) -> JSResult {
         debug_assert!(
@@ -57,9 +58,7 @@ impl ContextImpl {
 //     }
 // }
 
-pub fn js_symbol_constructor(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+pub fn js_symbol_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
     if !new_target.is_undefined() {
         ctx.throw_type_error("not a constructor");
@@ -69,7 +68,7 @@ pub fn js_symbol_constructor(cc: CallContext) -> JSResult {
     let str: Option<StringRef> = if cc.arg(0).is_undefined() {
         None
     } else {
-        Some(cc.arg(0).to_string(&mut ctx)?)
+        Some(cc.arg(0).to_string(ctx)?)
     };
     ctx.create_symbol(str, AtomKind::Symbol)
 }
@@ -78,7 +77,7 @@ pub fn js_symbol_constructor(cc: CallContext) -> JSResult {
 // prototype funcs
 //
 
-pub fn js_thisSymbolValue(ctx: &mut ContextImpl, val: JSValue) -> JSResult {
+pub fn js_thisSymbolValue(ctx: &mut ScopedContext, val: JSValue) -> JSResult {
     val.as_symbol()
         .copied()
         .map(JSValue::Symbol)
@@ -88,24 +87,19 @@ pub fn js_thisSymbolValue(ctx: &mut ContextImpl, val: JSValue) -> JSResult {
         })
 }
 
-fn js_symbol_toString(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
-    let val = js_thisSymbolValue(&mut ctx, cc.this())?;
+fn js_symbol_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let val = js_thisSymbolValue(ctx, cc.this())?;
     // formatted as 'Symbol(XXX)'
-    let repr = val.inspect(&mut ctx)?.into_bytes();
+    let repr = val.inspect(ctx)?.into_bytes();
     ctx.create_string_from_utf8(repr).map(JSValue::from)
 }
 
-fn js_symbol_valueOf(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-    js_thisSymbolValue(&mut ctx, cc.this())
+fn js_symbol_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    js_thisSymbolValue(ctx, cc.this())
 }
 
-fn js_symbol_get_description(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
-    if let JSValue::Symbol(s) = js_thisSymbolValue(&mut ctx, cc.this())? {
+fn js_symbol_get_description(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    if let JSValue::Symbol(s) = js_thisSymbolValue(ctx, cc.this())? {
         if s.content().is_ident() {
             Ok(JSValue::UNDEFINED)
         } else {
@@ -125,14 +119,12 @@ pub const js_symbol_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("description", Some(js_symbol_get_description), None, 0),
 ];
 
-fn js_symbol_for(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-    let s = cc.arg(0).to_string(&mut ctx)?;
+fn js_symbol_for(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let s = cc.arg(0).to_string(ctx)?;
     ctx.create_symbol(Some(s), AtomKind::GlobalSymbol)
 }
 
-fn js_symbol_keyFor(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+fn js_symbol_keyFor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let JSValue::Symbol(s) = cc.arg(0) {
         if s.atom_info().unwrap().kind() != AtomKind::GlobalSymbol {
             Ok(JSValue::UNDEFINED)

@@ -4,7 +4,7 @@
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR,
+    JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, ScopedContext,
     builtins::iterator::JSIteratorKindEnum,
     class::ClassID,
     error::JSResult,
@@ -42,8 +42,11 @@ pub struct MapIterator(GcRef<ObjectImpl>);
 
 object_cast!(MapIterator, JS_CLASS_MAP_ITERATOR);
 
-fn js_map_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+fn js_map_iterator_next(
+    ctx: &mut ScopedContext,
+    cc: CallContext,
+    state: &mut IteratorState,
+) -> JSResult {
     let magic = cc.magic();
 
     let is_set = magic & 1 != 0;
@@ -51,8 +54,7 @@ fn js_map_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult 
 
     *state = IteratorState::NotDone;
 
-    let isa =
-        this.retrive_object_payload_mut(&mut ctx, JS_CLASS_MAP_ITERATOR + magic as ClassID)?;
+    let isa = this.retrive_object_payload_mut(ctx, JS_CLASS_MAP_ITERATOR + magic as ClassID)?;
     let Some(it) = isa.mapset_iterator_mut() else {
         return Err(-1);
     };
@@ -61,7 +63,7 @@ fn js_map_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult 
     let mut end = false;
 
     if let Some(mut obj) = it.obj {
-        let r1 = obj.retrive_payload_mut(&mut ctx, JS_CLASS_MAP + magic as ClassID)?;
+        let r1 = obj.retrive_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)?;
         let ms = r1.mapset_mut().unwrap();
 
         if it.index < ms.slots.len() {

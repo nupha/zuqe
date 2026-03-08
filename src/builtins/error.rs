@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::Deref};
 
 use gc_lite::GcNode;
 
 use crate::{
-    FieldDef, JS_CLASS_ERROR,
+    FieldDef, JS_CLASS_ERROR, ScopedContext,
     atom::Atom,
     builtins::iterator::iterator_to_array,
     context::ContextPtr,
@@ -16,9 +16,8 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_error_constructor(cc: CallContext) -> JSResult {
+pub(crate) fn js_error_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
-    let mut ctx = cc.ctx_ptr();
 
     let mut new_target = cc.this();
     if new_target.is_undefined() {
@@ -26,11 +25,14 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
     }
 
     // use proper proto, ensure proto is an object
-    let mut proto = new_target.get_property(&mut ctx, Atom::CONST_prototype)?;
+    let mut proto = new_target.get_property(ctx, Atom::CONST_prototype)?;
     if !proto.is_object() {
-        let realm = new_target.as_object().map_or(Ok(ctx), |o| o.realm(ctx))?;
+        let realm: ContextPtr = new_target
+            .as_object()
+            .map_or(Ok(ctx.into()), |o| o.realm(ctx.into()))?;
+
         proto = if magic < 0 {
-            realm.class_proto(JS_CLASS_ERROR).unwrap().into()
+            realm.deref().class_proto(JS_CLASS_ERROR).unwrap().into()
         } else {
             realm.error_protos[magic as usize]
         };
@@ -50,9 +52,9 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
     arg_index += 1;
 
     if !message.is_undefined() {
-        let msg = message.to_string(&mut ctx)?;
+        let msg = message.to_string(ctx)?;
         obj.define_property_value(
-            &mut ctx,
+            ctx,
             Atom::CONST_message,
             msg.gc_ref().into(),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -62,10 +64,10 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
     if arg_index < cc.length() {
         let options = cc.arg(arg_index);
 
-        if options.is_object() && options.has_property(&mut ctx, Atom::CONST_cause)? {
-            let cause = options.get_property(&mut ctx, Atom::CONST_cause)?;
+        if options.is_object() && options.has_property(ctx, Atom::CONST_cause)? {
+            let cause = options.get_property(ctx, Atom::CONST_cause)?;
             obj.define_property_value(
-                &mut ctx,
+                ctx,
                 Atom::CONST_cause,
                 cause,
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -76,7 +78,7 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
     if magic == ErrorKind::Aggregate as i32 {
         let error_list = iterator_to_array(ctx, cc.arg(0))?;
         obj.define_property_value(
-            &mut ctx,
+            ctx,
             Atom::CONST_errors,
             error_list,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -89,14 +91,14 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub(crate) fn js_aggregate_error_constructor(mut ctx: ContextPtr, errors: JSValue) -> JSValue {
+pub(crate) fn js_aggregate_error_constructor(ctx: &mut ScopedContext, errors: JSValue) -> JSValue {
     let err_proto = ctx.error_protos[ErrorKind::Aggregate as usize]
         .as_object()
         .copied();
 
     if let Ok(mut obj) = ctx.create_object_with_proto(err_proto, ObjectPayload::ERROR) {
         obj.define_property_value(
-            &mut ctx,
+            ctx,
             Atom::CONST_errors,
             errors,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -109,26 +111,24 @@ pub(crate) fn js_aggregate_error_constructor(mut ctx: ContextPtr, errors: JSValu
     }
 }
 
-pub fn js_error_toString(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+pub fn js_error_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
-    let name = cc.this().get_property(&mut ctx, Atom::CONST_name)?;
+    let name = cc.this().get_property(ctx, Atom::CONST_name)?;
     let name = if name.is_undefined() {
-        Atom::CONST_Error.force_string(&mut ctx)?
+        Atom::CONST_Error.force_string(ctx)?
     } else {
-        name.to_string(&mut ctx)?
+        name.to_string(ctx)?
     };
 
-    let message = cc.this().get_property(&mut ctx, Atom::CONST_message)?;
+    let message = cc.this().get_property(ctx, Atom::CONST_message)?;
     let message = if message.is_undefined() {
-        Atom::CONST_empty_string.force_string(&mut ctx)?
+        Atom::CONST_empty_string.force_string(ctx)?
     } else {
-        message.to_string(&mut ctx)?
+        message.to_string(ctx)?
     };
 
     let txt: Cow<'_, str> = match (name.is_empty(), message.is_empty()) {

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, ScopedContext,
     atom::Atom,
     context::ContextImpl,
     error::JS_ThrowReferenceErrorUninitialized,
@@ -25,7 +25,7 @@ impl ObjectImpl {
     #[inline]
     pub(crate) fn add_own_property(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         prop_flags: u32,
         value: JSProperty,
@@ -58,7 +58,7 @@ impl ObjectImpl {
     /// test if own property `prop` exists:
     /// 1. find in shape,
     /// 1. if not shape property, and if is exotic or fast array, test by exotic or array length.
-    pub fn has_own_property(&self, ctx: &mut ContextImpl, prop: Atom) -> Result<bool, i32> {
+    pub fn has_own_property(&self, ctx: &mut ScopedContext, prop: Atom) -> Result<bool, i32> {
         // is shape prop?
         if self.has_shape_property(prop) {
             return Ok(true);
@@ -87,7 +87,7 @@ impl ObjectImpl {
     }
 
     #[inline]
-    pub fn has_own_property_str(&self, ctx: &mut ContextImpl, prop: &str) -> Result<bool, i32> {
+    pub fn has_own_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> Result<bool, i32> {
         let atom = Atom::new(ctx.rt_ptr(), prop)?;
         self.has_own_property(ctx, atom)
     }
@@ -96,7 +96,7 @@ impl ObjectImpl {
     /// Returns None if own property does not exist.
     pub fn get_own_property(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
         while let Some((idx, prs_flags)) = self.find_shape_property(prop) {
@@ -128,9 +128,7 @@ impl ObjectImpl {
                 JS_PROP_LAZYINIT => {
                     // Instantiate lazy object
                     let mut this = Object::from_ref(self);
-                    let val = this
-                        .prop_slot_mut(idx)
-                        .instantiate(ctx, Object::from_ref(self));
+                    let val = this.prop_slot_mut(idx).instantiate(Object::from_ref(self));
 
                     // modify shape property kind to NORMAL
                     this.modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
@@ -189,7 +187,7 @@ impl ObjectImpl {
     /// - otherwise, call `Self::add_own_property()` to add a shape property.
     pub(super) fn create_property(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         val: JSValue,
         getter: JSValue,
@@ -197,7 +195,7 @@ impl ObjectImpl {
         flags: u32,
     ) -> Result<bool, i32> {
         fn update_array_length_fn(
-            cx: &mut ContextImpl,
+            cx: &mut ScopedContext,
             mut arr_obj: Object,
             idx: u32,
             cur_len: i64,
@@ -442,7 +440,7 @@ impl ObjectImpl {
 
 impl JSValue {
     /// test if own property prop exists.
-    pub fn has_own_property(&self, ctx: &mut ContextImpl, prop: Atom) -> Result<bool, i32> {
+    pub fn has_own_property(&self, ctx: &mut ScopedContext, prop: Atom) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
             p.has_own_property(ctx, prop)
         } else {
@@ -451,7 +449,7 @@ impl JSValue {
         }
     }
 
-    pub fn has_own_property_str(&self, ctx: &mut ContextImpl, prop: &str) -> Result<bool, i32> {
+    pub fn has_own_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
             p.has_own_property_str(ctx, prop)
         } else {
@@ -463,7 +461,7 @@ impl JSValue {
     /// get description of own property.
     pub fn get_own_property(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
         if let JSValue::Object(p) = self {

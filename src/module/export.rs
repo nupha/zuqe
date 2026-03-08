@@ -6,6 +6,7 @@ use std::cmp::Ordering;
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::{ContextImpl, ContextPtr},
     error::ErrorKind,
@@ -110,7 +111,7 @@ impl GcTrace for ResolveExport {
 impl ResolveExport {
     pub(super) fn throw_syntax_error_export(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         m: &ModuleDefImpl,
         export_name: &Atom,
     ) {
@@ -154,7 +155,7 @@ impl ModuleDefImpl {
     /// Note: `local_name`, `export_name` are not consumed.
     pub(crate) fn add_export_internal(
         &mut self,
-        mut ctx: ContextPtr,
+        ctx: &mut ScopedContext,
         local_name: Atom,
         export_name: Atom,
         export_type: ExportType,
@@ -185,7 +186,7 @@ impl ModuleDefImpl {
     }
 
     /// declare a module export name
-    pub fn add_export(&mut self, ctx: &mut ContextImpl, export_name: &str) -> Result<(), i32> {
+    pub fn add_export(&mut self, ctx: &mut ScopedContext, export_name: &str) -> Result<(), i32> {
         let atom = Atom::new(ctx.rt_ptr(), export_name)?;
         self.add_export_internal(
             ctx.into(),
@@ -201,7 +202,7 @@ impl ModuleDefImpl {
     /// update export value
     pub(super) fn set_export_values(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         entries: &[FieldDef],
     ) -> Result<(), i32> {
         for entry in entries {
@@ -217,7 +218,7 @@ impl ModuleDefImpl {
                 FieldDetail::Str(s) => ctx.create_string_from_str(s)?.into(),
                 FieldDetail::Int32(i) => JSValue::Int(*i),
                 FieldDetail::Float64(d) => JSValue::from(*d),
-                FieldDetail::Build(f) => f(ContextPtr::from(ctx.gc_ref()).into())?,
+                FieldDetail::Build(f) => f(ctx)?,
 
                 FieldDetail::Undefined | FieldDetail::Alias { .. } | FieldDetail::GetSet { .. } => {
                     // module export ignores Alias, Get/Set, Undefined fields
@@ -236,7 +237,7 @@ impl ModuleDefImpl {
     /// update or add a module export entry named `export_name`, with given value
     pub fn set_export_value(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         export_name: &str,
         value: JSValue,
     ) -> Result<(), i32> {
@@ -248,7 +249,7 @@ impl ModuleDefImpl {
                     var_ref.is_some(),
                     "exported local entry must have been linked"
                 );
-                var_ref.unwrap().set_value(&mut ctx.rt_ptr(), value);
+                var_ref.unwrap().set_value(ctx.rt_mut(), value);
                 Ok(())
             } else {
                 // not a local export entry
@@ -270,7 +271,7 @@ struct GetExportNamesState {
 impl ModuleDef {
     pub(crate) fn add_star_export_entry(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         req_module_idx: u16,
     ) -> Result<(), i32> {
         if self.star_export_entries.len() == self.star_export_entries.capacity() {
@@ -286,7 +287,7 @@ impl ModuleDef {
 
     fn collect_exported_names(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         s: &mut GetExportNamesState,
         from_star: bool,
     ) -> Result<(), i32> {
@@ -358,7 +359,7 @@ impl ModuleDef {
     }
 
     /// build module ns object
-    fn build_module_ns(&self, ctx: &mut ContextImpl) -> Result<Object, i32> {
+    fn build_module_ns(&self, ctx: &mut ScopedContext) -> Result<Object, i32> {
         let mut obj = ctx
             .create_object(ObjectPayload::MODULE_NS)
             .map_err(|_| -1)?;
@@ -472,7 +473,7 @@ impl ModuleDef {
 
     /// get module ns object.
     /// if ns object is not initialized, initialize it and return.
-    pub fn ns(&mut self, ctx: &mut ContextImpl) -> Result<Object, i32> {
+    pub fn ns(&mut self, ctx: &mut ScopedContext) -> Result<Object, i32> {
         if let Some(ns) = self.module_ns {
             Ok(ns)
         } else {

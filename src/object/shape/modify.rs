@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::ContextImpl,
     object::{ObjectImpl, ShapeImpl},
@@ -12,7 +13,7 @@ impl ObjectImpl {
     /// an exclusive, unregistered shape is passed to closure as argument.
     pub(crate) fn modify_shape<R>(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         update_fn: impl FnOnce(&mut ShapeImpl) -> R,
     ) -> Result<R, i32> {
         let use_count = self.shape().unwrap().use_count;
@@ -36,7 +37,7 @@ impl ObjectImpl {
     /// Append an extra property to shape
     pub(crate) fn modify_shape_add_prop(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         prop_flags: u32,
     ) -> Result<usize, i32> {
@@ -101,7 +102,7 @@ impl ObjectImpl {
     /// if object's shape was changed, returns true
     pub(crate) fn modify_shape_property_flags(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         prop: Atom,
         flags_fn: impl FnOnce(u32) -> u32,
     ) -> Result<bool, i32> {
@@ -131,7 +132,7 @@ impl ObjectImpl {
     /// if object's shape was changed, returns true
     pub(crate) fn modify_shape_property_index_flags(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         index: usize,
         flags_fn: impl FnOnce(u32) -> u32,
     ) -> Result<bool, i32> {

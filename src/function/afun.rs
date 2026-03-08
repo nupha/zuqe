@@ -4,7 +4,7 @@
 use gc_lite::GcRef;
 
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, ScopedContext,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
     context::{Context, ContextImpl, ContextPtr},
@@ -25,16 +25,16 @@ pub struct AsyncFunction(pub(crate) GcRef<ObjectImpl>);
 object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
-    pub fn class_init(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, _: ClassID) -> Result<Option<Object>, i32> {
         let mut proto = {
             let p = ctx.function_proto();
             ctx.create_base_object_with_proto(Some(p))?
         };
-        proto.install_fields(&mut ctx, js_async_function_proto_funcs)?;
+        proto.install_fields(ctx, js_async_function_proto_funcs)?;
 
         let func_ctor = ctx.function_ctor.as_object().copied();
         let ctor: JSValue = NativeFunction::create(
-            &mut ctx,
+            ctx,
             Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
             "AsyncFunction",
             1,
@@ -50,7 +50,7 @@ impl AsyncFunction {
 
     /// Wrapper to run async function, returns a Promise.
     pub fn class_call(
-        ctx: Context,
+        ctx: &mut ScopedContext,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],
@@ -71,13 +71,13 @@ impl BCWrapper {
     /// run bytecode in async manner
     fn execute_async(
         &self,
-        mut ctx: ContextPtr,
+        ctx: &mut ScopedContext,
         this_obj: JSValue,
         args: &[JSValue],
         _flags: i32,
     ) -> Result<Promise, i32> {
-        let (promise, resolving_funcs) = Promise::create(&mut ctx)?;
-        let mut a_state = AsyncState::create(ctx, resolving_funcs, *self, this_obj, args)?;
+        let (promise, resolving_funcs) = Promise::create(ctx)?;
+        let mut a_state = AsyncState::create(ctx.into(), resolving_funcs, *self, this_obj, args)?;
 
         // protect promise and a_state before calling .execute()
         ctx.gc_heap_mut()
@@ -92,7 +92,7 @@ impl JSValue {
     /// if value is function object, call it in async manner
     pub(crate) fn call_async(
         &self,
-        mut ctx: ContextPtr,
+        ctx: &mut ScopedContext,
         this_obj: JSValue,
         args: &[JSValue],
         flags: i32,
@@ -108,7 +108,7 @@ impl JSValue {
 
 impl AsyncState {
     pub fn class_call(
-        ctx: Context,
+        ctx: &mut ScopedContext,
         func_obj: JSValue,
         _this: JSValue,
         args: &[JSValue],
@@ -141,7 +141,7 @@ impl AsyncState {
         Ok(JSValue::UNDEFINED)
     }
 
-    fn execute(&mut self, mut ctx: ContextPtr) {
+    fn execute(&mut self, ctx: &mut ScopedContext) {
         let ret = self.resume(ctx);
 
         if self.is_completed {
@@ -149,12 +149,12 @@ impl AsyncState {
                 Ok(val) => {
                     // Normal function return
                     let func = self.resolving_funcs[0]; // resolve 
-                    let _ = func.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&val));
+                    let _ = func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&val));
                 }
                 Err(_) => {
                     let func = self.resolving_funcs[1]; // reject 
                     let exc = ctx.rt_mut().take_exception();
-                    let _ = func.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
+                    let _ = func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
                 }
             }
         } else {
@@ -167,30 +167,28 @@ impl AsyncState {
             };
 
             // Handle await expression
-            let mut promise = if let Ok(v) = js_promise_resolve(CallContext::new_simple(
-                ctx,
-                ctx.promise_ctor,
-                std::slice::from_ref(&value),
-            )) {
+            let cc =
+                CallContext::new_simple(ctx.into(), ctx.promise_ctor, std::slice::from_ref(&value));
+            let mut promise = if let Ok(v) = js_promise_resolve(ctx, cc) {
                 Promise::try_from(v).unwrap()
             } else {
                 let exc = ctx.rt_mut().take_exception();
                 let rej = self.resolving_funcs[1];
-                let _ = rej.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc)); // TODO what to do if exception?
+                let _ = rej.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc)); // TODO what to do if exception?
                 return;
             };
 
-            let resolving_funcs = if let Ok(rr) = self.async_function_resolve_create(&mut ctx) {
+            let resolving_funcs = if let Ok(rr) = self.async_function_resolve_create(ctx) {
                 rr
             } else {
                 let exc = ctx.rt_mut().take_exception();
                 let func = self.resolving_funcs[1];
-                let _ = func.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
+                let _ = func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
                 [const { JSValue::UNDEFINED }; 2]
             };
 
             let res = promise.reaction(
-                &mut ctx,
+                ctx,
                 resolving_funcs,
                 // no need to create 'thrownawayCapability' as in the spec
                 [const { JSValue::UNDEFINED }; 2],
@@ -199,7 +197,7 @@ impl AsyncState {
             if res.is_err() {
                 let exc = ctx.rt_mut().take_exception();
                 let _ = self.resolving_funcs[1].call(
-                    &mut ctx,
+                    ctx,
                     JSValue::UNDEFINED,
                     std::slice::from_ref(&exc),
                 );
@@ -207,7 +205,7 @@ impl AsyncState {
         }
     }
 
-    fn async_function_resolve_create(&self, ctx: &mut ContextImpl) -> Result<[JSValue; 2], i32> {
+    fn async_function_resolve_create(&self, ctx: &mut ScopedContext) -> Result<[JSValue; 2], i32> {
         let mut resolving_funcs = [const { JSValue::UNDEFINED }; 2];
         let state = AsyncState::from(self.gc_ref());
 

@@ -4,7 +4,7 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_STRING,
+    JS_CLASS_STRING, ScopedContext,
     atom::{Atom, AtomDescKind},
     builtins::iterator::JSIteratorKindEnum,
     context::ContextImpl,
@@ -87,9 +87,9 @@ impl ObjectImpl {
     /// 1. Then exotic properties (if has exotic `get_own_property_names`)
     pub fn own_property_names_foreach(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         flags: i32,
-        mut callback: impl FnMut(&mut ContextImpl, PropertyKey) -> Result<(), i32>,
+        mut callback: impl FnMut(&mut ScopedContext, PropertyKey) -> Result<(), i32>,
     ) -> Result<(), i32> {
         let enum_only = flags & JS_GPN_ENUM_ONLY != 0;
         let sh = self.shape().unwrap();
@@ -212,7 +212,7 @@ impl ObjectImpl {
     /// - Can be filtered using flags
     pub fn get_own_property_names(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         flags: i32,
     ) -> Result<Box<[PropertyKey]>, i32> {
         let mut lst = Vec::<PropertyKey>::with_capacity(16);
@@ -270,7 +270,7 @@ impl ObjectImpl {
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     pub fn get_own_property_kvs(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
@@ -331,7 +331,7 @@ impl JSValue {
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     pub fn get_own_property_kvs(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
@@ -348,7 +348,7 @@ impl JSValue {
     /// - An array of [key, value] pairs (for kind = KEY_AND_VALUE)
     pub(crate) fn build_own_property_kvs_array(
         &self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> JSResult {

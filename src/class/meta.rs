@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT,
+    JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT, ScopedContext,
     atom::Atom,
     builtins::iterator::js_iterator_proto_funcs,
     class::{
@@ -146,7 +146,9 @@ impl ContextImpl {
         debug_assert!(self.class_protos.len() > JS_CLASS_ARRAY as usize);
         self.class_proto(JS_CLASS_ARRAY).unwrap()
     }
+}
 
+impl<'c> ScopedContext<'c> {
     /// initialize iterator proto object
     pub fn iterator_proto(&mut self) -> Result<Object, i32> {
         let obj = if let Some(o) = self.iterator_proto.as_ref().cloned() {

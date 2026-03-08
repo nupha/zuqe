@@ -3,7 +3,7 @@
 
 use smallvec::SmallVec;
 
-use crate::{context::ContextImpl, number::IntOrFloat, utils::unlikely};
+use crate::{ScopedContext, context::ContextImpl, number::IntOrFloat, utils::unlikely};
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
 /* accept Oo and Ob prefixes in addition to 0x prefix if radix = 0 */
@@ -105,7 +105,7 @@ pub(crate) fn parse_u32(str: &str) -> Option<u32> {
 }
 
 pub(crate) unsafe fn js_atof(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     str: *const u8,
     pp: *mut *const u8,
     mut radix: i32,

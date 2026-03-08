@@ -156,7 +156,7 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
 
-            fd1.add_arg(&mut self.ctx, self.token.atom().unwrap())?;
+            fd1.add_arg(&mut self.ctx.new_scope_legacy(), self.token.atom().unwrap())?;
             fd1.attrs.defined_arg_count = 1;
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
             if self.token.kind == TokenKind::Char('(') {
@@ -194,7 +194,7 @@ impl<'s> JSParseState<'s> {
                         fd1.emit_u16(fd1.args.len() as _);
                     } else {
                         // unnamed arg for destructuring
-                        let idx = fd1.add_arg(&mut self.ctx, Atom::NULL)? as i32;
+                        let idx = fd1.add_arg(&mut self.ctx.new_scope_legacy(), Atom::NULL)? as i32;
                         fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
                         fd1.emit_u16(idx as _);
                     }
@@ -235,7 +235,7 @@ impl<'s> JSParseState<'s> {
                     }
 
                     /* XXX: could avoid allocating an argument if rest is true */
-                    let idx = fd1.add_arg(&mut self.ctx, name)? as i32;
+                    let idx = fd1.add_arg(&mut self.ctx.new_scope_legacy(), name)? as i32;
                     self.next_token()?;
 
                     if rest {
@@ -335,7 +335,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if fd1.find_var(var_name).is_none() {
-                    fd1.add_var(self.ctx, var_name)?;
+                    fd1.add_var(&mut self.ctx.new_scope_legacy(), var_name)?;
 
                     let vname = fd1.vars.get(idx as usize).unwrap().var_name;
 
@@ -401,7 +401,7 @@ impl<'s> JSParseState<'s> {
                     if src_len > 0 {
                         let mut src = Vec::<u8>::new();
                         if src.try_reserve_exact(src_len).is_err() {
-                            self.ctx.throw_out_of_memory();
+                            self.ctx.new_scope_legacy().throw_out_of_memory();
                             return Err(-1);
                         }
                         src.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, src_len) });
@@ -438,7 +438,7 @@ impl<'s> JSParseState<'s> {
             if src_len > 0 {
                 let mut src = Vec::<u8>::new();
                 if src.try_reserve_exact(src_len).is_err() {
-                    self.ctx.throw_out_of_memory();
+                    self.ctx.new_scope_legacy().throw_out_of_memory();
                     return Err(-1);
                 }
                 src.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, src_len) });
@@ -662,9 +662,10 @@ impl<'s> JSParseState<'s> {
                         // the global variable must be defined at the start of the function
                         let js_mode = self.cur_func().attrs.exec_mode;
 
-                        let hf = self
-                            .cur_func_mut()
-                            .add_global_var(self.ctx, sub_func_name)?;
+                        let hf = unsafe {
+                            (*self.cur_func_def)
+                                .add_global_var(&mut self.ctx.new_scope_legacy(), sub_func_name)?
+                        };
 
                         /* it is considered as defined at the top level
                         (needed for annex B.3.3.4 and B.3.3.5
@@ -680,7 +681,10 @@ impl<'s> JSParseState<'s> {
                     } else {
                         // do not call define_var to bypass lexical scope check
                         if self.cur_func().find_var(sub_func_name).is_none() {
-                            self.cur_func_mut().add_var(self.ctx, sub_func_name)?;
+                            unsafe {
+                                (*self.cur_func_def)
+                                    .add_var(&mut self.ctx.new_scope_legacy(), sub_func_name)?;
+                            }
                         };
 
                         /* store directly into local var, bypass lexical catch scope */
@@ -725,9 +729,11 @@ impl<'s> JSParseState<'s> {
                 };
 
                 // the variable will be assigned at the top of the function
-                self.cur_func_mut()
-                    .add_global_var(self.ctx, func_var_name)?
-                    .cpool_idx = cp_idx;
+                unsafe {
+                    (*self.cur_func_def)
+                        .add_global_var(&mut self.ctx.new_scope_legacy(), func_var_name)?
+                        .cpool_idx = cp_idx;
+                }
 
                 if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
                     self.add_module_export(

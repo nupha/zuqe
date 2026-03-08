@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     bytecode::{opcode_info_intermediate, opcodes},
     context::ContextImpl,
     function::{
@@ -34,7 +35,12 @@ pub struct Label {
 }
 
 impl Label {
-    pub fn add_reloc(&mut self, ctx: &mut ContextImpl, addr: usize, size: i32) -> Result<(), i32> {
+    pub fn add_reloc(
+        &mut self,
+        ctx: &mut ScopedContext,
+        addr: usize,
+        size: i32,
+    ) -> Result<(), i32> {
         if self.pending_relocs.len() == self.pending_relocs.capacity()
             && self.pending_relocs.try_reserve_exact(4).is_err()
         {
@@ -53,7 +59,7 @@ impl FunctionDef {
         if self.label_slots.len() == self.label_slots.capacity()
             && self.label_slots.try_reserve_exact(4).is_err()
         {
-            self.ctx.throw_out_of_memory();
+            self.ctx.new_scope_legacy().throw_out_of_memory();
             return Err(-1);
         }
 

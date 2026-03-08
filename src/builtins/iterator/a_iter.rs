@@ -4,7 +4,7 @@
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    Callback, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+    Callback, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, ScopedContext,
     atom::Atom,
     builtins::{
         generator::{
@@ -43,15 +43,15 @@ pub struct AsyncFromSyncIterator(GcRef<ObjectImpl>);
 object_cast!(AsyncFromSyncIterator, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR);
 
 impl AsyncFromSyncIterator {
-    pub fn class_init(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, _: ClassID) -> Result<Option<Object>, i32> {
         let aiter_proto = ctx.async_iterator_proto()?;
         let mut proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
-        proto.install_fields(&mut ctx, js_async_from_sync_iterator_proto_funcs)?;
+        proto.install_fields(ctx, js_async_from_sync_iterator_proto_funcs)?;
         Ok(Some(proto))
     }
 }
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     /// Initialize async iterator proto object which is used as proto of:
     /// AsyncFromSyncIterator, AsyncGenerator.
     /// if this proto is not initialized, will create it inside.
@@ -67,18 +67,18 @@ impl ContextImpl {
     }
 }
 
-fn js_async_from_sync_iterator_unwrap(mut cc: CallContext) -> JSResult {
+fn js_async_from_sync_iterator_unwrap(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let arg0 = cc.arg(0);
     let done = cc.data(0).to_bool()?;
-    js_create_iterator_result(cc.ctx_mut(), arg0, done)
+    js_create_iterator_result(ctx, arg0, done)
 }
 
 unsafe fn js_async_from_sync_iterator_unwrap_func_create(
-    mut ctx: ContextPtr,
+    ctx: &mut ScopedContext,
     done: bool,
 ) -> JSValue {
     NativeFunction::create(
-        &mut ctx,
+        ctx,
         Callback::Func(js_async_from_sync_iterator_unwrap),
         "",
         1,
@@ -89,8 +89,8 @@ unsafe fn js_async_from_sync_iterator_unwrap_func_create(
     .map_or(JSValue::EXCEPTION, |x| x.into())
 }
 
-fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
-    let done_resolve = |cx: &mut ContextImpl,
+fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let done_resolve = |cx: &mut ScopedContext,
                         rr: [JSValue; 2],
                         err: JSValue,
                         is_reject: usize,
@@ -100,9 +100,7 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
         promise.into()
     };
 
-    let mut ctx = cc.ctx_ptr();
-
-    let (promise, resolving_funcs) = Promise::create(&mut ctx)?;
+    let (promise, resolving_funcs) = Promise::create(ctx)?;
     debug_assert!(promise.gc_node().is_root_or_local());
     debug_assert!(
         resolving_funcs[0]
@@ -133,7 +131,7 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
             p.next_method
         } else {
             match p.obj.get_property(
-                &mut ctx,
+                ctx,
                 if cc.magic() == GEN_MAGIC_RETURN {
                     Atom::CONST_return
                 } else {
@@ -143,24 +141,18 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
                 Ok(fval) => {
                     if fval.is_undefined_or_null() {
                         let (err, is_reject) = if cc.magic() == GEN_MAGIC_RETURN {
-                            (js_create_iterator_result(&mut ctx, cc.arg(0), true)?, 0)
+                            (js_create_iterator_result(ctx, cc.arg(0), true)?, 0)
                         } else {
                             (cc.arg(0), 1)
                         };
-                        return Ok(done_resolve(
-                            &mut ctx,
-                            resolving_funcs,
-                            err,
-                            is_reject,
-                            promise,
-                        ));
+                        return Ok(done_resolve(ctx, resolving_funcs, err, is_reject, promise));
                     }
 
                     fval
                 }
                 Err(_) => {
                     let exc = ctx.rt_mut().take_exception();
-                    return Ok(done_resolve(&mut ctx, resolving_funcs, exc, 1, promise));
+                    return Ok(done_resolve(ctx, resolving_funcs, exc, 1, promise));
                 }
             }
         };
@@ -180,24 +172,27 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
                 IteratorState::Done => true,
                 IteratorState::NotParsed => {
                     let mut _done = false;
-                    value = JS_IteratorGetCompleteValue(&mut ctx, value, &mut _done);
+                    value = JS_IteratorGetCompleteValue(ctx, value, &mut _done);
                     if value.is_exception() {
                         let err = ctx.rt_mut().take_exception();
-                        return Ok(done_resolve(&mut ctx, resolving_funcs, err, 1, promise));
+                        return Ok(done_resolve(ctx, resolving_funcs, err, 1, promise));
                     }
                     _done
                 }
             };
 
             let mut value_wrapper_promise: Promise = {
-                let cc =
-                    CallContext::new_simple(ctx, ctx.promise_ctor, std::slice::from_ref(&value));
+                let cc = CallContext::new_simple(
+                    ctx.into(),
+                    ctx.promise_ctor,
+                    std::slice::from_ref(&value),
+                );
 
-                if let Ok(r) = js_promise_resolve(cc) {
+                if let Ok(r) = js_promise_resolve(ctx, cc) {
                     r.try_into()?
                 } else {
                     let exc = ctx.rt_mut().take_exception();
-                    return Ok(done_resolve(&mut ctx, resolving_funcs, exc, 1, promise));
+                    return Ok(done_resolve(ctx, resolving_funcs, exc, 1, promise));
                 }
             };
 
@@ -205,16 +200,16 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
                 unsafe { js_async_from_sync_iterator_unwrap_func_create(ctx, done).err()? },
                 JSValue::UNDEFINED,
             ];
-            value_wrapper_promise.reaction(&mut ctx, resolve_reject, resolving_funcs)?;
+            value_wrapper_promise.reaction(ctx, resolve_reject, resolving_funcs)?;
             Ok(promise.into())
         } else {
             let exc = ctx.rt_mut().take_exception();
-            Ok(done_resolve(&mut ctx, resolving_funcs, exc, 1, promise))
+            Ok(done_resolve(ctx, resolving_funcs, exc, 1, promise))
         }
     } else {
         ctx.throw_type_error("not an Async-from-Sync Iterator");
         let exc = ctx.rt_mut().take_exception();
-        Ok(done_resolve(&mut ctx, resolving_funcs, exc, 1, promise))
+        Ok(done_resolve(ctx, resolving_funcs, exc, 1, promise))
     }
 }
 

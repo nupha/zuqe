@@ -9,13 +9,14 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
+    ScopedContext,
     atom::{Atom, AtomKind},
     class::ClassID,
     context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{Object, ObjectPayload},
-    string::{CharCode, StringRef, StringBuf},
+    string::{CharCode, StringBuf, StringRef},
     value::{HINT_FORCE_ORDINARY, HINT_NONE, HINT_NUMBER, HINT_STRING, JSValue},
 };
 
@@ -549,7 +550,7 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
 /// - 2: toISOString: "2018-01-02T23:02:56.927Z"
 /// - 3: toLocaleString: "1/2/2018, 11:40:40 PM"
 /// - part: 1=date, 2=time 3=all
-fn datetime_format(ctx: &mut ContextImpl, tm_val: i64, flags: i32) -> Result<StringRef, i32> {
+fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<StringRef, i32> {
     let fmt = (flags >> 4) & 0x0F;
     let part = flags & 0x0F;
 
@@ -715,13 +716,13 @@ impl Datetime {
         timestamp_ms: INVALID_TIMESTAMP,
     };
 
-    pub fn class_init(mut ctx: Context, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, _: ClassID) -> Result<Option<Object>, i32> {
         let mut obj = ctx.create_base_object()?;
-        obj.install_fields(&mut ctx, js_date_proto_funcs).unwrap();
+        obj.install_fields(ctx, js_date_proto_funcs).unwrap();
 
         let mut ctor =
             ctx.create_global_constructor_or_func("Date", js_date_constructor, 7, obj.into(), 0)?;
-        ctor.install_fields(&mut ctx, js_date_funcs)?;
+        ctor.install_fields(ctx, js_date_funcs)?;
 
         Ok(Some(obj))
     }
@@ -832,8 +833,7 @@ impl From<Datetime> for JSValue {
     }
 }
 
-pub fn js_date_constructor(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
     let nargs = if new_target.is_undefined() {
@@ -854,10 +854,10 @@ pub fn js_date_constructor(cc: CallContext) -> JSResult {
             }) {
                 *ts
             } else {
-                match cc.arg(0).to_primitive(&mut ctx, HINT_NONE)? {
+                match cc.arg(0).to_primitive(ctx, HINT_NONE)? {
                     JSValue::String(s) => Datetime::parse(&s.content().encode_utf8_bytes(false))
                         .unwrap_or(Datetime::INVALID),
-                    v => v.to_f64(&mut ctx)?.into(),
+                    v => v.to_f64(ctx)?.into(),
                 }
             }
         }
@@ -866,7 +866,7 @@ pub fn js_date_constructor(cc: CallContext) -> JSResult {
             let mut has_invalid = false;
 
             for i in 0..std::cmp::min(n, 7) {
-                let d = cc.arg(i).to_f64(&mut ctx)?;
+                let d = cc.arg(i).to_f64(ctx)?;
                 if d.is_finite() {
                     fields[i] = d.trunc();
                     if i == 0 && (0.0..100.0).contains(&fields[0]) {
@@ -887,7 +887,7 @@ pub fn js_date_constructor(cc: CallContext) -> JSResult {
 
     if new_target.is_undefined() {
         // invoked as a function, returns toString()
-        datetime_format(&mut ctx, tm.into(), 0x13).map(JSValue::from)
+        datetime_format(ctx, tm.into(), 0x13).map(JSValue::from)
     } else {
         ctx.create_object_from_ctor(new_target, ObjectPayload::DATE(tm))
             .map(JSValue::Object)
@@ -895,7 +895,7 @@ pub fn js_date_constructor(cc: CallContext) -> JSResult {
     }
 }
 
-fn JS_ThisTimeValue(mut ctx: ContextPtr, this: JSValue) -> Result<Datetime, i32> {
+fn JS_ThisTimeValue(ctx: &mut ScopedContext, this: JSValue) -> Result<Datetime, i32> {
     if let Some(t) = this.as_object().and_then(|o| {
         if let ObjectPayload::DATE(dt) = o.payload() {
             Some(*dt)
@@ -910,15 +910,13 @@ fn JS_ThisTimeValue(mut ctx: ContextPtr, this: JSValue) -> Result<Datetime, i32>
     }
 }
 
-fn js_date_getTime(cc: CallContext) -> JSResult {
-    JS_ThisTimeValue(cc.ctx_ptr(), cc.this()).map(JSValue::from)
+fn js_date_getTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    JS_ThisTimeValue(ctx, cc.this()).map(JSValue::from)
 }
 
-fn js_date_setTime(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+fn js_date_setTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let _ = JS_ThisTimeValue(ctx, cc.this())?;
-    let a = cc.arg(0).to_f64(&mut ctx)?;
+    let a = cc.arg(0).to_f64(ctx)?;
     let dt2 = if a.is_finite() {
         Datetime::from_timestamp_ms(a.trunc() as i64) // will clip inside
     } else {
@@ -929,20 +927,18 @@ fn js_date_setTime(cc: CallContext) -> JSResult {
         *dt = dt2;
         Ok(dt2.into())
     } else {
-        cc.ctx_ptr().throw_type_error("not a Date object");
+        ctx.throw_type_error("not a Date object");
         Err(-1)
     }
 }
 
-fn get_date_string(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+fn get_date_string(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let tm = JS_ThisTimeValue(ctx, cc.this())?;
-    datetime_format(&mut ctx, tm.into(), cc.magic()).map(JSValue::from)
+    datetime_format(ctx, tm.into(), cc.magic()).map(JSValue::from)
 }
 
-fn js_date_Symbol_toPrimitive(cc: CallContext) -> JSResult {
+fn js_date_Symbol_toPrimitive(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // Symbol_toPrimitive(hint)
-    let mut ctx = cc.ctx_ptr();
 
     let Some(obj) = cc.this().as_object().copied() else {
         ctx.throw_type_error_not_an_object();
@@ -963,11 +959,11 @@ fn js_date_Symbol_toPrimitive(cc: CallContext) -> JSResult {
             return Err(-1);
         }
     };
-    obj.to_primitive(&mut ctx, hint_num | HINT_FORCE_ORDINARY)
+    obj.to_primitive(ctx, hint_num | HINT_FORCE_ORDINARY)
 }
 
-fn js_date_getTimezoneOffset(cc: CallContext) -> JSResult {
-    let tm = JS_ThisTimeValue(cc.ctx_ptr(), cc.this())?;
+fn js_date_getTimezoneOffset(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let tm = JS_ThisTimeValue(ctx, cc.this())?;
     if tm.is_invalid() {
         Ok(JSValue::Float64(f64::NAN))
     } else {
@@ -975,8 +971,8 @@ fn js_date_getTimezoneOffset(cc: CallContext) -> JSResult {
     }
 }
 
-fn get_date_field(cc: CallContext) -> JSResult {
-    let tm = JS_ThisTimeValue(cc.ctx_ptr(), cc.this())?;
+fn get_date_field(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let tm = JS_ThisTimeValue(ctx, cc.this())?;
 
     let magic = cc.magic();
     let is_local = magic & 0x0F != 0;
@@ -994,7 +990,7 @@ fn get_date_field(cc: CallContext) -> JSResult {
 }
 
 fn set_date_field_internal(
-    mut ctx: ContextPtr,
+    ctx: &mut ScopedContext,
     mut this: JSValue,
     args: &[JSValue],
     magic: i32,
@@ -1019,7 +1015,7 @@ fn set_date_field_internal(
 
     let field_range = first_field as usize..end_field as usize;
     for (v, i) in args.iter().zip(field_range.into_iter()) {
-        let a = v.to_f64(&mut ctx)?;
+        let a = v.to_f64(ctx)?;
         if a.is_finite() {
             if let Some(f) = &mut fields {
                 f[i] = a.trunc();
@@ -1052,37 +1048,35 @@ fn set_date_field_internal(
     }
 }
 
-fn set_date_field(cc: CallContext) -> JSResult {
-    set_date_field_internal(cc.ctx_ptr(), cc.this(), cc.arguments(), cc.magic())
+fn set_date_field(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    set_date_field_internal(ctx, cc.this(), cc.arguments(), cc.magic())
 }
 
-fn js_date_setYear(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-    let mut y = cc.arg(0).to_f64(&mut ctx)?;
+fn js_date_setYear(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let mut y = cc.arg(0).to_f64(ctx)?;
     if y.is_finite() {
         y = y.trunc();
         if (0.0..100.0).contains(&y) {
             y += 1900.0;
         }
     }
-    set_date_field_internal(cc.ctx_ptr(), cc.this(), &[JSValue::from(y)], 0x011)
+    set_date_field_internal(ctx, cc.this(), &[JSValue::from(y)], 0x011)
 }
 
-fn js_date_toJSON(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-    let obj = cc.this().objectify(&mut ctx)?;
+fn js_date_toJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().objectify(ctx)?;
 
-    let tv = obj.to_primitive(&mut ctx, HINT_NUMBER)?;
+    let tv = obj.to_primitive(ctx, HINT_NUMBER)?;
     if tv.is_number() {
-        let d = tv.to_f64(&mut ctx)?;
+        let d = tv.to_f64(ctx)?;
         if !d.is_finite() {
             return Ok(JSValue::NULL);
         }
     }
 
-    let method = obj.get_property_str(&mut ctx, "toISOString")?;
+    let method = obj.get_property_str(ctx, "toISOString")?;
     if method.is_function() {
-        method.call(&mut ctx, obj.into(), &[])
+        method.call(ctx, obj.into(), &[])
     } else {
         ctx.throw_type_error("object needs toISOString method");
         Err(-1)
@@ -1140,26 +1134,24 @@ pub const js_date_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("toJSON", 1, js_date_toJSON, 0),
 ];
 
-fn js_Date_now(_: CallContext) -> JSResult {
+fn js_Date_now(_: &mut ScopedContext, _: CallContext) -> JSResult {
     let ts = Datetime::now();
     Ok(JSValue::from(ts.timestamp()))
 }
 
-fn js_Date_parse(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-    let s = cc.arg(0).to_string(&mut ctx)?;
+fn js_Date_parse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let s = cc.arg(0).to_string(ctx)?;
     let tm = Datetime::parse(&s.content().encode_utf8_bytes(false)).unwrap_or(Datetime::INVALID);
     Ok(JSValue::from(tm))
 }
 
-fn js_Date_UTC(cc: CallContext) -> JSResult {
+fn js_Date_UTC(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let dt = if cc.length() == 0 {
         Datetime::INVALID
     } else {
-        let mut ctx = cc.ctx_ptr();
         let mut fields: [f64; 7] = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
         for (i, a) in cc.arguments().iter().take(7).enumerate() {
-            let v = a.to_f64(&mut ctx)?;
+            let v = a.to_f64(ctx)?;
             if !v.is_finite() {
                 return Ok(JSValue::Float64(f64::NAN));
             }

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::ContextImpl,
     error::{JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration, JSResult},
@@ -14,7 +15,7 @@ use crate::{
     value::JSValue,
 };
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     /// construct a reference to specified global variable
     pub(crate) fn build_global_varref(
         &mut self,

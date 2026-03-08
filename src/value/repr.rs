@@ -3,8 +3,8 @@
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BOOLEAN, JS_CLASS_ERROR,
-    JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom, context::ContextImpl,
-    number::f64_stringify, object::ObjectImpl, string::StringRef,
+    JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext, atom::Atom,
+    context::ContextImpl, number::f64_stringify, object::ObjectImpl, string::StringRef,
 };
 
 use super::JSValue;
@@ -13,7 +13,7 @@ impl JSValue {
     /// Get inspect representation string of `self` value.
     /// `inspect()` string is only used for interactive prompting,
     /// use `to_string()` for other cases.
-    pub fn inspect(&self, ctx: &mut ContextImpl) -> Result<String, i32> {
+    pub fn inspect(&self, ctx: &mut ScopedContext) -> Result<String, i32> {
         match self {
             Self::Int(i) => Ok(format!("{}", *i)),
             Self::Bool(b) => Ok(if *b { "true" } else { "false" }.into()),
@@ -46,7 +46,7 @@ impl JSValue {
 
 impl ObjectImpl {
     /// Represent object in "[object <Tag>]" format
-    pub(crate) fn repr(&self, ctx: &mut ContextImpl) -> Result<String, i32> {
+    pub(crate) fn repr(&self, ctx: &mut ScopedContext) -> Result<String, i32> {
         let atom = if self.is_array(ctx)? {
             Atom::CONST_Array
         } else if self.is_function() {
@@ -91,7 +91,7 @@ impl ObjectImpl {
     ///
     /// Now simply output "Array(n)" or "ClassName { }" format.
     /// TODO: should show detailed info inside later.
-    pub fn inspect(&self, ctx: &mut ContextImpl) -> Result<String, i32> {
+    pub fn inspect(&self, ctx: &mut ScopedContext) -> Result<String, i32> {
         match self.class_id() {
             JS_CLASS_ARRAY => Ok(format!("Array({})", self.payload().array().unwrap().len())),
             class_id => {

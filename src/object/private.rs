@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::ContextImpl,
     error::{JS_ThrowTypeErrorPrivateNotFound, JSResult},
@@ -14,7 +15,7 @@ use super::JS_PROP_C_W_E;
 
 impl ObjectImpl {
     /// Check if `self` has own property suggested by `func.<home_object>.<brand>`.
-    pub fn check_brand(&self, ctx: &mut ContextImpl, func: JSValue) -> Result<bool, i32> {
+    pub fn check_brand(&self, ctx: &mut ScopedContext, func: JSValue) -> Result<bool, i32> {
         if let Some(home_obj) = func
             .as_object_BCWrapper()
             .and_then(|o| o.payload().home_object())
@@ -40,7 +41,7 @@ impl ObjectImpl {
 
     fn set_private_field(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         name: JSValue,
         val: JSValue,
     ) -> Result<(), i32> {
@@ -60,7 +61,7 @@ impl ObjectImpl {
         }
     }
 
-    fn get_private_field(&self, ctx: &mut ContextImpl, name: JSValue) -> JSResult {
+    fn get_private_field(&self, ctx: &mut ScopedContext, name: JSValue) -> JSResult {
         if let JSValue::Symbol(s) = name {
             let atom = Atom::from_id(s.atom_info().unwrap().id());
 
@@ -83,7 +84,7 @@ impl ObjectImpl {
     /// Private fields can be added even on non-extensible objects or Proxies
     pub fn define_private_field(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         name: JSValue,
         val: JSValue,
     ) -> Result<(), i32> {
@@ -108,7 +109,7 @@ impl ObjectImpl {
 
 impl JSValue {
     /// Check if `self` has own property suggested by `func.<home_object>.<brand>`.
-    pub fn check_brand(&self, ctx: &mut ContextImpl, func: JSValue) -> Result<bool, i32> {
+    pub fn check_brand(&self, ctx: &mut ScopedContext, func: JSValue) -> Result<bool, i32> {
         if let JSValue::Object(ob) = self {
             ob.check_brand(ctx, func)
         } else {
@@ -119,7 +120,7 @@ impl JSValue {
 
     /// Assign `home_obj` a symbol as its identifier and store it in `home_obj.<brand>`.
     /// If `self` is an object, define a property with the home object's symbol as key.
-    pub fn add_brand(&mut self, ctx: &mut ContextImpl, home_obj: JSValue) -> Result<(), i32> {
+    pub fn add_brand(&mut self, ctx: &mut ScopedContext, home_obj: JSValue) -> Result<(), i32> {
         if let JSValue::Object(mut home) = home_obj {
             let brand_sym: JSValue = if let Some((idx, _)) =
                 home.find_shape_property(Atom::CONST_Private_brand)
@@ -166,7 +167,7 @@ impl JSValue {
 
     pub fn set_private_field(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         name: JSValue,
         val: JSValue,
     ) -> Result<(), i32> {
@@ -183,7 +184,7 @@ impl JSValue {
         }
     }
 
-    pub fn get_private_field(&self, ctx: &mut ContextImpl, name: JSValue) -> JSResult {
+    pub fn get_private_field(&self, ctx: &mut ScopedContext, name: JSValue) -> JSResult {
         if let Self::Object(ob) = self {
             ob.get_private_field(ctx, name)
         } else {
@@ -195,7 +196,7 @@ impl JSValue {
     /// Private fields can be added even on non-extensible objects or Proxies
     pub fn define_private_field(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         name: JSValue,
         val: JSValue,
     ) -> Result<(), i32> {

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     context::ContextPtr,
     error::JSResult,
@@ -10,8 +11,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_boolean_constructor(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+pub fn js_boolean_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
     let b = cc.arg(0).to_bool().unwrap_or(true);
 
@@ -24,16 +24,14 @@ pub fn js_boolean_constructor(cc: CallContext) -> JSResult {
     }
 }
 
-fn js_thisBooleanValue(mut ctx: ContextPtr, this_val: JSValue) -> JSResult {
+fn js_thisBooleanValue(ctx: &mut ScopedContext, this_val: JSValue) -> JSResult {
     this_val.as_bool().map(JSValue::Bool).ok_or_else(|| {
         ctx.throw_type_error("not a boolean");
         -1
     })
 }
 
-fn js_boolean_toString(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+fn js_boolean_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     match js_thisBooleanValue(ctx, cc.this())? {
         JSValue::Bool(true) => Atom::CONST_true,
         JSValue::Bool(false) => Atom::CONST_false,
@@ -42,12 +40,12 @@ fn js_boolean_toString(cc: CallContext) -> JSResult {
             return Err(-1);
         }
     }
-    .force_string(&mut ctx)
+    .force_string(ctx)
     .map(JSValue::from)
 }
 
-fn js_boolean_valueOf(cc: CallContext) -> JSResult {
-    js_thisBooleanValue(cc.ctx_ptr(), cc.this())
+fn js_boolean_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    js_thisBooleanValue(ctx, cc.this())
 }
 
 pub const js_boolean_proto_funcs: &[FieldDef] = &[

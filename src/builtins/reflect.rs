@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ScopedContext,
     builtins::{
         iterator::JSIteratorKindEnum,
         object::{
@@ -15,10 +16,9 @@ use crate::{
     value::JSValue,
 };
 
-fn js_reflect_apply(cc: CallContext) -> JSResult {
-    let ctx = cc.ctx_ptr();
+fn js_reflect_apply(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let cc2 = CallContext::new(
-        ctx,
+        ctx.into(),
         cc.arg(0),
         if cc.length() == 0 {
             &[]
@@ -28,11 +28,11 @@ fn js_reflect_apply(cc: CallContext) -> JSResult {
         2,
         None,
     );
-    js_function_apply(cc2)
+
+    js_function_apply(ctx, cc2)
 }
 
-fn js_reflect_construct(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+fn js_reflect_construct(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let func = cc.arg(0);
     let array_arg = cc.arg(1);
 
@@ -47,16 +47,14 @@ fn js_reflect_construct(cc: CallContext) -> JSResult {
         func
     };
 
-    let args = build_arg_list(&mut ctx, array_arg)?;
-    func.call_ctor_new_target(&mut ctx, new_target, &args)
+    let args = build_arg_list(ctx, array_arg)?;
+    func.call_ctor_new_target(ctx, new_target, &args)
 }
 
-fn js_reflect_deleteProperty(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+fn js_reflect_deleteProperty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(mut obj) = cc.arg(0) {
-        let atom = cc.arg(1).to_atom(&mut ctx)?;
-        let ret = obj.delete_property(&mut ctx, atom, 0);
+        let atom = cc.arg(1).to_atom(ctx)?;
+        let ret = obj.delete_property(ctx, atom, 0);
         ret.map(JSValue::Bool)
     } else {
         ctx.throw_type_error_not_an_object();
@@ -64,46 +62,41 @@ fn js_reflect_deleteProperty(cc: CallContext) -> JSResult {
     }
 }
 
-fn js_reflect_get(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+fn js_reflect_get(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0);
 
     if obj.is_object() {
         let prop = cc.arg(1);
         let receiver = if cc.length() > 2 { cc.arg(2) } else { obj };
-        let atom = prop.to_atom(&mut ctx)?;
-        obj.get_property_internal(&mut ctx, atom, receiver, false)
+        let atom = prop.to_atom(ctx)?;
+        obj.get_property_internal(ctx, atom, receiver, false)
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)
     }
 }
 
-fn js_reflect_has(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+fn js_reflect_has(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
         let prop = cc.arg(1);
-        let atom = prop.to_atom(&mut ctx)?;
-        obj.has_property(&mut ctx, atom).map(JSValue::Bool)
+        let atom = prop.to_atom(ctx)?;
+        obj.has_property(ctx, atom).map(JSValue::Bool)
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)
     }
 }
 
-fn js_reflect_set(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
-
+fn js_reflect_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let target = cc.arg(0);
     if let Some(o) = target.as_object() {
         let prop = cc.arg(1);
         let val = cc.arg(2);
         let receiver = if cc.length() > 3 { cc.arg(3) } else { target };
-        let atom = prop.to_atom(&mut ctx)?;
+        let atom = prop.to_atom(ctx)?;
 
         o.set_property_internal(
-            &mut ctx,
+            ctx,
             atom,
             val,
             match receiver {
@@ -120,19 +113,17 @@ fn js_reflect_set(cc: CallContext) -> JSResult {
     }
 }
 
-fn js_reflect_setPrototypeOf(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+fn js_reflect_setPrototypeOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut val = cc.arg(0);
-    val.set_prototype_internal(&mut ctx, cc.arg(1), false)
+    val.set_prototype_internal(ctx, cc.arg(1), false)
         .map(JSValue::Bool)
 }
 
-fn js_reflect_ownKeys(cc: CallContext) -> JSResult {
-    let mut ctx = cc.ctx_ptr();
+fn js_reflect_ownKeys(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let val = cc.arg(0);
     if val.is_object() {
         val.build_own_property_kvs_array(
-            &mut ctx,
+            ctx,
             JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
         )

@@ -263,7 +263,7 @@ impl<'s> JSParseState<'s> {
 
         let p0 = p;
 
-        if let Ok(num) = unsafe { js_atof(&mut self.ctx, p, &mut p, radix, flags) } {
+        if let Ok(num) = unsafe { js_atof(&mut self.ctx.new_scope_legacy(), p, &mut p, radix, flags) } {
             self.token.kind = TokenKind::NUMBER;
             self.token.data = TokenData::Num(num);
             Ok(unsafe { p.offset_from(p0) as usize })
@@ -283,7 +283,7 @@ impl<'s> JSParseState<'s> {
         {
             if buf.capacity() - buf.len() >= 6 {
                 buf.try_reserve(64).map_err(|_| {
-                    self.ctx.throw_out_of_memory();
+                    self.ctx.new_scope_legacy().throw_out_of_memory();
                     -1
                 })?;
             }
@@ -305,7 +305,7 @@ impl<'s> JSParseState<'s> {
             TokenKind::Char('{') => {
                 self.json_next_token()?;
 
-                val = self.ctx.create_base_object()?.into();
+                val = self.ctx.new_scope_legacy().create_base_object()?.into();
                 if self.token.kind != TokenKind::Char('}') {
                     loop {
                         let prop_name = if self.token.kind == TokenKind::STRING {
@@ -326,7 +326,7 @@ impl<'s> JSParseState<'s> {
 
                         let prop_val = self.json_parse_value()?;
                         val.define_property_value(
-                            &mut self.ctx,
+                            &mut self.ctx.new_scope_legacy(),
                             prop_name,
                             prop_val,
                             JS_PROP_C_W_E,
@@ -354,7 +354,7 @@ impl<'s> JSParseState<'s> {
 
                         if lst.len() == lst.capacity() {
                             lst.try_reserve(32).map_err(|_| {
-                                self.ctx.throw_out_of_memory();
+                                self.ctx.new_scope_legacy().throw_out_of_memory();
                                 -1
                             })?;
                         }
@@ -374,13 +374,13 @@ impl<'s> JSParseState<'s> {
 
                 // make Array
                 lst.shrink_to_fit();
-                val = self.ctx.create_array_with_values(lst)?.into();
+                val = self.ctx.new_scope_legacy().create_array_with_values(lst)?.into();
 
                 json_parse_expect(self, b']')?;
             }
             TokenKind::STRING => {
                 let sbuf = self.token.data.take_string().unwrap();
-                val = self.ctx.create_string_with_buf(sbuf)?.into();
+                val = self.ctx.new_scope_legacy().create_string_with_buf(sbuf)?.into();
                 self.json_next_token()?;
             }
             TokenKind::NUMBER => {
