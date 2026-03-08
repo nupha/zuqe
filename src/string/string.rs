@@ -10,10 +10,10 @@ use std::{
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_STRING, ScopedContext,
+    JS_CLASS_STRING,
     atom::{Atom, AtomInfo, AtomKind},
     class::ClassExoticMethods,
-    context::{Context, ContextImpl, ContextPtr},
+    context::ScopedContext,
     number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,

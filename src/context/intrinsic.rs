@@ -4,7 +4,7 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_GENERATOR,
     JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_STRING,
-    JS_CLASS_STRING_ITERATOR, ScopedContext,
+    JS_CLASS_STRING_ITERATOR,
     atom::Atom,
     builtins::{
         array::{
@@ -23,7 +23,7 @@ use crate::{
             js_string_proto_funcs,
         },
     },
-    context::ContextImpl,
+    context::ScopedContext,
     error::{ErrorKind, STD_ERROR_NAMES},
     function::{BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{
@@ -49,7 +49,7 @@ impl<'c> ScopedContext<'c> {
         // FOR LEGACY: make throw type error function
         let mut throw_type_error = self
             .create_native_function(
-                Callback::Func(|ctx, mut cc| {
+                Callback::Func(|ctx, cc| {
                     // throw only in strict mode
                     let throw = cc
                         .this()

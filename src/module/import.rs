@@ -4,10 +4,10 @@
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
-    Callback, ScopedContext,
+    Callback,
     atom::Atom,
     builtins::promise::Promise,
-    context::{ContextImpl, ContextPtr},
+    context::{ContextPtr, ScopedContext},
     error::JSResult,
     function::{CallContext, NativeFunction},
     module::{

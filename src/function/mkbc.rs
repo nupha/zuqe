@@ -57,7 +57,7 @@ impl FunctionDef {
         // so it is necessary to create the closure variables before any
         // other variable lookup is done.
         if self.has_eval_call {
-            self.add_eval_variables(ctx.into());
+            self.add_eval_variables(ctx);
         }
 
         // add the module global variables in the closure

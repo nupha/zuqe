@@ -10,9 +10,9 @@ use std::{
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER, ScopedContext,
+    JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
     class::ClassID,
-    context::{Context, ContextImpl},
+    context::ScopedContext,
     error::JSResult,
     function::CallContext,
     object::{Object, ObjectImpl, ObjectPayload},

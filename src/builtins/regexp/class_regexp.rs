@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::GcNode;
 use lre::RegexFlags;
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CLASS_REGEXP, ScopedContext,
+    JS_CLASS_REGEXP,
     atom::Atom,
     builtins::array::Array,
-    context::ContextPtr,
+    context::ScopedContext,
     error::JSResult,
     function::{CallContext, Callback, FieldDef, js_function_apply},
     object::{

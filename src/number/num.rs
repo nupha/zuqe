@@ -3,7 +3,7 @@
 
 use std::ops::RangeInclusive;
 
-use crate::{ScopedContext, context::ContextImpl, error::JSResult, value::JSValue};
+use crate::{context::ScopedContext, error::JSResult, value::JSValue};
 
 pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 pub const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;

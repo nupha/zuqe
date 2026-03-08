@@ -6,10 +6,10 @@ use std::ptr::NonNull;
 use gc_lite::{GcNode, GcPartitionId, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, ScopedContext,
+    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
     atom::Atom,
     builtins::iterator::js_create_iterator_result,
-    context::{ContextImpl, ContextPtr},
+    context::{ContextPtr, ScopedContext},
     error::JSResult,
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
@@ -273,7 +273,7 @@ impl NativeFunction {
 
     // TODO: shall we combine this with `::class_call()`?
     pub fn class_call_with_data(
-        ctx: &mut ScopedContext,
+        _: &mut ScopedContext,
         func_obj: JSValue,
         this_val: JSValue,
         args: &[JSValue],

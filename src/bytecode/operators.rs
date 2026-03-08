@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_OBJECT, ScopedContext,
+    JS_CLASS_OBJECT,
     atom::Atom,
     builtins::iterator::{
         ForInIterPayload, JS_IteratorGetCompleteValue, JSIteratorKindEnum, ObjectIter,
         js_array_iterator_next, js_create_array_iterator,
     },
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
-    context::ContextPtr,
+    context::ScopedContext,
     function::{Callback, FunctionKind, VarRef},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,

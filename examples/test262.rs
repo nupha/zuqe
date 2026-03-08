@@ -139,7 +139,7 @@ fn js_string_codePointRange(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     ctx.create_string_from_utf8(buf).map(JSValue::from)
 }
 
-fn js_createRealm(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+fn js_createRealm(_: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut ctx2 = cc
         .context()
         .rt_mut()
@@ -192,7 +192,7 @@ fn setup_ctx_test262_helpers(ctx: &mut ScopedContext) -> Result<JSValue, i32> {
     }
 
     let gc_func = ctx.create_native_function(
-        Callback::Func(|ctx, cc| -> JSResult {
+        Callback::Func(|ctx, _| -> JSResult {
             ctx.rt_mut().gc_request();
             Ok(JSValue::UNDEFINED)
         }),
@@ -314,7 +314,7 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorT
             })
             .unwrap();
 
-        ctx.with_new_scope(|mut scope| {
+        ctx.with_new_scope(|scope| {
             scope.eval(
                 src.as_bytes(),
                 file.as_os_str().to_string_lossy().as_ref(),

@@ -4,9 +4,8 @@
 use std::cmp::Ordering;
 
 use crate::{
-    ScopedContext,
     bytecode::OpCode,
-    context::{ContextImpl, ContextPtr},
+    context::ScopedContext,
     error::JSResult,
     number::{JSFloat64Union, js_f64_to_i32},
     utils::unlikely,

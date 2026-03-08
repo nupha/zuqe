@@ -12,9 +12,8 @@ pub(crate) use {class_def::*, meta::*, user::*};
 use std::ffi::c_void;
 
 use crate::{
-    ScopedContext,
     atom::Atom,
-    context::Context,
+    context::ScopedContext,
     error::JSResult,
     object::{JSPropertyDescriptor, Object, ObjectPayload, PropertyKey},
     runtime::RuntimeImpl,

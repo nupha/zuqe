@@ -7,9 +7,9 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_WEAKMAP,
-    JS_CLASS_WEAKSET, ScopedContext,
+    JS_CLASS_WEAKSET,
     class::ClassID,
-    context::{Context, ContextImpl},
+    context::{ContextImpl, ScopedContext},
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     utils::hash_usize,

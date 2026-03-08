@@ -5,7 +5,7 @@ use fallible_collections::TryCollect;
 use gc_lite::{GcNode, GcPartitionId};
 
 use crate::{
-    JS_CLASS_ARRAY, ScopedContext,
+    JS_CLASS_ARRAY,
     atom::Atom,
     builtins::{
         iterator::{
@@ -16,7 +16,7 @@ use crate::{
         typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
     },
     bytecode::arithmatic::StrictEqMode,
-    context::{ContextImpl, ContextPtr},
+    context::{ContextPtr, ScopedContext},
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,

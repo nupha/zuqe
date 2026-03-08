@@ -3,12 +3,10 @@
 
 use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 
-use gc_lite::GcNode;
-
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
-    context::{ContextImpl, ContextPtr},
+    context::ContextPtr,
     eval::EvalType,
     function::{
         BytecodeAttrs, ClosureVar, DEFINE_GLOBAL_LEX_VAR, JSGlobalVar, JSVarDef, JSVarScope,

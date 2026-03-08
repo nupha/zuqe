@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext,
+    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
     atom::Atom,
-    context::ContextImpl,
+    context::ScopedContext,
     error::JSResult,
     object::{Object, ObjectImpl},
     value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},

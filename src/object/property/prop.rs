@@ -4,9 +4,9 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, ScopedContext,
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::{ContextPtr, ScopedContext},
     error::JSResult,
     function::VarRef,
     object::{LazyInit, Object, ObjectImpl},
@@ -339,7 +339,7 @@ impl ObjectImpl {
                     .as_ref()
                     .and_then(|x| x.has_property)
             {
-                return cb(ctx.into(), cur_obj, prop);
+                return cb(ctx, cur_obj, prop);
             }
 
             if cur_obj.get_own_property(ctx, prop)?.is_some() {

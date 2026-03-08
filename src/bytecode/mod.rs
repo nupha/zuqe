@@ -4,10 +4,11 @@
 include!(concat!(env!("OUT_DIR"), "/opcodes.rs"));
 
 pub mod arithmatic;
-mod dump;
 mod exec;
 pub(crate) mod operators;
 
+#[cfg(feature = "dump_bytecode")]
+mod dump;
 #[cfg(feature = "dump_bytecode")]
 pub(super) use dump::dump_opcodes;
 

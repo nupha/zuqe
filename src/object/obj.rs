@@ -10,16 +10,8 @@ use crate::{
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
     JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, RuntimeImpl,
-    ScopedContext,
-    atom::Atom,
-    class::ClassID,
-    context::{ContextImpl, ContextPtr},
-    error::JSResult,
-    gcref_wrapper,
-    runtime::RuntimePtr,
-    string::StringRef,
-    utils::unlikely,
-    value::JSValue,
+    atom::Atom, class::ClassID, context::ScopedContext, error::JSResult, gcref_wrapper,
+    runtime::RuntimePtr, string::StringRef, utils::unlikely, value::JSValue,
 };
 
 use super::{

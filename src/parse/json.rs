@@ -4,9 +4,8 @@
 use smallvec::SmallVec;
 
 use crate::{
-    ScopedContext,
     atom::{Atom, AtomKind},
-    context::ContextImpl,
+    context::ScopedContext,
     error::JSResult,
     number::{ATOD_ACCEPT_BIN_OCT, js_atof},
     object::JS_PROP_C_W_E,

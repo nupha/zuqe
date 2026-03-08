@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    Callback, JS_CLASS_PROMISE, ScopedContext,
+    Callback, JS_CLASS_PROMISE,
     atom::Atom,
     builtins::{error::js_aggregate_error_constructor, js_get_this},
-    context::ContextImpl,
+    context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunction},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
@@ -22,7 +22,7 @@ use super::{
 // Instance methods
 //
 
-fn js_promise_then(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
+fn js_promise_then(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut this = cc.this();
     if let Some(p) = this.as_object_Promise_mut() {
         p.then(ctx, cc.arg(0), cc.arg(1)).map(|p| p.into())
@@ -51,12 +51,12 @@ fn js_promise_then_finally_func(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     // create inner resolving function for finally()
     let then_func: JSValue = NativeFunction::create(
         ctx,
-        Callback::Func(|ctx: &mut ScopedContext<'_>, cc: CallContext| -> JSResult {
+        Callback::Func(|cx: &mut ScopedContext<'_>, cc: CallContext| -> JSResult {
             let val = cc.data(0);
             if cc.magic() == 0 {
                 val.err() // resolve
             } else {
-                ctx.throw(val); // reject
+                cx.throw(val); // reject
                 Err(-1)
             }
         }),

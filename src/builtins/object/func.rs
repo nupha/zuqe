@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    ScopedContext,
     atom::Atom,
     builtins::{array::js_array_push, iterator::JSIteratorKindEnum},
+    context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
@@ -93,7 +93,7 @@ pub(crate) fn js_object_defineProperty(ctx: &mut ScopedContext, cc: CallContext)
 }
 
 /// defineProperties(obj, properties)
-pub(crate) fn js_object_defineProperties(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
+pub(crate) fn js_object_defineProperties(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0);
     if let Some(mut o) = obj.as_object().copied() {
         let arg1 = cc.arg(1);
@@ -356,7 +356,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptors(
     Ok(res_obj.into())
 }
 
-pub(crate) fn js_object_is(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_is(_: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(cc.arg(0).is_same(cc.arg(1))))
 }
 

@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    Context, RuntimeImpl, ScopedContext,
+    RuntimeImpl,
     atom::Atom,
     class::{ClassCallFn, ClassInitializeFn, FreeObjFn, GetPrototypeFn, SetPrototypeFn},
+    context::ScopedContext,
     function::FunctionDef,
     object::{JS_PROP_NO_EXOTIC, ObjectPayload},
     value::JSValue,

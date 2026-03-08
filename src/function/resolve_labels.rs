@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    ScopedContext,
     bytecode::{OpCode, SpecialObject, opcode_info_intermediate, opcodes},
-    context::ContextImpl,
+    context::ScopedContext,
     function::{
         CodeMatchState, FunctionDef, push_vec_atom, push_vec_short_code, push_vec_short_int,
         push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,

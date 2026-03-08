@@ -6,10 +6,10 @@ use std::ffi::c_void;
 use gc_lite::GcNode;
 
 use crate::{
-    ScopedContext, USER_CLASS_ID_START,
+    USER_CLASS_ID_START,
     atom::Atom,
     class::{ClassID, OtherPayload},
-    context::{ContextImpl, ContextPtr},
+    context::{ContextPtr, ScopedContext},
     object::{Object, ObjectImpl, ObjectPayload, Shape},
     value::JSValue,
 };

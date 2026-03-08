@@ -83,7 +83,7 @@ pub(crate) fn js_map_get(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .map(|r| {
             r.mapset()
                 .unwrap()
-                .find(&ctx, key)
+                .find(ctx, key)
                 .unwrap_or(JSValue::UNDEFINED)
         })
 }
@@ -137,8 +137,7 @@ fn js_map_delete(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)
         .map(|isa| {
             let s = isa.mapset_mut().unwrap();
-
-            if s.find(&ctx, key).is_some() {
+            if s.find(ctx, key).is_some() {
                 s.remove(ctx, key);
 
                 if s.is_weak() {
@@ -158,14 +157,13 @@ fn js_map_has(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let key = cc.arg(0);
     cc.this()
         .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
-        .map(|r| r.mapset().unwrap().find(&ctx, key).is_some().into())
+        .map(|r| r.mapset().unwrap().find(ctx, key).is_some().into())
 }
 
 fn js_map_clear(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
 
     let mut this = cc.this();
-
     this.retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)
         .map(|isa| {
             isa.mapset_mut().unwrap().clear();

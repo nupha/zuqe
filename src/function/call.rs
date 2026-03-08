@@ -3,12 +3,9 @@
 
 use std::ops::{Deref, DerefMut};
 
-use gc_lite::GcNode;
-
 use crate::{
-    Context, ScopedContext,
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::{Context, ContextImpl, ContextPtr, ScopedContext},
     error::JSResult,
     object::{Object, ObjectImpl, ObjectPayload},
     utils::unlikely,

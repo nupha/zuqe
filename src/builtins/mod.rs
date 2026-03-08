@@ -34,6 +34,6 @@ pub mod symbol;
 
 use crate::{context::ScopedContext, error::JSResult, function::CallContext};
 
-pub const fn js_get_this(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+pub const fn js_get_this(_: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(cc.this())
 }

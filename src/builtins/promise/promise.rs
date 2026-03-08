@@ -6,11 +6,11 @@ use std::{cell::Cell, rc::Rc};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_PROMISE, ScopedContext,
+    JS_CLASS_PROMISE,
     atom::Atom,
     builtins::error::js_aggregate_error_constructor,
     class::ClassID,
-    context::{Context, ContextImpl},
+    context::{ContextImpl, ScopedContext},
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
     object::{JS_PROP_C_W_E, Object, ObjectImpl, ObjectPayload},

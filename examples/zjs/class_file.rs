@@ -12,10 +12,9 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-use gc_lite::GcScope;
 use zuqe::{
-    CallContext, ClassDef, ClassID, Context, FieldDef, JSResult, JSValue, Object, Runtime,
-    RuntimeImpl, ScopedContext,
+    CallContext, ClassDef, ClassID, FieldDef, JSResult, JSValue, Object, Runtime, RuntimeImpl,
+    ScopedContext,
 };
 
 #[derive(Debug)]

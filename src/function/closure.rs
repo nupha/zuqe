@@ -4,9 +4,9 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR, ScopedContext,
+    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::ScopedContext,
     object::{JS_PROP_WRITABLE, LazyInit, Object, ObjectPayload},
     stack_frame::StackFrame,
 };

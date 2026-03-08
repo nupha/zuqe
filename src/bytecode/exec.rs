@@ -24,7 +24,7 @@ use crate::{
         OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
         OP_DEFINE_METHOD_SETTER,
     },
-    context::{Context, ContextPtr, ScopedContext},
+    context::{Context, ScopedContext},
     error::{
         JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
@@ -79,7 +79,7 @@ impl Bytecode {
         let mut realm_ctx: Context = realm_ptr.into();
 
         realm_ctx.with_new_scope(|realm_scope| {
-            self.execute_with_scope(
+            self.execute_with_realm_scope(
                 caller_ctx,
                 realm_scope,
                 func_home_obj,
@@ -96,7 +96,7 @@ impl Bytecode {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn execute_with_scope(
+    fn execute_with_realm_scope(
         &self,
         caller_ctx: &mut ScopedContext,
         mut realm_scope: ScopedContext,

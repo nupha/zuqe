@@ -6,10 +6,10 @@ use std::cell::Cell;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_PROXY, ScopedContext,
+    JS_CLASS_PROXY,
     atom::Atom,
     class::{ClassExoticMethods, ClassID},
-    context::{Context, ContextImpl, ContextPtr},
+    context::ScopedContext,
     error::JSResult,
     function::{Callback, JS_CALL_FLAG_CONSTRUCTOR},
     object::{

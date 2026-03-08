@@ -531,7 +531,7 @@ impl JSValue {
     /// Return ObjectIter to iterate JSValue.
     pub(crate) fn iter(&self, ctx: &mut ScopedContext) -> Result<ObjectIter<'_>, i32> {
         let target = self.get_iterator_must(ctx, false)?;
-        ObjectIter::new(ctx.into(), target, Atom::CONST_next)
+        ObjectIter::new(ctx, target, Atom::CONST_next)
     }
 }
 
@@ -583,7 +583,7 @@ pub(crate) fn js_array_from_iterator(
     method: JSValue,
 ) -> Result<(JSValue, usize), i32> {
     if let JSValue::Object(obj) = method.call(ctx, obj, &[])? {
-        let it = ObjectIter::new(ctx.into(), obj, Atom::CONST_next)?;
+        let it = ObjectIter::new(ctx, obj, Atom::CONST_next)?;
         let mut arr = ctx.create_array()?;
 
         let mut k = 0_i64;

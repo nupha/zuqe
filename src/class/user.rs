@@ -6,10 +6,10 @@ use std::{cell::Cell, ffi::c_void, ptr::NonNull};
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
-    ClassDef, ScopedContext, USER_CLASS_ID_START,
+    ClassDef, USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
     class::ClassID,
-    context::{ContextImpl, ContextPtr},
+    context::ScopedContext,
     object::{Object, ObjectImpl, ObjectPayload},
     runtime::RuntimeImpl,
     value::JSValue,

@@ -190,8 +190,8 @@ const fn xorshift64star(pstate: &mut u64) -> u64 {
     x.wrapping_mul(0x2545F4914F6CDD1D)
 }
 
-pub fn js_math_random(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
-    let v = xorshift64star(&mut cc.ctx_mut().random_state);
+pub fn js_math_random(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
+    let v = xorshift64star(&mut ctx.random_state);
     /* 1.0 <= u.d < 2 */
     let u = JSFloat64Union {
         uint64: (0x3ff << 52) | (v >> 12),

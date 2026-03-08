@@ -6,7 +6,7 @@ use std::{ops::Deref, ptr::NonNull};
 use crate::{
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextImpl, ScopedContext},
+    context::ScopedContext,
     error::{ErrorText, JSResult},
     function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
@@ -174,13 +174,11 @@ impl<'c> ScopedContext<'c> {
             md.set_tla(has_await);
             self.resolve_module(md)?;
             Ok(Compiled::Module(md))
+        } else if frame_func_bc.is_some() {
+            debug_assert_eq!(eval_type, EvalType::Direct);
+            Ok(Compiled::Direct(bc))
         } else {
-            if frame_func_bc.is_some() {
-                debug_assert_eq!(eval_type, EvalType::Direct);
-                Ok(Compiled::Direct(bc))
-            } else {
-                Ok(Compiled::GlobalOrIndirect(bc))
-            }
+            Ok(Compiled::GlobalOrIndirect(bc))
         }
     }
 

@@ -13,7 +13,7 @@ use crate::{
     atom::Atom,
     builtins::{array_buffer::ArrayBuffer, iterator::js_array_from_iterator},
     class::ClassID,
-    context::{Context, ContextImpl, ContextPtr, ScopedContext},
+    context::ScopedContext,
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::{Callback, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},

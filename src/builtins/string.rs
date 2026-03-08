@@ -20,9 +20,6 @@ use crate::{
     value::JSValue,
 };
 
-#[cfg(feature = "builtin_regexp")]
-use crate::context::ContextPtr;
-
 const MAGIC_INCLUDES: i32 = 1;
 const MAGIC_STARTS_WITH: i32 = 2;
 const MAGIC_ENDS_WITH: i32 = 3;
@@ -88,7 +85,7 @@ fn js_string_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 }
 
-fn js_string_codePointAt(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
+fn js_string_codePointAt(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let s = this.to_string_non_undefined_or_null(ctx)?;
     let i: i32 = cc.arg(0).to_i32_saturating(ctx)?;
@@ -112,7 +109,7 @@ fn js_string_concat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(s.into())
 }
 
-fn js_string_isWellFormed(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
+fn js_string_isWellFormed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let p = this.to_string_non_undefined_or_null(ctx)?;
     Ok(p.chars().is_well_formed().into())
@@ -755,7 +752,7 @@ fn js_string_match(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 }
 
-fn js_string_trim(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
+fn js_string_trim(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let str = this.to_string_non_undefined_or_null(ctx)?;
     let mut s = str.content().to_buf().map_err(|_| {
@@ -945,7 +942,7 @@ fn js_string_normalize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 // non-standard
-fn js_string__quote(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
+fn js_string__quote(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let val = cc.this();
     if val.is_undefined_or_null() {
         ctx.throw_type_error("undefined or null is not allowed");

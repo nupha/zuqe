@@ -6,8 +6,7 @@ use std::marker::PhantomData;
 use gc_lite::GcNode;
 
 use crate::{
-    ScopedContext,
-    context::ContextImpl,
+    context::ScopedContext,
     error::JSResult,
     object::{Object, ObjectImpl},
     utils::unlikely,
@@ -71,8 +70,7 @@ impl ObjectImpl {
                 .and_then(|em| em.get_prototype)
         {
             // exotic: Proxy
-            f(ctx.into(), JSValue::Object(Object::from(self.gc_ref())))
-                .map(|v| Object::try_from(v).ok())
+            f(ctx, JSValue::Object(Object::from(self.gc_ref()))).map(|v| Object::try_from(v).ok())
         } else {
             Ok(self.shape_proto())
         }
@@ -107,7 +105,7 @@ impl ObjectImpl {
                 .and_then(|em| em.set_prototype)
         {
             // exotic handler: Proxy
-            let ret = f(ctx.into(), JSValue::Object(obj), proto_val);
+            let ret = f(ctx, JSValue::Object(obj), proto_val);
             return if ret == Ok(false) && throw_flag {
                 ctx.throw_type_error("proxy: bad prototype");
                 Err(-1)

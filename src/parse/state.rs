@@ -3,14 +3,7 @@
 
 use std::ptr::NonNull;
 
-use gc_lite::GcNode;
-
-use crate::{
-    ScopedContext,
-    context::{ContextImpl, ContextPtr},
-    function::FunctionDef,
-    number::IntOrFloat,
-};
+use crate::{context::ScopedContext, function::FunctionDef, number::IntOrFloat};
 
 use super::tokenize::{Token, TokenData, TokenKind};
 
@@ -91,7 +84,7 @@ impl<'s> JSParseState<'s> {
     /// * `fd` - The root function def pointer. could be null.
     /// * `source` - Buffer containing source code
     /// * `filename` - Name of source file
-    fn new_internal(
+    const fn new_internal(
         ctx: ScopedContext<'s>,
         fd: *mut FunctionDef,
         source: &'s [u8],
@@ -129,7 +122,7 @@ impl<'s> JSParseState<'s> {
 
     /// Create new parser state with root function def.
     #[inline(always)]
-    pub(crate) fn new(
+    pub(crate) const fn new(
         ctx: ScopedContext<'s>,
         fd: NonNull<FunctionDef>,
         source: &'s [u8],
@@ -140,12 +133,12 @@ impl<'s> JSParseState<'s> {
 
     /// Create new parser state for json (which don't have function def).
     #[inline(always)]
-    pub fn new_for_json(ctx: ScopedContext<'s>, source: &'s [u8], filename: &'s str) -> Self {
+    pub const fn new_for_json(ctx: ScopedContext<'s>, source: &'s [u8], filename: &'s str) -> Self {
         Self::new_internal(ctx, std::ptr::null_mut(), source, filename)
     }
 
     #[inline(always)]
-    pub(crate) fn ctx(&mut self) -> &mut ScopedContext<'s> {
+    pub const fn ctx(&mut self) -> &mut ScopedContext<'s> {
         &mut self.ctx
     }
 

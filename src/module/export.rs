@@ -3,12 +3,11 @@
 
 use std::cmp::Ordering;
 
-use gc_lite::{GcNode, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    ScopedContext,
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::ScopedContext,
     error::ErrorKind,
     function::{FieldDef, FieldDetail, VarRef},
     module::{ModuleDef, ModuleDefImpl},
@@ -189,7 +188,7 @@ impl ModuleDefImpl {
     pub fn add_export(&mut self, ctx: &mut ScopedContext, export_name: &str) -> Result<(), i32> {
         let atom = Atom::new(ctx.rt_ptr(), export_name)?;
         self.add_export_internal(
-            ctx.into(),
+            ctx,
             Atom::NULL,
             atom,
             ExportType::JS_EXPORT_TYPE_LOCAL {

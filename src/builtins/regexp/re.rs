@@ -8,11 +8,11 @@ use lre::{Regex, RegexFlags};
 use zerocopy::IntoBytes;
 
 use crate::{
-    JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR, ScopedContext,
+    JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     atom::Atom,
     builtins::array::Array,
     class::ClassID,
-    context::{Context, ContextImpl},
+    context::ScopedContext,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     string::{CharCode, StringData, StringRef},

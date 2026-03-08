@@ -3,9 +3,9 @@
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
-    ScopedContext,
     builtins::js_get_this,
     class::ClassID,
+    context::ScopedContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef},
     object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
@@ -160,7 +160,7 @@ pub const js_shared_array_buffer_proto_funcs: &[FieldDef] = &[
 // static methods
 //
 
-fn js_array_buffer_isView(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+fn js_array_buffer_isView(_: &mut ScopedContext, cc: CallContext) -> JSResult {
     let res = if let JSValue::Object(p) = cc.arg(0)
         && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_DATAVIEW).contains(&p.class_id())
     {

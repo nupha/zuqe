@@ -5,10 +5,9 @@ use gc_lite::GcNode;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    ScopedContext,
     atom::{Atom, JS_ATOM_TAG_INT},
     bytecode::operators::js_get_function_name,
-    context::ContextImpl,
+    context::ScopedContext,
     number::IntOrFloat,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSProperty, Object,
@@ -387,7 +386,7 @@ impl ObjectImpl {
     ) -> Result<bool, i32> {
         if !self.has_name() {
             let atom = str_val.to_atom(ctx)?;
-            let name_str = js_get_function_name(ctx.into(), atom)?;
+            let name_str = js_get_function_name(ctx, atom)?;
             self.define_property_value(ctx, Atom::CONST_name, name_str.into(), flags)
         } else {
             Ok(false)

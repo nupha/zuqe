@@ -4,9 +4,9 @@
 use gc_lite::GcNode;
 
 use crate::{
-    Callback, JS_CLASS_BYTECODE_FUNCTION, ScopedContext,
+    Callback, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextImpl, ContextPtr},
+    context::ScopedContext,
     error::JSResult,
     eval::{Compiled, EvalFlags, EvalType},
     function::{CallContext, NativeFunction},

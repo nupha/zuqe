@@ -6,8 +6,8 @@ use std::ptr::NonNull;
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    RuntimeImpl, ScopedContext,
-    context::ContextImpl,
+    RuntimeImpl,
+    context::ScopedContext,
     gcref_wrapper,
     stack_frame::{ExecMode, StackFrame},
     value::JSValue,

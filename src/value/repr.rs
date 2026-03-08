@@ -3,8 +3,8 @@
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BOOLEAN, JS_CLASS_ERROR,
-    JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext, atom::Atom,
-    context::ContextImpl, number::f64_stringify, object::ObjectImpl, string::StringRef,
+    JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom,
+    context::ScopedContext, number::f64_stringify, object::ObjectImpl, string::StringRef,
 };
 
 use super::JSValue;

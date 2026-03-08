@@ -7,9 +7,9 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
-    JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, ScopedContext,
+    JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::Atom,
-    context::ContextImpl,
+    context::ScopedContext,
     error::JS_ThrowReferenceErrorNotDefined,
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
@@ -196,7 +196,7 @@ impl ObjectImpl {
                     // apply exotic methods
                     if let Some(f) = xm.set_property {
                         return f(
-                            ctx.into(),
+                            ctx,
                             JSValue::Object(cur_obj),
                             prop,
                             val,
@@ -206,7 +206,7 @@ impl ObjectImpl {
                     }
 
                     if let Some(f) = xm.get_own_property
-                        && let Some(desc) = f(ctx.into(), JSValue::Object(cur_obj), prop)?
+                        && let Some(desc) = f(ctx, JSValue::Object(cur_obj), prop)?
                     {
                         if desc.flags & JS_PROP_GETSET != 0 {
                             // protect self before calling setter

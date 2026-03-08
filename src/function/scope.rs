@@ -4,10 +4,9 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
 use crate::{
-    ScopedContext,
     atom::Atom,
     bytecode::OpCodeTemp,
-    context::ContextPtr,
+    context::ScopedContext,
     function::{FunctionDef, JSVarKindEnum},
 };
 

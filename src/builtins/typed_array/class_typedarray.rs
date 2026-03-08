@@ -20,7 +20,7 @@ use crate::{
         js_get_this,
     },
     class::ClassID,
-    context::{ContextImpl, ContextPtr, ScopedContext},
+    context::ScopedContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef},
     number::JSFloat64Union,
@@ -53,10 +53,7 @@ pub(crate) fn js_typed_array_get_length_internal(
         })
 }
 
-pub(crate) fn js_typed_array_base_constructor(
-    ctx: &mut ScopedContext,
-    mut cc: CallContext,
-) -> JSResult {
+pub(crate) fn js_typed_array_base_constructor(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     ctx.throw_type_error("cannot be called");
     Err(-1)
 }

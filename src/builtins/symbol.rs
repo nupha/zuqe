@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    ScopedContext,
     atom::{Atom, AtomKind},
-    context::ContextImpl,
+    context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::JS_PROP_CONFIGURABLE,

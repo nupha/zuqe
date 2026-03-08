@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, ScopedContext,
+    JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
-    context::ContextImpl,
+    context::ScopedContext,
     error::JS_ThrowReferenceErrorUninitialized,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET,
@@ -79,7 +79,7 @@ impl ObjectImpl {
                 .as_ref()
                 .and_then(|x| x.get_own_property)
             {
-                return cb(ctx.into(), Object::from_ref(self).into(), prop).map(|d| d.is_some());
+                return cb(ctx, Object::from_ref(self).into(), prop).map(|d| d.is_some());
             }
         }
 
@@ -172,7 +172,7 @@ impl ObjectImpl {
                 .as_ref()
                 .and_then(|x| x.get_own_property)
             {
-                return f(ctx.into(), Object::from_ref(self).into(), prop);
+                return f(ctx, Object::from_ref(self).into(), prop);
             }
         }
 
@@ -368,7 +368,7 @@ impl ObjectImpl {
                     {
                         if let Some(f) = pm.define_own_property {
                             return f(
-                                ctx.into(),
+                                ctx,
                                 Object::from_ref(self).into(),
                                 prop,
                                 val,

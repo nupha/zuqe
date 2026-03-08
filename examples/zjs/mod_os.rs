@@ -10,8 +10,7 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 use zuqe::{
-    CallContext, Context, FieldDef, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JSResult, JSValue,
-    ScopedContext,
+    CallContext, FieldDef, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JSResult, JSValue, ScopedContext,
 };
 
 // Declare windows crt functions

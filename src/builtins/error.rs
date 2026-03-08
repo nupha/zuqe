@@ -3,13 +3,11 @@
 
 use std::{borrow::Cow, ops::Deref};
 
-use gc_lite::GcNode;
-
 use crate::{
-    FieldDef, JS_CLASS_ERROR, ScopedContext,
+    FieldDef, JS_CLASS_ERROR,
     atom::Atom,
     builtins::iterator::iterator_to_array,
-    context::ContextPtr,
+    context::{ContextPtr, ScopedContext},
     error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
     function::CallContext,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectPayload},

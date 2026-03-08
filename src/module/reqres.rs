@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcNode, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    ScopedContext,
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::{ContextImpl, ScopedContext},
     module::ModuleDef,
 };
 

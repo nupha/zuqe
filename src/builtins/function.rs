@@ -156,7 +156,7 @@ fn js_function_proto_fileName(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     }
 }
 
-fn js_function_proto_lineNumber(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+fn js_function_proto_lineNumber(_: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(line_num) = cc.this().as_object().and_then(|o| {
         o.payload()
             .bc_function()

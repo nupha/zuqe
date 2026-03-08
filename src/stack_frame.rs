@@ -10,9 +10,9 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    Object, ScopedContext,
+    Object,
     builtins::iterator::ObjectIter,
-    context::{ContextImpl, ContextPtr},
+    context::ScopedContext,
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateImpl, VarRef},
     runtime::RuntimePtr,

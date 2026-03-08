@@ -4,11 +4,7 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    ScopedContext,
-    atom::Atom,
-    context::{ContextImpl, ContextPtr},
-    eval::EvalType,
-    function::FunctionDef,
+    atom::Atom, context::ScopedContext, eval::EvalType, function::FunctionDef,
     stack_frame::ExecMode,
 };
 

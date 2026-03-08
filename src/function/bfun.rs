@@ -6,10 +6,10 @@ use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, ScopedContext,
+    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
     atom::Atom,
     class::ClassID,
-    context::{ContextImpl, ContextPtr},
+    context::{ContextPtr, ScopedContext},
     error::JSResult,
     eval::{EvalFlags, EvalType},
     object::{

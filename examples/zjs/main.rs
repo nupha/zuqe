@@ -189,7 +189,7 @@ fn main() -> ExitCode {
 
     // create context
     let mut ctx = rt
-        .create_context(|mut cx| {
+        .create_context(|cx| {
             Context::ECMA_CONTEXT_SETUP(cx)?;
 
             // use File class

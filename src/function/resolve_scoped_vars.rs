@@ -2,10 +2,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    ScopedContext,
     atom::Atom,
     bytecode::{OpCode, opcodes},
-    context::ContextPtr,
+    context::ScopedContext,
     error::JS_THROW_VAR_RO,
 };
 

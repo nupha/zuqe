@@ -160,7 +160,7 @@ impl ObjectImpl {
                 // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
 
-                for pk in f(ctx.into(), Object::from_ref(self))? {
+                for pk in f(ctx, Object::from_ref(self))? {
                     if !has_err {
                         let atom_kind = pk.atom.desc_kind(ctx.rt_ref());
                         if (flags >> (atom_kind as u8)) & 1 != 0 {

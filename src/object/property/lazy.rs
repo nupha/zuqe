@@ -6,9 +6,8 @@ use std::ptr::NonNull;
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
-    ScopedContext,
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::{ContextPtr, ScopedContext},
     error::JSResult,
     function::{FieldDef, FieldDetail},
     module::ModuleDef,

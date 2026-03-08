@@ -4,7 +4,7 @@
 use std::ops::Deref;
 
 use colorized::{Colors, colorize_print, colorize_println};
-use zuqe::{CallContext, Callback, Context, JS_PROP_C_W_E, JSResult, JSValue, ScopedContext};
+use zuqe::{CallContext, Callback, JS_PROP_C_W_E, JSResult, JSValue, ScopedContext};
 
 fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let level = cc.magic();

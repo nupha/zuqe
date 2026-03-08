@@ -4,10 +4,10 @@
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_DATAVIEW, ScopedContext,
+    JS_CLASS_DATAVIEW,
     builtins::array_buffer::ArrayBuffer,
     class::ClassID,
-    context::{Context, ContextImpl},
+    context::ScopedContext,
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::Callback,
     object::{Object, ObjectImpl, ObjectPayload},

@@ -9,10 +9,9 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    ScopedContext,
     atom::{Atom, AtomKind},
     class::ClassID,
-    context::{Context, ContextImpl, ContextPtr},
+    context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{Object, ObjectPayload},

@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    ScopedContext,
     bytecode::{opcode_info_intermediate, opcodes},
-    context::ContextImpl,
+    context::ScopedContext,
     function::{
         BlockEnv, FunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE,
         push_vec_leb128, push_vec_sleb128, push_vec_u8,

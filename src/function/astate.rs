@@ -61,8 +61,8 @@ impl AsyncStateImpl {
         let mut local_buf = {
             let mut lst = Vec::<JSValue>::new();
             lst.try_reserve_exact(buf_len).map_err(|_| {
-                ctx.with_current_scope(|mut scope| {
-                    scope.throw_out_of_memory();
+                ctx.with_current_scope(|mut scx| {
+                    scx.throw_out_of_memory();
                 });
                 -1
             })?;

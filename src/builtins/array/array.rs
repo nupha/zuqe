@@ -8,9 +8,9 @@ use gc_lite::{GcHeap, GcPartitionId, GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, RuntimeImpl, ScopedContext,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, RuntimeImpl,
     atom::Atom,
-    context::ContextImpl,
+    context::ScopedContext,
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH,

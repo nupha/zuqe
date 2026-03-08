@@ -4,9 +4,8 @@
 use std::borrow::Cow;
 
 use crate::{
-    ScopedContext,
     builtins::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
-    context::ContextImpl,
+    context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     number::{

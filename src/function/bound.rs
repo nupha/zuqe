@@ -4,8 +4,8 @@
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_BOUND_FUNCTION, ScopedContext,
-    context::Context,
+    JS_CLASS_BOUND_FUNCTION,
+    context::ScopedContext,
     error::JSResult,
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,

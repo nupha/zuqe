@@ -2,10 +2,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    ScopedContext,
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
-    context::ContextImpl,
+    context::ScopedContext,
     error::JS_THROW_VAR_REDECL,
     eval::EvalType,
     utils::{M2, read_from_ptr},
@@ -146,7 +145,7 @@ impl FunctionDef {
                         unsafe { Atom::from_id(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))) };
                     let scope = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 5)) };
                     pos_next = self.resolve_scope_var(
-                        ctx.into(),
+                        ctx,
                         var_name,
                         scope as _,
                         op,
@@ -171,7 +170,7 @@ impl FunctionDef {
                         unsafe { Atom::from_id(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))) };
 
                     pos_next = self.resolve_scope_var(
-                        ctx.into(),
+                        ctx,
                         var_name,
                         scope as _,
                         op,

@@ -4,11 +4,10 @@
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    ScopedContext,
     atom::Atom,
     builtins::promise::Promise,
     class::ClassExoticMethods,
-    context::{Context, ContextImpl},
+    context::{ContextImpl, ScopedContext},
     function::{BFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, VarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
@@ -414,7 +413,7 @@ pub(crate) fn add_module_variables(ctx: &mut ScopedContext, fdef: &mut FunctionD
 
         if fdef
             .add_closure_var(
-                ctx.into(),
+                ctx,
                 true,
                 false,
                 i as _,

@@ -6,13 +6,13 @@ use std::cell::RefCell;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, ScopedContext,
+    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     builtins::{
         iterator::js_create_iterator_result,
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
-    context::{Context, ContextImpl, ContextPtr},
+    context::ScopedContext,
     error::JSResult,
     function::{
         AsyncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind, NativeFunction,
@@ -375,7 +375,7 @@ impl AsyncGeneratorFunction {
         //     .protect_node(s.async_state.gc_node_ptr());
 
         // execute the function till 'OpCode::INITIAL_YIELD' (no yield nor await are possible)
-        s.async_state.resume(ctx.into())?;
+        s.async_state.resume(ctx)?;
 
         // create AsyncGenerator object
         let mut obj = ctx

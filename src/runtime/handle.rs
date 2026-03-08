@@ -73,7 +73,7 @@ impl Runtime {
     }
 
     #[cfg(debug_assertions)]
-    pub fn install_panic_handler(&self) {}
+    pub const fn install_panic_handler(&self) {}
 }
 
 /// A light-weight runtime raw ptr.

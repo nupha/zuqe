@@ -4,10 +4,10 @@
 use gc_lite::GcRef;
 
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, ScopedContext,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
-    context::{Context, ContextImpl, ContextPtr},
+    context::ScopedContext,
     error::JSResult,
     function::{AsyncState, BCWrapper, BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
@@ -62,7 +62,7 @@ impl AsyncFunction {
         );
 
         func_obj
-            .call_async(ctx.into(), this_obj, args, flags)
+            .call_async(ctx, this_obj, args, flags)
             .map(|p| p.into())
     }
 }
@@ -136,7 +136,7 @@ impl AsyncState {
             });
         }
 
-        a_state.execute(ctx.into());
+        a_state.execute(ctx);
 
         Ok(JSValue::UNDEFINED)
     }

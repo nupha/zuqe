@@ -4,7 +4,7 @@
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    Callback, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, ScopedContext,
+    Callback, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
     atom::Atom,
     builtins::{
         generator::{
@@ -13,7 +13,7 @@ use crate::{
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
-    context::{Context, ContextImpl, ContextPtr},
+    context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, NativeFunction},
     object::{Object, ObjectImpl, ObjectPayload},

@@ -4,7 +4,7 @@
 use std::cell::Cell;
 
 use zuqe::{
-    CallContext, Context, EvalFlags, EvalType, FieldDef, JS_SetUncatchableError, JSResult, JSValue,
+    CallContext, EvalFlags, EvalType, FieldDef, JS_SetUncatchableError, JSResult, JSValue,
     ScopedContext,
 };
 

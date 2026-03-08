@@ -4,10 +4,9 @@
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    ScopedContext,
     atom::{Atom, is_const_atom, is_small_int_atom},
     bytecode::{OpcodeFormat, opcode_info_final},
-    context::{ContextImpl, ContextPtr},
+    context::{ContextImpl, ContextPtr, ScopedContext},
     error::JSResult,
     eval::EvalType,
     function::{FunctionDef, VarRef},

@@ -3,12 +3,9 @@
 
 use std::ptr::NonNull;
 
-use gc_lite::GcNode;
-
 use crate::{
-    ScopedContext,
     atom::Atom,
-    context::{Context, ContextImpl, ContextPtr},
+    context::ScopedContext,
     function::{
         Callback, CallbackFn, GetterFn, IteratorFn, JSCFunctionFF, JSCFunctionFFF, SetterFn,
     },

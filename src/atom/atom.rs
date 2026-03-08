@@ -6,9 +6,9 @@ use std::borrow::Cow;
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
-    RuntimeImpl, ScopedContext,
+    RuntimeImpl,
     atom::{ATOM_CONST_COUNT, AtomDescKind, AtomKind},
-    context::ContextImpl,
+    context::ScopedContext,
     number::IntOrFloat,
     runtime::RuntimePtr,
     string::{CharCode, StringImpl, StringRef},

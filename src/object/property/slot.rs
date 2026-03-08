@@ -6,9 +6,9 @@ use std::ptr::NonNull;
 use gc_lite::{GcHead, GcNode};
 
 use crate::{
-    JS_CLASS_MODULE_NS, ScopedContext,
+    JS_CLASS_MODULE_NS,
     atom::Atom,
-    context::ContextImpl,
+    context::ScopedContext,
     object::{LazyInit, Object, ObjectImpl},
     utils::unlikely,
     value::JSValue,
