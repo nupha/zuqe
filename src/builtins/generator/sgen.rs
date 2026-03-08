@@ -4,8 +4,8 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_GENERATOR, ScopedContext,
-    context::{Context, ContextImpl},
+    JS_CLASS_GENERATOR,
+    context::ScopedContext,
     error::JSResult,
     function::{AsyncState, CallContext, FieldDef, IteratorState},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},

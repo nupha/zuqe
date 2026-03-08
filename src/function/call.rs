@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ops::{Deref, DerefMut};
-
 use crate::{
     atom::Atom,
-    context::{Context, ContextImpl, ContextPtr, ScopedContext},
+    context::ScopedContext,
     error::JSResult,
     object::{Object, ObjectImpl, ObjectPayload},
     utils::unlikely,

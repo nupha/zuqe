@@ -46,12 +46,9 @@ pub(crate) fn js_dynamic_import(ctx: &mut ScopedContext, specifier: JSValue) -> 
 
     ctx.queue_job_with_trace(
         move || {
-            js_dynamic_import_job(
-                &mut ctx_ptr.new_scope(),
-                resolving_funcs,
-                basename_val,
-                specifier,
-            );
+            ctx_ptr.with_new_scope(|mut scope| {
+                js_dynamic_import_job(&mut scope, resolving_funcs, basename_val, specifier);
+            });
             Ok(JSValue::UNDEFINED)
         },
         {

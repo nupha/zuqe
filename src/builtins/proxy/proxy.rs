@@ -163,7 +163,7 @@ impl ProxyPayload {
         &mut self,
         ctx: &mut ScopedContext,
         proto_val: JSValue,
-        throw: bool,
+        _throw: bool,
     ) -> Result<bool, i32> {
         let method = self.get_proxy_method(ctx, Atom::CONST_setPrototypeOf)?;
         if method.is_undefined() {

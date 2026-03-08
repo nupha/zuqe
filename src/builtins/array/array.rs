@@ -110,6 +110,7 @@ impl ArrayPayload {
         self.update_values_xref(rt.gc_heap_mut(), xref);
     }
 
+    #[deprecated(note = "no use")]
     fn update_values_xref(&mut self, heap: &mut GcHeap, xref: GcPartitionId) {
         for val in self.values.iter() {
             if let Some(n) = val.gc_node_ptr() {
