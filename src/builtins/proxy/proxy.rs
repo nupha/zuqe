@@ -234,7 +234,7 @@ impl Proxy {
         let proxy = Proxy::try_from(func_obj).unwrap();
 
         if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
-            return js_proxy_call_constructor(ctx.into(), &proxy, this_obj, args);
+            return js_proxy_call_constructor(ctx, &proxy, this_obj, args);
         }
 
         let px = proxy.payload();

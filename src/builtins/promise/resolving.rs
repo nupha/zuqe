@@ -255,7 +255,6 @@ impl Promise {
                         // Note: job tick is performed in top-level scope, promote related gc nodes to top scope.
                         let top = cx.rt_ref().gc_part_hot;
                         let heap = cx.rt_mut().gc_heap_mut();
-
                         for n in act.gc_children(heap) {
                             heap.set_xref(top, n);
                         }
