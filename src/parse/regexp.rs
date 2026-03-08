@@ -25,7 +25,7 @@ impl<'s> JSParseState<'s> {
         while let Some((_, sc)) = inp.next() {
             if pattern_str.len() == pattern_str.capacity() {
                 pattern_str.try_reserve(1).map_err(|_| {
-                    self.ctx.new_scope_legacy().throw_out_of_memory();
+                    self.ctx().throw_out_of_memory();
                     -1
                 })?
             }
@@ -62,7 +62,7 @@ impl<'s> JSParseState<'s> {
                             }
                             CharCode::Char(_) => {
                                 pattern_str.push_char(sc2).map_err(|_| {
-                                    self.ctx.new_scope_legacy().throw_out_of_memory();
+                                    self.ctx().throw_out_of_memory();
                                     -1
                                 })?;
                                 continue;
@@ -97,7 +97,7 @@ impl<'s> JSParseState<'s> {
                 CharCode::Char(c) => {
                     if JSParseState::is_ident_next(c) {
                         flags_str.push_char(sc).map_err(|_| {
-                            self.ctx.new_scope_legacy().throw_out_of_memory();
+                            self.ctx().throw_out_of_memory();
                             -1
                         })?;
                     } else {
@@ -116,17 +116,17 @@ impl<'s> JSParseState<'s> {
         // self.throw_syntax_error("RegExp are not supported");
         // return Err(-1);
 
-        let pattern = self.ctx.new_scope_legacy().create_string_with_buf(pattern_str)?;
-        let flags = self.ctx.new_scope_legacy().create_string_with_buf(flags_str)?;
+        let pattern = self.ctx().create_string_with_buf(pattern_str)?;
+        let flags = self.ctx().create_string_with_buf(flags_str)?;
 
         // pre compile regexpdata
         let regexp = RegExpData::create(
-            &mut self.ctx.new_scope_legacy(),
+            self.ctx(),
             pattern.content().clone(),
             flags.content().clone(),
         )?;
-        self.ctx.rt_ptr().regexp_precompiled.push(regexp);
-        let id = self.ctx.rt_ptr().regexp_precompiled.len() - 1;
+        self.ctx().rt_ptr().regexp_precompiled.push(regexp);
+        let id = self.ctx().rt_ptr().regexp_precompiled.len() - 1;
 
         self.token.kind = TokenKind::REGEXP;
         self.token.data = TokenData::Regexp(id);

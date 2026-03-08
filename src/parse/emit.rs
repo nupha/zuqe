@@ -179,7 +179,7 @@ impl<'s> JSParseState<'s> {
     /// create a function def for class fields initialization
     fn make_class_fields_init_fd(&mut self) -> Result<Box<FunctionDef>, i32> {
         let mut fd = FunctionDef::new(
-            self.ctx,
+            self.ctx().ctx_ptr,
             Some(self.cur_func_mut()),
             false,
             false,

@@ -263,7 +263,7 @@ impl<'s> JSParseState<'s> {
             postfix exponential, ES7 specifies that -2**2 is a
             syntax error. */
             if parse_flags & PF_POW_FORBIDDEN != 0 {
-                self.ctx.new_scope_legacy().throw_syntax_error(
+                self.ctx().throw_syntax_error(
                     "unparenthesized unary expression can't appear on the left-hand side of '**'",
                 );
                 return Err(-1);
@@ -315,7 +315,7 @@ impl<'s> JSParseState<'s> {
                 debug_assert!(fd.last_opcode_pos > 0);
                 fd.byte_code.truncate(fd.last_opcode_pos as _);
 
-                let name_str = name.force_string(&mut self.ctx.new_scope_legacy())?;
+                let name_str = name.force_string(self.ctx())?;
                 self.emit_push_const(name_str.into(), true)?;
                 self.emit_op(OpCode::DELETE);
 

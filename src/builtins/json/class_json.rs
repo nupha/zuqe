@@ -71,7 +71,10 @@ fn internalize_json_property(
 
 fn js_json_parse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(ctx)?;
-    let mut obj = ctx.json_parse(&s.content().encode_utf8_bytes(true), "<input>", 0)?;
+
+    let mut obj = ctx.with_new_scope(|scope| -> JSResult {
+        scope.json_parse(&s.content().encode_utf8_bytes(true), "<input>", 0)
+    })?;
 
     if cc.length() > 1 && cc.arg(1).is_function() {
         let reviver = cc.arg(1);

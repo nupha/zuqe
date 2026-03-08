@@ -2,11 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    ScopedContext,
-    atom::Atom,
-    context::{ContextImpl, ContextPtr},
-    module::add_module_variables,
-    stack_frame::ExecMode,
+    atom::Atom, context::ScopedContext, module::add_module_variables, stack_frame::ExecMode,
     value::JSValue,
 };
 

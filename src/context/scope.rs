@@ -9,20 +9,21 @@ use crate::{Context, JSValue, context::ContextPtr};
 
 use super::ContextImpl;
 
-enum ScopeType<'a> {
+#[repr(u8)]
+enum GcScopeType<'a> {
     Owned(GcScope<'a>),
     Ref(&'a GcScopeState<'a>),
 }
 
 pub struct ScopedContext<'a> {
     pub(crate) ctx_ptr: ContextPtr,
-    pub(crate) gc_scope: ScopeType<'a>,
+    gc_scope: GcScopeType<'a>,
 }
 
 #[cfg(debug_assertions)]
 impl<'a> Drop for ScopedContext<'a> {
     fn drop(&mut self) {
-        if let ScopeType::Owned(s) = &self.gc_scope {
+        if let GcScopeType::Owned(s) = &self.gc_scope {
             debug_assert_eq!(s.depth(), self.ctx_ptr.gc_heap().scope_max_depth());
         }
     }
@@ -103,16 +104,16 @@ impl<'a> ScopedContext<'a> {
     #[inline(always)]
     pub fn depth(&self) -> u8 {
         match &self.gc_scope {
-            ScopeType::Owned(s) => s.depth(),
-            ScopeType::Ref(s) => s.depth(),
+            GcScopeType::Owned(s) => s.depth(),
+            GcScopeType::Ref(s) => s.depth(),
         }
     }
 
     #[inline]
     fn gc(&self) -> &GcScopeState<'_> {
         match &self.gc_scope {
-            ScopeType::Owned(s) => s.deref(),
-            ScopeType::Ref(s) => s,
+            GcScopeType::Owned(s) => s.deref(),
+            GcScopeType::Ref(s) => s,
         }
     }
 
@@ -147,7 +148,7 @@ impl<'a> ScopedContext<'a> {
 
         ScopedContext {
             ctx_ptr: ctx,
-            gc_scope: ScopeType::Owned(gc_scope),
+            gc_scope: GcScopeType::Owned(gc_scope),
         }
     }
 
@@ -158,23 +159,12 @@ impl<'a> ScopedContext<'a> {
 }
 
 impl ContextImpl {
-    #[deprecated]
-    pub(crate) fn new_scope_legacy(&mut self) -> ScopedContext<'_> {
-        let pid = self.rt_ref().gc_part_id();
-        let ctx = ContextPtr::from(self.gc_ref());
-        let gc_scope = self.gc_heap_mut().new_scope(pid);
-
-        ScopedContext {
-            ctx_ptr: ctx,
-            gc_scope: ScopeType::Owned(gc_scope),
-        }
-    }
-
+    /// get current (the inner-most) scope
     pub fn current_scope(&self) -> Option<ScopedContext<'_>> {
         if let Some(s) = self.gc_heap().current_scope() {
             let sc = ScopedContext {
                 ctx_ptr: self.gc_ref().into(),
-                gc_scope: ScopeType::Ref(s),
+                gc_scope: GcScopeType::Ref(s),
             };
             Some(sc)
         } else {
@@ -187,9 +177,7 @@ impl ContextImpl {
     }
 }
 
-impl<'c> Context<'c> {
-    /// Create top-level context scope.
-    /// This scope is closed automatically at ScopedContext is dropped.
+impl ContextPtr {
     pub fn new_scope(&mut self) -> ScopedContext<'_> {
         let pid = self.rt_ref().gc_part_id();
         let ctx = ContextPtr::from(self.gc_ref());
@@ -197,7 +185,25 @@ impl<'c> Context<'c> {
 
         ScopedContext {
             ctx_ptr: ctx,
-            gc_scope: ScopeType::Owned(gc_scope),
+            gc_scope: GcScopeType::Owned(gc_scope),
+        }
+    }
+
+    pub fn with_new_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
+        let s = self.new_scope();
+        f(s)
+    }
+}
+
+impl<'c> Context<'c> {
+    pub fn new_scope(&mut self) -> ScopedContext<'_> {
+        let pid = self.rt_ref().gc_part_id();
+        let ctx = ContextPtr::from(self.gc_ref());
+        let gc_scope = self.gc_heap_mut().new_scope(pid);
+
+        ScopedContext {
+            ctx_ptr: ctx,
+            gc_scope: GcScopeType::Owned(gc_scope),
         }
     }
 

@@ -38,10 +38,11 @@ impl<'s> JSParseState<'s> {
         }
 
         let module_name = {
-            let mut scope = self.ctx.new_scope_legacy();
-            scope
-                .create_string_with_buf(self.token.data.take_string().unwrap())
-                .and_then(|s| s.to_atom(scope.rt_ptr(), AtomKind::String))?
+            let sbuf = self.token.data.take_string().unwrap();
+            let rt = self.ctx().rt_ptr();
+            self.ctx()
+                .create_string_with_buf(sbuf)
+                .and_then(|s| s.to_atom(rt, AtomKind::String))?
         };
 
         self.next_token()?;
@@ -61,8 +62,9 @@ impl<'s> JSParseState<'s> {
 
         if self.token.kind == TokenKind::STRING {
             // import "module-name"
+            let rt = self.ctx().rt_ptr();
             module_name = Atom::from_str(
-                self.ctx.rt_ptr(),
+                rt,
                 &self.token.data.string().unwrap().to_utf8(),
                 AtomKind::String,
             )?;
@@ -123,7 +125,7 @@ impl<'s> JSParseState<'s> {
                             let import_name = match self.token.kind {
                                 TokenKind::IDENT => self.token.atom().unwrap(),
                                 TokenKind::STRING => Atom::from_str(
-                                    self.ctx.rt_ptr(),
+                                    self.ctx().rt_ptr(),
                                     &self.token.data.string().unwrap().to_utf8(),
                                     AtomKind::String,
                                 )?,
@@ -169,7 +171,7 @@ impl<'s> JSParseState<'s> {
             module_name = self.parse_from_clause()?;
         }
 
-        let idx = md.add_dependency(&mut self.ctx.new_scope_legacy(), module_name)?;
+        let idx = md.add_dependency(self.ctx(), module_name)?;
         for imp in &mut md.import_entries[first_import..] {
             imp.req_module_idx = idx as _;
         }
@@ -232,8 +234,9 @@ impl<'s> JSParseState<'s> {
                     let local_name = match self.token.kind {
                         TokenKind::IDENT => self.token.atom().unwrap(),
                         TokenKind::STRING => {
+                            let rt = self.ctx().rt_ptr();
                             let s = self.token.data.string().unwrap();
-                            Atom::from_str(self.ctx.rt_ptr(), &s.to_utf8(), AtomKind::String)?
+                            Atom::from_str(rt, &s.to_utf8(), AtomKind::String)?
                         }
                         t if t.is_keyword() => t.keyword_atom().unwrap(),
                         _ => {
@@ -251,8 +254,9 @@ impl<'s> JSParseState<'s> {
                         let n = match self.token.kind {
                             TokenKind::IDENT => self.token.atom().unwrap(),
                             TokenKind::STRING => {
+                                let rt = self.ctx().rt_ptr();
                                 let s = self.token.data.string().unwrap();
-                                Atom::from_str(self.ctx.rt_ptr(), &s.to_utf8(), AtomKind::String)?
+                                Atom::from_str(rt, &s.to_utf8(), AtomKind::String)?
                             }
                             t if t.is_keyword() => t.keyword_atom().unwrap(),
                             _ => {
@@ -289,7 +293,7 @@ impl<'s> JSParseState<'s> {
                 // Handle re-exports
                 if self.token_is_pseudo_keyword(Atom::CONST_from) {
                     let module_name = self.parse_from_clause()?;
-                    let idx = md.add_dependency(&mut self.ctx.new_scope_legacy(), module_name)?;
+                    let idx = md.add_dependency(self.ctx(), module_name)?;
                     for me in &mut md.export_entries[first_export..] {
                         me.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _);
                     }
@@ -309,8 +313,9 @@ impl<'s> JSParseState<'s> {
                             self.token.atom().unwrap()
                         }
                         TokenKind::STRING => {
+                            let rt = self.ctx().rt_ptr();
                             let s = self.token.data.string().unwrap();
-                            Atom::from_str(self.ctx.rt_ptr(), &s.to_utf8(), AtomKind::String)?
+                            Atom::from_str(rt, &s.to_utf8(), AtomKind::String)?
                         }
                         t if t.is_keyword() => t.keyword_atom().unwrap(),
                         _ => {
@@ -322,7 +327,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     let module_name = self.parse_from_clause()?;
-                    let r = md.add_dependency(&mut self.ctx.new_scope_legacy(), module_name);
+                    let r = md.add_dependency(self.ctx(), module_name);
 
                     let idx = r?;
                     self.add_module_export(
@@ -333,9 +338,9 @@ impl<'s> JSParseState<'s> {
                     )?;
                 } else {
                     let module_name = self.parse_from_clause()?;
-                    let dep_idx = md.add_dependency(&mut self.ctx.new_scope_legacy(), module_name);
+                    let dep_idx = md.add_dependency(self.ctx(), module_name);
 
-                    md.add_star_export_entry(&mut self.ctx.new_scope_legacy(), dep_idx?)?;
+                    md.add_star_export_entry(self.ctx(), dep_idx?)?;
                 }
             }
 
@@ -405,33 +410,27 @@ impl<'s> JSParseState<'s> {
             self.cur_func().module.unwrap()
         });
 
-        self.ctx
-            .with_current_scope(|mut scope| {
-                match md.add_export_internal(&mut scope, local_name, export_name, export_type) {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
-                        if e == ErrorKind::Syntax as i32 {
-                            let fd = self.cur_func_def;
+        match md.add_export_internal(self.ctx(), local_name, export_name, export_type) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if e == ErrorKind::Syntax as i32 {
+                    let fd = self.cur_func_def;
 
-                            let backtrace_flags =
-                                if !fd.is_null() && unsafe { (*fd).attrs.backtrace_barrier } {
-                                    JS_BACKTRACE_FLAG_SINGLE_LEVEL
-                                } else {
-                                    0
-                                };
+                    let backtrace_flags =
+                        if !fd.is_null() && unsafe { (*fd).attrs.backtrace_barrier } {
+                            JS_BACKTRACE_FLAG_SINGLE_LEVEL
+                        } else {
+                            0
+                        };
 
-                            let exc = scope.rt_mut().exception();
-                            scope.build_backtrace_to(
-                                exc,
-                                Some((self.filename, self.line_num)),
-                                backtrace_flags,
-                            );
-                        }
-                        Err(e)
-                    }
+                    let fln = (self.filename, self.line_num);
+                    let exc = self.ctx().rt_mut().exception();
+                    self.ctx()
+                        .build_backtrace_to(exc, Some(fln), backtrace_flags);
                 }
-            })
-            .unwrap()
+                Err(e)
+            }
+        }
     }
 
     /// add import for current parsing module.
@@ -458,12 +457,11 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        let mut scope = self.ctx.new_scope_legacy();
         let is_local = import_name == Atom::CONST__star_;
 
         let var_idx = unsafe {
             (*self.cur_func_def).add_closure_var(
-                &mut scope,
+                self.ctx(),
                 is_local,
                 false,
                 md.import_entries.len() as _,
@@ -476,7 +474,7 @@ impl<'s> JSParseState<'s> {
 
         if md.import_entries.len() == md.import_entries.capacity() {
             md.import_entries.try_reserve(2).map_err(|_| {
-                scope.throw_out_of_memory();
+                self.ctx().throw_out_of_memory();
                 -1
             })?;
         }

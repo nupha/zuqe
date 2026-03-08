@@ -39,7 +39,9 @@ impl FunctionDef {
             self.scopes
                 .try_reserve_exact(self.scopes.capacity() >> 2)
                 .map_err(|_| {
-                    self.ctx.new_scope_legacy().throw_out_of_memory();
+                    self.ctx
+                        .with_current_scope(|mut s| s.throw_out_of_memory())
+                        .unwrap();
                     -1
                 })?;
         }

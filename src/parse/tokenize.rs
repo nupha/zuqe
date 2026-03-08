@@ -215,7 +215,7 @@ impl<'s> JSParseState<'s> {
     // which will soon use up stack space, and cause stack overflow.
     #[inline(never)]
     pub(super) fn next_token(&mut self) -> Result<TokenKind, i32> {
-        if js_check_stack_overflow(self.ctx.rt_mut(), 0) {
+        if js_check_stack_overflow(self.ctx().rt_mut(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
         }
@@ -803,7 +803,7 @@ impl<'s> JSParseState<'s> {
 
         let ret = unsafe {
             js_atof(
-                &mut self.ctx.new_scope_legacy(),
+                self.ctx(),
                 ptr,
                 &mut p,
                 0,
@@ -815,7 +815,7 @@ impl<'s> JSParseState<'s> {
         }
         .inspect_err(|_| {
             // re-throw error as parser syntax error
-            let exc = self.ctx.rt_mut().take_exception();
+            let exc = self.ctx().rt_mut().take_exception();
             self.throw(exc);
         })?;
 

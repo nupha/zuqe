@@ -148,9 +148,7 @@ impl<'s> JSParseState<'s> {
         while self.token.kind != TokenKind::Char('}') {
             if self.token.kind == TokenKind::ELLIPSIS {
                 if !has_ellipsis {
-                    self.ctx
-                        .new_scope_legacy()
-                        .throw_internal_error("unexpected ellipsis token");
+                    self.ctx().throw_internal_error("unexpected ellipsis token");
                     return Err(-1);
                 }
 

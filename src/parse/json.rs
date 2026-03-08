@@ -4,6 +4,7 @@
 use smallvec::SmallVec;
 
 use crate::{
+    ScopedContext,
     atom::{Atom, AtomKind},
     context::ContextImpl,
     error::JSResult,
@@ -25,7 +26,7 @@ pub const JS_PARSE_JSON_EXT: i32 = 1;
 
 impl<'s> JSParseState<'s> {
     fn json_next_token(&mut self) -> Result<(), i32> {
-        if js_check_stack_overflow(self.ctx.rt_mut(), 0) {
+        if js_check_stack_overflow(self.ctx().rt_mut(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
         }
@@ -263,7 +264,7 @@ impl<'s> JSParseState<'s> {
 
         let p0 = p;
 
-        if let Ok(num) = unsafe { js_atof(&mut self.ctx.new_scope_legacy(), p, &mut p, radix, flags) } {
+        if let Ok(num) = unsafe { js_atof(self.ctx(), p, &mut p, radix, flags) } {
             self.token.kind = TokenKind::NUMBER;
             self.token.data = TokenData::Num(num);
             Ok(unsafe { p.offset_from(p0) as usize })
@@ -283,7 +284,7 @@ impl<'s> JSParseState<'s> {
         {
             if buf.capacity() - buf.len() >= 6 {
                 buf.try_reserve(64).map_err(|_| {
-                    self.ctx.new_scope_legacy().throw_out_of_memory();
+                    self.ctx().throw_out_of_memory();
                     -1
                 })?;
             }
@@ -292,7 +293,7 @@ impl<'s> JSParseState<'s> {
         }
 
         let atom = Atom::new(
-            self.ctx.rt_ptr(),
+            self.ctx().rt_ptr(),
             std::str::from_utf8(&buf).map_err(|_| -1)?,
         )?;
         Ok(atom)
@@ -305,12 +306,12 @@ impl<'s> JSParseState<'s> {
             TokenKind::Char('{') => {
                 self.json_next_token()?;
 
-                val = self.ctx.new_scope_legacy().create_base_object()?.into();
+                val = self.ctx().create_base_object()?.into();
                 if self.token.kind != TokenKind::Char('}') {
                     loop {
                         let prop_name = if self.token.kind == TokenKind::STRING {
                             Atom::from_str(
-                                self.ctx.rt_ptr(),
+                                self.ctx().rt_ptr(),
                                 &escape_str(&self.token.data.string().unwrap().to_utf8()),
                                 AtomKind::String,
                             )?
@@ -325,12 +326,7 @@ impl<'s> JSParseState<'s> {
                         json_parse_expect(self, b':')?;
 
                         let prop_val = self.json_parse_value()?;
-                        val.define_property_value(
-                            &mut self.ctx.new_scope_legacy(),
-                            prop_name,
-                            prop_val,
-                            JS_PROP_C_W_E,
-                        )?;
+                        val.define_property_value(self.ctx(), prop_name, prop_val, JS_PROP_C_W_E)?;
 
                         if self.token.kind != TokenKind::Char(',') {
                             break;
@@ -354,7 +350,7 @@ impl<'s> JSParseState<'s> {
 
                         if lst.len() == lst.capacity() {
                             lst.try_reserve(32).map_err(|_| {
-                                self.ctx.new_scope_legacy().throw_out_of_memory();
+                                self.ctx().throw_out_of_memory();
                                 -1
                             })?;
                         }
@@ -374,13 +370,13 @@ impl<'s> JSParseState<'s> {
 
                 // make Array
                 lst.shrink_to_fit();
-                val = self.ctx.new_scope_legacy().create_array_with_values(lst)?.into();
+                val = self.ctx().create_array_with_values(lst)?.into();
 
                 json_parse_expect(self, b']')?;
             }
             TokenKind::STRING => {
                 let sbuf = self.token.data.take_string().unwrap();
-                val = self.ctx.new_scope_legacy().create_string_with_buf(sbuf)?.into();
+                val = self.ctx().create_string_with_buf(sbuf)?.into();
                 self.json_next_token()?;
             }
             TokenKind::NUMBER => {
@@ -439,8 +435,8 @@ fn json_parse_expect(s: &mut JSParseState, ch: u8) -> Result<(), i32> {
     }
 }
 
-impl ContextImpl {
-    pub fn json_parse(&mut self, source: &[u8], filename: &str, flags: i32) -> JSResult {
+impl<'c> ScopedContext<'c> {
+    pub fn json_parse(self, source: &[u8], filename: &str, flags: i32) -> JSResult {
         // Note: parser will be dropped within this function.
         // so, 'source' and 'filename' are safe w/o lifetime annotation
 
@@ -454,6 +450,7 @@ impl ContextImpl {
             parser.throw_syntax_error("unexpected data at the end");
             Err(-1)
         } else {
+            parser.ctx().set_return_value(val);
             Ok(val)
         }
     }

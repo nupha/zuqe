@@ -6,10 +6,9 @@ use std::{marker::PhantomData, ptr::NonNull};
 use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 
 use crate::{
-    ScopedContext,
     atom::Atom,
     builtins::js_get_this,
-    context::{ContextImpl, ContextPtr},
+    context::{ContextPtr, ScopedContext},
     error::JSResult,
     function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
@@ -372,7 +371,9 @@ impl<'a> ObjectIter<'a> {
         if !self.done {
             self.done = true;
             self.next_method = JSValue::UNDEFINED;
-            Self::close_iter_internal(&mut self.ctx.new_scope_legacy(), self.target, has_exception)
+            self.ctx.with_new_scope(|mut scope| {
+                Self::close_iter_internal(&mut scope, self.target, has_exception)
+            })
         } else if has_exception {
             Err(-1)
         } else {

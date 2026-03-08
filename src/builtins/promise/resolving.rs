@@ -6,9 +6,9 @@ use std::{cell::Cell, rc::Rc};
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION, ScopedContext,
+    JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     atom::Atom,
-    context::{Context, ContextImpl, ContextPtr},
+    context::{ContextImpl, ContextPtr, ScopedContext},
     error::JSResult,
     object::{JS_SpeciesConstructor, Object, ObjectImpl, ObjectPayload},
     object_cast,
@@ -91,12 +91,9 @@ impl PromiseResolveFunc {
 
                 ctx.queue_job_with_trace(
                     move || {
-                        js_promise_resolve_thenable_job(
-                            &mut cx.new_scope_legacy(),
-                            promise,
-                            arg0,
-                            then,
-                        )
+                        cx.with_new_scope(|mut scope| {
+                            js_promise_resolve_thenable_job(&mut scope, promise, arg0, then)
+                        })
                     },
                     {
                         // Note: tick is performed in top-level scope, promote related gc nodes to top-level scope.
@@ -244,13 +241,15 @@ impl Promise {
 
                 ctx.queue_job_with_trace(
                     move || {
-                        promise_reaction_job(
-                            &mut cx.new_scope_legacy(),
-                            act.resolving_funcs,
-                            act.handler,
-                            is_reject,
-                            result,
-                        )
+                        cx.with_new_scope(|mut scope| {
+                            promise_reaction_job(
+                                &mut scope,
+                                act.resolving_funcs,
+                                act.handler,
+                                is_reject,
+                                result,
+                            )
+                        })
                     },
                     {
                         // Note: job tick is performed in top-level scope, promote related gc nodes to top scope.
@@ -339,13 +338,15 @@ impl Promise {
             // queue reaction in job list to resolve in next tick
             ctx.queue_job_with_trace(
                 move || {
-                    promise_reaction_job(
-                        &mut cx.new_scope_legacy(),
-                        act.resolving_funcs,
-                        act.handler,
-                        is_reject,
-                        value,
-                    )
+                    cx.with_new_scope(|mut scope| {
+                        promise_reaction_job(
+                            &mut scope,
+                            act.resolving_funcs,
+                            act.handler,
+                            is_reject,
+                            value,
+                        )
+                    })
                 },
                 {
                     // Note: tick is performed in root scope,

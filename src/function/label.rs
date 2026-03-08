@@ -59,7 +59,7 @@ impl FunctionDef {
         if self.label_slots.len() == self.label_slots.capacity()
             && self.label_slots.try_reserve_exact(4).is_err()
         {
-            self.ctx.new_scope_legacy().throw_out_of_memory();
+            self.ctx.with_current_scope(|mut s| s.throw_out_of_memory());
             return Err(-1);
         }
 

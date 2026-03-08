@@ -264,10 +264,8 @@ impl<'s> JSParseState<'s> {
 
 #[inline(always)]
 fn js_unsupported_keyword(s: &mut JSParseState, atom: Atom) -> i32 {
-    s.throw_syntax_error(&format!(
-        "unsupported keyword: {}",
-        atom.to_utf8(s.ctx.rt_ref())
-    ));
+    let msg = format!("unsupported keyword: {}", atom.to_utf8(s.ctx().rt_ref()));
+    s.throw_syntax_error(&msg);
     -1
 }
 
@@ -740,8 +738,7 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
 
         if let Some(vidx) = s.cur_func().eval_ret_idx {
             // 'finally' updates eval_ret only if not a normal termination
-            saved_eval_ret_idx =
-                unsafe { (*s.cur_func_def).add_var(&mut s.ctx.new_scope_legacy(), Atom::CONST__ret_)? };
+            saved_eval_ret_idx = unsafe { (*s.cur_func_def).add_var(s.ctx(), Atom::CONST__ret_)? };
 
             s.emit_op(OpCode::GET_LOC);
             s.emit_u16(vidx);

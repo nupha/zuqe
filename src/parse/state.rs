@@ -6,6 +6,7 @@ use std::ptr::NonNull;
 use gc_lite::GcNode;
 
 use crate::{
+    ScopedContext,
     context::{ContextImpl, ContextPtr},
     function::FunctionDef,
     number::IntOrFloat,
@@ -37,7 +38,7 @@ pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2; // Statement has assignment operato
 pub struct JSParseState<'s> {
     /// JavaScript context pointer for runtime operations
     /// FIXME: use &mut ScopedContext instead
-    pub(super) ctx: ContextPtr,
+    ctx: ScopedContext<'s>,
 
     /// Source file name being parsed
     pub(super) filename: &'s str,
@@ -91,7 +92,7 @@ impl<'s> JSParseState<'s> {
     /// * `source` - Buffer containing source code
     /// * `filename` - Name of source file
     fn new_internal(
-        ctx: &mut ContextImpl,
+        ctx: ScopedContext<'s>,
         fd: *mut FunctionDef,
         source: &'s [u8],
         filename: &'s str,
@@ -99,7 +100,7 @@ impl<'s> JSParseState<'s> {
         let ptr = source.as_ptr();
 
         Self {
-            ctx: ctx.gc_ref().into(),
+            ctx,
 
             input: source,
             input_end: unsafe { ptr.add(source.len()) },
@@ -129,7 +130,7 @@ impl<'s> JSParseState<'s> {
     /// Create new parser state with root function def.
     #[inline(always)]
     pub(crate) fn new(
-        ctx: &mut ContextImpl,
+        ctx: ScopedContext<'s>,
         fd: NonNull<FunctionDef>,
         source: &'s [u8],
         filename: &'s str,
@@ -139,8 +140,13 @@ impl<'s> JSParseState<'s> {
 
     /// Create new parser state for json (which don't have function def).
     #[inline(always)]
-    pub fn new_for_json(ctx: &mut ContextImpl, source: &'s [u8], filename: &'s str) -> Self {
+    pub fn new_for_json(ctx: ScopedContext<'s>, source: &'s [u8], filename: &'s str) -> Self {
         Self::new_internal(ctx, std::ptr::null_mut(), source, filename)
+    }
+
+    #[inline(always)]
+    pub(crate) fn ctx(&mut self) -> &mut ScopedContext<'s> {
+        &mut self.ctx
     }
 
     /// free atom if any.

@@ -40,7 +40,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('\\') => {
                     sbuf.push_u8(b'\\').map_err(|_| {
-                        self.ctx.new_scope_legacy().throw_out_of_memory();
+                        self.ctx().throw_out_of_memory();
                         -1
                     })?;
 
@@ -51,7 +51,7 @@ impl<'s> JSParseState<'s> {
                         Some(_) => {
                             let (_, c1) = inp.next_char().unwrap();
                             sbuf.push_char(c1).map_err(|_| {
-                                self.ctx.new_scope_legacy().throw_out_of_memory();
+                                self.ctx().throw_out_of_memory();
                                 -1
                             })?;
                         }
@@ -66,14 +66,14 @@ impl<'s> JSParseState<'s> {
                         inp.seek_relative(1);
                     }
                     sbuf.push_u8(b'\n').map_err(|_| {
-                        self.ctx.new_scope_legacy().throw_out_of_memory();
+                        self.ctx().throw_out_of_memory();
                         -1
                     })?;
                     self.line_num += 1;
                 }
                 CharCode::Char(_) => {
                     sbuf.push_char(sc).map_err(|_| {
-                        self.ctx.new_scope_legacy().throw_out_of_memory();
+                        self.ctx().throw_out_of_memory();
                         -1
                     })?;
                 }
@@ -108,13 +108,12 @@ impl<'s> JSParseState<'s> {
         if call {
             // Create a template object: an array of cooked strings
             // Create an array of raw strings and store it to the raw property
-            template_object = self.ctx.new_scope_legacy().create_array()?.into();
+            template_object = self.ctx().create_array()?.into();
             self.emit_push_const(template_object, false)?;
 
-            let mut scope = self.ctx.new_scope_legacy();
-            raw_array = scope.create_array()?.into();
+            raw_array = self.ctx().create_array()?.into();
             template_object.define_property_value(
-                &mut scope,
+                self.ctx(),
                 Atom::CONST_raw,
                 raw_array,
                 JS_PROP_THROW,
@@ -145,13 +144,12 @@ impl<'s> JSParseState<'s> {
 
             if call {
                 {
-                    let mut scope = self.ctx.new_scope_legacy();
-
-                    let str_val =
-                        scope.create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
+                    let str_val = self
+                        .ctx()
+                        .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
 
                     raw_array.define_property_value_u32(
-                        &mut scope,
+                        self.ctx(),
                         depth as _,
                         str_val.into(),
                         JS_PROP_ENUMERABLE | JS_PROP_THROW,
@@ -162,12 +160,12 @@ impl<'s> JSParseState<'s> {
                 // syntax error if it contains invalid sequences
                 match self.parse_string(&mut tmpl, '`', Some(&mut cooked), false) {
                     Ok(_) => {
-                        let mut scope = self.ctx.new_scope_legacy();
-                        let str_val = scope
+                        let str_val = self
+                            .ctx()
                             .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
 
                         template_object.define_property_value_u32(
-                            &mut scope,
+                            self.ctx(),
                             depth as _,
                             str_val.into(),
                             JS_PROP_ENUMERABLE | JS_PROP_THROW,
@@ -175,7 +173,7 @@ impl<'s> JSParseState<'s> {
                     }
                     Err(_) => {
                         template_object.define_property_value_u32(
-                            &mut self.ctx.new_scope_legacy(),
+                            self.ctx(),
                             depth as _,
                             JSValue::UNDEFINED,
                             JS_PROP_ENUMERABLE | JS_PROP_THROW,
@@ -189,10 +187,7 @@ impl<'s> JSParseState<'s> {
 
                 let sbuf = cooked.data.string().unwrap();
                 if depth == 0 || !sbuf.is_empty() {
-                    let str = self
-                        .ctx
-                        .new_scope_legacy()
-                        .create_string_from_str(&sbuf.to_utf8())?;
+                    let str = self.ctx().create_string_from_str(&sbuf.to_utf8())?;
                     self.emit_push_const(str.into(), true)?;
 
                     if depth == 0 {
@@ -209,9 +204,8 @@ impl<'s> JSParseState<'s> {
             if string_sep == b'`' as i32 {
                 // template is done
                 if call {
-                    let mut scope = self.ctx.new_scope_legacy();
-                    seal_template_obj(&mut scope, raw_array);
-                    seal_template_obj(&mut scope, template_object);
+                    seal_template_obj(self.ctx(), raw_array);
+                    seal_template_obj(self.ctx(), template_object);
                     *argc = depth + 1;
                 } else {
                     self.emit_op(OpCode::CALL_METHOD);

@@ -42,12 +42,12 @@ pub(crate) fn js_dynamic_import(ctx: &mut ScopedContext, specifier: JSValue) -> 
     // cannot run JS_LoadModuleInternal synchronously because it would
     // cause an unexpected recursion in js_evaluate_module()
     let rr = resolving_funcs;
-    let mut cx = ContextPtr::from(ctx.gc_ref());
+    let mut ctx_ptr = ContextPtr::from(ctx.gc_ref());
 
     ctx.queue_job_with_trace(
         move || {
             js_dynamic_import_job(
-                &mut cx.new_scope_legacy(),
+                &mut ctx_ptr.new_scope(),
                 resolving_funcs,
                 basename_val,
                 specifier,
@@ -57,8 +57,8 @@ pub(crate) fn js_dynamic_import(ctx: &mut ScopedContext, specifier: JSValue) -> 
         {
             // Note: job tick is performed in root scope,
             // should promote related gc nodes to root scope.
-            let top = cx.rt_ref().gc_part_hot;
-            let heap = cx.rt_mut().gc_heap_mut();
+            let top = ctx_ptr.rt_ref().gc_part_hot;
+            let heap = ctx_ptr.rt_mut().gc_heap_mut();
             if let Some(n) = basename_val.gc_node_ptr() {
                 heap.set_xref(top, n);
             }

@@ -65,17 +65,6 @@ impl<'c> ScopedContext<'c> {
         flags: EvalFlags,
         var_scope_idx: i32,
     ) -> Result<Compiled, i32> {
-        #[cfg(debug_assertions)]
-        let _check_scope_level = {
-            let l = self.gc_heap().scope_max_depth();
-            debug_assert!(l > 0, "expect gc scope for compile_source");
-
-            let rt = self.rt_ptr();
-            crate::defer_fn!({
-                debug_assert_eq!(rt.gc_heap().scope_max_depth(), l);
-            })
-        };
-
         // get (bytecode, module, js_mode) of current stack frame
         let (frame_func_bc, frame_module, js_mode) = if eval_type == EvalType::Direct {
             let cur_func = self
@@ -143,8 +132,10 @@ impl<'c> ScopedContext<'c> {
 
         {
             // create parse state with root fd, then parse source.
+            let parse_ctx = self.new_scope();
+
             let mut parser = JSParseState::new(
-                self,
+                parse_ctx,
                 unsafe { NonNull::new_unchecked(fd.as_mut()) },
                 source,
                 filename,
@@ -182,19 +173,8 @@ impl<'c> ScopedContext<'c> {
             md.bytecode = JSValue::Bytecode(bc);
             md.set_tla(has_await);
             self.resolve_module(md)?;
-
-            // // Note: promote return bytecode to upper gc scope.
-            // self.gc_heap()
-            //     .current_gc_scope()
-            //     .unwrap()
-            //     .promote(md.gc_node_ptr());
             Ok(Compiled::Module(md))
         } else {
-            // // Note: promote return bytecode to upper gc scope.
-            // self.gc_heap()
-            //     .current_gc_scope()
-            //     .unwrap()
-            //     .promote(bc.gc_node_ptr());
             if frame_func_bc.is_some() {
                 debug_assert_eq!(eval_type, EvalType::Direct);
                 Ok(Compiled::Direct(bc))

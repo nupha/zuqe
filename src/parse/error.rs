@@ -20,38 +20,37 @@ impl<'s> JSParseState<'s> {
                 0
             };
 
-        self.ctx.new_scope_legacy().build_backtrace_to(
-            err_val,
-            Some((self.filename, self.line_num)),
-            backtrace_flags,
-        );
+        let fln = (self.filename, self.line_num);
+        self.ctx()
+            .build_backtrace_to(err_val, Some(fln), backtrace_flags);
 
-        self.ctx.throw(err_val);
+        self.ctx().throw(err_val);
     }
 
     #[cold]
     pub(super) fn throw_syntax_error(&mut self, message: &str) {
-        let mut scope = self.ctx.new_scope_legacy();
+        self.ctx()
+            .throw_error_internal(ErrorKind::Syntax, message, false);
 
-        scope.throw_error_internal(ErrorKind::Syntax, message, false);
+        let backtrace_flags =
+            if !self.cur_func_def.is_null() && self.cur_func().attrs.backtrace_barrier {
+                JS_BACKTRACE_FLAG_SINGLE_LEVEL
+            } else {
+                0
+            };
 
-        let backtrace_flags = if !self.cur_func_def.is_null()
-            && unsafe { (*self.cur_func_def).attrs.backtrace_barrier }
-        {
-            JS_BACKTRACE_FLAG_SINGLE_LEVEL
-        } else {
-            0
-        };
-
-        let exc = scope.rt_mut().exception();
-        scope.build_backtrace_to(exc, Some((self.filename, self.line_num)), backtrace_flags);
+        let exc = self.ctx().rt_mut().exception();
+        let fln = (self.filename, self.line_num);
+        self.ctx()
+            .build_backtrace_to(exc, Some(fln), backtrace_flags);
     }
 
     #[cold]
     pub(super) fn throw_reserved_identifier_error(&mut self) {
-        self.throw_syntax_error(&format!(
+        let msg = format!(
             "'{}' is a reserved identifier",
-            self.token.atom().unwrap().to_utf8(self.ctx.rt_ref()),
-        ));
+            self.token.atom().unwrap().to_utf8(self.ctx().rt_ref()),
+        );
+        self.throw_syntax_error(&msg);
     }
 }
