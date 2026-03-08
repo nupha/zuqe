@@ -2,6 +2,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 mod agen;
-mod sgen;
+mod r#gen;
 
-pub use {agen::*, sgen::*};
+pub use {agen::*, r#gen::*};

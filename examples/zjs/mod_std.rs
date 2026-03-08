@@ -78,7 +78,7 @@ fn js_std_open(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 }
 
-fn js_evalScript(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
+fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut backtrace_barrier = false;
     let mut is_async = false;
 
@@ -152,7 +152,7 @@ fn js_evalScript(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
     ret
 }
 
-fn js_gc(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+fn js_gc(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     ctx.rt_mut().gc_request();
     Ok(JSValue::UNDEFINED)
 }

@@ -139,7 +139,7 @@ fn js_string_codePointRange(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     ctx.create_string_from_utf8(buf).map(JSValue::from)
 }
 
-fn js_createRealm(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+fn js_createRealm(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     let mut ctx2 = ctx.rt_mut().create_context(Context::ECMA_CONTEXT_SETUP)?;
     ctx2.with_new_scope(|mut scope| setup_ctx_test262_helpers(&mut scope))
 }
