@@ -76,8 +76,9 @@ impl Runtime {
             }));
         });
     }
+}
 
-    #[cfg(not(debug_assertions))]
+impl RuntimeImpl {
     unsafe fn panic_free_gc(&mut self) {
         self.cur_exception = JSValue::UNDEFINED;
         self.context_list.clear();
