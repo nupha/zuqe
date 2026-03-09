@@ -376,7 +376,6 @@ pub(crate) fn js_object_assign(ctx: &mut ScopedContext, cc: CallContext) -> JSRe
 
 pub(crate) fn js_object_seal(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let freeze = cc.magic() == 1;
-
     let mut obj = cc.arg(0);
     obj.seal(ctx, freeze)?;
     Ok(obj)

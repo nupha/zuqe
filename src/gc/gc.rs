@@ -2,8 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use gc_lite::{
-    GcError, GcHeap, GcNode, GcPartition, GcPartitionId, GcRef, GcTrace, GcTraceCtx,
-    gc_type_register,
+    GcError, GcHeap, GcNode, GcPartitionId, GcRef, GcTrace, GcTraceCtx, gc_type_register,
 };
 
 use crate::{
@@ -38,19 +37,6 @@ impl RuntimeImpl {
         &mut self.gc_heap
     }
 
-    /// get gc top-level scope
-    #[inline]
-    pub(crate) fn gc_top_scope(&self) -> &GcPartition {
-        self.gc_heap().partition(self.gc_part_hot).unwrap()
-    }
-
-    /// top gc partition for runtime
-    #[inline]
-    pub(crate) fn gc_top_scope_mut(&mut self) -> &mut GcPartition {
-        let pid = self.gc_part_hot;
-        self.gc_heap_mut().partition_mut(pid).unwrap()
-    }
-
     /// Get gc parition id
     #[inline(always)]
     pub(crate) const fn gc_part_id(&self) -> GcPartitionId {
@@ -72,7 +58,7 @@ impl RuntimeImpl {
             unsafe { self.gc_heap_mut().alloc_raw(partition_id, data) }
         };
 
-        if self.gc_top_scope().should_gc() {
+        if self.gc_heap().should_gc() {
             self.gc_req = true;
         }
 
@@ -129,8 +115,8 @@ impl RuntimeImpl {
 
         if freed != 0 {
             // update gc threshold
-            let used = self.gc_top_scope().memory_used();
-            self.gc_top_scope_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
+            let used = self.gc_heap().memory_used();
+            self.gc_heap_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
         }
 
         log::trace!("[collect] {partition_id:?} free {freed} bytes");
@@ -162,18 +148,14 @@ impl RuntimeImpl {
     }
 
     pub fn gc_memory_limit(&self) -> usize {
-        self.gc_top_scope().memory_limit()
+        self.gc_heap().memory_limit()
     }
 
     pub fn gc_set_memory_limit(&mut self, limit: usize) -> usize {
-        let pid = self.gc_part_id();
-        self.gc_heap_mut()
-            .partition_mut(pid)
-            .unwrap()
-            .set_memory_limit(limit)
+        self.gc_heap_mut().set_memory_limit(limit)
     }
 
     pub fn gc_set_threshold(&mut self, threshold: usize) {
-        self.gc_heap.set_gc_threshold(self.gc_part_hot, threshold);
+        self.gc_heap_mut().set_gc_threshold(threshold);
     }
 }

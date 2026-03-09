@@ -64,22 +64,17 @@ impl PropertyKey {
 }
 
 impl ObjectImpl {
-    /// Iterates over all own properties of object `self` and executes `callback` for each property.
+    /// Query all own properties of object `self` and call `callback` for each property key.
     ///
-    /// This method handles three types of properties:
+    /// This method handles following types of properties:
     /// - Regular object properties
     /// - Array indices (for fast arrays)
     /// - String object indices
     /// - Exotic object properties
     ///
-    /// The `callback` receives property information including:
-    /// - The property name (as an atom)
-    /// - Whether it is enumerable
-    /// - The property type (index, string, or symbol)
-    ///
     /// Important:
     /// - Property atoms are not cloned when passed to callback
-    /// - Iteration stops immediately if callback returns an error
+    /// - Iteration stops immediately in case `callback` returned an Err()
     ///
     /// Property order:
     /// 1. In defination order
