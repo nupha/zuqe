@@ -104,7 +104,7 @@ impl ObjectImpl {
                     }
                 } else {
                     Ok(true)
-                };
+                }?;
 
                 // update 'configurable', 'enumerable' flags
                 let mut mask = 0;
@@ -115,7 +115,7 @@ impl ObjectImpl {
                     mask |= JS_PROP_ENUMERABLE;
                 }
                 self.modify_shape_property_flags(ctx, prop, |f| (f & !mask) | (flags & mask))?;
-                return res;
+                return Ok(res);
             }
 
             // shape property does not exist, try fast array element

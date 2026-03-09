@@ -638,7 +638,7 @@ impl ObjectImpl {
         } else {
             let mut target = Object::from_ref(self);
 
-            let _ = self.own_property_names_foreach(
+            self.own_property_names_foreach(
                 ctx,
                 JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
                 |cx, pkey| {
@@ -664,9 +664,7 @@ impl ObjectImpl {
 
                     Ok(())
                 },
-            );
-
-            Ok(())
+            )
         }
     }
 
