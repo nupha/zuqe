@@ -236,10 +236,8 @@ impl<'c> ScopedContext<'c> {
         flags: EvalFlags,
     ) -> JSResult {
         if eval_type == EvalType::Module {
-            // compile source into module def, then run the module def.
-            // returns Promise
-            let mut md =
-                ModuleDef::compile(self, source, filename, flags.contains(EvalFlags::STRIP))?;
+            // compile source into module def, then run the module def. returns Promise
+            let mut md = self.compile_module(source, filename, flags.contains(EvalFlags::STRIP))?;
             md.set_import_meta(self, filename, true)?;
             md.evaluate(self).map(JSValue::from)
         } else {
@@ -252,23 +250,23 @@ impl<'c> ScopedContext<'c> {
     ///
     /// Compile source then run. Return value will be promoted to upper scope.
     pub fn eval(
-        mut self,
+        &mut self,
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> JSResult {
-        let ret = self.eval_internal(source, filename, eval_type, flags);
-        if let Ok(r) = ret {
+        let ret_val = self.eval_internal(source, filename, eval_type, flags);
+        if let Ok(r) = ret_val {
             self.set_return_value(r);
         }
-        ret
+        ret_val
     }
 
     /// Eval `source` script in `self` scope, wait till all pending jobs are finished.
     /// Returns the result value.
     pub fn eval_wait(
-        mut self,
+        &mut self,
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
@@ -280,16 +278,12 @@ impl<'c> ScopedContext<'c> {
             .eval_internal(source, filename, eval_type, flags)
             .map_err(|_| {
                 let exc = self.rt_mut().take_exception();
-                ErrorText::from(&mut self, exc)
+                ErrorText::from(self, exc)
             })?;
 
         // `ret_val` could be used in tick() phase, must ensure it's alive then.
         // Note: ret_val should already be root or local node.
         debug_assert!(ret_val.gc_node().is_none_or(|h| h.is_root_or_local()));
-        // This is usually not needed:
-        // if let Some(n) = ret_val.gc_node_ptr() {
-        //     self.gc().add_non_local(n);
-        // }
 
         let mut promise = Promise::try_from(ret_val).ok();
         let mut result = if let Some(p) = promise {
@@ -301,7 +295,7 @@ impl<'c> ScopedContext<'c> {
                 }
                 PromiseState::Rejected => {
                     promise = None;
-                    Err(ErrorText::from(&mut self, p.result()))
+                    Err(ErrorText::from(self, p.result()))
                 }
                 _ => Ok(JSValue::UNDEFINED),
             }
@@ -336,12 +330,13 @@ impl<'c> ScopedContext<'c> {
                 }
                 Err(_) => {
                     let exc = self.rt_mut().take_exception();
-                    result = Err(ErrorText::from(&mut self, exc));
+                    result = Err(ErrorText::from(self, exc));
                     break -1;
                 }
             }
         };
 
+        // promote result value and return
         if let Ok(v) = result {
             self.set_return_value(v);
         }

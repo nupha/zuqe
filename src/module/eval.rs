@@ -60,30 +60,6 @@ impl ModuleDefImpl {
 }
 
 impl ModuleDef {
-    /// Compile `source` to module def. `filename` is used to identify the module.
-    pub fn compile(
-        ctx: &mut ScopedContext,
-        source: &[u8],
-        filename: &str,
-        strip: bool,
-    ) -> Result<Self, i32> {
-        if let Compiled::Module(md) = ctx.compile(
-            source,
-            filename,
-            EvalType::Module,
-            if strip {
-                EvalFlags::STRIP
-            } else {
-                EvalFlags::empty()
-            },
-            -1,
-        )? {
-            Ok(md)
-        } else {
-            unreachable!()
-        }
-    }
-
     /// Evaluate the module def to promised module name space object.
     ///
     /// Proceeding in following steps:
@@ -505,4 +481,30 @@ fn gather_module_ancestors(
     }
 
     Ok(())
+}
+
+impl<'c> ScopedContext<'c> {
+    /// Compile `source` in module mode, return a module def. `filename` is used to identify the module.
+    pub fn compile_module(
+        &mut self,
+        source: &[u8],
+        filename: &str,
+        strip: bool,
+    ) -> Result<ModuleDef, i32> {
+        if let Compiled::Module(md) = self.compile(
+            source,
+            filename,
+            EvalType::Module,
+            if strip {
+                EvalFlags::STRIP
+            } else {
+                EvalFlags::empty()
+            },
+            -1,
+        )? {
+            Ok(md)
+        } else {
+            unreachable!()
+        }
+    }
 }

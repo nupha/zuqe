@@ -14,7 +14,9 @@ use std::sync::{
     atomic::{AtomicPtr, Ordering},
 };
 
-use crate::runtime::RuntimeImpl;
+use gc_lite::GcHeap;
+
+use crate::{JSValue, runtime::RuntimeImpl};
 
 #[cfg(not(debug_assertions))]
 static PANIC_RUNTIME: AtomicPtr<RuntimeImpl> = AtomicPtr::new(std::ptr::null_mut());
@@ -54,6 +56,9 @@ impl Runtime {
         Ok(Self(rt))
     }
 
+    #[cfg(debug_assertions)]
+    pub const fn install_panic_handler(&self) {}
+
     #[cfg(not(debug_assertions))]
     pub fn install_panic_handler(&self) {
         let rt_ptr = self.deref() as *const RuntimeImpl as *mut RuntimeImpl;
@@ -72,8 +77,16 @@ impl Runtime {
         });
     }
 
-    #[cfg(debug_assertions)]
-    pub const fn install_panic_handler(&self) {}
+    #[cfg(not(debug_assertions))]
+    unsafe fn panic_free_gc(&mut self) {
+        self.cur_exception = JSValue::UNDEFINED;
+        self.context_list.clear();
+        self.shape_registry.clear();
+
+        let pid = self.gc_part_id();
+        self.gc_heap_mut()
+            .remove_partition(pid, GcHeap::DUMMY_DISPOSE_CALLBACK);
+    }
 }
 
 /// A light-weight runtime raw ptr.

@@ -105,7 +105,7 @@ fn js_detachArrayBuffer(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let source = cc.arg(0).inspect(ctx)?;
-    ctx.with_new_scope(|scope| {
+    ctx.with_new_scope(|mut scope| {
         scope.eval(
             source.as_bytes(),
             "<eval>",
@@ -225,10 +225,9 @@ pub fn js_module_loader(
                     }
                 }
             }
-            let aurl = format!("{}", normalized.display());
+            let abs_url = format!("{}", normalized.display());
 
-            let md = ModuleDef::compile(ctx, buf.as_slice(), &aurl, false)?;
-            Ok(md)
+            ctx.compile_module(buf.as_slice(), &abs_url, false)
         }
         Err(_) => {
             ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
@@ -310,7 +309,7 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorT
             })
             .unwrap();
 
-        ctx.with_new_scope(|scope| {
+        ctx.with_new_scope(|mut scope| {
             scope.eval(
                 src.as_bytes(),
                 file.as_os_str().to_string_lossy().as_ref(),
@@ -339,7 +338,7 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    ctx.with_new_scope(|scope| {
+    ctx.with_new_scope(|mut scope| {
         scope.eval_wait(
             script.as_bytes(),
             filename.as_os_str().to_str().unwrap(),

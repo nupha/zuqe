@@ -150,7 +150,11 @@ fn main() -> ExitCode {
         }
     };
 
+    // Create runtime
     let mut rt = Runtime::create().unwrap();
+
+    // In release build, when set panic="abort" in Cargo.toml,
+    // should install panic handler to ensure gc heap deallocate when panic.
     rt.install_panic_handler();
 
     // memory-limit
@@ -176,7 +180,9 @@ fn main() -> ExitCode {
     }
 
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
-    // module os has internal gc objects need customized trace & collect.
+
+    // 'os' module has gc objects inside which should be traced.
+    // install customized gc trace handler provided by 'os' module.
     rt.gc_set_trace_handler(|tr| {
         mod_os_gc_trace(tr);
     });
@@ -187,7 +193,7 @@ fn main() -> ExitCode {
     let is_module =
         args.module || filename.ends_with(".mjs") || ModuleDef::detect_module(script.as_bytes());
 
-    // create context
+    // create context and setup
     let mut ctx = rt
         .create_context(|cx| {
             Context::ECMA_CONTEXT_SETUP(cx)?;
@@ -206,8 +212,8 @@ fn main() -> ExitCode {
     #[cfg(debug_assertions)]
     debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0, "no scope now");
 
-    let ret = ctx.with_new_scope(|scope| {
-        scope.eval_wait(
+    let exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
+        let ret = scope.eval_wait(
             script.as_bytes(),
             &filename,
             if is_module {
@@ -216,23 +222,23 @@ fn main() -> ExitCode {
                 EvalType::Global
             },
             EvalFlags::empty(),
-        )
-    });
+        );
 
-    let exit_code = match ret {
-        Ok(val) => {
-            colorize_println(val.inspect(&mut ctx.new_scope()).unwrap(), GreenFg);
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            let mut err_msg = e.message;
-            if let Some(tb) = e.traceback {
-                err_msg = format!("{err_msg}\n{tb}");
+        match ret {
+            Ok(val) => {
+                colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
+                ExitCode::SUCCESS
             }
-            colorize_println(err_msg, RedFg);
-            ExitCode::FAILURE
+            Err(e) => {
+                let mut err_msg = e.message;
+                if let Some(tb) = e.traceback {
+                    err_msg = format!("{err_msg}\n{tb}");
+                }
+                colorize_println(err_msg, RedFg);
+                ExitCode::FAILURE
+            }
         }
-    };
+    });
 
     #[cfg(debug_assertions)]
     debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
@@ -246,10 +252,7 @@ fn js_module_loader(
     _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     match std::fs::read(module_name) {
-        Ok(buf) => {
-            let md = ModuleDef::compile(ctx, &buf, module_name, false)?;
-            Ok(md)
-        }
+        Ok(buf) => ctx.compile_module(&buf, module_name, false),
         Err(_) => {
             ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
             Err(-1)

@@ -119,7 +119,7 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         flags |= EvalFlags::COMPILE_TO_ASYNC;
     }
 
-    let ret = ctx.with_new_scope(|scope| {
+    let ret = ctx.with_new_scope(|mut scope| {
         scope.eval(
             str.content().encode_utf8_bytes(true).as_ref(),
             "<evalScript>",
