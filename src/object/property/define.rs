@@ -54,7 +54,7 @@ impl ObjectImpl {
                 }
 
                 if !check_define_prop_flags(prs_flags, flags) {
-                    return if ctx.can_throw(flags) {
+                    return if ctx.rt_ref().can_throw(flags) {
                         ctx.throw_type_error("property is not configurable");
                         Err(-1)
                     } else {
@@ -154,7 +154,7 @@ impl ObjectImpl {
                         if let Some(idx) = prop.to_small_int() {
                             /* if the typed array is detached, p->u.array.count = 0 */
                             if idx >= self.fast_array_count() {
-                                return if ctx.can_throw(flags) {
+                                return if ctx.rt_ref().can_throw(flags) {
                                     ctx.throw_type_error("out-of-bound index in typed array");
                                     Err(-1)
                                 } else {
@@ -174,7 +174,7 @@ impl ObjectImpl {
                                             | JS_PROP_WRITABLE
                                             | JS_PROP_CONFIGURABLE),
                             ) {
-                                if ctx.can_throw(flags) {
+                                if ctx.rt_ref().can_throw(flags) {
                                     ctx.throw_type_error("invalid descriptor flags");
                                     Err(-1)
                                 } else {
@@ -194,7 +194,7 @@ impl ObjectImpl {
                             match num {
                                 IntOrFloat::Int64(i) => {
                                     if i < 0 {
-                                        return if ctx.can_throw(flags) {
+                                        return if ctx.rt_ref().can_throw(flags) {
                                             ctx.throw_type_error("negative index in typed array");
                                             Err(-1)
                                         } else {
@@ -202,7 +202,7 @@ impl ObjectImpl {
                                         };
                                     }
                                     if i > JS_ATOM_TAG_INT as i64 {
-                                        return if ctx.can_throw(flags) {
+                                        return if ctx.rt_ref().can_throw(flags) {
                                             ctx.throw_type_error(
                                                 "out-of-bound index in typed array",
                                             );
@@ -213,7 +213,7 @@ impl ObjectImpl {
                                     }
                                 }
                                 IntOrFloat::Float64(_) => {
-                                    return if ctx.can_throw(flags) {
+                                    return if ctx.rt_ref().can_throw(flags) {
                                         ctx.throw_type_error("non integer index in typed array");
                                         Err(-1)
                                     } else {

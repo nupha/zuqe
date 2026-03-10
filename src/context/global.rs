@@ -226,7 +226,7 @@ impl<'c> ScopedContext<'c> {
         } else {
             // not exist
             let mut flags1 = JS_PROP_THROW_STRICT;
-            if self.is_strict_mode() {
+            if self.rt_ref().is_strict_mode() {
                 flags1 |= JS_PROP_NO_ADD;
             }
 

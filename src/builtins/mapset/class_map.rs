@@ -347,7 +347,7 @@ fn js_map_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let func = cc.arg(1);
     func.ensure_function(ctx)?;
 
-    let this_val = if ctx.is_strict_mode() {
+    let this_val = if ctx.rt_ref().is_strict_mode() {
         JSValue::UNDEFINED
     } else {
         ctx.global_obj().into()

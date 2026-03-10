@@ -44,7 +44,7 @@ impl ObjectImpl {
     ) -> Result<bool, i32> {
         macro_rules! fail {
             ($msg:expr) => {
-                return if ctx.can_throw(flags) {
+                return if ctx.rt_ref().can_throw(flags) {
                     ctx.throw_type_error($msg);
                     Err(-1)
                 } else {
@@ -55,7 +55,7 @@ impl ObjectImpl {
 
         macro_rules! fail_read_only {
             ($prop:expr) => {
-                return if ctx.can_throw(flags) {
+                return if ctx.rt_ref().can_throw(flags) {
                     ctx.throw_type_error_read_only($prop);
                     Err(-1)
                 } else {
@@ -77,8 +77,7 @@ impl ObjectImpl {
                             debug_assert_eq!(prop, Atom::CONST_length);
 
                             let arr_len = val.to_array_length(ctx, false)?;
-                            let can_throw = ctx.can_throw(flags);
-
+                            let can_throw = ctx.rt_ref().can_throw(flags);
                             return unsafe {
                                 cur_obj
                                     .as_Array_mut_unchecked()
@@ -98,7 +97,7 @@ impl ObjectImpl {
                         if unlikely(cur_obj.class_id() == JS_CLASS_MODULE_NS) {
                             fail_read_only!(prop)
                         } else if let JSProperty::VarRef(vref) = cur_obj.prop_slot_mut(idx) {
-                            vref.set_value(ctx.rt_mut(), val);
+                            vref.set_value(val);
                             return Ok(true);
                         } else {
                             unreachable!()
@@ -109,7 +108,6 @@ impl ObjectImpl {
                         return if let JSProperty::GetSet { setter, .. } = cur_obj.prop_slot(idx) {
                             // protect self
                             // ctx.gc_heap_mut().protect_node_v2(self.gc_head_ptr());
-
                             call_setter(
                                 ctx,
                                 *setter,
@@ -560,7 +558,7 @@ impl JSValue {
             o.set_property_internal(ctx, prop, val, receiver.or(Some(*o)), flags)
         } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
             p.set_property_internal(ctx, prop, val, receiver, flags)
-        } else if unlikely(ctx.can_throw(flags)) {
+        } else if unlikely(ctx.rt_ref().can_throw(flags)) {
             ctx.throw_type_error_not_an_object();
             Err(-1)
         } else {
@@ -645,7 +643,7 @@ fn call_setter(
     if let Some(func) = setter {
         func.call(ctx, this_obj, std::slice::from_ref(&value))?;
         Ok(true)
-    } else if unlikely(ctx.can_throw(flags)) {
+    } else if unlikely(ctx.rt_ref().can_throw(flags)) {
         ctx.throw_type_error("no setter for property");
         Err(-1)
     } else {

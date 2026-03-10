@@ -15,6 +15,7 @@ use crate::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, Object,
         ObjectPayload,
     },
+    runtime::RuntimePtr,
     utils::unlikely,
     value::JSValue,
 };
@@ -204,6 +205,8 @@ impl ModuleDefImpl {
         ctx: &mut ScopedContext,
         entries: &[FieldDef],
     ) -> Result<(), i32> {
+        let rt = ctx.rt_ptr();
+
         for entry in entries {
             let val: JSValue = match &entry.detail {
                 FieldDetail::Func { callback, length } => ctx
@@ -226,7 +229,7 @@ impl ModuleDefImpl {
             };
 
             if !val.is_undefined() {
-                self.set_export_value(ctx, entry.name, val)?;
+                self.set_export_value(rt, entry.name, val)?;
             }
         }
 
@@ -234,13 +237,13 @@ impl ModuleDefImpl {
     }
 
     /// update or add a module export entry named `export_name`, with given value
-    pub fn set_export_value(
+    fn set_export_value(
         &self,
-        ctx: &mut ScopedContext,
+        rt: RuntimePtr,
         export_name: &str,
         value: JSValue,
     ) -> Result<(), i32> {
-        let atom = Atom::new(ctx.rt_ptr(), export_name)?;
+        let atom = Atom::new(rt, export_name)?;
 
         if let Some(me) = self.find_export(atom) {
             if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
@@ -248,7 +251,7 @@ impl ModuleDefImpl {
                     var_ref.is_some(),
                     "exported local entry must have been linked"
                 );
-                var_ref.unwrap().set_value(ctx.rt_mut(), value);
+                var_ref.unwrap().set_value(value);
                 Ok(())
             } else {
                 // not a local export entry

@@ -212,7 +212,7 @@ impl ObjectImpl {
                     .unwrap(); // <-- prop length must exist.
 
                 if unlikely(prs_flags & JS_PROP_WRITABLE == 0) {
-                    return if cx.can_throw(flags) {
+                    return if cx.rt_ref().can_throw(flags) {
                         cx.throw_type_error_read_only(Atom::CONST_length);
                         Some(Err(-1))
                     } else {
@@ -238,7 +238,7 @@ impl ObjectImpl {
                         .value(ctx, JSValue::UNDEFINED)
                         .and_then(|v| v.to_length(ctx))
                     else {
-                        return if ctx.can_throw(flags) {
+                        return if ctx.rt_ref().can_throw(flags) {
                             Err(-1)
                         } else {
                             Ok(false)
@@ -250,7 +250,7 @@ impl ObjectImpl {
                             let list_count = self.fast_array_count();
                             if idx == list_count {
                                 if unlikely(!self.flags().extensible()) {
-                                    return if ctx.can_throw(flags) {
+                                    return if ctx.rt_ref().can_throw(flags) {
                                         ctx.throw_type_error("object is not extensible");
                                         Err(-1)
                                     } else {
@@ -260,7 +260,7 @@ impl ObjectImpl {
 
                                 if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                                     if let Err(e) = self.destruct_fast_array(ctx) {
-                                        return if ctx.can_throw(flags) {
+                                        return if ctx.rt_ref().can_throw(flags) {
                                             Err(e)
                                         } else {
                                             Ok(false)
@@ -292,7 +292,7 @@ impl ObjectImpl {
                                             }
                                         }
                                         Err(e) => {
-                                            return if ctx.can_throw(flags) {
+                                            return if ctx.rt_ref().can_throw(flags) {
                                                 Err(e)
                                             } else {
                                                 Ok(false)
@@ -307,7 +307,7 @@ impl ObjectImpl {
                                 // leaves a hole between `arr_idx` and `idx`,
                                 // will degrade to sparse array.
                                 if let Err(e) = self.destruct_fast_array(ctx) {
-                                    return if ctx.can_throw(flags) {
+                                    return if ctx.rt_ref().can_throw(flags) {
                                         Err(e)
                                     } else {
                                         Ok(false)
@@ -326,7 +326,7 @@ impl ObjectImpl {
                         } else if let Some(idx) = prop.to_array_index(ctx.rt_ref()) {
                             // convert fast array to sparse array
                             if self.destruct_fast_array(ctx).is_err() {
-                                return if ctx.can_throw(flags) {
+                                return if ctx.rt_ref().can_throw(flags) {
                                     Err(-1)
                                 } else {
                                     Ok(false)
@@ -351,7 +351,7 @@ impl ObjectImpl {
 
                 JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
                     if prop.is_numeric_index(ctx)? {
-                        return if ctx.can_throw(flags) {
+                        return if ctx.rt_ref().can_throw(flags) {
                             ctx.throw_type_error("cannot create numeric index in typed array");
                             Err(-1)
                         } else {
@@ -377,7 +377,7 @@ impl ObjectImpl {
                         }
 
                         if unlikely(!self.is_extensible_obj(ctx)?) {
-                            return if ctx.can_throw(flags) {
+                            return if ctx.rt_ref().can_throw(flags) {
                                 ctx.throw_type_error("object is not extensible");
                                 Err(-1)
                             } else {
@@ -393,7 +393,7 @@ impl ObjectImpl {
         // add shape property and put the value in value slot.
 
         if unlikely(!obj_flags.extensible()) {
-            if ctx.can_throw(flags) {
+            if ctx.rt_ref().can_throw(flags) {
                 ctx.throw_type_error("object is not extensible");
                 Err(-1)
             } else {

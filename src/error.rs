@@ -9,9 +9,7 @@ use crate::{
     class::ClassID,
     context::ContextImpl,
     function::{Bytecode, get_func_name},
-    object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectPayload,
-    },
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload},
     stack_frame::StackFrameParentIter,
     value::JSValue,
 };
@@ -81,10 +79,9 @@ pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
 impl ContextImpl {
     /// put `obj` to current_exception.
-    #[inline(never)]
     #[cold]
-    pub(crate) fn throw(&self, obj: JSValue) {
-        self.rt_ptr().set_exception(obj);
+    pub(crate) fn throw(&mut self, obj: JSValue) {
+        self.rt_mut().set_exception(obj);
     }
 }
 
@@ -163,23 +160,6 @@ impl<'c> ScopedContext<'c> {
         self.throw_error(ErrorKind::Uri, message);
     }
 
-    /// test if allowed to throw error according to `flags`
-    #[inline(always)]
-    pub fn can_throw(&self, flags: u32) -> bool {
-        flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && self.is_strict_mode())
-    }
-
-    /// returns: true=exception raised; false=no exception raised
-    #[deprecated(note = "use ::can_throw() and ::throw_XXX() instead")]
-    pub(crate) fn throw_type_error_or_false(&mut self, flags: u32, message: &str) -> bool {
-        if self.can_throw(flags) {
-            self.throw_type_error(message);
-            true
-        } else {
-            false
-        }
-    }
-
     #[inline(always)]
     pub fn throw_type_error_not_an_object(&mut self) {
         self.throw_type_error("not an object");
@@ -195,7 +175,6 @@ impl<'c> ScopedContext<'c> {
         self.throw_type_error("revoked proxy");
     }
 
-    #[cold]
     pub fn throw_type_error_invalid_class(&mut self, class_id: ClassID) {
         let name = self.rt_ptr().class_registry[class_id as usize].class_name;
         self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt_ref())))

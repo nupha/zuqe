@@ -652,7 +652,7 @@ impl ObjectImpl {
                 .unwrap();
 
             if unlikely(r & JS_PROP_WRITABLE == 0) {
-                return if ctx.can_throw(flags) {
+                return if ctx.rt_ref().can_throw(flags) {
                     ctx.throw_type_error("'length' is read-only");
                     Err(-1)
                 } else {

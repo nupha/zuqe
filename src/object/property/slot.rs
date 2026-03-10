@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ptr::NonNull;
-
-use gc_lite::{GcHead, GcNode};
-
 use crate::{
     JS_CLASS_MODULE_NS,
     atom::Atom,
     context::ScopedContext,
-    object::{LazyInit, Object, ObjectImpl},
+    object::{Object, ObjectImpl},
     utils::unlikely,
     value::JSValue,
 };
@@ -62,37 +58,37 @@ impl ObjectImpl {
     pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
         debug_assert!(idx < self.prop_values.len());
 
-        let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
-            JSProperty::Normal(val) => [val.gc_node_ptr(), None],
-            JSProperty::GetSet { getter, setter } => [
-                getter.map(|o| o.gc_node_ptr()),
-                setter.map(|o| o.gc_node_ptr()),
-            ],
-            JSProperty::VarRef(vr) => [Some(vr.gc_node_ptr()), None],
-            JSProperty::LazyInit {
-                init_type: LazyInit::ModuleNS(m),
-                ..
-            } => [Some(m.gc_node_ptr()), None],
-            _ => [None, None],
-        };
+        // let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
+        //     JSProperty::Normal(val) => [val.gc_node_ptr(), None],
+        //     JSProperty::GetSet { getter, setter } => [
+        //         getter.map(|o| o.gc_node_ptr()),
+        //         setter.map(|o| o.gc_node_ptr()),
+        //     ],
+        //     JSProperty::VarRef(vr) => [Some(vr.gc_node_ptr()), None],
+        //     JSProperty::LazyInit {
+        //         init_type: LazyInit::ModuleNS(m),
+        //         ..
+        //     } => [Some(m.gc_node_ptr()), None],
+        //     _ => [None, None],
+        // };
 
         unsafe {
             *self.prop_values.get_unchecked_mut(idx) = p;
         }
 
-        if gc_node[0].is_some() || gc_node[1].is_some() {
-            let self_node = self.gc_head_ptr();
-            let mut rt = self.rt();
+        // if gc_node[0].is_some() || gc_node[1].is_some() {
+        //     let self_node = self.gc_head_ptr();
+        //     let mut rt = self.rt();
 
-            for node in gc_node.into_iter().flatten() {
-                unsafe {
-                    #[cfg(debug_assertions)]
-                    node.as_ref().debug_assert_node_valid(rt.gc_heap_mut());
+        //     for node in gc_node.into_iter().flatten() {
+        //         unsafe {
+        //             #[cfg(debug_assertions)]
+        //             node.as_ref().debug_assert_node_valid(rt.gc_heap_mut());
 
-                    rt.gc_heap_mut().bind(self_node, node);
-                }
-            }
-        }
+        //             rt.gc_heap_mut().bind(self_node, node);
+        //         }
+        //     }
+        // }
     }
 
     /// extend property slot
@@ -130,7 +126,7 @@ impl ObjectImpl {
                         && flags & JS_PROP_HAS_VALUE != 0,
                 ) {
                     return if !val.is_same(self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?) {
-                        if ctx.can_throw(flags) {
+                        if ctx.rt_ref().can_throw(flags) {
                             ctx.throw_type_error("property is not configurable");
                             Err(-1)
                         } else {
@@ -180,7 +176,7 @@ impl ObjectImpl {
                         references, but they are write protected in module name
                         spaces. */
                         if !val.is_same(vref.value()) {
-                            return if ctx.can_throw(flags) {
+                            return if ctx.rt_ref().can_throw(flags) {
                                 ctx.throw_type_error("property is not configurable");
                                 Err(-1)
                             } else {
@@ -188,7 +184,7 @@ impl ObjectImpl {
                             };
                         }
                     } else {
-                        vref.set_value(ctx.rt_mut(), val);
+                        vref.set_value(val);
                     }
                 }
 
@@ -196,7 +192,7 @@ impl ObjectImpl {
                     // has {writable:false}
                     // 'writable' is set to false, no longer a reference (for mapped arguments)
                     if unlikely(class_id == JS_CLASS_MODULE_NS) {
-                        return if ctx.can_throw(flags) {
+                        return if ctx.rt_ref().can_throw(flags) {
                             ctx.throw_type_error(
                                 "module namespace properties have writable = false",
                             );
@@ -223,8 +219,7 @@ impl ObjectImpl {
             // the length property
             let res = if flags & JS_PROP_HAS_VALUE != 0 {
                 let arr_len = val.to_array_length(ctx, false)?;
-                let can_throw = ctx.can_throw(flags);
-
+                let can_throw = ctx.rt_ref().can_throw(flags);
                 unsafe {
                     Object::from_ref(self)
                         .as_Array_mut_unchecked()
@@ -289,13 +284,6 @@ impl ObjectImpl {
             self.modify_shape_property_flags(ctx, prop, |f| {
                 (f & (JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE)) | JS_PROP_GETSET
             })?;
-
-            // self.shape_prepare_update(ctx)?;
-            // let sh = self.shape().unwrap();
-            // let prs = unsafe { sh.as_mut().prop_defs.get_mut(&prop.id()).unwrap() };
-            // prs.set_flags(
-            //     (prs.flags() & (JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE)) | JS_PROP_GETSET,
-            // );
         } else {
             // alreay is getset type
             if let JSProperty::GetSet { getter, setter } = self.prop_slot(idx) {
@@ -304,7 +292,7 @@ impl ObjectImpl {
                         && ((flags & JS_PROP_HAS_GET != 0 && new_getter != *getter)
                             || (flags & JS_PROP_HAS_SET != 0 && new_setter != *setter)),
                 ) {
-                    return if ctx.can_throw(flags) {
+                    return if ctx.rt_ref().can_throw(flags) {
                         ctx.throw_type_error("property is not configurable");
                         Err(-1)
                     } else {

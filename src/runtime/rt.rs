@@ -22,8 +22,8 @@ use crate::{
     function::{AsyncFunction, AsyncState, BoundFunction, NativeFunction},
     gc::gc::GC_TYPE_REGISTRY,
     module::{ModuleLoadFn, ModuleNormalizeFn, js_module_ns_exotic_methods},
-    object::ShapeImpl,
-    stack_frame::StackFrame,
+    object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeImpl},
+    stack_frame::{ExecMode, StackFrame},
     string::js_string_exotic_methods,
     utils::js_get_stack_pointer,
     value::JSValue,
@@ -342,6 +342,18 @@ impl RuntimeImpl {
         }
 
         sf
+    }
+
+    /// test if current stack-frame is in strict mode
+    pub(crate) fn is_strict_mode(&self) -> bool {
+        self.current_stack_frame()
+            .is_some_and(|sf| sf.mode.contains(ExecMode::STRICT))
+    }
+
+    /// test if allowed to throw error according to `flags`
+    #[inline(always)]
+    pub fn can_throw(&self, flags: u32) -> bool {
+        flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && self.is_strict_mode())
     }
 
     fn finalize(&mut self) {

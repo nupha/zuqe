@@ -296,10 +296,10 @@ impl<'s> JSParseState<'s> {
         match opcode as u8 {
             opcodes::op_scope_get_var => {
                 // val --
-                assert!(
-                    special == PutLValueEnum::PUT_LVALUE_NOKEEP
-                        || special == PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH
-                );
+                debug_assert!(matches!(
+                    special,
+                    PutLValueEnum::PUT_LVALUE_NOKEEP | PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH
+                ));
                 self.emit_op_temp(if is_let {
                     OpCodeTemp::SCOPE_PUT_VAR_INIT
                 } else {

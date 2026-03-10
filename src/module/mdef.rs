@@ -323,16 +323,16 @@ impl std::fmt::Debug for ModuleDef {
 impl ModuleDef {
     /// alloc an uninitialized (usually bytecode) module.
     pub(crate) fn new(ctx: &mut ScopedContext, name: Atom) -> Result<Self, i32> {
-        let inner = ModuleDefImpl::new(name);
-        let gc_ref = ctx.alloc_local(inner).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        let md = ctx
+            .alloc_local(ModuleDefImpl::new(name))
+            .map(Self)
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
 
-        let m = ModuleDef(gc_ref);
-        ctx.loaded_modules.push(m);
-
-        Ok(m)
+        ctx.loaded_modules.push(md);
+        Ok(md)
     }
 
     /// create a native module def.
