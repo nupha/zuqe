@@ -40,11 +40,10 @@ impl<'c> ScopedContext<'c> {
             match self.rt_ref().find_shape_by_proto(proto) {
                 Some(sh) => sh,
                 None => {
-                    if let Ok(sh) = Shape::create(self, proto, 0) {
-                        sh
-                    } else {
+                    let Ok(sh) = Shape::create(self, proto, 0) else {
                         return Err(payload);
-                    }
+                    };
+                    sh
                 }
             }
         };
