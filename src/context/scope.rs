@@ -110,14 +110,6 @@ impl<'a> ScopedContext<'a> {
         r
     }
 
-    #[inline(always)]
-    pub fn depth(&self) -> u8 {
-        match &self.gc_scope {
-            GcScopeType::Owned(s) => s.depth(),
-            GcScopeType::Ref(s) => s.depth(),
-        }
-    }
-
     /// get gc scope state
     #[inline]
     fn gc(&self) -> &GcScopeState<'_> {
@@ -125,6 +117,11 @@ impl<'a> ScopedContext<'a> {
             GcScopeType::Owned(s) => s.deref(),
             GcScopeType::Ref(s) => s,
         }
+    }
+
+    #[inline(always)]
+    pub fn depth(&self) -> u8 {
+        self.gc().depth()
     }
 
     /// Set promote value
@@ -139,14 +136,6 @@ impl<'a> ScopedContext<'a> {
         let s = self.gc();
         debug_assert!(s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth());
         s.flush();
-    }
-
-    /// test if given node contains in `self` scope
-    #[cfg(debug_assertions)]
-    pub fn contains(&self, node: NonNull<GcHead>) -> bool {
-        self.gc_heap()
-            .scope(self.depth() as _)
-            .is_some_and(|s| s.contains(node))
     }
 
     /// create new scope over current scope
@@ -166,6 +155,14 @@ impl<'a> ScopedContext<'a> {
     pub fn with_new_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
         let s = self.new_scope();
         f(s)
+    }
+
+    /// test if given node contains in `self` scope
+    #[cfg(debug_assertions)]
+    pub fn contains(&self, node: NonNull<GcHead>) -> bool {
+        self.gc_heap()
+            .scope(self.depth() as _)
+            .is_some_and(|s| s.contains(node))
     }
 }
 

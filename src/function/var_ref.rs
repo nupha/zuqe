@@ -6,7 +6,6 @@ use std::ptr::NonNull;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    RuntimeImpl,
     context::ScopedContext,
     gcref_wrapper,
     stack_frame::{ExecMode, StackFrame},

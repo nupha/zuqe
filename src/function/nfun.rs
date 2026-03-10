@@ -91,13 +91,7 @@ impl NFuncPayload {
     }
 
     /// Call native callback
-    fn call(
-        &mut self,
-        this_value: JSValue,
-        args: &[JSValue],
-        flags: i32,
-        xref_scope: GcPartitionId,
-    ) -> JSResult {
+    fn call(&mut self, this_value: JSValue, args: &[JSValue], flags: i32) -> JSResult {
         let mut cc = CallContext::new(this_value, args, self.magic as _, self.data.as_deref_mut());
 
         // call in new scope
@@ -156,16 +150,16 @@ impl NFuncPayload {
             }
         };
 
-        // Binding data could be updated inside callback,
-        // promote scope of binding data
-        if let Some(data) = &self.data {
-            debug_assert!(!data.is_empty());
-            for v in data {
-                if let Some(n) = v.gc_node_ptr() {
-                    realm_scope.rt_ptr().gc_heap_mut().set_xref(xref_scope, n);
-                }
-            }
-        }
+        // // Binding data could be updated inside callback,
+        // // promote scope of binding data
+        // if let Some(data) = &self.data {
+        //     debug_assert!(!data.is_empty());
+        //     for v in data {
+        //         if let Some(n) = v.gc_node_ptr() {
+        //             realm_scope.rt_ptr().gc_heap_mut().set_xref(xref_scope, n);
+        //         }
+        //     }
+        // }
 
         // promote return value
         if let Ok(v) = ret_val {
@@ -259,10 +253,9 @@ impl NativeFunction {
 
         // Note: return value could be allocated in `stack_frame` gc scope,
         // must promote return value and binding_data (if any) before stack_frame drop.
-        let xref_scope = ctx.rt_ref().gc_part_id();
         nfunc
             .payload_mut()
-            .call(this_obj, stack_frame.arg_values(), flags, xref_scope)
+            .call(this_obj, stack_frame.arg_values(), flags)
     }
 
     // TODO: shall we combine this with `::class_call()`?
@@ -274,12 +267,11 @@ impl NativeFunction {
         _flags: i32,
     ) -> JSResult {
         let mut nfunc = NativeFunction::try_from(func_obj).unwrap();
-        let nfunc_scope = nfunc.gc_node().partition_id();
 
         debug_assert_eq!(nfunc.class_id(), JS_CLASS_C_FUNCTION_DATA);
         debug_assert!(matches!(nfunc.payload().callback, Callback::Func(_)));
 
-        nfunc.payload_mut().call(this_val, args, 0, nfunc_scope)
+        nfunc.payload_mut().call(this_val, args, 0)
     }
 
     /// Create native function object.

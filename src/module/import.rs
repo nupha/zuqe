@@ -54,17 +54,17 @@ pub(crate) fn js_dynamic_import(ctx: &mut ScopedContext, specifier: JSValue) -> 
         {
             // Note: job tick is performed in root scope,
             // should promote related gc nodes to root scope.
-            let top = ctx_ptr.rt_ref().gc_part_hot;
-            let heap = ctx_ptr.rt_mut().gc_heap_mut();
-            if let Some(n) = basename_val.gc_node_ptr() {
-                heap.set_xref(top, n);
-            }
-            if let Some(n) = specifier.gc_node_ptr() {
-                heap.set_xref(top, n);
-            }
-            for n in rr.iter().filter_map(|v| v.gc_node_ptr()) {
-                heap.set_xref(top, n);
-            }
+            // let top = ctx_ptr.rt_ref().gc_part_hot;
+            // let heap = ctx_ptr.rt_mut().gc_heap_mut();
+            // if let Some(n) = basename_val.gc_node_ptr() {
+            //     heap.set_xref(top, n);
+            // }
+            // if let Some(n) = specifier.gc_node_ptr() {
+            //     heap.set_xref(top, n);
+            // }
+            // for n in rr.iter().filter_map(|v| v.gc_node_ptr()) {
+            //     heap.set_xref(top, n);
+            // }
 
             move |tr| {
                 basename_val.trace(tr);
