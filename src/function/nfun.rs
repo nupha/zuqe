@@ -3,7 +3,7 @@
 
 use std::ptr::NonNull;
 
-use gc_lite::{GcNode, GcPartitionId, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
@@ -295,7 +295,6 @@ impl NativeFunction {
                 realm: ctx.gc_ref().into(),
                 data: binding_data,
             });
-
             ctx.create_object_with_proto(
                 proto,
                 if has_binding_data {

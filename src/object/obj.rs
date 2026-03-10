@@ -500,10 +500,10 @@ impl ObjectImpl {
             );
         }
 
-        let obj_node = Object::from(self.gc_ref()).gc_node_ptr();
-        self.rt()
-            .gc_heap_mut()
-            .bind(obj_node, shape.gc_ref().node_ptr());
+        // let obj_node = Object::from(self.gc_ref()).gc_node_ptr();
+        // self.rt()
+        //     .gc_heap_mut()
+        //     .bind(obj_node, shape.gc_ref().node_ptr());
 
         self.shape.replace(shape);
     }
@@ -520,7 +520,6 @@ impl ObjectImpl {
                 |p| p.prevent_extensions(ctx),
             )
         }
-
         #[cfg(not(feature = "builtin_proxy"))]
         {
             self.set_flag_extensible(false);

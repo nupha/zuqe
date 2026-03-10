@@ -1,20 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use crate::{
-    ScopedContext,
-    context::{Context, ContextImpl},
-};
+use gc_lite::GcNode;
+
+use crate::context::{ContextPtr, ScopedContext};
 
 use super::RuntimeImpl;
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     pub fn add_tick_handler(&mut self, f: fn(&mut ScopedContext) -> bool) {
         self.tick_handlers.push(f);
-    }
-
-    pub fn remove_tick_handler(&mut self, f: fn(Context) -> bool) {
-        self.tick_handlers.retain(|x| !std::ptr::fn_addr_eq(f, *x));
     }
 }
 
@@ -33,26 +28,34 @@ impl RuntimeImpl {
             return Ok(TickStatus::Stop(n));
         }
 
-        self.execute_all_jobs().map_err(|_| -1)?;
+        let mut need_more_tick = false;
 
-        let mut need_next_tick = false;
         for mut ctx in self.context_list.iter().copied() {
-            let cx2 = ctx;
-            ctx.with_new_scope(|mut scope| {
-                for f in cx2.tick_handlers.iter() {
+            ctx.with_new_scope(|mut scope| -> Result<(), i32> {
+                // 1. run pending jobs
+                while let Some(mut job) = scope.job_list.pop_front() {
+                    self.gc_cur_job_trace = job.gc_trace.take();
+                    job.run(&mut scope)?;
+                    self.gc_cur_job_trace = None;
+                }
+
+                // 2. run tick handlers
+                let ctx_ptr = ContextPtr::from(scope.gc_ref());
+                for f in ctx_ptr.tick_handlers.iter() {
                     if f(&mut scope) {
-                        need_next_tick = true;
+                        need_more_tick = true;
                     }
                 }
-            });
+
+                Ok(())
+            })?;
         }
 
         if self.gc_req || self.gc_heap().should_gc() {
-            log::trace!("[tick_gc_collect]");
             self.gc_collect();
         }
 
-        Ok(if need_next_tick {
+        Ok(if need_more_tick {
             TickStatus::Continue
         } else {
             TickStatus::Stop(0)

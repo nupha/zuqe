@@ -298,7 +298,7 @@ fn js_json_to_str(
                     // because jsc will be borrowed mut later.
                     // guarantee `replacer_props` won't be modified in this function
                     let lst = unsafe { std::slice::from_raw_parts(lst.as_ptr(), lst.len()) };
-                    lst.iter().cloned().collect::<Vec<_>>().into()
+                    lst.to_vec().into()
                 } else {
                     // query own property names.
                     let kvs = val.get_own_property_kvs(

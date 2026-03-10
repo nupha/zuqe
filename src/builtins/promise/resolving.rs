@@ -3,12 +3,12 @@
 
 use std::{cell::Cell, rc::Rc};
 
-use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     atom::Atom,
-    context::{ContextImpl, ContextPtr, ScopedContext},
+    context::{ContextImpl, ScopedContext},
     error::JSResult,
     object::{JS_SpeciesConstructor, Object, ObjectImpl, ObjectPayload},
     object_cast,
@@ -87,28 +87,21 @@ impl PromiseResolveFunc {
             if !then.is_function() {
                 promise.fulfill_or_reject(ctx, arg0, is_reject);
             } else {
-                let mut cx: ContextPtr = ctx.into();
-
                 ctx.queue_job_with_trace(
-                    move || {
-                        cx.with_new_scope(|mut scope| {
-                            js_promise_resolve_thenable_job(&mut scope, promise, arg0, then)
-                        })
-                    },
+                    move |cx| js_promise_resolve_thenable_job(cx, promise, arg0, then),
                     {
                         // Note: tick is performed in top-level scope, promote related gc nodes to top-level scope.
-                        let pid = cx.rt_ref().gc_part_hot;
-                        let heap = cx.rt_mut().gc_heap_mut();
-
-                        for ch in prf.gc_children(heap) {
-                            heap.set_xref(pid, ch);
-                        }
-                        if let Some(n) = arg0.gc_node_ptr() {
-                            heap.set_xref(pid, n);
-                        }
-                        if let Some(n) = then.gc_node_ptr() {
-                            heap.set_xref(pid, n);
-                        }
+                        // let pid = cx.rt_ref().gc_part_hot;
+                        // let heap = cx.rt_mut().gc_heap_mut();
+                        // for ch in prf.gc_children(heap) {
+                        //     heap.set_xref(pid, ch);
+                        // }
+                        // if let Some(n) = arg0.gc_node_ptr() {
+                        //     heap.set_xref(pid, n);
+                        // }
+                        // if let Some(n) = then.gc_node_ptr() {
+                        //     heap.set_xref(pid, n);
+                        // }
 
                         move |tr| {
                             prf.trace(tr);
@@ -237,30 +230,27 @@ impl Promise {
 
                 // add a job to poll promise reaction in runtime tick
                 let is_reject = state == PromiseState::Rejected;
-                let mut cx = ContextPtr::from(ctx.gc_ref());
 
                 ctx.queue_job_with_trace(
-                    move || {
-                        cx.with_new_scope(|mut scope| {
-                            promise_reaction_job(
-                                &mut scope,
-                                act.resolving_funcs,
-                                act.handler,
-                                is_reject,
-                                result,
-                            )
-                        })
+                    move |cx| {
+                        promise_reaction_job(
+                            cx,
+                            act.resolving_funcs,
+                            act.handler,
+                            is_reject,
+                            result,
+                        )
                     },
                     {
                         // Note: job tick is performed in top-level scope, promote related gc nodes to top scope.
-                        let top = cx.rt_ref().gc_part_hot;
-                        let heap = cx.rt_mut().gc_heap_mut();
-                        for n in act.gc_children(heap) {
-                            heap.set_xref(top, n);
-                        }
-                        if let Some(n) = result.gc_node_ptr() {
-                            heap.set_xref(top, n);
-                        }
+                        // let top = cx.rt_ref().gc_part_hot;
+                        // let heap = cx.rt_mut().gc_heap_mut();
+                        // for n in act.gc_children(heap) {
+                        //     heap.set_xref(top, n);
+                        // }
+                        // if let Some(n) = result.gc_node_ptr() {
+                        //     heap.set_xref(top, n);
+                        // }
 
                         move |tr| {
                             act.trace(tr);
@@ -286,7 +276,6 @@ impl Promise {
         let ctor = JS_SpeciesConstructor(ctx, (*self).into(), JSValue::UNDEFINED)?;
         let (wrap_promise, rr) = Self::create_from_ctor(ctx, ctor)?;
 
-        // Hint: self.reaction() don't call bytecode execution inside
         self.reaction(ctx, [success, fail], rr)?;
         Ok(wrap_promise)
     }
@@ -301,7 +290,6 @@ impl Promise {
         is_reject: bool,
     ) {
         let (state, is_handled) = {
-            let self_node = self.gc_node_ptr();
             let p = self.payload_mut();
             debug_assert_eq!(p.state(), PromiseState::Pending);
 
@@ -311,12 +299,7 @@ impl Promise {
                 PromiseState::Fulfilled
             };
             p.set_state(s);
-            p.set_result(value);
-
-            // promote value's gc scope to same level of Promise
-            if let Some(v) = value.gc_node_ptr() {
-                ctx.rt_ptr().gc_heap_mut().bind(self_node, v);
-            }
+            p.set_result(value); // value will be traced by Promise itself
 
             (s, p.is_handled())
         };
@@ -331,39 +314,29 @@ impl Promise {
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
         let mut reactions = self.payload_mut().take_reactions();
-        let mut cx = ContextPtr::from(ctx.gc_ref());
 
         for act in reactions[is_reject as usize].drain(..) {
             // queue reaction in job list to resolve in next tick
             ctx.queue_job_with_trace(
-                move || {
-                    cx.with_new_scope(|mut scope| {
-                        promise_reaction_job(
-                            &mut scope,
-                            act.resolving_funcs,
-                            act.handler,
-                            is_reject,
-                            value,
-                        )
-                    })
+                move |cx| {
+                    promise_reaction_job(cx, act.resolving_funcs, act.handler, is_reject, value)
                 },
                 {
                     // Note: tick is performed in root scope,
                     // should promote related gc nodes to root scope.
-                    let mut rt = cx.rt_ptr();
-                    let top = rt.gc_part_hot;
-                    let heap = rt.gc_heap_mut();
-
-                    for n in act.gc_children(heap) {
-                        heap.set_xref(top, n);
-                    }
-                    if let Some(v) = value.gc_node_ptr() {
-                        heap.set_xref(top, v);
-                    }
+                    // let mut rt = cx.rt_ptr();
+                    // let top = rt.gc_part_hot;
+                    // let heap = rt.gc_heap_mut();
+                    // for n in act.gc_children(heap) {
+                    //     heap.set_xref(top, n);
+                    // }
+                    // if let Some(v) = value.gc_node_ptr() {
+                    //     heap.set_xref(top, v);
+                    // }
 
                     move |tr| {
-                        value.trace(tr);
                         act.trace(tr);
+                        value.trace(tr);
                     }
                 },
             );

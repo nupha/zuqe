@@ -155,9 +155,6 @@ impl RuntimeImpl {
             host_promise_rejection_tracker: None,
         };
 
-        // // initialize the top-level gc scope
-        // rt.gc_heap_mut().push_gc_scope(gc_part_id);
-
         rt.init_const_atoms();
 
         // register builtin classes

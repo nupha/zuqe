@@ -11,7 +11,6 @@ use crate::{
 };
 
 use super::{
-    array::js_parse_array_literal,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
@@ -393,8 +392,8 @@ impl<'s> JSParseState<'s> {
                     )?;
                 } else if self.token.kind == TokenKind::Char('{') {
                     self.parse_object_literal()?;
-                } else if js_parse_array_literal(self) != 0 {
-                    return Err(-1);
+                } else {
+                    self.js_parse_array_literal()?;
                 }
             }
             TokenKind::NEW => {

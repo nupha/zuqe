@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcNode, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     Callback,
     atom::Atom,
     builtins::promise::Promise,
-    context::{ContextPtr, ScopedContext},
+    context::ScopedContext,
     error::JSResult,
     function::{CallContext, NativeFunction},
     module::{
@@ -42,13 +42,9 @@ pub(crate) fn js_dynamic_import(ctx: &mut ScopedContext, specifier: JSValue) -> 
     // cannot run JS_LoadModuleInternal synchronously because it would
     // cause an unexpected recursion in js_evaluate_module()
     let rr = resolving_funcs;
-    let mut ctx_ptr = ContextPtr::from(ctx.gc_ref());
-
     ctx.queue_job_with_trace(
-        move || {
-            ctx_ptr.with_new_scope(|mut scope| {
-                js_dynamic_import_job(&mut scope, resolving_funcs, basename_val, specifier);
-            });
+        move |cx| {
+            js_dynamic_import_job(cx, resolving_funcs, basename_val, specifier);
             Ok(JSValue::UNDEFINED)
         },
         {

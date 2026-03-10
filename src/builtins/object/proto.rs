@@ -27,13 +27,11 @@ pub(crate) fn js_object_toString(ctx: &mut ScopedContext, cc: CallContext) -> JS
 }
 
 pub(crate) fn js_object_toLocaleString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this = cc.this();
-    this.invoke(ctx, Atom::CONST_toString, &[])
+    cc.this().invoke(ctx, Atom::CONST_toString, &[])
 }
 
 pub(crate) fn js_object_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this = cc.this();
-    this.objectify(ctx).map(JSValue::Object)
+    cc.this().objectify(ctx).map(JSValue::Object)
 }
 
 pub(crate) fn js_object_hasOwnProperty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -81,14 +79,15 @@ pub(crate) fn js_object_propertyIsEnumerable(ctx: &mut ScopedContext, cc: CallCo
 }
 
 pub(crate) fn js_object_getset___proto__(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let mut this = cc.this();
+
     if cc.length() == 0 {
         // getter
-        let p = cc.this().objectify(ctx).and_then(|o| o.prototype(ctx))?;
+        let p = this.objectify(ctx).and_then(|o| o.prototype(ctx))?;
         Ok(p.map_or(JSValue::NULL, JSValue::Object))
     } else {
         // setter
-        let mut this_val = cc.this();
-        if this_val.is_undefined_or_null() {
+        if this.is_undefined_or_null() {
             ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
@@ -99,7 +98,7 @@ pub(crate) fn js_object_getset___proto__(ctx: &mut ScopedContext, cc: CallContex
             Ok(JSValue::UNDEFINED)
         } else {
             // `proto` is an object or null
-            this_val.set_prototype_internal(ctx, proto, true)?;
+            this.set_prototype_internal(ctx, proto, true)?;
             Ok(JSValue::UNDEFINED)
         }
     }

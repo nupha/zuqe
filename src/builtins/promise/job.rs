@@ -3,15 +3,13 @@
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
-use crate::{
-    ScopedContext, context::ContextImpl, error::JSResult, runtime::RuntimeImpl, value::JSValue,
-};
+use crate::{ScopedContext, context::ContextImpl, error::JSResult, value::JSValue};
 
 use super::Promise;
 
 pub(crate) struct Job {
-    run: Box<dyn FnOnce() -> JSResult>,
-    gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
+    run: Box<dyn FnOnce(&mut ScopedContext) -> JSResult>,
+    pub(crate) gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
 }
 
 impl GcTrace for Job {
@@ -24,8 +22,8 @@ impl GcTrace for Job {
 
 impl Job {
     #[inline(always)]
-    pub fn run(self) -> JSResult {
-        (self.run)()
+    pub fn run(self, ctx: &mut ScopedContext) -> JSResult {
+        (self.run)(ctx)
     }
 }
 
@@ -33,7 +31,7 @@ impl ContextImpl {
     /// Append a job to job queue.
     pub(crate) fn queue_job_with_trace(
         &mut self,
-        run: impl FnOnce() -> JSResult + 'static,
+        run: impl FnOnce(&mut ScopedContext) -> JSResult + 'static,
         trace: impl Fn(&mut GcTraceCtx) + 'static,
     ) {
         self.job_list.push_back(Job {
@@ -93,24 +91,5 @@ pub(super) fn js_promise_resolve_thenable_job(
     } else {
         let exc = ctx.rt_mut().take_exception();
         rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc))
-    }
-}
-
-impl RuntimeImpl {
-    /// Execute all jobs in queue.
-    ///
-    /// Returns Err when has fail in executing job,
-    /// remainder jobs are still in queue in this case.
-    pub(crate) fn execute_all_jobs(&mut self) -> Result<(), i32> {
-        for &ctx in self.context_list.iter() {
-            let mut ctx = ctx;
-
-            while let Some(mut job) = ctx.job_list.pop_front() {
-                self.gc_cur_job_trace = job.gc_trace.take();
-                job.run()?;
-                self.gc_cur_job_trace = None;
-            }
-        }
-        Ok(())
     }
 }

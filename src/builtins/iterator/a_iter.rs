@@ -31,7 +31,7 @@ pub struct JSAsyncFromSyncIteratorData {
 
 impl GcTrace for JSAsyncFromSyncIteratorData {
     fn trace(&self, tr: &mut GcTraceCtx) {
-        tr.add(self.obj.gc_ref());
+        self.obj.trace(tr);
         self.next_method.trace(tr);
     }
 }
@@ -73,10 +73,7 @@ fn js_async_from_sync_iterator_unwrap(ctx: &mut ScopedContext, cc: CallContext) 
     js_create_iterator_result(ctx, arg0, done)
 }
 
-unsafe fn js_async_from_sync_iterator_unwrap_func_create(
-    ctx: &mut ScopedContext,
-    done: bool,
-) -> JSValue {
+fn js_async_from_sync_iterator_unwrap_func_create(ctx: &mut ScopedContext, done: bool) -> JSValue {
     NativeFunction::create(
         ctx,
         Callback::Func(js_async_from_sync_iterator_unwrap),
@@ -194,7 +191,7 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
             };
 
             let resolve_reject: [JSValue; 2] = [
-                unsafe { js_async_from_sync_iterator_unwrap_func_create(ctx, done).err()? },
+                js_async_from_sync_iterator_unwrap_func_create(ctx, done).err()?,
                 JSValue::UNDEFINED,
             ];
             value_wrapper_promise.reaction(ctx, resolve_reject, resolving_funcs)?;
@@ -210,7 +207,7 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
     }
 }
 
-pub const js_async_from_sync_iterator_proto_funcs: &[FieldDef] = &[
+const js_async_from_sync_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL(
         "next",
         1,

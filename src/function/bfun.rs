@@ -443,7 +443,7 @@ impl BytecodeFunction {
             bc.mode(),
         );
 
-        let mut rt = ctx.rt_ptr();
+        let rt = ctx.rt_ptr();
         let mut stack_frame = StackFrame::new((*self).into(), js_mode, [this_obj, new_target]);
 
         // ensure stack has minimal free space.
@@ -506,8 +506,9 @@ impl BytecodeFunction {
         };
         stack_frame.var_count = bc.var_count;
 
-        let self_node = self.gc_node_ptr();
         let bf = self.payload_mut();
+
+        // Note: ret_val is protected in scope.
         let ret_val = bc
             .execute(
                 ctx,
@@ -523,19 +524,13 @@ impl BytecodeFunction {
             )
             .err();
 
-        // Note: closure values could be allocated in stack-frame's gc scope during execution,
-        // before stack-frame is dropping, promote closure values up to at leat self Function's gc scope.
-        let heap = rt.gc_heap_mut();
-        for vr in bf.closure_var_refs() {
-            if let Some(n) = vr.value().gc_node_ptr() {
-                heap.bind(self_node, n);
-            }
-        }
-
-        // // ensure return value is protected at exit
-        // if let Ok(v) = ret_val {
-        //     println!("[O.o] v: {:?}", v.gc_node());
-        //     ctx.set_return_value(v);
+        // // Note: closure values could be allocated in stack-frame's gc scope during execution,
+        // // before stack-frame is dropping, promote closure values up to at leat self Function's gc scope.
+        // let heap = rt.gc_heap_mut();
+        // for vr in bf.closure_var_refs() {
+        //     if let Some(n) = vr.value().gc_node_ptr() {
+        //         heap.bind(self_node, n);
+        //     }
         // }
 
         ret_val

@@ -49,7 +49,7 @@ use crate::{
 };
 
 impl Bytecode {
-    /// Execute bytecodes.
+    /// Execute bytecodes. Return value is protected as local gc node.
     ///
     /// Switch of runtime's current stack frame:
     /// - during execution, current stack frame will be set to given `stack_frame`,

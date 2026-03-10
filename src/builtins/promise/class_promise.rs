@@ -42,7 +42,6 @@ fn js_promise_then_finally_func(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     let on_finally = cc.data(1);
 
     let res = on_finally.call(ctx, JSValue::UNDEFINED, &[])?;
-
     let promise = js_promise_resolve(
         ctx,
         CallContext::new_simple(ctor, std::slice::from_ref(&res)),

@@ -44,7 +44,7 @@ pub fn opcode_info_final(op: u8) -> &'static Opcode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum SpecialObject {
+pub(crate) enum SpecialObject {
     Arguments = 0,
     MappedArguments = 1,
     ThisFunc = 2,

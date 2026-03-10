@@ -89,7 +89,7 @@ impl BCWrapper {
 
 impl JSValue {
     /// if value is function object, call it in async manner
-    pub(crate) fn call_async(
+    pub fn call_async(
         &self,
         ctx: &mut ScopedContext,
         this_obj: JSValue,
@@ -227,7 +227,7 @@ impl AsyncState {
     }
 }
 
-pub const js_async_function_proto_funcs: &[FieldDef] = &[
+const js_async_function_proto_funcs: &[FieldDef] = &[
     #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
