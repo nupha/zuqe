@@ -88,7 +88,7 @@ impl std::fmt::Display for PayloadKey {
 static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::with_capacity(128);
 
-    m.insert(PayloadKey::Array, "crate::builtins::array::ArrayPayload");
+    m.insert(PayloadKey::Array, "crate::array::ArrayPayload");
     m.insert(PayloadKey::Bool, "bool");
     m.insert(PayloadKey::String, "crate::string::StringRef");
     m.insert(PayloadKey::Value, "crate::value::JSValue");

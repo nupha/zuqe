@@ -26,7 +26,7 @@ impl JSValue {
                 })
             }
 
-            Self::String(s) => Ok(s.content().encode_utf8(true).into()),
+            Self::String(s) => Ok(format!("\"{}\"", s.content().encode_utf8(true))),
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => Ok(format!("Symbol({})", s.content().encode_utf8(false))),
             Self::Object(o) => o.inspect(ctx),

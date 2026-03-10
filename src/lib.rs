@@ -7,6 +7,7 @@
 #![allow(clippy::missing_safety_doc)]
 #![warn(clippy::missing_const_for_fn)]
 
+mod array;
 mod atom;
 mod bytecode;
 mod class;

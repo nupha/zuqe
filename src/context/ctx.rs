@@ -18,10 +18,9 @@ use crate::{
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_DATAVIEW, JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY,
     JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
     ScopedContext,
+    array::ArrayPayload,
     atom::Atom,
-    builtins::{
-        array::ArrayPayload, error::js_error_proto_funcs, global::js_global_props, promise::Job,
-    },
+    builtins::{error::js_error_proto_funcs, global::js_global_props, promise::Job},
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES},
     function::{Callback, NativeFunction, js_function_proto},

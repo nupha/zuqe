@@ -9,8 +9,8 @@ use zerocopy::IntoBytes;
 
 use crate::{
     JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
+    array::Array,
     atom::Atom,
-    builtins::array::Array,
     class::ClassID,
     context::ScopedContext,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},

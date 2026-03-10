@@ -4,7 +4,7 @@
 use std::collections::TryReserveError;
 
 use fallible_collections::{FallibleVec, TryCollect};
-use gc_lite::{GcHeap, GcPartitionId, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcPartitionId, GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
@@ -74,14 +74,8 @@ impl ArrayPayload {
         self.values.pop()
     }
 
-    pub(crate) fn extend(
-        &mut self,
-        rt: &mut RuntimeImpl,
-        vals: impl Iterator<Item = JSValue>,
-        xref: GcPartitionId,
-    ) {
+    pub(crate) fn extend(&mut self, vals: impl Iterator<Item = JSValue>) {
         self.values.extend(vals);
-        self.update_values_xref(rt.gc_heap_mut(), xref);
     }
 
     #[inline(always)]
@@ -97,7 +91,6 @@ impl ArrayPayload {
         xref: GcPartitionId,
     ) {
         self.values[index] = value;
-        self.update_values_xref(rt.gc_heap_mut(), xref);
     }
 
     pub fn replace_values(
@@ -107,16 +100,6 @@ impl ArrayPayload {
         xref: GcPartitionId,
     ) {
         self.values = values;
-        self.update_values_xref(rt.gc_heap_mut(), xref);
-    }
-
-    #[deprecated(note = "no use")]
-    fn update_values_xref(&mut self, heap: &mut GcHeap, xref: GcPartitionId) {
-        for val in self.values.iter() {
-            if let Some(n) = val.gc_node_ptr() {
-                heap.set_xref(xref, n);
-            }
-        }
     }
 }
 
@@ -529,10 +512,6 @@ impl<'c> ScopedContext<'c> {
         if len > 0 {
             // set array length
             arr.set_length(self, len as u32, true)?;
-            // set gc xref
-            let xref = arr.gc_node().partition_id();
-            arr.payload_mut()
-                .update_values_xref(self.rt_ptr().gc_heap_mut(), xref);
         }
 
         Ok(arr)

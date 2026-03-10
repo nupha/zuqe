@@ -3,8 +3,8 @@
 
 use crate::{
     JS_CLASS_OBJECT,
+    array::ArrayPayload,
     atom::Atom,
-    builtins::array::ArrayPayload,
     context::ScopedContext,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
@@ -39,14 +39,13 @@ pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) ->
 
     if !values.is_empty() && obj.is_fast_array() {
         // initialize fast array values
-        let xref = obj.gc_node().partition_id();
         let arr_data = obj.as_Array_mut().unwrap().payload_mut();
         if arr_data.reserve(values.len()).is_err() {
             ctx.throw_out_of_memory();
             return JSValue::EXCEPTION;
         }
 
-        arr_data.extend(ctx.rt_mut(), values.iter().copied(), xref);
+        arr_data.extend(values.iter().copied());
     }
 
     #[cfg(feature = "builtin_symbol")]

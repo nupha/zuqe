@@ -347,7 +347,7 @@ impl FunctionDef {
     // }
 
     #[cfg(feature = "dump_bytecode")]
-    pub fn dump_bytecode(&self, ctx: &mut ContextImpl, pass: i32) {
+    pub fn dump_bytecode(&self, ctx: &mut crate::context::ScopedContext, pass: i32) {
         use crate::stack_frame::ExecMode;
 
         if !self.attrs.exec_mode.contains(ExecMode::STRIP) {

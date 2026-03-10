@@ -6,6 +6,7 @@ use gc_lite::{GcNode, GcPartitionId};
 
 use crate::{
     JS_CLASS_ARRAY,
+    array::{Array, ArrayPayload},
     atom::Atom,
     builtins::{
         iterator::{
@@ -25,8 +26,6 @@ use crate::{
     string::{StringBuf, StringRef},
     value::JSValue,
 };
-
-use super::{Array, ArrayPayload};
 
 pub const special_find: i32 = 0;
 pub const special_findIndex: i32 = 1;

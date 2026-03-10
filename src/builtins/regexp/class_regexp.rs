@@ -6,8 +6,8 @@ use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_REGEXP,
+    array::Array,
     atom::Atom,
-    builtins::array::Array,
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, Callback, FieldDef, js_function_apply},

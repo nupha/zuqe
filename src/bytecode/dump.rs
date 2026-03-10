@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-#![cfg(feature = "dump_bytecode")]
-
 use crate::{
+    ScopedContext,
     atom::Atom,
     bytecode::OpcodeFormat,
     context::ContextImpl,
@@ -20,7 +19,7 @@ use super::{
 /// dump opcodes binary in pass 1,2,3
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn dump_opcodes(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     pass: i32,
     bin: &[u8],
     args: &[JSVarDef],
@@ -418,7 +417,7 @@ pub(crate) fn dump_opcodes(
 
 impl Bytecode {
     /// dump Bytecode
-    pub fn dump(&self, ctx: &mut ContextImpl) {
+    pub fn dump(&self, ctx: &mut ScopedContext) {
         print!("{:?}: ", self);
 
         if let Some(debug) = self.debug.as_ref()
@@ -583,7 +582,7 @@ fn print_lines(source: &str, from_line: usize, to_line: usize) {
 
 /// dump instruction (opcode and params) at given pc.
 pub(super) fn dump_run_instruction(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     b: &Bytecode,
     pc: usize,
     sp_base: *const JSValue,
@@ -826,7 +825,7 @@ pub(super) fn dump_run_instruction(
 }
 
 pub(super) fn dump_run_stack(
-    ctx: &mut ContextImpl,
+    ctx: &mut ScopedContext,
     stack: &[JSValue],
     tree: bool,
     mark_count: usize,
@@ -838,7 +837,7 @@ pub(super) fn dump_run_stack(
 
     for (i, v) in stack.iter().enumerate() {
         println!(
-            "{:>10}{} {} {}",
+            "{:>10}{} {}",
             if tree {
                 if i == n - 1 { "└─" } else { "├─" }
             } else {
@@ -866,12 +865,6 @@ pub(super) fn dump_run_stack(
                     s.to_string()
                 }
             },
-            // partition
-            if let Some(h) = v.gc_node_ptr() {
-                format!("{h:p}@{:?}", unsafe { h.as_ref().partition_id() })
-            } else {
-                "".to_string()
-            }
         );
     }
 }

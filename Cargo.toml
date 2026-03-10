@@ -25,6 +25,8 @@ dump_bytecode = []
 debug_gc = []
 
 default = [
+    "all_unicode",
+
     "builtin_symbol",
     "builtin_mapset",
     "builtin_proxy",
@@ -33,8 +35,6 @@ default = [
     "builtin_json",
     "builtin_date",
     "builtin_math",
-
-    "all_unicode",
 ]
 
 [profile.release]
