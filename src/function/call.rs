@@ -178,20 +178,6 @@ impl ObjectImpl {
                 .call
         } {
             // calling class defined exotic callback (e.g. bound function, native function, async function etc)
-
-            // self, this_obj, new_target, args should be protected
-            // ### WE'RE USING GC SCOPE, THIS SHOULD NOT BE NEEDED.
-            // let mut _fg = rt.gc_heap().protect_node(self.gc_node_ptr());
-            // if let Some(n) = this_obj.gc_node_ptr() {
-            //     _fg.add(n);
-            // }
-            // if let Some(n) = new_target.gc_node_ptr() {
-            //     _fg.add(n);
-            // }
-            // for n in args.iter().flat_map(|v| v.gc_node_ptr()) {
-            //     _fg.add(n);
-            // }
-
             cb(
                 ctx,
                 Object::from_ref(self).into(),
