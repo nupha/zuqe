@@ -12,7 +12,7 @@ use crate::{
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, Object, ObjectPayload},
-    runtime::RuntimeImpl,
+    runtime::{RuntimeImpl, RuntimePtr},
     stack_frame::StackFrameParentIter,
     value::JSValue,
 };
@@ -124,7 +124,7 @@ impl GcTrace for ModuleDefImpl {
 }
 
 impl ModuleDefImpl {
-    fn new(_ctx: &ContextImpl, module_name: Atom) -> Self {
+    fn new(module_name: Atom) -> Self {
         Self {
             module_name,
 
@@ -162,13 +162,9 @@ impl ModuleDefImpl {
     }
 
     /// create a native module def with module init func.
-    fn create(
-        ctx: &mut ContextImpl,
-        name: &str,
-        init: impl ModuleInitFn + 'static,
-    ) -> Result<Self, i32> {
-        let name = Atom::new(ctx.rt_ptr(), name)?;
-        let mut md = Self::new(ctx, name);
+    fn create(rt: RuntimePtr, name: &str, init: impl ModuleInitFn + 'static) -> Result<Self, i32> {
+        let name = Atom::new(rt, name)?;
+        let mut md = Self::new(name);
         md.init_func.replace(Box::new(init));
         Ok(md)
     }
@@ -327,8 +323,8 @@ impl std::fmt::Debug for ModuleDef {
 impl ModuleDef {
     /// alloc an uninitialized (usually bytecode) module.
     pub(crate) fn new(ctx: &mut ScopedContext, name: Atom) -> Result<Self, i32> {
-        let inner = ModuleDefImpl::new(ctx, name);
-        let gc_ref = ctx.rt_ptr().gc_alloc(inner).map_err(|_| {
+        let inner = ModuleDefImpl::new(name);
+        let gc_ref = ctx.alloc_local(inner).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -343,14 +339,16 @@ impl ModuleDef {
     pub(crate) fn create(
         ctx: &mut ScopedContext,
         name: &str,
-        init: impl ModuleInitFn + 'static,
+        init_fn: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
-        let inner = ModuleDefImpl::create(ctx, name, init)?;
-        let gc_ref = ctx.rt_ptr().gc_alloc(inner).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-        let m = Self(gc_ref);
+        let m = ctx
+            .alloc_local(ModuleDefImpl::create(ctx.rt_ptr(), name, init_fn)?)
+            .map(Self)
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+
         ctx.loaded_modules.push(m);
         Ok(m)
     }

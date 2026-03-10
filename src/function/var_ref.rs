@@ -118,16 +118,15 @@ gcref_wrapper!(VarRef, VarRefImpl);
 impl VarRef {
     /// create a detached var ref
     pub(crate) fn create(ctx: &mut ScopedContext, value: JSValue) -> Result<Self, i32> {
-        ctx.rt_ptr()
-            .gc_alloc(VarRefImpl::Detached {
-                value,
-                is_arg: false,
-            })
-            .map(Self)
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })
+        ctx.alloc_local(VarRefImpl::Detached {
+            value,
+            is_arg: false,
+        })
+        .map(Self)
+        .map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })
     }
 
     /// create a bind var ref
@@ -138,18 +137,17 @@ impl VarRef {
         pvalue: NonNull<JSValue>,
         async_state: Option<AsyncState>,
     ) -> Result<Self, i32> {
-        ctx.rt_ptr()
-            .gc_alloc(VarRefImpl::Bind {
-                is_arg,
-                var_idx,
-                pvalue,
-                async_state,
-            })
-            .map(Self)
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })
+        ctx.alloc_local(VarRefImpl::Bind {
+            is_arg,
+            var_idx,
+            pvalue,
+            async_state,
+        })
+        .map(Self)
+        .map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })
     }
 }
 

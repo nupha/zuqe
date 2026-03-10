@@ -390,13 +390,10 @@ impl StringRef {
         atom_info: Option<AtomInfo>,
     ) -> Result<StringRef, i32> {
         let s = StringImpl::new(rt, content, atom_info);
-        let ss = rt
-            .gc_alloc(s)
-            .map_err(|_| {
-                eprintln!("[O.o] alloc error");
-                -1
-            })
-            .map(StringRef)?;
+        let ss = rt.gc_alloc(s).map(StringRef).map_err(|_| {
+            eprintln!("[O.o] alloc error");
+            -1
+        })?;
 
         // O.o
         #[cfg(debug_assertions)]

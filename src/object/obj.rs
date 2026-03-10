@@ -333,43 +333,29 @@ impl ObjectImpl {
             }
         }
 
-        let mut obj = {
-            let sh_ref = shape.as_ref().map(|s| s.gc_ref());
+        let mut obj = ctx
+            .alloc_local(Self {
+                rt: ctx.rt_ptr(),
+                obj_flags: flags,
+                shape,
+                prop_values,
+                payload,
+                #[cfg(feature = "builtin_mapset")]
+                weak_refs: Vec::new(),
+            })
+            .map(Object)
+            .map_err(|(_, mut o)| {
+                ctx.throw_out_of_memory();
+                std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::Int(0)))
+            })?;
 
-            let gc_ref = ctx
-                .rt_ptr()
-                .gc_alloc(Self {
-                    rt: ctx.rt_ptr(),
-                    obj_flags: flags,
-                    shape,
-                    prop_values,
-                    payload,
-                    #[cfg(feature = "builtin_mapset")]
-                    weak_refs: Vec::new(),
-                })
-                .map_err(|(_, mut o)| {
-                    ctx.throw_out_of_memory();
-                    std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::Int(0)))
-                })?;
-
-            if let Some(sh) = sh_ref {
-                ctx.rt_ptr()
-                    .gc_heap_mut()
-                    .bind(gc_ref.gc_head_ptr(), sh.gc_head_ptr());
-            }
-
-            #[cfg(debug_assertions)]
-            unsafe {
-                let cid = gc_ref.class_id();
-                let cname = gc_ref.class_name().to_utf8(ctx.rt_ref());
-                gc_ref
-                    .node_ptr()
-                    .as_mut()
-                    .debug_set_dbg_string(format!("[ObjectImpl] class={} ({cname})", cid).into());
-            }
-
-            Object(gc_ref)
-        };
+        #[cfg(debug_assertions)]
+        {
+            let cid = obj.class_id();
+            let cname = obj.class_name().to_utf8(ctx.rt_ref());
+            obj.gc_node_mut()
+                .debug_set_dbg_string(format!("[ObjectImpl] class={} ({cname})", cid).into());
+        }
 
         if array_length_prop {
             // only for the Array prototype object
@@ -379,7 +365,7 @@ impl ObjectImpl {
                 JS_PROP_WRITABLE | JS_PROP_LENGTH,
                 JSProperty::Normal(JSValue::Int(0)),
             )
-            .unwrap();
+            .unwrap(); // can't fail
         }
 
         Ok(obj)

@@ -357,22 +357,19 @@ impl AsyncGeneratorFunction {
         args: &[JSValue],
         _flags: i32,
     ) -> JSResult {
+        let async_state = AsyncState::new(
+            ctx,
+            [const { JSValue::UNDEFINED }; 2],
+            *func_obj.as_object_BCWrapper().unwrap(),
+            this_obj,
+            args,
+        )?;
         let mut s = Box::new(AGenPayload {
             generator: RefCell::new(GcWeak::default()),
             state: AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
-            async_state: AsyncState::create(
-                ctx.into(),
-                [const { JSValue::UNDEFINED }; 2],
-                *func_obj.as_object_BCWrapper().unwrap(),
-                this_obj,
-                args,
-            )?,
+            async_state,
             queue: Vec::with_capacity(2),
         });
-
-        // protect s.async_state before .resume() executes bytecode. - NOT NEEDED ANY MORE
-        // ctx.gc_heap_mut()
-        //     .protect_node(s.async_state.gc_node_ptr());
 
         // execute the function till 'OpCode::INITIAL_YIELD' (no yield nor await are possible)
         s.async_state.resume(ctx)?;

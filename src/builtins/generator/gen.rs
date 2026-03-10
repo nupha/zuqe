@@ -91,8 +91,8 @@ pub(crate) fn js_generator_function_call(
     args: &[JSValue],
     _flags: i32,
 ) -> JSResult {
-    let async_state = AsyncState::create(
-        ctx.into(),
+    let async_state = AsyncState::new(
+        ctx,
         [const { JSValue::UNDEFINED }; 2],
         *func_obj.as_object_BCWrapper().unwrap(),
         this_obj,
@@ -102,9 +102,6 @@ pub(crate) fn js_generator_function_call(
         state: GenState::JS_GENERATOR_STATE_SUSPENDED_START,
         async_state,
     });
-
-    // protect async_state before .resume() executes bytecode.
-    // ctx.gc_heap_mut().protect_node_v2(async_state.gc_node_ptr());
 
     // initial execute bytecodes till OpCode::INITIAL_YIELD instruction
     p.resume(ctx)?;

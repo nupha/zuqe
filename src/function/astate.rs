@@ -251,25 +251,22 @@ pub struct AsyncState(GcRef<AsyncStateImpl>);
 gcref_wrapper!(AsyncState, AsyncStateImpl);
 
 impl AsyncState {
-    pub(crate) fn create(
-        mut ctx: ContextPtr,
+    pub(crate) fn new(
+        ctx: &mut ScopedContext,
         resolvings: [JSValue; 2],
         bc_func: BCWrapper,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {
-        let inner = AsyncStateImpl::new(ctx, resolvings, bc_func, this_obj, args)?;
-        let mut a_state = ctx.rt_mut().gc_alloc(inner).map_err(|_| {
-            ctx.with_current_scope(|mut scope| {
-                scope.throw_out_of_memory();
-            })
-            .unwrap();
+        let inner = AsyncStateImpl::new(ctx.into(), resolvings, bc_func, this_obj, args)?;
+        let mut a_state = ctx.alloc_local(inner).map_err(|_| {
+            ctx.throw_out_of_memory();
             -1
         })?;
 
         // setup backref link: StackFrame::async_state => GcWeak<AsyncStateImpl>
         unsafe {
-            let w = a_state.downgrade(ctx.rt_ptr().gc_heap_mut());
+            let w = a_state.downgrade(ctx.gc_heap_mut());
             a_state.stack_frame.as_mut().get_unchecked_mut().async_state = w;
         }
 

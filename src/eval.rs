@@ -130,12 +130,11 @@ impl<'c> ScopedContext<'c> {
         fd.body_scope = fd.push_scope(0)? as i32;
         debug_assert_eq!(fd.body_scope, 1);
 
-        {
+        // parse source in a dedicated scope.
+        self.with_new_scope(|scope| {
             // create parse state with root fd, then parse source.
-            let parse_ctx = self.new_scope();
-
             let mut parser = JSParseState::new(
-                parse_ctx,
+                scope,
                 unsafe { NonNull::new_unchecked(fd.as_mut()) },
                 source,
                 filename,
@@ -146,10 +145,8 @@ impl<'c> ScopedContext<'c> {
             parser.allow_html_comments = frame_module.is_none();
 
             parser.skip_shebang();
-            parser.parse_program()?;
-
-            // parser is dropped here, source and filename are still alive.
-        }
+            parser.parse_program()
+        })?;
 
         // has top-level await?
         let has_await = fd.has_await;

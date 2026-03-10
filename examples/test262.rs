@@ -310,16 +310,17 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorT
             .unwrap();
 
         ctx.with_new_scope(|mut scope| {
-            scope.eval(
-                src.as_bytes(),
-                file.as_os_str().to_string_lossy().as_ref(),
-                EvalType::Global,
-                EvalFlags::empty(),
-            )
-        })
-        .map_err(|_| {
-            let exc = ctx.rt_mut().take_exception();
-            ErrorText::from(&mut ctx.new_scope(), exc)
+            scope
+                .eval(
+                    src.as_bytes(),
+                    file.as_os_str().to_string_lossy().as_ref(),
+                    EvalType::Global,
+                    EvalFlags::empty(),
+                )
+                .map_err(|_| {
+                    let exc = scope.rt_mut().take_exception();
+                    ErrorText::from(&mut scope, exc)
+                })
         })?;
     }
 

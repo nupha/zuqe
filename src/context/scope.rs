@@ -90,15 +90,21 @@ impl<'a> From<&mut ScopedContext<'a>> for Context<'a> {
 impl<'a> ScopedContext<'a> {
     /// Allocate a node, and put it to scope cache to protect it.
     pub fn alloc_local<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
-        self.gc_heap_mut()
-            .with_current_scope(|gc| gc.alloc_local(payload))
-            .unwrap()
+        let r = self.gc().alloc_local(payload);
+
+        if self.gc_heap().should_gc() {
+            self.rt_mut().gc_req = true;
+        }
+        r
     }
 
     pub fn alloc_root<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
-        self.gc_heap_mut()
-            .with_current_scope(|gc| gc.alloc_root(payload))
-            .unwrap()
+        let r = self.gc().alloc_root(payload);
+
+        if self.gc_heap().should_gc() {
+            self.rt_mut().gc_req = true;
+        }
+        r
     }
 
     #[inline(always)]
@@ -109,8 +115,9 @@ impl<'a> ScopedContext<'a> {
         }
     }
 
+    /// get gc scope state
     #[inline]
-    pub fn gc(&self) -> &GcScopeState<'_> {
+    fn gc(&self) -> &GcScopeState<'_> {
         match &self.gc_scope {
             GcScopeType::Owned(s) => s.deref(),
             GcScopeType::Ref(s) => s,
@@ -140,8 +147,7 @@ impl<'a> ScopedContext<'a> {
     }
 
     /// create new scope over current scope
-    #[inline]
-    pub fn new_scope(&mut self) -> ScopedContext<'_> {
+    fn new_scope(&mut self) -> ScopedContext<'_> {
         let pid = self.rt_ref().gc_part_id();
         let ctx = ContextPtr::from(self.gc_ref());
         let gc_scope = self.gc_heap_mut().new_scope(pid);
@@ -152,6 +158,8 @@ impl<'a> ScopedContext<'a> {
         }
     }
 
+    /// run closure in a new sub scope.
+    #[inline]
     pub fn with_new_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
         let s = self.new_scope();
         f(s)
@@ -178,7 +186,7 @@ impl ContextImpl {
 }
 
 impl ContextPtr {
-    pub fn new_scope(&mut self) -> ScopedContext<'_> {
+    pub(crate) fn new_scope(&mut self) -> ScopedContext<'_> {
         let pid = self.rt_ref().gc_part_id();
         let ctx = ContextPtr::from(self.gc_ref());
         let gc_scope = self.gc_heap_mut().new_scope(pid);

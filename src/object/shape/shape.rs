@@ -206,8 +206,7 @@ impl Shape {
         proto: Option<Object>,
         prop_defs: HashList<ShapeProperty>,
     ) -> Result<Self, i32> {
-        ctx.rt_mut()
-            .gc_alloc(ShapeImpl::new(proto, prop_defs)?)
+        ctx.alloc_local(ShapeImpl::new(proto, prop_defs)?)
             .map(|s| {
                 debug_assert_eq!(s.use_count, 1);
                 Self(s)
@@ -234,7 +233,7 @@ impl Shape {
         })?;
 
         let shape = Self::create_internal(ctx, proto, prop_defs)?;
-        ctx.rt_ptr().register_shape(&shape)?;
+        ctx.rt_mut().register_shape(&shape)?;
         Ok(shape)
     }
 

@@ -36,15 +36,15 @@ impl RuntimeImpl {
         self.execute_all_jobs().map_err(|_| -1)?;
 
         let mut need_next_tick = false;
-        for ctx in self.context_list.iter().copied() {
-            let mut cx2 = Context::from(ctx);
-            let mut scope = ctx.current_scope().unwrap_or_else(|| cx2.new_scope());
-
-            for f in ctx.tick_handlers.iter() {
-                if f(&mut scope) {
-                    need_next_tick = true;
+        for mut ctx in self.context_list.iter().copied() {
+            let cx2 = ctx;
+            ctx.with_new_scope(|mut scope| {
+                for f in cx2.tick_handlers.iter() {
+                    if f(&mut scope) {
+                        need_next_tick = true;
+                    }
                 }
-            }
+            });
         }
 
         if self.gc_req || self.gc_heap().should_gc() {

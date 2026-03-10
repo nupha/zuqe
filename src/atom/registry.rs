@@ -208,7 +208,7 @@ impl RuntimeImpl {
     /// Check for atom reuse in prior to perform real registering.
     fn register_atom(&mut self, str: StringRef, mut atom_kind: AtomKind) -> Result<Atom, i32> {
         // match for existing atoms, don't register twice for same content.
-        let (desc_str, hash): (StringRef, u32) = match atom_kind {
+        let (mut desc_str, hash): (StringRef, u32) = match atom_kind {
             #[cfg(feature = "builtin_symbol")]
             AtomKind::String | AtomKind::GlobalSymbol => {
                 match self.register_string_atom_common(str, atom_kind)? {
@@ -288,7 +288,7 @@ impl RuntimeImpl {
             }
         }
 
-        desc_str.gc_ref().set_atom_info(AtomInfo::new(
+        desc_str.set_atom_info(AtomInfo::new(
             unsafe { NonZeroU16::new_unchecked(atom_id) },
             atom_kind,
             hash,
@@ -303,11 +303,9 @@ impl RuntimeImpl {
                 self.atom_registry.user_atoms[i].is_none(),
                 "atom slot {i} is in use"
             );
-            self.atom_registry.user_atoms[i].replace(desc_str.gc_ref().into());
+            self.atom_registry.user_atoms[i].replace(desc_str);
         } else {
-            self.atom_registry
-                .user_atoms
-                .push(Some(desc_str.gc_ref().into()));
+            self.atom_registry.user_atoms.push(Some(desc_str));
 
             debug_assert_eq!(
                 self.atom_registry.user_atoms.len(),

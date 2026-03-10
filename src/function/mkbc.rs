@@ -294,14 +294,10 @@ impl FunctionDef {
             bc_impl.debug.take();
         }
 
-        let bc = ctx
-            .rt_ptr()
-            .gc_alloc(bc_impl)
-            .map(Bytecode::from)
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+        let bc = ctx.alloc_local(bc_impl).map(Bytecode::from).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
         #[cfg(feature = "dump_bytecode")]
         if !self.attrs.exec_mode.contains(ExecMode::STRIP) {
