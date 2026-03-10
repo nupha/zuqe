@@ -419,7 +419,7 @@ impl BytecodeFunction {
     /// Run Bytecode Function in given scope.
     pub(super) fn call(
         &mut self,
-        mut scope: ScopedContext,
+        ctx: &mut ScopedContext,
         this_obj: JSValue,
         new_target: JSValue,
         args: &[JSValue],
@@ -443,12 +443,12 @@ impl BytecodeFunction {
             bc.mode(),
         );
 
-        let mut rt = scope.rt_ptr();
+        let mut rt = ctx.rt_ptr();
         let mut stack_frame = StackFrame::new((*self).into(), js_mode, [this_obj, new_target]);
 
         // ensure stack has minimal free space.
         if js_check_stack_overflow(&rt, 32) {
-            scope.throw_stack_overflow();
+            ctx.throw_stack_overflow();
             return Err(-1);
         }
 
@@ -466,7 +466,7 @@ impl BytecodeFunction {
             .try_reserve_exact(buf_values_count)
             .is_err()
         {
-            scope.throw_out_of_memory();
+            ctx.throw_out_of_memory();
             return Err(-1);
         }
 
@@ -510,7 +510,7 @@ impl BytecodeFunction {
         let bf = self.payload_mut();
         let ret_val = bc
             .execute(
-                &mut scope,
+                ctx,
                 bf.home_object(),
                 &mut stack_frame,
                 this_obj,
@@ -532,9 +532,12 @@ impl BytecodeFunction {
             }
         }
 
-        if let Ok(v) = ret_val {
-            scope.set_return_value(v);
-        }
+        // // ensure return value is protected at exit
+        // if let Ok(v) = ret_val {
+        //     println!("[O.o] v: {:?}", v.gc_node());
+        //     ctx.set_return_value(v);
+        // }
+
         ret_val
     }
 }

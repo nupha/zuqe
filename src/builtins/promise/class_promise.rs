@@ -164,6 +164,8 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let fail_reject = |cx: &mut ScopedContext| -> JSResult {
         let error = cx.rt_ptr().take_exception();
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&error))?;
+
+        debug_assert!(result_promise.gc_node().is_local());
         Ok(JSValue::Object(result_promise))
     };
 

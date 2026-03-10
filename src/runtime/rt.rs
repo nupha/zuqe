@@ -253,8 +253,8 @@ impl RuntimeImpl {
     /// put new obj to cur_exception. Returns old exception value
     #[cold]
     pub(crate) fn set_exception(&mut self, obj: JSValue) -> JSValue {
+        #[cfg(debug_assertions)]
         if let Some(n) = obj.gc_node_ptr() {
-            #[cfg(debug_assertions)]
             unsafe {
                 n.as_ref().debug_assert_node_valid_simple();
             }

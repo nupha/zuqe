@@ -164,16 +164,13 @@ impl ObjectImpl {
                 this_obj
             };
 
-            // FIXME: no need to create sub scope. use ctx directly
-            ctx.with_new_scope(|scope| {
-                if is_legacy_ctor {
-                    // legacy constructor behavior.
-                    bfun.call(scope, this, new_target, args, flags)
-                        .map(|v| if v.is_object() { v } else { this })
-                } else {
-                    bfun.call(scope, this, new_target, args, flags)
-                }
-            })
+            if is_legacy_ctor {
+                // legacy constructor behavior.
+                bfun.call(ctx, this, new_target, args, flags)
+                    .map(|v| if v.is_object() { v } else { this })
+            } else {
+                bfun.call(ctx, this, new_target, args, flags)
+            }
         } else if let Some(cb) = unsafe {
             ctx.rt_ref()
                 .class_registry
@@ -213,12 +210,6 @@ impl ObjectImpl {
         {
             n.debug_assert_node_valid(ctx.rt_ptr().gc_heap());
         }
-
-        // // promote return value to upper gc scope to protect it from being gc collected.
-        // // current scope will be closed after function exit.
-        // if let Ok(Some(n)) = ret_val.map(|v| v.gc_node_ptr()) {
-        //     ctx.gc_heap().current_gc_scope().unwrap().promote(n);
-        // }
 
         ret_val
     }

@@ -374,9 +374,11 @@ impl<'a> ObjectIter<'a> {
         if !self.done {
             self.done = true;
             self.next_method = JSValue::UNDEFINED;
-            self.ctx.with_new_scope(|mut scope| {
-                Self::close_iter_internal(&mut scope, self.target, has_exception)
-            })
+            self.ctx
+                .with_current_scope(|mut scope| {
+                    Self::close_iter_internal(&mut scope, self.target, has_exception)
+                })
+                .unwrap()
         } else if has_exception {
             Err(-1)
         } else {

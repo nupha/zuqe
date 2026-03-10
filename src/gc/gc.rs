@@ -77,7 +77,7 @@ impl RuntimeImpl {
         // ensure marking cycle is started
         self.gc_heap_mut().mark(partition_id, 0);
 
-        let mut gcx = self.gc_heap().create_trace_ctx();
+        let mut gcx = self.gc_heap().create_trace_ctx(256);
 
         // mark contexts
         for c in self.context_list.iter() {
@@ -113,11 +113,9 @@ impl RuntimeImpl {
                 .sweep(partition_id, GcHeap::DUMMY_DISPOSE_CALLBACK);
         }
 
-        if freed != 0 {
-            // update gc threshold
-            let used = self.gc_heap().memory_used();
-            self.gc_heap_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
-        }
+        // update new gc threshold
+        let used = self.gc_heap().memory_used();
+        self.gc_heap_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
 
         log::trace!("[collect] {partition_id:?} free {freed} bytes");
 
