@@ -69,7 +69,7 @@ Add `zuqe` to your dependencies in `Cargo.toml`:
 
 ```toml
 [dependencies]
-zuqe = "0.3.0"
+zuqe = "0.4.0"
 ```
 
 ### Initialize Runtime and Context
@@ -86,6 +86,8 @@ let mut ctx = rt
     })
     .unwrap();
 ```
+
+Note: `Context::ECMA_CONTEXT_SETUP` is a built‑in helper function that initializes the Context with standard ECMAScript‑compliant environment, wiring up well-known globals, built‑in objects, and runtime behavior. If you need a different setup (_for example to expose custom host APIs or restrict what JavaScript code can access_) you can pass your own setup function to `create_context()` instead; See the implementation of ECMA_CONTEXT_SETUP in the source code for guidance on how to customize this initialization.
 
 ### Run JavaScript
 
@@ -122,7 +124,7 @@ ctx.with_new_scope(|mut scope| {
 });
 ```
 
-### Advanced Usage Examples
+`with_new_scope` executes the evaluation inside a dedicated, bounded scope of the `Context`. Each call creates a fresh scope, runs the script within that scope, and then tears it down when the closure returns. This isolates local variables and temporary values to that scope, ensuring they do not leak into other executions while allowing the host application to safely reuse the same `Context` for multiple evaluations.
 
 For more comprehensive examples, check the [examples](examples/) directory which includes:
 
