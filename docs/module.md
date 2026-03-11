@@ -1,47 +1,24 @@
 # ESM Module Support
 
-This guide explains how to enable and use ES (ECMAScript) module support in the Zuqe runtime. ESM modules provide a standardized way to organize JavaScript code into reusable modules with import/export statements.
+This guide explains how to enable and use ES (ECMAScript) module support in the Zuqe runtime. ESM modules provide a standardized way to organize JavaScript code into reusable modules with `import` / `export`.
 
 ## Overview
 
-Zuqe supports ESM modules by providing callbacks for module name normalization and module loading. To enable module support, you must configure the runtime with these callbacks using `Runtime::set_module_loader`.
+Zuqe supports ESM modules by providing callbacks for module name normalization and module loading. To enable module support, configure the runtime with these callbacks using `Runtime::set_module_loader`.
 
 Callback function signatures are defined for module handling:
 
-### ModuleNormalizeFn
-
-```rust
-pub type ModuleNormalizeFn = fn(
-    ctx: Context,
-    base_name: &str,
-    name: &str,
-    opaque: *mut ::core::ffi::c_void,
-) -> Result<String, i32>;
-```
-
-This function normalizes module names during resolution. It's called when resolving relative imports against a base module name. If you pass `None` for this parameter to `set_module_loader`, a default normalization callback will be used.
-
-### ModuleLoadFn
-
-```rust
-pub type ModuleLoadFn = fn(
-    ctx: Context,
-    module_name: &str,
-    opaque: *mut ::core::ffi::c_void
-) -> Result<ModuleDef, i32>;
-```
-
-This function loads a module given its normalized name and returns a compiled module definition.
+The module loader callback receives a `ScopedContext`, the normalized module name, and an opaque pointer. It is responsible for loading the module source and compiling it into a `ModuleDef`.
 
 ## Setting Up Module Loader
 
-Use `RuntimeImpl::set_module_loader` to configure module support:
+Use `Runtime::set_module_loader` to configure module support:
 
 ```rust
 rt.set_module_loader(
-    normalize_func, // name normalizer func - optional
-    load_func,     // module loader func
-    opaque,
+    None,           // optional name normalizer, None means to use the builtin default one
+    js_module_loader,
+    std::ptr::null_mut(), // an opaque raw pointer
 );
 ```
 
@@ -50,7 +27,7 @@ rt.set_module_loader(
 Here's a complete example showing how to implement script file based module loading:
 
 ```rust
-use zuqe::{Runtime, Context, ModuleDef, EvalFlags, EvalType};
+use zuqe::{ModuleDef, Runtime, ScopedContext};
 
 // Module name normalization (optional)
 fn module_normalize(
@@ -73,9 +50,9 @@ fn module_normalize(
 
 // Module loader function
 fn module_loader(
-    mut ctx: Context,
+    ctx: &mut ScopedContext,
     module_name: &str,
-    _: *mut std::ffi::c_void,
+    _opaque: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     // module_name is the normalized module name
     // suppose it's a js file in this example.
@@ -108,7 +85,11 @@ fn module_loader(
     );
 
     // Create execution context
-    let mut ctx = rt.create_context_ecma().expect("fail to create context");
+    let mut ctx = rt
+        .create_context(|cx| {
+            Context::ECMA_CONTEXT_SETUP(cx)
+        })
+        .expect("fail to create context");
 
     // .. omitted ...
 
@@ -124,7 +105,7 @@ When you pass `None` for the `ModuleNormalizeFn` parameter:
 rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 ```
 
-A default normalization function is used that provides basic module name resolution according to ES module specifications.
+A default simple normalization function is used that provides basic module name resolution according to ES module specifications.
 
 ## Import.meta Support
 
@@ -140,3 +121,7 @@ Modules have access to `import.meta` which provides metadata about the module:
 3. **File Extensions**: Consider handling different file extensions (.js, .mjs, .ts)
 4. **Caching**: Implement module caching to avoid recompiling already loaded modules
 5. **Security**: Validate module paths to prevent directory traversal attacks
+
+## Write a native module
+
+You have learned how to enable module support in zuqe. Next, let's see how to write the native module and expose it to JavaScript world. Read [Native Module](native-module.md) for detail.

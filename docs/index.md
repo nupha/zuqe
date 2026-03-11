@@ -1,7 +1,7 @@
 ![](basic.md)
 ![](module.md)
 ![](native-function.md)
-![](native-class.md)
+![](native-classe.md)
 ![](native-module.md)
 ![](loop.md)
 ![](gc.md)

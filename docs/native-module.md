@@ -1,15 +1,15 @@
 # Native Module
 
-This tutorial demonstrates how to create and register native Rust modules in the `zhuque` crate. We'll create a module that provides operating system-related functionality to JavaScript.
+This tutorial demonstrates how to create and register native Rust modules in the `zuqe` crate. We'll create a module that provides operating system-related functionality to JavaScript.
 
 ## 1. Module Functions
 
 Define Rust functions that can be called from JavaScript. These functions will be the core of your module.
 
 ```rust
-use zuqe::{CallContext, JSResult, JSValue};
+use zuqe::{CallContext, JSResult, JSValue, ScopedContext};
 
-fn js_os_now(_: CallContext) -> JSResult {
+fn js_os_now(_: &mut ScopedContext, _: CallContext) -> JSResult {
     let tm = unsafe {
         let mut ts = libc::timespec {
             tv_sec: 0,
@@ -22,8 +22,8 @@ fn js_os_now(_: CallContext) -> JSResult {
     Ok(JSValue::from(tm as f64 / 1e6))
 }
 
-fn js_os_isatty(cc: CallContext) -> JSResult {
-    let fd = cc.arg(0).to_i32(cc.ctx())?;
+fn js_os_isatty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let fd = cc.arg(0).to_i32(ctx)?;
     Ok(JSValue::Bool(unsafe { libc::isatty(fd) != 0 }))
 }
 ```
@@ -33,20 +33,18 @@ fn js_os_isatty(cc: CallContext) -> JSResult {
 Export native functions from your module by creating a field definition table. Each function entry uses `FieldDef::CALL` with parameters: function name, argument count, function callback, and magic value.
 
 ```rust
-use zuqe::{Context, FieldDef, CallContext, JSResult, JSValue};
+use zuqe::{CallContext, FieldDef, JSResult, JSValue, ScopedContext};
 
 // Example native functions to export
-fn js_add_numbers(cc: CallContext) -> JSResult {
-    let ctx = cc.context();
-    let a = cc.arg(0).to_i32(&ctx)?;
-    let b = cc.arg(1).to_i32(&ctx)?;
+fn js_add_numbers(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let a = cc.arg(0).to_i32(ctx)?;
+    let b = cc.arg(1).to_i32(ctx)?;
     Ok(JSValue::from(a + b))
 }
 
-fn js_divide(cc: CallContext) -> JSResult {
-    let ctx = cc.context();
-    let a = cc.arg(0).to_f64(&ctx)?;
-    let b = cc.arg(1).to_f64(&ctx)?;
+fn js_divide(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let a = cc.arg(0).to_f64(ctx)?;
+    let b = cc.arg(1).to_f64(ctx)?;
 
     if b == 0.0 {
         ctx.throw_range_error("Division by zero");
@@ -56,9 +54,8 @@ fn js_divide(cc: CallContext) -> JSResult {
     Ok(JSValue::from(a / b))
 }
 
-fn js_print(cc: CallContext) -> JSResult {
-    let ctx = cc.context();
-    let msg = cc.arg(0).to_string(&ctx)?;
+fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let msg = cc.arg(0).to_string(ctx)?;
     println!("{}", msg.content());
     Ok(JSValue::UNDEFINED)
 }
@@ -75,7 +72,7 @@ const MY_MODULE_ENTRIES: &[FieldDef] = &[
     FieldDef::CALL("print", 0, js_print, 0),
 ];
 
-pub fn init_my_module(mut ctx: Context) -> Result<(), i32> {
+pub fn init_my_module(ctx: &mut ScopedContext) -> Result<(), i32> {
     ctx.register_module("myModule", MY_MODULE_ENTRIES)?;
     Ok(())
 }
@@ -90,7 +87,7 @@ const MOD_OS_ENTRIES: &[FieldDef] = &[
     FieldDef::INT32("SIGINT", libc::SIGINT, JS_PROP_CONFIGURABLE),
 ];
 
-pub fn init_mod_os(mut ctx: Context) -> Result<(), i32> {
+pub fn init_mod_os(ctx: &mut ScopedContext) -> Result<(), i32> {
     ctx.register_module("os", MOD_OS_ENTRIES)?;
     Ok(())
 }
@@ -130,4 +127,4 @@ let time = os.now();
 os.isatty(0);
 ```
 
-This tutorial concludes the series on using the `zhuque` crate. You now have the knowledge to create basic scripts, define complex classes, and build powerful native modules.
+This tutorial concludes the series on using the `zuqe` crate. You now have the knowledge to create basic scripts, define complex classes, and build powerful native modules.

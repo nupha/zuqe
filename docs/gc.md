@@ -1,10 +1,10 @@
 # Garbage Collection
 
-Zuqe uses a hybrid memory management approach that combines Rust's ownership system with JavaScript's garbage collection:
+Zuqe uses a tracing and mark-sweep memory management approach that combines Rust's ownership system with JavaScript's garbage collection.
 
 ## Customized GC tracer
 
-In case your native class or module have garbage collectable senario, you may register a customized gc trace handler to handle them.
+In case your native class or module have garbage collectable senario, you may register a customized gc trace handler to trace your gc'ed nodes.
 
 ```rust
 fn main() -> ExitCode {
@@ -17,13 +17,17 @@ fn main() -> ExitCode {
     });
 
     // 3. Create context and proceed with execution
-    let mut ctx = rt.create_context_ecma().unwrap();
+    let mut ctx = rt
+        .create_context(|cx| {
+            Context::ECMA_CONTEXT_SETUP(cx)
+        })
+        .unwrap();
 
     // ... rest of your application setup
 }
 ```
 
-See code in `examples/zjs/mod_os.rs` to find how customized gc is used.
+See code in `examples/zjs/mod_os.rs` to find how customized GC is used.
 
 ```rust
 use gc_lite::{GcTracable, GcTracer};

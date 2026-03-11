@@ -1,32 +1,32 @@
 # Running Loop
 
-The running loop is the core execution mechanism in the Zuqe runtime that manages the lifecycle of JavaScript execution, from simple scripts to complex asynchronous operations. This document explains how the loop works, starting from the simplest `run_wait()` function to complex execution scenarios.
+The running loop is the core execution mechanism in the Zuqe runtime that manages the lifecycle of JavaScript execution, from simple scripts to complex asynchronous operations. This document explains how the loop works, starting from the simplest `eval_wait()` function to complex execution scenarios.
 
-## 1. Basic Execution with Context::run_wait()
+## 1. Basic Execution with eval_wait()
 
-The simplest way to execute JavaScript code is through the `run_wait()` method:
+The simplest way to execute JavaScript code is through the `eval_wait()` method on a scoped context:
 
 ```rust
 // ...
 
-let mut ctx = rt.create_context_ecma().unwrap();
-
-match ctx.run_wait(
-    script.as_bytes(), // source script
-    &filename,         // file name
-    EvalType::Global,  // eval as global
-    EvalFlags::empty(),
-) {
-    Ok(val) => {
-        println!("Result: {}", val.inspect(&ctx).unwrap());
+ctx.with_new_scope(|mut scope| {
+    match scope.eval_wait(
+        script.as_bytes(), // source script
+        &filename,         // file name
+        EvalType::Global,  // eval as global
+        EvalFlags::empty(),
+    ) {
+        Ok(val) => {
+            println!("Result: {}", val.inspect(&mut scope).unwrap());
+        }
+        Err(e) => {
+            println!("Error: {}", e.message);
+        }
     }
-    Err(e) => {
-        println!("Error: {}", e.message);
-    }
-}
+});
 ```
 
-### How Context::run_wait() works
+### How eval_wait() works
 
 1. **Script Compilation**: The source code is compiled into bytecode
 2. **Execution**: The script is executed in the given context
@@ -36,19 +36,27 @@ match ctx.run_wait(
 Internally, this method works like this:
 
 ```rust
-fn run_wait_inner(&mut self, source: &[u8], filename: &str,
-                  eval_type: EvalType, eval_flags: EvalFlags)
-    -> Result<JSValue, ErrorText> {
-
+pub fn eval_wait(
+    &mut self,
+    source: &[u8],
+    filename: &str,
+    eval_type: EvalType,
+    eval_flags: EvalFlags,
+) -> Result<JSValue, ErrorText> {
     // 1. Execute the script
-    let val = self.eval_global(source, filename, eval_flags)?;
+    let val = self
+        .eval_internal(source, filename, eval_type, eval_flags)
+        .map_err(|_| {
+            let exc = self.rt_mut().take_exception();
+            ErrorText::from(self, exc)
+        })?;
 
-    // 3. If returned promise, wait for completion
+    // 2. If returned promise, wait for completion
     if let Ok(p) = Promise::try_from(val) {
         loop {
-            match rt.tick() {
+            match self.rt_mut().tick() {
                 Ok(TickStatus::Continue) => {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    std::thread::sleep(std::time::Duration::from_millis(5));
                     continue;
                 }
                 Ok(TickStatus::Stop(_)) => {
@@ -69,11 +77,11 @@ fn run_wait_inner(&mut self, source: &[u8], filename: &str,
 
 ## The Tick
 
-The tick system is the heart of the running loop. Every execution cycle is driven by the `tick()` function. Each `tick()` call returns the status to indicate there need more ticks or stop:
+The tick system is the heart-beat of the running loop. Every execution cycle is driven by the `tick()` function. Each `tick()` call returns the status to indicate whether there need more ticks or stop:
 
 ```rust
 pub enum TickStatus {
-    Continue,    // More work to do
+    Continue,    // More ticks
     Stop(i32),   // Execution should stop
 }
 ```
@@ -82,20 +90,16 @@ pub enum TickStatus {
 
 Tick callback allow you to register custom functions that run on every tick cycle. They're useful for implementing periodic tasks and async event handling.
 
-Use `Context::add_tick_handler()` method to register a customized tick handler.
+Use `ScopedContext::add_tick_handler()` method to register a customized tick handler.
 
 ```rust
-// ...
-
-let mut ctx = rt.create_context_ecma().unwrap();
-
-// Register a customized tick handler for periodic tasks.
-ctx.add_tick_handler(|cx| -> bool {
-    // returns true to indicate more ticks are needed.
-    my_tick_poll(cx)
-});
-
-// ...
+fn register_ticks(ctx: &mut ScopedContext) {
+    // Register a customized tick handler for periodic tasks.
+    ctx.add_tick_handler(|cx| -> bool {
+        // returns true to indicate more ticks are needed.
+        my_tick_poll(cx)
+    });
+}
 ```
 
 ### Handler Execution
@@ -108,7 +112,7 @@ Each tick handler receives the current context and returns a boolean:
 Following is the code snippet extracted from example `zjs`, it registers a customized tick handler performed internally module native:
 
 ```rust
-pub fn init_mod_os(mut ctx: Context) -> Result<(), i32> {
+pub fn init_mod_os(ctx: &mut ScopedContext) -> Result<(), i32> {
     ctx.register_module("os", MOD_OS_ENTRIES)?;
     ctx.add_tick_handler(|cx| -> bool { js_os_poll(cx) });
     Ok(())
@@ -138,34 +142,46 @@ fn main() -> ExitCode {
         mod_os_gc_trace(tracer);
     });
 
-    // 4. Create context
-    let mut ctx = rt.create_context_ecma().unwrap();
+    // 4. Create context and register modules/classes
+    let mut ctx = rt
+        .create_context(|cx| {
+            Context::ECMA_CONTEXT_SETUP(cx)?;
+            init_mod_std(cx)?;
+            init_mod_os(cx)?;
+            setup_globals(cx)
+        })
+        .unwrap();
 
-    // 5. Register modules and classes
-    init_mod_std(ctx).unwrap();
-    init_mod_os(ctx).unwrap();
-    setup_globals(ctx).unwrap();
+    // 5. Execute script with eval_wait inside a scope
+    let exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
+        let ret = scope.eval_wait(
+            script.as_bytes(),
+            &filename,
+            if is_module {
+                EvalType::Module
+            } else {
+                EvalType::Global
+            },
+            EvalFlags::empty(),
+        );
 
-    // 6. Execute script with run_wait
-    match ctx.run_wait(
-        script.as_bytes(),
-        &filename,
-        if is_module { EvalType::Module } else { EvalType::Global },
-        EvalFlags::empty(),
-    ) {
-        Ok(val) => {
-            colorize_println(val.inspect(&ctx).unwrap(), GreenFg);
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            let mut err_msg = e.message;
-            if let Some(tb) = e.traceback {
-                err_msg = format!("{err_msg}\n{tb}");
+        match ret {
+            Ok(val) => {
+                colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
+                ExitCode::SUCCESS
             }
-            colorize_println(err_msg, RedFg);
-            ExitCode::FAILURE
+            Err(e) => {
+                let mut err_msg = e.message;
+                if let Some(tb) = e.traceback {
+                    err_msg = format!("{err_msg}\n{tb}");
+                }
+                colorize_println(err_msg, RedFg);
+                ExitCode::FAILURE
+            }
         }
-    }
+    });
+
+    exit_code
 }
 ```
 

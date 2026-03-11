@@ -77,15 +77,19 @@ zuqe = "0.3.0"
 The core of any `zuqe` application is the `Runtime` and `Context`. The `Runtime` manages the engine, while the `Context` provides an isolated environment for script execution.
 
 ```rust
-use zuqe::{Runtime, Context};
+use zuqe::{Context, Runtime};
 
 let mut rt = Runtime::create().unwrap();
-let mut ctx = rt.create_context_ecma().unwrap();
+let mut ctx = rt
+    .create_context(|cx| {
+        Context::ECMA_CONTEXT_SETUP(cx)
+    })
+    .unwrap();
 ```
 
 ### Run JavaScript
 
-Use `run_wait_with` to execute JavaScript code within the context, wait till script exits.
+Use `with_new_scope` and `eval_wait` to execute JavaScript code within the context, and wait until all jobs and promises are settled.
 
 ```rust
 use zuqe::{EvalFlags, EvalType};
@@ -95,25 +99,27 @@ let script = r#"
     greet("Zuqe");
 "#;
 
-let res = ctx.run_wait(
-    script.as_bytes(), // script content
-    "example.js", // filename
-    EvalType::Global, // global eval mode
-    EvalFlags::empty()
-);
+ctx.with_new_scope(|mut scope| {
+    let res = scope.eval_wait(
+        script.as_bytes(), // script content
+        "example.js",      // filename
+        EvalType::Global,  // global eval mode
+        EvalFlags::empty(),
+    );
 
-match res {
-  Ok(val) => {
-      println!("eval result: {val:?}");
-  }
-  Err(e) => {
-      let mut err_msg = e.message;
-      if let Some(tb) = e.traceback {
-          err_msg = format!("{err_msg}\n{tb}");
-      }
-      println!("error: {err_msg}");
-  }
-}
+    match res {
+        Ok(val) => {
+            println!("eval result: {}", val.inspect(&mut scope).unwrap());
+        }
+        Err(e) => {
+            let mut err_msg = e.message;
+            if let Some(tb) = e.traceback {
+                err_msg = format!("{err_msg}\n{tb}");
+            }
+            println!("error: {err_msg}");
+        }
+    }
+});
 ```
 
 ### Advanced Usage Examples

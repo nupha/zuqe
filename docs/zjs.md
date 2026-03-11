@@ -164,19 +164,23 @@ rt.set_stack_size(stack_size_bytes);
 rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
 // Register custom classes
-let class_id = CustomClass::register(&mut rt)?;
+let class_id = CustomClass::register(rt.clone())?;
 
-// Create execution context
-let mut ctx = rt.create_context_ecoma()?;
-// Use registered custom classes in the context
-ctx.use_class(class_id)?;
+// Create execution context and set up environment
+let mut ctx = rt.create_context(|cx| {
+    // ECMA standard stuff
+    Context::ECMA_CONTEXT_SETUP(cx)?;
 
-// Initialize modules and globals
-init_modules(ctx)?;
-setup_globals(ctx)?;
+    // customized stuff
+    cx.use_class(class_id)?;
+    init_modules(cx)?;
+    setup_globals(cx)
+})?;
 
-// Execute script
-ctx.run_wait(script_bytes, filename, eval_type, eval_flags)
+// Execute script inside a scope
+ctx.with_new_scope(|mut scope| {
+    scope.eval_wait(script_bytes, filename, eval_type, eval_flags)
+})
 ```
 
 The ZJS example serves as both a practical command-line tool and an educational resource for understanding how to integrate JavaScript capabilities into Rust applications using the Zuqe engine.
