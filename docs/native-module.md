@@ -1,14 +1,15 @@
 # Native Module
 
-This tutorial demonstrates how to create and register native Rust modules in the `zuqe` crate. We'll create a module that provides operating system-related functionality to JavaScript.
+This tutorial demonstrates how to create and register native Rust modules in the `zuqe` crate. As a concrete example, we will build a small `os` module that exposes operating system–related helpers to JavaScript.
 
 ## 1. Module Functions
 
-Define Rust functions that can be called from JavaScript. These functions will be the core of your module.
+First, define the Rust functions that will be exported as part of the `os` module. These are ordinary native functions that take a `&mut ScopedContext` and a `CallContext`, and return a `JSResult`.
 
 ```rust
 use zuqe::{CallContext, JSResult, JSValue, ScopedContext};
 
+/// Return the current monotonic time in milliseconds.
 fn js_os_now(_: &mut ScopedContext, _: CallContext) -> JSResult {
     let tm = unsafe {
         let mut ts = libc::timespec {
@@ -22,109 +23,82 @@ fn js_os_now(_: &mut ScopedContext, _: CallContext) -> JSResult {
     Ok(JSValue::from(tm as f64 / 1e6))
 }
 
+/// Test whether the given file descriptor refers to a TTY.
 fn js_os_isatty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let fd = cc.arg(0).to_i32(ctx)?;
     Ok(JSValue::Bool(unsafe { libc::isatty(fd) != 0 }))
 }
 ```
 
-## 2. Exporting Native Functions from Modules
+In your own module you can define any number of such internal helpers. The next step is to export them to JavaScript as members of an ES module.
 
-Export native functions from your module by creating a field definition table. Each function entry uses `FieldDef::CALL` with parameters: function name, argument count, function callback, and magic value.
+## 2. Module Registration
 
-```rust
-use zuqe::{CallContext, FieldDef, JSResult, JSValue, ScopedContext};
+To expose Rust functions and constants to JavaScript, construct an entry list describing every export and register it as a module using `ScopedContext::register_module`.
 
-// Example native functions to export
-fn js_add_numbers(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let a = cc.arg(0).to_i32(ctx)?;
-    let b = cc.arg(1).to_i32(ctx)?;
-    Ok(JSValue::from(a + b))
-}
+Each entry is a `FieldDef`:
 
-fn js_divide(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let a = cc.arg(0).to_f64(ctx)?;
-    let b = cc.arg(1).to_f64(ctx)?;
+- `FieldDef::CALL` exports a function.
+- `FieldDef::INT32` (and other variants) export constants.
 
-    if b == 0.0 {
-        ctx.throw_range_error("Division by zero");
-        return Err(-1);
-    }
-
-    Ok(JSValue::from(a / b))
-}
-
-fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let msg = cc.arg(0).to_string(ctx)?;
-    println!("{}", msg.content());
-    Ok(JSValue::UNDEFINED)
-}
-```
-
-## 3. Module Registration
-
-Create a table of module entries using `FieldDef::CALL` for functions and `FieldDef::INT32` for constants. Register this table as a module using `ctx.register_module`.
+Here is a minimal entry table for the `os` module:
 
 ```rust
-const MY_MODULE_ENTRIES: &[FieldDef] = &[
-    FieldDef::CALL("add", 2, js_add_numbers, 0),
-    FieldDef::CALL("divide", 2, js_divide, 0),
-    FieldDef::CALL("print", 0, js_print, 0),
-];
+use zuqe::{FieldDef, JS_PROP_CONFIGURABLE, ScopedContext};
 
-pub fn init_my_module(ctx: &mut ScopedContext) -> Result<(), i32> {
-    ctx.register_module("myModule", MY_MODULE_ENTRIES)?;
-    Ok(())
-}
-```
-
-For OS module example:
-
-```rust
 const MOD_OS_ENTRIES: &[FieldDef] = &[
-    FieldDef::CALL("isatty", 1, js_os_isatty, 0),
     FieldDef::CALL("now", 0, js_os_now, 0),
+    FieldDef::CALL("isatty", 1, js_os_isatty, 0),
     FieldDef::INT32("SIGINT", libc::SIGINT, JS_PROP_CONFIGURABLE),
 ];
 
 pub fn init_mod_os(ctx: &mut ScopedContext) -> Result<(), i32> {
+    // The module name "os" must match the name used in JavaScript imports.
     ctx.register_module("os", MOD_OS_ENTRIES)?;
     Ok(())
 }
 ```
 
-Field Definition Parameters:
+Field definition parameters:
 
-- **Function Name**: Exposed to JavaScript
-- **Argument Count**: Minimum expected arguments
-- **Callback**: Your Rust function implementation
-- **Magic Value**: For function overloading (use 0 for standard functions)
+- **Function name**: The name exposed to JavaScript (e.g. `"now"`).
+- **Argument count**: Minimum expected arguments for the function.
+- **Callback**: The Rust function implementation (e.g. `js_os_now`).
+- **Magic value**: Optional extra tag for overloading (use `0` for normal functions).
 
-## 4. Garbage Collection (Optional)
+Once this initialization function has been called on a context, the `os` module becomes available to JavaScript code.
 
-If your module uses thread-local storage with JavaScript values, implement a GC tracer to properly manage their lifecycle.
+## 3. Garbage Collection (Optional)
+
+If your module has objects that need garbage collector to manage memory cycle, you may provide a custom GC trace function so that those objects can be properly traced and collected by zuqe's gc.
+
+A module‑specific trace function typically walks your data structures and calls `trace` on any embedded JavaScript values:
 
 ```rust
-use gc_lite::{GcTracable, GcTracer};
+use gc_lite::GcTraceCtx;
 
-pub fn mod_os_gc_trace(tracer: &mut GcTracer) {
-    // ... trace JavaScript values stored in thread-local storage ...
+pub fn mod_os_gc_trace(tracer: &mut GcTraceCtx) {
+    // Trace all JSValue fields that are kept alive by the os module.
+    // For example:
+    // some_js_value.trace(tracer);
 }
 ```
 
-## 5. Usage in JavaScript
+You can then register this trace function on the runtime (see the GC documentation for details). This ensures that any JavaScript objects owned indirectly by your module participate correctly in Zuqe’s garbage collection.
 
-Once registered, you can use the module and its functions in your JavaScript code.
+## 4. Usage in JavaScript
+
+Once registered, you can use the module and its exports in JavaScript:
 
 ```javascript
 // Import the module
 import * as os from "os";
 
 // Call a function from the module
-let time = os.now();
+const time = os.now();
 
 // Use a constant from the module
 os.isatty(0);
 ```
 
-This tutorial concludes the series on using the `zuqe` crate. You now have the knowledge to create basic scripts, define complex classes, and build powerful native modules.
+This tutorial concludes the series on using the `zuqe` crate. You now have the knowledge to create basic scripts, define complex classes, and build native modules that integrate closely with the runtime and its garbage collector.
