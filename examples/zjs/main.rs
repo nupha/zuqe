@@ -246,7 +246,7 @@ fn main() -> ExitCode {
     exit_code
 }
 
-pub type JsInitModuleFn = fn(&mut ScopedContext, &CStr) -> Result<ModuleDef, i32>;
+pub type JsInitModuleFn = fn(&mut ScopedContext, &str) -> Result<ModuleDef, i32>;
 
 fn js_module_loader(
     ctx: &mut ScopedContext,
@@ -267,7 +267,6 @@ fn js_module_loader(
 
         let handle =
             unsafe { libc::dlopen(c_filename.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL) };
-
         if handle.is_null() {
             ctx.throw_reference_error(&format!("could not load library '{file_name}'"));
             return Err(-1);
@@ -283,28 +282,16 @@ fn js_module_loader(
                 return Err(-1);
             }
 
-            match std::ffi::CString::new(file_name) {
-                Ok(name_c) => {
-                    let init =
-                        std::mem::transmute::<*mut std::os::raw::c_void, JsInitModuleFn>(sym);
-                    let md = init(ctx, &name_c);
-                    if md.is_err() {
-                        log::error!("could not load library '{file_name}': initialization error");
-                        // ctx.throw_reference_error(&format!(
-                        //     "could not load module filename '{file_name}': initialization error"
-                        // ));
-                        libc::dlclose(handle);
-                    }
-                    md
-                }
-                Err(_) => {
-                    ctx.throw_reference_error(&format!(
-                        "could not load library '{file_name}': initialization error"
-                    ));
-                    libc::dlclose(handle);
-                    Err(-1)
-                }
+            let init_fn = std::mem::transmute::<*mut std::os::raw::c_void, JsInitModuleFn>(sym);
+            let md = init_fn(ctx, file_name);
+            if md.is_err() {
+                log::error!("could not load library '{file_name}': initialization error");
+                // ctx.throw_reference_error(&format!(
+                //     "could not load module filename '{file_name}': initialization error"
+                // ));
+                libc::dlclose(handle);
             }
+            md
         }
     } else {
         // js file
