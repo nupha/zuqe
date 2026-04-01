@@ -574,7 +574,7 @@ const MOD_OS_ENTRIES: &[FieldDef] = &[
 ];
 
 pub fn init_mod_os(ctx: &mut ScopedContext) -> Result<(), i32> {
-    ctx.register_module("os", MOD_OS_ENTRIES)?;
+    ctx.create_module("os", MOD_OS_ENTRIES)?;
     ctx.add_tick_handler(|cx| -> bool { js_os_poll(cx) });
     Ok(())
 }

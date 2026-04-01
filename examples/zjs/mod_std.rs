@@ -196,6 +196,6 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
 ];
 
 pub fn init_mod_std(ctx: &mut ScopedContext) -> Result<(), i32> {
-    ctx.register_module("std", MOD_STD_ENTRIES)?;
+    ctx.create_module("std", MOD_STD_ENTRIES)?;
     Ok(())
 }

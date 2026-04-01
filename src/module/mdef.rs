@@ -355,8 +355,12 @@ impl ModuleDef {
 }
 
 impl<'c> ScopedContext<'c> {
-    /// register a native module
-    pub fn register_module(&mut self, name: &str, entries: &'static [FieldDef]) -> Result<(), i32> {
+    /// create a native module def
+    pub fn create_module(
+        &mut self,
+        name: &str,
+        entries: &'static [FieldDef],
+    ) -> Result<ModuleDef, i32> {
         let mut md = ModuleDef::create(self, name, |cx, m| -> Result<(), i32> {
             m.set_export_values(cx, entries)
         })?;
@@ -366,7 +370,16 @@ impl<'c> ScopedContext<'c> {
             md.add_export(self, me.name)?;
         }
 
-        Ok(())
+        Ok(md)
+    }
+
+    #[deprecated(note = "use ::create_module() instead")]
+    pub fn register_module(
+        &mut self,
+        name: &str,
+        entries: &'static [FieldDef],
+    ) -> Result<ModuleDef, i32> {
+        self.create_module(name, entries)
     }
 }
 

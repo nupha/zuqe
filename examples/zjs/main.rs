@@ -8,7 +8,7 @@ mod global;
 mod mod_os;
 mod mod_std;
 
-use std::{io::Write, process::ExitCode};
+use std::{ffi::CStr, io::Write, process::ExitCode};
 
 use clap::Parser;
 use colorized::{Colors::*, colorize_println};
@@ -246,16 +246,74 @@ fn main() -> ExitCode {
     exit_code
 }
 
+pub type JsInitModuleFn = fn(&mut ScopedContext, &CStr) -> Result<ModuleDef, i32>;
+
 fn js_module_loader(
     ctx: &mut ScopedContext,
-    module_name: &str,
+    file_name: &str,
     _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
-    match std::fs::read(module_name) {
-        Ok(buf) => ctx.compile_module(&buf, module_name, false),
-        Err(_) => {
-            ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
-            Err(-1)
+    if file_name.ends_with(".dylib") || file_name.ends_with(".so") || file_name.ends_with(".dll") {
+        // dynamic library module
+        let c_filename = match std::ffi::CString::new(file_name) {
+            Ok(s) => s,
+            Err(_) => {
+                ctx.throw_reference_error(&format!(
+                    "could not load module filename '{file_name}' as shared library"
+                ));
+                return Err(-1);
+            }
+        };
+
+        let handle =
+            unsafe { libc::dlopen(c_filename.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL) };
+
+        if handle.is_null() {
+            ctx.throw_reference_error(&format!("could not load library '{file_name}'"));
+            return Err(-1);
+        }
+
+        unsafe {
+            let sym = libc::dlsym(handle, c"js_init_module".as_ptr());
+            if sym.is_null() {
+                ctx.throw_reference_error(&format!(
+                    "could not load module filename '{file_name}': js_init_module not found"
+                ));
+                libc::dlclose(handle);
+                return Err(-1);
+            }
+
+            match std::ffi::CString::new(file_name) {
+                Ok(name_c) => {
+                    let init =
+                        std::mem::transmute::<*mut std::os::raw::c_void, JsInitModuleFn>(sym);
+                    let md = init(ctx, &name_c);
+                    if md.is_err() {
+                        log::error!("could not load library '{file_name}': initialization error");
+                        // ctx.throw_reference_error(&format!(
+                        //     "could not load module filename '{file_name}': initialization error"
+                        // ));
+                        libc::dlclose(handle);
+                    }
+                    md
+                }
+                Err(_) => {
+                    ctx.throw_reference_error(&format!(
+                        "could not load library '{file_name}': initialization error"
+                    ));
+                    libc::dlclose(handle);
+                    Err(-1)
+                }
+            }
+        }
+    } else {
+        // js file
+        match std::fs::read(file_name) {
+            Ok(buf) => ctx.compile_module(&buf, file_name, false),
+            Err(_) => {
+                ctx.throw_reference_error(&format!("could not load module '{file_name}'"));
+                Err(-1)
+            }
         }
     }
 }
