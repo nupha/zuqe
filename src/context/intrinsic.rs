@@ -127,7 +127,8 @@ impl<'c> ScopedContext<'c> {
             .unwrap()
             .into();
 
-        self.add_global_constructor("Function", ctor, proto.into());
+        self.add_global_constructor("Function", ctor, proto.into())
+            .unwrap();
         self.function_ctor = ctor;
     }
 
@@ -143,7 +144,8 @@ impl<'c> ScopedContext<'c> {
             .unwrap();
 
         let err_proto = self.class_proto(JS_CLASS_ERROR).unwrap();
-        self.add_global_constructor("Error", ctor.into(), err_proto.into());
+        self.add_global_constructor("Error", ctor.into(), err_proto.into())
+            .unwrap();
 
         // standard error constructors
         for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
@@ -163,7 +165,8 @@ impl<'c> ScopedContext<'c> {
             .unwrap();
 
             let err_proto = self.error_protos[i]; // <-- this was initialized in core
-            self.add_global_constructor(name, func_obj.into(), err_proto);
+            self.add_global_constructor(name, func_obj.into(), err_proto)
+                .unwrap();
         }
     }
 

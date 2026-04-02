@@ -165,22 +165,24 @@ impl<'c> ScopedContext<'c> {
 
     /// mark function `func_obj` to be a constructor, set `proto` as its prototype,
     /// then add it to global namespace as `name`.
-    pub fn add_global_constructor(&mut self, name: &str, func_obj: JSValue, proto: JSValue) {
-        self.global_obj()
-            .define_property_value_str(
-                self,
-                name,
-                func_obj,
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            )
-            .unwrap();
-
-        self.bind_ctor_proto(func_obj, proto).unwrap();
+    pub fn add_global_constructor(
+        &mut self,
+        name: &str,
+        func_obj: JSValue,
+        proto: JSValue,
+    ) -> Result<(), i32> {
+        self.bind_ctor_proto(func_obj, proto)?;
+        self.global_obj().define_property_value_str(
+            self,
+            name,
+            func_obj,
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        )?;
+        Ok(())
     }
 
-    /// create a new native constructor, add it to global namespace.
-    /// returns new constructor function.
-    fn create_global_constructor_internal(
+    /// create native constructor, returns new constructor function.
+    fn create_constructor_internal(
         &mut self,
         name: &str,
         handler: Callback,
@@ -196,7 +198,29 @@ impl<'c> ScopedContext<'c> {
         let func_obj: JSValue = self
             .create_native_function(handler, name, length as _, magic)?
             .into();
-        self.add_global_constructor(name, func_obj, proto);
+
+        self.bind_ctor_proto(func_obj, proto)?;
+
+        Ok(func_obj)
+    }
+
+    /// create a new native constructor, add it to global namespace.
+    /// returns new constructor function.
+    fn create_global_constructor_internal(
+        &mut self,
+        name: &str,
+        handler: Callback,
+        length: i32,
+        proto: JSValue,
+        magic: i16,
+    ) -> JSResult {
+        let func_obj = self.create_constructor_internal(name, handler, length, proto, magic)?;
+        self.global_obj().define_property_value_str(
+            self,
+            name,
+            func_obj,
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        )?;
 
         Ok(func_obj)
     }
@@ -224,7 +248,7 @@ impl<'c> ScopedContext<'c> {
     /// create a new native constructor, add it to global namespace.
     /// returns new constructor function.
     #[inline(always)]
-    pub fn create_global_constructor_only(
+    pub fn create_global_constructor(
         &mut self,
         name: &str,
         callback: CallbackFn,
@@ -235,6 +259,56 @@ impl<'c> ScopedContext<'c> {
         self.create_global_constructor_internal(
             name,
             Callback::Constructor(callback),
+            length,
+            proto,
+            magic,
+        )
+    }
+
+    #[deprecated(note = "use ::create_global_constructor() instead")]
+    pub fn create_global_constructor_only(
+        &mut self,
+        name: &str,
+        callback: CallbackFn,
+        length: i32,
+        proto: JSValue,
+        magic: i16,
+    ) -> JSResult {
+        self.create_global_constructor(name, callback, length, proto, magic)
+    }
+
+    /// create native constructor
+    #[inline(always)]
+    pub fn create_constructor(
+        &mut self,
+        name: &str,
+        callback: CallbackFn,
+        length: i32,
+        proto: JSValue,
+        magic: i16,
+    ) -> JSResult {
+        self.create_constructor_internal(
+            name,
+            Callback::Constructor(callback),
+            length,
+            proto,
+            magic,
+        )
+    }
+
+    /// create native constructor or func
+    #[inline(always)]
+    pub fn create_constructor_or_func(
+        &mut self,
+        name: &str,
+        callback: CallbackFn,
+        length: i32,
+        proto: JSValue,
+        magic: i16,
+    ) -> JSResult {
+        self.create_constructor_internal(
+            name,
+            Callback::ConstructorOrFunc(callback),
             length,
             proto,
             magic,

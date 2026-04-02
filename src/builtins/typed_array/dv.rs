@@ -109,7 +109,7 @@ impl DataView {
                 0,
             )?
             .into();
-        ctx.add_global_constructor("DataView", dv_ctor, dv_obj.into());
+        ctx.add_global_constructor("DataView", dv_ctor, dv_obj.into())?;
 
         Ok(Some(dv_obj))
     }

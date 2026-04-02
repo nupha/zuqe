@@ -176,7 +176,7 @@ impl ArrayBuffer {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_array_buffer_proto_funcs)?;
 
-                let mut ab_func = ctx.create_global_constructor_only(
+                let mut ab_func = ctx.create_global_constructor(
                     "ArrayBuffer",
                     js_array_buffer_constructor,
                     1,
@@ -192,7 +192,7 @@ impl ArrayBuffer {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_shared_array_buffer_proto_funcs)?;
 
-                let mut sab_func = ctx.create_global_constructor_only(
+                let mut sab_func = ctx.create_global_constructor(
                     "SharedArrayBuffer",
                     js_shared_array_buffer_constructor,
                     1,

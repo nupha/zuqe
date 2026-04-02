@@ -1,6 +1,6 @@
 [package]
 name = "zuqe"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 description = "Zuqe JS Engine - A lightweight JS engine implemented in Rust, designed for embedded systems and general‑purpose use."
 build = "build.rs"

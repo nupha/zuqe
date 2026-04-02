@@ -241,7 +241,7 @@ impl TypedArray {
             )?
             .into();
 
-            ctx.add_global_constructor(name.as_ref(), func_obj, ta_obj.into());
+            ctx.add_global_constructor(name.as_ref(), func_obj, ta_obj.into())?;
             func_obj.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
 
             ctx.class_protos[cid as usize] = ta_obj.into();
