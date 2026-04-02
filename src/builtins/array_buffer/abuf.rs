@@ -10,9 +10,9 @@ use std::{
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
+    Callback, JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
     class::ClassID,
-    context::ScopedContext,
+    context::{ProtoCtorPair, ScopedContext},
     error::JSResult,
     function::CallContext,
     object::{Object, ObjectImpl, ObjectPayload},
@@ -170,37 +170,47 @@ object_cast!(
 
 impl ArrayBuffer {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+
         match class_id {
             JS_CLASS_ARRAY_BUFFER => {
-                // ArrayBuffer
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_array_buffer_proto_funcs)?;
 
-                let mut ab_func = ctx.create_global_constructor(
+                let mut ctor = ctx.create_constructor_ex(
                     "ArrayBuffer",
-                    js_array_buffer_constructor,
+                    Callback::Constructor(js_array_buffer_constructor),
                     1,
-                    proto.into(),
+                    proto,
                     0,
+                    true,
                 )?;
-                ab_func.install_fields(ctx, js_array_buffer_funcs)?;
+                ctor.install_fields(ctx, js_array_buffer_funcs)?;
 
+                ctx.class_protos_ctors[JS_CLASS_ARRAY_BUFFER as usize] = ProtoCtorPair {
+                    proto: Some(proto),
+                    ctor: Some(ctor),
+                };
                 Ok(Some(proto))
             }
             JS_CLASS_SHARED_ARRAY_BUFFER => {
-                // SharedArrayBuffer
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_shared_array_buffer_proto_funcs)?;
 
-                let mut sab_func = ctx.create_global_constructor(
+                let mut sab_ctor = ctx.create_constructor_ex(
                     "SharedArrayBuffer",
-                    js_shared_array_buffer_constructor,
+                    Callback::Constructor(js_shared_array_buffer_constructor),
                     1,
-                    proto.into(),
+                    proto,
                     0,
+                    true,
                 )?;
-                sab_func.install_fields(ctx, js_shared_array_buffer_funcs)?;
+                sab_ctor.install_fields(ctx, js_shared_array_buffer_funcs)?;
 
+                ctx.class_protos_ctors[JS_CLASS_SHARED_ARRAY_BUFFER as usize] = ProtoCtorPair {
+                    proto: Some(proto),
+                    ctor: Some(sab_ctor),
+                };
                 Ok(Some(proto))
             }
             _ => {

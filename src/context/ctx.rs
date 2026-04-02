@@ -33,6 +33,13 @@ use crate::{
     value::JSValue,
 };
 
+/// Class prototype and constructor object
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct ProtoCtorPair {
+    pub(crate) proto: Option<Object>,
+    pub(crate) ctor: Option<Object>,
+}
+
 /// An execution context, holds environment with global object, calling stack, and execution state.
 pub struct ContextImpl {
     rt: RuntimePtr,
@@ -43,7 +50,7 @@ pub struct ContextImpl {
     /// Class prototypes slot.
     /// element could be object or null, default to null.
     /// TODO: use Vec<Option<Object>> instead
-    pub(crate) class_protos: Vec<JSValue>,
+    pub(crate) class_protos_ctors: Vec<ProtoCtorPair>,
     /// Standard error prototypes slot.
     pub(crate) error_protos: [JSValue; STD_ERROR_COUNT],
 
@@ -90,7 +97,16 @@ pub struct ContextImpl {
 
 impl GcTrace for ContextImpl {
     fn trace(&self, tr: &mut GcTraceCtx) {
-        self.class_protos.iter().for_each(|x| x.trace(tr));
+        self.class_protos_ctors.iter().for_each(|x| {
+            if let Some(o) = x.proto.as_ref() {
+                o.trace(tr);
+            }
+            if let Some(o) = x.ctor.as_ref() {
+                o.trace(tr);
+            }
+        });
+        self.error_protos.iter().for_each(|x| x.trace(tr));
+
         if let Some(x) = self.array_shape.as_ref() {
             x.trace(tr)
         }
@@ -109,7 +125,6 @@ impl GcTrace for ContextImpl {
 
         self.throw_type_error.trace(tr);
         self.eval_func.trace(tr);
-        self.error_protos.iter().for_each(|x| x.trace(tr));
         self.loaded_modules.iter().for_each(|x| x.trace(tr));
 
         if let Some(o) = self.global_obj.as_ref() {
@@ -140,9 +155,9 @@ impl ContextImpl {
     pub fn new(rt: &mut RuntimeImpl) -> Result<Self, i32> {
         let class_proto = {
             let n = rt.class_registry.len();
-            let mut lst = Vec::<JSValue>::new();
+            let mut lst = Vec::<ProtoCtorPair>::new();
             lst.try_reserve(n).map_err(|_| -1)?;
-            lst.extend(std::iter::repeat_n(JSValue::NULL, n));
+            lst.extend(std::iter::repeat_n(ProtoCtorPair::default(), n));
             lst
         };
 
@@ -157,7 +172,7 @@ impl ContextImpl {
             regexp_ctor: JSValue::NULL,
             promise_ctor: JSValue::NULL,
 
-            class_protos: class_proto,
+            class_protos_ctors: class_proto,
             error_protos: [const { JSValue::UNDEFINED }; STD_ERROR_COUNT],
 
             iterator_proto: None,
@@ -271,7 +286,7 @@ impl ContextImpl {
         }
         self.promise_ctor = JSValue::UNDEFINED;
 
-        self.class_protos.clear();
+        self.class_protos_ctors.clear();
         self.error_protos = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
 
         self.iterator_proto.take();
@@ -305,7 +320,10 @@ impl<'c> ScopedContext<'c> {
         // Object
         let mut object = self.create_base_object_with_proto(None)?;
         object.set_flag_immutable_prototype(true);
-        self.class_protos[JS_CLASS_OBJECT as usize] = object.into();
+        self.class_protos_ctors[JS_CLASS_OBJECT as usize] = ProtoCtorPair {
+            proto: Some(object),
+            ctor: None,
+        };
 
         // Function
         {
@@ -318,14 +336,20 @@ impl<'c> ScopedContext<'c> {
                 Some(object),
                 None,
             )?;
-            self.class_protos[JS_CLASS_BYTECODE_FUNCTION as usize] = func.into();
+            self.class_protos_ctors[JS_CLASS_BYTECODE_FUNCTION as usize] = ProtoCtorPair {
+                proto: Some(func.into()),
+                ctor: None,
+            };
         }
 
         // Error
         {
             let mut error = self.create_base_object()?;
             error.install_fields(self, js_error_proto_funcs).unwrap();
-            self.class_protos[JS_CLASS_ERROR as usize] = error.into();
+            self.class_protos_ctors[JS_CLASS_ERROR as usize] = ProtoCtorPair {
+                proto: Some(error),
+                ctor: None,
+            };
 
             // standard error objects
             let msg = Atom::CONST_empty_string.force_string(self).unwrap();
@@ -363,7 +387,10 @@ impl<'c> ScopedContext<'c> {
                 )
                 .map_err(|_| -1)?;
 
-            self.class_protos[JS_CLASS_ARRAY as usize] = array_proto.into();
+            self.class_protos_ctors[JS_CLASS_ARRAY as usize] = ProtoCtorPair {
+                proto: Some(array_proto),
+                ctor: None,
+            };
 
             // 2. make default shape for Array
             let mut array_shape = Shape::create(self, Some(array_proto), 1).unwrap();

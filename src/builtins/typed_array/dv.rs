@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_DATAVIEW,
     builtins::array_buffer::ArrayBuffer,
     class::ClassID,
-    context::ScopedContext,
+    context::{ProtoCtorPair, ScopedContext},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::Callback,
     object::{Object, ObjectImpl, ObjectPayload},
@@ -96,22 +96,25 @@ object_cast!(DataView, JS_CLASS_DATAVIEW);
 
 impl DataView {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert_eq!(class_id, JS_CLASS_DATAVIEW);
+        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
 
-        let mut dv_obj = ctx.create_base_object()?;
-        dv_obj.install_fields(ctx, js_dataview_proto_funcs)?;
+        let mut proto = ctx.create_base_object()?;
+        proto.install_fields(ctx, js_dataview_proto_funcs)?;
 
-        let dv_ctor: JSValue = ctx
-            .create_native_function(
-                Callback::Constructor(js_dataview_constructor),
-                "DataView",
-                1,
-                0,
-            )?
-            .into();
-        ctx.add_global_constructor("DataView", dv_ctor, dv_obj.into())?;
+        let ctor = ctx.create_constructor_ex(
+            "DataView",
+            Callback::Constructor(js_dataview_constructor),
+            1,
+            proto,
+            0,
+            true,
+        )?;
 
-        Ok(Some(dv_obj))
+        ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+            proto: Some(proto),
+            ctor: Some(ctor),
+        };
+        Ok(Some(proto))
     }
 
     pub const fn class_finalize(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}

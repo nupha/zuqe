@@ -8,11 +8,11 @@ use lre::{Regex, RegexFlags};
 use zerocopy::IntoBytes;
 
 use crate::{
-    JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
+    Callback, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     array::Array,
     atom::Atom,
     class::ClassID,
-    context::ScopedContext,
+    context::{ProtoCtorPair, ScopedContext},
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     string::{CharCode, StringData, StringRef},
@@ -317,28 +317,40 @@ impl RegExp {
     }
 
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+
         match class_id {
             JS_CLASS_REGEXP => {
-                let mut obj = ctx.create_base_object()?;
-                obj.install_fields(ctx, js_regexp_proto_funcs).unwrap();
+                let mut proto = ctx.create_base_object()?;
+                proto.install_fields(ctx, js_regexp_proto_funcs).unwrap();
 
-                let mut ctor = ctx.create_global_constructor_or_func(
+                let mut ctor = ctx.create_constructor_ex(
                     "RegExp",
-                    js_regexp_constructor,
+                    Callback::Constructor(js_regexp_constructor),
                     2,
-                    obj.into(),
+                    proto,
                     0,
+                    true,
                 )?;
                 ctor.install_fields(ctx, js_regexp_funcs).unwrap();
 
-                ctx.regexp_ctor = ctor;
-                Ok(Some(obj))
+                ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+                    proto: Some(proto),
+                    ctor: Some(ctor),
+                };
+                ctx.regexp_ctor = ctor.into();
+
+                Ok(Some(proto))
             }
             JS_CLASS_REGEXP_STRING_ITERATOR => {
-                let iter_proto = ctx.iterator_proto()?;
-                let mut obj = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                obj.install_fields(ctx, js_regexp_string_iterator_proto_funcs)?;
-                Ok(Some(obj))
+                let it_proto = ctx.iterator_proto()?;
+                let mut proto = ctx.create_base_object_with_proto(Some(it_proto))?;
+                proto.install_fields(ctx, js_regexp_string_iterator_proto_funcs)?;
+                ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+                    proto: Some(proto),
+                    ctor: None,
+                };
+                Ok(Some(proto))
             }
             _ => {
                 unreachable!()

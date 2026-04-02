@@ -434,7 +434,7 @@ impl ObjectImpl {
     }
 
     #[inline(always)]
-    pub const fn set_flag_constructor(&mut self, b: bool) {
+    pub(crate) const fn set_flag_constructor(&mut self, b: bool) {
         self.obj_flags.set_constructor(b);
     }
 

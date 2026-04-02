@@ -9,7 +9,7 @@ use crate::{
     JS_CLASS_PROXY,
     atom::Atom,
     class::{ClassExoticMethods, ClassID},
-    context::ScopedContext,
+    context::{ProtoCtorPair, ScopedContext},
     error::JSResult,
     function::{Callback, JS_CALL_FLAG_CONSTRUCTOR},
     object::{
@@ -207,11 +207,16 @@ pub struct Proxy(pub(super) GcRef<ObjectImpl>);
 object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
-    pub fn class_init(ctx: &mut ScopedContext, _: ClassID) -> Result<Option<Object>, i32> {
-        let mut proto =
-            ctx.create_native_function(Callback::Constructor(js_proxy_constructor), "Proxy", 2, 0)?;
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
 
-        proto.set_flag_constructor(true);
+        let mut proto: Object = ctx
+            .create_native_function(Callback::Constructor(js_proxy_constructor), "Proxy", 2, 0)?
+            .into();
+
+        // this was done in create_native_function() for Callback::Constructor
+        // proto.set_flag_constructor(true);
+
         proto.install_fields(ctx, js_proxy_funcs).unwrap();
 
         ctx.global_obj().define_property_value_str(
@@ -221,7 +226,11 @@ impl Proxy {
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
 
-        Ok(Some(proto.into()))
+        ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+            proto: Some(proto),
+            ctor: None,
+        };
+        Ok(Some(proto))
     }
 
     pub fn class_call(

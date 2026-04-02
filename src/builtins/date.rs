@@ -9,9 +9,10 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
+    Callback,
     atom::{Atom, AtomKind},
     class::ClassID,
-    context::ScopedContext,
+    context::{ProtoCtorPair, ScopedContext},
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{Object, ObjectPayload},
@@ -715,15 +716,27 @@ impl Datetime {
         timestamp_ms: INVALID_TIMESTAMP,
     };
 
-    pub fn class_init(ctx: &mut ScopedContext, _: ClassID) -> Result<Option<Object>, i32> {
-        let mut obj = ctx.create_base_object()?;
-        obj.install_fields(ctx, js_date_proto_funcs).unwrap();
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
 
-        let mut ctor =
-            ctx.create_global_constructor_or_func("Date", js_date_constructor, 7, obj.into(), 0)?;
+        let mut proto = ctx.create_base_object()?;
+        proto.install_fields(ctx, js_date_proto_funcs).unwrap();
+
+        let mut ctor = ctx.create_constructor_ex(
+            "Date",
+            Callback::ConstructorOrFunc(js_date_constructor),
+            7,
+            proto,
+            0,
+            true,
+        )?;
         ctor.install_fields(ctx, js_date_funcs)?;
 
-        Ok(Some(obj))
+        ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+            proto: Some(proto),
+            ctor: Some(ctor),
+        };
+        Ok(Some(proto))
     }
 
     #[inline(always)]

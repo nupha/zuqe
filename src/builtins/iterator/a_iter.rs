@@ -43,10 +43,17 @@ pub struct AsyncFromSyncIterator(GcRef<ObjectImpl>);
 object_cast!(AsyncFromSyncIterator, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR);
 
 impl AsyncFromSyncIterator {
-    pub fn class_init(ctx: &mut ScopedContext, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+
         let aiter_proto = ctx.async_iterator_proto()?;
         let mut proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
         proto.install_fields(ctx, js_async_from_sync_iterator_proto_funcs)?;
+
+        ctx.class_protos_ctors[class_id as usize]
+            .proto
+            .replace(proto);
+
         Ok(Some(proto))
     }
 }

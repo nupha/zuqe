@@ -12,4 +12,4 @@ pub use {
     scope::ScopedContext,
 };
 
-pub(crate) use ctx::ContextPtr;
+pub(crate) use ctx::{ContextPtr, ProtoCtorPair};

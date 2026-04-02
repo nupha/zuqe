@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
-    context::ScopedContext,
+    context::{ProtoCtorPair, ScopedContext},
     error::JSResult,
     function::{AsyncState, BCWrapper, BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
@@ -25,26 +25,31 @@ pub struct AsyncFunction(pub(crate) GcRef<ObjectImpl>);
 object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
-    pub fn class_init(ctx: &mut ScopedContext, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+
         let mut proto = {
-            let p = ctx.function_proto();
-            ctx.create_base_object_with_proto(Some(p))?
+            let o = ctx.function_proto();
+            ctx.create_base_object_with_proto(Some(o))?
         };
         proto.install_fields(ctx, js_async_function_proto_funcs)?;
 
-        let func_ctor = ctx.function_ctor.as_object().copied();
-        let ctor: JSValue = NativeFunction::create(
+        let ctor = NativeFunction::create(
             ctx,
             Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
             "AsyncFunction",
             1,
             FunctionKind::Async as i16,
-            func_ctor,
+            ctx.function_ctor.as_object().copied(),
             None,
-        )?
-        .into();
+        )?;
+        ctx.bind_ctor_proto_ex(ctor.into(), proto, 0, JS_PROP_CONFIGURABLE)?;
 
-        ctx.bind_ctor_proto_ex(ctor, proto.into(), 0, JS_PROP_CONFIGURABLE)?;
+        ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+            proto: Some(proto),
+            ctor: Some(ctor.into()),
+        };
+
         Ok(Some(proto))
     }
 

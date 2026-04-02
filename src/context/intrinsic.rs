@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_GENERATOR,
-    JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_STRING,
-    JS_CLASS_STRING_ITERATOR,
+    JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION,
+    JS_CLASS_ERROR, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
+    JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
     atom::Atom,
     builtins::{
         array::{
@@ -23,7 +23,7 @@ use crate::{
             js_string_proto_funcs,
         },
     },
-    context::ScopedContext,
+    context::{ScopedContext, ctx::ProtoCtorPair},
     error::{ErrorKind, STD_ERROR_NAMES},
     function::{BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{
@@ -117,19 +117,20 @@ impl<'c> ScopedContext<'c> {
 
         proto.install_fields(self, js_function_proto_funcs).unwrap();
 
-        let ctor: JSValue = self
+        let ctor = self
             .create_native_function(
                 Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "Function",
                 1,
                 FunctionKind::Normal as _,
             )
-            .unwrap()
-            .into();
-
-        self.add_global_constructor("Function", ctor, proto.into())
             .unwrap();
-        self.function_ctor = ctor;
+
+        self.add_global_constructor("Function", ctor.into(), proto)
+            .unwrap();
+
+        self.class_protos_ctors[JS_CLASS_BYTECODE_FUNCTION as usize].ctor = Some(ctor.into());
+        self.function_ctor = ctor.into();
     }
 
     pub(super) fn intrinsic_base_errors(&mut self) {
@@ -165,30 +166,39 @@ impl<'c> ScopedContext<'c> {
             .unwrap();
 
             let err_proto = self.error_protos[i]; // <-- this was initialized in core
-            self.add_global_constructor(name, func_obj.into(), err_proto)
-                .unwrap();
+            self.add_global_constructor(
+                name,
+                func_obj.into(),
+                err_proto.as_object().copied().unwrap(),
+            )
+            .unwrap();
         }
     }
 
     /// Note: make sure iterator_proto is initialized
     pub(super) fn intrinsic_base_array(&mut self) {
-        self.class_proto(JS_CLASS_ARRAY)
-            .unwrap()
+        let mut array_proto = self.class_proto(JS_CLASS_ARRAY).unwrap();
+        array_proto
             .install_fields(self, js_array_proto_funcs)
             .unwrap();
 
-        let array_proto = self.class_proto(JS_CLASS_ARRAY).unwrap();
+        self.array_proto_values = array_proto.get_property(self, Atom::CONST_values).unwrap();
+
         let mut array_ctor = self
-            .create_global_constructor_or_func(
+            .create_constructor_ex(
                 "Array",
-                js_array_constructor,
+                Callback::ConstructorOrFunc(js_array_constructor),
                 1,
-                array_proto.into(),
+                array_proto,
                 0,
+                true,
             )
             .unwrap();
+
         array_ctor.install_fields(self, js_array_funcs).unwrap();
-        self.array_ctor = array_ctor;
+
+        self.class_protos_ctors[JS_CLASS_ARRAY as usize].ctor = Some(array_ctor);
+        self.array_ctor = array_ctor.into();
 
         // initialize Array.prototype[Symbol.unscopables]
         // XXX: create auto_initializer
@@ -235,75 +245,92 @@ impl<'c> ScopedContext<'c> {
             .install_fields(self, js_array_iterator_proto_funcs)
             .unwrap();
 
-        let array_values = self
-            .class_proto(JS_CLASS_ARRAY)
-            .unwrap()
-            .get_property(self, Atom::CONST_values)
-            .unwrap();
-
-        self.array_proto_values = array_values;
-        self.class_protos[JS_CLASS_ARRAY_ITERATOR as usize] = array_iter.into();
+        self.class_protos_ctors[JS_CLASS_ARRAY_ITERATOR as usize] = ProtoCtorPair {
+            proto: Some(array_iter),
+            ctor: None,
+        };
     }
 
     pub(super) fn intrinsic_base_number(&mut self) {
-        let mut obj = self
+        let mut proto = self
             .create_object_with_proto(
                 self.class_proto(JS_CLASS_OBJECT),
                 ObjectPayload::NUMBER(JSValue::Int(0)),
             )
             .unwrap();
-        obj.install_fields(self, js_number_proto_funcs).unwrap();
-
-        let proto: JSValue = obj.into();
+        proto.install_fields(self, js_number_proto_funcs).unwrap();
 
         let mut ctor = self
-            .create_global_constructor_or_func("Number", js_number_constructor, 1, proto, 0)
+            .create_constructor_ex(
+                "Number",
+                Callback::ConstructorOrFunc(js_number_constructor),
+                1,
+                proto,
+                0,
+                true,
+            )
             .unwrap();
+
         ctor.install_fields(self, js_number_funcs).unwrap();
 
-        self.class_protos[JS_CLASS_NUMBER as usize] = proto;
+        self.class_protos_ctors[JS_CLASS_NUMBER as usize] = ProtoCtorPair {
+            proto: Some(proto),
+            ctor: Some(ctor),
+        };
     }
 
     pub(super) fn intrinsic_base_boolean(&mut self) {
-        let object_proto = self.class_proto(JS_CLASS_OBJECT);
-        let mut bool_obj = self
-            .create_object_with_proto(object_proto, ObjectPayload::BOOLEAN(false))
+        let mut proto = self
+            .create_object_with_proto(
+                self.class_proto(JS_CLASS_OBJECT),
+                ObjectPayload::BOOLEAN(false),
+            )
             .unwrap();
 
-        bool_obj
-            .install_fields(self, js_boolean_proto_funcs)
+        proto.install_fields(self, js_boolean_proto_funcs).unwrap();
+
+        let ctor = self
+            .create_constructor_ex(
+                "Boolean",
+                Callback::ConstructorOrFunc(js_boolean_constructor),
+                1,
+                proto,
+                0,
+                true,
+            )
             .unwrap();
 
-        self.create_global_constructor_or_func(
-            "Boolean",
-            js_boolean_constructor,
-            1,
-            bool_obj.into(),
-            0,
-        )
-        .unwrap();
-
-        self.class_protos[JS_CLASS_BOOLEAN as usize] = bool_obj.into();
+        self.class_protos_ctors[JS_CLASS_BOOLEAN as usize] = ProtoCtorPair {
+            proto: Some(proto),
+            ctor: Some(ctor),
+        };
     }
 
     pub(super) fn intrinsic_base_string(&mut self) {
         let empty_str = Atom::CONST_empty_string.force_string(self).unwrap();
 
-        let string_obj: JSValue = {
+        let string_proto = {
             let mut o = self
                 .create_object_with_proto(
                     self.class_proto(JS_CLASS_OBJECT),
                     ObjectPayload::STRING(empty_str),
                 )
                 .unwrap();
-
             o.install_fields(self, js_string_proto_funcs).unwrap();
-            o.into()
+            o
         };
 
         let mut string_ctor = self
-            .create_global_constructor_or_func("String", js_string_constructor, 1, string_obj, 0)
+            .create_constructor_ex(
+                "String",
+                Callback::ConstructorOrFunc(js_string_constructor),
+                1,
+                string_proto,
+                0,
+                true,
+            )
             .unwrap();
+
         string_ctor.install_fields(self, js_string_funcs).unwrap();
 
         let iter_proto = self.iterator_proto().unwrap();
@@ -314,25 +341,34 @@ impl<'c> ScopedContext<'c> {
             .install_fields(self, js_string_iterator_proto_funcs)
             .unwrap();
 
-        self.class_protos[JS_CLASS_STRING as usize] = string_obj;
-        self.class_protos[JS_CLASS_STRING_ITERATOR as usize] = string_iter.into();
+        self.class_protos_ctors[JS_CLASS_STRING as usize] = ProtoCtorPair {
+            proto: Some(string_proto),
+            ctor: Some(string_ctor),
+        };
+        self.class_protos_ctors[JS_CLASS_STRING_ITERATOR as usize] = ProtoCtorPair {
+            proto: Some(string_iter),
+            ctor: None,
+        };
     }
 
     #[cfg(feature = "builtin_symbol")]
     pub(super) fn intrinsic_base_symbol(&mut self) {
-        let mut obj = self.create_base_object().unwrap();
-        obj.install_fields(self, crate::builtins::symbol::js_symbol_proto_funcs)
+        let mut proto = self.create_base_object().unwrap();
+        proto
+            .install_fields(self, crate::builtins::symbol::js_symbol_proto_funcs)
             .unwrap();
 
         let mut ctor = self
-            .create_global_constructor_or_func(
+            .create_constructor_ex(
                 "Symbol",
-                crate::builtins::symbol::js_symbol_constructor,
+                Callback::ConstructorOrFunc(crate::builtins::symbol::js_symbol_constructor),
                 0,
-                obj.into(),
+                proto,
                 0,
+                true,
             )
             .unwrap();
+
         ctor.install_fields(self, crate::builtins::symbol::js_symbol_funcs)
             .unwrap();
 
@@ -355,50 +391,61 @@ impl<'c> ScopedContext<'c> {
             }
         }
 
-        self.class_protos[crate::JS_CLASS_SYMBOL as usize] = obj.into();
+        self.class_protos_ctors[crate::JS_CLASS_SYMBOL as usize] = ProtoCtorPair {
+            proto: Some(proto),
+            ctor: Some(ctor),
+        };
     }
 
     pub(super) fn intrinsic_base_generator(&mut self) {
         // generator prototype
         let iter_proto = self.iterator_proto().unwrap();
-        let mut obj = self
+        let function_proto = self.function_proto();
+
+        // generator
+        let mut gen_proto = self
             .create_base_object_with_proto(Some(iter_proto))
             .unwrap();
-        obj.install_fields(self, js_generator_proto_funcs).unwrap();
-        let proto: JSValue = obj.into();
-        self.class_protos[JS_CLASS_GENERATOR as usize] = proto;
+        gen_proto
+            .install_fields(self, js_generator_proto_funcs)
+            .unwrap();
 
-        // generator function prototype
-        let function_proto = self.function_proto();
-        let mut generator_function = self
+        self.class_protos_ctors[JS_CLASS_GENERATOR as usize] = ProtoCtorPair {
+            proto: Some(gen_proto),
+            ctor: None,
+        };
+
+        // generator function
+        let mut gen_func_proto = self
             .create_base_object_with_proto(Some(function_proto))
             .unwrap();
-        generator_function
+        gen_func_proto
             .install_fields(self, js_generator_function_proto_funcs)
             .unwrap();
-        let generator_function_proto: JSValue = generator_function.into();
-        self.class_protos[JS_CLASS_GENERATOR_FUNCTION as usize] = generator_function_proto;
+        self.class_protos_ctors[JS_CLASS_GENERATOR_FUNCTION as usize] = ProtoCtorPair {
+            proto: Some(gen_func_proto),
+            ctor: None,
+        };
 
         // generator constructor
-        let ctor: JSValue = self
+        let ctor = self
             .create_native_function(
                 Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "GeneratorFunction",
                 1,
                 FunctionKind::Generator as i16,
             )
-            .unwrap()
-            .into();
+            .unwrap();
 
         self.bind_ctor_proto_ex(
-            generator_function_proto,
-            proto,
+            gen_func_proto,
+            gen_proto,
             JS_PROP_CONFIGURABLE,
             JS_PROP_CONFIGURABLE,
         )
         .unwrap();
 
-        self.bind_ctor_proto_ex(ctor, generator_function_proto, 0, JS_PROP_CONFIGURABLE)
+        self.bind_ctor_proto_ex(ctor.into(), gen_func_proto, 0, JS_PROP_CONFIGURABLE)
             .unwrap();
     }
 

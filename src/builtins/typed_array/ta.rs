@@ -227,10 +227,10 @@ impl TypedArray {
             )
             .to_utf8(ctx.rt_ref());
 
-            let mut ta_obj = ctx.create_base_object_with_proto(Some(proto))?;
-            ta_obj.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
+            let mut ta_proto = ctx.create_base_object_with_proto(Some(proto))?;
+            ta_proto.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
 
-            let mut func_obj: JSValue = NativeFunction::create(
+            let mut ta_ctor: Object = NativeFunction::create(
                 ctx,
                 Callback::Constructor(js_typed_array_constructor),
                 &name,
@@ -240,11 +240,14 @@ impl TypedArray {
                 None,
             )?
             .into();
+            ctx.add_global_constructor(name.as_ref(), ta_ctor, ta_proto)?;
 
-            ctx.add_global_constructor(name.as_ref(), func_obj, ta_obj.into())?;
-            func_obj.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
+            ta_ctor.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
 
-            ctx.class_protos[cid as usize] = ta_obj.into();
+            ctx.class_protos_ctors[cid as usize] = crate::context::ProtoCtorPair {
+                proto: Some(ta_proto),
+                ctor: Some(ta_ctor),
+            };
         }
 
         Ok(None)

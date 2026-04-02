@@ -9,7 +9,7 @@ use crate::{
     ClassDef, USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
     class::ClassID,
-    context::ScopedContext,
+    context::{ProtoCtorPair, ScopedContext},
     object::{Object, ObjectImpl, ObjectPayload},
     runtime::RuntimeImpl,
     value::JSValue,
@@ -76,16 +76,18 @@ impl<'c> ScopedContext<'c> {
     pub fn use_classes(&mut self, class_ids: &[ClassID]) -> Result<(), i32> {
         if let Some(mx) = class_ids.iter().max().copied() {
             if self.rt_ptr().class_registry.get(mx as usize).is_some() {
-                let n = self.class_protos.len();
+                let n = self.class_protos_ctors.len();
                 if mx as usize >= n {
                     // grow slot
                     let extra = mx as usize - n + 1;
-                    self.class_protos.try_reserve_exact(extra).map_err(|_| {
-                        self.throw_out_of_memory();
-                        -1
-                    })?;
-                    self.class_protos
-                        .extend(std::iter::repeat_n(JSValue::NULL, extra));
+                    self.class_protos_ctors
+                        .try_reserve_exact(extra)
+                        .map_err(|_| {
+                            self.throw_out_of_memory();
+                            -1
+                        })?;
+                    self.class_protos_ctors
+                        .extend(std::iter::repeat_n(ProtoCtorPair::default(), extra));
                 }
 
                 for id in class_ids {
@@ -93,21 +95,26 @@ impl<'c> ScopedContext<'c> {
 
                     if self.class_proto(class_id).is_none() {
                         // init class in ctx
-                        if let Some(f) = self
+                        if let Some(init_fn) = self
                             .rt_ptr()
                             .class_registry
                             .get(class_id as usize)
                             .and_then(|c| c.initialize)
                         {
-                            if let Some(proto) = f(self, class_id)? {
-                                self.class_protos[class_id as usize] = proto.into();
-                            } else if !self.class_protos[class_id as usize].is_object() {
+                            if let Some(proto) = init_fn(self, class_id)? {
+                                self.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+                                    proto: Some(proto),
+                                    ctor: None,
+                                };
+                            } else if self.class_protos_ctors[class_id as usize].proto.is_none() {
                                 self.throw_internal_error(&format!(
                                     "class ({class_id}) initialization must setup proto object"
                                 ));
                             }
                         } else {
-                            self.throw_internal_error("can't initialize native class");
+                            self.throw_internal_error(&format!(
+                                "can't initialize class ({class_id})"
+                            ));
                             return Err(-1);
                         }
                     }

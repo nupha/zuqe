@@ -10,7 +10,7 @@ use crate::{
     atom::Atom,
     builtins::error::js_aggregate_error_constructor,
     class::ClassID,
-    context::{ContextImpl, ScopedContext},
+    context::{ContextImpl, ProtoCtorPair, ScopedContext},
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
     object::{JS_PROP_C_W_E, Object, ObjectImpl, ObjectPayload},
@@ -314,20 +314,21 @@ impl Promise {
         let mut proto = ctx.create_base_object()?;
         proto.install_fields(ctx, js_promise_proto_funcs)?;
 
-        let mut ctor: JSValue = ctx
-            .create_native_function(
-                Callback::ConstructorOrFunc(Self::class_constructor),
-                "Promise",
-                1,
-                0,
-            )?
-            .into();
+        let mut ctor = ctx.create_constructor_ex(
+            "Promise",
+            Callback::ConstructorOrFunc(Self::class_constructor),
+            1,
+            proto,
+            0,
+            true,
+        )?;
         ctor.install_fields(ctx, js_promise_funcs)?;
-        ctx.bind_ctor_proto(ctor, proto.into())?;
 
-        ctx.global_obj()
-            .define_property_value_str(ctx, "Promise", ctor, JS_PROP_C_W_E)?;
-        ctx.promise_ctor = ctor;
+        ctx.class_protos_ctors[JS_CLASS_PROMISE as usize] = ProtoCtorPair {
+            proto: Some(proto),
+            ctor: Some(ctor),
+        };
+        ctx.promise_ctor = ctor.into();
 
         Ok(Some(proto))
     }

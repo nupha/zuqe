@@ -6,10 +6,10 @@ use std::collections::HashMap;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_WEAKMAP,
-    JS_CLASS_WEAKSET,
+    Callback, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR,
+    JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
     class::ClassID,
-    context::{ContextImpl, ScopedContext},
+    context::{ContextImpl, ProtoCtorPair, ScopedContext},
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     utils::hash_usize,
@@ -346,51 +346,107 @@ object_cast!(
 
 impl MapSet {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+
         match class_id {
             JS_CLASS_MAP => {
-                let mut obj = ctx.create_base_object()?;
-                obj.install_fields(ctx, js_map_proto_funcs)?;
+                let mut proto = ctx.create_base_object()?;
+                proto.install_fields(ctx, js_map_proto_funcs)?;
 
-                let mut ctor = ctx
-                    .create_global_constructor("Map", js_map_constructor, 0, obj.into(), 0)
-                    .unwrap();
+                let mut ctor = ctx.create_constructor_ex(
+                    "Map",
+                    Callback::Constructor(js_map_constructor),
+                    0,
+                    proto,
+                    0,
+                    true,
+                )?;
                 ctor.install_fields(ctx, js_map_funcs).unwrap();
 
-                Ok(Some(obj))
+                ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+                    proto: Some(proto),
+                    ctor: Some(ctor),
+                };
+                Ok(Some(proto))
             }
             JS_CLASS_SET => {
-                let mut obj = ctx.create_base_object()?;
-                obj.install_fields(ctx, js_set_proto_funcs)?;
+                let mut proto = ctx.create_base_object()?;
+                proto.install_fields(ctx, js_set_proto_funcs)?;
 
-                let mut ctor = ctx
-                    .create_global_constructor("Set", js_map_constructor, 0, obj.into(), 1)
-                    .unwrap();
+                let mut ctor = ctx.create_constructor_ex(
+                    "Set",
+                    Callback::Constructor(js_map_constructor),
+                    0,
+                    proto,
+                    1,
+                    true,
+                )?;
                 ctor.install_fields(ctx, js_set_funcs)?;
 
-                Ok(Some(obj))
+                ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+                    proto: Some(proto),
+                    ctor: Some(ctor),
+                };
+                Ok(Some(proto))
             }
             JS_CLASS_WEAKMAP => {
-                let mut obj = ctx.create_base_object()?;
-                obj.install_fields(ctx, js_weakmap_proto_funcs)?;
-                ctx.create_global_constructor("WeakMap", js_map_constructor, 0, obj.into(), 2)?;
-                Ok(Some(obj))
+                let mut proto = ctx.create_base_object()?;
+                proto.install_fields(ctx, js_weakmap_proto_funcs)?;
+
+                let ctor = ctx.create_constructor_ex(
+                    "WeakMap",
+                    Callback::Constructor(js_map_constructor),
+                    0,
+                    proto,
+                    2,
+                    true,
+                )?;
+
+                ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+                    proto: Some(proto),
+                    ctor: Some(ctor),
+                };
+                Ok(Some(proto))
             }
             JS_CLASS_WEAKSET => {
-                let mut obj = ctx.create_base_object()?;
-                obj.install_fields(ctx, js_weakset_proto_funcs)?;
-                ctx.create_global_constructor("WeakSet", js_map_constructor, 0, obj.into(), 3)?;
-                Ok(Some(obj))
+                let mut proto = ctx.create_base_object()?;
+                proto.install_fields(ctx, js_weakset_proto_funcs)?;
+
+                let ctor = ctx.create_constructor_ex(
+                    "WeakSet",
+                    Callback::Constructor(js_map_constructor),
+                    0,
+                    proto,
+                    3,
+                    true,
+                )?;
+
+                ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+                    proto: Some(proto),
+                    ctor: Some(ctor),
+                };
+                Ok(Some(proto))
             }
             JS_CLASS_MAP_ITERATOR => {
                 let iter_proto = ctx.iterator_proto()?;
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
                 proto.install_fields(ctx, js_map_iterator_proto_funcs)?;
+
+                ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+                    proto: Some(proto),
+                    ctor: None,
+                };
                 Ok(Some(proto))
             }
             JS_CLASS_SET_ITERATOR => {
                 let iter_proto = ctx.iterator_proto()?;
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
                 proto.install_fields(ctx, js_set_iterator_proto_funcs)?;
+
+                ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+                    proto: Some(proto),
+                    ctor: None,
+                };
                 Ok(Some(proto))
             }
             _ => {
