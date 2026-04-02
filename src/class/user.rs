@@ -99,8 +99,7 @@ impl<'c> ScopedContext<'c> {
                             .get(class_id as usize)
                             .and_then(|c| c.initialize)
                         {
-                            let r = f(self, class_id)?;
-                            if let Some(proto) = r {
+                            if let Some(proto) = f(self, class_id)? {
                                 self.class_protos[class_id as usize] = proto.into();
                             } else if !self.class_protos[class_id as usize].is_object() {
                                 self.throw_internal_error(&format!(

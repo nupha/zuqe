@@ -346,8 +346,6 @@ object_cast!(
 
 impl MapSet {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        let iter_proto = ctx.iterator_proto()?;
-
         match class_id {
             JS_CLASS_MAP => {
                 let mut obj = ctx.create_base_object()?;
@@ -384,11 +382,13 @@ impl MapSet {
                 Ok(Some(obj))
             }
             JS_CLASS_MAP_ITERATOR => {
+                let iter_proto = ctx.iterator_proto()?;
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
                 proto.install_fields(ctx, js_map_iterator_proto_funcs)?;
                 Ok(Some(proto))
             }
             JS_CLASS_SET_ITERATOR => {
+                let iter_proto = ctx.iterator_proto()?;
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
                 proto.install_fields(ctx, js_set_iterator_proto_funcs)?;
                 Ok(Some(proto))
