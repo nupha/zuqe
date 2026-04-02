@@ -8,10 +8,11 @@ mod global;
 mod mod_os;
 mod mod_std;
 
-use std::{ffi::CStr, io::Write, process::ExitCode};
+use std::{io::Write, process::ExitCode};
 
 use clap::Parser;
 use colorized::{Colors::*, colorize_println};
+use libloading::Library;
 use zuqe::{Context, EvalFlags, EvalType, ModuleDef, Runtime, ScopedContext};
 
 use crate::{
@@ -254,44 +255,36 @@ fn js_module_loader(
     _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     if file_name.ends_with(".dylib") || file_name.ends_with(".so") || file_name.ends_with(".dll") {
-        // dynamic library module
-        let c_filename = match std::ffi::CString::new(file_name) {
-            Ok(s) => s,
-            Err(_) => {
-                ctx.throw_reference_error(&format!(
-                    "could not load module filename '{file_name}' as shared library"
-                ));
-                return Err(-1);
-            }
-        };
-
-        let handle =
-            unsafe { libc::dlopen(c_filename.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL) };
-        if handle.is_null() {
-            ctx.throw_reference_error(&format!("could not load library '{file_name}'"));
-            return Err(-1);
-        }
+        let lib = unsafe { Library::new(file_name) }.map_err(|_| {
+            ctx.throw_reference_error(&format!(
+                "could not load module filename '{file_name}' as shared library"
+            ));
+            -1
+        })?;
 
         unsafe {
-            let sym = libc::dlsym(handle, c"js_init_module".as_ptr());
-            if sym.is_null() {
-                ctx.throw_reference_error(&format!(
-                    "could not load module filename '{file_name}': js_init_module not found"
-                ));
-                libc::dlclose(handle);
-                return Err(-1);
-            }
+            let init_fn = match lib.get::<JsInitModuleFn>(b"js_init_module\0") {
+                Ok(sym) => sym,
+                Err(_) => {
+                    ctx.throw_reference_error(&format!(
+                        "could not load module filename '{file_name}': js_init_module not found"
+                    ));
+                    return Err(-1);
+                }
+            };
 
-            let init_fn = std::mem::transmute::<*mut std::os::raw::c_void, JsInitModuleFn>(sym);
-            let md = init_fn(ctx, file_name);
-            if md.is_err() {
-                log::error!("could not load library '{file_name}': initialization error");
-                // ctx.throw_reference_error(&format!(
-                //     "could not load module filename '{file_name}': initialization error"
-                // ));
-                libc::dlclose(handle);
+            match init_fn(ctx, file_name) {
+                Ok(m) => {
+                    // avoid to close the library
+                    // TODO: save the lib handle somewhere
+                    std::mem::forget(lib);
+                    Ok(m)
+                }
+                Err(e) => {
+                    log::error!("could not load library '{file_name}': initialization error");
+                    Err(e)
+                }
             }
-            md
         }
     } else {
         // js file
