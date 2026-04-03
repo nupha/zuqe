@@ -144,12 +144,6 @@ impl<'c> ScopedContext<'c> {
             )
             .unwrap();
 
-        debug_assert!(
-            self.class_slots[JS_CLASS_BYTECODE_FUNCTION as usize]
-                .ctor
-                .is_some()
-        );
-
         self.global_obj()
             .define_property_value(
                 self,
@@ -158,20 +152,6 @@ impl<'c> ScopedContext<'c> {
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
-
-        // let ctor = self
-        //     .create_native_function(
-        //         Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
-        //         "Function",
-        //         1,
-        //         FunctionKind::Normal as _,
-        //     )
-        //     .unwrap();
-        // self.add_global_constructor("Function", ctor, proto)
-        //     .unwrap();
-        // self.class_slots[JS_CLASS_BYTECODE_FUNCTION as usize].ctor = Some(ctor.into());
-
-        self.function_ctor = ctor.into();
     }
 
     pub(super) fn intrinsic_base_errors(&mut self) {
@@ -226,20 +206,38 @@ impl<'c> ScopedContext<'c> {
 
         self.array_proto_values = array_proto.get_property(self, Atom::CONST_values).unwrap();
 
-        let mut array_ctor = self
-            .create_constructor_internal(
-                "Array",
-                Callback::ConstructorOrFunc(js_array_constructor),
+        // let mut array_ctor = self
+        //     .create_constructor_internal(
+        //         "Array",
+        //         Callback::ConstructorOrFunc(js_array_constructor),
+        //         1,
+        //         array_proto,
+        //         0,
+        //         true,
+        //     )
+        //     .unwrap();
+        // array_ctor.install_fields(self, js_array_funcs).unwrap();
+        // self.class_slots[JS_CLASS_ARRAY as usize].ctor = Some(array_ctor);
+
+        let array_ctor = self
+            .init_class_constructor_or_func(
+                JS_CLASS_ARRAY,
+                js_array_constructor,
                 1,
-                array_proto,
                 0,
-                true,
+                array_proto,
+                js_array_funcs,
             )
             .unwrap();
 
-        array_ctor.install_fields(self, js_array_funcs).unwrap();
-        self.class_slots[JS_CLASS_ARRAY as usize].ctor = Some(array_ctor);
-        self.array_ctor = array_ctor.into();
+        self.global_obj()
+            .define_property_value(
+                self,
+                Atom::CONST_Array,
+                array_ctor.into(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )
+            .unwrap();
 
         // initialize Array.prototype[Symbol.unscopables]
         // XXX: create auto_initializer
@@ -267,8 +265,8 @@ impl<'c> ScopedContext<'c> {
                 obj1.define_property_value_str(self, s, JSValue::Bool(true), JS_PROP_C_W_E)
                     .unwrap();
             }
-            self.class_proto(JS_CLASS_ARRAY)
-                .unwrap()
+
+            array_proto
                 .define_property_value(
                     self,
                     Atom::CONST_Symbol_unscopables,

@@ -52,13 +52,6 @@ pub struct ContextImpl {
     /// Standard error prototypes slot.
     pub(crate) error_protos: [JSValue; STD_ERROR_COUNT],
 
-    #[deprecated]
-    pub(crate) function_ctor: JSValue,
-    #[deprecated]
-    pub(crate) array_ctor: JSValue,
-    #[deprecated]
-    pub(crate) promise_ctor: JSValue,
-
     pub(crate) iterator_proto: Option<Object>,
     pub(crate) async_iterator_proto: Option<Object>,
 
@@ -117,9 +110,6 @@ impl GcTrace for ContextImpl {
             x.trace(tr)
         }
         self.array_proto_values.trace(tr);
-        self.function_ctor.trace(tr);
-        self.array_ctor.trace(tr);
-        self.promise_ctor.trace(tr);
 
         self.throw_type_error.trace(tr);
         self.eval_func.trace(tr);
@@ -163,10 +153,6 @@ impl ContextImpl {
             rt: (&*rt).into(),
 
             array_shape: None,
-
-            function_ctor: JSValue::NULL,
-            array_ctor: JSValue::NULL,
-            promise_ctor: JSValue::NULL,
 
             class_slots: class_proto,
             error_protos: [const { JSValue::UNDEFINED }; STD_ERROR_COUNT],
@@ -274,9 +260,6 @@ impl ContextImpl {
         debug_assert!(self.loaded_modules.is_empty());
 
         self.array_shape.take();
-        self.function_ctor = JSValue::UNDEFINED;
-        self.array_ctor = JSValue::UNDEFINED;
-        self.promise_ctor = JSValue::UNDEFINED;
 
         self.class_slots.clear();
         self.error_protos = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];

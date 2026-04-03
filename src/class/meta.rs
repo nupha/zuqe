@@ -421,10 +421,10 @@ impl<'c> ScopedContext<'c> {
         let obj = if let Some(o) = self.iterator_proto.as_ref().cloned() {
             o
         } else {
-            let mut obj = self.create_base_object()?;
-            obj.install_fields(self, js_iterator_proto_funcs)?;
-            self.iterator_proto.replace(obj);
-            obj
+            let mut o = self.create_base_object()?;
+            o.install_fields(self, js_iterator_proto_funcs)?;
+            self.iterator_proto.replace(o);
+            o
         };
 
         Ok(obj)

@@ -333,7 +333,6 @@ impl Promise {
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
 
-        ctx.promise_ctor = ctor.into();
         Ok(Some(proto))
     }
 
