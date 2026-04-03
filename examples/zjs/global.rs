@@ -45,27 +45,25 @@ pub fn setup_globals(ctx: &mut ScopedContext, script_args: &[String]) -> Result<
     let mut global = ctx.global_obj();
 
     {
-        let printfn = ctx
-            .create_native_function(Callback::Func(js_print), "print", 0, 0)
-            .unwrap();
+        let printfn = ctx.create_native_function(Callback::Func(js_print), "print", 0, 0)?;
+        global.set_property_str(ctx, "print", printfn.into())?;
 
-        let mut console = ctx.create_base_object().unwrap();
+        let mut console = ctx.create_base_object()?;
         console.define_property_value_str(ctx, "log", printfn.into(), JS_PROP_C_W_E)?;
 
-        let debug_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 1)?;
+        let debug_func = ctx.create_native_function(Callback::Func(js_print), "debug", 0, 1)?;
         console.define_property_value_str(ctx, "debug", debug_func.into(), JS_PROP_C_W_E)?;
 
-        let info_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 2)?;
+        let info_func = ctx.create_native_function(Callback::Func(js_print), "info", 0, 2)?;
         console.define_property_value_str(ctx, "info", info_func.into(), JS_PROP_C_W_E)?;
 
-        let warn_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 3)?;
+        let warn_func = ctx.create_native_function(Callback::Func(js_print), "warn", 0, 3)?;
         console.define_property_value_str(ctx, "warn", warn_func.into(), JS_PROP_C_W_E)?;
 
-        let error_func = ctx.create_native_function(Callback::Func(js_print), "inspect", 0, 4)?;
+        let error_func = ctx.create_native_function(Callback::Func(js_print), "error", 0, 4)?;
         console.define_property_value_str(ctx, "error", error_func.into(), JS_PROP_C_W_E)?;
-        global.define_property_value_str(ctx, "console", console.into(), JS_PROP_C_W_E)?;
 
-        global.set_property_str(ctx, "print", printfn.into())?;
+        global.define_property_value_str(ctx, "console", console.into(), JS_PROP_C_W_E)?;
     }
 
     {

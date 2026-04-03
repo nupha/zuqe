@@ -222,7 +222,7 @@ impl JSFile {
         proto.install_fields(ctx, CLASS_FILE_PROTO)?;
         Ok(Some(proto))
     }
-    fn handle_fini(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
+    fn handle_dispose(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
         if !opaque.is_null() {
             let p = unsafe { Box::from_raw(opaque.cast::<FileDesc>()) };
             drop(p);
@@ -239,7 +239,7 @@ impl JSFile {
             .register_class(
                 &ClassDef::new("File")
                     .initialize(Self::handle_init)
-                    .finalize_opaque(Self::handle_fini),
+                    .on_dispose(Self::handle_dispose),
             )
             .expect("register class File failed");
 
