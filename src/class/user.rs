@@ -49,11 +49,11 @@ impl RuntimeImpl {
         debug_assert!(!class_def.class_name.is_empty());
         debug_assert!(class_def.finalize.is_some());
 
-        // class name atom should be root
+        // class name atom
         let class_atom = {
             let a = Atom::from_str(self.into(), class_def.class_name, AtomKind::String)?;
             let s = a.descriptor(self).gc_head_ptr();
-            self.gc_heap_mut().set_root_node(s);
+            self.gc_heap_mut().set_root_node(s); // should be root gc node
             a
         };
 
@@ -102,10 +102,11 @@ impl<'c> ScopedContext<'c> {
                             .and_then(|c| c.initialize)
                         {
                             if let Some(proto) = init_fn(self, class_id)? {
-                                self.class_protos_ctors[class_id as usize] = ProtoCtorPair {
-                                    proto: Some(proto),
-                                    ctor: None,
-                                };
+                                debug_assert_eq!(
+                                    Some(proto),
+                                    self.class_protos_ctors[class_id as usize].proto
+                                );
+                                self.class_protos_ctors[class_id as usize].proto = Some(proto);
                             } else if self.class_protos_ctors[class_id as usize].proto.is_none() {
                                 self.throw_internal_error(&format!(
                                     "class ({class_id}) initialization must setup proto object"

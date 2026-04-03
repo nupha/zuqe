@@ -86,8 +86,8 @@ pub struct ClassDef {
     pub(crate) call: Option<ClassCallFn>,
     /// exotic property method handlers
     pub(crate) exotic: Option<Box<ClassExoticMethods>>,
-    /// free user class instance handler
-    pub(crate) finalize_opaque: Option<FreeObjFn>,
+    /// handler on class instance dispose
+    pub(crate) dispose: Option<FreeObjFn>,
 
     /// initialize class proto, constructor to context
     pub(crate) initialize: Option<ClassInitializeFn>,
@@ -103,10 +103,10 @@ impl ClassDef {
             class_name,
             call: None,
             exotic: None,
-            finalize_opaque: None,
+            dispose: None,
 
             initialize: None,
-            finalize: Some(Self::user_class_finalize),
+            finalize: Some(Self::default_fini_fn),
         }
     }
 
@@ -116,20 +116,26 @@ impl ClassDef {
         self
     }
 
-    /// Handler on class instance finalize to process opaque pointer.
-    /// used for of non-builtin class instance only.
-    pub const fn finalize_opaque(mut self, f: FreeObjFn) -> Self {
-        self.finalize_opaque.replace(f);
+    /// Set class instance dispose handler.
+    ///
+    /// This callback could be use to process opaque pointer when class instance is disposed.
+    pub const fn on_dispose(mut self, f: FreeObjFn) -> Self {
+        self.dispose.replace(f);
         self
     }
 
-    fn user_class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
+    #[deprecated(note = "use ::on_disponse() instead")]
+    pub const fn finalize_opaque(self, f: FreeObjFn) -> Self {
+        self.on_dispose(f)
+    }
+
+    fn default_fini_fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
         if let Some(u) = isa.other() {
-            if let Some(f) = rt.class_registry[u.class_id as usize].free_obj {
+            if let Some(f) = rt.class_registry[u.class_id as usize].dispose {
                 f(rt, u.opaque, id)
             }
         } else {
-            unreachable!();
+            unreachable!("builtin class: finalize handler is required");
         }
     }
 }

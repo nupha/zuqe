@@ -100,7 +100,7 @@ fn JS_ArraySpeciesCreate(ctx: &mut ScopedContext, obj: JSValue, len_val: JSValue
     {
         // legacy web compatibility
         let realm = o.realm(ctx.into())?;
-        if realm != ContextPtr::from(ctx.gc_ref()) && ctor.is_same(realm.array_ctor) {
+        if realm != ContextPtr::from(ctx.gc_ref()) && ctor.is_same(realm.array_ctor().into()) {
             ctor = JSValue::UNDEFINED;
         }
     }

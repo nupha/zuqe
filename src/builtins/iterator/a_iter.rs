@@ -7,9 +7,7 @@ use crate::{
     Callback, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
     atom::Atom,
     builtins::{
-        generator::{
-            GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_async_iterator_proto_funcs,
-        },
+        generator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
@@ -55,22 +53,6 @@ impl AsyncFromSyncIterator {
             .replace(proto);
 
         Ok(Some(proto))
-    }
-}
-
-impl<'c> ScopedContext<'c> {
-    /// Initialize async iterator proto object which is used as proto of:
-    /// AsyncFromSyncIterator, AsyncGenerator.
-    /// if this proto is not initialized, will create it inside.
-    pub(crate) fn async_iterator_proto(&mut self) -> Result<Object, i32> {
-        if let Some(o) = self.async_iterator_proto {
-            Ok(o)
-        } else {
-            let mut o = self.create_base_object()?;
-            o.install_fields(self, js_async_iterator_proto_funcs)?;
-            self.async_iterator_proto.replace(o);
-            Ok(o)
-        }
     }
 }
 
@@ -188,7 +170,10 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
             let mut value_wrapper_promise: Promise = {
                 if let Ok(r) = js_promise_resolve(
                     ctx,
-                    CallContext::new_simple(ctx.promise_ctor, std::slice::from_ref(&value)),
+                    CallContext::new_simple(
+                        ctx.promise_ctor().into(),
+                        std::slice::from_ref(&value),
+                    ),
                 ) {
                     r.try_into()?
                 } else {

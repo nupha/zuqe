@@ -353,7 +353,7 @@ impl MapSet {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_map_proto_funcs)?;
 
-                let mut ctor = ctx.create_constructor_ex(
+                let mut ctor = ctx.create_constructor_internal(
                     "Map",
                     Callback::Constructor(js_map_constructor),
                     0,
@@ -373,7 +373,7 @@ impl MapSet {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_set_proto_funcs)?;
 
-                let mut ctor = ctx.create_constructor_ex(
+                let mut ctor = ctx.create_constructor_internal(
                     "Set",
                     Callback::Constructor(js_map_constructor),
                     0,
@@ -393,7 +393,7 @@ impl MapSet {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_weakmap_proto_funcs)?;
 
-                let ctor = ctx.create_constructor_ex(
+                let ctor = ctx.create_constructor_internal(
                     "WeakMap",
                     Callback::Constructor(js_map_constructor),
                     0,
@@ -412,7 +412,7 @@ impl MapSet {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_weakset_proto_funcs)?;
 
-                let ctor = ctx.create_constructor_ex(
+                let ctor = ctx.create_constructor_internal(
                     "WeakSet",
                     Callback::Constructor(js_map_constructor),
                     0,

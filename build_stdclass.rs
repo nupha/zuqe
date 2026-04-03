@@ -518,16 +518,16 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             None,
         ),
         ClassInfo::class_def(
-            "AsyncGeneratorFunction",
-            "ASYNC_GENERATOR_FUNCTION",
-            PayloadKey::BcFunction,
+            "AsyncGenerator",
+            "ASYNC_GENERATOR",
+            PayloadKey::AsyncGenerator,
             Some("crate::builtins::generator::AsyncGeneratorFunction::class_init"),
             None,
         ),
         ClassInfo::class_def(
-            "AsyncGenerator",
-            "ASYNC_GENERATOR",
-            PayloadKey::AsyncGenerator,
+            "AsyncGeneratorFunction",
+            "ASYNC_GENERATOR_FUNCTION", // depends on ASYNC_GENERATOR
+            PayloadKey::BcFunction,
             Some("crate::builtins::generator::AsyncGeneratorFunction::class_init"),
             None,
         ),

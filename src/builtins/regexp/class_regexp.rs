@@ -417,7 +417,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
 
     // make matcher: regexp object
     let flags = this.get_property(ctx, Atom::CONST_flags)?.to_string(ctx)?;
-    let ctor = JS_SpeciesConstructor(ctx, this, ctx.regexp_ctor)?;
+    let ctor = JS_SpeciesConstructor(ctx, this, ctx.regexp_ctor().into())?;
     let regexp = ctor.call_ctor(ctx, &[this, JSValue::from(flags.gc_ref())])?;
 
     let last_index = this
@@ -715,8 +715,8 @@ pub fn js_regexp_Symbol_split(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
             flags = JS_ConcatString3(ctx, c"", flags.into(), c"y")?;
         }
 
-        let regexp_ctor = ctx.regexp_ctor;
-        let ctor = JS_SpeciesConstructor(ctx, this, regexp_ctor)?;
+        let regexp_ctor = ctx.regexp_ctor();
+        let ctor = JS_SpeciesConstructor(ctx, this, regexp_ctor.into())?;
 
         let re = ctor.call_ctor(ctx, &[this, flags.into()])?;
         (Object::try_from(re).unwrap(), is_unicode)

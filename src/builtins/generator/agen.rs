@@ -247,7 +247,7 @@ impl AGenPayload {
 
     fn completed_return(&self, ctx: &mut ScopedContext, value: JSValue) -> Result<(), i32> {
         let cc = CallContext::new(
-            ctx.promise_ctor,
+            ctx.promise_ctor().into(),
             std::slice::from_ref(&value),
             0, // is_reject=0
             None,
@@ -262,7 +262,7 @@ impl AGenPayload {
                 js_promise_resolve(
                     ctx,
                     CallContext::new(
-                        ctx.promise_ctor,
+                        ctx.promise_ctor().into(),
                         std::slice::from_ref(&exc),
                         1, // is_reject=1
                         None,
@@ -292,7 +292,7 @@ impl AGenPayload {
     fn _await(&self, ctx: &mut ScopedContext, value: JSValue) -> Result<(), i32> {
         let mut promise: Promise = js_promise_resolve(
             ctx,
-            CallContext::new_simple(ctx.promise_ctor, std::slice::from_ref(&value)),
+            CallContext::new_simple(ctx.promise_ctor().into(), std::slice::from_ref(&value)),
         )?
         .try_into()?;
 
@@ -391,64 +391,110 @@ impl AsyncGeneratorFunction {
     }
 
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert!(
-            matches!(
-                class_id,
-                JS_CLASS_ASYNC_GENERATOR | JS_CLASS_ASYNC_GENERATOR_FUNCTION
-            ),
-            "{class_id}"
-        );
         debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
 
-        if ctx.class_protos_ctors[class_id as usize].proto.is_some() {
-            // already initialized
-            return Ok(None);
+        match class_id {
+            JS_CLASS_ASYNC_GENERATOR => {
+                // AsyncGenerator
+                let aiter_proto = ctx.async_iterator_proto()?;
+                let mut proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
+                proto.install_fields(ctx, js_async_generator_proto_funcs)?;
+                ctx.class_protos_ctors[JS_CLASS_ASYNC_GENERATOR as usize] = ProtoCtorPair {
+                    proto: Some(proto),
+                    ctor: None,
+                };
+                Ok(Some(proto))
+            }
+            JS_CLASS_ASYNC_GENERATOR_FUNCTION => {
+                let agen_proto = if let Some(o) = ctx.class_proto(JS_CLASS_ASYNC_GENERATOR) {
+                    o
+                } else {
+                    // should init AsyncGenerator first
+                    const {
+                        debug_assert!(JS_CLASS_ASYNC_GENERATOR_FUNCTION > JS_CLASS_ASYNC_GENERATOR);
+                    }
+                    let o = Self::class_init(ctx, JS_CLASS_ASYNC_GENERATOR)?;
+                    debug_assert!(o.is_some());
+                    o.unwrap()
+                };
+
+                let func_proto = ctx.function_proto();
+
+                let mut agen_func_proto = ctx.create_base_object_with_proto(Some(func_proto))?;
+                agen_func_proto.install_fields(ctx, js_async_generator_function_proto_funcs)?;
+
+                ctx.bind_ctor_proto_ex(
+                    agen_func_proto,
+                    agen_proto,
+                    JS_PROP_CONFIGURABLE,
+                    JS_PROP_CONFIGURABLE,
+                )?;
+
+                let ctor = NativeFunction::create(
+                    ctx,
+                    Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
+                    "AsyncGeneratorFunction",
+                    1,
+                    FunctionKind::AsyncGenerator as i16,
+                    Some(func_proto),
+                    None,
+                )?;
+                ctx.bind_ctor_proto_ex(ctor.into(), agen_func_proto, 0, JS_PROP_CONFIGURABLE)?;
+
+                ctx.class_protos_ctors[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] =
+                    ProtoCtorPair {
+                        proto: Some(agen_func_proto),
+                        ctor: Some(ctor.into()),
+                    };
+                Ok(Some(agen_func_proto))
+            }
+            _ => {
+                unreachable!();
+            }
         }
 
-        // AsyncGenerator
-        let aiter_proto = ctx.async_iterator_proto()?;
-        let agen_proto = {
-            let mut o = ctx.create_base_object_with_proto(Some(aiter_proto))?;
-            o.install_fields(ctx, js_async_generator_proto_funcs)?;
-            o
-        };
+        // // AsyncGenerator
+        // let aiter_proto = ctx.async_iterator_proto()?;
+        // let agen_proto = {
+        //     let mut o = ctx.create_base_object_with_proto(Some(aiter_proto))?;
+        //     o.install_fields(ctx, js_async_generator_proto_funcs)?;
+        //     o
+        // };
 
-        let func_proto = ctx.function_proto();
+        // let func_proto = ctx.function_proto();
 
-        // AsyncGeneratorFunction
-        let mut agen_func_proto = ctx.create_base_object_with_proto(Some(func_proto))?;
-        agen_func_proto.install_fields(ctx, js_async_generator_function_proto_funcs)?;
+        // // AsyncGeneratorFunction
+        // let mut agen_func_proto = ctx.create_base_object_with_proto(Some(func_proto))?;
+        // agen_func_proto.install_fields(ctx, js_async_generator_function_proto_funcs)?;
 
-        ctx.bind_ctor_proto_ex(
-            agen_func_proto,
-            agen_proto,
-            JS_PROP_CONFIGURABLE,
-            JS_PROP_CONFIGURABLE,
-        )?;
+        // ctx.bind_ctor_proto_ex(
+        //     agen_func_proto,
+        //     agen_proto,
+        //     JS_PROP_CONFIGURABLE,
+        //     JS_PROP_CONFIGURABLE,
+        // )?;
 
-        let ctor = NativeFunction::create(
-            ctx,
-            Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
-            "AsyncGeneratorFunction",
-            1,
-            FunctionKind::AsyncGenerator as i16,
-            Some(func_proto),
-            None,
-        )
-        .unwrap();
+        // let ctor = NativeFunction::create(
+        //     ctx,
+        //     Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
+        //     "AsyncGeneratorFunction",
+        //     1,
+        //     FunctionKind::AsyncGenerator as i16,
+        //     Some(func_proto),
+        //     None,
+        // )?;
+        // ctx.bind_ctor_proto_ex(ctor.into(), agen_func_proto, 0, JS_PROP_CONFIGURABLE)?;
 
-        ctx.bind_ctor_proto_ex(ctor.into(), agen_func_proto, 0, JS_PROP_CONFIGURABLE)?;
+        // ctx.class_protos_ctors[JS_CLASS_ASYNC_GENERATOR as usize] = ProtoCtorPair {
+        //     proto: Some(agen_proto),
+        //     ctor: None,
+        // };
+        // ctx.class_protos_ctors[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = ProtoCtorPair {
+        //     proto: Some(agen_func_proto),
+        //     ctor: Some(ctor.into()),
+        // };
 
-        ctx.class_protos_ctors[JS_CLASS_ASYNC_GENERATOR as usize] = ProtoCtorPair {
-            proto: Some(agen_proto),
-            ctor: None,
-        };
-        ctx.class_protos_ctors[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = ProtoCtorPair {
-            proto: Some(agen_func_proto),
-            ctor: Some(ctor.into()),
-        };
-
-        Ok(None)
+        // Ok(None)
     }
 }
 

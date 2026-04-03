@@ -722,7 +722,7 @@ impl Datetime {
         let mut proto = ctx.create_base_object()?;
         proto.install_fields(ctx, js_date_proto_funcs).unwrap();
 
-        let mut ctor = ctx.create_constructor_ex(
+        let mut ctor = ctx.create_constructor_internal(
             "Date",
             Callback::ConstructorOrFunc(js_date_constructor),
             7,

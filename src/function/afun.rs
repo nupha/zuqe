@@ -4,7 +4,7 @@
 use gc_lite::GcRef;
 
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
     context::{ProtoCtorPair, ScopedContext},
@@ -40,7 +40,7 @@ impl AsyncFunction {
             "AsyncFunction",
             1,
             FunctionKind::Async as i16,
-            ctx.function_ctor.as_object().copied(),
+            ctx.class_ctor(JS_CLASS_BYTECODE_FUNCTION), //  ctx.function_ctor.as_object().copied(),
             None,
         )?;
         ctx.bind_ctor_proto_ex(ctor.into(), proto, 0, JS_PROP_CONFIGURABLE)?;
@@ -173,7 +173,7 @@ impl AsyncState {
             // Handle await expression
             let mut promise = if let Ok(v) = js_promise_resolve(
                 ctx,
-                CallContext::new_simple(ctx.promise_ctor, std::slice::from_ref(&value)),
+                CallContext::new_simple(ctx.promise_ctor().into(), std::slice::from_ref(&value)),
             ) {
                 Promise::try_from(v).unwrap()
             } else {

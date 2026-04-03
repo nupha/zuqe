@@ -310,11 +310,14 @@ impl Promise {
         Promise::from_executor(ctx, executor, this).map(|p| p.into())
     }
 
-    pub fn class_init(ctx: &mut ScopedContext, _: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+        debug_assert_eq!(class_id, JS_CLASS_PROMISE);
+        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+
         let mut proto = ctx.create_base_object()?;
         proto.install_fields(ctx, js_promise_proto_funcs)?;
 
-        let mut ctor = ctx.create_constructor_ex(
+        let mut ctor = ctx.create_constructor_internal(
             "Promise",
             Callback::ConstructorOrFunc(Self::class_constructor),
             1,
@@ -324,7 +327,7 @@ impl Promise {
         )?;
         ctor.install_fields(ctx, js_promise_funcs)?;
 
-        ctx.class_protos_ctors[JS_CLASS_PROMISE as usize] = ProtoCtorPair {
+        ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
             proto: Some(proto),
             ctor: Some(ctor),
         };

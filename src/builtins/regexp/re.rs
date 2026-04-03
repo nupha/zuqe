@@ -11,7 +11,7 @@ use crate::{
     Callback, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     array::Array,
     atom::Atom,
-    class::ClassID,
+    class::{self, ClassID},
     context::{ProtoCtorPair, ScopedContext},
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
@@ -323,8 +323,9 @@ impl RegExp {
             JS_CLASS_REGEXP => {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_regexp_proto_funcs).unwrap();
+                ctx.class_protos_ctors[class_id as usize].proto = Some(proto);
 
-                let mut ctor = ctx.create_constructor_ex(
+                let mut ctor = ctx.create_constructor_internal(
                     "RegExp",
                     Callback::Constructor(js_regexp_constructor),
                     2,
@@ -334,10 +335,7 @@ impl RegExp {
                 )?;
                 ctor.install_fields(ctx, js_regexp_funcs).unwrap();
 
-                ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
-                    proto: Some(proto),
-                    ctor: Some(ctor),
-                };
+                ctx.class_protos_ctors[class_id as usize].ctor = Some(ctor);
                 ctx.regexp_ctor = ctor.into();
 
                 Ok(Some(proto))

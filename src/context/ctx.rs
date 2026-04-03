@@ -54,13 +54,18 @@ pub struct ContextImpl {
     /// Standard error prototypes slot.
     pub(crate) error_protos: [JSValue; STD_ERROR_COUNT],
 
+    #[deprecated]
     pub(crate) function_ctor: JSValue,
+    #[deprecated]
     pub(crate) array_ctor: JSValue,
+    #[deprecated]
     pub(crate) promise_ctor: JSValue,
+    #[cfg(feature = "builtin_regexp")]
+    #[deprecated]
+    pub(crate) regexp_ctor: JSValue,
+
     pub(crate) iterator_proto: Option<Object>,
     pub(crate) async_iterator_proto: Option<Object>,
-    #[cfg(feature = "builtin_regexp")]
-    pub(crate) regexp_ctor: JSValue,
 
     pub(crate) throw_type_error: JSValue,
     pub(crate) array_proto_values: JSValue,
@@ -344,17 +349,19 @@ impl<'c> ScopedContext<'c> {
 
         // Error
         {
-            let mut error = self.create_base_object()?;
-            error.install_fields(self, js_error_proto_funcs).unwrap();
+            let mut error_proto = self.create_base_object()?;
+            error_proto
+                .install_fields(self, js_error_proto_funcs)
+                .unwrap();
             self.class_protos_ctors[JS_CLASS_ERROR as usize] = ProtoCtorPair {
-                proto: Some(error),
+                proto: Some(error_proto),
                 ctor: None,
             };
 
             // standard error objects
             let msg = Atom::CONST_empty_string.force_string(self).unwrap();
             for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
-                let mut err = self.create_base_object_with_proto(Some(error))?;
+                let mut err = self.create_base_object_with_proto(Some(error_proto))?;
 
                 let name = self.create_atom_string(name).unwrap();
                 err.define_property_value(

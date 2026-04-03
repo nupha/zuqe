@@ -40,12 +40,28 @@ impl<'c> ScopedContext<'c> {
         obj.install_fields(self, js_object_proto_funcs).unwrap();
 
         let mut ctor = self
-            .create_global_constructor_or_func("Object", js_object_constructor, 1, obj.into(), 0)
+            .create_constructor_internal(
+                "Object",
+                Callback::ConstructorOrFunc(js_object_constructor),
+                1,
+                obj,
+                0,
+                true,
+            )
             .unwrap();
+
         ctor.install_fields(self, js_object_funcs).unwrap();
+
+        self.class_protos_ctors[JS_CLASS_OBJECT as usize].ctor = Some(ctor);
     }
 
     pub(super) fn intrinsic_base_function(&mut self) {
+        debug_assert!(
+            self.class_protos_ctors[JS_CLASS_BYTECODE_FUNCTION as usize]
+                .proto
+                .is_some()
+        );
+
         // FOR LEGACY: make throw type error function
         let mut throw_type_error = self
             .create_native_function(
@@ -125,7 +141,6 @@ impl<'c> ScopedContext<'c> {
                 FunctionKind::Normal as _,
             )
             .unwrap();
-
         self.add_global_constructor("Function", ctor.into(), proto)
             .unwrap();
 
@@ -134,19 +149,24 @@ impl<'c> ScopedContext<'c> {
     }
 
     pub(super) fn intrinsic_base_errors(&mut self) {
-        // Error() constructor
+        debug_assert!(
+            self.class_protos_ctors[JS_CLASS_ERROR as usize]
+                .proto
+                .is_some()
+        );
+
+        let proto = self.class_proto(JS_CLASS_ERROR).unwrap();
         let ctor = self
-            .create_native_function(
-                Callback::ConstructorOrFunc(js_error_constructor),
+            .create_constructor_internal(
                 "Error",
+                Callback::ConstructorOrFunc(js_error_constructor),
                 1,
+                proto,
                 -1,
+                true,
             )
             .unwrap();
-
-        let err_proto = self.class_proto(JS_CLASS_ERROR).unwrap();
-        self.add_global_constructor("Error", ctor.into(), err_proto.into())
-            .unwrap();
+        self.class_protos_ctors[JS_CLASS_ERROR as usize].ctor = Some(ctor);
 
         // standard error constructors
         for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
@@ -160,16 +180,16 @@ impl<'c> ScopedContext<'c> {
                     1
                 },
                 i as _, // magic
-                Some(ctor.into()),
+                Some(ctor),
                 None,
             )
             .unwrap();
 
-            let err_proto = self.error_protos[i]; // <-- this was initialized in core
+            let et_proto = self.error_protos[i]; // <-- this was initialized in core
             self.add_global_constructor(
                 name,
                 func_obj.into(),
-                err_proto.as_object().copied().unwrap(),
+                et_proto.as_object().copied().unwrap(),
             )
             .unwrap();
         }
@@ -185,7 +205,7 @@ impl<'c> ScopedContext<'c> {
         self.array_proto_values = array_proto.get_property(self, Atom::CONST_values).unwrap();
 
         let mut array_ctor = self
-            .create_constructor_ex(
+            .create_constructor_internal(
                 "Array",
                 Callback::ConstructorOrFunc(js_array_constructor),
                 1,
@@ -261,7 +281,7 @@ impl<'c> ScopedContext<'c> {
         proto.install_fields(self, js_number_proto_funcs).unwrap();
 
         let mut ctor = self
-            .create_constructor_ex(
+            .create_constructor_internal(
                 "Number",
                 Callback::ConstructorOrFunc(js_number_constructor),
                 1,
@@ -290,7 +310,7 @@ impl<'c> ScopedContext<'c> {
         proto.install_fields(self, js_boolean_proto_funcs).unwrap();
 
         let ctor = self
-            .create_constructor_ex(
+            .create_constructor_internal(
                 "Boolean",
                 Callback::ConstructorOrFunc(js_boolean_constructor),
                 1,
@@ -321,7 +341,7 @@ impl<'c> ScopedContext<'c> {
         };
 
         let mut string_ctor = self
-            .create_constructor_ex(
+            .create_constructor_internal(
                 "String",
                 Callback::ConstructorOrFunc(js_string_constructor),
                 1,
@@ -359,7 +379,7 @@ impl<'c> ScopedContext<'c> {
             .unwrap();
 
         let mut ctor = self
-            .create_constructor_ex(
+            .create_constructor_internal(
                 "Symbol",
                 Callback::ConstructorOrFunc(crate::builtins::symbol::js_symbol_constructor),
                 0,

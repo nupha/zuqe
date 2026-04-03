@@ -101,7 +101,7 @@ impl DataView {
         let mut proto = ctx.create_base_object()?;
         proto.install_fields(ctx, js_dataview_proto_funcs)?;
 
-        let ctor = ctx.create_constructor_ex(
+        let ctor = ctx.create_constructor_internal(
             "DataView",
             Callback::Constructor(js_dataview_constructor),
             1,
