@@ -206,19 +206,6 @@ impl<'c> ScopedContext<'c> {
 
         self.array_proto_values = array_proto.get_property(self, Atom::CONST_values).unwrap();
 
-        // let mut array_ctor = self
-        //     .create_constructor_internal(
-        //         "Array",
-        //         Callback::ConstructorOrFunc(js_array_constructor),
-        //         1,
-        //         array_proto,
-        //         0,
-        //         true,
-        //     )
-        //     .unwrap();
-        // array_ctor.install_fields(self, js_array_funcs).unwrap();
-        // self.class_slots[JS_CLASS_ARRAY as usize].ctor = Some(array_ctor);
-
         let array_ctor = self
             .init_class_constructor_or_func(
                 JS_CLASS_ARRAY,

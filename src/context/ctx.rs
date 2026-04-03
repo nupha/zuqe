@@ -44,9 +44,6 @@ pub(crate) struct ProtoCtorPair {
 pub struct ContextImpl {
     rt: RuntimePtr,
 
-    /// Initial shape for Array objects
-    pub(crate) array_shape: Option<Shape>,
-
     /// Class prototypes+constructors slot.
     pub(crate) class_slots: Vec<ProtoCtorPair>,
     /// Standard error prototypes slot.
@@ -54,6 +51,9 @@ pub struct ContextImpl {
 
     pub(crate) iterator_proto: Option<Object>,
     pub(crate) async_iterator_proto: Option<Object>,
+
+    /// Initial shape for Array objects
+    pub(crate) array_shape: Option<Shape>,
 
     pub(crate) throw_type_error: JSValue,
     pub(crate) array_proto_values: JSValue,
@@ -63,10 +63,10 @@ pub struct ContextImpl {
 
     /// 传统的全局对象（类似ES3的全局环境），存储普通的全局变量（如var声明的变量）
     /// 默认WRITABLE，权限更宽松
-    pub(crate) global_obj: Option<Object>,
+    global_obj: Option<Object>,
     /// let/const或特殊标记(DEFINE_GLOBAL_LEX_VAR)定义的变量
     /// 强调CONFIGURABLE和约束写权限, 禁止复杂属性行为（如代理式操作）
-    pub(crate) global_var_obj: Option<Object>,
+    global_var_obj: Option<Object>,
 
     /// Random number generator state
     pub(crate) random_state: u64,
@@ -259,18 +259,18 @@ impl ContextImpl {
         #[cfg(debug_assertions)]
         debug_assert!(self.loaded_modules.is_empty());
 
-        self.array_shape.take();
-
         self.class_slots.clear();
-        self.error_protos = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
 
-        self.iterator_proto.take();
-        self.async_iterator_proto.take();
+        self.error_protos = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
         self.array_proto_values = JSValue::UNDEFINED;
         self.throw_type_error = JSValue::UNDEFINED;
+        self.eval_func = JSValue::UNDEFINED;
+
+        self.array_shape.take();
+        self.iterator_proto.take();
+        self.async_iterator_proto.take();
         self.global_obj.take();
         self.global_var_obj.take();
-        self.eval_func = JSValue::UNDEFINED;
     }
 }
 
