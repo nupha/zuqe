@@ -6,10 +6,10 @@ use std::collections::HashMap;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    Callback, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR,
-    JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
+    Atom, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR,
+    JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
     class::ClassID,
-    context::{ContextImpl, ProtoCtorPair, ScopedContext},
+    context::{ContextImpl, ScopedContext},
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     utils::hash_usize,
@@ -353,78 +353,76 @@ impl MapSet {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_map_proto_funcs)?;
 
-                let mut ctor = ctx.create_constructor_internal(
-                    "Map",
-                    Callback::Constructor(js_map_constructor),
+                let ctor = ctx.init_class_constructor(
+                    class_id,
+                    js_map_constructor,
+                    0,
                     0,
                     proto,
-                    0,
-                    true,
+                    js_map_funcs,
                 )?;
-                ctor.install_fields(ctx, js_map_funcs).unwrap();
 
-                ctx.class_slots[class_id as usize] = ProtoCtorPair {
-                    proto: Some(proto),
-                    ctor: Some(ctor),
-                };
+                ctx.global_obj().define_property_value(
+                    ctx,
+                    Atom::CONST_Map,
+                    ctor.into(),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )?;
+
                 Ok(Some(proto))
             }
             JS_CLASS_SET => {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_set_proto_funcs)?;
 
-                let mut ctor = ctx.create_constructor_internal(
-                    "Set",
-                    Callback::Constructor(js_map_constructor),
+                let ctor = ctx.init_class_constructor(
+                    class_id,
+                    js_map_constructor,
                     0,
-                    proto,
                     1,
-                    true,
+                    proto,
+                    js_set_funcs,
                 )?;
-                ctor.install_fields(ctx, js_set_funcs)?;
 
-                ctx.class_slots[class_id as usize] = ProtoCtorPair {
-                    proto: Some(proto),
-                    ctor: Some(ctor),
-                };
+                ctx.global_obj().define_property_value(
+                    ctx,
+                    Atom::CONST_Set,
+                    ctor.into(),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )?;
+
                 Ok(Some(proto))
             }
             JS_CLASS_WEAKMAP => {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_weakmap_proto_funcs)?;
 
-                let ctor = ctx.create_constructor_internal(
-                    "WeakMap",
-                    Callback::Constructor(js_map_constructor),
-                    0,
-                    proto,
-                    2,
-                    true,
+                let ctor =
+                    ctx.init_class_constructor(class_id, js_map_constructor, 0, 2, proto, &[])?;
+
+                ctx.global_obj().define_property_value(
+                    ctx,
+                    Atom::CONST_WeakMap,
+                    ctor.into(),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )?;
 
-                ctx.class_slots[class_id as usize] = ProtoCtorPair {
-                    proto: Some(proto),
-                    ctor: Some(ctor),
-                };
                 Ok(Some(proto))
             }
             JS_CLASS_WEAKSET => {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_weakset_proto_funcs)?;
 
-                let ctor = ctx.create_constructor_internal(
-                    "WeakSet",
-                    Callback::Constructor(js_map_constructor),
-                    0,
-                    proto,
-                    3,
-                    true,
+                let ctor =
+                    ctx.init_class_constructor(class_id, js_map_constructor, 0, 3, proto, &[])?;
+
+                ctx.global_obj().define_property_value(
+                    ctx,
+                    Atom::CONST_WeakSet,
+                    ctor.into(),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )?;
 
-                ctx.class_slots[class_id as usize] = ProtoCtorPair {
-                    proto: Some(proto),
-                    ctor: Some(ctor),
-                };
                 Ok(Some(proto))
             }
             JS_CLASS_MAP_ITERATOR => {
@@ -432,10 +430,6 @@ impl MapSet {
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
                 proto.install_fields(ctx, js_map_iterator_proto_funcs)?;
 
-                ctx.class_slots[class_id as usize] = ProtoCtorPair {
-                    proto: Some(proto),
-                    ctor: None,
-                };
                 Ok(Some(proto))
             }
             JS_CLASS_SET_ITERATOR => {
@@ -443,10 +437,6 @@ impl MapSet {
                 let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
                 proto.install_fields(ctx, js_set_iterator_proto_funcs)?;
 
-                ctx.class_slots[class_id as usize] = ProtoCtorPair {
-                    proto: Some(proto),
-                    ctor: None,
-                };
                 Ok(Some(proto))
             }
             _ => {

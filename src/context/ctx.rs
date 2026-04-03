@@ -58,9 +58,6 @@ pub struct ContextImpl {
     pub(crate) array_ctor: JSValue,
     #[deprecated]
     pub(crate) promise_ctor: JSValue,
-    #[cfg(feature = "builtin_regexp")]
-    #[deprecated]
-    pub(crate) regexp_ctor: JSValue,
 
     pub(crate) iterator_proto: Option<Object>,
     pub(crate) async_iterator_proto: Option<Object>,
@@ -122,8 +119,6 @@ impl GcTrace for ContextImpl {
         self.array_proto_values.trace(tr);
         self.function_ctor.trace(tr);
         self.array_ctor.trace(tr);
-        #[cfg(feature = "builtin_regexp")]
-        self.regexp_ctor.trace(tr);
         self.promise_ctor.trace(tr);
 
         self.throw_type_error.trace(tr);
@@ -171,8 +166,6 @@ impl ContextImpl {
 
             function_ctor: JSValue::NULL,
             array_ctor: JSValue::NULL,
-            #[cfg(feature = "builtin_regexp")]
-            regexp_ctor: JSValue::NULL,
             promise_ctor: JSValue::NULL,
 
             class_slots: class_proto,
@@ -283,10 +276,6 @@ impl ContextImpl {
         self.array_shape.take();
         self.function_ctor = JSValue::UNDEFINED;
         self.array_ctor = JSValue::UNDEFINED;
-        #[cfg(feature = "builtin_regexp")]
-        {
-            self.regexp_ctor = JSValue::UNDEFINED;
-        }
         self.promise_ctor = JSValue::UNDEFINED;
 
         self.class_slots.clear();

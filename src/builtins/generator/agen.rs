@@ -12,7 +12,7 @@ use crate::{
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
-    context::{ProtoCtorPair, ScopedContext},
+    context::ScopedContext,
     error::JSResult,
     function::{
         AsyncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind, NativeFunction,
@@ -395,14 +395,9 @@ impl AsyncGeneratorFunction {
 
         match class_id {
             JS_CLASS_ASYNC_GENERATOR => {
-                // AsyncGenerator
                 let aiter_proto = ctx.async_iterator_proto()?;
                 let mut proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
                 proto.install_fields(ctx, js_async_generator_proto_funcs)?;
-                ctx.class_slots[JS_CLASS_ASYNC_GENERATOR as usize] = ProtoCtorPair {
-                    proto: Some(proto),
-                    ctor: None,
-                };
                 Ok(Some(proto))
             }
             JS_CLASS_ASYNC_GENERATOR_FUNCTION => {
@@ -419,7 +414,6 @@ impl AsyncGeneratorFunction {
                 };
 
                 let func_proto = ctx.function_proto();
-
                 let mut agen_func_proto = ctx.create_base_object_with_proto(Some(func_proto))?;
                 agen_func_proto.install_fields(ctx, js_async_generator_function_proto_funcs)?;
 
@@ -433,19 +427,16 @@ impl AsyncGeneratorFunction {
                 let ctor = NativeFunction::create_internal(
                     ctx,
                     Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
-                    Atom::CONST_AsyncGeneratorFunction, //"AsyncGeneratorFunction"
+                    Atom::CONST_AsyncGeneratorFunction,
                     1,
                     FunctionKind::AsyncGenerator as i16,
                     Some(func_proto),
                     None,
                 )?;
                 ctx.bind_ctor_proto_ex(ctor.into(), agen_func_proto, 0, JS_PROP_CONFIGURABLE)?;
+                ctx.class_slots[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].ctor =
+                    Some(ctor.into());
 
-                ctx.class_slots[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] =
-                    ProtoCtorPair {
-                        proto: Some(agen_func_proto),
-                        ctor: Some(ctor.into()),
-                    };
                 Ok(Some(agen_func_proto))
             }
             _ => {

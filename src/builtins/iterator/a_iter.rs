@@ -48,8 +48,6 @@ impl AsyncFromSyncIterator {
         let mut proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
         proto.install_fields(ctx, js_async_from_sync_iterator_proto_funcs)?;
 
-        ctx.class_slots[class_id as usize].proto.replace(proto);
-
         Ok(Some(proto))
     }
 }

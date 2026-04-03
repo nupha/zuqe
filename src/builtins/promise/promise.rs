@@ -6,11 +6,11 @@ use std::{cell::Cell, rc::Rc};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_PROMISE,
+    JS_CLASS_PROMISE, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
     atom::Atom,
     builtins::error::js_aggregate_error_constructor,
     class::ClassID,
-    context::{ContextImpl, ProtoCtorPair, ScopedContext},
+    context::{ContextImpl, ScopedContext},
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
     object::{JS_PROP_C_W_E, Object, ObjectImpl, ObjectPayload},
@@ -317,22 +317,23 @@ impl Promise {
         let mut proto = ctx.create_base_object()?;
         proto.install_fields(ctx, js_promise_proto_funcs)?;
 
-        let mut ctor = ctx.create_constructor_internal(
-            "Promise",
-            Callback::ConstructorOrFunc(Self::class_constructor),
+        let ctor = ctx.init_class_constructor_or_func(
+            class_id,
+            Self::class_constructor,
             1,
-            proto,
             0,
-            true,
+            proto,
+            js_promise_funcs,
         )?;
-        ctor.install_fields(ctx, js_promise_funcs)?;
 
-        ctx.class_slots[class_id as usize] = ProtoCtorPair {
-            proto: Some(proto),
-            ctor: Some(ctor),
-        };
+        ctx.global_obj().define_property_value(
+            ctx,
+            Atom::CONST_Promise,
+            ctor.into(),
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        )?;
+
         ctx.promise_ctor = ctor.into();
-
         Ok(Some(proto))
     }
 

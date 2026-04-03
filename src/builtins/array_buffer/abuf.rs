@@ -10,9 +10,10 @@ use std::{
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    Callback, JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
+    Atom, JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER, JS_PROP_CONFIGURABLE,
+    JS_PROP_WRITABLE,
     class::ClassID,
-    context::{ProtoCtorPair, ScopedContext},
+    context::ScopedContext,
     error::JSResult,
     function::CallContext,
     object::{Object, ObjectImpl, ObjectPayload},
@@ -176,36 +177,44 @@ impl ArrayBuffer {
             JS_CLASS_ARRAY_BUFFER => {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_array_buffer_proto_funcs)?;
-                ctx.class_slots[JS_CLASS_SHARED_ARRAY_BUFFER as usize].proto = Some(proto);
 
-                let mut ctor = ctx.create_constructor_internal(
-                    "ArrayBuffer",
-                    Callback::Constructor(js_array_buffer_constructor),
+                let ctor = ctx.init_class_constructor(
+                    class_id,
+                    js_array_buffer_constructor,
                     1,
-                    proto,
                     0,
-                    true,
+                    proto,
+                    js_array_buffer_funcs,
                 )?;
-                ctor.install_fields(ctx, js_array_buffer_funcs)?;
-                ctx.class_slots[JS_CLASS_ARRAY_BUFFER as usize].ctor = Some(ctor);
+
+                ctx.global_obj().define_property_value(
+                    ctx,
+                    Atom::CONST_ArrayBuffer,
+                    ctor.into(),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )?;
 
                 Ok(Some(proto))
             }
             JS_CLASS_SHARED_ARRAY_BUFFER => {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_shared_array_buffer_proto_funcs)?;
-                ctx.class_slots[JS_CLASS_SHARED_ARRAY_BUFFER as usize].proto = Some(proto);
 
-                let mut ctor = ctx.create_constructor_internal(
-                    "SharedArrayBuffer",
-                    Callback::Constructor(js_shared_array_buffer_constructor),
+                let ctor = ctx.init_class_constructor(
+                    class_id,
+                    js_shared_array_buffer_constructor,
                     1,
-                    proto,
                     0,
-                    true,
+                    proto,
+                    js_shared_array_buffer_funcs,
                 )?;
-                ctor.install_fields(ctx, js_shared_array_buffer_funcs)?;
-                ctx.class_slots[JS_CLASS_SHARED_ARRAY_BUFFER as usize].ctor = Some(ctor);
+
+                ctx.global_obj().define_property_value(
+                    ctx,
+                    Atom::CONST_SharedArrayBuffer,
+                    ctor.into(),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )?;
 
                 Ok(Some(proto))
             }

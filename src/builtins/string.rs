@@ -732,7 +732,7 @@ fn js_string_match(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             args_len += 1;
         }
         let regexp_obj = {
-            let f = ctx.regexp_ctor;
+            let f = ctx.regexp_ctor();
             f.call_ctor(ctx, &args[0..args_len])?
         };
 

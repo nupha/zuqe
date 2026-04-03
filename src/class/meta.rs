@@ -6,8 +6,8 @@ use std::cell::Cell;
 use gc_lite::GcNode;
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_REGEXP,
-    ScopedContext, USER_CLASS_ID_START,
+    FieldDef, JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT, JS_CLASS_PROMISE,
+    JS_CLASS_REGEXP, ScopedContext, USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
     builtins::{generator::js_async_iterator_proto_funcs, iterator::js_iterator_proto_funcs},
     class::{
@@ -220,13 +220,14 @@ impl ContextImpl {
 impl<'c> ScopedContext<'c> {
     /// Create class constructor, register to class ctor slot.
     /// returns the constructor function.
-    pub fn create_class_constructor(
+    fn init_class_ctor_internal(
         &mut self,
         class_id: ClassID,
-        callback: CallbackFn,
+        handler: Callback,
         length: i32,
         magic: i16,
         proto: Object,
+        entries: &[FieldDef],
     ) -> Result<Object, i32> {
         debug_assert!(
             self.class_slots[class_id as usize].ctor.is_none(),
@@ -235,9 +236,9 @@ impl<'c> ScopedContext<'c> {
 
         let class_name = self.rt_ref().class_registry[class_id as usize].class_name;
 
-        let ctor: Object = NativeFunction::create_internal(
+        let mut ctor: Object = NativeFunction::create_internal(
             self,
-            Callback::Constructor(callback),
+            handler,
             class_name,
             length as _,
             magic,
@@ -245,11 +246,56 @@ impl<'c> ScopedContext<'c> {
             None,
         )?
         .into();
+
+        if !entries.is_empty() {
+            ctor.install_fields(self, entries)?;
+        }
         self.bind_ctor_proto(ctor, proto)?;
 
         self.class_slots[class_id as usize].ctor = Some(ctor);
-
         Ok(ctor)
+    }
+
+    /// Create class constructor, register to class slot.
+    /// returns the constructor function.
+    pub fn init_class_constructor(
+        &mut self,
+        class_id: ClassID,
+        callback: CallbackFn,
+        length: i32,
+        magic: i16,
+        proto: Object,
+        entries: &[FieldDef],
+    ) -> Result<Object, i32> {
+        self.init_class_ctor_internal(
+            class_id,
+            Callback::Constructor(callback),
+            length,
+            magic,
+            proto,
+            entries,
+        )
+    }
+
+    /// Create class constructor, register to class slot.
+    /// returns the constructor function.
+    pub fn init_class_constructor_or_func(
+        &mut self,
+        class_id: ClassID,
+        callback: CallbackFn,
+        length: i32,
+        magic: i16,
+        proto: Object,
+        entries: &[FieldDef],
+    ) -> Result<Object, i32> {
+        self.init_class_ctor_internal(
+            class_id,
+            Callback::ConstructorOrFunc(callback),
+            length,
+            magic,
+            proto,
+            entries,
+        )
     }
 
     /// create native constructor, optinally add it to global namespace.

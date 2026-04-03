@@ -9,10 +9,10 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    Callback,
+    JS_CLASS_DATE, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
     atom::{Atom, AtomKind},
     class::ClassID,
-    context::{ProtoCtorPair, ScopedContext},
+    context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{Object, ObjectPayload},
@@ -717,25 +717,28 @@ impl Datetime {
     };
 
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+        debug_assert_eq!(class_id, JS_CLASS_DATE);
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         let mut proto = ctx.create_base_object()?;
         proto.install_fields(ctx, js_date_proto_funcs).unwrap();
 
-        let mut ctor = ctx.create_constructor_internal(
-            "Date",
-            Callback::ConstructorOrFunc(js_date_constructor),
+        let ctor = ctx.init_class_constructor_or_func(
+            class_id,
+            js_date_constructor,
             7,
-            proto,
             0,
-            true,
+            proto,
+            js_date_funcs,
         )?;
-        ctor.install_fields(ctx, js_date_funcs)?;
 
-        ctx.class_slots[class_id as usize] = ProtoCtorPair {
-            proto: Some(proto),
-            ctor: Some(ctor),
-        };
+        ctx.global_obj().define_property_value(
+            ctx,
+            Atom::CONST_Date,
+            ctor.into(),
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        )?;
+
         Ok(Some(proto))
     }
 

@@ -7,7 +7,7 @@ use crate::{
     Atom, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
-    context::{ProtoCtorPair, ScopedContext},
+    context::ScopedContext,
     error::JSResult,
     function::{AsyncState, BCWrapper, BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
@@ -44,11 +44,7 @@ impl AsyncFunction {
             None,
         )?;
         ctx.bind_ctor_proto_ex(ctor.into(), proto, 0, JS_PROP_CONFIGURABLE)?;
-
-        ctx.class_slots[class_id as usize] = ProtoCtorPair {
-            proto: Some(proto),
-            ctor: Some(ctor.into()),
-        };
+        ctx.class_slots[class_id as usize].ctor = Some(ctor.into());
 
         Ok(Some(proto))
     }

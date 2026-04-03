@@ -4,12 +4,11 @@
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_DATAVIEW,
+    Atom, JS_CLASS_DATAVIEW, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
     builtins::array_buffer::ArrayBuffer,
     class::ClassID,
-    context::{ProtoCtorPair, ScopedContext},
+    context::ScopedContext,
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
-    function::Callback,
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     runtime::RuntimeImpl,
@@ -96,24 +95,22 @@ object_cast!(DataView, JS_CLASS_DATAVIEW);
 
 impl DataView {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+        debug_assert_eq!(class_id, JS_CLASS_DATAVIEW);
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         let mut proto = ctx.create_base_object()?;
         proto.install_fields(ctx, js_dataview_proto_funcs)?;
 
-        let ctor = ctx.create_constructor_internal(
-            "DataView",
-            Callback::Constructor(js_dataview_constructor),
-            1,
-            proto,
-            0,
-            true,
+        let ctor =
+            ctx.init_class_constructor(class_id, js_dataview_constructor, 1, 0, proto, &[])?;
+
+        ctx.global_obj().define_property_value(
+            ctx,
+            Atom::CONST_DataView,
+            ctor.into(),
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
 
-        ctx.class_slots[class_id as usize] = ProtoCtorPair {
-            proto: Some(proto),
-            ctor: Some(ctor),
-        };
         Ok(Some(proto))
     }
 

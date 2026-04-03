@@ -62,6 +62,8 @@ impl<'c> ScopedContext<'c> {
                 .is_some()
         );
 
+        let mut proto = self.function_proto();
+
         // FOR LEGACY: make throw type error function
         let mut throw_type_error = self
             .create_native_function(
@@ -98,9 +100,7 @@ impl<'c> ScopedContext<'c> {
         throw_type_error.seal(self, true).unwrap();
         self.throw_type_error = throw_type_error.into();
 
-        let mut proto = self.function_proto();
-
-        // FOR LEGACY: add 'caller' and 'arguments' properties
+        // FOR LEGACY: add 'caller' and 'arguments' properties to proto
         {
             proto
                 .define_property(
@@ -134,26 +134,48 @@ impl<'c> ScopedContext<'c> {
         proto.install_fields(self, js_function_proto_funcs).unwrap();
 
         let ctor = self
-            .create_native_function(
-                Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
-                "Function",
+            .init_class_constructor_or_func(
+                JS_CLASS_BYTECODE_FUNCTION,
+                BytecodeFunction::class_constructor,
                 1,
                 FunctionKind::Normal as _,
+                proto,
+                &[],
             )
             .unwrap();
-        self.add_global_constructor("Function", ctor.into(), proto)
+
+        debug_assert!(
+            self.class_slots[JS_CLASS_BYTECODE_FUNCTION as usize]
+                .ctor
+                .is_some()
+        );
+
+        self.global_obj()
+            .define_property_value(
+                self,
+                Atom::CONST_Function,
+                ctor.into(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )
             .unwrap();
 
-        self.class_slots[JS_CLASS_BYTECODE_FUNCTION as usize].ctor = Some(ctor.into());
+        // let ctor = self
+        //     .create_native_function(
+        //         Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
+        //         "Function",
+        //         1,
+        //         FunctionKind::Normal as _,
+        //     )
+        //     .unwrap();
+        // self.add_global_constructor("Function", ctor, proto)
+        //     .unwrap();
+        // self.class_slots[JS_CLASS_BYTECODE_FUNCTION as usize].ctor = Some(ctor.into());
+
         self.function_ctor = ctor.into();
     }
 
     pub(super) fn intrinsic_base_errors(&mut self) {
-        debug_assert!(
-            self.class_slots[JS_CLASS_ERROR as usize]
-                .proto
-                .is_some()
-        );
+        debug_assert!(self.class_slots[JS_CLASS_ERROR as usize].proto.is_some());
 
         let proto = self.class_proto(JS_CLASS_ERROR).unwrap();
         let ctor = self
@@ -216,7 +238,6 @@ impl<'c> ScopedContext<'c> {
             .unwrap();
 
         array_ctor.install_fields(self, js_array_funcs).unwrap();
-
         self.class_slots[JS_CLASS_ARRAY as usize].ctor = Some(array_ctor);
         self.array_ctor = array_ctor.into();
 
@@ -264,11 +285,7 @@ impl<'c> ScopedContext<'c> {
         array_iter
             .install_fields(self, js_array_iterator_proto_funcs)
             .unwrap();
-
-        self.class_slots[JS_CLASS_ARRAY_ITERATOR as usize] = ProtoCtorPair {
-            proto: Some(array_iter),
-            ctor: None,
-        };
+        self.class_slots[JS_CLASS_ARRAY_ITERATOR as usize].proto = Some(array_iter);
     }
 
     pub(super) fn intrinsic_base_number(&mut self) {

@@ -8,11 +8,11 @@ use lre::{Regex, RegexFlags};
 use zerocopy::IntoBytes;
 
 use crate::{
-    Callback, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
+    JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR, JS_PROP_CONFIGURABLE,
     array::Array,
     atom::Atom,
-    class::{self, ClassID},
-    context::{ProtoCtorPair, ScopedContext},
+    class::ClassID,
+    context::ScopedContext,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     string::{CharCode, StringData, StringRef},
@@ -323,20 +323,21 @@ impl RegExp {
             JS_CLASS_REGEXP => {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_regexp_proto_funcs).unwrap();
-                ctx.class_slots[class_id as usize].proto = Some(proto);
 
-                let mut ctor = ctx.create_constructor_internal(
-                    "RegExp",
-                    Callback::Constructor(js_regexp_constructor),
+                let ctor = ctx.init_class_constructor_or_func(
+                    class_id,
+                    js_regexp_constructor,
                     2,
-                    proto,
                     0,
-                    true,
+                    proto,
+                    js_regexp_funcs,
                 )?;
-                ctor.install_fields(ctx, js_regexp_funcs).unwrap();
-
-                ctx.class_slots[class_id as usize].ctor = Some(ctor);
-                ctx.regexp_ctor = ctor.into();
+                ctx.global_obj().define_property_value(
+                    ctx,
+                    Atom::CONST_RegExp,
+                    ctor.into(),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )?;
 
                 Ok(Some(proto))
             }
@@ -344,10 +345,6 @@ impl RegExp {
                 let it_proto = ctx.iterator_proto()?;
                 let mut proto = ctx.create_base_object_with_proto(Some(it_proto))?;
                 proto.install_fields(ctx, js_regexp_string_iterator_proto_funcs)?;
-                ctx.class_slots[class_id as usize] = ProtoCtorPair {
-                    proto: Some(proto),
-                    ctor: None,
-                };
                 Ok(Some(proto))
             }
             _ => {

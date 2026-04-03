@@ -238,7 +238,7 @@ impl ObjectImpl {
     pub fn install_fields(
         &mut self,
         ctx: &mut ScopedContext,
-        entries: &'static [FieldDef],
+        entries: &[FieldDef],
     ) -> Result<(), i32> {
         for entry in entries {
             let atom = prop_name_to_atom(ctx, entry.name)?;
@@ -251,7 +251,7 @@ impl ObjectImpl {
         &mut self,
         ctx: &mut ScopedContext,
         atom: Atom,
-        entry: &'static FieldDef,
+        entry: &FieldDef,
     ) -> Result<(), i32> {
         let val: JSValue;
         let mut prop_flags = entry.prop_flags;
