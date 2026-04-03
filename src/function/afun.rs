@@ -4,7 +4,7 @@
 use gc_lite::GcRef;
 
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_BYTECODE_FUNCTION,
+    Atom, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
     context::{ProtoCtorPair, ScopedContext},
@@ -26,7 +26,7 @@ object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         let mut proto = {
             let o = ctx.function_proto();
@@ -34,18 +34,18 @@ impl AsyncFunction {
         };
         proto.install_fields(ctx, js_async_function_proto_funcs)?;
 
-        let ctor = NativeFunction::create(
+        let ctor = NativeFunction::create_internal(
             ctx,
             Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
-            "AsyncFunction",
+            Atom::CONST_AsyncFunction,
             1,
             FunctionKind::Async as i16,
-            ctx.class_ctor(JS_CLASS_BYTECODE_FUNCTION), //  ctx.function_ctor.as_object().copied(),
+            ctx.class_constructor(JS_CLASS_BYTECODE_FUNCTION),
             None,
         )?;
         ctx.bind_ctor_proto_ex(ctor.into(), proto, 0, JS_PROP_CONFIGURABLE)?;
 
-        ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+        ctx.class_slots[class_id as usize] = ProtoCtorPair {
             proto: Some(proto),
             ctor: Some(ctor.into()),
         };

@@ -170,13 +170,13 @@ object_cast!(
 
 impl ArrayBuffer {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         match class_id {
             JS_CLASS_ARRAY_BUFFER => {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_array_buffer_proto_funcs)?;
-                ctx.class_protos_ctors[JS_CLASS_SHARED_ARRAY_BUFFER as usize].proto = Some(proto);
+                ctx.class_slots[JS_CLASS_SHARED_ARRAY_BUFFER as usize].proto = Some(proto);
 
                 let mut ctor = ctx.create_constructor_internal(
                     "ArrayBuffer",
@@ -187,14 +187,14 @@ impl ArrayBuffer {
                     true,
                 )?;
                 ctor.install_fields(ctx, js_array_buffer_funcs)?;
-                ctx.class_protos_ctors[JS_CLASS_ARRAY_BUFFER as usize].ctor = Some(ctor);
+                ctx.class_slots[JS_CLASS_ARRAY_BUFFER as usize].ctor = Some(ctor);
 
                 Ok(Some(proto))
             }
             JS_CLASS_SHARED_ARRAY_BUFFER => {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_shared_array_buffer_proto_funcs)?;
-                ctx.class_protos_ctors[JS_CLASS_SHARED_ARRAY_BUFFER as usize].proto = Some(proto);
+                ctx.class_slots[JS_CLASS_SHARED_ARRAY_BUFFER as usize].proto = Some(proto);
 
                 let mut ctor = ctx.create_constructor_internal(
                     "SharedArrayBuffer",
@@ -205,7 +205,7 @@ impl ArrayBuffer {
                     true,
                 )?;
                 ctor.install_fields(ctx, js_shared_array_buffer_funcs)?;
-                ctx.class_protos_ctors[JS_CLASS_SHARED_ARRAY_BUFFER as usize].ctor = Some(ctor);
+                ctx.class_slots[JS_CLASS_SHARED_ARRAY_BUFFER as usize].ctor = Some(ctor);
 
                 Ok(Some(proto))
             }

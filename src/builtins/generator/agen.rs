@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+    Atom, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     builtins::{
         iterator::js_create_iterator_result,
         promise::{Promise, js_promise_resolve},
@@ -391,7 +391,7 @@ impl AsyncGeneratorFunction {
     }
 
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         match class_id {
             JS_CLASS_ASYNC_GENERATOR => {
@@ -399,7 +399,7 @@ impl AsyncGeneratorFunction {
                 let aiter_proto = ctx.async_iterator_proto()?;
                 let mut proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
                 proto.install_fields(ctx, js_async_generator_proto_funcs)?;
-                ctx.class_protos_ctors[JS_CLASS_ASYNC_GENERATOR as usize] = ProtoCtorPair {
+                ctx.class_slots[JS_CLASS_ASYNC_GENERATOR as usize] = ProtoCtorPair {
                     proto: Some(proto),
                     ctor: None,
                 };
@@ -430,10 +430,10 @@ impl AsyncGeneratorFunction {
                     JS_PROP_CONFIGURABLE,
                 )?;
 
-                let ctor = NativeFunction::create(
+                let ctor = NativeFunction::create_internal(
                     ctx,
                     Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
-                    "AsyncGeneratorFunction",
+                    Atom::CONST_AsyncGeneratorFunction, //"AsyncGeneratorFunction"
                     1,
                     FunctionKind::AsyncGenerator as i16,
                     Some(func_proto),
@@ -441,7 +441,7 @@ impl AsyncGeneratorFunction {
                 )?;
                 ctx.bind_ctor_proto_ex(ctor.into(), agen_func_proto, 0, JS_PROP_CONFIGURABLE)?;
 
-                ctx.class_protos_ctors[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] =
+                ctx.class_slots[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] =
                     ProtoCtorPair {
                         proto: Some(agen_func_proto),
                         ctor: Some(ctor.into()),
@@ -506,10 +506,10 @@ fn js_async_generator_resolve_function_create(
 ) -> Result<[JSValue; 2], i32> {
     let resolving_funcs: [JSValue; 2] = [
         // handle fullfil
-        NativeFunction::create(
+        NativeFunction::create_internal(
             ctx,
             Callback::Func(js_async_generator_resolve_function),
-            "",
+            Atom::CONST_empty_string,
             1,
             if is_resume_next { 2 } else { 0 },
             None,
@@ -517,10 +517,10 @@ fn js_async_generator_resolve_function_create(
         )?
         .into(),
         // handle reject
-        NativeFunction::create(
+        NativeFunction::create_internal(
             ctx,
             Callback::Func(js_async_generator_resolve_function),
-            "",
+            Atom::CONST_empty_string,
             1,
             if is_resume_next { 3 } else { 1 },
             None,

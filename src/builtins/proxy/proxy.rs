@@ -208,7 +208,7 @@ object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         let mut proto: Object = ctx
             .create_native_function(Callback::Constructor(js_proxy_constructor), "Proxy", 2, 0)?
@@ -226,7 +226,7 @@ impl Proxy {
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
 
-        ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+        ctx.class_slots[class_id as usize] = ProtoCtorPair {
             proto: Some(proto),
             ctor: None,
         };

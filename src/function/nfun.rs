@@ -276,10 +276,10 @@ impl NativeFunction {
 
     /// Create native function object.
     /// at least `length` arguments can be readable in arguments.
-    pub(crate) fn create(
+    pub(crate) fn create_internal(
         ctx: &mut ScopedContext,
         callback: Callback,
-        name: &str,
+        name: Atom,
         length: u8,
         magic: i16,
         proto: Option<Object>,
@@ -314,10 +314,24 @@ impl NativeFunction {
         }
 
         // define `length` and `name` properties on function.
-        let name_atom = Atom::new(ctx.rt_ptr(), name)?;
-        js_function_set_properties(ctx, func_obj, name_atom, length as i32);
+        js_function_set_properties(ctx, func_obj, name, length as i32);
 
         Ok(Self(func_obj.gc_ref()))
+    }
+
+    /// Create native function object.
+    /// at least `length` arguments can be readable in arguments.
+    pub(crate) fn create(
+        ctx: &mut ScopedContext,
+        callback: Callback,
+        name: &str,
+        length: u8,
+        magic: i16,
+        proto: Option<Object>,
+        binding_data: Option<Box<[JSValue]>>,
+    ) -> Result<Self, i32> {
+        let name_atom = Atom::new(ctx.rt_ptr(), name)?;
+        Self::create_internal(ctx, callback, name_atom, length, magic, proto, binding_data)
     }
 
     #[inline(always)]
@@ -353,28 +367,6 @@ impl JSValue {
 }
 
 impl<'c> ScopedContext<'c> {
-    /// Create native function object with callback and binding data, using function proto as proto object.
-    /// at least `length` arguments will be readable in arguments.
-    #[inline(always)]
-    pub fn create_native_function_with_data(
-        &mut self,
-        callback: Callback,
-        name: &str,
-        length: u8,
-        magic: i16,
-        binding_data: Option<Box<[JSValue]>>,
-    ) -> Result<NativeFunction, i32> {
-        NativeFunction::create(
-            self,
-            callback,
-            name,
-            length,
-            magic,
-            Some(self.function_proto()),
-            binding_data,
-        )
-    }
-
     /// Create native function object with callback, using function proto as proto object.
     /// at least `length` arguments will be readable in arguments.
     #[inline(always)]
@@ -385,6 +377,14 @@ impl<'c> ScopedContext<'c> {
         length: u8,
         magic: i16,
     ) -> Result<NativeFunction, i32> {
-        Self::create_native_function_with_data(self, callback, name, length, magic, None)
+        NativeFunction::create(
+            self,
+            callback,
+            name,
+            length,
+            magic,
+            Some(self.function_proto()),
+            None,
+        )
     }
 }

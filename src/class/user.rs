@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, ffi::c_void, ptr::NonNull};
+use std::{ffi::c_void, ptr::NonNull};
 
-use gc_lite::{GcNode, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    ClassDef, USER_CLASS_ID_START,
+    USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
     class::ClassID,
     context::{ProtoCtorPair, ScopedContext},
     object::{Object, ObjectImpl, ObjectPayload},
-    runtime::RuntimeImpl,
     value::JSValue,
 };
 
@@ -43,50 +42,19 @@ impl OtherPayload {
     }
 }
 
-impl RuntimeImpl {
-    /// register a class defination. returns the assigned class_id.
-    pub fn register_class(&mut self, class_def: &ClassDef) -> Result<ClassID, i32> {
-        debug_assert!(!class_def.class_name.is_empty());
-        debug_assert!(class_def.finalize.is_some());
-
-        // class name atom
-        let class_atom = {
-            let a = Atom::from_str(self.into(), class_def.class_name, AtomKind::String)?;
-            let s = a.descriptor(self).gc_head_ptr();
-            self.gc_heap_mut().set_root_node(s); // should be root gc node
-            a
-        };
-
-        thread_local! {
-            static CLASS_ID_SERIAL: Cell<u16> = const { Cell::new(USER_CLASS_ID_START) };
-        }
-        let class_id = CLASS_ID_SERIAL.with(|ser| {
-            let i = ser.get();
-            ser.set(i + 1);
-            i
-        });
-        debug_assert!(class_id >= USER_CLASS_ID_START);
-
-        self.add_class_internal(class_id, class_atom, class_def)?;
-        Ok(class_id)
-    }
-}
-
 impl<'c> ScopedContext<'c> {
     pub fn use_classes(&mut self, class_ids: &[ClassID]) -> Result<(), i32> {
         if let Some(mx) = class_ids.iter().max().copied() {
             if self.rt_ptr().class_registry.get(mx as usize).is_some() {
-                let n = self.class_protos_ctors.len();
+                let n = self.class_slots.len();
                 if mx as usize >= n {
                     // grow slot
                     let extra = mx as usize - n + 1;
-                    self.class_protos_ctors
-                        .try_reserve_exact(extra)
-                        .map_err(|_| {
-                            self.throw_out_of_memory();
-                            -1
-                        })?;
-                    self.class_protos_ctors
+                    self.class_slots.try_reserve_exact(extra).map_err(|_| {
+                        self.throw_out_of_memory();
+                        -1
+                    })?;
+                    self.class_slots
                         .extend(std::iter::repeat_n(ProtoCtorPair::default(), extra));
                 }
 
@@ -102,12 +70,13 @@ impl<'c> ScopedContext<'c> {
                             .and_then(|c| c.initialize)
                         {
                             if let Some(proto) = init_fn(self, class_id)? {
-                                debug_assert_eq!(
-                                    Some(proto),
-                                    self.class_protos_ctors[class_id as usize].proto
+                                debug_assert!(
+                                    self.class_slots[class_id as usize]
+                                        .proto
+                                        .is_none_or(|p| p == proto)
                                 );
-                                self.class_protos_ctors[class_id as usize].proto = Some(proto);
-                            } else if self.class_protos_ctors[class_id as usize].proto.is_none() {
+                                self.class_slots[class_id as usize].proto = Some(proto);
+                            } else if self.class_slots[class_id as usize].proto.is_none() {
                                 self.throw_internal_error(&format!(
                                     "class ({class_id}) initialization must setup proto object"
                                 ));

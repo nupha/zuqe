@@ -15,7 +15,7 @@ use crate::{
 
 #[repr(u8)]
 #[derive(Debug, Clone)]
-pub enum FieldDetail {
+pub(crate) enum FieldDetail {
     Func {
         callback: Callback,
         length: u8,
@@ -30,6 +30,7 @@ pub enum FieldDetail {
     },
     /// Lazy init object with entries
     Object(&'static [FieldDef]),
+    Class,
     Str(&'static str),
     Int32(i32),
     Float64(f64),
@@ -40,10 +41,10 @@ pub enum FieldDetail {
 
 #[derive(Debug, Clone)]
 pub struct FieldDef {
-    pub name: &'static str,
-    pub detail: FieldDetail,
-    pub prop_flags: u8,
-    pub magic: i16,
+    pub(crate) name: &'static str,
+    pub(crate) detail: FieldDetail,
+    pub(crate) prop_flags: u8,
+    pub(crate) magic: i16,
 }
 
 impl FieldDef {
@@ -109,6 +110,16 @@ impl FieldDef {
         Self {
             name,
             detail: FieldDetail::Object(entries),
+            prop_flags: prop_flags as u8,
+            magic: 0,
+        }
+    }
+
+    /// Define a class constructor field
+    pub const fn CLASS(class_name: &'static str, prop_flags: u32) -> Self {
+        Self {
+            name: class_name,
+            detail: FieldDetail::Class,
             prop_flags: prop_flags as u8,
             magic: 0,
         }
@@ -292,6 +303,15 @@ impl ObjectImpl {
                     }),
                     prop_flags as _,
                 );
+            }
+
+            FieldDetail::Class => {
+                val = ctx
+                    .rt_ref()
+                    .query_class_id(atom)
+                    .and_then(|class_id| ctx.class_slots.get(class_id as usize))
+                    .and_then(|x| x.ctor)
+                    .map_or(JSValue::UNDEFINED, JSValue::Object);
             }
 
             FieldDetail::Int32(i) => {

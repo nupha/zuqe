@@ -317,13 +317,13 @@ impl RegExp {
     }
 
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         match class_id {
             JS_CLASS_REGEXP => {
                 let mut proto = ctx.create_base_object()?;
                 proto.install_fields(ctx, js_regexp_proto_funcs).unwrap();
-                ctx.class_protos_ctors[class_id as usize].proto = Some(proto);
+                ctx.class_slots[class_id as usize].proto = Some(proto);
 
                 let mut ctor = ctx.create_constructor_internal(
                     "RegExp",
@@ -335,7 +335,7 @@ impl RegExp {
                 )?;
                 ctor.install_fields(ctx, js_regexp_funcs).unwrap();
 
-                ctx.class_protos_ctors[class_id as usize].ctor = Some(ctor);
+                ctx.class_slots[class_id as usize].ctor = Some(ctor);
                 ctx.regexp_ctor = ctor.into();
 
                 Ok(Some(proto))
@@ -344,7 +344,7 @@ impl RegExp {
                 let it_proto = ctx.iterator_proto()?;
                 let mut proto = ctx.create_base_object_with_proto(Some(it_proto))?;
                 proto.install_fields(ctx, js_regexp_string_iterator_proto_funcs)?;
-                ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+                ctx.class_slots[class_id as usize] = ProtoCtorPair {
                     proto: Some(proto),
                     ctor: None,
                 };

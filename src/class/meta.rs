@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::cell::Cell;
+
+use gc_lite::GcNode;
+
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_REGEXP,
-    ScopedContext,
-    atom::Atom,
+    ScopedContext, USER_CLASS_ID_START,
+    atom::{Atom, AtomKind},
     builtins::{generator::js_async_iterator_proto_funcs, iterator::js_iterator_proto_funcs},
     class::{
         ClassCallFn, ClassDef, ClassExoticMethods, ClassFinalizeFn, ClassID, ClassInitializeFn,
         FreeObjFn, StdClassDef,
     },
     context::{ContextImpl, ProtoCtorPair},
-    error::JSResult,
-    function::{Callback, CallbackFn},
+    function::{Callback, CallbackFn, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
     runtime::RuntimeImpl,
-    value::JSValue,
 };
 
 /// class meta info for registry.
@@ -39,7 +41,7 @@ pub(crate) struct ClassMeta {
 
 impl RuntimeImpl {
     /// register a class def to runtime.
-    pub(super) fn add_class_internal(
+    pub(super) fn register_class_internal(
         &mut self,
         class_id: ClassID,
         class_name: Atom,
@@ -55,8 +57,8 @@ impl RuntimeImpl {
 
             // grow context class prototype array
             for ctx in self.context_list.iter_mut() {
-                ctx.class_protos_ctors.try_reserve(extra).map_err(|_| -1)?;
-                ctx.class_protos_ctors
+                ctx.class_slots.try_reserve(extra).map_err(|_| -1)?;
+                ctx.class_slots
                     .extend(std::iter::repeat_n(ProtoCtorPair::default(), extra));
             }
 
@@ -68,11 +70,9 @@ impl RuntimeImpl {
 
         self.class_registry[class_id as usize] = ClassMeta {
             class_name,
-
             call: class_def.call,
             exotic: class_def.exotic.as_ref().cloned(),
             dispose: class_def.dispose,
-
             initialize: class_def.initialize,
             finalize: class_def.finalize,
         };
@@ -95,11 +95,39 @@ impl RuntimeImpl {
                 finalize: item.finalize,
                 ..Default::default()
             };
-            self.add_class_internal(class_id, item.class_name, &cd)?;
+            self.register_class_internal(class_id, item.class_name, &cd)?;
             class_id += 1;
         }
 
         Ok(())
+    }
+
+    /// Register an user-defined (non-builtin) class defination.
+    /// returns the assigned class_id.
+    pub fn register_class(&mut self, class_def: &ClassDef) -> Result<ClassID, i32> {
+        debug_assert!(!class_def.class_name.is_empty());
+        debug_assert!(class_def.finalize.is_some());
+
+        // class name atom
+        let class_atom = {
+            let a = Atom::from_str(self.into(), class_def.class_name, AtomKind::String)?;
+            let s = a.descriptor(self).gc_head_ptr();
+            self.gc_heap_mut().set_root_node(s); // should be root gc node
+            a
+        };
+
+        thread_local! {
+            static CLASS_ID_SERIAL: Cell<u16> = const { Cell::new(USER_CLASS_ID_START) };
+        }
+        let class_id = CLASS_ID_SERIAL.with(|ser| {
+            let i = ser.get();
+            ser.set(i + 1);
+            i
+        });
+        debug_assert!(class_id >= USER_CLASS_ID_START);
+
+        self.register_class_internal(class_id, class_atom, class_def)?;
+        Ok(class_id)
     }
 
     /// test if class_id exists.
@@ -107,23 +135,30 @@ impl RuntimeImpl {
         class_id < self.class_registry.len() as ClassID
             && !self.class_registry[class_id as usize].class_name.is_null()
     }
+
+    /// query class id by class name
+    pub fn query_class_id(&self, class_name: Atom) -> Option<ClassID> {
+        self.class_registry
+            .iter()
+            .enumerate()
+            .find(|(_, x)| !x.class_name.is_null() && x.class_name == class_name)
+            .map(|(i, _)| i as ClassID)
+    }
 }
 
 impl ContextImpl {
     /// get class proto object by `class_id`.
     /// if class proto object is not initialized in this context, returns None.
     pub fn class_proto(&self, class_id: ClassID) -> Option<Object> {
-        self.class_protos_ctors
+        self.class_slots
             .get(class_id as usize)
             .and_then(|x| x.proto)
     }
 
     /// get class constructor by `class_id`.
     /// if class constructor is not initialized in this context, returns None.
-    pub fn class_ctor(&self, class_id: ClassID) -> Option<Object> {
-        self.class_protos_ctors
-            .get(class_id as usize)
-            .and_then(|x| x.ctor)
+    pub fn class_constructor(&self, class_id: ClassID) -> Option<Object> {
+        self.class_slots.get(class_id as usize).and_then(|x| x.ctor)
     }
 
     /// get base Object prototype, must be  as core.
@@ -131,7 +166,7 @@ impl ContextImpl {
     /// equivelent to call `ctx.class_proto(JS_CLASS_OBJECT).unwrap()`
     #[inline]
     pub fn object_proto(&self) -> Object {
-        debug_assert!(self.class_protos_ctors.len() > JS_CLASS_OBJECT as usize);
+        debug_assert!(self.class_slots.len() > JS_CLASS_OBJECT as usize);
         self.class_proto(JS_CLASS_OBJECT).unwrap()
     }
 
@@ -140,16 +175,16 @@ impl ContextImpl {
     /// equivelent to `ctx.class_proto(JS_CLASS_BYTECODE_FUNCTION).unwrap()`
     #[inline]
     pub fn function_proto(&self) -> Object {
-        debug_assert!(self.class_protos_ctors.len() > JS_CLASS_BYTECODE_FUNCTION as usize);
+        debug_assert!(self.class_slots.len() > JS_CLASS_BYTECODE_FUNCTION as usize);
         self.class_proto(JS_CLASS_BYTECODE_FUNCTION).unwrap()
     }
 
     /// get class Array prototype.
     ///
-    /// equivelent to `ctx.class_proto(JS_ARRAY_FUNCTION).unwrap()`
+    /// equivelent to `ctx.class_proto(JS_CLASS_ARRAY).unwrap()`
     #[inline]
     pub fn array_proto(&self) -> Object {
-        debug_assert!(self.class_protos_ctors.len() > JS_CLASS_ARRAY as usize);
+        debug_assert!(self.class_slots.len() > JS_CLASS_ARRAY as usize);
         self.class_proto(JS_CLASS_ARRAY).unwrap()
     }
 
@@ -158,8 +193,8 @@ impl ContextImpl {
     /// equivelent to `ctx.class_ctor(JS_ARRAY_FUNCTION).unwrap()`
     #[inline]
     pub fn array_ctor(&self) -> Object {
-        debug_assert!(self.class_protos_ctors.len() > JS_CLASS_ARRAY as usize);
-        self.class_ctor(JS_CLASS_ARRAY).unwrap()
+        debug_assert!(self.class_slots.len() > JS_CLASS_ARRAY as usize);
+        self.class_constructor(JS_CLASS_ARRAY).unwrap()
     }
 
     /// get class RegExp constructor.
@@ -168,8 +203,8 @@ impl ContextImpl {
     #[cfg(feature = "builtin_regexp")]
     #[inline]
     pub fn regexp_ctor(&self) -> Object {
-        debug_assert!(self.class_protos_ctors.len() > JS_CLASS_REGEXP as usize);
-        self.class_ctor(JS_CLASS_REGEXP).unwrap()
+        debug_assert!(self.class_slots.len() > JS_CLASS_REGEXP as usize);
+        self.class_constructor(JS_CLASS_REGEXP).unwrap()
     }
 
     /// get class Promise constructor.
@@ -177,38 +212,44 @@ impl ContextImpl {
     /// equivelent to `ctx.class_ctor(JS_ARRAY_PROMISE).unwrap()`
     #[inline]
     pub fn promise_ctor(&self) -> Object {
-        debug_assert!(self.class_protos_ctors.len() > JS_CLASS_PROMISE as usize);
-        self.class_ctor(JS_CLASS_PROMISE).unwrap()
+        debug_assert!(self.class_slots.len() > JS_CLASS_PROMISE as usize);
+        self.class_constructor(JS_CLASS_PROMISE).unwrap()
     }
 }
 
 impl<'c> ScopedContext<'c> {
-    /// initialize iterator proto object
-    pub fn iterator_proto(&mut self) -> Result<Object, i32> {
-        let obj = if let Some(o) = self.iterator_proto.as_ref().cloned() {
-            o
-        } else {
-            let mut obj = self.create_base_object()?;
-            obj.install_fields(self, js_iterator_proto_funcs)?;
-            self.iterator_proto.replace(obj);
-            obj
-        };
+    /// Create class constructor, register to class ctor slot.
+    /// returns the constructor function.
+    pub fn create_class_constructor(
+        &mut self,
+        class_id: ClassID,
+        callback: CallbackFn,
+        length: i32,
+        magic: i16,
+        proto: Object,
+    ) -> Result<Object, i32> {
+        debug_assert!(
+            self.class_slots[class_id as usize].ctor.is_none(),
+            "class ctor has been created"
+        );
 
-        Ok(obj)
-    }
+        let class_name = self.rt_ref().class_registry[class_id as usize].class_name;
 
-    /// Initialize async iterator proto object which is used as proto of:
-    /// AsyncFromSyncIterator, AsyncGenerator.
-    /// if this proto is not initialized, will create it inside.
-    pub(crate) fn async_iterator_proto(&mut self) -> Result<Object, i32> {
-        if let Some(o) = self.async_iterator_proto {
-            Ok(o)
-        } else {
-            let mut o = self.create_base_object()?;
-            o.install_fields(self, js_async_iterator_proto_funcs)?;
-            self.async_iterator_proto.replace(o);
-            Ok(o)
-        }
+        let ctor: Object = NativeFunction::create_internal(
+            self,
+            Callback::Constructor(callback),
+            class_name,
+            length as _,
+            magic,
+            Some(self.function_proto()),
+            None,
+        )?
+        .into();
+        self.bind_ctor_proto(ctor, proto)?;
+
+        self.class_slots[class_id as usize].ctor = Some(ctor);
+
+        Ok(ctor)
     }
 
     /// create native constructor, optinally add it to global namespace.
@@ -302,48 +343,6 @@ impl<'c> ScopedContext<'c> {
         Ok(())
     }
 
-    /// create a new native constructor, add it to global namespace.
-    /// returns new constructor function.
-    #[deprecated]
-    pub fn create_global_constructor_or_func(
-        &mut self,
-        name: &str,
-        callback: CallbackFn,
-        length: i32,
-        proto: Object,
-        magic: i16,
-    ) -> JSResult {
-        self.create_constructor_internal(
-            name,
-            Callback::ConstructorOrFunc(callback),
-            length,
-            proto,
-            magic,
-            true,
-        )
-        .map(JSValue::Object)
-    }
-
-    #[deprecated]
-    pub fn create_global_constructor_only(
-        &mut self,
-        name: &str,
-        callback: CallbackFn,
-        length: i32,
-        proto: Object,
-        magic: i16,
-    ) -> JSResult {
-        self.create_constructor_internal(
-            name,
-            Callback::Constructor(callback),
-            length,
-            proto,
-            magic,
-            true,
-        )
-        .map(JSValue::Object)
-    }
-
     /// Mutually define properties on both `ctor` and `proto` side:
     /// - Define property `ctor.prototype = proto`
     /// - Define property `proto.constructor = ctor`.
@@ -369,5 +368,33 @@ impl<'c> ScopedContext<'c> {
     #[inline]
     pub fn bind_ctor_proto(&mut self, ctor: Object, proto: Object) -> Result<(), i32> {
         self.bind_ctor_proto_ex(ctor, proto, 0, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
+    }
+
+    /// initialize iterator proto object
+    pub fn iterator_proto(&mut self) -> Result<Object, i32> {
+        let obj = if let Some(o) = self.iterator_proto.as_ref().cloned() {
+            o
+        } else {
+            let mut obj = self.create_base_object()?;
+            obj.install_fields(self, js_iterator_proto_funcs)?;
+            self.iterator_proto.replace(obj);
+            obj
+        };
+
+        Ok(obj)
+    }
+
+    /// Initialize async iterator proto object which is used as proto of:
+    /// AsyncFromSyncIterator, AsyncGenerator.
+    /// if this proto is not initialized, will create it inside.
+    pub(crate) fn async_iterator_proto(&mut self) -> Result<Object, i32> {
+        if let Some(o) = self.async_iterator_proto {
+            Ok(o)
+        } else {
+            let mut o = self.create_base_object()?;
+            o.install_fields(self, js_async_iterator_proto_funcs)?;
+            self.async_iterator_proto.replace(o);
+            Ok(o)
+        }
     }
 }

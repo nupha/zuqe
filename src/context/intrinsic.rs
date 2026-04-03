@@ -52,12 +52,12 @@ impl<'c> ScopedContext<'c> {
 
         ctor.install_fields(self, js_object_funcs).unwrap();
 
-        self.class_protos_ctors[JS_CLASS_OBJECT as usize].ctor = Some(ctor);
+        self.class_slots[JS_CLASS_OBJECT as usize].ctor = Some(ctor);
     }
 
     pub(super) fn intrinsic_base_function(&mut self) {
         debug_assert!(
-            self.class_protos_ctors[JS_CLASS_BYTECODE_FUNCTION as usize]
+            self.class_slots[JS_CLASS_BYTECODE_FUNCTION as usize]
                 .proto
                 .is_some()
         );
@@ -144,13 +144,13 @@ impl<'c> ScopedContext<'c> {
         self.add_global_constructor("Function", ctor.into(), proto)
             .unwrap();
 
-        self.class_protos_ctors[JS_CLASS_BYTECODE_FUNCTION as usize].ctor = Some(ctor.into());
+        self.class_slots[JS_CLASS_BYTECODE_FUNCTION as usize].ctor = Some(ctor.into());
         self.function_ctor = ctor.into();
     }
 
     pub(super) fn intrinsic_base_errors(&mut self) {
         debug_assert!(
-            self.class_protos_ctors[JS_CLASS_ERROR as usize]
+            self.class_slots[JS_CLASS_ERROR as usize]
                 .proto
                 .is_some()
         );
@@ -166,7 +166,7 @@ impl<'c> ScopedContext<'c> {
                 true,
             )
             .unwrap();
-        self.class_protos_ctors[JS_CLASS_ERROR as usize].ctor = Some(ctor);
+        self.class_slots[JS_CLASS_ERROR as usize].ctor = Some(ctor);
 
         // standard error constructors
         for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
@@ -217,7 +217,7 @@ impl<'c> ScopedContext<'c> {
 
         array_ctor.install_fields(self, js_array_funcs).unwrap();
 
-        self.class_protos_ctors[JS_CLASS_ARRAY as usize].ctor = Some(array_ctor);
+        self.class_slots[JS_CLASS_ARRAY as usize].ctor = Some(array_ctor);
         self.array_ctor = array_ctor.into();
 
         // initialize Array.prototype[Symbol.unscopables]
@@ -265,7 +265,7 @@ impl<'c> ScopedContext<'c> {
             .install_fields(self, js_array_iterator_proto_funcs)
             .unwrap();
 
-        self.class_protos_ctors[JS_CLASS_ARRAY_ITERATOR as usize] = ProtoCtorPair {
+        self.class_slots[JS_CLASS_ARRAY_ITERATOR as usize] = ProtoCtorPair {
             proto: Some(array_iter),
             ctor: None,
         };
@@ -293,7 +293,7 @@ impl<'c> ScopedContext<'c> {
 
         ctor.install_fields(self, js_number_funcs).unwrap();
 
-        self.class_protos_ctors[JS_CLASS_NUMBER as usize] = ProtoCtorPair {
+        self.class_slots[JS_CLASS_NUMBER as usize] = ProtoCtorPair {
             proto: Some(proto),
             ctor: Some(ctor),
         };
@@ -320,7 +320,7 @@ impl<'c> ScopedContext<'c> {
             )
             .unwrap();
 
-        self.class_protos_ctors[JS_CLASS_BOOLEAN as usize] = ProtoCtorPair {
+        self.class_slots[JS_CLASS_BOOLEAN as usize] = ProtoCtorPair {
             proto: Some(proto),
             ctor: Some(ctor),
         };
@@ -361,11 +361,11 @@ impl<'c> ScopedContext<'c> {
             .install_fields(self, js_string_iterator_proto_funcs)
             .unwrap();
 
-        self.class_protos_ctors[JS_CLASS_STRING as usize] = ProtoCtorPair {
+        self.class_slots[JS_CLASS_STRING as usize] = ProtoCtorPair {
             proto: Some(string_proto),
             ctor: Some(string_ctor),
         };
-        self.class_protos_ctors[JS_CLASS_STRING_ITERATOR as usize] = ProtoCtorPair {
+        self.class_slots[JS_CLASS_STRING_ITERATOR as usize] = ProtoCtorPair {
             proto: Some(string_iter),
             ctor: None,
         };
@@ -411,7 +411,7 @@ impl<'c> ScopedContext<'c> {
             }
         }
 
-        self.class_protos_ctors[crate::JS_CLASS_SYMBOL as usize] = ProtoCtorPair {
+        self.class_slots[crate::JS_CLASS_SYMBOL as usize] = ProtoCtorPair {
             proto: Some(proto),
             ctor: Some(ctor),
         };
@@ -430,7 +430,7 @@ impl<'c> ScopedContext<'c> {
             .install_fields(self, js_generator_proto_funcs)
             .unwrap();
 
-        self.class_protos_ctors[JS_CLASS_GENERATOR as usize] = ProtoCtorPair {
+        self.class_slots[JS_CLASS_GENERATOR as usize] = ProtoCtorPair {
             proto: Some(gen_proto),
             ctor: None,
         };
@@ -442,7 +442,7 @@ impl<'c> ScopedContext<'c> {
         gen_func_proto
             .install_fields(self, js_generator_function_proto_funcs)
             .unwrap();
-        self.class_protos_ctors[JS_CLASS_GENERATOR_FUNCTION as usize] = ProtoCtorPair {
+        self.class_slots[JS_CLASS_GENERATOR_FUNCTION as usize] = ProtoCtorPair {
             proto: Some(gen_func_proto),
             ctor: None,
         };

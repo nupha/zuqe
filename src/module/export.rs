@@ -218,6 +218,12 @@ impl ModuleDefImpl {
                     o.into()
                 }
                 FieldDetail::Str(s) => ctx.create_string_from_str(s)?.into(),
+                FieldDetail::Class => ctx
+                    .rt_ref()
+                    .query_class_id(Atom::new(ctx.rt_ptr(), entry.name)?)
+                    .and_then(|class_id| ctx.class_slots.get(class_id as usize))
+                    .and_then(|x| x.ctor)
+                    .map_or(JSValue::UNDEFINED, JSValue::Object),
                 FieldDetail::Int32(i) => JSValue::Int(*i),
                 FieldDetail::Float64(d) => JSValue::from(*d),
                 FieldDetail::Build(f) => f(ctx)?,

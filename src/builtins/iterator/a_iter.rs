@@ -42,15 +42,13 @@ object_cast!(AsyncFromSyncIterator, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR);
 
 impl AsyncFromSyncIterator {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         let aiter_proto = ctx.async_iterator_proto()?;
         let mut proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
         proto.install_fields(ctx, js_async_from_sync_iterator_proto_funcs)?;
 
-        ctx.class_protos_ctors[class_id as usize]
-            .proto
-            .replace(proto);
+        ctx.class_slots[class_id as usize].proto.replace(proto);
 
         Ok(Some(proto))
     }
@@ -63,10 +61,10 @@ fn js_async_from_sync_iterator_unwrap(ctx: &mut ScopedContext, cc: CallContext) 
 }
 
 fn js_async_from_sync_iterator_unwrap_func_create(ctx: &mut ScopedContext, done: bool) -> JSValue {
-    NativeFunction::create(
+    NativeFunction::create_internal(
         ctx,
         Callback::Func(js_async_from_sync_iterator_unwrap),
-        "",
+        Atom::CONST_empty_string,
         1,
         0,
         None,

@@ -47,10 +47,8 @@ pub struct ContextImpl {
     /// Initial shape for Array objects
     pub(crate) array_shape: Option<Shape>,
 
-    /// Class prototypes slot.
-    /// element could be object or null, default to null.
-    /// TODO: use Vec<Option<Object>> instead
-    pub(crate) class_protos_ctors: Vec<ProtoCtorPair>,
+    /// Class prototypes+constructors slot.
+    pub(crate) class_slots: Vec<ProtoCtorPair>,
     /// Standard error prototypes slot.
     pub(crate) error_protos: [JSValue; STD_ERROR_COUNT],
 
@@ -102,7 +100,7 @@ pub struct ContextImpl {
 
 impl GcTrace for ContextImpl {
     fn trace(&self, tr: &mut GcTraceCtx) {
-        self.class_protos_ctors.iter().for_each(|x| {
+        self.class_slots.iter().for_each(|x| {
             if let Some(o) = x.proto.as_ref() {
                 o.trace(tr);
             }
@@ -177,7 +175,7 @@ impl ContextImpl {
             regexp_ctor: JSValue::NULL,
             promise_ctor: JSValue::NULL,
 
-            class_protos_ctors: class_proto,
+            class_slots: class_proto,
             error_protos: [const { JSValue::UNDEFINED }; STD_ERROR_COUNT],
 
             iterator_proto: None,
@@ -291,7 +289,7 @@ impl ContextImpl {
         }
         self.promise_ctor = JSValue::UNDEFINED;
 
-        self.class_protos_ctors.clear();
+        self.class_slots.clear();
         self.error_protos = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
 
         self.iterator_proto.take();
@@ -325,23 +323,23 @@ impl<'c> ScopedContext<'c> {
         // Object
         let mut object = self.create_base_object_with_proto(None)?;
         object.set_flag_immutable_prototype(true);
-        self.class_protos_ctors[JS_CLASS_OBJECT as usize] = ProtoCtorPair {
+        self.class_slots[JS_CLASS_OBJECT as usize] = ProtoCtorPair {
             proto: Some(object),
             ctor: None,
         };
 
         // Function
         {
-            let func = NativeFunction::create(
+            let func = NativeFunction::create_internal(
                 self,
                 Callback::Func(js_function_proto),
-                "",
+                Atom::CONST_empty_string,
                 0,
                 0,
                 Some(object),
                 None,
             )?;
-            self.class_protos_ctors[JS_CLASS_BYTECODE_FUNCTION as usize] = ProtoCtorPair {
+            self.class_slots[JS_CLASS_BYTECODE_FUNCTION as usize] = ProtoCtorPair {
                 proto: Some(func.into()),
                 ctor: None,
             };
@@ -353,7 +351,7 @@ impl<'c> ScopedContext<'c> {
             error_proto
                 .install_fields(self, js_error_proto_funcs)
                 .unwrap();
-            self.class_protos_ctors[JS_CLASS_ERROR as usize] = ProtoCtorPair {
+            self.class_slots[JS_CLASS_ERROR as usize] = ProtoCtorPair {
                 proto: Some(error_proto),
                 ctor: None,
             };
@@ -394,7 +392,7 @@ impl<'c> ScopedContext<'c> {
                 )
                 .map_err(|_| -1)?;
 
-            self.class_protos_ctors[JS_CLASS_ARRAY as usize] = ProtoCtorPair {
+            self.class_slots[JS_CLASS_ARRAY as usize] = ProtoCtorPair {
                 proto: Some(array_proto),
                 ctor: None,
             };

@@ -4,7 +4,7 @@
 use gc_lite::GcNode;
 
 use crate::{
-    Callback, JS_CLASS_BYTECODE_FUNCTION,
+    Atom, Callback, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
     context::ScopedContext,
     error::JSResult,
@@ -281,19 +281,19 @@ impl ModuleDef {
 
         // Hint: `promise.then()` don't call bytecode execution inside, won't trigger gc collection,
         // protect promise, success, fail nodes is not required.
-        let success = NativeFunction::create(
+        let success = NativeFunction::create_internal(
             ctx,
             Callback::Func(ModuleDef::execute_async_fulfilled),
-            "",
+            Atom::CONST_empty_string,
             0,
             0,
             None,
             Some([JSValue::Module(*self)].into()),
         )?;
-        let fail = NativeFunction::create(
+        let fail = NativeFunction::create_internal(
             ctx,
             Callback::Func(ModuleDef::execute_async_rejected),
-            "",
+            Atom::CONST_empty_string,
             0,
             0,
             None,

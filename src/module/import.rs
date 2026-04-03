@@ -120,20 +120,20 @@ fn js_load_module_internal(
             match md.evaluate(ctx) {
                 Ok(mut promise) => {
                     let evaluate_resolving_funcs = [
-                        NativeFunction::create(
+                        NativeFunction::create_internal(
                             ctx,
                             Callback::Func(js_load_module_fulfilled),
-                            "",
+                            Atom::CONST_empty_string,
                             0,
                             0,
                             None,
                             Some([resolving_funcs[0], resolving_funcs[1], md.into()].into()),
                         )
                         .unwrap(),
-                        NativeFunction::create(
+                        NativeFunction::create_internal(
                             ctx,
                             Callback::Func(js_load_module_rejected),
-                            "",
+                            Atom::CONST_empty_string,
                             0,
                             0,
                             None,

@@ -717,7 +717,7 @@ impl Datetime {
     };
 
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         let mut proto = ctx.create_base_object()?;
         proto.install_fields(ctx, js_date_proto_funcs).unwrap();
@@ -732,7 +732,7 @@ impl Datetime {
         )?;
         ctor.install_fields(ctx, js_date_funcs)?;
 
-        ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+        ctx.class_slots[class_id as usize] = ProtoCtorPair {
             proto: Some(proto),
             ctor: Some(ctor),
         };

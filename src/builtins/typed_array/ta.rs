@@ -6,7 +6,7 @@ use std::cell::UnsafeCell;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
+    JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
@@ -188,15 +188,13 @@ impl TypedArray {
             class_id,
             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY
         ));
+        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         let mut proto = ctx.create_base_object().unwrap();
         proto.install_fields(ctx, js_typed_array_base_proto_funcs)?;
 
         // TypedArray.prototype.toString must be the same object as Array.prototype.toString
-        let to_string = ctx
-            .class_proto(JS_CLASS_ARRAY)
-            .unwrap()
-            .get_property(ctx, Atom::CONST_toString)?;
+        let to_string = ctx.array_proto().get_property(ctx, Atom::CONST_toString)?;
 
         // XXX: should use alias method in JSCFunctionListEntry
         proto.define_property_value(
@@ -206,48 +204,50 @@ impl TypedArray {
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
 
-        let mut typed_array_base_func = ctx.create_native_function(
+        let mut ta_base_func = ctx.create_native_function(
             Callback::Func(js_typed_array_base_constructor),
             "TypedArray",
             0,
             0,
         )?;
-        typed_array_base_func
-            .install_fields(ctx, js_typed_array_base_funcs)
-            .unwrap();
+        ta_base_func.install_fields(ctx, js_typed_array_base_funcs)?;
 
-        ctx.bind_ctor_proto(typed_array_base_func.into(), proto.into())
-            .unwrap();
+        ctx.bind_ctor_proto(ta_base_func.into(), proto.into())?;
+
+        let mut global = ctx.global_obj();
 
         // make proto for variant typed array classes
         for cid in JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY {
             let nby = 1 << Self::SIZE_LOG2(cid);
             let name = Atom::from_id(
                 Atom::CONST_Uint8ClampedArray.id() + (cid - JS_CLASS_UINT8C_ARRAY) as u32,
-            )
-            .to_utf8(ctx.rt_ref());
+            );
 
             let mut ta_proto = ctx.create_base_object_with_proto(Some(proto))?;
             ta_proto.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
+            ctx.class_slots[cid as usize].proto = Some(ta_proto);
 
-            let mut ta_ctor: Object = NativeFunction::create(
+            let mut ta_ctor: Object = NativeFunction::create_internal(
                 ctx,
                 Callback::Constructor(js_typed_array_constructor),
-                &name,
+                name,
                 3,
                 cid as i16, // magic
-                Some(typed_array_base_func.into()),
+                Some(ta_base_func.into()),
                 None,
             )?
             .into();
-            ctx.add_global_constructor(name.as_ref(), ta_ctor, ta_proto)?;
+            ctx.bind_ctor_proto(ta_ctor, ta_proto)?;
 
             ta_ctor.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
+            ctx.class_slots[cid as usize].ctor = Some(ta_ctor);
 
-            ctx.class_protos_ctors[cid as usize] = crate::context::ProtoCtorPair {
-                proto: Some(ta_proto),
-                ctor: Some(ta_ctor),
-            };
+            global.define_property_value(
+                ctx,
+                name,
+                ta_ctor.into(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )?;
         }
 
         Ok(None)

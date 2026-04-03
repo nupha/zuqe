@@ -156,10 +156,10 @@ impl Promise {
         ctx: &mut ScopedContext,
         ctor: JSValue,
     ) -> Result<(Object, [JSValue; 2]), i32> {
-        let executor = NativeFunction::create(
+        let executor = NativeFunction::create_internal(
             ctx,
             Callback::Func(Promise::executor_handler),
-            "",
+            Atom::CONST_empty_string,
             2,
             0,
             None,
@@ -312,7 +312,7 @@ impl Promise {
 
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
         debug_assert_eq!(class_id, JS_CLASS_PROMISE);
-        debug_assert!(ctx.class_protos_ctors[class_id as usize].proto.is_none());
+        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         let mut proto = ctx.create_base_object()?;
         proto.install_fields(ctx, js_promise_proto_funcs)?;
@@ -327,7 +327,7 @@ impl Promise {
         )?;
         ctor.install_fields(ctx, js_promise_funcs)?;
 
-        ctx.class_protos_ctors[class_id as usize] = ProtoCtorPair {
+        ctx.class_slots[class_id as usize] = ProtoCtorPair {
             proto: Some(proto),
             ctor: Some(ctor),
         };
