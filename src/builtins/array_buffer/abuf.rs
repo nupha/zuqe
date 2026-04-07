@@ -243,7 +243,7 @@ impl ArrayBuffer {
         }
     }
 
-    /// Create new instance of class ARRAY_BUFFER or ARRAY_BUFFER_SHARED.
+    /// Create ARRAY_BUFFER or ARRAY_BUFFER_SHARED instance.
     fn create_internal(
         ctx: &mut ScopedContext,
         new_target: JSValue,

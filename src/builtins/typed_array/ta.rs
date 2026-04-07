@@ -183,7 +183,10 @@ impl TypedArray {
         Self::TYPED_ARRAY_SIZE_LOG2[(class_id - JS_CLASS_UINT8C_ARRAY) as usize]
     }
 
-    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub(crate) fn class_init(
+        ctx: &mut ScopedContext,
+        class_id: ClassID,
+    ) -> Result<Option<Object>, i32> {
         debug_assert!(matches!(
             class_id,
             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY
@@ -253,7 +256,7 @@ impl TypedArray {
         Ok(None)
     }
 
-    pub const fn class_finalize(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {
+    pub(crate) const fn class_finalize(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {
         // Hint: TypedArray underlaying ArrayBuffer object could have been disposed,
         // calling ta.array_buffer() like following may cause undefined behaviour.
         // if let Some(ta) = isa.typed_array() {
@@ -261,6 +264,171 @@ impl TypedArray {
         //         .payload_mut()
         //         .remove_typed_array_weakref(rt, id);
         // }
+    }
+
+    /// create TypedArray instance with given ArrayBuffer, offset and count.
+    ///
+    /// Note: `count` is number of elements, not bytes.
+    fn create(
+        ctx: &mut ScopedContext,
+        new_target: JSValue,
+        array_buffer: ArrayBuffer,
+        offset: usize,
+        count: usize,
+        class_id: ClassID,
+    ) -> Result<Self, i32> {
+        let ta = Box::new(TypedArrayPayload::new(
+            array_buffer,
+            class_id,
+            offset,
+            count,
+        )?);
+
+        let isa = match class_id {
+            JS_CLASS_UINT8C_ARRAY => ObjectPayload::UINT8C_ARRAY(ta),
+            JS_CLASS_UINT8_ARRAY => ObjectPayload::UINT8_ARRAY(ta),
+            JS_CLASS_INT8_ARRAY => ObjectPayload::INT8_ARRAY(ta),
+            JS_CLASS_UINT16_ARRAY => ObjectPayload::UINT16_ARRAY(ta),
+            JS_CLASS_INT16_ARRAY => ObjectPayload::INT16_ARRAY(ta),
+            JS_CLASS_INT32_ARRAY => ObjectPayload::INT32_ARRAY(ta),
+            JS_CLASS_UINT32_ARRAY => ObjectPayload::UINT32_ARRAY(ta),
+            JS_CLASS_FLOAT32_ARRAY => ObjectPayload::FLOAT32_ARRAY(ta),
+            JS_CLASS_FLOAT64_ARRAY => ObjectPayload::FLOAT64_ARRAY(ta),
+            c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
+                ctx.throw_type_error(&format!(
+                    "typed array for {} is unsupported",
+                    if c == JS_CLASS_BIG_INT64_ARRAY {
+                        "BigInt"
+                    } else {
+                        "BigUint"
+                    }
+                ));
+                return Err(-1);
+            }
+            c => {
+                unreachable!("{c}")
+            }
+        };
+
+        let ta = ctx
+            .create_object_from_ctor(new_target, isa)
+            .map_err(|_| -1)?;
+
+        // establish mutual references between TypedArray <==> ArrayBuffer
+        {
+            let p = ta.payload().typed_array().unwrap();
+            let w = ta.downgrade();
+            p.array_buffer().payload_mut().add_typed_array_weakref(w);
+            unsafe {
+                *p.obj.get() = w;
+            }
+        }
+
+        Ok(Self(ta.0))
+    }
+
+    /// create TypedArray instance with empty ArrayBuffer.
+    ///
+    /// Note: `count` is number of elements, not bytes.
+    pub(crate) fn create_empty(
+        ctx: &mut ScopedContext,
+        new_target: JSValue,
+        count: usize,
+        class_id: ClassID,
+    ) -> Result<Self, i32> {
+        let abuf = ArrayBuffer::create(ctx, false, count << TypedArray::SIZE_LOG2(class_id))?;
+        Self::create(ctx, new_target, abuf, 0, count, class_id)
+    }
+
+    /// Create new TypedArray instance from given `source` value. The source could be:
+    /// - a TypedArray object: create TypedArray with content copied from source;
+    /// - an ArrayBuffer or SharedArrayBuffer object: create TypedArray with array buffer;
+    /// - an enumerable object: create TypedArray with content from enumerated index property vals.
+    pub(crate) fn create_from(
+        ctx: &mut ScopedContext,
+        new_target: JSValue,
+        source: JSValue,
+        offset: usize,
+        length: usize,
+        class_id: ClassID,
+    ) -> Result<Self, i32> {
+        let size_log2 = Self::SIZE_LOG2(class_id);
+
+        match source {
+            JSValue::Object(o) => {
+                match o.class_id() {
+                    JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER => {
+                        Self::create(ctx, new_target, ArrayBuffer(o.0), offset, length, class_id)
+                    }
+                    JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                        Self(o.0).create_to_new(ctx, new_target, class_id)
+                    }
+                    _ => {
+                        // source is an enumetable object.
+                        // get property from source object and set to new array.
+                        let iterator = {
+                            #[cfg(feature = "builtin_symbol")]
+                            {
+                                o.get_property(ctx, Atom::CONST_Symbol_iterator)?
+                            }
+                            #[cfg(not(feature = "builtin_symbol"))]
+                            JSValue::UNDEFINED
+                        };
+
+                        let (enum_obj, count) = if !iterator.is_undefined_or_null() {
+                            js_array_from_iterator(ctx, o.into(), iterator)?
+                        } else {
+                            let len = o.get_length_prop(ctx)? as usize;
+                            (o.into(), len)
+                        };
+
+                        let abuf = ArrayBuffer::create(ctx, false, count << size_log2)?;
+                        let mut new_ta = Self::create(ctx, new_target, abuf, 0, count, class_id)?;
+
+                        for i in 0..count {
+                            let v = enum_obj.get_property_u32(ctx, i as u32)?;
+                            new_ta.set_property_u32(ctx, i as u32, v)?;
+                        }
+
+                        Ok(new_ta)
+                    }
+                }
+            }
+            _ => Err(-1),
+        }
+    }
+
+    fn create_from_vec<D>(
+        ctx: &mut ScopedContext,
+        new_target: JSValue,
+        mut data: Vec<D>,
+        class_id: ClassID,
+    ) -> Result<Self, i32> {
+        let count = data.len();
+
+        let data = unsafe {
+            data.shrink_to_fit();
+            let len = data.len();
+            let cap = data.capacity();
+            let ptr = data.as_mut_ptr() as *mut u8;
+            let elem_size = std::mem::size_of::<D>();
+            std::mem::forget(data);
+            Vec::from_raw_parts(ptr, len * elem_size, cap * elem_size).into_boxed_slice()
+        };
+
+        let abuf =
+            ArrayBuffer::from_data(ctx, JSValue::UNDEFINED, false, data, std::ptr::null_mut())?;
+        Self::create(ctx, new_target, abuf, 0, count, class_id)
+    }
+
+    /// create Int32Array instance with vec data.
+    pub fn create_from_vec_i32(ctx: &mut ScopedContext, data: Vec<i32>) -> Result<Self, i32> {
+        Self::create_from_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_INT32_ARRAY)
+    }
+
+    /// create Uint32Array instance with vec data.
+    pub fn create_from_vec_u32(ctx: &mut ScopedContext, data: Vec<u32>) -> Result<Self, i32> {
+        Self::create_from_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_UINT32_ARRAY)
     }
 
     #[inline(always)]
@@ -444,134 +612,5 @@ impl TypedArray {
         }
 
         Ok(new_ta)
-    }
-
-    /// create an TypedArray with array buffer, offset and count.
-    /// `count`: number of elements.
-    fn create(
-        ctx: &mut ScopedContext,
-        new_target: JSValue,
-        array_buffer: ArrayBuffer,
-        offset: usize,
-        count: usize,
-        class_id: ClassID,
-    ) -> Result<Self, i32> {
-        let ta = Box::new(TypedArrayPayload::new(
-            array_buffer,
-            class_id,
-            offset,
-            count,
-        )?);
-
-        let isa = match class_id {
-            JS_CLASS_UINT8C_ARRAY => ObjectPayload::UINT8C_ARRAY(ta),
-            JS_CLASS_UINT8_ARRAY => ObjectPayload::UINT8_ARRAY(ta),
-            JS_CLASS_INT8_ARRAY => ObjectPayload::INT8_ARRAY(ta),
-            JS_CLASS_UINT16_ARRAY => ObjectPayload::UINT16_ARRAY(ta),
-            JS_CLASS_INT16_ARRAY => ObjectPayload::INT16_ARRAY(ta),
-            JS_CLASS_INT32_ARRAY => ObjectPayload::INT32_ARRAY(ta),
-            JS_CLASS_UINT32_ARRAY => ObjectPayload::UINT32_ARRAY(ta),
-            JS_CLASS_FLOAT32_ARRAY => ObjectPayload::FLOAT32_ARRAY(ta),
-            JS_CLASS_FLOAT64_ARRAY => ObjectPayload::FLOAT64_ARRAY(ta),
-            c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
-                ctx.throw_type_error(&format!(
-                    "typed array for {} is unsupported",
-                    if c == JS_CLASS_BIG_INT64_ARRAY {
-                        "BigInt"
-                    } else {
-                        "BigUint"
-                    }
-                ));
-                return Err(-1);
-            }
-            c => {
-                unreachable!("{c}")
-            }
-        };
-        let ta = ctx
-            .create_object_from_ctor(new_target, isa)
-            .map_err(|_| -1)?;
-
-        // establish mutual references between TypedArray <==> ArrayBuffer
-        {
-            let p = ta.payload().typed_array().unwrap();
-            let w = ta.downgrade();
-            p.array_buffer().payload_mut().add_typed_array_weakref(w);
-            unsafe {
-                *p.obj.get() = w;
-            }
-        }
-
-        Ok(Self(ta.0))
-    }
-
-    /// create an TypedArray with empty array buffer.
-    /// `count`: number of elements
-    pub fn with_capacity(
-        ctx: &mut ScopedContext,
-        new_target: JSValue,
-        count: usize,
-        class_id: ClassID,
-    ) -> Result<Self, i32> {
-        let abuf = ArrayBuffer::create(ctx, false, count << TypedArray::SIZE_LOG2(class_id))?;
-        Self::create(ctx, new_target, abuf, 0, count, class_id)
-    }
-
-    /// create a TypedArray from an existing `source`. The source value could be:
-    /// - TypedArray: create a TypedArray with content copied from source;
-    /// - ArrayBuffer, SharedArrayBuffer: create a TypedArray with array buffer;
-    /// - An enumerable object: create a TypedArray with content from enumerated index property vals.
-    pub(crate) fn create_from(
-        ctx: &mut ScopedContext,
-        new_target: JSValue,
-        source: JSValue,
-        offset: usize,
-        length: usize,
-        class_id: ClassID,
-    ) -> Result<Self, i32> {
-        let size_log2 = Self::SIZE_LOG2(class_id);
-
-        match source {
-            JSValue::Object(o) => {
-                match o.class_id() {
-                    JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER => {
-                        Self::create(ctx, new_target, ArrayBuffer(o.0), offset, length, class_id)
-                    }
-                    JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                        Self(o.0).create_to_new(ctx, new_target, class_id)
-                    }
-                    _ => {
-                        // source is an enumetable object.
-                        // get property from source object and set to new array.
-                        let iterator = {
-                            #[cfg(feature = "builtin_symbol")]
-                            {
-                                o.get_property(ctx, Atom::CONST_Symbol_iterator)?
-                            }
-                            #[cfg(not(feature = "builtin_symbol"))]
-                            JSValue::UNDEFINED
-                        };
-
-                        let (enum_obj, count) = if !iterator.is_undefined_or_null() {
-                            js_array_from_iterator(ctx, o.into(), iterator)?
-                        } else {
-                            let len = o.get_length_prop(ctx)? as usize;
-                            (o.into(), len)
-                        };
-
-                        let abuf = ArrayBuffer::create(ctx, false, count << size_log2)?;
-                        let mut new_ta = Self::create(ctx, new_target, abuf, 0, count, class_id)?;
-
-                        for i in 0..count {
-                            let v = enum_obj.get_property_u32(ctx, i as u32)?;
-                            new_ta.set_property_u32(ctx, i as u32, v)?;
-                        }
-
-                        Ok(new_ta)
-                    }
-                }
-            }
-            _ => Err(-1),
-        }
     }
 }

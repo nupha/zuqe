@@ -38,6 +38,9 @@ pub type ClassInitializeFn =
 /// class instance finalize callback.
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
 
+/// class unregister handler.
+pub type ClassUnregisterFn = fn();
+
 pub type DefineOwnPropertyFn = fn(
     ctx: &mut ScopedContext,
     target: JSValue,

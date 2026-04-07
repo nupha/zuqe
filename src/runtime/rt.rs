@@ -377,6 +377,13 @@ impl RuntimeImpl {
         //     0,
         //     "should not have live gc nodes"
         // );
+
+        // class unregister callbacks
+        for c in &self.class_registry {
+            if let Some(f) = c.unregister {
+                f();
+            }
+        }
     }
 }
 

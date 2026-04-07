@@ -12,7 +12,7 @@ use crate::{
     builtins::{generator::js_async_iterator_proto_funcs, iterator::js_iterator_proto_funcs},
     class::{
         ClassCallFn, ClassDef, ClassExoticMethods, ClassFinalizeFn, ClassID, ClassInitializeFn,
-        FreeObjFn, StdClassDef,
+        ClassUnregisterFn, FreeObjFn, StdClassDef,
     },
     context::{ContextImpl, ProtoCtorPair},
     function::{Callback, CallbackFn, NativeFunction},
@@ -33,6 +33,8 @@ pub(crate) struct ClassMeta {
     /// handler on instance of class dispose
     pub(crate) dispose: Option<FreeObjFn>,
 
+    /// class def unregister handler.
+    pub(crate) unregister: Option<ClassUnregisterFn>,
     /// initialize class proto, constructor to context
     pub(crate) initialize: Option<ClassInitializeFn>,
     /// instance finalize handler
@@ -73,6 +75,7 @@ impl RuntimeImpl {
             call: class_def.call,
             exotic: class_def.exotic.as_ref().cloned(),
             dispose: class_def.dispose,
+            unregister: class_def.unregister,
             initialize: class_def.initialize,
             finalize: class_def.finalize,
         };

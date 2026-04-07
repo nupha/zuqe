@@ -136,7 +136,7 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
         }
     } else {
         let len = cc.arg(0).to_index(ctx)? as usize;
-        TypedArray::with_capacity(ctx, new_target, len, class_id)
+        TypedArray::create_empty(ctx, new_target, len, class_id)
     };
 
     ta.map(|x| x.into())

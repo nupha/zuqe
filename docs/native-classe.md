@@ -4,10 +4,11 @@ This tutorial explains how to define native Rust classes within the `zuqe` crate
 
 ## 1. Define a class
 
-Define a class using `ClassDef::new` and provide two handlers:
+Define a class using `ClassDef::new` and provide three handlers:
 
 - Class initialization – to set up the class prototype (and optionally the constructor) for a context.
 - Class instance finalization – called when the instance is disposed, usually used to clean up Rust-side data associated with the instance.
+- Class unregister – called when the `Runtime` is being destroyed, used to clean up runtime-level resources associated with the class (for example, backends that require global init/free pairs).
 
 ```rust
 use std::{cell::Cell, ffi::c_void};
@@ -65,7 +66,9 @@ impl JSFile {
 }
 ```
 
-`FileDesc` is the Rust-side data type that wraps a file descriptor or standard stream. Each `File` class instance carries a raw pointer to a `FileDesc` value in its opaque payload. When creating an instance, the `FileDesc` is boxed and converted into a raw pointer using `Box::into_raw`, temporarily “forgetting” Rust’s ownership so that the GC-managed JS object can hold it. When the JS object is disposed, the `handle_dispose` callback reclaims ownership with `Box::from_raw` and drops the value, ensuring that the underlying Rust resources are eventually released.
+_Note: Besides per-instance finalization, some native types manage resources at the `Runtime` level that must be initialized once and released when the runtime is destroyed. For these cases, you can provide a class unregister callback on the `ClassDef` using `ClassDef::on_unregister(...)`. When a `Runtime` is dropped, it will invoke the unregister callback of each registered class in turn, allowing you to perform global cleanup. A typical use-case is integrating libraries such as `llama.cpp`, where you call `llama_backend_init` when registering the class, and then use the class unregister callback to call `llama_backend_free` when the runtime is torn down. Any facility that needs a matched global init/free sequence can plug into this mechanism via the unregister callback._
+
+`FileDesc` showed in above example is the Rust-side data type that wraps a file descriptor or standard stream. Each `File` class instance carries a raw pointer to a `FileDesc` value in its opaque payload. When creating an instance, the `FileDesc` is boxed and converted into a raw pointer using `Box::into_raw`, temporarily “forgetting” Rust’s ownership so that the GC-managed JS object can hold it. When the JS object is disposed, the `handle_dispose` callback reclaims ownership with `Box::from_raw` and drops the value, ensuring that the underlying Rust resources are eventually released.
 
 ## 2. Define class methods and properties
 

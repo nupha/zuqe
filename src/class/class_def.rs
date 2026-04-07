@@ -4,7 +4,10 @@
 use crate::{
     RuntimeImpl,
     atom::Atom,
-    class::{ClassCallFn, ClassInitializeFn, FreeObjFn, GetPrototypeFn, SetPrototypeFn},
+    class::{
+        ClassCallFn, ClassInitializeFn, ClassUnregisterFn, FreeObjFn, GetPrototypeFn,
+        SetPrototypeFn,
+    },
     context::ScopedContext,
     function::FunctionDef,
     object::{JS_PROP_NO_EXOTIC, ObjectPayload},
@@ -89,6 +92,8 @@ pub struct ClassDef {
     /// handler on class instance dispose
     pub(crate) dispose: Option<FreeObjFn>,
 
+    /// class def unregister handler.
+    pub(crate) unregister: Option<ClassUnregisterFn>,
     /// initialize class proto, constructor to context
     pub(crate) initialize: Option<ClassInitializeFn>,
     /// class instance finalize callback
@@ -105,6 +110,7 @@ impl ClassDef {
             exotic: None,
             dispose: None,
 
+            unregister: None,
             initialize: None,
             finalize: Some(Self::default_fini_fn),
         }
@@ -124,8 +130,14 @@ impl ClassDef {
         self
     }
 
+    /// set class unregister callback
+    pub const fn on_unregister(mut self, f: ClassUnregisterFn) -> Self {
+        self.unregister.replace(f);
+        self
+    }
+
     #[deprecated(note = "use ::on_init() instead")]
-    pub const fn initialize(mut self, f: ClassInitializeFn) -> Self {
+    pub const fn initialize(self, f: ClassInitializeFn) -> Self {
         self.on_init(f)
     }
 
