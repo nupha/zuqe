@@ -111,7 +111,7 @@ impl ClassDef {
     }
 
     /// set class initialize callback
-    pub const fn initialize(mut self, f: ClassInitializeFn) -> Self {
+    pub const fn on_init(mut self, f: ClassInitializeFn) -> Self {
         self.initialize.replace(f);
         self
     }
@@ -122,6 +122,11 @@ impl ClassDef {
     pub const fn on_dispose(mut self, f: FreeObjFn) -> Self {
         self.dispose.replace(f);
         self
+    }
+
+    #[deprecated(note = "use ::on_init() instead")]
+    pub const fn initialize(mut self, f: ClassInitializeFn) -> Self {
+        self.on_init(f)
     }
 
     #[deprecated(note = "use ::on_disponse() instead")]

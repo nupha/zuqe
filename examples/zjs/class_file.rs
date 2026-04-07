@@ -238,7 +238,7 @@ impl JSFile {
         let class_id = rt
             .register_class(
                 &ClassDef::new("File")
-                    .initialize(Self::handle_init)
+                    .on_init(Self::handle_init)
                     .on_dispose(Self::handle_dispose),
             )
             .expect("register class File failed");

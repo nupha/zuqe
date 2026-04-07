@@ -1,13 +1,13 @@
-# Native Classe
+# Native Classes
 
 This tutorial explains how to define native Rust classes within the `zuqe` crate. We'll define a class that wraps a Rust file descriptor, exposing its functionality to JavaScript. The examples are based on the `File` class used in the `zjs` example.
 
-## 1. Class Definition
+## 1. Define a class
 
 Define a class using `ClassDef::new` and provide two handlers:
 
-- an initialization handler to set up the prototype,
-- a finalization handler to clean up any Rust-side data associated with the class.
+- Class initialization – to set up the class prototype (and optionally the constructor) for a context.
+- Class instance finalization – called when the instance is disposed, usually used to clean up Rust-side data associated with the instance.
 
 ```rust
 use std::{cell::Cell, ffi::c_void};
@@ -30,7 +30,8 @@ impl JSFile {
         Ok(Some(proto))
     }
 
-    fn handle_fini(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
+    /// this handler will be called when a class instance is disposed.
+    fn handle_dispose(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
         if !opaque.is_null() {
             let p = unsafe { Box::from_raw(opaque.cast::<FileDesc>()) };
             drop(p);
@@ -38,15 +39,17 @@ impl JSFile {
     }
 
     thread_local! {
-        static CLASS_ID: Cell<ClassID> = const { Cell::new(0) }; // To store our class's registration id
+        /// To store class's registration id
+        static CLASS_ID: Cell<ClassID> = const { Cell::new(0) };
     }
 
+    /// register class to runtime
     pub fn register(mut rt: Runtime) -> Result<ClassID, i32> {
         let class_id = rt
             .register_class(
                 &ClassDef::new("File")
-                    .initialize(Self::handle_init)
-                    .finalize_opaque(Self::handle_fini),
+                    .on_init(Self::handle_init)
+                    .on_dispose(Self::handle_dispose),
             )
             .expect("register class File failed");
 
@@ -54,6 +57,7 @@ impl JSFile {
         Ok(class_id)
     }
 
+    /// get class registration id
     #[inline(always)]
     pub fn class_id() -> ClassID {
         JSFile::CLASS_ID.with(|x| x.get())
@@ -61,12 +65,14 @@ impl JSFile {
 }
 ```
 
-## 2. Methods
+`FileDesc` is the Rust-side data type that wraps a file descriptor or standard stream. Each `File` class instance carries a raw pointer to a `FileDesc` value in its opaque payload. When creating an instance, the `FileDesc` is boxed and converted into a raw pointer using `Box::into_raw`, temporarily “forgetting” Rust’s ownership so that the GC-managed JS object can hold it. When the JS object is disposed, the `handle_dispose` callback reclaims ownership with `Box::from_raw` and drops the value, ensuring that the underlying Rust resources are eventually released.
 
-Bind Rust functions to JavaScript class methods using `FieldDef::CALL`. For example, the following `js_file_puts` function defines the implementation of the JS `File.puts` method.
+## 2. Define class methods and properties
+
+Bind Rust functions to JavaScript class methods using `FieldDef::CALL`, and define properties using helpers such as `FieldDef::INT32`. For example, the following `js_file_puts` function defines the implementation of the JS `File.puts` method, and the prototype also exposes an integer property.
 
 ```rust
-use zuqe::{CallContext, JSResult, JSValue};
+use zuqe::{CallContext, FieldDef, JSResult, JSValue, ScopedContext, JS_PROP_C_W_E};
 
 fn js_file_get_desc_mut<'a>(
     ctx: &mut ScopedContext,
@@ -127,13 +133,73 @@ fn js_file_puts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 const CLASS_FILE_PROTO: &[FieldDef] = &[
     FieldDef::CALL("puts", 1, js_file_puts, 1),
-    // other methods omitted
+    FieldDef::INT32("DEFAULT_BUFFER_SIZE", 8192, JS_PROP_C_W_E),
 ];
 ```
 
-## 3. Creating Instances
+## 3. Expose the Class to JavaScript Context
 
-Use `create_object_user_class` to create instances and attach a Rust-side payload.
+Before a native class can be used inside a specific JavaScript context, it must be explicitly enabled for that context. Class registration happens at the `Runtime` level, but each `Context` chooses which classes it actually uses. After registering a class, you must call `ctx.use_class(class_id)` or `ctx.use_classes(&[class_id, ...])` so that the context initializes the class’s prototype and constructor; until then, the class remains unavailable in that context.
+
+This design allows multiple contexts to share the same registered classes while selectively enabling only the ones they need. One context can use a class such as `File`, while another context simply never enables it and therefore cannot access it.
+
+Once a native class has been registered in the runtime and enabled for a given context, you typically want to make its constructor visible from JavaScript. For example, you may want a global `File` constructor or a named export from a native module.
+
+There are two common ways to do this:
+
+- Obtain the constructor object with `Context::class_constructor(ClassID)` and attach it to any JavaScript object using `define_property_value` (or its `*_str` variants).
+- Declare a `FieldDef::CLASS("File", prop_flags)` entry inside another object or module definition so that the constructor is resolved and exported automatically.
+
+`Context::class_constructor` returns an `Option<Object>` because a class may not yet have a constructor in a given context. In real code you should either ensure that the constructor has been created before calling this API, or gracefully handle the `None` case. To create the constructor for a native class and register it in the context, call `ctx.init_class_constructor`, typically inside the class’s `handle_init` callback (after creating the prototype) or immediately before the first place where you need the constructor. When you pass a non‑empty `entries` slice to `init_class_constructor`, those fields are installed on the constructor function object itself, which is how you define static methods for your native class.
+
+Let's talk above options in detail:
+
+### 3.1 Manually attach the constructor
+
+If you already know the `ClassID` for your native class (for example via `JSFile::class_id()`), you can query the constructor from the context and attach it to an object. A typical use‑case is to place the constructor on the global object so that JavaScript code can call `new File(...)`:
+
+```rust
+use zuqe::{JS_PROP_C_W_E, ScopedContext};
+
+fn install_file_global(ctx: &mut ScopedContext) -> Result<(), i32> {
+    let ctor = ctx.class_constructor(JSFile::class_id()).unwrap();
+
+    let mut global = ctx.global_obj();
+    global.define_property_value_str(ctx, "File", ctor.into(), JS_PROP_C_W_E)?;
+    Ok(())
+}
+```
+
+### 3.2 Export via `FieldDef::CLASS`
+
+Another convenient way to expose a native class is to declare it in a `FieldDef` array and let the runtime resolve the constructor by name. This is especially useful for native modules or namespace objects that are initialized from a list of `FieldDef` entries.
+
+`FieldDef::CLASS` creates a field whose value is automatically set to the constructor of the class with the given name (looked up in the runtime’s class registry):
+
+```rust
+use zuqe::{FieldDef, JS_PROP_C_W_E, ScopedContext};
+
+static FILE_MODULE_ENTRIES: &[FieldDef] = &[
+    FieldDef::CLASS("File", JS_PROP_C_W_E),
+];
+
+fn create_file_module(ctx: &mut ScopedContext) -> Result<(), i32> {
+    ctx.create_module("file", FILE_MODULE_ENTRIES)?;
+    Ok(())
+}
+```
+
+When the module is initialized, each `FieldDef::CLASS` entry:
+
+- Looks up the registered class by its name (for example `"File"`).
+- Retrieves the associated constructor object for that class.
+- Exports the constructor under the same name as a property of the module or object.
+
+This pattern lets you expose native classes declaratively, alongside functions and constant values, without manually calling `class_constructor` or `define_property_value` for each one.
+
+## 4. Creating Instances
+
+Use `create_object_user_class` to create instances and attach a Rust-side payload. In the `zjs` example, `JSFile` provides helper constructors for regular files and for standard streams:
 
 ```rust
 impl JSFile {
@@ -150,22 +216,29 @@ impl JSFile {
     pub fn new_instance(ctx: &mut ScopedContext, fh: std::fs::File) -> Result<Object, i32> {
         Self::new_instance_internal(ctx, FileDesc::File(fh))
     }
+
+    pub fn new_instance_stdin(ctx: &mut ScopedContext) -> Result<Object, i32> {
+        Self::new_instance_internal(ctx, FileDesc::Stdin)
+    }
+
+    pub fn new_instance_stdout(ctx: &mut ScopedContext) -> Result<Object, i32> {
+        Self::new_instance_internal(ctx, FileDesc::Stdout)
+    }
+
+    pub fn new_instance_stderr(ctx: &mut ScopedContext) -> Result<Object, i32> {
+        Self::new_instance_internal(ctx, FileDesc::Stderr)
+    }
 }
 ```
 
-## 4. Important Note
-
-The `handle_fini` handler is called when a class instance is collected. It receives the `opaque` pointer attached when the object was created. This is where you take back ownership (with `Box::from_raw`) and ensure Rust resources are properly dropped to avoid memory leaks.
+These helpers are then used by the native `"std"` module to expose pre-built `File` instances:
 
 ```rust
-fn handle_fini(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
-    if !opaque.is_null() {
-        unsafe {
-            let p = Box::from_raw(opaque.cast::<FileDesc>());
-            drop(p);
-        }
-    }
-}
+const MOD_STD_ENTRIES: &[FieldDef] = &[
+    FieldDef::BUILD("in", |cx| Ok(JSValue::Object(JSFile::new_instance_stdin(cx)?)), 0),
+    FieldDef::BUILD("out", |cx| Ok(JSValue::Object(JSFile::new_instance_stdout(cx)?)), 0),
+    FieldDef::BUILD("err", |cx| Ok(JSValue::Object(JSFile::new_instance_stderr(cx)?)), 0),
+];
 ```
 
 ## 5. Using the Class from JavaScript
