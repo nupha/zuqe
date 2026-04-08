@@ -544,7 +544,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
     let mut async_end: Option<usize> = None;
 
     cdefs.push(format!(
-        "pub(crate) const STD_CLASS_DEFS: [StdClassDef;{}] = [",
+        "pub(crate) const BUILTIN_CLASS_DEFS: [ShortClassDef;{}] = [",
         class_defs.len()
     ));
 
@@ -586,7 +586,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
     cdefs.push("];".to_string());
 
     let lines = [
-        "use crate::{Atom, class::{ClassID, StdClassDef}};\n".to_string(),
+        "use crate::{Atom, class::{ClassID, ShortClassDef}};\n".to_string(),
         consts.join("\n"),
         "".to_string(),
         cdefs.join("\n"),

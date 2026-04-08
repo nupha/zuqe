@@ -48,7 +48,7 @@ impl JSFile {
     pub fn register(mut rt: Runtime) -> Result<ClassID, i32> {
         let class_id = rt
             .register_class(
-                &ClassDef::new("File")
+                ClassDef::new("File")
                     .on_init(Self::handle_init)
                     .on_dispose(Self::handle_dispose),
             )

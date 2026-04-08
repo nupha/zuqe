@@ -12,7 +12,7 @@ use crate::{
     builtins::{generator::js_async_iterator_proto_funcs, iterator::js_iterator_proto_funcs},
     class::{
         ClassCallFn, ClassDef, ClassExoticMethods, ClassFinalizeFn, ClassID, ClassInitializeFn,
-        ClassUnregisterFn, FreeObjFn, StdClassDef,
+        ClassUnregisterFn, FreeObjFn, ShortClassDef,
     },
     context::{ContextImpl, ProtoCtorPair},
     function::{Callback, CallbackFn, NativeFunction},
@@ -47,7 +47,7 @@ impl RuntimeImpl {
         &mut self,
         class_id: ClassID,
         class_name: Atom,
-        class_def: &ClassDef,
+        class_def: ClassDef,
     ) -> Result<(), i32> {
         if (class_id as usize) < self.class_registry.len() {
             if !self.class_registry[class_id as usize].class_name.is_null() {
@@ -56,7 +56,6 @@ impl RuntimeImpl {
         } else if class_id as usize >= self.class_registry.len() {
             // grow slot
             let extra = class_id as usize - self.class_registry.len() + 1;
-
             // grow context class prototype array
             for ctx in self.context_list.iter_mut() {
                 ctx.class_slots.try_reserve(extra).map_err(|_| -1)?;
@@ -73,7 +72,7 @@ impl RuntimeImpl {
         self.class_registry[class_id as usize] = ClassMeta {
             class_name,
             call: class_def.call,
-            exotic: class_def.exotic.as_ref().cloned(),
+            exotic: class_def.exotic,
             dispose: class_def.dispose,
             unregister: class_def.unregister,
             initialize: class_def.initialize,
@@ -83,22 +82,25 @@ impl RuntimeImpl {
         Ok(())
     }
 
-    /// register standard class defs.
+    /// register builtin class defs.
     pub(crate) fn register_builtin_classes(
         &mut self,
-        tab: &[StdClassDef],
+        tab: &[ShortClassDef],
         start_id: ClassID,
     ) -> Result<(), i32> {
         debug_assert!(start_id > 0);
-
         let mut class_id = start_id;
+
         for item in tab {
-            let cd = ClassDef {
-                initialize: item.initialize,
-                finalize: item.finalize,
-                ..Default::default()
-            };
-            self.register_class_internal(class_id, item.class_name, &cd)?;
+            self.register_class_internal(
+                class_id,
+                item.class_name,
+                ClassDef {
+                    initialize: item.initialize,
+                    finalize: item.finalize,
+                    ..Default::default()
+                },
+            )?;
             class_id += 1;
         }
 
@@ -107,7 +109,7 @@ impl RuntimeImpl {
 
     /// Register an user-defined (non-builtin) class defination.
     /// returns the assigned class_id.
-    pub fn register_class(&mut self, class_def: &ClassDef) -> Result<ClassID, i32> {
+    pub fn register_class(&mut self, class_def: ClassDef) -> Result<ClassID, i32> {
         debug_assert!(!class_def.class_name.is_empty());
         debug_assert!(class_def.finalize.is_some());
 

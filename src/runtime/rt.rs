@@ -10,7 +10,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS,
     JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
-    JS_CLASS_STRING, STD_CLASS_DEFS, USER_CLASS_ID_START,
+    JS_CLASS_STRING, BUILTIN_CLASS_DEFS, USER_CLASS_ID_START,
     atom::AtomRegistry,
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions,
@@ -158,7 +158,7 @@ impl RuntimeImpl {
         rt.init_const_atoms();
 
         // register builtin classes
-        rt.register_builtin_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
+        rt.register_builtin_classes(&BUILTIN_CLASS_DEFS, JS_CLASS_OBJECT)?;
 
         // setup common classes
         {

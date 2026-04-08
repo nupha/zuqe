@@ -37,7 +37,7 @@ pub(crate) struct ClassExoticMethods {
 }
 
 /// builtin class definition
-pub(crate) struct StdClassDef {
+pub(crate) struct ShortClassDef {
     pub class_name: Atom,
     pub initialize: Option<ClassInitializeFn>,
     pub finalize: Option<ClassFinalizeFn>,
@@ -59,7 +59,7 @@ pub(crate) struct ClassFieldsDef {
 impl Drop for ClassFieldsDef {
     fn drop(&mut self) {
         if !self.fields_init_fd.is_null() {
-            let _ = Box::from(self.fields_init_fd);
+            drop(Box::from(self.fields_init_fd));
         }
     }
 }
