@@ -113,8 +113,6 @@ pub(crate) fn js_aton(
     mut radix: i32,
     flags: i32,
 ) -> Result<(IntOrFloat, usize), i32> {
-    let mut idx: usize = 0;
-
     macro_rules! fail {
         () => {
             ctx.throw_type_error("invalid number literal");
@@ -122,37 +120,39 @@ pub(crate) fn js_aton(
         };
     }
 
-    let mut sep = if flags & ATOD_ACCEPT_UNDERSCORES != 0 {
-        '_' as i32
-    } else {
-        256
-    };
-
-    enum GotoLabel {
-        NoRadixPrefix(bool),
-    }
-
-    let mut goto: Option<GotoLabel> = None;
+    // Track sign and whether we must skip radix-prefix parsing
+    // and go directly to "no radix prefix" handling (Infinity, etc.).
+    let mut check_infinity = false;
     let mut is_neg = false;
+    let mut idx: usize = 0;
 
+    // Optional leading sign
     match bytes.get(idx).copied() {
         Some(b'+') => {
             idx += 1;
             if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
-                goto = Some(GotoLabel::NoRadixPrefix(false));
+                check_infinity = true;
             }
         }
         Some(b'-') => {
             is_neg = true;
             idx += 1;
             if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
-                goto = Some(GotoLabel::NoRadixPrefix(true));
+                check_infinity = true;
             }
         }
         _ => {}
     };
 
-    if goto.is_none() {
+    // Optional numeric separator (underscore) accepted when flag is set
+    let mut sep = if flags & ATOD_ACCEPT_UNDERSCORES != 0 {
+        '_' as i32
+    } else {
+        256
+    };
+
+    // Optional radix prefixes (0x / 0o / 0b / legacy octal) when allowed.
+    if !check_infinity {
         if matches!(bytes.get(idx), Some(b'0')) {
             let mut no_prefix = false;
 
@@ -197,30 +197,28 @@ pub(crate) fn js_aton(
                 }
             }
         } else {
-            goto = Some(GotoLabel::NoRadixPrefix(is_neg));
+            check_infinity = true;
         }
     }
 
+    // Decide number representation kind (float64 vs bigint)
     let mut atod_type = flags & ATOD_TYPE_MASK;
 
-    while let Some(label) = goto.take() {
-        match label {
-            GotoLabel::NoRadixPrefix(is_neg) => {
-                if flags & ATOD_INT_ONLY == 0
-                    && atod_type == ATOD_TYPE_FLOAT64
-                    && bytes[idx..].starts_with(b"Infinity")
-                {
-                    return Ok((
-                        IntOrFloat::from(if is_neg {
-                            f64::NEG_INFINITY
-                        } else {
-                            f64::INFINITY
-                        }),
-                        idx + "Infinity".len(),
-                    ));
-                }
-            }
-        }
+    // Handle "Infinity" / "-Infinity" literal when we are in
+    // the "no radix prefix" state.
+    if check_infinity
+        && flags & ATOD_INT_ONLY == 0
+        && atod_type == ATOD_TYPE_FLOAT64
+        && bytes[idx..].starts_with(b"Infinity")
+    {
+        return Ok((
+            IntOrFloat::from(if is_neg {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            }),
+            idx + "Infinity".len(),
+        ));
     }
 
     if radix == 0 {
@@ -230,6 +228,7 @@ pub(crate) fn js_aton(
     let mut is_float = false;
     let start_idx = idx;
 
+    // Scan integer part: digits plus optional underscore separators.
     while let Some(c) = bytes.get(idx).copied() {
         let is_digit = (c as char).is_digit(radix as _);
 
@@ -251,6 +250,7 @@ pub(crate) fn js_aton(
             false
         };
 
+        // Stop when we see the first non-digit and non-separator.
         if !(is_digit || is_sep) {
             break;
         }
@@ -259,6 +259,7 @@ pub(crate) fn js_aton(
     }
 
     if flags & ATOD_INT_ONLY == 0 {
+        // Fractional part: optional '.' followed by digits/separators.
         if matches!(bytes.get(idx), Some(b'.'))
             && (idx > start_idx
                 || bytes
@@ -277,6 +278,7 @@ pub(crate) fn js_aton(
             {
                 fail!();
             }
+
             while bytes
                 .get(idx)
                 .copied()
@@ -293,6 +295,7 @@ pub(crate) fn js_aton(
             }
         }
 
+        // Exponent part: 'e'/'E' for decimal, 'p'/'P' for non-decimal floats.
         if idx > start_idx
             && ((matches!(bytes.get(idx), Some(b'e' | b'E')) && radix == 10)
                 || (matches!(bytes.get(idx), Some(b'p' | b'P'))
@@ -315,10 +318,12 @@ pub(crate) fn js_aton(
         }
     }
 
+    // Require at least one digit overall.
     if idx == start_idx {
         fail!();
     }
 
+    // Build normalized digit buffer (no separators, optional leading '-').
     let mut buf = SmallVec::<[u8; 64]>::new();
     let len_digits = (idx - start_idx) as i32;
 
@@ -340,6 +345,7 @@ pub(crate) fn js_aton(
         }
     }
 
+    // Optional suffix 'n' for BigInt and validation for non-decimal floats.
     if flags & ATOD_ACCEPT_SUFFIX != 0 {
         if matches!(bytes.get(idx), Some(b'n')) {
             idx += 1;
@@ -355,6 +361,7 @@ pub(crate) fn js_aton(
         ATOD_TYPE_FLOAT64 => {
             let txt = std::str::from_utf8(buf.as_slice()).unwrap();
 
+            // Non-decimal integer: parse via integer path and keep IntOrFloat precise.
             if !is_float && radix != 10 {
                 if let Ok(i) = i64::from_str_radix(txt, radix as _) {
                     let v = if unlikely(i == 0 && is_neg) {
@@ -371,6 +378,7 @@ pub(crate) fn js_aton(
                     fail!();
                 }
             } else {
+                // Decimal float or anything that went through fractional/exponent path.
                 if let Ok(f) = txt.parse::<f64>() {
                     Ok((IntOrFloat::from(f), idx))
                 } else {
