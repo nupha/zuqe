@@ -146,6 +146,11 @@ impl ClassDef {
         self.on_dispose(f)
     }
 
+    #[inline(always)]
+    pub const fn class_name(&self) -> &str {
+        self.class_name
+    }
+
     fn default_fini_fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
         if let Some(u) = isa.other() {
             if let Some(f) = rt.class_registry[u.class_id as usize].dispose {

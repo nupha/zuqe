@@ -117,12 +117,12 @@ impl Array {
     }
 
     #[inline(always)]
-    pub(crate) fn payload(&self) -> &ArrayPayload {
+    pub fn payload(&self) -> &ArrayPayload {
         self.0.payload().array().unwrap()
     }
 
     #[inline(always)]
-    pub(crate) fn payload_mut(&mut self) -> &mut ArrayPayload {
+    pub fn payload_mut(&mut self) -> &mut ArrayPayload {
         self.0.payload_mut().array_mut().unwrap()
     }
 

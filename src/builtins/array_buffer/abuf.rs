@@ -68,6 +68,31 @@ impl ABufData {
         self.len() == 0
     }
 
+    fn as_ptr(&self) -> *const u8 {
+        match self {
+            Self::Empty => std::ptr::null(),
+            Self::Owned(b) => b.as_ptr(),
+            Self::Raw(p, _, _) => p.as_ptr(),
+            Self::Shared(_) => {
+                unreachable!("SharedArrayBuffer cannot accessed underlaying bytes raw pointer");
+                // a.read().unwrap().as_ptr()
+            }
+        }
+    }
+
+    pub(crate) fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Empty => &[],
+            Self::Owned(b) => b,
+            Self::Raw(p, n, _) => unsafe { std::slice::from_raw_parts(p.as_ptr(), *n) },
+            Self::Shared(_) => {
+                unreachable!(
+                    "SharedArrayBuffer cannot accessed underlaying bytes, use with_bytes() instead"
+                )
+            }
+        }
+    }
+
     pub(crate) fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         match self {
             Self::Empty => f(&[]),
@@ -147,6 +172,17 @@ impl ArrayBufferPayload {
     #[inline(always)]
     pub const fn opaque(&self) -> *mut c_void {
         self.opaque
+    }
+
+    #[inline(always)]
+    pub(crate) fn as_ptr(&self) -> *const u8 {
+        self.data.as_ptr()
+    }
+
+    /// Get underlaying bytes of ArrayBuffer. Not for SharedArrayBuffer.
+    #[inline(always)]
+    pub fn bytes(&self) -> &[u8] {
+        self.data.bytes()
     }
 
     #[inline(always)]

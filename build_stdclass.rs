@@ -562,7 +562,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
         }
 
         cdefs.push(format!(
-            "// #{i}: id={} {}\nShortClassDef{{class_name:Atom::CONST_{name}, initialize:{}, finalize:{} }},",
+            "// #{i}: id={} {}\nShortClassDef {{class_name:Atom::CONST_{name}, initialize:{}, finalize:{} }},",
             i+1,
             cdef.const_name,
             cdef.initialize

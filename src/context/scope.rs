@@ -13,11 +13,13 @@ use crate::{Context, JSValue, context::ContextPtr};
 use super::ContextImpl;
 
 #[repr(u8)]
+#[derive(Debug)]
 enum GcScopeType<'a> {
     Owned(GcScope<'a>),
     Ref(&'a GcScopeState<'a>),
 }
 
+#[derive(Debug)]
 pub struct ScopedContext<'a> {
     pub(crate) ctx_ptr: ContextPtr,
     gc_scope: GcScopeType<'a>,
@@ -127,7 +129,12 @@ impl<'a> ScopedContext<'a> {
     /// Set promote value
     pub fn set_return_value(&mut self, val: JSValue) {
         let s = self.gc();
-        debug_assert!(s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth());
+        debug_assert!(
+            s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth(),
+            "depth: {}, max_depth: {}",
+            s.depth(),
+            self.ctx_ptr.gc_heap().scope_max_depth(),
+        );
         s.set_promote(val.gc_node_ptr());
     }
 
@@ -153,8 +160,20 @@ impl<'a> ScopedContext<'a> {
     /// run closure in a new sub scope.
     #[inline]
     pub fn with_new_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
-        let s = self.new_scope();
-        f(s)
+        #[cfg(debug_assertions)]
+        {
+            let _d1 = self.depth();
+            let s = self.new_scope();
+            let _d2 = s.depth();
+            let r = f(s);
+            debug_assert_eq!(_d1, self.depth(), "{self:p}: {self:?}");
+            r
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let s = self.new_scope();
+            f(s)
+        }
     }
 
     /// test if given node contains in `self` scope

@@ -119,6 +119,29 @@ impl TypedArrayPayload {
         self.count = n as _;
     }
 
+    /// Get underlaying bytes raw pointer of typed array. Starting from base offset.
+    #[inline(always)]
+    fn as_ptr(&self) -> *const u8 {
+        let ptr = self.array_buffer().payload().as_ptr();
+        if !ptr.is_null() {
+            let base = self.offset as usize;
+            unsafe { ptr.add(base) }
+        } else {
+            ptr
+        }
+    }
+
+    /// Get underlaying bytes
+    pub(crate) fn bytes(&self) -> &[u8] {
+        let ptr = self.as_ptr();
+        if !ptr.is_null() {
+            let len = self.byte_length as usize;
+            unsafe { std::slice::from_raw_parts(ptr, len) }
+        } else {
+            &[]
+        }
+    }
+
     /// run closure with underlaying bytes of typed array.
     pub(crate) fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         let base = self.offset as usize;
@@ -215,7 +238,7 @@ impl TypedArray {
         )?;
         ta_base_func.install_fields(ctx, js_typed_array_base_funcs)?;
 
-        ctx.bind_ctor_proto(ta_base_func.into(), proto.into())?;
+        ctx.bind_ctor_proto(ta_base_func.into(), proto)?;
 
         let mut global = ctx.global_obj();
 
@@ -495,6 +518,10 @@ impl TypedArray {
         }
     }
 
+    pub(crate) fn bytes(&self) -> &[u8] {
+        self.payload().bytes()
+    }
+
     /// run closure with underlaying bytes of typed array
     #[inline(always)]
     pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
@@ -560,13 +587,13 @@ impl TypedArray {
 
     /// run closure with elements slice.
     /// will panic if class_id does not match eleement type T is matched.
-    pub(crate) fn with_elements_as<T, R>(&self, f: impl FnOnce(&[T]) -> R) -> R {
+    pub fn with_elements_as<T, R>(&self, f: impl FnOnce(&[T]) -> R) -> R {
         let len = self.length();
         self.with_bytes(|b| f(unsafe { std::slice::from_raw_parts(b.as_ptr().cast::<T>(), len) }))
     }
 
     /// create a new TypedArray with content copied from `self` typed array.
-    pub(crate) fn create_to_new(
+    pub fn create_to_new(
         &self,
         ctx: &mut ScopedContext,
         new_target: JSValue,
@@ -612,5 +639,31 @@ impl TypedArray {
         }
 
         Ok(new_ta)
+    }
+
+    pub fn as_i32_array(&self) -> Option<&[i32]> {
+        if self.class_id() == JS_CLASS_INT32_ARRAY {
+            let ptr = self.payload().as_ptr();
+            if !ptr.is_null() {
+                Some(unsafe { std::slice::from_raw_parts(ptr.cast::<i32>(), self.length()) })
+            } else {
+                Some(&[])
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn as_u32_array(&self) -> Option<&[u32]> {
+        if self.class_id() == JS_CLASS_UINT32_ARRAY {
+            let ptr = self.payload().as_ptr();
+            if !ptr.is_null() {
+                Some(unsafe { std::slice::from_raw_parts(ptr.cast::<u32>(), self.length()) })
+            } else {
+                Some(&[])
+            }
+        } else {
+            None
+        }
     }
 }
