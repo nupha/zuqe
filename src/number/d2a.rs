@@ -232,9 +232,8 @@ fn f64_round_is_tie(num: f64, precision: usize) -> bool {
 }
 
 /* 2 <= base <= 36 */
-unsafe fn i64toa(buf: *mut u8, n: i64, base: u32) -> *mut u8 {
+unsafe fn i64toa(buf: *mut u8, mut n: i64, base: u32) -> *mut u8 {
     let mut is_neg = 0;
-    let mut n = n;
 
     if n < 0 {
         is_neg = 1;
@@ -243,32 +242,34 @@ unsafe fn i64toa(buf: *mut u8, n: i64, base: u32) -> *mut u8 {
 
     let mut q = buf;
 
-    // C2RS: Use offset to move pointer backwards and write null terminator
-    *q.offset(-1) = b'\0';
-    q = q.offset(-1);
-
-    loop {
-        let digit = (n as u64) % (base as u64);
-        n /= base as i64;
-
-        if digit < 10 {
-            *q.offset(-1) = digit as u8 + b'0';
-        } else {
-            *q.offset(-1) = digit as u8 - 10 + b'a';
-        }
+    // 在 unsafe fn 里显式使用 unsafe 块包住原始指针操作
+    unsafe {
         q = q.offset(-1);
+        *q = b'\0';
 
-        if n == 0 {
-            break;
+        loop {
+            let digit = (n as u64) % (base as u64);
+            n /= base as i64;
+
+            q = q.offset(-1);
+            if digit < 10 {
+                *q = digit as u8 + b'0';
+            } else {
+                *q = digit as u8 - 10 + b'a';
+            }
+
+            if n == 0 {
+                break;
+            }
         }
-    }
 
-    if is_neg != 0 {
-        *q.offset(-1) = b'-';
-        q = q.offset(-1);
-    }
+        if is_neg != 0 {
+            q = q.offset(-1);
+            *q = b'-';
+        }
 
-    q
+        q
+    }
 }
 
 // /* XXX: slow and maybe not fully correct. Use libbf when it is fast enough.

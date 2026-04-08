@@ -2139,12 +2139,14 @@ impl Bytecode {
                     OpCode::POST_INC | OpCode::POST_DEC => {
                         let op1 = SP_VAL!(-1);
                         if let Ok(n1) = op1.to_number(realm_scope) {
-                            SP_PUT!(-1, n1);
+                            SP_PUT!(-1, JSValue::from(n1));
                             if let Ok(res) =
-                                UnaryOp::new(realm_scope, n1, true).map(|unary| match opcode {
-                                    OpCode::POST_INC => unary.inc(),
-                                    OpCode::POST_DEC => unary.dec(),
-                                    _ => unreachable!(),
+                                UnaryOp::new(realm_scope, JSValue::from(n1), true).map(|unary| {
+                                    match opcode {
+                                        OpCode::POST_INC => unary.inc(),
+                                        OpCode::POST_DEC => unary.dec(),
+                                        _ => unreachable!(),
+                                    }
                                 })
                             {
                                 SP_PUT!(0, res);

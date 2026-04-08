@@ -6,6 +6,7 @@ use crate::{
     atom::Atom,
     context::ScopedContext,
     error::JSResult,
+    number::IntOrFloat,
     object::{Object, ObjectImpl},
     value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},
 };
@@ -73,10 +74,10 @@ impl ObjectImpl {
         Err(-1)
     }
 
-    /// Coerce object to number (Int or Float64)
-    #[inline(always)]
-    pub fn to_number(&self, ctx: &mut ScopedContext) -> JSResult {
+    /// Coerce object to number
+    pub fn to_number(&self, ctx: &mut ScopedContext) -> Result<IntOrFloat, i32> {
         self.to_primitive(ctx, HINT_NUMBER)
+            .and_then(|v| v.to_number(ctx))
     }
 }
 

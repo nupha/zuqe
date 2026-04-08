@@ -14,7 +14,7 @@ use crate::{
     atom::{Atom, AtomInfo, AtomKind},
     class::ClassExoticMethods,
     context::ScopedContext,
-    number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
+    number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
         ObjectPayload, check_define_prop_flags,
@@ -214,25 +214,25 @@ impl StringImpl {
     }
 
     /// coerce string to number. if can't convert string to number, returns NAN.
-    pub fn to_number(&self, ctx: &mut ScopedContext) -> JSValue {
+    pub fn to_number(&self, ctx: &mut ScopedContext) -> IntOrFloat {
         let str = self.content().encode_utf8(false);
         let str = str.as_ref().trim();
 
         if str.is_empty() {
-            JSValue::Int(0)
+            IntOrFloat::Int64(0)
         } else {
             let mut p = str.as_ptr();
             if let Ok(num) = unsafe { js_atof(ctx, p.cast(), &mut p, 0, ATOD_ACCEPT_BIN_OCT) } {
                 if unsafe { p.offset_from(str.as_ptr()) != str.len() as isize } {
                     // `str` has remaining characters that are not part of the number:
                     // not a valid number.
-                    JSValue::Float64(f64::NAN)
+                    IntOrFloat::Float64(f64::NAN)
                 } else {
-                    JSValue::from(num)
+                    num
                 }
             } else {
                 ctx.rt_mut().take_exception();
-                JSValue::Float64(f64::NAN)
+                IntOrFloat::Float64(f64::NAN)
             }
         }
     }

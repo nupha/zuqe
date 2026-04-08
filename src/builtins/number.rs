@@ -10,7 +10,7 @@ use crate::{
     function::{CallContext, FieldDef},
     number::{
         ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP,
-        JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, f64_stringify, is_safe_integer, js_atof,
+        JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, f64_stringify, is_safe_integer, js_aton,
     },
     object::ObjectPayload,
     utils::unlikely,
@@ -21,7 +21,7 @@ pub fn js_number_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let val = if cc.length() == 0 {
         JSValue::Int(0)
     } else {
-        cc.arg(0).to_numeric(ctx)?
+        cc.arg(0).to_numeric(ctx)?.into()
     };
 
     let new_target = cc.this();
@@ -64,24 +64,22 @@ pub(super) fn js_parseInt(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         if unlikely(str.is_empty()) {
             Ok(JSValue::Float64(f64::NAN))
         } else {
-            unsafe {
-                let val = js_atof(
-                    ctx,
-                    str.as_ptr(),
-                    std::ptr::null_mut(),
-                    radix,
-                    ATOD_INT_ONLY | ATOD_ACCEPT_PREFIX_AFTER_SIGN,
-                )
-                .map_or_else(
-                    |_| {
-                        // fail to parse number, returns NaN
-                        ctx.rt_mut().take_exception();
-                        JSValue::Float64(f64::NAN)
-                    },
-                    JSValue::from,
-                );
-                Ok(val)
-            }
+            let val: JSValue = js_aton(
+                ctx,
+                str.as_bytes(),
+                radix,
+                ATOD_INT_ONLY | ATOD_ACCEPT_PREFIX_AFTER_SIGN,
+            )
+            .map_or_else(
+                |_| {
+                    // fail to parse number, returns NaN
+                    ctx.rt_mut().take_exception();
+                    JSValue::Float64(f64::NAN)
+                },
+                |(n, _)| JSValue::from(n),
+            );
+
+            Ok(val)
         }
     }
 }
@@ -94,17 +92,15 @@ pub(super) fn js_parseFloat(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     if unlikely(str.is_empty()) {
         Ok(JSValue::Float64(f64::NAN))
     } else {
-        unsafe {
-            let val = js_atof(ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0).map_or_else(
-                |_| {
-                    // fail to parse number, returns NaN
-                    ctx.rt_mut().take_exception();
-                    JSValue::Float64(f64::NAN)
-                },
-                JSValue::from,
-            );
-            Ok(val)
-        }
+        let val = js_aton(ctx, str.as_bytes(), 10, 0).map_or_else(
+            |_| {
+                // fail to parse number, returns NaN
+                ctx.rt_mut().take_exception();
+                JSValue::Float64(f64::NAN)
+            },
+            |(n, _)| JSValue::from(n),
+        );
+        Ok(val)
     }
 }
 

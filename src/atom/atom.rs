@@ -205,13 +205,9 @@ impl Atom {
                 let num = s.to_number(ctx);
 
                 // test num as string is same to original value
-                let str = num.to_string(ctx)?;
+                let str = JSValue::from(num).to_string(ctx)?;
                 if content.eq(str.content()) {
-                    return match num {
-                        JSValue::Int(i) => Ok(Some(IntOrFloat::Int64(i as _))),
-                        JSValue::Float64(d) => Ok(Some(IntOrFloat::Float64(d))),
-                        _ => unreachable!(),
-                    };
+                    return Ok(Some(num));
                 }
             }
         }

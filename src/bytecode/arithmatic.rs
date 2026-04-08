@@ -7,7 +7,7 @@ use crate::{
     bytecode::OpCode,
     context::ScopedContext,
     error::JSResult,
-    number::{JSFloat64Union, js_f64_to_i32},
+    number::{IntOrFloat, JSFloat64Union, js_f64_to_i32},
     utils::unlikely,
     value::{HINT_NONE, HINT_NUMBER, JSValue},
 };
@@ -19,7 +19,8 @@ pub(super) enum TwoNumbers {
 }
 
 impl TwoNumbers {
-    pub const fn from_values0(op1: JSValue, op2: JSValue) -> Option<Self> {
+    /// fast path
+    const fn from_values_fast(op1: JSValue, op2: JSValue) -> Option<Self> {
         match (op1, op2) {
             (JSValue::Int(a), JSValue::Int(b)) => Some(Self::Int(a, b)),
             (JSValue::Bool(a), JSValue::Bool(b)) => Some(Self::Int(a as i32, b as i32)),
@@ -45,33 +46,43 @@ impl TwoNumbers {
         val2: JSValue,
         coerce: bool,
     ) -> Result<Self, i32> {
-        if let Some(n2) = Self::from_values0(val1, val2) {
+        if let Some(n2) = Self::from_values_fast(val1, val2) {
             Ok(n2)
         } else if coerce {
-            let mut op1 = val1;
-            let mut op2 = val2;
-
-            loop {
-                // Note: despite original val1, val2 are from stack - traced by StackFrame,
-                // but op1, op2 could be new created orphan gc nodes,
-                // they must be protected in loop to avoid being collected
-                // in case toPrimitive or valueOf method is user defined bytecode function.
+            match (val1.to_number(ctx)?, val2.to_number(ctx)?) {
+                (IntOrFloat::Int64(a), IntOrFloat::Int64(b))
+                    if (i32::MIN as i64..=i32::MAX as i64).contains(&a)
+                        && (i32::MIN as i64..=i32::MAX as i64).contains(&b) =>
                 {
-                    let heap = ctx.gc_heap_mut();
-                    if let Some(n) = op1.gc_node_ptr() {
-                        heap.protect_node(n);
-                    }
-                    if let Some(n) = op2.gc_node_ptr() {
-                        heap.protect_node(n);
-                    }
+                    Ok(Self::Int(a as i32, b as i32))
                 }
-
-                op1 = op1.to_number(ctx)?;
-                op2 = op2.to_number(ctx)?;
-                if let Some(n2) = Self::from_values0(op1, op2) {
-                    break Ok(n2);
-                }
+                (n1, n2) => Ok(Self::Float(n1.to_f64(), n2.to_f64())),
             }
+
+            // let mut op1 = val1;
+            // let mut op2 = val2;
+
+            // loop {
+            //     // Note: despite original val1, val2 are from stack - traced by StackFrame,
+            //     // but op1, op2 could be new created orphan gc nodes,
+            //     // they must be protected in loop to avoid being collected
+            //     // in case toPrimitive or valueOf method is user defined bytecode function.
+            //     {
+            //         let heap = ctx.gc_heap_mut();
+            //         if let Some(n) = op1.gc_node_ptr() {
+            //             heap.protect_node(n);
+            //         }
+            //         if let Some(n) = op2.gc_node_ptr() {
+            //             heap.protect_node(n);
+            //         }
+            //     }
+
+            //     op1 = op1.to_number(ctx)?;
+            //     op2 = op2.to_number(ctx)?;
+            //     if let Some(n2) = Self::from_values0(op1, op2) {
+            //         break Ok(n2);
+            //     }
+            // }
         } else {
             Err(-1)
         }
@@ -231,22 +242,21 @@ pub(super) enum UnaryOp {
 }
 
 impl UnaryOp {
-    /// `val` is consumed
-    pub fn new(ctx: &mut ScopedContext, val: JSValue, allow_float: bool) -> Result<Self, i32> {
+    pub(crate) fn new(
+        ctx: &mut ScopedContext,
+        val: JSValue,
+        allow_float: bool,
+    ) -> Result<Self, i32> {
         match val {
             JSValue::Int(i) => Ok(UnaryOp::Int(i)),
             JSValue::Float64(f) if allow_float => Ok(UnaryOp::Float(f)),
-            _ => {
-                if allow_float {
-                    match val.to_number(ctx)? {
-                        JSValue::Int(i) => Ok(UnaryOp::Int(i)),
-                        JSValue::Float64(f) => Ok(UnaryOp::Float(f)),
-                        _ => unreachable!(),
-                    }
-                } else {
-                    val.to_i32(ctx).map(Self::Int)
+            _ if allow_float => match val.to_number(ctx)? {
+                IntOrFloat::Int64(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => {
+                    Ok(UnaryOp::Int(i as i32))
                 }
-            }
+                n => Ok(UnaryOp::Float(n.to_f64())),
+            },
+            _ => val.to_i32(ctx).map(Self::Int),
         }
     }
 
@@ -388,7 +398,7 @@ impl JSValue {
         other: JSValue,
     ) -> Result<Option<std::cmp::Ordering>, i32> {
         // fast path
-        if let Some(n2) = TwoNumbers::from_values0(*self, other) {
+        if let Some(n2) = TwoNumbers::from_values_fast(*self, other) {
             return Ok(n2.partial_cmp());
         }
 
@@ -415,12 +425,13 @@ impl JSValue {
                 }
 
                 _ => {
-                    op1 = op1.to_number(ctx)?;
-                    op2 = op2.to_number(ctx)?;
+                    let n1 = op1.to_number(ctx)?;
+                    let n2 = op2.to_number(ctx)?;
+                    return Ok(n1.partial_cmp(&n2));
                 }
             }
 
-            if let Some(n2) = TwoNumbers::from_values0(op1, op2) {
+            if let Some(n2) = TwoNumbers::from_values_fast(op1, op2) {
                 return Ok(n2.partial_cmp());
             }
         }
@@ -454,8 +465,9 @@ impl JSValue {
                     return a.to_string(ctx)?.concat(ctx, b).map(JSValue::from);
                 }
                 (a, b) => {
-                    op1 = a.to_number(ctx)?;
-                    op2 = b.to_number(ctx)?;
+                    let n1 = a.to_number(ctx)?;
+                    let n2 = b.to_number(ctx)?;
+                    return Ok(n1.add(n2).into());
                 }
             }
         }
@@ -641,7 +653,7 @@ impl JSValue {
 fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
     if std::mem::discriminant(&val1) == std::mem::discriminant(&val2) {
         return Ok(val1 == val2);
-    } else if let Some(n2) = TwoNumbers::from_values0(val1, val2) {
+    } else if let Some(n2) = TwoNumbers::from_values_fast(val1, val2) {
         // fast path
         return Ok(n2.partial_cmp() == Some(std::cmp::Ordering::Equal));
     }
@@ -665,26 +677,20 @@ fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, 
             // number vs string
             (JSValue::Int(i), JSValue::String(s)) | (JSValue::String(s), JSValue::Int(i)) => {
                 break match s.to_number(ctx) {
-                    JSValue::Int(v) => v == *i,
-                    JSValue::Float64(v) => v == 0.0 && *i == 0, // -0 == 0
-                    _ => false,
+                    IntOrFloat::Int64(v) => v == *i as i64,
+                    IntOrFloat::Float64(v) => v == 0.0 && *i == 0, // -0 == 0
                 };
             }
             (JSValue::Float64(f), JSValue::String(s))
             | (JSValue::String(s), JSValue::Float64(f)) => {
-                break match s.to_number(ctx) {
-                    JSValue::Int(v) => v as f64 == *f,
-                    JSValue::Float64(v) => v == *f,
-                    _ => false,
-                };
+                break s.to_number(ctx).to_f64() == *f;
             }
 
             // boolean vs string
             (JSValue::Bool(b), JSValue::String(s)) | (JSValue::String(s), JSValue::Bool(b)) => {
                 break match s.to_number(ctx) {
-                    JSValue::Int(v) => v == *b as i32,
-                    JSValue::Float64(v) => v == 0.0 && !(*b), // -0 == false
-                    _ => false,
+                    IntOrFloat::Int64(v) => v == *b as i64,
+                    IntOrFloat::Float64(d) => d == 0.0 && !(*b), // -0 == false
                 };
             }
 
@@ -733,7 +739,7 @@ fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, 
 
         if std::mem::discriminant(&op1) == std::mem::discriminant(&op2) {
             break op1 == op2;
-        } else if let Some(n2) = TwoNumbers::from_values0(op1, op2) {
+        } else if let Some(n2) = TwoNumbers::from_values_fast(op1, op2) {
             break n2.partial_cmp() == Some(std::cmp::Ordering::Equal);
         }
     };

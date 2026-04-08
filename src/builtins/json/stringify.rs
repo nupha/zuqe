@@ -77,7 +77,7 @@ impl<'a> ScopedContext<'a> {
         if let Some(p) = space.as_object() {
             match p.class_id() {
                 JS_CLASS_NUMBER => {
-                    space = space.to_number(&mut self)?;
+                    space = space.to_number(&mut self)?.into();
                 }
                 JS_CLASS_STRING => {
                     space = space.to_string(&mut self)?.into();
@@ -201,7 +201,8 @@ fn js_json_to_str(
                 JS_CLASS_NUMBER => {
                     return jsc
                         .buf
-                        .push_content(o.to_number(ctx)?.to_string(ctx)?.content())
+                        .push_str(&format!("{}", o.to_number(ctx)?))
+                        // .push_content(JSValue::from(o.to_number(ctx)?).to_string(ctx)?.content())
                         .map_err(|_| {
                             ctx.throw_out_of_memory();
                             -1

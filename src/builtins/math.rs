@@ -21,39 +21,35 @@ fn js_math_min_max(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }));
     }
 
-    let mut res = if let JSValue::Int(r1) = cc.arg(0).to_number(ctx)? {
-        IntOrFloat::Int64(r1 as _)
-    } else {
-        IntOrFloat::Float64(cc.arg(0).to_f64(ctx)?)
-    };
+    let mut res = cc.arg(0).to_number(ctx)?;
 
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
             match (a.to_number(ctx)?, &mut res) {
                 // int vs int
-                (JSValue::Int(n), IntOrFloat::Int64(mx)) => {
+                (IntOrFloat::Int64(n), IntOrFloat::Int64(mx)) => {
                     *mx = if is_max {
-                        std::cmp::max(n as i64, *mx)
+                        std::cmp::max(n, *mx)
                     } else {
-                        std::cmp::min(n as i64, *mx)
+                        std::cmp::min(n, *mx)
                     }
                 }
 
                 // nan and infinity.
                 // don't change order
-                (JSValue::Float64(d), _) if d.is_nan() => {
+                (IntOrFloat::Float64(d), _) if d.is_nan() => {
                     return Ok(JSValue::Float64(f64::NAN));
                 }
                 (_, IntOrFloat::Float64(d)) if d.is_nan() => {
                     return Ok(JSValue::Float64(f64::NAN));
                 }
-
-                (JSValue::Float64(f64::INFINITY), _) | (_, IntOrFloat::Float64(f64::INFINITY))
+                (IntOrFloat::Float64(f64::INFINITY), _)
+                | (_, IntOrFloat::Float64(f64::INFINITY))
                     if is_max =>
                 {
                     res = IntOrFloat::Float64(f64::INFINITY);
                 }
-                (JSValue::Float64(f64::NEG_INFINITY), _)
+                (IntOrFloat::Float64(f64::NEG_INFINITY), _)
                 | (_, IntOrFloat::Float64(f64::NEG_INFINITY))
                     if !is_max =>
                 {
@@ -61,7 +57,7 @@ fn js_math_min_max(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 }
 
                 // int vs float
-                (JSValue::Int(n), IntOrFloat::Float64(mx)) => {
+                (IntOrFloat::Int64(n), IntOrFloat::Float64(mx)) => {
                     let n = n as f64;
                     match n.total_cmp(mx) {
                         std::cmp::Ordering::Greater => {
@@ -77,7 +73,7 @@ fn js_math_min_max(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                         _ => {}
                     }
                 }
-                (JSValue::Float64(d), IntOrFloat::Int64(mx)) => {
+                (IntOrFloat::Float64(d), IntOrFloat::Int64(mx)) => {
                     let mut m = *mx as f64;
                     match d.total_cmp(&m) {
                         std::cmp::Ordering::Greater => {
@@ -95,7 +91,7 @@ fn js_math_min_max(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     res = IntOrFloat::Float64(m);
                 }
 
-                (JSValue::Float64(d), IntOrFloat::Float64(mx)) => match d.total_cmp(mx) {
+                (IntOrFloat::Float64(d), IntOrFloat::Float64(mx)) => match d.total_cmp(mx) {
                     std::cmp::Ordering::Greater => {
                         if is_max {
                             *mx = d;

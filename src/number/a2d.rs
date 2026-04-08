@@ -104,6 +104,7 @@ pub(crate) fn parse_u32(str: &str) -> Option<u32> {
     Some(num)
 }
 
+#[deprecated(note = "use js_aton instead")]
 pub(crate) unsafe fn js_atof(
     ctx: &mut ScopedContext,
     str: *const u8,
@@ -179,10 +180,10 @@ pub(crate) unsafe fn js_atof(
                     b'0'..=b'9' if radix == 0 && flags & ATOD_ACCEPT_LEGACY_OCTAL != 0 => {
                         let mut i = 1;
                         sep = 256;
-                        while *p.offset(i) >= b'0' && *p.offset(i) <= b'7' {
+                        while (b'0'..=b'7').contains(&*p.offset(i)) {
                             i += 1;
                         }
-                        if *p.offset(i) == b'8' || *p.offset(i) == b'9' {
+                        if matches!(*p.offset(i), b'8' | b'9') {
                             no_prefix = true;
                         } else {
                             p = p.offset(1);
@@ -278,6 +279,7 @@ pub(crate) unsafe fn js_atof(
 
         let mut buf = SmallVec::<[u8; 64]>::new();
         let len = p.offset_from(p_start) as i32;
+
         if len + 1 > buf.capacity() as i32 && buf.try_reserve_exact(len as usize + 1).is_err() {
             if !pp.is_null() {
                 *pp = p;
@@ -289,6 +291,7 @@ pub(crate) unsafe fn js_atof(
         if is_neg {
             buf.push(b'-');
         }
+
         // remove the separators and the radix prefixes
         for i in 0..len {
             let c = *p_start.offset(i as isize);
@@ -298,6 +301,7 @@ pub(crate) unsafe fn js_atof(
         }
 
         if flags & ATOD_ACCEPT_SUFFIX != 0 {
+            // 处理 BigInt 后缀 n
             if *p == b'n' {
                 p = p.offset(1);
                 atod_type = ATOD_TYPE_BIG_INT;
@@ -355,6 +359,286 @@ pub(crate) unsafe fn js_atof(
     }
 }
 
+pub(crate) fn js_aton(
+    ctx: &mut ScopedContext,
+    bytes: &[u8],
+    mut radix: i32,
+    flags: i32,
+) -> Result<(IntOrFloat, usize), i32> {
+    let mut idx: usize = 0;
+
+    macro_rules! fail {
+        () => {
+            ctx.throw_type_error("invalid number literal");
+            return Err(-1);
+        };
+    }
+
+    let mut sep = if flags & ATOD_ACCEPT_UNDERSCORES != 0 {
+        '_' as i32
+    } else {
+        256
+    };
+
+    enum GotoLabel {
+        NoRadixPrefix(bool),
+    }
+
+    let mut goto: Option<GotoLabel> = None;
+    let mut is_neg = false;
+
+    match bytes.get(idx).copied() {
+        Some(b'+') => {
+            idx += 1;
+            if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
+                goto = Some(GotoLabel::NoRadixPrefix(false));
+            }
+        }
+        Some(b'-') => {
+            is_neg = true;
+            idx += 1;
+            if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
+                goto = Some(GotoLabel::NoRadixPrefix(true));
+            }
+        }
+        _ => {}
+    };
+
+    if goto.is_none() {
+        if matches!(bytes.get(idx), Some(b'0')) {
+            let mut no_prefix = false;
+
+            match bytes.get(idx + 1).copied() {
+                Some(b'x' | b'X') if radix == 0 || radix == 16 => {
+                    idx += 2;
+                    radix = 16;
+                }
+                Some(b'o' | b'O') if radix == 0 && flags & ATOD_ACCEPT_BIN_OCT != 0 => {
+                    idx += 2;
+                    radix = 8;
+                }
+                Some(b'b' | b'B') if radix == 0 && flags & ATOD_ACCEPT_BIN_OCT != 0 => {
+                    idx += 2;
+                    radix = 2;
+                }
+                Some(b'0'..=b'9') if radix == 0 && flags & ATOD_ACCEPT_LEGACY_OCTAL != 0 => {
+                    let mut i = 1usize;
+                    sep = 256;
+                    while matches!(bytes.get(idx + i), Some(b'0'..=b'7')) {
+                        i += 1;
+                    }
+                    if matches!(bytes.get(idx + i), Some(b'8' | b'9')) {
+                        no_prefix = true;
+                    } else {
+                        idx += 1;
+                        radix = 8;
+                    }
+                }
+                _ => {
+                    no_prefix = true;
+                }
+            }
+
+            if !no_prefix {
+                if let Some(c) = bytes.get(idx).copied() {
+                    if to_digit(c) >= radix {
+                        fail!();
+                    }
+                } else {
+                    fail!();
+                }
+            }
+        } else {
+            goto = Some(GotoLabel::NoRadixPrefix(is_neg));
+        }
+    }
+
+    let mut atod_type = flags & ATOD_TYPE_MASK;
+
+    while let Some(label) = goto.take() {
+        match label {
+            GotoLabel::NoRadixPrefix(is_neg) => {
+                if flags & ATOD_INT_ONLY == 0
+                    && atod_type == ATOD_TYPE_FLOAT64
+                    && bytes[idx..].starts_with(b"Infinity")
+                {
+                    return Ok((
+                        IntOrFloat::from(if is_neg {
+                            f64::NEG_INFINITY
+                        } else {
+                            f64::INFINITY
+                        }),
+                        idx + "Infinity".len(),
+                    ));
+                }
+            }
+        }
+    }
+
+    if radix == 0 {
+        radix = 10;
+    }
+
+    let mut is_float = false;
+    let start_idx = idx;
+
+    while let Some(c) = bytes.get(idx).copied() {
+        let is_digit = (c as char).is_digit(radix as _);
+
+        let is_sep = if c == sep as u8 {
+            let next_is_digit = bytes
+                .get(idx + 1)
+                .copied()
+                .map(|next| (next as char).is_digit(radix as _))
+                .unwrap_or(false);
+
+            if !next_is_digit {
+                false
+            } else if radix != 10 || idx != start_idx + 1 {
+                true
+            } else {
+                bytes.get(idx - 1).copied() != Some(b'0')
+            }
+        } else {
+            false
+        };
+
+        if !(is_digit || is_sep) {
+            break;
+        }
+
+        idx += 1;
+    }
+
+    if flags & ATOD_INT_ONLY == 0 {
+        if matches!(bytes.get(idx), Some(b'.'))
+            && (idx > start_idx
+                || bytes
+                    .get(idx + 1)
+                    .copied()
+                    .map(|c| to_digit(c) < radix)
+                    .unwrap_or(false))
+        {
+            is_float = true;
+            idx += 1;
+            if bytes
+                .get(idx)
+                .copied()
+                .map(|c| c as i32 == sep)
+                .unwrap_or(false)
+            {
+                fail!();
+            }
+            while bytes
+                .get(idx)
+                .copied()
+                .map(|c| to_digit(c) < radix)
+                .unwrap_or(false)
+                || (matches!(bytes.get(idx), Some(c) if *c == sep as u8)
+                    && bytes
+                        .get(idx + 1)
+                        .copied()
+                        .map(|c| to_digit(c) < radix)
+                        .unwrap_or(false))
+            {
+                idx += 1;
+            }
+        }
+
+        if idx > start_idx
+            && ((matches!(bytes.get(idx), Some(b'e' | b'E')) && radix == 10)
+                || (matches!(bytes.get(idx), Some(b'p' | b'P'))
+                    && (radix == 2 || radix == 8 || radix == 16)))
+        {
+            let mut p1 = idx + 1;
+            is_float = true;
+            if matches!(bytes.get(p1), Some(b'+' | b'-')) {
+                p1 += 1;
+            }
+            if matches!(bytes.get(p1).copied(), Some(c) if (c as char).is_digit(radix as _)) {
+                idx = p1 + 1;
+                while matches!(bytes.get(idx).copied(), Some(c) if (c as char).is_digit(radix as _))
+                    || (matches!(bytes.get(idx), Some(c) if *c == sep as u8)
+                        && matches!(bytes.get(idx + 1).copied(), Some(n) if (n as char).is_digit(radix as _)))
+                {
+                    idx += 1;
+                }
+            }
+        }
+    }
+
+    if idx == start_idx {
+        fail!();
+    }
+
+    let mut buf = SmallVec::<[u8; 64]>::new();
+    let len_digits = (idx - start_idx) as i32;
+
+    if len_digits + 1 > buf.capacity() as i32
+        && buf.try_reserve_exact(len_digits as usize + 1).is_err()
+    {
+        ctx.throw_out_of_memory();
+        return Err(-1);
+    }
+
+    if is_neg {
+        buf.push(b'-');
+    }
+
+    for i in 0..len_digits {
+        let c = bytes[start_idx + i as usize];
+        if c != b'_' {
+            buf.push(c);
+        }
+    }
+
+    if flags & ATOD_ACCEPT_SUFFIX != 0 {
+        if matches!(bytes.get(idx), Some(b'n')) {
+            idx += 1;
+            atod_type = ATOD_TYPE_BIG_INT;
+        } else if is_float && radix != 10 {
+            fail!();
+        }
+    } else if atod_type == ATOD_TYPE_FLOAT64 && is_float && radix != 10 {
+        fail!();
+    }
+
+    match atod_type {
+        ATOD_TYPE_FLOAT64 => {
+            let txt = std::str::from_utf8(buf.as_slice()).unwrap();
+
+            if !is_float && radix != 10 {
+                if let Ok(i) = i64::from_str_radix(txt, radix as _) {
+                    let v = if unlikely(i == 0 && is_neg) {
+                        IntOrFloat::Float64(-0.0)
+                    } else {
+                        IntOrFloat::Int64(i)
+                    };
+                    Ok((v, idx))
+                } else if !is_neg && let Ok(u) = u64::from_str_radix(txt, radix as _) {
+                    Ok((IntOrFloat::from(u as f64), idx))
+                } else if let Ok(i) = i128::from_str_radix(txt, radix as _) {
+                    Ok((IntOrFloat::Float64(i as f64), idx))
+                } else {
+                    fail!();
+                }
+            } else {
+                if let Ok(f) = txt.parse::<f64>() {
+                    Ok((IntOrFloat::from(f), idx))
+                } else {
+                    fail!();
+                }
+            }
+        }
+        ATOD_TYPE_BIG_INT => {
+            ctx.throw_type_error("big int is not supported");
+            Err(-1)
+        }
+
+        _ => unreachable!(),
+    }
+}
+
 /// starts_with() equivalent
 unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> bool {
     unsafe {
@@ -371,5 +655,194 @@ unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> bool 
             *ptr = p;
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::Runtime;
+
+    fn with_ctx(f: impl FnOnce(&mut ScopedContext)) {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt.create_context(|_| Ok(())).unwrap();
+        ctx.with_new_scope(|mut scope| {
+            f(&mut scope);
+        });
+    }
+
+    #[test]
+    fn js_atof_v2_matches_js_atof_token_literals() {
+        fn parse_old(
+            ctx: &mut ScopedContext,
+            s: &str,
+            radix: i32,
+            flags: i32,
+        ) -> Result<(IntOrFloat, usize), i32> {
+            let mut buf = SmallVec::<[u8; 64]>::new();
+            if s.len() + 1 > buf.capacity() {
+                buf.try_reserve_exact(s.len() + 1 - buf.capacity())
+                    .map_err(|_| -1)?;
+            }
+            buf.extend_from_slice(s.as_bytes());
+            buf.push(0);
+            let ptr = buf.as_ptr();
+            let mut p = ptr;
+            let r = unsafe { js_atof(ctx, ptr, &mut p, radix, flags) }?;
+            let off = unsafe { p.offset_from(ptr) as usize };
+            Ok((r, off))
+        }
+
+        with_ctx(|ctx| {
+            let flags = ATOD_ACCEPT_BIN_OCT
+                | ATOD_ACCEPT_LEGACY_OCTAL
+                | ATOD_ACCEPT_UNDERSCORES
+                | ATOD_ACCEPT_SUFFIX;
+
+            let cases = [
+                "0",
+                "123",
+                "1_234_567",
+                "0b1010",
+                "0b1_0_1_0",
+                "0o755",
+                "0x1f",
+                "0xFF",
+                "123.5",
+                "1.5e2",
+                "1e-3",
+                "0_1",
+                "1__0",
+            ];
+
+            for s in cases {
+                let old = parse_old(ctx, s, 0, flags);
+                let new = js_aton(ctx, s.as_bytes(), 0, flags);
+                match (old, new) {
+                    (Ok((v1, o1)), Ok((v2, o2))) => {
+                        assert_eq!(v1, v2, "value mismatch for literal {}", s);
+                        assert_eq!(o1, o2, "offset mismatch for literal {}", s);
+                    }
+                    (Err(_), Err(_)) => {}
+                    (Ok(_), Err(e2)) => {
+                        panic!("v2 error for literal {}: {}", s, e2);
+                    }
+                    (Err(e1), Ok(_)) => {
+                        panic!(
+                            "old succeeded but v2 succeeded differently for literal {}: {}",
+                            s, e1
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn js_atof_v2_matches_js_atof_parse_float() {
+        fn parse_old(
+            ctx: &mut ScopedContext,
+            s: &str,
+            radix: i32,
+            flags: i32,
+        ) -> Result<(IntOrFloat, usize), i32> {
+            let mut buf = SmallVec::<[u8; 64]>::new();
+            if s.len() + 1 > buf.capacity() {
+                buf.try_reserve_exact(s.len() + 1 - buf.capacity())
+                    .map_err(|_| -1)?;
+            }
+            buf.extend_from_slice(s.as_bytes());
+            buf.push(0);
+            let ptr = buf.as_ptr();
+            let mut p = ptr;
+            let r = unsafe { js_atof(ctx, ptr, &mut p, radix, flags) }?;
+            let off = unsafe { p.offset_from(ptr) as usize };
+            Ok((r, off))
+        }
+
+        with_ctx(|ctx| {
+            let cases = [
+                "0",
+                "123",
+                "-123",
+                "123.25",
+                "123.25e2",
+                "1e-3",
+                "Infinity",
+                "-Infinity",
+                "0x1234",
+            ];
+
+            for s in cases {
+                let old = parse_old(ctx, s, 10, 0);
+                let new = js_aton(ctx, s.as_bytes(), 10, 0);
+                match (old, new) {
+                    (Ok((v1, o1)), Ok((v2, o2))) => {
+                        assert_eq!(v1, v2, "value mismatch for parseFloat case {}", s);
+                        assert_eq!(o1, o2, "offset mismatch for parseFloat case {}", s);
+                    }
+                    (Err(_), Err(_)) => {}
+                    (Ok(_), Err(e2)) => {
+                        panic!("v2 error for parseFloat case {}: {}", s, e2);
+                    }
+                    (Err(e1), Ok(_)) => {
+                        panic!(
+                            "old succeeded but v2 succeeded differently for parseFloat case {}: {}",
+                            s, e1
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn js_atof_v2_matches_js_atof_parse_int() {
+        fn parse_old(
+            ctx: &mut ScopedContext,
+            s: &str,
+            radix: i32,
+            flags: i32,
+        ) -> Result<(IntOrFloat, usize), i32> {
+            let mut buf = SmallVec::<[u8; 64]>::new();
+            if s.len() + 1 > buf.capacity() {
+                buf.try_reserve_exact(s.len() + 1 - buf.capacity())
+                    .map_err(|_| -1)?;
+            }
+            buf.extend_from_slice(s.as_bytes());
+            buf.push(0);
+            let ptr = buf.as_ptr();
+            let mut p = ptr;
+            let r = unsafe { js_atof(ctx, ptr, &mut p, radix, flags) }?;
+            let off = unsafe { p.offset_from(ptr) as usize };
+            Ok((r, off))
+        }
+
+        with_ctx(|ctx| {
+            let flags = ATOD_INT_ONLY | ATOD_ACCEPT_PREFIX_AFTER_SIGN;
+
+            let cases = ["123", "-123", "+123", "0x123", "-0x10", "0"];
+
+            for s in cases {
+                let old = parse_old(ctx, s, 0, flags);
+                let new = js_aton(ctx, s.as_bytes(), 0, flags);
+                match (old, new) {
+                    (Ok((v1, o1)), Ok((v2, o2))) => {
+                        assert_eq!(v1, v2, "value mismatch for parseInt case {}", s);
+                        assert_eq!(o1, o2, "offset mismatch for parseInt case {}", s);
+                    }
+                    (Err(_), Err(_)) => {}
+                    (Ok(_), Err(e2)) => {
+                        panic!("v2 error for parseInt case {}: {}", s, e2);
+                    }
+                    (Err(e1), Ok(_)) => {
+                        panic!(
+                            "old succeeded but v2 succeeded differently for parseInt case {}: {}",
+                            s, e1
+                        );
+                    }
+                }
+            }
+        });
     }
 }

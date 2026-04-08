@@ -750,12 +750,12 @@ impl JSValue {
                 if is_array_ctor {
                     let v = self.to_number(ctx)?;
                     // won't recurse because v is a number
-                    len = v.to_array_length(ctx, true)?;
+                    len = JSValue::from(v).to_array_length(ctx, true)?;
                 } else {
                     // legacy behavior: must do the conversion twice and compare
                     len = self.to_u32(ctx)?;
                     let v = self.to_number(ctx)?;
-                    if len != v.to_array_length(ctx, false)? {
+                    if len != JSValue::from(v).to_array_length(ctx, false)? {
                         ctx.throw_range_error("invalid array length");
                         return Err(-1);
                     }
