@@ -49,6 +49,17 @@ impl RuntimeImpl {
         class_name: Atom,
         class_def: &ClassDef,
     ) -> Result<(), i32> {
+        #[cfg(debug_assertions)]
+        if class_id >= USER_CLASS_ID_START {
+            for m in self.class_registry[USER_CLASS_ID_START as usize..].iter() {
+                debug_assert_ne!(
+                    m.class_name, class_name,
+                    "class_name '{}' already exists",
+                    class_def.class_name
+                );
+            }
+        }
+
         if (class_id as usize) < self.class_registry.len() {
             if !self.class_registry[class_id as usize].class_name.is_null() {
                 return Err(-1); // class_id slot is in use
