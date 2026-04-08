@@ -7,7 +7,7 @@ use crate::{
     atom::{Atom, AtomKind},
     context::ScopedContext,
     error::JSResult,
-    number::{ATOD_ACCEPT_BIN_OCT, js_atof},
+    number::{ATOD_ACCEPT_BIN_OCT, js_aton},
     object::JS_PROP_C_W_E,
     runtime::js_check_stack_overflow,
     string::{CharCodeDecoder, Utf8Stream, escape_str},
@@ -159,9 +159,7 @@ impl<'s> JSParseState<'s> {
                         break;
                     }
 
-                    if let Ok(n) =
-                        self.json_parse_value_number(input.current_ptr().unwrap().as_ptr())
-                    {
+                    if let Ok(n) = self.json_parse_number(input.remainder()) {
                         input.seek_relative(n as _);
                         self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
@@ -176,9 +174,7 @@ impl<'s> JSParseState<'s> {
                         break;
                     }
 
-                    if let Ok(n) =
-                        self.json_parse_value_number(input.current_ptr().unwrap().as_ptr())
-                    {
+                    if let Ok(n) = self.json_parse_number(input.remainder()) {
                         input.seek_relative(n as _);
                         self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
@@ -193,9 +189,7 @@ impl<'s> JSParseState<'s> {
                         break;
                     }
 
-                    if let Ok(n) =
-                        self.json_parse_value_number(input.current_ptr().unwrap().as_ptr())
-                    {
+                    if let Ok(n) = self.json_parse_number(input.remainder()) {
                         input.seek_relative(n as _);
                         self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
@@ -205,8 +199,8 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 b'1'..=b'9' => {
-                    let p0 = input.current_ptr().unwrap().as_ptr();
-                    if let Ok(n) = self.json_parse_value_number(p0) {
+                    // let p0 = input.current_ptr().unwrap().as_ptr();
+                    if let Ok(n) = self.json_parse_number(input.remainder()) {
                         input.seek_relative(n as i32);
                         self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
@@ -249,7 +243,7 @@ impl<'s> JSParseState<'s> {
     }
 
     // Returns consumed bytes
-    fn json_parse_value_number(&mut self, mut p: *const u8) -> Result<usize, i32> {
+    fn json_parse_number(&mut self, bytes: &[u8]) -> Result<usize, i32> {
         let flags: i32;
         let radix: i32;
 
@@ -261,12 +255,10 @@ impl<'s> JSParseState<'s> {
             radix = 0;
         }
 
-        let p0 = p;
-
-        if let Ok(num) = unsafe { js_atof(self.ctx(), p, &mut p, radix, flags) } {
+        if let Ok((num, consumed)) = js_aton(self.ctx(), bytes, radix, flags) {
             self.token.kind = TokenKind::NUMBER;
             self.token.data = TokenData::Num(num);
-            Ok(unsafe { p.offset_from(p0) as usize })
+            Ok(consumed)
         } else {
             self.token.kind = TokenKind::ERROR;
             Err(-1)

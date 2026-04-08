@@ -359,6 +359,9 @@ pub(crate) unsafe fn js_atof(
     }
 }
 
+/// Parse number literal.
+///
+/// Returns parsed number and consumed bytes
 pub(crate) fn js_aton(
     ctx: &mut ScopedContext,
     bytes: &[u8],
