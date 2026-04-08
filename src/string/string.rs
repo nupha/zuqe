@@ -14,7 +14,7 @@ use crate::{
     atom::{Atom, AtomInfo, AtomKind},
     class::ClassExoticMethods,
     context::ScopedContext,
-    number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
+    number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, JS_DTOA_VAR_FORMAT, f64_stringify, js_aton},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
         ObjectPayload, check_define_prop_flags,
@@ -221,9 +221,8 @@ impl StringImpl {
         if str.is_empty() {
             IntOrFloat::Int64(0)
         } else {
-            let mut p = str.as_ptr();
-            if let Ok(num) = unsafe { js_atof(ctx, p.cast(), &mut p, 0, ATOD_ACCEPT_BIN_OCT) } {
-                if unsafe { p.offset_from(str.as_ptr()) != str.len() as isize } {
+            if let Ok((num, consumed)) = js_aton(ctx, str.as_bytes(), 0, ATOD_ACCEPT_BIN_OCT) {
+                if consumed != str.len() {
                     // `str` has remaining characters that are not part of the number:
                     // not a valid number.
                     IntOrFloat::Float64(f64::NAN)

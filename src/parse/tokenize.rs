@@ -7,7 +7,7 @@ use crate::{
     function::FunctionKind,
     number::{
         ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
-        IntOrFloat, js_atof,
+        IntOrFloat, js_aton,
     },
     runtime::js_check_stack_overflow,
     stack_frame::ExecMode,
@@ -769,12 +769,11 @@ impl<'s> JSParseState<'s> {
                         }
                     }
                     Todo::ParseNumber => {
-                        let p0 = input.current_ptr().unwrap().as_ptr();
-                        let p = self.parse_number(p0).inspect_err(|_| {
+                        let consumed = self.parse_number(input.remainder()).inspect_err(|_| {
                             self.token.kind = TokenKind::ERROR;
                             self.token.data = TokenData::None;
                         })?;
-                        input.seek_relative(unsafe { p.offset_from(p0) as _ });
+                        input.seek_relative(consumed as _);
                     }
                     Todo::SyntaxError => {
                         self.token.kind = TokenKind::ERROR;
@@ -796,34 +795,28 @@ impl<'s> JSParseState<'s> {
         Ok(self.token.kind)
     }
 
-    /// returns updated str pointer
+    /// returns consumed number of bytes
     #[inline(never)]
-    fn parse_number(&mut self, ptr: *const u8) -> Result<*const u8, i32> {
-        let mut p = ptr;
-
-        let ret = unsafe {
-            js_atof(
-                self.ctx(),
-                ptr,
-                &mut p,
-                0,
-                ATOD_ACCEPT_BIN_OCT
-                    | ATOD_ACCEPT_LEGACY_OCTAL
-                    | ATOD_ACCEPT_UNDERSCORES
-                    | ATOD_ACCEPT_SUFFIX,
-            )
-        }
+    fn parse_number(&mut self, bytes: &[u8]) -> Result<usize, i32> {
+        let (ret, consumed) = js_aton(
+            self.ctx(),
+            bytes,
+            0,
+            ATOD_ACCEPT_BIN_OCT
+                | ATOD_ACCEPT_LEGACY_OCTAL
+                | ATOD_ACCEPT_UNDERSCORES
+                | ATOD_ACCEPT_SUFFIX,
+        )
         .inspect_err(|_| {
             // re-throw error as parser syntax error
             let exc = self.ctx().rt_mut().take_exception();
             self.throw(exc);
         })?;
 
-        debug_assert!(self.input_end >= p);
+        debug_assert!(self.input_end >= unsafe { bytes.as_ptr().add(consumed) });
 
         // reject `10instanceof Number`
-        let len = unsafe { self.input_end.offset_from(p) as usize };
-        if let Some(c) = std::str::from_utf8(unsafe { std::slice::from_raw_parts(p, len) })
+        if let Some(c) = std::str::from_utf8(&bytes[consumed..])
             .map_err(|_| {
                 self.throw_syntax_error("invalid UTF-8 sequence");
                 -1
@@ -839,8 +832,7 @@ impl<'s> JSParseState<'s> {
         self.token.kind = TokenKind::NUMBER;
         self.token.data = TokenData::Num(ret);
 
-        debug_assert!(p >= ptr);
-        Ok(p)
+        Ok(consumed)
     }
 
     /// when exit, cursor is exactly at the \r, \n, LS or PS char of line.
