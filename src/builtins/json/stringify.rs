@@ -87,7 +87,7 @@ impl<'a> ScopedContext<'a> {
         }
 
         if space.is_number() {
-            let n = space.to_i32_clamp(&mut self, 0, 10, 0)? as usize;
+            let n = space.to_number(&mut self)?.to_i32_clamp(0, 10, 0) as usize;
             jsc.gap = if n == 0 {
                 StringData::Empty
             } else {

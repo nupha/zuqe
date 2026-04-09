@@ -11,8 +11,10 @@ use crate::{
 };
 
 pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
-pub const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;
-pub const JS_FLOAT64_NAN: f64 = f64::NAN;
+
+/// Integer beyonds range \[-2^53, 2^53\], precision is not guaranteed when converting to f64.
+// const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -(1_i64 << 53)..=1_i64 << 53;
+const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;
 
 #[inline(always)]
 pub(crate) fn is_safe_integer(d: f64) -> bool {
@@ -43,26 +45,8 @@ impl std::fmt::Display for IntOrFloat {
         if let Some(i) = self.to_safe_i64() {
             write!(f, "{}", i)
         } else {
-            let d = self.to_f64();
-            let s = f64_stringify(d, 10, None, JS_DTOA_VAR_FORMAT);
+            let s = f64_stringify(self.to_f64(), 10, None, JS_DTOA_VAR_FORMAT);
             write!(f, "{}", s)
-        }
-    }
-}
-
-impl From<f64> for IntOrFloat {
-    #[inline]
-    fn from(d: f64) -> Self {
-        if d == 0.0 {
-            if d.is_sign_negative() {
-                Self::Float64(-0.0)
-            } else {
-                Self::Int64(0)
-            }
-        } else if d.fract() == 0.0 && is_safe_integer(d) {
-            Self::Int64(d as i64)
-        } else {
-            Self::Float64(d)
         }
     }
 }
@@ -81,6 +65,22 @@ impl From<i64> for IntOrFloat {
     }
 }
 
+impl From<f64> for IntOrFloat {
+    fn from(d: f64) -> Self {
+        if d == 0.0 {
+            if d.is_sign_negative() {
+                Self::Float64(-0.0)
+            } else {
+                Self::Int64(0)
+            }
+        } else if d.fract() == 0.0 && is_safe_integer(d) {
+            Self::Int64(d as i64)
+        } else {
+            Self::Float64(d)
+        }
+    }
+}
+
 impl From<IntOrFloat> for JSValue {
     fn from(value: IntOrFloat) -> Self {
         match value {
@@ -91,6 +91,13 @@ impl From<IntOrFloat> for JSValue {
 }
 
 impl IntOrFloat {
+    pub fn is_integral(&self) -> bool {
+        match self {
+            Self::Int64(i) => SAFE_INTEGER_RANGE.contains(i),
+            Self::Float64(d) => d.is_finite() && d.fract() == 0.0,
+        }
+    }
+
     pub fn to_safe_i64(self) -> Option<i64> {
         match self {
             Self::Int64(val) => Some(val),
@@ -107,7 +114,7 @@ impl IntOrFloat {
     pub fn to_safe_f64(self) -> Option<f64> {
         match self {
             Self::Int64(val) => {
-                if (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&val) {
+                if SAFE_INTEGER_RANGE.contains(&val) {
                     Some(val as f64)
                 } else {
                     None
@@ -119,12 +126,120 @@ impl IntOrFloat {
 
     pub fn to_f64(self) -> f64 {
         match self {
-            Self::Int64(val) => {
+            Self::Int64(i) => {
                 #[cfg(debug_assertions)]
-                eprintln!("integer {val} will lose precision");
-                val as f64
+                if !SAFE_INTEGER_RANGE.contains(&i) {
+                    eprintln!("integer {i} will loose precision");
+                }
+
+                i as f64
             }
-            Self::Float64(val) => val,
+            Self::Float64(d) => d,
+        }
+    }
+
+    /// coerce number to i32.
+    pub const fn to_i32(&self) -> i32 {
+        match self {
+            IntOrFloat::Int64(i) => {
+                let i = *i;
+                if i as i32 as i64 == i {
+                    i as i32
+                } else {
+                    js_f64_to_i32(i as f64)
+                }
+            }
+            IntOrFloat::Float64(d) => {
+                if d.is_nan() {
+                    0
+                } else {
+                    js_f64_to_i32(*d)
+                }
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub const fn to_u32(&self) -> u32 {
+        self.to_i32() as u32
+    }
+
+    pub fn to_i32_saturating(&self) -> i32 {
+        match self {
+            IntOrFloat::Int64(i) => (*i).clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+            IntOrFloat::Float64(d) => {
+                let d = *d;
+                if d.is_nan() {
+                    0
+                } else if d <= i32::MIN as f64 {
+                    i32::MIN
+                } else if d >= i32::MAX as f64 {
+                    i32::MAX
+                } else {
+                    d as i32
+                }
+            }
+        }
+    }
+
+    pub fn to_i32_clamp(&self, min: i32, max: i32, min_offset: i32) -> i32 {
+        let mut res = self.to_i32_saturating();
+        if res < min {
+            res += min_offset;
+            if res < min {
+                res = min;
+            }
+        } else if res > max {
+            res = max;
+        }
+        res
+    }
+
+    pub fn to_i64_saturating(&self) -> i64 {
+        match self {
+            IntOrFloat::Int64(i) => *i,
+            IntOrFloat::Float64(d) => {
+                let d = *d;
+                if d.is_nan() {
+                    0
+                } else if d <= i64::MIN as f64 {
+                    i64::MIN
+                } else if d >= i64::MAX as f64 {
+                    i64::MAX
+                } else {
+                    d as i64
+                }
+            }
+        }
+    }
+
+    /// [min, max] is inclusive range.
+    pub fn to_i64_clamp(&self, min: i64, max: i64, neg_offset: i64) -> i64 {
+        let mut res = self.to_i64_saturating();
+        if res < 0 {
+            res += neg_offset;
+        }
+        if res < min {
+            res = min;
+        } else if res > max {
+            res = max;
+        }
+        res
+    }
+
+    pub fn to_u8_clamped(&self) -> u8 {
+        match self {
+            IntOrFloat::Int64(i) => (*i).clamp(0, 255) as u8,
+            IntOrFloat::Float64(d) => {
+                let d = *d;
+                if d.is_nan() || d <= 0.0 {
+                    0
+                } else if d >= 255.0 {
+                    255
+                } else {
+                    f64::round_ties_even(d) as u8
+                }
+            }
         }
     }
 
@@ -180,11 +295,8 @@ impl From<i64> for JSValue {
             Self::Int(v32)
         } else {
             #[cfg(debug_assertions)]
-            {
-                const PRECISION_RANGE: RangeInclusive<i64> = -(1_i64 << 53)..=1_i64 << 53;
-                if !PRECISION_RANGE.contains(&i) {
-                    println!("integer {i} will lose precision");
-                }
+            if !SAFE_INTEGER_RANGE.contains(&i) {
+                eprintln!("integer {i} will loose precision");
             }
 
             Self::from_f64_as_is(i as f64)
@@ -195,13 +307,12 @@ impl From<i64> for JSValue {
 impl From<f64> for JSValue {
     fn from(d: f64) -> Self {
         if d == 0.0 && d.is_sign_negative() {
-            // -0
-            Self::from_f64_as_is(d)
-        } else if d.fract() == 0.0 {
+            Self::from_f64_as_is(d) // JSValue::Float(0.0) means -0.0
+        } else if d.fract() == 0.0 && d.is_finite() {
             // integral
-            let n = d as i64;
-            if (i32::MIN as i64..=i32::MAX as i64).contains(&n) {
-                Self::Int(n as i32)
+            let i = d as i64;
+            if i as i32 as i64 == i {
+                Self::Int(i as i32)
             } else {
                 Self::from_f64_as_is(d)
             }
@@ -239,7 +350,7 @@ impl JSValue {
         if !self.is_number() {
             Ok(false)
         } else {
-            let d = self.to_f64(ctx)?;
+            let d = self.to_number(ctx)?.to_f64();
             Ok(d.is_finite() && d.fract() == 0.0)
         }
     }
@@ -293,170 +404,21 @@ impl JSValue {
         self.to_number_internal(ctx, true, JSToNumberHintEnum::TON_FLAG_NUMERIC)
     }
 
-    /// coerce value to i32.
-    pub fn to_i32(&self, ctx: &mut ScopedContext) -> Result<i32, i32> {
-        self.to_number_internal(ctx, false, JSToNumberHintEnum::TON_FLAG_NUMBER)
-            .map(|num| match num {
-                IntOrFloat::Int64(i) => {
-                    if i as i32 as i64 == i {
-                        i as i32
-                    } else {
-                        js_f64_to_i32(i as f64)
-                    }
-                }
-                IntOrFloat::Float64(d) => js_f64_to_i32(d),
-            })
-    }
-
-    #[inline(always)]
-    pub fn to_u32(&self, ctx: &mut ScopedContext) -> Result<u32, i32> {
-        self.to_i32(ctx).map(|v| v as u32)
-    }
-
-    // Note: the integer value is saturated to 32 bits
-    pub fn to_i32_saturating(&self, ctx: &mut ScopedContext) -> Result<i32, i32> {
-        self.to_number_internal(ctx, false, JSToNumberHintEnum::TON_FLAG_NUMBER)
-            .map(|num| match num {
-                IntOrFloat::Int64(i) => i.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
-                IntOrFloat::Float64(d) => {
-                    if d.is_nan() {
-                        0
-                    } else if d < i32::MIN as f64 {
-                        i32::MIN
-                    } else if d > i32::MAX as f64 {
-                        i32::MAX
-                    } else {
-                        d as i32
-                    }
-                }
-            })
-
-        // let mut val = *self;
-
-        // let ret: i32 = loop {
-        //     match val {
-        //         JSValue::NULL | JSValue::UNDEFINED => {
-        //             break 0;
-        //         }
-        //         JSValue::Int(i) => {
-        //             break i;
-        //         }
-        //         JSValue::Bool(b) => {
-        //             break b as i32;
-        //         }
-        //         JSValue::Float64(d) => {
-        //             break if d.is_nan() {
-        //                 0
-        //             } else if d < i32::MIN as f64 {
-        //                 i32::MIN
-        //             } else if d > i32::MAX as f64 {
-        //                 i32::MAX
-        //             } else {
-        //                 d as i32
-        //             };
-        //         }
-
-        //         JSValue::EXCEPTION => {
-        //             #[cfg(debug_assertions)]
-        //             unreachable!();
-        //             #[cfg(not(debug_assertions))]
-        //             return Err(-1);
-        //         }
-        //         _ => {
-        //             val = val.to_number(ctx)?;
-        //         }
-        //     }
-        // };
-
-        // Ok(ret)
-    }
-
-    pub fn to_i32_clamp(
-        &self,
-        ctx: &mut ScopedContext,
-        min: i32,
-        max: i32,
-        min_offset: i32,
-    ) -> Result<i32, i32> {
-        let mut res = self.to_i32_saturating(ctx)?;
-        if res < min {
-            res += min_offset;
-            if res < min {
-                res = min;
-            }
-        } else if res > max {
-            res = max;
-        }
-        Ok(res)
-    }
-
-    pub fn to_i64_saturating(&self, ctx: &mut ScopedContext) -> Result<i64, i32> {
-        self.to_number_internal(ctx, false, JSToNumberHintEnum::TON_FLAG_NUMBER)
-            .map(|num| match num {
-                IntOrFloat::Int64(i) => i,
-                IntOrFloat::Float64(d) => {
-                    if d.is_nan() {
-                        0
-                    } else if d < i64::MIN as f64 {
-                        i64::MIN
-                    } else if d > i64::MAX as f64 {
-                        i64::MAX
-                    } else {
-                        d as i64
-                    }
-                }
-            })
-    }
-
-    /// [min, max] is inclusive range.
-    pub fn to_i64_clamp(
-        &self,
-        ctx: &mut ScopedContext,
-        min: i64,
-        max: i64,
-        neg_offset: i64,
-    ) -> Result<i64, i32> {
-        let mut res = self.to_i64_saturating(ctx)?;
-        if res < 0 {
-            res += neg_offset;
-        }
-        if res < min {
-            res = min;
-        } else if res > max {
-            res = max;
-        }
-        Ok(res)
-    }
-
     /// coerce value to f64.
+    #[deprecated(note = "use IntOrFloat::to_f64()")]
     pub fn to_f64(&self, ctx: &mut ScopedContext) -> Result<f64, i32> {
-        self.to_number_internal(ctx, true, JSToNumberHintEnum::TON_FLAG_NUMBER)
-            .map(|num| match num {
-                IntOrFloat::Int64(i) => i as f64,
-                IntOrFloat::Float64(d) => d,
-            })
+        self.to_number(ctx).map(|n| n.to_f64())
     }
 
+    #[deprecated(note = "use IntOrFloat::to_u8_clamped()")]
     pub fn coerce_to_u8_clamp(&self, ctx: &mut ScopedContext) -> Result<u8, i32> {
-        self.to_number_internal(ctx, false, JSToNumberHintEnum::TON_FLAG_NUMBER)
-            .map(|num| match num {
-                IntOrFloat::Int64(i) => i.clamp(0, 255) as u8,
-                IntOrFloat::Float64(d) => {
-                    if d.is_nan() || d < 0.0 {
-                        0
-                    } else if d > 255.0 {
-                        255
-                    } else {
-                        f64::round_ties_even(d) as u8
-                    }
-                }
-            })
+        self.to_number(ctx).map(|n| n.to_u8_clamped())
     }
 
     /// convert value to length between \[0, MAX_SAFE_INTEGER\].
-    #[inline]
     pub fn to_length(&self, ctx: &mut ScopedContext) -> Result<i64, i32> {
-        self.to_i64_clamp(ctx, 0, MAX_SAFE_INTEGER, 0)
+        self.to_number(ctx)
+            .map(|n| n.to_i64_clamp(0, MAX_SAFE_INTEGER, 0))
     }
 }
 

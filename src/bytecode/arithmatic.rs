@@ -256,7 +256,7 @@ impl UnaryOp {
                 }
                 n => Ok(UnaryOp::Float(n.to_f64())),
             },
-            _ => val.to_i32(ctx).map(Self::Int),
+            _ => val.to_number(ctx).map(|n| Self::Int(n.to_i32())),
         }
     }
 
@@ -265,7 +265,7 @@ impl UnaryOp {
     pub fn new_int(ctx: &mut ScopedContext, op1: JSValue) -> Result<Self, i32> {
         match op1 {
             JSValue::Int(i) => Ok(Self::Int(i)),
-            _ => op1.to_i32(ctx).map(Self::Int),
+            _ => op1.to_number(ctx).map(|n| Self::Int(n.to_i32())),
         }
     }
 

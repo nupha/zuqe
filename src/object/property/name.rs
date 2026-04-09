@@ -5,6 +5,7 @@ use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_STRING, ScopedContext,
+    array::alloc_fast_array_slots,
     atom::{Atom, AtomDescKind},
     builtins::iterator::JSIteratorKindEnum,
     context::ContextImpl,
@@ -46,9 +47,9 @@ impl PropertyKey {
         is_enumerable: bool,
         is_exotic: bool,
     ) -> Self {
-        let kind = if let Some(idx) = atom.to_array_index(ctx.rt_ref()) {
+        let kind = if let Some(idx) = atom.to_array_index(ctx.rt()) {
             PropertyKeyKind::ArrayIndex(idx)
-        } else if atom.desc_kind(ctx.rt_ref()) == AtomDescKind::JS_ATOM_KIND_STRING {
+        } else if atom.desc_kind(ctx.rt()) == AtomDescKind::JS_ATOM_KIND_STRING {
             PropertyKeyKind::String
         } else {
             PropertyKeyKind::Symbol
@@ -93,7 +94,7 @@ impl ObjectImpl {
         for (idx, prs) in sh.prop_defs.iter() {
             if !prs.atom.is_null() {
                 let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
-                let kind = prs.atom.desc_kind(ctx.rt_ref());
+                let kind = prs.atom.desc_kind(ctx.rt());
 
                 if (!enum_only || is_enumerable) && ((flags >> (kind as u8)) & 1 != 0) {
                     // need to raise an exception in case of the module
@@ -147,7 +148,7 @@ impl ObjectImpl {
                         )?;
                     }
                 }
-            } else if let Some(f) = ctx.rt_ref().class_registry[self.class_id() as usize]
+            } else if let Some(f) = ctx.rt().class_registry[self.class_id() as usize]
                 .exotic
                 .as_ref()
                 .and_then(|m| m.get_own_property_names)
@@ -157,7 +158,7 @@ impl ObjectImpl {
 
                 for pk in f(ctx, Object::from_ref(self))? {
                     if !has_err {
-                        let atom_kind = pk.atom.desc_kind(ctx.rt_ref());
+                        let atom_kind = pk.atom.desc_kind(ctx.rt());
                         if (flags >> (atom_kind as u8)) & 1 != 0 {
                             let mut is_enumerable = false;
 
@@ -168,7 +169,7 @@ impl ObjectImpl {
                             }
 
                             if is_enumerable || flags & JS_GPN_ENUM_ONLY == 0 {
-                                let isa = if let Some(i) = pk.atom.to_array_index(ctx.rt_ref()) {
+                                let isa = if let Some(i) = pk.atom.to_array_index(ctx.rt()) {
                                     PropertyKeyKind::ArrayIndex(i)
                                 } else if atom_kind == AtomDescKind::JS_ATOM_KIND_STRING {
                                     PropertyKeyKind::String
@@ -348,12 +349,7 @@ impl JSValue {
         kind: JSIteratorKindEnum,
     ) -> JSResult {
         let kvs = self.get_own_property_kvs(ctx, flags, kind)?;
-
-        let mut lst = Vec::<JSValue>::new();
-        lst.try_reserve_exact(kvs.len()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        let mut lst = alloc_fast_array_slots(ctx, kvs.len())?;
 
         for (key, val) in kvs {
             match kind {

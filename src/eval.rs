@@ -68,7 +68,7 @@ impl<'c> ScopedContext<'c> {
         // get (bytecode, module, js_mode) of current stack frame
         let (frame_func_bc, frame_module, js_mode) = if eval_type == EvalType::Direct {
             let cur_func = self
-                .rt_ref()
+                .rt()
                 .current_stack_frame()
                 .and_then(|sf| sf.func_obj.as_BCWrapper())
                 .unwrap(); // <-- stack function must be a BCWrapper object

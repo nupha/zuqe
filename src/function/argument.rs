@@ -3,7 +3,7 @@
 
 use crate::{
     JS_CLASS_OBJECT,
-    array::ArrayPayload,
+    array::{ArrayPayload, alloc_fast_array_slots},
     atom::Atom,
     context::ScopedContext,
     object::{
@@ -143,11 +143,7 @@ pub(crate) fn build_arg_list(
         return Err(-1);
     }
 
-    let mut lst = Vec::<JSValue>::new();
-    lst.try_reserve_exact(length as usize).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    let mut lst = alloc_fast_array_slots(ctx, length as usize)?;
 
     if array_arg.is_fast_array()
         && let Some(arr_data) = array_arg.payload().array()

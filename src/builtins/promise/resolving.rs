@@ -306,9 +306,9 @@ impl Promise {
 
         if state == PromiseState::Rejected
             && !is_handled
-            && let Some(f) = ctx.rt_ref().host_promise_rejection_tracker
+            && let Some(f) = ctx.rt().host_promise_rejection_tracker
         {
-            let opaque = ctx.rt_ref().host_promise_rejection_tracker_opaque;
+            let opaque = ctx.rt().host_promise_rejection_tracker_opaque;
             f(ctx, *self, value, 0, opaque);
         }
 

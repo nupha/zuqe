@@ -28,7 +28,7 @@ fn internalize_json_property(
     name: Atom,
     reviver: JSValue,
 ) -> JSResult {
-    if js_check_stack_overflow(ctx.rt_ref(), 0) {
+    if js_check_stack_overflow(ctx.rt(), 0) {
         ctx.throw_stack_overflow();
         return Err(-1);
     }

@@ -6,6 +6,7 @@ use std::ptr::NonNull;
 use fallible_collections::TryCollect;
 
 use crate::{
+    array::alloc_fast_array_slots,
     atom::{Atom, AtomKind},
     builtins::{
         generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
@@ -818,8 +819,7 @@ impl Bytecode {
                         // [el1, el2 ... elN, ^] -> [array, ^]
                         let call_argc = PC_FETCH!(u16) as i32;
 
-                        let mut list = Vec::<JSValue>::new();
-                        if list.try_reserve_exact(call_argc as usize).is_ok() {
+                        if let Ok(mut list) = alloc_fast_array_slots(realm_scope, call_argc as _) {
                             // add elements
                             let call_argv = unsafe { sp.offset(-call_argc as isize) };
                             for i in 0..call_argc as usize {
@@ -836,7 +836,6 @@ impl Bytecode {
                                 break State::Exception;
                             }
                         } else {
-                            realm_scope.throw_out_of_memory();
                             break State::Exception;
                         }
                     }
@@ -1065,7 +1064,7 @@ impl Bytecode {
                         #[cfg(feature = "builtin_regexp")]
                         if let JSValue::Int(re_id) = SP_VAL!(-1) {
                             let re = Box::new(
-                                realm_scope.rt_ref().regexp_precompiled[re_id as usize].clone(),
+                                realm_scope.rt().regexp_precompiled[re_id as usize].clone(),
                             );
                             let regexp = crate::builtins::regexp::RegExp::from(
                                 realm_scope,
@@ -1997,15 +1996,13 @@ impl Bytecode {
                         }
 
                         if let Ok(atom) = prop.to_atom(realm_scope) {
+                            debug_assert!(this_obj.is_object());
+
                             let ret = obj.set_property_internal(
                                 realm_scope,
                                 atom,
                                 val,
-                                if let JSValue::Object(o) = &this_obj {
-                                    Some(*o)
-                                } else {
-                                    unreachable!()
-                                },
+                                this_obj.as_object().copied(),
                                 JS_PROP_THROW_STRICT,
                             );
 

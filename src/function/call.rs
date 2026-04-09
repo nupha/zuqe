@@ -172,7 +172,7 @@ impl ObjectImpl {
                 bfun.call(ctx, this, new_target, args, flags)
             }
         } else if let Some(cb) = unsafe {
-            ctx.rt_ref()
+            ctx.rt()
                 .class_registry
                 .get_unchecked(self.class_id() as usize)
                 .call

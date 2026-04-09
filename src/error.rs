@@ -124,7 +124,7 @@ impl<'c> ScopedContext<'c> {
     #[inline(never)]
     #[cold]
     pub fn throw_error(&mut self, kind: ErrorKind, message: &str) {
-        let rt = self.rt_ref();
+        let rt = self.rt();
 
         // add backtrace if called from a bytecode function
         let add_backtrace = !rt.out_of_memory
@@ -177,12 +177,12 @@ impl<'c> ScopedContext<'c> {
 
     pub fn throw_type_error_invalid_class(&mut self, class_id: ClassID) {
         let name = self.rt_ptr().class_registry[class_id as usize].class_name;
-        self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt_ref())))
+        self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt())))
     }
 
     #[inline(always)]
     pub fn throw_type_error_read_only(&mut self, atom: Atom) {
-        self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8(self.rt_ref())))
+        self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8(self.rt())))
     }
 
     #[inline(always)]
@@ -340,15 +340,12 @@ pub fn JS_ThrowReferenceErrorUninitialized(ctx: &mut ScopedContext, name: Atom) 
     if name.is_null() {
         ctx.throw_reference_error("lexical variable is not initialized");
     } else {
-        ctx.throw_reference_error(&format!(
-            "{} is not initialized",
-            name.to_utf8(ctx.rt_ref())
-        ));
+        ctx.throw_reference_error(&format!("{} is not initialized", name.to_utf8(ctx.rt())));
     }
 }
 
 pub fn JS_ThrowReferenceErrorNotDefined(ctx: &mut ScopedContext, name: Atom) {
-    ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8(ctx.rt_ref())))
+    ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8(ctx.rt())))
 }
 
 pub fn JS_ThrowReferenceErrorUninitialized2(
@@ -375,15 +372,12 @@ pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &mut ScopedContext) {
 pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &mut ScopedContext, atom: Atom) {
     ctx.throw_type_error(&format!(
         "private class field '{}' does not exist",
-        atom.to_utf8(ctx.rt_ref())
+        atom.to_utf8(ctx.rt())
     ));
 }
 
 pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &mut ScopedContext, prop: Atom) {
-    ctx.throw_syntax_error(&format!(
-        "redeclaration of '{}'",
-        prop.to_utf8(ctx.rt_ref())
-    ));
+    ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())));
 }
 
 /// used to avoid catching interrupt exceptions

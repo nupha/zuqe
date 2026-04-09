@@ -30,8 +30,7 @@ impl ObjectImpl {
         throw_ref_error: bool,
     ) -> JSResult {
         #[cfg(debug_assertions)]
-        self.gc_head()
-            .debug_assert_node_valid(ctx.rt_ref().gc_heap());
+        self.gc_head().debug_assert_node_valid(ctx.rt().gc_heap());
 
         for mut cur_obj in self.shape_proto_iter(true) {
             'redo: loop {
@@ -320,11 +319,11 @@ impl ObjectImpl {
         } else {
             let atom = Atom::from_i64(ctx.rt_ptr(), idx)?;
             self.has_property(ctx, atom).and_then(|found| {
-                if found {
-                    Ok(Some(self.get_property(ctx, atom)?))
+                Ok(if found {
+                    Some(self.get_property(ctx, atom)?)
                 } else {
-                    Ok(None)
-                }
+                    None
+                })
             })
         }
     }
@@ -359,7 +358,7 @@ impl JSValue {
                 }
             }
             v @ (Self::NULL | Self::UNDEFINED) => {
-                let prop_str = prop.to_utf8(ctx.rt_ref());
+                let prop_str = prop.to_utf8(ctx.rt());
                 ctx.throw_type_error(&format!(
                     "cannot read property '{prop_str}' of {}",
                     if v.is_undefined() {

@@ -58,7 +58,7 @@ fn js_string_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let what = cc.magic(); // 0: charAt, 1: at, 2: charCodeAt
     let buf_len = str.len() as i32;
 
-    let mut buf_idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
+    let mut buf_idx: i32 = cc.arg(0).to_number(ctx)?.to_i32_saturating();
     if buf_idx < 0 && what == 1 {
         // at() allows minus index
         buf_idx += buf_len;
@@ -88,7 +88,7 @@ fn js_string_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_string_codePointAt(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let s = this.to_string_non_undefined_or_null(ctx)?;
-    let i: i32 = cc.arg(0).to_i32_saturating(ctx)?;
+    let i: i32 = cc.arg(0).to_number(ctx)?.to_i32_saturating();
 
     if (0..s.len() as i32).contains(&i) {
         let (_, c) = s.content().chars_since(i as usize).next().unwrap();
@@ -168,7 +168,7 @@ pub fn js_string_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         inc = -1;
     } else {
         start = if cc.length() > 1 {
-            cc.arg(1).to_i32_clamp(ctx, 0, len, 0)?
+            cc.arg(1).to_number(ctx)?.to_i32_clamp(0, len, 0)
         } else {
             0
         };
@@ -351,7 +351,7 @@ fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let lim = if limit.is_undefined() {
         0xffff_ffff
     } else {
-        limit.to_u32(ctx)?
+        limit.to_number(ctx)?.to_u32()
     };
 
     let sep = separator.to_string(ctx)?;
@@ -417,9 +417,9 @@ fn js_string_substring(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
 
     let len = p.len() as i32;
-    let a = cc.arg(0).to_i32_clamp(ctx, 0, len, 0)?;
+    let a = cc.arg(0).to_number(ctx)?.to_i32_clamp(0, len, 0);
     let b = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(ctx, 0, len, 0)?
+        cc.arg(1).to_number(ctx)?.to_i32_clamp(0, len, 0)
     } else {
         len
     };
@@ -433,9 +433,9 @@ fn js_string_substr(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
     let len = p.len() as i32;
 
-    let a: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
+    let a: i32 = cc.arg(0).to_number(ctx)?.to_i32_clamp(0, len, len);
     let n = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(ctx, 0, len - a, 0)?
+        cc.arg(1).to_number(ctx)?.to_i32_clamp(0, len - a, 0)
     } else {
         len - a
     };
@@ -447,9 +447,9 @@ fn js_string_substr(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_string_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
     let len = p.len() as i32;
-    let start = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
+    let start = cc.arg(0).to_number(ctx)?.to_i32_clamp(0, len, len);
     let end = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(ctx, 0, len, len)?
+        cc.arg(1).to_number(ctx)?.to_i32_clamp(0, len, len)
     } else {
         len
     };
@@ -465,7 +465,7 @@ fn js_string_pad(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let str = cc.this().to_string_non_undefined_or_null(ctx)?;
     let len = str.len() as i32;
 
-    let mut ttl_len: i32 = cc.arg(0).to_i32_saturating(ctx)?;
+    let mut ttl_len: i32 = cc.arg(0).to_number(ctx)?.to_i32_saturating();
     if len >= ttl_len {
         return Ok(str.into());
     }
@@ -544,7 +544,7 @@ fn js_string_pad(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_string_repeat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
 
-    let repeat: i64 = cc.arg(0).to_i64_saturating(ctx)?;
+    let repeat: i64 = cc.arg(0).to_number(ctx)?.to_i64_saturating();
     if !(0..=0x7fffffff).contains(&repeat) {
         ctx.throw_range_error("invalid repeat count");
         return Err(-1);
@@ -598,7 +598,7 @@ fn js_string_includes(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if cc.length() > 1 {
         let a = cc.arg(1);
         if !a.is_undefined() {
-            pos = a.to_i32_clamp(ctx, 0, str_len as _, 0)? as usize;
+            pos = a.to_number(ctx)?.to_i32_clamp(0, str_len as _, 0) as usize;
             if cc.magic() == MAGIC_ENDS_WITH {
                 str_len = pos;
             }
@@ -1058,7 +1058,7 @@ fn js_string_fromCharCode(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     let mut sbuf = StringBuf::Empty;
 
     for a in cc.arguments() {
-        let cp = a.to_i32(ctx)?;
+        let cp = a.to_number(ctx)?.to_i32();
         sbuf.push_u32(cp as u32 & 0xffff).map_err(|_| {
             ctx.throw_out_of_memory();
             -1

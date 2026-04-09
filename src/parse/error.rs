@@ -49,7 +49,7 @@ impl<'s> JSParseState<'s> {
     pub(super) fn throw_reserved_identifier_error(&mut self) {
         let msg = format!(
             "'{}' is a reserved identifier",
-            self.token.atom().unwrap().to_utf8(self.ctx().rt_ref()),
+            self.token.atom().unwrap().to_utf8(self.ctx().rt()),
         );
         self.throw_syntax_error(&msg);
     }

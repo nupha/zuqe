@@ -126,7 +126,7 @@ impl Atom {
         }
     }
 
-    /// if atom is integral and the int is in range [0, JS_ATOM_MAX_INT],
+    /// if atom is integral and the int is in range \[0, JS_ATOM_MAX_INT\],
     /// returns the integer.
     #[inline]
     pub const fn to_small_int(&self) -> Option<u32> {
@@ -137,14 +137,20 @@ impl Atom {
         }
     }
 
-    /// Check if atom can be used as a numeric index property,
-    /// if yes, returns the index.
+    /// Check if atom can be used as a numeric index property, if yes, returns the index.
+    ///
+    /// Try to interpret this atom as a canonical numeric index (ECMA CanonicalNumericIndexString).
+    /// Fast‑path: if the atom is stored as a small integer, return it as Int64.
+    /// Otherwise, if it is a string, accept only canonical numeric forms such as
+    /// "0", "42", "-0", "Infinity", "-Infinity" and reject non‑canonical ones like
+    /// "01", "1.0" or "1e2".
+    /// Returns None if the atom is not a numeric index.
     pub fn to_numeric_index(&self, ctx: &mut ScopedContext) -> Result<Option<IntOrFloat>, i32> {
         if let Some(n) = self.to_small_int() {
             return Ok(Some(IntOrFloat::Int64(n as _)));
         }
 
-        let s = self.descriptor(ctx.rt_ref());
+        let s = self.descriptor(ctx.rt());
         let atom_info = s.atom_info().unwrap();
         let content = s.content();
 
@@ -226,7 +232,7 @@ impl Atom {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::from)
         } else {
-            let s = self.descriptor(ctx.rt_ref());
+            let s = self.descriptor(ctx.rt());
             match s.atom_info().unwrap().kind() {
                 AtomKind::String => Ok(JSValue::from(s)),
                 #[cfg(feature = "builtin_symbol")]
@@ -243,7 +249,7 @@ impl Atom {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}").into_bytes())
         } else {
-            let s = self.descriptor(ctx.rt_ref());
+            let s = self.descriptor(ctx.rt());
             if s.content().is_ident() {
                 Self::CONST_empty_string.force_string(ctx)
             } else {

@@ -19,7 +19,7 @@ use crate::{
 pub(crate) fn js_object_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
-    if !new_target.is_undefined() && ctx.rt_ref().current_function() != new_target {
+    if !new_target.is_undefined() && ctx.rt().current_function() != new_target {
         ctx.create_object_from_ctor(new_target, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     } else {
@@ -428,7 +428,7 @@ pub(crate) fn js_object_hasOwn(ctx: &mut ScopedContext, cc: CallContext) -> JSRe
 //
 fn js_object___getClass(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let name = if let Some(o) = cc.arg(0).as_object() {
-        ctx.rt_ref().class_registry[o.class_id() as usize].class_name
+        ctx.rt().class_registry[o.class_id() as usize].class_name
     } else {
         Atom::CONST_empty_string
     };

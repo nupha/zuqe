@@ -31,7 +31,7 @@ pub fn js_regexp_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         // called as a function
         if pat_is_regexp && flags1.is_undefined() {
             let ctor = pat.get_property(ctx, Atom::CONST_constructor)?;
-            if ctor.is_same(ctx.rt_ref().current_function()) {
+            if ctor.is_same(ctx.rt().current_function()) {
                 return Ok(pat);
             }
         }
@@ -532,7 +532,8 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     for mat in matche_list {
         let count = mat
             .get_property(ctx, Atom::CONST_length)
-            .and_then(|v| v.to_u32(ctx))?
+            .and_then(|v| v.to_number(ctx))
+            .map(|n| n.to_u32())?
             .max(1) as usize;
 
         let matched = mat.get_property_u32(ctx, 0)?.to_string(ctx)?;
@@ -702,7 +703,7 @@ pub fn js_regexp_Symbol_split(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let limit = if limit.is_undefined() {
         usize::MAX
     } else {
-        limit.to_u32(ctx)? as usize
+        limit.to_number(ctx)?.to_u32() as usize
     };
 
     // make RegExp as splitter

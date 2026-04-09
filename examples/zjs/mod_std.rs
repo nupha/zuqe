@@ -145,7 +145,7 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         if ret.is_err() {
             // convert the uncatchable "interrupted" error into a normal error
             // so that it can be caught by the REPL
-            JS_SetUncatchableError(ctx.rt_ref().exception(), false);
+            JS_SetUncatchableError(ctx.rt().exception(), false);
         }
     }
 
@@ -158,7 +158,7 @@ fn js_gc(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
 }
 
 fn std_exit(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let n = cc.arg(0).to_i32(ctx).unwrap_or(-1);
+    let n = cc.arg(0).to_number(ctx)?.to_i32();
     ctx.rt_mut().stop(n);
     Ok(JSValue::UNDEFINED)
 }

@@ -123,7 +123,7 @@ pub(super) fn js_host_resolve_imported_module(
     name: &str,
 ) -> Result<ModuleDef, i32> {
     // normalize module name
-    let norm_name = if let Some(cb) = ctx.rt_ref().module_normalize_func {
+    let norm_name = if let Some(cb) = ctx.rt().module_normalize_func {
         cb(ctx, base_name, name, ctx.rt_ptr().module_load_opaque)
     } else {
         js_default_module_normalize_name(ctx, base_name, name)
@@ -154,8 +154,8 @@ fn js_host_resolve_imported_module_atom(
     base_module_name: &Atom,
     module_name1: &Atom,
 ) -> Result<ModuleDef, i32> {
-    let base_cname = base_module_name.to_utf8(ctx.rt_ref());
-    let cname = module_name1.to_utf8(ctx.rt_ref());
+    let base_cname = base_module_name.to_utf8(ctx.rt());
+    let cname = module_name1.to_utf8(ctx.rt());
     js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)
 }
 

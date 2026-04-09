@@ -167,12 +167,12 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut v64 = 0_u64;
 
     if class_id <= JS_CLASS_UINT32_ARRAY {
-        v = val.to_u32(ctx)?;
+        v = val.to_number(ctx)?.to_u32();
     } else if class_id <= JS_CLASS_BIG_UINT64_ARRAY {
         ctx.throw_type_error("BigInt is not supported");
         return Err(-1);
     } else {
-        let d: f64 = val.to_f64(ctx)?;
+        let d: f64 = val.to_number(ctx)?.to_f64();
         if class_id == JS_CLASS_FLOAT32_ARRAY {
             union U {
                 f: f32,

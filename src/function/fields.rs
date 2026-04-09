@@ -307,7 +307,7 @@ impl ObjectImpl {
 
             FieldDetail::Class => {
                 val = ctx
-                    .rt_ref()
+                    .rt()
                     .query_class_id(atom)
                     .and_then(|class_id| ctx.class_slots.get(class_id as usize))
                     .and_then(|x| x.ctor)
@@ -387,7 +387,7 @@ fn prop_name_to_atom(ctx: &mut ScopedContext, str: &str) -> Result<Atom, i32> {
             // We assume 8 bit non null strings, which is the case for these symbols
             for id in crate::atom::ATOM_CONST_SYMBOL_RANGE {
                 let a = Atom::from_id(id);
-                if a.descriptor(ctx.rt_ref()).content().eq_str(name2) {
+                if a.descriptor(ctx.rt()).content().eq_str(name2) {
                     return Ok(a);
                 }
             }

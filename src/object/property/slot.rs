@@ -126,7 +126,7 @@ impl ObjectImpl {
                         && flags & JS_PROP_HAS_VALUE != 0,
                 ) {
                     return if !val.is_same(self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?) {
-                        if ctx.rt_ref().can_throw(flags) {
+                        if ctx.rt().can_throw(flags) {
                             ctx.throw_type_error("property is not configurable");
                             Err(-1)
                         } else {
@@ -176,7 +176,7 @@ impl ObjectImpl {
                         references, but they are write protected in module name
                         spaces. */
                         if !val.is_same(vref.value()) {
-                            return if ctx.rt_ref().can_throw(flags) {
+                            return if ctx.rt().can_throw(flags) {
                                 ctx.throw_type_error("property is not configurable");
                                 Err(-1)
                             } else {
@@ -192,7 +192,7 @@ impl ObjectImpl {
                     // has {writable:false}
                     // 'writable' is set to false, no longer a reference (for mapped arguments)
                     if unlikely(class_id == JS_CLASS_MODULE_NS) {
-                        return if ctx.rt_ref().can_throw(flags) {
+                        return if ctx.rt().can_throw(flags) {
                             ctx.throw_type_error(
                                 "module namespace properties have writable = false",
                             );
@@ -219,7 +219,7 @@ impl ObjectImpl {
             // the length property
             let res = if flags & JS_PROP_HAS_VALUE != 0 {
                 let arr_len = val.to_array_length(ctx, false)?;
-                let can_throw = ctx.rt_ref().can_throw(flags);
+                let can_throw = ctx.rt().can_throw(flags);
                 unsafe {
                     Object::from_ref(self)
                         .as_Array_mut_unchecked()
@@ -292,7 +292,7 @@ impl ObjectImpl {
                         && ((flags & JS_PROP_HAS_GET != 0 && new_getter != *getter)
                             || (flags & JS_PROP_HAS_SET != 0 && new_setter != *setter)),
                 ) {
-                    return if ctx.rt_ref().can_throw(flags) {
+                    return if ctx.rt().can_throw(flags) {
                         ctx.throw_type_error("property is not configurable");
                         Err(-1)
                     } else {

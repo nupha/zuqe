@@ -169,7 +169,7 @@ pub struct ObjectIter<'a> {
 impl Drop for ObjectIter<'_> {
     fn drop(&mut self) {
         if !self.done {
-            let has_exc = !self.ctx.rt_ref().exception().is_undefined_or_null();
+            let has_exc = !self.ctx.rt().exception().is_undefined_or_null();
             let _ = self.close(has_exc);
         }
     }

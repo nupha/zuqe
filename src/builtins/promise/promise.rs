@@ -375,7 +375,10 @@ pub(crate) fn remainingElementsCount_add(
     mut resolve_element_env: JSValue,
     addend: i32,
 ) -> Result<i32, i32> {
-    let mut remainingElementsCount = resolve_element_env.get_property_u32(ctx, 0)?.to_i32(ctx)?;
+    let mut remainingElementsCount = resolve_element_env
+        .get_property_u32(ctx, 0)?
+        .to_number(ctx)?
+        .to_i32();
 
     remainingElementsCount += addend;
     resolve_element_env.set_property_u32(ctx, 0, JSValue::Int(remainingElementsCount))?;
@@ -391,7 +394,7 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
     let mut values = cc.data(2);
     let resolve = cc.data(3);
     let resolve_element_env = cc.data(4);
-    let index = cc.data(1).to_i32(ctx)?;
+    let index = cc.data(1).to_number(ctx)?.to_i32();
 
     if alreadyCalled {
         return Ok(JSValue::UNDEFINED);

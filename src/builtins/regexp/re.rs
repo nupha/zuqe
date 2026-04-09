@@ -9,7 +9,7 @@ use zerocopy::IntoBytes;
 
 use crate::{
     JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR, JS_PROP_CONFIGURABLE,
-    array::Array,
+    array::{Array, alloc_fast_array_slots},
     atom::Atom,
     class::ClassID,
     context::ScopedContext,
@@ -361,11 +361,7 @@ pub(super) fn make_regexp_capture_array(
     range_and_name: &[(Option<Range<usize>>, Option<String>)],
     with_indices: bool,
 ) -> Result<(Array, usize), i32> {
-    let mut items = Vec::<JSValue>::new();
-    items.try_reserve(range_and_name.len()).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    let mut items = alloc_fast_array_slots(ctx, range_and_name.len())?;
 
     let mut indices: Option<(Vec<JSValue>, Option<Object>)> = if with_indices {
         let mut lst = Vec::new();

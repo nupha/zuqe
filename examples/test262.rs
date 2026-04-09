@@ -116,8 +116,8 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_string_codePointRange(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut start = cc.arg(0).to_i32(ctx)? as u32;
-    let end = std::cmp::min(cc.arg(1).to_i32(ctx)? as u32, 0x10ffff + 1);
+    let mut start = cc.arg(0).to_number(ctx)?.to_u32();
+    let end = std::cmp::min(cc.arg(1).to_number(ctx)?.to_u32(), 0x10ffff + 1);
     if start > end {
         start = end;
     }
@@ -245,7 +245,7 @@ fn js_module_set_import_meta(
     if let JSValue::Module(mut m) = func_val {
         // make module name to absolute url
         let module_name_atom = m.module_name();
-        let module_name = module_name_atom.to_utf8(ctx.rt_ref());
+        let module_name = module_name_atom.to_utf8(ctx.rt());
 
         let p = PathBuf::from(module_name);
         let mut normalized = PathBuf::new();

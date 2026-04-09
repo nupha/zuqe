@@ -30,7 +30,7 @@ impl ObjectImpl {
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     ///
     /// `self` and its prototype chain is used to find property existance.
-    /// in case property was not found, `target` is used to add the new property,
+    /// in case property was not found, `receiver` is used to add the new property,
     /// this argument could be:
     /// - Some(obj): new property can be added on `obj`;
     /// - None: add new property is not allowed.
@@ -39,12 +39,12 @@ impl ObjectImpl {
         ctx: &mut ScopedContext,
         prop: Atom,
         val: JSValue,
-        target: Option<Object>,
+        receiver: Option<Object>,
         flags: u32,
     ) -> Result<bool, i32> {
         macro_rules! fail {
             ($msg:expr) => {
-                return if ctx.rt_ref().can_throw(flags) {
+                return if ctx.rt().can_throw(flags) {
                     ctx.throw_type_error($msg);
                     Err(-1)
                 } else {
@@ -55,7 +55,7 @@ impl ObjectImpl {
 
         macro_rules! fail_read_only {
             ($prop:expr) => {
-                return if ctx.rt_ref().can_throw(flags) {
+                return if ctx.rt().can_throw(flags) {
                     ctx.throw_type_error_read_only($prop);
                     Err(-1)
                 } else {
@@ -69,7 +69,7 @@ impl ObjectImpl {
             // 1. find shape property
             'shape: while let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
                 match prs_flags & JS_PROP_TMASK {
-                    JS_PROP_NORMAL if target.is_some_and(|o| cur_obj == o) => {
+                    JS_PROP_NORMAL if receiver.is_some_and(|o| cur_obj == o) => {
                         // possible to update property value, when cur_obj == receiver
                         if unlikely(prs_flags & JS_PROP_LENGTH != 0) {
                             // set array length
@@ -77,7 +77,8 @@ impl ObjectImpl {
                             debug_assert_eq!(prop, Atom::CONST_length);
 
                             let arr_len = val.to_array_length(ctx, false)?;
-                            let can_throw = ctx.rt_ref().can_throw(flags);
+                            let can_throw = ctx.rt().can_throw(flags);
+
                             return unsafe {
                                 cur_obj
                                     .as_Array_mut_unchecked()
@@ -93,7 +94,7 @@ impl ObjectImpl {
                         }
                     }
 
-                    JS_PROP_VARREF if target.is_some_and(|o| cur_obj == o) => {
+                    JS_PROP_VARREF if receiver.is_some_and(|o| cur_obj == o) => {
                         if unlikely(cur_obj.class_id() == JS_CLASS_MODULE_NS) {
                             fail_read_only!(prop)
                         } else if let JSProperty::VarRef(vref) = cur_obj.prop_slot_mut(idx) {
@@ -111,7 +112,7 @@ impl ObjectImpl {
                             call_setter(
                                 ctx,
                                 *setter,
-                                target.unwrap_or(Object::from_ref(self)).into(),
+                                receiver.unwrap_or(Object::from_ref(self)).into(),
                                 val,
                                 flags,
                             )
@@ -162,7 +163,8 @@ impl ObjectImpl {
                 if obj_flags.is_fast_array() {
                     if let Some(idx) = prop.to_small_int() {
                         if idx < cur_obj.fast_array_count() {
-                            if target.is_some_and(|o| cur_obj == o) {
+                            if receiver.is_some_and(|o| cur_obj == o) {
+                                // set property on receiver object.
                                 return cur_obj.set_property_value(
                                     ctx,
                                     JSValue::Int(idx as _),
@@ -175,16 +177,21 @@ impl ObjectImpl {
                         } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                             .contains(&cur_obj.class_id())
                         {
-                            // Note: consume the value even if typed array oob
-                            let _ = val.to_number(ctx)?;
+                            // index out of bound
+                            // ECMA: if receiver object is same to self, consume the value.
+                            if receiver.is_some_and(|o| cur_obj == o) {
+                                let _ = val.to_number(ctx)?;
+                            }
                             return Ok(true);
                         }
                     } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                         .contains(&cur_obj.class_id())
                         && prop.is_numeric_index(ctx)?
                     {
-                        // Note: consume the value even if typed array oob
-                        let _ = val.to_number(ctx)?;
+                        // ECMA: if receiver object is same to self, consume the value.
+                        if receiver.is_some_and(|o| cur_obj == o) {
+                            let _ = val.to_number(ctx)?;
+                        }
                         return Ok(true);
                     }
                 } else if let Some(xm) = ctx.rt_ptr().class_registry[cur_obj.class_id() as usize]
@@ -198,7 +205,7 @@ impl ObjectImpl {
                             JSValue::Object(cur_obj),
                             prop,
                             val,
-                            target.unwrap_or(Object::from_ref(self)).into(),
+                            receiver.unwrap_or(Object::from_ref(self)).into(),
                             flags as _,
                         );
                     }
@@ -213,7 +220,7 @@ impl ObjectImpl {
                             return call_setter(
                                 ctx,
                                 desc.setter.as_object().copied(),
-                                target.unwrap_or(Object::from_ref(self)).into(),
+                                receiver.unwrap_or(Object::from_ref(self)).into(),
                                 val,
                                 flags,
                             );
@@ -223,7 +230,7 @@ impl ObjectImpl {
                             fail_read_only!(prop)
                         }
 
-                        if target.is_some_and(|o| cur_obj == o) {
+                        if receiver.is_some_and(|o| cur_obj == o) {
                             return cur_obj.define_property(
                                 ctx,
                                 prop,
@@ -247,8 +254,8 @@ impl ObjectImpl {
             return Err(-1);
         }
 
-        // target must be provided in order to add new property on it.
-        if let Some(mut target) = target {
+        // receiver must be provided in order to add new property on it.
+        if let Some(mut target) = receiver {
             if unlikely(!target.flags().extensible()) {
                 fail!("object is not extensible")
             }
@@ -428,23 +435,23 @@ impl ObjectImpl {
             | JS_CLASS_UINT16_ARRAY
             | JS_CLASS_INT32_ARRAY
             | JS_CLASS_UINT32_ARRAY => {
-                let Ok(v) = val.to_i32(ctx) else {
+                let Ok(i) = val.to_number(ctx).map(|n| n.to_i32()) else {
                     return Some(Err(-1));
                 };
                 let _ = Object::from_ref(self)
                     .as_TypedArray_mut()
                     .unwrap()
-                    .set_element_int(index as _, v);
+                    .set_element_int(index as _, i);
                 Some(Ok(true))
             }
             JS_CLASS_FLOAT32_ARRAY | JS_CLASS_FLOAT64_ARRAY => {
-                let Ok(v) = val.to_f64(ctx) else {
+                let Ok(d) = val.to_number(ctx).map(|n| n.to_f64()) else {
                     return Some(Err(-1));
                 };
                 let _ = Object::from_ref(self)
                     .as_TypedArray_mut()
                     .unwrap()
-                    .set_element_float(index as _, v);
+                    .set_element_float(index as _, d);
                 Some(Ok(true))
             }
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
@@ -558,7 +565,7 @@ impl JSValue {
             o.set_property_internal(ctx, prop, val, receiver.or(Some(*o)), flags)
         } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
             p.set_property_internal(ctx, prop, val, receiver, flags)
-        } else if unlikely(ctx.rt_ref().can_throw(flags)) {
+        } else if unlikely(ctx.rt().can_throw(flags)) {
             ctx.throw_type_error_not_an_object();
             Err(-1)
         } else {
@@ -643,7 +650,7 @@ fn call_setter(
     if let Some(func) = setter {
         func.call(ctx, this_obj, std::slice::from_ref(&value))?;
         Ok(true)
-    } else if unlikely(ctx.rt_ref().can_throw(flags)) {
+    } else if unlikely(ctx.rt().can_throw(flags)) {
         ctx.throw_type_error("no setter for property");
         Err(-1)
     } else {

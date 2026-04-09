@@ -354,7 +354,7 @@ impl ArrayBuffer {
                 return Err(-1);
             }
 
-            match (shared, &ctx.rt_ref().sab_funcs) {
+            match (shared, &ctx.rt().sab_funcs) {
                 (true, Some(fns)) => {
                     let mut data = (fns.sab_alloc)(fns.sab_opaque, capacity)?;
                     unsafe {
@@ -430,7 +430,7 @@ impl ArrayBuffer {
             if let ABufData::Raw(ptr, len, fin) = data0
                 && let Some(f) = fin
             {
-                f(ctx.rt_ref(), abuf.opaque(), ptr.as_ptr(), len);
+                f(ctx.rt(), abuf.opaque(), ptr.as_ptr(), len);
             }
 
             let rt = ctx.rt_ptr();

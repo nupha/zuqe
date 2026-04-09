@@ -7,6 +7,7 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     ScopedContext,
+    array::alloc_fast_array_slots,
     context::ContextPtr,
     error::JSResult,
     function::BCWrapper,
@@ -145,7 +146,7 @@ impl AsyncStateImpl {
     pub(crate) fn resume(&mut self, ctx: &mut ScopedContext) -> JSResult {
         debug_assert!(!self.is_completed);
 
-        if js_check_stack_overflow(ctx.rt_ref(), 0) {
+        if js_check_stack_overflow(ctx.rt(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
         }

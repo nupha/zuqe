@@ -295,7 +295,7 @@ impl StackFrame {
         is_async: bool,
     ) {
         debug_assert_eq!(
-            ctx.rt_ref().current_stack_frame(),
+            ctx.rt().current_stack_frame(),
             Some(&*self),
             "StackFrame::handle_exit() must be called on current stack frame"
         );

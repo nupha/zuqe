@@ -250,7 +250,7 @@ impl<'c> ScopedContext<'c> {
             "class ctor has been created"
         );
 
-        let class_name = self.rt_ref().class_registry[class_id as usize].class_name;
+        let class_name = self.rt().class_registry[class_id as usize].class_name;
 
         let mut ctor: Object = NativeFunction::create_internal(
             self,

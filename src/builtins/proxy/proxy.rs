@@ -93,7 +93,7 @@ impl ProxyPayload {
     /// get proxied method. returns function object or undefined
     pub fn get_proxy_method(&self, ctx: &mut ScopedContext, name: Atom) -> Result<JSValue, i32> {
         // safer to test recursion in all proxy methods
-        if unlikely(js_check_stack_overflow(ctx.rt_ref(), 0)) {
+        if unlikely(js_check_stack_overflow(ctx.rt(), 0)) {
             ctx.throw_stack_overflow();
             Err(-1)
         } else if unlikely(self.is_revoked()) {
@@ -297,7 +297,7 @@ impl Proxy {
     }
 
     pub fn is_array(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {
-        if unlikely(js_check_stack_overflow(ctx.rt_ref(), 0)) {
+        if unlikely(js_check_stack_overflow(ctx.rt(), 0)) {
             ctx.throw_stack_overflow();
             Err(-1)
         } else {
@@ -799,7 +799,7 @@ fn js_proxy_set(
                 return Err(-1);
             }
         }
-    } else if ctx.rt_ref().can_throw(flags as u32) {
+    } else if ctx.rt().can_throw(flags as u32) {
         ctx.throw_type_error("proxy: cannot set property");
         return Err(-1);
     }

@@ -19,7 +19,7 @@ pub(crate) fn js_error_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
 
     let mut new_target = cc.this();
     if new_target.is_undefined() {
-        new_target = ctx.rt_ref().current_function();
+        new_target = ctx.rt().current_function();
     }
 
     // use proper proto, ensure proto is an object

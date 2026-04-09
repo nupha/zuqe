@@ -264,7 +264,7 @@ impl<'s> JSParseState<'s> {
 
 #[inline(always)]
 fn js_unsupported_keyword(s: &mut JSParseState, atom: Atom) -> i32 {
-    let msg = format!("unsupported keyword: {}", atom.to_utf8(s.ctx().rt_ref()));
+    let msg = format!("unsupported keyword: {}", atom.to_utf8(s.ctx().rt()));
     s.throw_syntax_error(&msg);
     -1
 }

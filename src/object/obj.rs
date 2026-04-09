@@ -86,6 +86,7 @@ impl ObjectFlags {
         }
     }
 
+    /// fast array could be instance of: Array, Argument, TypedArray
     pub const fn is_fast_array(&self) -> bool {
         self.bitfield & Self::MASK_FAST_ARRAY != 0
     }
@@ -352,7 +353,7 @@ impl ObjectImpl {
         #[cfg(debug_assertions)]
         {
             let cid = obj.class_id();
-            let cname = obj.class_name().to_utf8(ctx.rt_ref());
+            let cname = obj.class_name().to_utf8(ctx.rt());
             obj.gc_node_mut()
                 .debug_set_dbg_string(format!("[ObjectImpl] class={} ({cname})", cid).into());
         }

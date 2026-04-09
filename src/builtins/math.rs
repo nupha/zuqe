@@ -163,13 +163,13 @@ fn js_math_hypot(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_math_imul(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let a = cc.arg(0).to_i32(ctx)?;
-    let b = cc.arg(1).to_i32(ctx)?;
+    let a = cc.arg(0).to_number(ctx)?.to_i32();
+    let b = cc.arg(1).to_number(ctx)?.to_i32();
     Ok(JSValue::Int(a.wrapping_mul(b)))
 }
 
 fn js_math_clz32(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let a = cc.arg(0).to_u32(ctx)?;
+    let a = cc.arg(0).to_number(ctx)?.to_u32();
     let r: u32 = if a == 0 { 32 } else { a.leading_zeros() };
     Ok(JSValue::Int(r as i32))
 }

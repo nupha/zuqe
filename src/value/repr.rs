@@ -49,7 +49,7 @@ impl JSValue {
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => Ok(format!("Symbol({})", s.content().encode_utf8(false))),
             Self::Object(o) => o.inspect(ctx),
-            Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.func_name.to_utf8(ctx.rt_ref()))),
+            Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.func_name.to_utf8(ctx.rt()))),
 
             Self::NULL => Ok("null".into()),
             Self::UNDEFINED => Ok("undefined".into()),
@@ -77,15 +77,15 @@ impl ObjectImpl {
                 | JS_CLASS_MAPPED_ARGUMENTS
                 | JS_CLASS_ERROR
                 | JS_CLASS_BOOLEAN
-                | JS_CLASS_NUMBER) => ctx.rt_ref().class_registry[cid as usize].class_name,
+                | JS_CLASS_NUMBER) => ctx.rt().class_registry[cid as usize].class_name,
 
                 #[cfg(feature = "builtin_regexp")]
                 crate::JS_CLASS_REGEXP => {
-                    ctx.rt_ref().class_registry[crate::JS_CLASS_REGEXP as usize].class_name
+                    ctx.rt().class_registry[crate::JS_CLASS_REGEXP as usize].class_name
                 }
                 #[cfg(feature = "builtin_date")]
                 crate::JS_CLASS_DATE => {
-                    ctx.rt_ref().class_registry[crate::JS_CLASS_DATE as usize].class_name
+                    ctx.rt().class_registry[crate::JS_CLASS_DATE as usize].class_name
                 }
 
                 _ => Atom::CONST_Object,
@@ -114,7 +114,7 @@ impl ObjectImpl {
         match self.class_id() {
             JS_CLASS_ARRAY => Ok(format!("Array({})", self.payload().array().unwrap().len())),
             class_id => {
-                let atom = ctx.rt_ref().class_registry[class_id as usize].class_name;
+                let atom = ctx.rt().class_registry[class_id as usize].class_name;
                 let name = atom.force_string(ctx)?;
                 Ok(format!("{} {{ }}", name.encode_utf8(false)))
             }

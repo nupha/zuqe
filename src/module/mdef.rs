@@ -449,7 +449,7 @@ pub(crate) fn add_module_variables(ctx: &mut ScopedContext, fdef: &mut FunctionD
             } else {
                 ctx.throw_syntax_error(&format!(
                     "exported variable '{}' does not exist",
-                    me.local_name.to_utf8(ctx.rt_ref())
+                    me.local_name.to_utf8(ctx.rt())
                 ));
                 return -1;
             }

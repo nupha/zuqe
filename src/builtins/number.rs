@@ -52,7 +52,7 @@ fn js_thisNumberValue(ctx: &mut ScopedContext, this_val: JSValue) -> JSResult {
 }
 
 pub(super) fn js_parseInt(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let radix: i32 = cc.arg(1).to_i32(ctx)?;
+    let radix = cc.arg(1).to_number(ctx)?.to_i32();
 
     if radix != 0 && !(2..=36).contains(&radix) {
         Ok(JSValue::Float64(f64::NAN))
@@ -116,7 +116,7 @@ fn js_number_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let radix = if to_locale_string || cc.arg(0).is_undefined() {
         10
     } else {
-        let r = cc.arg(0).to_i32_saturating(ctx)?;
+        let r = cc.arg(0).to_number(ctx)?.to_i32_saturating();
         if !(2..=36).contains(&r) {
             ctx.throw_range_error("radix must be between 2 and 36");
             return Err(-1);
@@ -147,7 +147,7 @@ fn js_number_toPrecision(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             format!("{d}").into()
         }
     } else {
-        let f = a0.to_i32_saturating(ctx)?;
+        let f = a0.to_number(ctx)?.to_i32_saturating();
 
         if unlikely(!d.is_finite()) {
             if d.is_nan() {
@@ -171,10 +171,10 @@ fn js_number_toPrecision(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_number_toExponential(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let val = js_thisNumberValue(ctx, cc.this())?;
-    let d: f64 = val.to_f64(ctx)?;
+    let d: f64 = val.to_number(ctx)?.to_f64();
 
     let a0 = cc.arg(0);
-    let f = a0.to_i32_saturating(ctx)?;
+    let f = a0.to_number(ctx)?.to_i32_saturating();
 
     let s = if unlikely(!d.is_finite()) {
         if d.is_nan() {
@@ -203,8 +203,8 @@ fn js_number_toExponential(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 }
 
 fn js_number_toFixed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let d = js_thisNumberValue(ctx, cc.this())?.to_f64(ctx)?;
-    let f = cc.arg(0).to_i32_saturating(ctx)?;
+    let d = js_thisNumberValue(ctx, cc.this())?.to_number(ctx)?.to_f64();
+    let f = cc.arg(0).to_number(ctx)?.to_i32_saturating();
 
     let s = if unlikely(!(0..=100).contains(&f)) {
         ctx.throw_range_error("invalid number of digits");

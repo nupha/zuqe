@@ -127,7 +127,7 @@ impl<'c> ScopedContext<'c> {
             if prs.is_none() && !gobj.flags().extensible() {
                 self.throw_type_error(&format!(
                     "cannot define variable '{}' ",
-                    prop.to_utf8(self.rt_ref())
+                    prop.to_utf8(self.rt())
                 ));
                 return Err(-1);
             }
@@ -141,7 +141,7 @@ impl<'c> ScopedContext<'c> {
             {
                 self.throw_type_error(&format!(
                     "cannot define variable '{}'",
-                    prop.to_utf8(self.rt_ref())
+                    prop.to_utf8(self.rt())
                 ));
                 return Err(-1);
             }
@@ -226,7 +226,7 @@ impl<'c> ScopedContext<'c> {
         } else {
             // not exist
             let mut flags1 = JS_PROP_THROW_STRICT;
-            if self.rt_ref().is_strict_mode() {
+            if self.rt().is_strict_mode() {
                 flags1 |= JS_PROP_NO_ADD;
             }
 

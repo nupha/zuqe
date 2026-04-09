@@ -111,7 +111,7 @@ impl ObjectImpl {
             !self.has_shape_property(prop),
             "auto init property already exists: {} {:?}",
             prop.id(),
-            prop.to_utf8(ctx.rt_ref())
+            prop.to_utf8(ctx.rt())
         );
 
         let realm = ContextPtr::from(ctx.gc_ref());

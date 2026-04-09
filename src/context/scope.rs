@@ -147,7 +147,7 @@ impl<'a> ScopedContext<'a> {
 
     /// create new scope over current scope
     fn new_scope(&mut self) -> ScopedContext<'_> {
-        let pid = self.rt_ref().gc_part_id();
+        let pid = self.rt().gc_part_id();
         let ctx = ContextPtr::from(self.gc_ref());
         let gc_scope = self.gc_heap_mut().new_scope(pid);
 
@@ -206,7 +206,7 @@ impl ContextImpl {
 
 impl ContextPtr {
     pub(crate) fn new_scope(&mut self) -> ScopedContext<'_> {
-        let pid = self.rt_ref().gc_part_id();
+        let pid = self.rt().gc_part_id();
         let ctx = ContextPtr::from(self.gc_ref());
         let gc_scope = self.gc_heap_mut().new_scope(pid);
 
@@ -224,7 +224,7 @@ impl ContextPtr {
 
 impl<'c> Context<'c> {
     pub fn new_scope(&mut self) -> ScopedContext<'_> {
-        let pid = self.rt_ref().gc_part_id();
+        let pid = self.rt().gc_part_id();
         let ctx = ContextPtr::from(self.gc_ref());
         let gc_scope = self.gc_heap_mut().new_scope(pid);
 

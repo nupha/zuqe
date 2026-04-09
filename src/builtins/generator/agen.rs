@@ -299,7 +299,7 @@ impl AGenPayload {
         let gen_obj = self
             .generator
             .borrow()
-            .upgrade(ctx.rt_ref().gc_heap())
+            .upgrade(ctx.rt().gc_heap())
             .unwrap();
 
         let resolving_funcs =

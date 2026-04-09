@@ -63,7 +63,7 @@ impl ObjectImpl {
             // for array index or exotic.
             if obj_flags.is_exotic() {
                 if obj_flags.is_fast_array() {
-                    if let Some(idx) = prop.to_array_index(ctx.rt_ref()) {
+                    if let Some(idx) = prop.to_array_index(ctx.rt()) {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
                                 let cnt = self.fast_array_count();
@@ -93,7 +93,7 @@ impl ObjectImpl {
                     }
                 } else {
                     // use exotic delete_property callback
-                    if let Some(cb) = ctx.rt_ref().class_registry[self.class_id() as usize]
+                    if let Some(cb) = ctx.rt().class_registry[self.class_id() as usize]
                         .exotic
                         .as_ref()
                         .and_then(|m| m.delete_property)
@@ -121,7 +121,7 @@ impl ObjectImpl {
             Ok(true)
         } else {
             // not configurable
-            if ctx.rt_ref().can_throw(flags) {
+            if ctx.rt().can_throw(flags) {
                 ctx.throw_type_error("could not delete property");
                 Err(-1)
             } else {

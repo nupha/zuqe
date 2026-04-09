@@ -281,7 +281,7 @@ fn js_typed_array_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
+    let mut idx: i64 = cc.arg(0).to_number(ctx)?.to_i64_saturating();
     let len = ta.length() as i64;
     if idx < 0 {
         idx += len;
@@ -302,7 +302,7 @@ fn js_typed_array_with(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     // don't change following 2 lines order
-    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
+    let mut idx: i64 = cc.arg(0).to_number(ctx)?.to_i64_saturating();
     let val = cc.arg(1).to_primitive(ctx, HINT_NUMBER)?;
 
     let len = ta.length() as i64;
@@ -331,7 +331,7 @@ fn js_typed_array_set_internal(
         return Err(-1);
     };
 
-    let offset = offset.to_i64_saturating(ctx)?;
+    let offset = offset.to_number(ctx)?.to_i64_saturating();
     if offset < 0 {
         ctx.throw_range_error("invalid array length");
         return Err(-1);
@@ -452,10 +452,10 @@ fn js_typed_array_get_toStringTag(ctx: &mut ScopedContext, cc: CallContext) -> J
 
 fn js_typed_array_copyWithin(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
-    let to: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
-    let from: i32 = cc.arg(1).to_i32_clamp(ctx, 0, len, len)?;
+    let to: i32 = cc.arg(0).to_number(ctx)?.to_i32_clamp(0, len, len);
+    let from: i32 = cc.arg(1).to_number(ctx)?.to_i32_clamp(0, len, len);
     let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).to_i32_clamp(ctx, 0, len, len)?
+        cc.arg(2).to_number(ctx)?.to_i32_clamp(0, len, len)
     } else {
         len
     };
@@ -497,7 +497,7 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     match ta.class_id() {
         JS_CLASS_UINT8C_ARRAY => {
-            v64 = val.coerce_to_u8_clamp(ctx)? as _;
+            v64 = val.to_number(ctx)?.to_u8_clamped() as _;
         }
         JS_CLASS_INT8_ARRAY
         | JS_CLASS_UINT8_ARRAY
@@ -505,11 +505,11 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         | JS_CLASS_UINT16_ARRAY
         | JS_CLASS_INT32_ARRAY
         | JS_CLASS_UINT32_ARRAY => {
-            v64 = val.to_u32(ctx)? as _;
+            v64 = val.to_number(ctx)?.to_u32() as _;
         }
 
         JS_CLASS_FLOAT32_ARRAY => {
-            let d: f64 = val.to_f64(ctx)?;
+            let d: f64 = val.to_number(ctx)?.to_f64();
             v64 = unsafe {
                 #[repr(C)]
                 union Float32Union {
@@ -521,7 +521,7 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             };
         }
         JS_CLASS_FLOAT64_ARRAY => {
-            let d: f64 = val.to_f64(ctx)?;
+            let d: f64 = val.to_number(ctx)?.to_f64();
             v64 = unsafe {
                 let u = JSFloat64Union { d };
                 u.uint64
@@ -546,12 +546,16 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     let start = if cc.length() > 1 {
-        cc.arg(1).to_i32_clamp(ctx, 0, len as _, len as _)? as usize
+        cc.arg(1)
+            .to_number(ctx)?
+            .to_i32_clamp(0, len as _, len as _) as usize
     } else {
         0
     };
     let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).to_i32_clamp(ctx, 0, len as _, len as _)? as usize
+        cc.arg(2)
+            .to_number(ctx)?
+            .to_i32_clamp(0, len as _, len as _) as usize
     } else {
         len as _
     };
@@ -716,9 +720,14 @@ fn js_typed_array_toReversed(ctx: &mut ScopedContext, mut cc: CallContext) -> JS
 
 fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let len = js_typed_array_get_length_internal(ctx, cc.this())?;
-    let start = cc.arg(0).to_i32_clamp(ctx, 0, len as _, len as _)? as usize;
+    let start = cc
+        .arg(0)
+        .to_number(ctx)?
+        .to_i32_clamp(0, len as _, len as _) as usize;
     let final_ = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(ctx, 0, len as _, len as _)? as usize
+        cc.arg(1)
+            .to_number(ctx)?
+            .to_i32_clamp(0, len as _, len as _) as usize
     } else {
         len as usize
     };
@@ -820,13 +829,18 @@ fn js_typed_array_subarray(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     // do not use js_typed_array_get_length_internal() here.
     let len = ta.length();
 
-    let start = cc.arg(0).to_i32_clamp(ctx, 0, len as _, len as _)? as usize;
+    let start = cc
+        .arg(0)
+        .to_number(ctx)?
+        .to_i32_clamp(0, len as _, len as _) as usize;
     // Note: calc byte offset before read `final` argument
     let byte_offset =
         ta.array_buffer_byte_offset() + (start << TypedArray::SIZE_LOG2(ta.class_id()));
 
     let final_ = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(ctx, 0, len as _, len as _)? as usize
+        cc.arg(1)
+            .to_number(ctx)?
+            .to_i32_clamp(0, len as _, len as _) as usize
     } else {
         len
     };
@@ -964,7 +978,8 @@ fn call_cmp_fn(
 ) -> Result<Ordering, i32> {
     let n = cmp
         .call(ctx, JSValue::UNDEFINED, &[a, b])
-        .and_then(|v| v.to_i32(ctx))?;
+        .and_then(|v| v.to_number(ctx))?
+        .to_i32();
 
     Ok(if n < 0 {
         Ordering::Less
@@ -1227,7 +1242,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         inc = -1;
     } else {
         k = if cc.length() > 1 {
-            cc.arg(1).to_i32_clamp(ctx, 0, len, len)?
+            cc.arg(1).to_number(ctx)?.to_i32_clamp(0, len, len)
         } else {
             0
         };

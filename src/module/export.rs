@@ -120,22 +120,22 @@ impl ResolveExport {
             Self::NotFound => {
                 ctx.throw_syntax_error(&format!(
                     "Could not find export '{}' in module '{}'",
-                    export_name.to_utf8(ctx.rt_ref()),
-                    m.module_name.to_utf8(ctx.rt_ref()),
+                    export_name.to_utf8(ctx.rt()),
+                    m.module_name.to_utf8(ctx.rt()),
                 ));
             }
             Self::Circular => {
                 ctx.throw_syntax_error(&format!(
                     "circular reference when looking for export '{}' in module '{}'",
-                    export_name.to_utf8(ctx.rt_ref()),
-                    m.module_name.to_utf8(ctx.rt_ref()),
+                    export_name.to_utf8(ctx.rt()),
+                    m.module_name.to_utf8(ctx.rt()),
                 ));
             }
             Self::Ambiguous => {
                 ctx.throw_syntax_error(&format!(
                     "export '{}' in module '{}' is ambiguous",
-                    export_name.to_utf8(ctx.rt_ref()),
-                    m.module_name.to_utf8(ctx.rt_ref()),
+                    export_name.to_utf8(ctx.rt()),
+                    m.module_name.to_utf8(ctx.rt()),
                 ));
             }
         }
@@ -219,7 +219,7 @@ impl ModuleDefImpl {
                 }
                 FieldDetail::Str(s) => ctx.create_string_from_str(s)?.into(),
                 FieldDetail::Class => ctx
-                    .rt_ref()
+                    .rt()
                     .query_class_id(Atom::new(ctx.rt_ptr(), entry.name)?)
                     .and_then(|class_id| ctx.class_slots.get(class_id as usize))
                     .and_then(|x| x.ctor)
@@ -314,12 +314,12 @@ impl ModuleDef {
             #[cfg(debug_assertions)]
             {
                 debug_assert!(
-                    exp.export_name.is_alive(ctx.rt_ref()),
+                    exp.export_name.is_alive(ctx.rt()),
                     "[O.o] local_name {:?} must be alive",
                     exp.local_name
                 );
                 debug_assert!(
-                    exp.export_name.is_alive(ctx.rt_ref()),
+                    exp.export_name.is_alive(ctx.rt()),
                     "[O.o] export_name {:?} must be alive",
                     exp.export_name
                 );

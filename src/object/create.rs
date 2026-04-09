@@ -37,7 +37,7 @@ impl<'c> ScopedContext<'c> {
     ) -> Result<Object, ObjectPayload> {
         // find shape by prototype
         let shape = {
-            match self.rt_ref().find_shape_by_proto(proto) {
+            match self.rt().find_shape_by_proto(proto) {
                 Some(sh) => sh,
                 None => {
                     let Ok(sh) = Shape::create(self, proto, 0) else {

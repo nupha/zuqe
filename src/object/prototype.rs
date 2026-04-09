@@ -63,7 +63,7 @@ impl ObjectImpl {
     pub fn prototype(&self, ctx: &mut ScopedContext) -> Result<Option<Object>, i32> {
         if self.flags().is_exotic()
             && let Some(f) = ctx
-                .rt_ref()
+                .rt()
                 .class_registry
                 .get(self.class_id() as usize)
                 .and_then(|c| c.exotic.as_deref())
@@ -98,7 +98,7 @@ impl ObjectImpl {
 
         if self.flags().is_exotic()
             && let Some(f) = ctx
-                .rt_ref()
+                .rt()
                 .class_registry
                 .get(self.class_id() as usize)
                 .and_then(|c| c.exotic.as_deref())

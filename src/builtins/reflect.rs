@@ -88,14 +88,22 @@ fn js_reflect_has(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_reflect_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let target = cc.arg(0);
-    if let Some(o) = target.as_object() {
-        let prop = cc.arg(1);
-        let val = cc.arg(2);
-        let receiver = if cc.length() > 3 { cc.arg(3) } else { target };
-        let atom = prop.to_atom(ctx)?;
+    let target = cc.arg(0).as_object().copied().ok_or_else(|| {
+        ctx.throw_type_error_not_an_object();
+        -1
+    })?;
 
-        o.set_property_internal(
+    let prop = cc.arg(1);
+    let val = cc.arg(2);
+    let receiver = if cc.length() > 3 {
+        cc.arg(3)
+    } else {
+        JSValue::from(target)
+    };
+    let atom = prop.to_atom(ctx)?;
+
+    target
+        .set_property_internal(
             ctx,
             atom,
             val,
@@ -107,10 +115,6 @@ fn js_reflect_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             0,
         )
         .map(JSValue::Bool)
-    } else {
-        ctx.throw_type_error_not_an_object();
-        Err(-1)
-    }
 }
 
 fn js_reflect_setPrototypeOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

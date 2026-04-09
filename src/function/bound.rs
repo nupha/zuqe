@@ -5,6 +5,7 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_BOUND_FUNCTION,
+    array::alloc_fast_array_slots,
     context::ScopedContext,
     error::JSResult,
     object::{Object, ObjectImpl, ObjectPayload},
@@ -52,12 +53,7 @@ impl BoundFunction {
             //     return JS_ThrowStackOverflow(ctx);
             // }
 
-            let mut arg_list = Vec::<JSValue>::new();
-            arg_list.try_reserve_exact(arg_count).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
-
+            let mut arg_list = alloc_fast_array_slots(ctx, arg_count)?;
             // following will clone() values to arg_list
             arg_list.extend_from_slice(&bf.bind_args);
             arg_list.extend_from_slice(args);

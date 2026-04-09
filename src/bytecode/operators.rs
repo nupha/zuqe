@@ -207,7 +207,7 @@ pub(super) fn js_has_unscopable(
 
 pub(crate) fn js_get_function_name(ctx: &mut ScopedContext, name: Atom) -> Result<StringRef, i32> {
     let name_str = name.force_string(ctx)?;
-    if name.is_normal_desc_string(ctx.rt_ref()) {
+    if name.is_normal_desc_string(ctx.rt()) {
         JS_ConcatString3(ctx, c"[", JSValue::from(name_str.gc_ref()), c"]")
     } else {
         Ok(name_str)

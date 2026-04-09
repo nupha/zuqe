@@ -194,11 +194,17 @@ impl ContextImpl {
 
     /// get runtime ref
     #[inline(always)]
+    pub fn rt(&self) -> &RuntimeImpl {
+        &self.rt
+    }
+
+    #[inline(always)]
+    #[deprecated(note = "An alias of ::rt()")]
     pub fn rt_ref(&self) -> &RuntimeImpl {
         &self.rt
     }
 
-    /// get runtime ref
+    /// get runtime mut
     #[inline(always)]
     pub fn rt_mut(&mut self) -> &mut RuntimeImpl {
         &mut self.rt

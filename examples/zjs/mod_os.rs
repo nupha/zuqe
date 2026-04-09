@@ -58,12 +58,12 @@ fn get_time_ms() -> u64 {
 }
 
 fn js_os_isatty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let fd = cc.arg(0).to_i32(ctx)?;
+    let fd = cc.arg(0).to_number(ctx)?.to_i32();
     Ok(JSValue::Bool(unsafe { libc::isatty(fd) != 0 }))
 }
 
 fn js_os_ttyGetWinSize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let fd = cc.arg(0).to_i32(ctx)?;
+    let fd = cc.arg(0).to_number(ctx)?.to_i32();
     let w: i32;
     let h: i32;
 
@@ -108,7 +108,7 @@ fn js_os_ttyGetWinSize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_os_ttySetRaw(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let fd = cc.arg(0).to_i32(ctx)?;
+    let fd = cc.arg(0).to_number(ctx)?.to_i32();
 
     #[cfg(unix)]
     unsafe {
@@ -202,7 +202,7 @@ fn js_os_poll(ctx: &mut ScopedContext) -> bool {
 
         for func in callbacks.drain(..) {
             if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                match ctx.rt_ref().exception().to_string(ctx) {
+                match ctx.rt().exception().to_string(ctx) {
                     Ok(s) => {
                         eprintln!("signal handle error: {}", s);
                     }
@@ -238,7 +238,7 @@ fn js_os_poll(ctx: &mut ScopedContext) -> bool {
                 if diff <= 0 {
                     let func = std::mem::replace(&mut tmr.func, JSValue::UNDEFINED);
                     if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                        match ctx.rt_ref().exception().to_string(ctx) {
+                        match ctx.rt().exception().to_string(ctx) {
                             Ok(s) => {
                                 eprintln!("Timer error: {}", s);
                             }
@@ -258,7 +258,7 @@ fn js_os_poll(ctx: &mut ScopedContext) -> bool {
                 tv_sec: (min_delay / 1000) as _,
                 tv_usec: ((min_delay % 1000) * 1000) as _,
             })
-        } else if ctx.rt_ref().gc_has_request() {
+        } else if ctx.rt().gc_has_request() {
             // non-block poll
             Some(libc::timeval {
                 tv_sec: 0,
@@ -422,7 +422,7 @@ pub fn mod_os_gc_trace(tr: &mut GcTraceCtx) {
 fn js_os_setReadHandler(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic() as usize;
 
-    let fd = cc.arg(0).to_i32(ctx)?;
+    let fd = cc.arg(0).to_number(ctx)?.to_i32();
     let func = cc.arg(1);
 
     if func.is_null() {
@@ -457,7 +457,7 @@ fn js_os_setReadHandler(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_os_read_write(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
 
-    let fd = cc.arg(0).to_i32(ctx)?;
+    let fd = cc.arg(0).to_number(ctx)?.to_i32();
     let pos = cc.arg(2).to_index(ctx)? as u64;
     let len = cc.arg(3).to_index(ctx)? as u64;
 
@@ -493,7 +493,7 @@ fn js_os_read_write(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_os_signal(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let sig_num = cc.arg(0).to_u32(ctx)?;
+    let sig_num = cc.arg(0).to_number(ctx)?.to_u32();
     if sig_num >= 64 {
         ctx.throw_range_error("invalid signal number");
         return Err(-1);

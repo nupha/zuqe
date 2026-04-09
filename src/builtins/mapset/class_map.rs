@@ -143,7 +143,7 @@ fn js_map_delete(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 if s.is_weak() {
                     key.as_object_mut()
                         .unwrap()
-                        .remove_back_ref(ctx.rt_ref(), this.as_object().copied().unwrap());
+                        .remove_back_ref(ctx.rt(), this.as_object().copied().unwrap());
                 }
 
                 JSValue::Bool(true)
@@ -347,7 +347,7 @@ fn js_map_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let func = cc.arg(1);
     func.ensure_function(ctx)?;
 
-    let this_val = if ctx.rt_ref().is_strict_mode() {
+    let this_val = if ctx.rt().is_strict_mode() {
         JSValue::UNDEFINED
     } else {
         ctx.global_obj().into()
