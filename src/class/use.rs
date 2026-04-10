@@ -79,11 +79,12 @@ impl JSValue {
 }
 
 impl RuntimeImpl {
-    pub(super) fn register_class_internal(
+    fn register_class_internal(
         &mut self,
         class_id: ClassID,
         class_def: ClassDef,
     ) -> Result<(), i32> {
+        debug_assert!(class_id > 0);
         debug_assert!(!class_def.name_atom.is_null());
 
         #[cfg(debug_assertions)]
@@ -104,20 +105,12 @@ impl RuntimeImpl {
             }
         } else if class_id as usize >= self.class_registry.len() {
             let extra = class_id as usize - self.class_registry.len() + 1;
-
-            for ctx in self.context_list.iter_mut() {
-                ctx.class_slots.try_reserve(extra).map_err(|_| -1)?;
-                ctx.class_slots
-                    .extend(std::iter::repeat_n(ProtoCtorPair::default(), extra));
-            }
-
             self.class_registry.try_reserve(extra).map_err(|_| -1)?;
             self.class_registry
                 .extend(std::iter::repeat_with(ClassDef::default).take(extra));
         }
 
         self.class_registry[class_id as usize] = class_def;
-
         Ok(())
     }
 
@@ -145,6 +138,7 @@ impl RuntimeImpl {
         Ok(())
     }
 
+    /// Register a user-defined (non-builtin) class
     pub fn register_class(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
         debug_assert!(!class_def.name.is_empty());
         debug_assert!(class_def.finalize.is_some());
