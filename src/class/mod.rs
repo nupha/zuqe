@@ -3,11 +3,11 @@
 
 mod class_def;
 mod meta;
-mod user;
+mod r#use;
 
 pub use class_def::ClassDef;
 
-pub(crate) use {class_def::*, meta::*, user::*};
+pub(crate) use {class_def::*, meta::*};
 
 use std::ffi::c_void;
 

@@ -245,6 +245,7 @@ impl<'c> ScopedContext<'c> {
         proto: Object,
         entries: &[FieldDef],
     ) -> Result<Object, i32> {
+        debug_assert!(self.class_slots.len() > class_id as usize);
         debug_assert!(
             self.class_slots[class_id as usize].ctor.is_none(),
             "class ctor has been created"
