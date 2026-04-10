@@ -17,7 +17,7 @@ use crate::{
         generator::{AsyncGeneratorFunction, js_generator_function_call},
         promise::{JSHostPromiseRejectionTracker, PromiseResolveFunc},
     },
-    class::{ClassMeta, js_arguments_exotic_methods},
+    class::{ClassDef, js_arguments_exotic_methods},
     context::ContextPtr,
     function::{AsyncFunction, AsyncState, BoundFunction, NativeFunction},
     gc::gc::GC_TYPE_REGISTRY,
@@ -39,7 +39,7 @@ pub struct RuntimeImpl {
     /// atom registry
     pub(crate) atom_registry: AtomRegistry,
     /// registered classes
-    pub(crate) class_registry: Vec<ClassMeta>,
+    pub(crate) class_registry: Vec<ClassDef>,
     /// shape registry
     pub(crate) shape_registry: HashMap<u32, Vec<GcWeak<ShapeImpl>>>,
 

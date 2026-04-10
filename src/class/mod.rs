@@ -2,12 +2,11 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 mod class_def;
-mod meta;
 mod r#use;
 
 pub use class_def::ClassDef;
 
-pub(crate) use {class_def::*, meta::*};
+pub(crate) use {class_def::*, r#use::*};
 
 use std::ffi::c_void;
 

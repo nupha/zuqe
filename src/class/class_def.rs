@@ -79,11 +79,13 @@ impl Default for ClassFieldsDef {
     }
 }
 
-/// user class definition
+/// class definition
 #[derive(Default)]
 pub struct ClassDef {
-    /// class name
-    pub(crate) class_name: &'static str,
+    /// class name str. Could be empty str for builtin classes
+    pub(crate) name: &'static str,
+    /// class name atom. Atom::NULL indicates the class slot is not used
+    pub(crate) name_atom: Atom,
 
     /// callback handler when called
     pub(crate) call: Option<ClassCallFn>,
@@ -101,11 +103,13 @@ pub struct ClassDef {
 }
 
 impl ClassDef {
-    /// create a class def
-    pub const fn new(class_name: &'static str) -> Self {
-        debug_assert!(!class_name.is_empty());
+    /// create a user-defined class def
+    pub const fn new(name: &'static str) -> Self {
+        debug_assert!(!name.is_empty());
         Self {
-            class_name,
+            name,
+            name_atom: Atom::NULL,
+
             call: None,
             exotic: None,
             dispose: None,
@@ -148,7 +152,7 @@ impl ClassDef {
 
     #[inline(always)]
     pub const fn class_name(&self) -> &str {
-        self.class_name
+        self.name
     }
 
     fn default_fini_fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {

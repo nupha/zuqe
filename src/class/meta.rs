@@ -10,58 +10,36 @@ use crate::{
     JS_CLASS_REGEXP, ScopedContext, USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
     builtins::{generator::js_async_iterator_proto_funcs, iterator::js_iterator_proto_funcs},
-    class::{
-        ClassCallFn, ClassDef, ClassExoticMethods, ClassFinalizeFn, ClassID, ClassInitializeFn,
-        ClassUnregisterFn, FreeObjFn, ShortClassDef,
-    },
+    class::{ClassDef, ClassID, ShortClassDef},
     context::{ContextImpl, ProtoCtorPair},
     function::{Callback, CallbackFn, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
     runtime::RuntimeImpl,
 };
 
-/// class meta info for registry.
-#[derive(Default)]
-pub(crate) struct ClassMeta {
-    /// Atom::NULL indicates the class slot is not used
-    pub(crate) class_name: Atom,
-
-    /// callback handler when called
-    pub(crate) call: Option<ClassCallFn>,
-    /// exotic property method handlers
-    pub(crate) exotic: Option<Box<ClassExoticMethods>>,
-    /// handler on instance of class dispose
-    pub(crate) dispose: Option<FreeObjFn>,
-
-    /// class def unregister handler.
-    pub(crate) unregister: Option<ClassUnregisterFn>,
-    /// initialize class proto, constructor to context
-    pub(crate) initialize: Option<ClassInitializeFn>,
-    /// instance finalize handler
-    pub(crate) finalize: Option<ClassFinalizeFn>,
-}
-
 impl RuntimeImpl {
     /// register a class def to runtime.
     pub(super) fn register_class_internal(
         &mut self,
         class_id: ClassID,
-        class_name: Atom,
-        class_def: &ClassDef,
+        class_def: ClassDef,
     ) -> Result<(), i32> {
+        debug_assert!(!class_def.name_atom.is_null());
+
         #[cfg(debug_assertions)]
         if class_id >= USER_CLASS_ID_START {
             for m in self.class_registry[USER_CLASS_ID_START as usize..].iter() {
-                debug_assert_ne!(
-                    m.class_name, class_name,
-                    "class_name '{}' already exists",
-                    class_def.class_name
-                );
+                if m.name_atom == class_def.name_atom {
+                    eprintln!(
+                        "WARN: class name {:?} ('{}') already exists",
+                        class_def.name_atom, class_def.name
+                    );
+                }
             }
         }
 
         if (class_id as usize) < self.class_registry.len() {
-            if !self.class_registry[class_id as usize].class_name.is_null() {
+            if !self.class_registry[class_id as usize].name_atom.is_null() {
                 return Err(-1); // class_id slot is in use
             }
         } else if class_id as usize >= self.class_registry.len() {
@@ -77,18 +55,10 @@ impl RuntimeImpl {
             // grow class array, fill slots with empty class
             self.class_registry.try_reserve(extra).map_err(|_| -1)?;
             self.class_registry
-                .extend(std::iter::repeat_with(ClassMeta::default).take(extra));
+                .extend(std::iter::repeat_with(ClassDef::default).take(extra));
         }
 
-        self.class_registry[class_id as usize] = ClassMeta {
-            class_name,
-            call: class_def.call,
-            exotic: class_def.exotic.clone(),
-            dispose: class_def.dispose,
-            unregister: class_def.unregister,
-            initialize: class_def.initialize,
-            finalize: class_def.finalize,
-        };
+        self.class_registry[class_id as usize] = class_def;
 
         Ok(())
     }
@@ -105,8 +75,8 @@ impl RuntimeImpl {
         for item in tab {
             self.register_class_internal(
                 class_id,
-                item.class_name,
-                &ClassDef {
+                ClassDef {
+                    name_atom: item.class_name,
                     initialize: item.initialize,
                     finalize: item.finalize,
                     ..Default::default()
@@ -120,13 +90,13 @@ impl RuntimeImpl {
 
     /// Register an user-defined (non-builtin) class defination.
     /// returns the assigned class_id.
-    pub fn register_class(&mut self, class_def: &ClassDef) -> Result<ClassID, i32> {
-        debug_assert!(!class_def.class_name.is_empty());
+    pub fn register_class(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
+        debug_assert!(!class_def.name.is_empty());
         debug_assert!(class_def.finalize.is_some());
 
-        // class name atom
-        let class_atom = {
-            let a = Atom::from_str(self.into(), class_def.class_name, AtomKind::String)?;
+        // convert class name str to atom
+        class_def.name_atom = {
+            let a = Atom::from_str(self.into(), class_def.name, AtomKind::String)?;
             let s = a.descriptor(self).gc_head_ptr();
             self.gc_heap_mut().set_root_node(s); // should be root gc node
             a
@@ -142,14 +112,14 @@ impl RuntimeImpl {
         });
         debug_assert!(class_id >= USER_CLASS_ID_START);
 
-        self.register_class_internal(class_id, class_atom, class_def)?;
+        self.register_class_internal(class_id, class_def)?;
         Ok(class_id)
     }
 
     /// test if class_id exists.
     pub fn is_class_registered(&self, class_id: ClassID) -> bool {
         class_id < self.class_registry.len() as ClassID
-            && !self.class_registry[class_id as usize].class_name.is_null()
+            && !self.class_registry[class_id as usize].name_atom.is_null()
     }
 
     /// query class id by class name
@@ -157,7 +127,7 @@ impl RuntimeImpl {
         self.class_registry
             .iter()
             .enumerate()
-            .find(|(_, x)| !x.class_name.is_null() && x.class_name == class_name)
+            .find(|(_, x)| !x.name_atom.is_null() && x.name_atom == class_name)
             .map(|(i, _)| i as ClassID)
     }
 }
@@ -234,6 +204,25 @@ impl ContextImpl {
 }
 
 impl<'c> ScopedContext<'c> {
+    /// Create class prototype (using base object), register to class slot.
+    /// returns the proto object.
+    pub fn init_class_proto(
+        &mut self,
+        class_id: ClassID,
+        entries: &[FieldDef],
+    ) -> Result<Object, i32> {
+        debug_assert!(self.class_slots.len() > class_id as usize);
+        debug_assert!(
+            self.class_slots[class_id as usize].proto.is_none(),
+            "class proto has been created"
+        );
+
+        let mut p = self.create_base_object()?;
+        p.install_fields(self, entries)?;
+        self.class_slots[class_id as usize].proto = Some(p);
+        Ok(p)
+    }
+
     /// Create class constructor, register to class ctor slot.
     /// returns the constructor function.
     fn init_class_ctor_internal(
@@ -251,7 +240,7 @@ impl<'c> ScopedContext<'c> {
             "class ctor has been created"
         );
 
-        let class_name = self.rt().class_registry[class_id as usize].class_name;
+        let class_name = self.rt().class_registry[class_id as usize].name_atom;
 
         let mut ctor: Object = NativeFunction::create_internal(
             self,

@@ -196,7 +196,7 @@ impl std::fmt::Display for ObjectImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let rt = self.rt();
         let class_id = self.class_id();
-        let name = rt.class_registry[class_id as usize].class_name.to_utf8(&rt);
+        let name = rt.class_registry[class_id as usize].name_atom.to_utf8(&rt);
 
         #[cfg(debug_assertions)]
         {
@@ -408,7 +408,7 @@ impl ObjectImpl {
                 .rt
                 .class_registry
                 .get_unchecked(self.class_id() as usize)
-                .class_name
+                .name_atom
         }
     }
 

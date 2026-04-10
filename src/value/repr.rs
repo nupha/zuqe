@@ -77,15 +77,15 @@ impl ObjectImpl {
                 | JS_CLASS_MAPPED_ARGUMENTS
                 | JS_CLASS_ERROR
                 | JS_CLASS_BOOLEAN
-                | JS_CLASS_NUMBER) => ctx.rt().class_registry[cid as usize].class_name,
+                | JS_CLASS_NUMBER) => ctx.rt().class_registry[cid as usize].name_atom,
 
                 #[cfg(feature = "builtin_regexp")]
                 crate::JS_CLASS_REGEXP => {
-                    ctx.rt().class_registry[crate::JS_CLASS_REGEXP as usize].class_name
+                    ctx.rt().class_registry[crate::JS_CLASS_REGEXP as usize].name_atom
                 }
                 #[cfg(feature = "builtin_date")]
                 crate::JS_CLASS_DATE => {
-                    ctx.rt().class_registry[crate::JS_CLASS_DATE as usize].class_name
+                    ctx.rt().class_registry[crate::JS_CLASS_DATE as usize].name_atom
                 }
 
                 _ => Atom::CONST_Object,
@@ -114,7 +114,7 @@ impl ObjectImpl {
         match self.class_id() {
             JS_CLASS_ARRAY => Ok(format!("Array({})", self.payload().array().unwrap().len())),
             class_id => {
-                let atom = ctx.rt().class_registry[class_id as usize].class_name;
+                let atom = ctx.rt().class_registry[class_id as usize].name_atom;
                 let name = atom.force_string(ctx)?;
                 Ok(format!("{} {{ }}", name.encode_utf8(false)))
             }
