@@ -77,6 +77,10 @@ pub const JS_THROW_VAR_UNINITIALIZED: u8 = 2;
 pub const JS_THROW_ERROR_DELETE_SUPER: u8 = 3;
 pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
+const ERR_RUNTIME_BASE: i32 = 100;
+pub const ERR_OUT_OF_MEMORY: i32 = ERR_RUNTIME_BASE;
+pub const ERR_TOO_MANY_CLASSES: i32 = ERR_RUNTIME_BASE + 1;
+
 impl ContextImpl {
     /// put `obj` to current_exception.
     #[cold]
@@ -112,8 +116,8 @@ impl<'c> ScopedContext<'c> {
 
             o.into()
         } else {
-            // out of memory: throw NULL to avoid recursing
-            JSValue::NULL
+            // out of memory: throw error code ERR_OUT_OF_MEMORY to avoid recursing
+            JSValue::Int(ERR_OUT_OF_MEMORY)
         };
 
         self.throw(exc_val);
@@ -197,11 +201,10 @@ impl<'c> ScopedContext<'c> {
 
     #[cold]
     pub fn throw_out_of_memory(&mut self) {
-        let mut rt = self.rt_ptr();
-        if !rt.out_of_memory {
-            rt.out_of_memory = true;
+        if !self.rt().out_of_memory {
+            self.rt_mut().out_of_memory = true;
             self.throw_internal_error("out of memory");
-            rt.out_of_memory = false;
+            self.rt_mut().out_of_memory = false;
         }
     }
 

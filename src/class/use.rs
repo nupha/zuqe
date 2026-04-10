@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, ffi::c_void, ptr::NonNull};
+use std::{ffi::c_void, ptr::NonNull};
 
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
@@ -12,6 +12,7 @@ use crate::{
     builtins::{generator::js_async_iterator_proto_funcs, iterator::js_iterator_proto_funcs},
     class::{ClassDef, ClassID, ShortClassDef},
     context::{ContextImpl, ProtoCtorPair, ScopedContext},
+    error::ERR_TOO_MANY_CLASSES,
     function::{Callback, CallbackFn, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
     runtime::RuntimeImpl,
@@ -155,15 +156,14 @@ impl RuntimeImpl {
             a
         };
 
-        thread_local! {
-            static CLASS_ID_SERIAL: Cell<u16> = const { Cell::new(USER_CLASS_ID_START) };
-        }
-        let class_id = CLASS_ID_SERIAL.with(|ser| {
-            let i = ser.get();
-            ser.set(i + 1);
-            i
-        });
+        let class_id = self.user_class_id_serial;
         debug_assert!(class_id >= USER_CLASS_ID_START);
+        if class_id == u16::MAX {
+            self.set_exception(JSValue::Int(ERR_TOO_MANY_CLASSES));
+            eprintln!("internal error: too many classes registered");
+            return Err(-1);
+        }
+        self.user_class_id_serial = class_id + 1;
 
         self.register_class_internal(class_id, class_def)?;
         Ok(class_id)

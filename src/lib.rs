@@ -30,7 +30,7 @@ pub use {
     atom::Atom,
     class::{ClassDef, ClassID},
     context::{Context, ScopedContext},
-    error::{ErrorText, JS_SetUncatchableError, JSResult},
+    error::{ERR_OUT_OF_MEMORY, ERR_TOO_MANY_CLASSES, ErrorText, JS_SetUncatchableError, JSResult},
     eval::{EvalFlags, EvalType},
     function::{CallContext, Callback, FieldDef},
     module::ModuleDef,

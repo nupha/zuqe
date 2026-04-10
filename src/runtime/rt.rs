@@ -6,18 +6,19 @@ use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
 use gc_lite::{GcHeap, GcPartitionId, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
-    JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,
-    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS,
-    JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
-    JS_CLASS_STRING, BUILTIN_CLASS_DEFS, USER_CLASS_ID_START,
+    BUILTIN_CLASS_DEFS, JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION,
+    JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_ASYNC_FUNCTION_RESOLVE,
+    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION, JS_CLASS_C_FUNCTION,
+    JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT,
+    JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_CLASS_STRING,
+    USER_CLASS_ID_START,
     atom::AtomRegistry,
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions,
         generator::{AsyncGeneratorFunction, js_generator_function_call},
         promise::{JSHostPromiseRejectionTracker, PromiseResolveFunc},
     },
-    class::{ClassDef, js_arguments_exotic_methods},
+    class::{ClassDef, ClassID, js_arguments_exotic_methods},
     context::ContextPtr,
     function::{AsyncFunction, AsyncState, BoundFunction, NativeFunction},
     gc::gc::GC_TYPE_REGISTRY,
@@ -40,6 +41,7 @@ pub struct RuntimeImpl {
     pub(crate) atom_registry: AtomRegistry,
     /// registered classes
     pub(crate) class_registry: Vec<ClassDef>,
+    pub(crate) user_class_id_serial: ClassID,
     /// shape registry
     pub(crate) shape_registry: HashMap<u32, Vec<GcWeak<ShapeImpl>>>,
 
@@ -117,6 +119,7 @@ impl RuntimeImpl {
         let mut rt = Self {
             atom_registry: AtomRegistry::new(),
             class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
+            user_class_id_serial: USER_CLASS_ID_START,
             shape_registry: HashMap::with_capacity(64),
 
             cur_stack_frame: std::ptr::null_mut(),
