@@ -7,3 +7,47 @@ mod dv;
 mod ta;
 
 pub use {class_dataview::*, class_typedarray::*, dv::*, ta::*};
+
+use crate::{Atom, ClassDef};
+
+macro_rules! ta_class_def {
+    ($name:ident) => {
+        ClassDef {
+            name: "",
+            name_atom: Atom::$name,
+            proto_entries: &[],
+            ctor_entries: &[],
+            call: None,
+            exotic: None,
+            initialize: Some(TypedArray::class_init),
+            finalize: Some(TypedArray::class_finalize),
+            finalize_opaque: None,
+            unregister: None,
+        }
+    };
+}
+
+pub const CLASS_DEF_UINT8C_ARRAY: ClassDef = ta_class_def!(CONST_Uint8ClampedArray);
+pub const CLASS_DEF_UINT8_ARRAY: ClassDef = ta_class_def!(CONST_Uint8Array);
+pub const CLASS_DEF_INT8_ARRAY: ClassDef = ta_class_def!(CONST_Int8Array);
+pub const CLASS_DEF_UINT16_ARRAY: ClassDef = ta_class_def!(CONST_Uint16Array);
+pub const CLASS_DEF_INT16_ARRAY: ClassDef = ta_class_def!(CONST_Int16Array);
+pub const CLASS_DEF_UINT32_ARRAY: ClassDef = ta_class_def!(CONST_Uint32Array);
+pub const CLASS_DEF_INT32_ARRAY: ClassDef = ta_class_def!(CONST_Int32Array);
+pub const CLASS_DEF_FLOAT32_ARRAY: ClassDef = ta_class_def!(CONST_Float32Array);
+pub const CLASS_DEF_FLOAT64_ARRAY: ClassDef = ta_class_def!(CONST_Float64Array);
+pub const CLASS_DEF_BIG_INT64_ARRAY: ClassDef = ta_class_def!(CONST_BigInt64Array);
+pub const CLASS_DEF_BIG_UINT64_ARRAY: ClassDef = ta_class_def!(CONST_BigUint64Array);
+
+pub const CLASS_DEF_DATAVIEW: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_DataView,
+    proto_entries: js_dataview_proto_funcs,
+    ctor_entries: &[],
+    call: None,
+    exotic: None,
+    initialize: Some(DataView::class_init),
+    finalize: Some(DataView::class_finalize),
+    finalize_opaque: None,
+    unregister: None,
+};

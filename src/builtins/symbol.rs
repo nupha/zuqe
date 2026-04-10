@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ClassDef,
     atom::{Atom, AtomKind},
     context::ScopedContext,
     error::JSResult,
@@ -140,3 +141,16 @@ pub const js_symbol_funcs: &[FieldDef] = &[
     FieldDef::CALL("for", 1, js_symbol_for, 0),
     FieldDef::CALL("keyFor", 1, js_symbol_keyFor, 0),
 ];
+
+pub(crate) const CLASS_DEF_SYMBOL: ClassDef = ClassDef {
+    name: "",
+    name_atom: crate::Atom::CONST_Symbol,
+    proto_entries: js_symbol_proto_funcs,
+    ctor_entries: js_symbol_funcs,
+    call: None,
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};

@@ -140,7 +140,7 @@ impl StackFrame {
     pub(crate) fn new(func_obj: Object, mode: ExecMode, protected_values: [JSValue; 2]) -> Self {
         Self {
             prev: std::ptr::null_mut(),
-            rt: func_obj.rt(),
+            rt: func_obj.rt_ptr(),
 
             func_obj,
             mode,

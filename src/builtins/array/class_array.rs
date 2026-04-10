@@ -5,7 +5,7 @@ use fallible_collections::TryCollect;
 use gc_lite::{GcNode, GcPartitionId};
 
 use crate::{
-    JS_CLASS_ARRAY,
+    ClassDef, JS_CLASS_ARRAY,
     array::{Array, ArrayPayload, alloc_fast_array_slots},
     atom::Atom,
     builtins::{

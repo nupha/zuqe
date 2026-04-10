@@ -296,11 +296,7 @@ impl AGenPayload {
         )?
         .try_into()?;
 
-        let gen_obj = self
-            .generator
-            .borrow()
-            .upgrade(ctx.rt().gc_heap())
-            .unwrap();
+        let gen_obj = self.generator.borrow().upgrade(ctx.rt().gc_heap()).unwrap();
 
         let resolving_funcs =
             js_async_generator_resolve_function_create(ctx, gen_obj.into(), false)?;

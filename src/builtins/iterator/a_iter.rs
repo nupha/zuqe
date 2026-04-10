@@ -195,7 +195,7 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
     }
 }
 
-const js_async_from_sync_iterator_proto_funcs: &[FieldDef] = &[
+pub(super) const js_async_from_sync_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL(
         "next",
         1,

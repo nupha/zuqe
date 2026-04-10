@@ -32,8 +32,70 @@ pub mod regexp;
 #[cfg(feature = "builtin_symbol")]
 pub mod symbol;
 
-use crate::{context::ScopedContext, error::JSResult, function::CallContext};
+use crate::{
+    Atom, ClassDef, class::js_arguments_exotic_methods, context::ScopedContext, error::JSResult,
+    function::CallContext, module::js_module_ns_exotic_methods,
+};
 
-pub const fn js_get_this(_: &mut ScopedContext, cc: CallContext) -> JSResult {
+//
+// simple class defs
+//
+
+pub const CLASS_DEF_ARGUMENTS: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_Arguments,
+    proto_entries: &[],
+    ctor_entries: &[],
+    call: None,
+    exotic: Some(&js_arguments_exotic_methods),
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_MAPPED_ARGUMENTS: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_Arguments,
+    proto_entries: &[],
+    ctor_entries: &[],
+    call: None,
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_MODULE_NS: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_Object,
+    proto_entries: &[],
+    ctor_entries: &[],
+    call: None,
+    exotic: Some(&js_module_ns_exotic_methods),
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_BIG_INT: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_BigInt,
+    proto_entries: &[],
+    ctor_entries: &[],
+    call: None,
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+//
+// common proto methods
+//
+pub(crate) const fn js_get_this(_: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(cc.this())
 }

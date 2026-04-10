@@ -33,9 +33,10 @@ pub type ClassCallFn = fn(
 /// Returns the class proto object created for given `ctx`.
 pub type ClassInitializeFn =
     fn(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32>;
-
 /// class instance finalize callback.
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
+/// free user class instance handler
+pub type ClassFinalizeOpaqueFn = fn(rt: &mut RuntimeImpl, opaque: *mut c_void, id: usize);
 
 /// class unregister handler.
 pub type ClassUnregisterFn = fn();
@@ -81,9 +82,6 @@ pub type DeletePropertyFn =
 pub type GetPrototypeFn = fn(ctx: &mut ScopedContext, obj: JSValue) -> JSResult;
 pub type SetPrototypeFn =
     fn(ctx: &mut ScopedContext, obj: JSValue, proto_val: JSValue) -> Result<bool, i32>;
-
-/// free user class instance handler
-pub type FreeObjFn = fn(rt: &mut RuntimeImpl, opaque: *mut c_void, id: usize);
 
 pub(crate) const OP_DEFINE_METHOD_METHOD: u8 = 0;
 pub(crate) const OP_DEFINE_METHOD_GETTER: u8 = 1;

@@ -35,7 +35,6 @@ impl PartialOrd for IntOrFloat {
             (IntOrFloat::Float64(a), IntOrFloat::Float64(b)) => a.partial_cmp(b),
             (IntOrFloat::Int64(a), IntOrFloat::Float64(b)) => (*a as f64).partial_cmp(b),
             (IntOrFloat::Float64(a), IntOrFloat::Int64(b)) => a.partial_cmp(&(*b as f64)),
-            _ => None,
         }
     }
 }

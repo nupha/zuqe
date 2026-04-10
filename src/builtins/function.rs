@@ -2,10 +2,13 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    ScopedContext,
+    ClassDef, ScopedContext,
     atom::Atom,
     error::JSResult,
-    function::{BoundFuncObjPayload, CallContext, FieldDef, FunctionKind, js_function_apply},
+    function::{
+        AsyncFunction, AsyncState, BoundFuncObjPayload, BoundFunction, CallContext, FieldDef,
+        FunctionKind, NativeFunction, js_function_apply,
+    },
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     string::{JS_ConcatString3, StringRef},
     value::JSValue,
@@ -178,3 +181,94 @@ pub const js_function_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("fileName", Some(js_function_proto_fileName), None, 0),
     FieldDef::GETSET("lineNumber", Some(js_function_proto_lineNumber), None, 0),
 ];
+
+pub const CLASS_DEF_BYTECODE_FUNCTION: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_Function,
+    proto_entries: js_function_proto_funcs,
+    ctor_entries: &[],
+    call: None,
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_BOUND_FUNCTION: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_Function,
+    proto_entries: &[],
+    ctor_entries: &[],
+    call: Some(BoundFunction::class_call),
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_C_FUNCTION: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_Function,
+    proto_entries: &[],
+    ctor_entries: &[],
+    call: Some(NativeFunction::class_call),
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_C_FUNCTION_DATA: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_Function,
+    proto_entries: &[],
+    ctor_entries: &[],
+    call: Some(NativeFunction::class_call_with_data),
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_ASYNC_FUNCTION: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_AsyncFunction,
+    proto_entries: &[], // crate::function::js_async_function_proto_funcs,
+    ctor_entries: &[],
+    call: Some(AsyncFunction::class_call),
+    exotic: None,
+    initialize: Some(AsyncFunction::class_init),
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_ASYNC_FUNCTION_RESOLVE: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_AsyncFunctionResolve,
+    proto_entries: &[],
+    ctor_entries: &[],
+    call: Some(AsyncState::class_call),
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_ASYNC_FUNCTION_REJECT: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_AsyncFunctionReject,
+    proto_entries: &[],
+    ctor_entries: &[],
+    call: Some(AsyncState::class_call),
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};

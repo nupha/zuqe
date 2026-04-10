@@ -194,7 +194,7 @@ impl Drop for ObjectImpl {
 
 impl std::fmt::Display for ObjectImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let rt = self.rt();
+        let rt = self.rt_ptr();
         let class_id = self.class_id();
         let name = rt.class_registry[class_id as usize].name_atom.to_utf8(&rt);
 
@@ -378,7 +378,7 @@ impl ObjectImpl {
     }
 
     #[inline(always)]
-    pub(crate) const fn rt(&self) -> RuntimePtr {
+    pub(crate) const fn rt_ptr(&self) -> RuntimePtr {
         self.rt
     }
 
@@ -472,7 +472,7 @@ impl ObjectImpl {
             ObjectPayload::PROXY(x) => x.is_func(),
             isa => {
                 // check if class proto has exotic call handler
-                self.rt()
+                self.rt_ptr()
                     .class_registry
                     .get(isa.class_id() as usize)
                     .and_then(|c| c.call)
@@ -494,7 +494,7 @@ impl ObjectImpl {
     pub fn set_shape(&mut self, shape: Shape) {
         #[cfg(debug_assertions)]
         {
-            debug_assert!(self.rt().is_shape_registered(&shape));
+            debug_assert!(self.rt_ptr().is_shape_registered(&shape));
             debug_assert!(
                 self.shape.as_ref().is_none_or(|sh0| *sh0 != shape),
                 "can't set same shape"
@@ -540,7 +540,7 @@ impl ObjectImpl {
     }
 
     fn finalize(&mut self) {
-        let mut rt = self.rt();
+        let mut rt = self.rt_ptr();
 
         // Map Set object remove weakref
         #[cfg(feature = "builtin_mapset")]
@@ -611,7 +611,7 @@ impl std::fmt::Debug for Object {
 
 impl Object {
     pub fn downgrade(&self) -> GcWeak<ObjectImpl> {
-        self.0.downgrade(self.rt().gc_heap_mut())
+        self.0.downgrade(self.rt_ptr().gc_heap_mut())
     }
 }
 

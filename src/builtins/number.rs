@@ -4,6 +4,7 @@
 use std::borrow::Cow;
 
 use crate::{
+    ClassDef,
     builtins::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     context::ScopedContext,
     error::JSResult,
@@ -273,3 +274,16 @@ pub const js_number_funcs: &[FieldDef] = &[
     FieldDef::FLOAT64("MAX_SAFE_INTEGER", 9007199254740991.0, 0), /* ES6 */
     FieldDef::FLOAT64("MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
 ];
+
+pub(crate) const CLASS_DEF_NUMBER: ClassDef = ClassDef {
+    name: "",
+    name_atom: crate::Atom::CONST_Number,
+    proto_entries: js_number_proto_funcs,
+    ctor_entries: js_number_funcs,
+    call: None,
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};

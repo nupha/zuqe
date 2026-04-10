@@ -5,3 +5,18 @@ mod class_proxy;
 mod proxy;
 
 pub use {class_proxy::*, proxy::*};
+
+use crate::{Atom, ClassDef};
+
+pub const CLASS_DEF_PROXY: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_Proxy,
+    proto_entries: &[],
+    ctor_entries: js_proxy_funcs,
+    call: Some(Proxy::class_call),
+    exotic: Some(&js_proxy_exotic_methods),
+    initialize: Some(Proxy::class_init),
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};

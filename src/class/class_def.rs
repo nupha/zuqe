@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    RuntimeImpl,
+    FieldDef, RuntimeImpl,
     atom::Atom,
     class::{
-        ClassCallFn, ClassInitializeFn, ClassUnregisterFn, FreeObjFn, GetPrototypeFn,
+        ClassCallFn, ClassFinalizeOpaqueFn, ClassInitializeFn, ClassUnregisterFn, GetPrototypeFn,
         SetPrototypeFn,
     },
     context::ScopedContext,
@@ -87,19 +87,22 @@ pub struct ClassDef {
     /// class name atom. Atom::NULL indicates the class slot is not used
     pub(crate) name_atom: Atom,
 
+    pub(crate) proto_entries: &'static [FieldDef],
+    pub(crate) ctor_entries: &'static [FieldDef],
+
     /// callback handler when called
     pub(crate) call: Option<ClassCallFn>,
     /// exotic property method handlers
-    pub(crate) exotic: Option<Box<ClassExoticMethods>>,
-    /// handler on class instance dispose
-    pub(crate) dispose: Option<FreeObjFn>,
+    pub(crate) exotic: Option<&'static ClassExoticMethods>,
 
-    /// class def unregister handler.
-    pub(crate) unregister: Option<ClassUnregisterFn>,
     /// initialize class proto, constructor to context
     pub(crate) initialize: Option<ClassInitializeFn>,
     /// class instance finalize callback
     pub(crate) finalize: Option<ClassFinalizeFn>,
+    /// handler on class instance dispose
+    pub(crate) finalize_opaque: Option<ClassFinalizeOpaqueFn>,
+    /// class def unregister handler.
+    pub(crate) unregister: Option<ClassUnregisterFn>,
 }
 
 impl ClassDef {
@@ -109,14 +112,16 @@ impl ClassDef {
         Self {
             name,
             name_atom: Atom::NULL,
+            proto_entries: &[],
+            ctor_entries: &[],
 
             call: None,
             exotic: None,
-            dispose: None,
 
             unregister: None,
             initialize: None,
             finalize: Some(Self::default_fini_fn),
+            finalize_opaque: None,
         }
     }
 
@@ -129,8 +134,8 @@ impl ClassDef {
     /// Set class instance dispose handler.
     ///
     /// This callback could be use to process opaque pointer when class instance is disposed.
-    pub const fn on_dispose(mut self, f: FreeObjFn) -> Self {
-        self.dispose.replace(f);
+    pub const fn on_dispose(mut self, f: ClassFinalizeOpaqueFn) -> Self {
+        self.finalize_opaque.replace(f);
         self
     }
 
@@ -140,24 +145,29 @@ impl ClassDef {
         self
     }
 
+    pub const fn proto_entries(mut self, entries: &'static [FieldDef]) -> Self {
+        self.proto_entries = entries;
+        self
+    }
+
+    pub const fn ctor_entries(mut self, entries: &'static [FieldDef]) -> Self {
+        self.ctor_entries = entries;
+        self
+    }
+
     #[deprecated(note = "use ::on_init() instead")]
     pub const fn initialize(self, f: ClassInitializeFn) -> Self {
         self.on_init(f)
     }
 
     #[deprecated(note = "use ::on_disponse() instead")]
-    pub const fn finalize_opaque(self, f: FreeObjFn) -> Self {
+    pub const fn finalize_opaque(self, f: ClassFinalizeOpaqueFn) -> Self {
         self.on_dispose(f)
-    }
-
-    #[inline(always)]
-    pub const fn class_name(&self) -> &str {
-        self.name
     }
 
     fn default_fini_fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
         if let Some(u) = isa.other() {
-            if let Some(f) = rt.class_registry[u.class_id as usize].dispose {
+            if let Some(f) = rt.class_registry[u.class_id as usize].finalize_opaque {
                 f(rt, u.opaque, id)
             }
         } else {

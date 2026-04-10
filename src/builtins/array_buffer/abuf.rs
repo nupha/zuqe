@@ -10,7 +10,7 @@ use std::{
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    Atom, JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER, JS_PROP_CONFIGURABLE,
+    Atom, ClassDef, JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER, JS_PROP_CONFIGURABLE,
     JS_PROP_WRITABLE,
     class::ClassID,
     context::ScopedContext,

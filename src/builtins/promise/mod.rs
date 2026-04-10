@@ -9,3 +9,44 @@ mod resolving;
 pub use {class_promise::*, promise::*, resolving::*};
 
 pub(crate) use job::*;
+
+use crate::{Atom, ClassDef};
+
+pub const CLASS_DEF_PROMISE: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_Promise,
+    proto_entries: js_promise_proto_funcs,
+    ctor_entries: js_promise_funcs,
+    call: None,
+    exotic: None,
+    initialize: Some(Promise::class_init),
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_PROMISE_RESOLVE_FUNCTION: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_PromiseResolveFunction,
+    proto_entries: &[],
+    ctor_entries: &[],
+    call: Some(PromiseResolveFunc::class_call),
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_PROMISE_REJECT_FUNCTION: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_PromiseRejectFunction,
+    proto_entries: &[],
+    ctor_entries: &[],
+    call: Some(PromiseResolveFunc::class_call),
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};

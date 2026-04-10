@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ClassDef,
     atom::Atom,
     context::ScopedContext,
     error::JSResult,
@@ -51,3 +52,16 @@ pub const js_boolean_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("toString", 0, js_boolean_toString, 0),
     FieldDef::CALL("valueOf", 0, js_boolean_valueOf, 0),
 ];
+
+pub const CLASS_DEF_BOOLEAN: ClassDef = ClassDef {
+    name: "",
+    name_atom: crate::Atom::CONST_Boolean,
+    proto_entries: js_boolean_proto_funcs,
+    ctor_entries: &[],
+    call: None,
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};

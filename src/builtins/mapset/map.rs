@@ -205,7 +205,7 @@ impl JSMapState {
             lst.iter().find_map(|i| match self.slots.get(*i) {
                 Some(MapPair::Weak { key: k, value }) => {
                     if let Some(o) = key.as_object() {
-                        k.upgrade(o.rt().gc_heap())
+                        k.upgrade(o.rt_ptr().gc_heap())
                             .and_then(|k| if Object(k) == *o { Some(*value) } else { None })
                     } else {
                         None
@@ -288,7 +288,10 @@ impl JSMapState {
         let purge_lut = if let Some(lst) = self.lut.get_mut(&hash) {
             lst.retain(|i| match self.slots.get(*i) {
                 Some(MapPair::Weak { key, .. }) => {
-                    if key.upgrade(obj.rt().gc_heap()).is_some_and(|k| k != obj.0) {
+                    if key
+                        .upgrade(obj.rt_ptr().gc_heap())
+                        .is_some_and(|k| k != obj.0)
+                    {
                         self.slots[*i] = MapPair::Removed;
                         false
                     } else {

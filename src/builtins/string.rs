@@ -7,7 +7,7 @@ use std::ops::Deref;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::{
-    JS_CLASS_STRING_ITERATOR, ScopedContext,
+    ClassDef, JS_CLASS_STRING_ITERATOR, ScopedContext,
     atom::Atom,
     builtins::iterator::{JSIteratorKindEnum, js_create_array_iterator},
     error::JSResult,
@@ -15,7 +15,7 @@ use crate::{
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
     string::{
         CharCode, CharCodeDecoder, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringData,
-        StringImpl, StringRef, Utf16Stream,
+        StringImpl, StringRef, Utf16Stream, js_string_exotic_methods,
     },
     value::JSValue,
 };
@@ -1085,7 +1085,7 @@ fn js_string_fromCodePoint(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
                     -1 // bad code
                 }
             } else {
-                let d: f64 = a.to_f64(ctx)?;
+                let d: f64 = a.to_number(ctx)?.to_f64();
                 if d.fract() == 0.0 {
                     let n = d.trunc() as i64;
                     if !(0..=0x10ffff).contains(&n) {
@@ -1147,3 +1147,29 @@ pub const js_string_funcs: &[FieldDef] = &[
     FieldDef::CALL("fromCodePoint", 1, js_string_fromCodePoint, 0),
     FieldDef::CALL("raw", 1, js_string_raw, 0),
 ];
+
+pub const CLASS_DEF_STRING: ClassDef = ClassDef {
+    name: "",
+    name_atom: crate::Atom::CONST_String,
+    proto_entries: js_string_proto_funcs,
+    ctor_entries: js_string_funcs,
+    call: None,
+    exotic: Some(&js_string_exotic_methods),
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_STRING_ITERATOR: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_String_Iterator,
+    proto_entries: js_string_iterator_proto_funcs,
+    ctor_entries: &[],
+    call: None,
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};

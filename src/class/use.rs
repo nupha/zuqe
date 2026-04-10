@@ -168,7 +168,7 @@ impl RuntimeImpl {
             && !self.class_registry[class_id as usize].name_atom.is_null()
     }
 
-    pub fn query_class_id(&self, class_name: Atom) -> Option<ClassID> {
+    pub(crate) fn query_class_id(&self, class_name: Atom) -> Option<ClassID> {
         self.class_registry
             .iter()
             .enumerate()

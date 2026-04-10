@@ -9,7 +9,7 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_DATE, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
+    ClassDef, JS_CLASS_DATE, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
     atom::{Atom, AtomKind},
     class::ClassID,
     context::ScopedContext,
@@ -1185,3 +1185,16 @@ pub const js_date_funcs: &[FieldDef] = &[
     FieldDef::CALL("parse", 1, js_Date_parse, 0),
     FieldDef::CALL("UTC", 7, js_Date_UTC, 0),
 ];
+
+pub const CLASS_DEF_DATE: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_Date,
+    proto_entries: js_date_proto_funcs,
+    ctor_entries: js_date_funcs,
+    call: None,
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};

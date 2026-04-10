@@ -167,15 +167,15 @@ impl RuntimeImpl {
         {
             rt.class_registry[JS_CLASS_ARGUMENTS as usize]
                 .exotic
-                .replace(Box::new(js_arguments_exotic_methods));
+                .replace(&js_arguments_exotic_methods);
 
             rt.class_registry[JS_CLASS_STRING as usize]
                 .exotic
-                .replace(Box::new(js_string_exotic_methods));
+                .replace(&js_string_exotic_methods);
 
             rt.class_registry[JS_CLASS_MODULE_NS as usize]
                 .exotic
-                .replace(Box::new(js_module_ns_exotic_methods));
+                .replace(&js_module_ns_exotic_methods);
 
             rt.class_registry[JS_CLASS_C_FUNCTION as usize]
                 .call
@@ -196,7 +196,7 @@ impl RuntimeImpl {
         {
             rt.class_registry[crate::JS_CLASS_PROXY as usize]
                 .exotic
-                .replace(Box::new(crate::builtins::proxy::js_proxy_exotic_methods));
+                .replace(&crate::builtins::proxy::js_proxy_exotic_methods);
             rt.class_registry[crate::JS_CLASS_PROXY as usize]
                 .call
                 .replace(crate::builtins::proxy::Proxy::class_call);

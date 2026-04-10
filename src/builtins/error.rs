@@ -4,7 +4,7 @@
 use std::{borrow::Cow, ops::Deref};
 
 use crate::{
-    FieldDef, JS_CLASS_ERROR,
+    ClassDef, FieldDef, JS_CLASS_ERROR,
     atom::Atom,
     builtins::iterator::iterator_to_array,
     context::{ContextPtr, ScopedContext},
@@ -149,3 +149,16 @@ pub const js_error_proto_funcs: &[FieldDef] = &[
     FieldDef::STR("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
     FieldDef::STR("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
 ];
+
+pub(crate) const CLASS_DEF_ERROR: ClassDef = ClassDef {
+    name: "",
+    name_atom: crate::Atom::CONST_Error,
+    proto_entries: js_error_proto_funcs,
+    ctor_entries: &[],
+    call: None,
+    exotic: None,
+    initialize: None,
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
