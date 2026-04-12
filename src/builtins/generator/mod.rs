@@ -52,7 +52,7 @@ pub const CLASS_DEF_ASYNC_GENERATOR_FUNCTION: ClassDef = ClassDef {
     name_atom: Atom::CONST_AsyncGeneratorFunction,
     proto_entries: js_async_generator_function_proto_funcs,
     ctor_entries: &[],
-    call: None,
+    call: Some(AsyncGeneratorFunction::class_call),
     exotic: None,
     initialize: Some(AsyncGeneratorFunction::class_init),
     finalize: None,

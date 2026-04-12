@@ -36,13 +36,6 @@ pub(crate) struct ClassExoticMethods {
     pub set_prototype: Option<SetPrototypeFn>,
 }
 
-/// builtin class definition
-pub(crate) struct ShortClassDef {
-    pub class_name: Atom,
-    pub initialize: Option<ClassInitializeFn>,
-    pub finalize: Option<ClassFinalizeFn>,
-}
-
 #[derive(Debug)]
 pub(crate) struct ClassFieldsDef {
     pub(crate) fields_init_fd: *mut FunctionDef,
@@ -80,7 +73,7 @@ impl Default for ClassFieldsDef {
 }
 
 /// class definition
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct ClassDef {
     /// class name str. Could be empty str for builtin classes
     pub(crate) name: &'static str,

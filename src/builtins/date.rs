@@ -1193,7 +1193,7 @@ pub const CLASS_DEF_DATE: ClassDef = ClassDef {
     ctor_entries: js_date_funcs,
     call: None,
     exotic: None,
-    initialize: None,
+    initialize: Some(Datetime::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,

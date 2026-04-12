@@ -10,7 +10,7 @@ use crate::{
     JS_CLASS_REGEXP, USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
     builtins::{generator::js_async_iterator_proto_funcs, iterator::js_iterator_proto_funcs},
-    class::{ClassDef, ClassID, ShortClassDef},
+    class::{ClassDef, ClassID},
     context::{ContextImpl, ProtoCtorPair, ScopedContext},
     error::ERR_TOO_MANY_CLASSES,
     function::{Callback, CallbackFn, NativeFunction},
@@ -116,22 +116,14 @@ impl RuntimeImpl {
 
     pub(crate) fn register_builtin_classes(
         &mut self,
-        tab: &[ShortClassDef],
+        tab: &[ClassDef],
         start_id: ClassID,
     ) -> Result<(), i32> {
         debug_assert!(start_id > 0);
         let mut class_id = start_id;
 
         for item in tab {
-            self.register_class_internal(
-                class_id,
-                ClassDef {
-                    name_atom: item.class_name,
-                    initialize: item.initialize,
-                    finalize: item.finalize,
-                    ..Default::default()
-                },
-            )?;
+            self.register_class_internal(class_id, *item)?;
             class_id += 1;
         }
 
@@ -464,7 +456,7 @@ impl<'c> ScopedContext<'c> {
                     if self.class_proto(class_id).is_none() {
                         // init class in ctx
                         if let Some(init_fn) = self
-                            .rt_ptr()
+                            .rt()
                             .class_registry
                             .get(class_id as usize)
                             .and_then(|c| c.initialize)
