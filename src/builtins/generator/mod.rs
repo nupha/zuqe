@@ -6,7 +6,10 @@ mod r#gen;
 
 pub use {agen::*, r#gen::*};
 
-use crate::{Atom, ClassDef};
+use crate::{
+    Atom,
+    class::{ClassDef, ClassInitType},
+};
 
 pub const CLASS_DEF_GENERATOR_FUNCTION: ClassDef = ClassDef {
     name: "",
@@ -15,7 +18,7 @@ pub const CLASS_DEF_GENERATOR_FUNCTION: ClassDef = ClassDef {
     ctor_entries: &[],
     call: Some(js_generator_function_call),
     exotic: None,
-    initialize: None,
+    initialize: ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -28,7 +31,7 @@ pub const CLASS_DEF_GENERATOR: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: None,
+    initialize: ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -41,7 +44,7 @@ pub const CLASS_DEF_ASYNC_GENERATOR: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: Some(AsyncGeneratorFunction::class_init),
+    initialize: ClassInitType::InitFn(AsyncGeneratorFunction::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -54,7 +57,7 @@ pub const CLASS_DEF_ASYNC_GENERATOR_FUNCTION: ClassDef = ClassDef {
     ctor_entries: &[],
     call: Some(AsyncGeneratorFunction::class_call),
     exotic: None,
-    initialize: Some(AsyncGeneratorFunction::class_init),
+    initialize: ClassInitType::InitFn(AsyncGeneratorFunction::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,

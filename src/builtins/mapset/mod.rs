@@ -8,6 +8,7 @@ mod map;
 pub use {class_map::*, iter::*, map::*};
 
 use crate::{Atom, ClassDef};
+use crate::class::ClassInitType;
 
 pub const CLASS_DEF_MAP: ClassDef = ClassDef {
     name: "",
@@ -16,7 +17,7 @@ pub const CLASS_DEF_MAP: ClassDef = ClassDef {
     ctor_entries: js_map_funcs,
     call: None,
     exotic: None,
-    initialize: Some(MapSet::class_init),
+    initialize: ClassInitType::InitFn(MapSet::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -29,7 +30,7 @@ pub const CLASS_DEF_SET: ClassDef = ClassDef {
     ctor_entries: js_set_funcs,
     call: None,
     exotic: None,
-    initialize: Some(MapSet::class_init),
+    initialize: ClassInitType::InitFn(MapSet::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -42,7 +43,7 @@ pub const CLASS_DEF_WEAK_MAP: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: Some(MapSet::class_init),
+    initialize: ClassInitType::InitFn(MapSet::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -55,7 +56,7 @@ pub const CLASS_DEF_WEAK_SET: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: Some(MapSet::class_init),
+    initialize: ClassInitType::InitFn(MapSet::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -68,7 +69,7 @@ pub const CLASS_DEF_MAP_ITERATOR: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: Some(MapSet::class_init),
+    initialize: ClassInitType::InitFn(MapSet::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -81,7 +82,7 @@ pub const CLASS_DEF_SET_ITERATOR: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: Some(MapSet::class_init),
+    initialize: ClassInitType::InitFn(MapSet::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,

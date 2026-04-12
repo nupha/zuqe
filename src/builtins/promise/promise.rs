@@ -162,7 +162,7 @@ impl Promise {
             Atom::CONST_empty_string,
             2,
             0,
-            None,
+            Some(ctx.function_proto()),
             // resolving functions, initially undefined.
             // these two fields will be replace by real Function object
             // in callback handler, which takes two arguments: resolve, reject.
@@ -317,7 +317,7 @@ impl Promise {
         let mut proto = ctx.create_base_object()?;
         proto.install_fields(ctx, js_promise_proto_funcs)?;
 
-        let ctor = ctx.init_class_constructor_or_func(
+        let ctor = ctx.init_class_constructor(
             class_id,
             Self::class_constructor,
             1,

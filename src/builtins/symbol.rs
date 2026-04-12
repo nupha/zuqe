@@ -149,7 +149,7 @@ pub(crate) const CLASS_DEF_SYMBOL: ClassDef = ClassDef {
     ctor_entries: js_symbol_funcs,
     call: None,
     exotic: None,
-    initialize: None,
+    initialize: crate::class::ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,

@@ -5,7 +5,10 @@ mod class_array;
 
 pub use class_array::*;
 
-use crate::{Atom, ClassDef};
+use crate::{
+    Atom,
+    class::{ClassDef, ClassInitType},
+};
 
 pub const CLASS_DEF_ARRAY: ClassDef = ClassDef {
     name: "",
@@ -14,7 +17,7 @@ pub const CLASS_DEF_ARRAY: ClassDef = ClassDef {
     ctor_entries: js_array_funcs,
     call: None,
     exotic: None,
-    initialize: None,
+    initialize: ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -27,7 +30,7 @@ pub const CLASS_DEF_ARRAY_ITERATOR: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: None,
+    initialize: ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,

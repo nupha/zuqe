@@ -72,8 +72,15 @@ impl Default for ClassFieldsDef {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum ClassInitType {
+    None,
+    InitFn(ClassInitializeFn),
+    Entries(&'static [FieldDef]),
+}
+
 /// class definition
-#[derive(Default, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct ClassDef {
     /// class name str. Could be empty str for builtin classes
     pub(crate) name: &'static str,
@@ -89,13 +96,30 @@ pub struct ClassDef {
     pub(crate) exotic: Option<&'static ClassExoticMethods>,
 
     /// initialize class proto, constructor to context
-    pub(crate) initialize: Option<ClassInitializeFn>,
+    pub(crate) initialize: ClassInitType,
     /// class instance finalize callback
     pub(crate) finalize: Option<ClassFinalizeFn>,
     /// handler on class instance dispose
     pub(crate) finalize_opaque: Option<ClassFinalizeOpaqueFn>,
     /// class def unregister handler.
     pub(crate) unregister: Option<ClassUnregisterFn>,
+}
+
+impl Default for ClassDef {
+    fn default() -> Self {
+        Self {
+            name: "",
+            name_atom: Atom::NULL,
+            proto_entries: &[],
+            ctor_entries: &[],
+            call: None,
+            exotic: None,
+            initialize: ClassInitType::None,
+            finalize: None,
+            finalize_opaque: None,
+            unregister: None,
+        }
+    }
 }
 
 impl ClassDef {
@@ -112,7 +136,7 @@ impl ClassDef {
             exotic: None,
 
             unregister: None,
-            initialize: None,
+            initialize: ClassInitType::None,
             finalize: Some(Self::default_fini_fn),
             finalize_opaque: None,
         }
@@ -120,7 +144,7 @@ impl ClassDef {
 
     /// set class initialize callback
     pub const fn on_init(mut self, f: ClassInitializeFn) -> Self {
-        self.initialize.replace(f);
+        self.initialize = ClassInitType::InitFn(f);
         self
     }
 

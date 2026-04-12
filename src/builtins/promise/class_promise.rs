@@ -117,16 +117,15 @@ pub(crate) fn js_promise_resolve(ctx: &mut ScopedContext, cc: CallContext) -> JS
     }
 
     let arg0 = cc.arg(0);
-
     if !is_reject && arg0.retrive_object_payload0(JS_CLASS_PROMISE).is_some() {
         // resolve and argument #0 is Promise
         let ctor = arg0.get_property(ctx, Atom::CONST_constructor)?;
-        if ctor.is_same(cc.this()) {
+        if ctor.is_same(this) {
             return Ok(arg0);
         }
     }
 
-    let (wrap_promise, resolving_funcs) = Promise::create_from_ctor(ctx, this)?;
+    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, this)?;
 
     resolving_funcs[is_reject as usize].call(
         ctx,
@@ -134,7 +133,7 @@ pub(crate) fn js_promise_resolve(ctx: &mut ScopedContext, cc: CallContext) -> JS
         std::slice::from_ref(&arg0),
     )?;
 
-    Ok(wrap_promise.into())
+    Ok(result_promise.into())
 }
 
 pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -161,7 +160,7 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // }
 
     let fail_reject = |cx: &mut ScopedContext| -> JSResult {
-        let error = cx.rt_ptr().take_exception();
+        let error = cx.rt_mut().take_exception();
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&error))?;
 
         debug_assert!(result_promise.gc_node().is_local());
@@ -178,25 +177,17 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return fail_reject(ctx);
     };
 
-    let obj = cc.arg(0);
-    let Ok(mut it) = obj.iter(ctx) else {
-        return fail_reject(ctx);
-    };
-    let Ok(arr) = ctx.create_array() else {
-        return fail_reject(ctx);
-    };
-    let mut resolve_element_env: JSValue = if let Ok(a) = ctx.create_array() {
-        a.into()
-    } else {
+    let items = cc.arg(0);
+    let Ok(mut it) = items.iter(ctx) else {
         return fail_reject(ctx);
     };
 
-    if resolve_element_env
-        .define_property_value_u32(ctx, 0, JSValue::Int(1), 0x7)
-        .is_err()
-    {
+    let Ok(arr) = ctx.create_array() else {
         return fail_reject(ctx);
-    }
+    };
+    let Ok(resolve_element_env) = ctx.create_array_with_values(vec![JSValue::Int(1)]) else {
+        return fail_reject(ctx);
+    };
 
     // protect arr, resolve_element_env - THEY'RE IN SCOPE, NOT NEEDED ANY MORE
     // {
@@ -216,53 +207,51 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 return fail_reject(ctx);
             };
 
-            let mut resolve_element: JSValue = if let Ok(v) = NativeFunction::create_internal(
+            let Ok(resolve_element) = NativeFunction::create_internal(
                 ctx,
                 Callback::Func(js_promise_all_resolve_element),
                 Atom::CONST_empty_string,
                 1,
                 cc.magic() as _,
-                None,
+                Some(ctx.function_proto()),
                 Some(
                     [
                         JSValue::Bool(false),
                         JSValue::Int(index),
                         values,
                         resolving_funcs[is_promise_any as usize],
-                        resolve_element_env,
+                        resolve_element_env.into(),
                     ]
                     .into(),
                 ),
-            ) {
-                v.into()
-            } else {
+            ) else {
                 return fail_reject(ctx);
             };
+            let mut resolve_element = JSValue::from(resolve_element);
 
             let reject_element: JSValue = match cc.magic() {
                 PROMISE_MAGIC_allSettled => {
-                    if let Ok(r) = NativeFunction::create_internal(
+                    let Ok(r) = NativeFunction::create_internal(
                         ctx,
                         Callback::Func(js_promise_all_resolve_element),
                         Atom::CONST_empty_string,
                         1,
                         (cc.magic() | 4) as _,
-                        None,
+                        Some(ctx.function_proto()),
                         Some(
                             [
                                 JSValue::Bool(false),
                                 JSValue::Int(index),
                                 values,
                                 resolving_funcs[is_promise_any as usize],
-                                resolve_element_env,
+                                resolve_element_env.into(),
                             ]
                             .into(),
                         ),
-                    ) {
-                        r.into()
-                    } else {
+                    ) else {
                         return fail_reject(ctx);
-                    }
+                    };
+                    JSValue::from(r)
                 }
                 PROMISE_MAGIC_any => {
                     if values
@@ -270,16 +259,18 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                         .is_err()
                     {
                         return fail_reject(ctx);
+                    } else {
+                        std::mem::replace(&mut resolve_element, resolving_funcs[0]) // take out old value
                     }
-                    std::mem::replace(&mut resolve_element, resolving_funcs[0]) // take out old value
                 }
                 _ => resolving_funcs[1],
             };
 
-            if remainingElementsCount_add(ctx, resolve_element_env, 1).is_err() {
+            if remainingElementsCount_add(ctx, resolve_element_env.into(), 1).is_err() {
                 return fail_reject(ctx);
             }
 
+            // call wrapper promise's then() method.
             // next_promise, resolve_element, reject_element will be protected
             // by StackFrame, no manual required.
             if next_promise
@@ -299,7 +290,7 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     }
 
-    match remainingElementsCount_add(ctx, resolve_element_env, -1) {
+    match remainingElementsCount_add(ctx, resolve_element_env.into(), -1) {
         Ok(1) => {
             if cc.magic() == PROMISE_MAGIC_any {
                 let error = js_aggregate_error_constructor(ctx, values);

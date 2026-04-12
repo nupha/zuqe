@@ -33,8 +33,12 @@ pub mod regexp;
 pub mod symbol;
 
 use crate::{
-    Atom, ClassDef, class::js_arguments_exotic_methods, context::ScopedContext, error::JSResult,
-    function::CallContext, module::js_module_ns_exotic_methods,
+    Atom,
+    class::{ClassDef, ClassInitType, js_arguments_exotic_methods},
+    context::ScopedContext,
+    error::JSResult,
+    function::CallContext,
+    module::js_module_ns_exotic_methods,
 };
 
 //
@@ -48,7 +52,7 @@ pub const CLASS_DEF_ARGUMENTS: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: Some(&js_arguments_exotic_methods),
-    initialize: None,
+    initialize: ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -61,7 +65,7 @@ pub const CLASS_DEF_MAPPED_ARGUMENTS: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: None,
+    initialize: ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -74,7 +78,7 @@ pub const CLASS_DEF_MODULE_NS: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: Some(&js_module_ns_exotic_methods),
-    initialize: None,
+    initialize: ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -87,7 +91,7 @@ pub const CLASS_DEF_BIG_INT: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: None,
+    initialize: ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,

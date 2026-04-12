@@ -6,6 +6,7 @@ mod class_arraybuffer;
 
 pub use {abuf::*, class_arraybuffer::*};
 
+use crate::class::ClassInitType;
 use crate::{Atom, ClassDef};
 
 pub const CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef {
@@ -15,7 +16,7 @@ pub const CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef {
     ctor_entries: js_array_buffer_funcs,
     call: None,
     exotic: None,
-    initialize: Some(ArrayBuffer::class_init),
+    initialize: ClassInitType::InitFn(ArrayBuffer::class_init),
     finalize: Some(ArrayBuffer::class_finalize),
     finalize_opaque: None,
     unregister: None,
@@ -28,7 +29,7 @@ pub const CLASS_DEF_SHARED_ARRAY_BUFFER: ClassDef = ClassDef {
     ctor_entries: js_shared_array_buffer_funcs,
     call: None,
     exotic: None,
-    initialize: Some(ArrayBuffer::class_init),
+    initialize: ClassInitType::InitFn(ArrayBuffer::class_init),
     finalize: Some(ArrayBuffer::class_finalize),
     finalize_opaque: None,
     unregister: None,

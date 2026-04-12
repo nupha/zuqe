@@ -7,6 +7,7 @@ mod iter;
 
 pub use {a_iter::*, array_iter::*, iter::*};
 
+use crate::class::ClassInitType;
 use crate::{Atom, ClassDef};
 
 pub const CLASS_DEF_FOR_IN_ITERATOR: ClassDef = ClassDef {
@@ -16,7 +17,7 @@ pub const CLASS_DEF_FOR_IN_ITERATOR: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: None,
+    initialize: ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -29,7 +30,7 @@ pub const CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: Some(AsyncFromSyncIterator::class_init),
+    initialize: ClassInitType::InitFn(AsyncFromSyncIterator::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,

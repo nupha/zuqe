@@ -7,7 +7,10 @@ mod re;
 
 pub use {class_regexp::*, class_regexp_iter::*, re::*};
 
-use crate::{Atom, ClassDef};
+use crate::{
+    Atom,
+    class::{ClassDef, ClassInitType},
+};
 
 pub const CLASS_DEF_REGEXP: ClassDef = ClassDef {
     name: "",
@@ -16,7 +19,7 @@ pub const CLASS_DEF_REGEXP: ClassDef = ClassDef {
     ctor_entries: js_regexp_funcs,
     call: None,
     exotic: None,
-    initialize: Some(RegExp::class_init),
+    initialize: ClassInitType::InitFn(RegExp::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -29,7 +32,7 @@ pub const CLASS_DEF_REGEXP_STRING_ITERATOR: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: Some(RegExp::class_init),
+    initialize: ClassInitType::InitFn(RegExp::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,

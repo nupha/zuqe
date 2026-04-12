@@ -9,6 +9,7 @@ mod ta;
 pub use {class_dataview::*, class_typedarray::*, dv::*, ta::*};
 
 use crate::{Atom, ClassDef};
+use crate::class::ClassInitType;
 
 macro_rules! ta_class_def {
     ($name:ident) => {
@@ -19,7 +20,7 @@ macro_rules! ta_class_def {
             ctor_entries: &[],
             call: None,
             exotic: None,
-            initialize: Some(TypedArray::class_init),
+            initialize: ClassInitType::InitFn(TypedArray::class_init),
             finalize: Some(TypedArray::class_finalize),
             finalize_opaque: None,
             unregister: None,
@@ -46,7 +47,7 @@ pub const CLASS_DEF_DATAVIEW: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: Some(DataView::class_init),
+    initialize: ClassInitType::InitFn(DataView::class_init),
     finalize: Some(DataView::class_finalize),
     finalize_opaque: None,
     unregister: None,

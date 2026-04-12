@@ -60,7 +60,7 @@ pub const CLASS_DEF_BOOLEAN: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: None,
+    initialize: crate::class::ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,

@@ -13,7 +13,7 @@ pub(crate) const CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef {
     ctor_entries: js_object_funcs,
     call: None,
     exotic: None,
-    initialize: None,
+    initialize: crate::class::ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,

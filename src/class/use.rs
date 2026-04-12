@@ -10,7 +10,7 @@ use crate::{
     JS_CLASS_REGEXP, USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
     builtins::{generator::js_async_iterator_proto_funcs, iterator::js_iterator_proto_funcs},
-    class::{ClassDef, ClassID},
+    class::{ClassDef, ClassID, ClassInitType},
     context::{ContextImpl, ProtoCtorPair, ScopedContext},
     error::ERR_TOO_MANY_CLASSES,
     function::{Callback, CallbackFn, NativeFunction},
@@ -454,31 +454,38 @@ impl<'c> ScopedContext<'c> {
                     let class_id = *id;
 
                     if self.class_proto(class_id).is_none() {
-                        // init class in ctx
-                        if let Some(init_fn) = self
-                            .rt()
-                            .class_registry
-                            .get(class_id as usize)
-                            .and_then(|c| c.initialize)
-                        {
-                            if let Some(proto) = init_fn(self, class_id)? {
-                                debug_assert!(
-                                    self.class_slots[class_id as usize]
-                                        .proto
-                                        .is_none_or(|p| p == proto)
-                                );
-                                self.class_slots[class_id as usize].proto = Some(proto);
-                            }
+                        if let Some(class_def) = self.rt().class_registry.get(class_id as usize) {
+                            match class_def.initialize {
+                                ClassInitType::InitFn(init_fn) => {
+                                    if let Some(proto) = init_fn(self, class_id)? {
+                                        debug_assert!(
+                                            self.class_slots[class_id as usize]
+                                                .proto
+                                                .is_none_or(|p| p == proto)
+                                        );
+                                        self.class_slots[class_id as usize].proto = Some(proto);
+                                    }
 
-                            if self.class_slots[class_id as usize].proto.is_none() {
-                                self.throw_internal_error(&format!(
-                                    "class ({class_id}) initialization must setup proto object"
-                                ));
+                                    if self.class_slots[class_id as usize].proto.is_none() {
+                                        self.throw_internal_error(&format!(
+                                            "class ({class_id}) initialization must setup proto object"
+                                        ));
+                                    }
+                                }
+                                ClassInitType::Entries(entries) => {
+                                    let proto = self.init_class_proto(class_id, entries)?;
+                                    debug_assert!(
+                                        self.class_slots[class_id as usize]
+                                            .proto
+                                            .is_none_or(|p| p == proto)
+                                    );
+                                }
+                                ClassInitType::None => {
+                                    self.init_class_proto(class_id, &[])?;
+                                }
                             }
                         } else {
-                            self.throw_internal_error(&format!(
-                                "can't initialize class ({class_id})"
-                            ));
+                            self.throw_internal_error(&format!("unknown class id {class_id}"));
                             return Err(-1);
                         }
                     }

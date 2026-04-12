@@ -10,6 +10,7 @@ pub use {class_promise::*, promise::*, resolving::*};
 
 pub(crate) use job::*;
 
+use crate::class::ClassInitType;
 use crate::{Atom, ClassDef};
 
 pub const CLASS_DEF_PROMISE: ClassDef = ClassDef {
@@ -19,7 +20,7 @@ pub const CLASS_DEF_PROMISE: ClassDef = ClassDef {
     ctor_entries: js_promise_funcs,
     call: None,
     exotic: None,
-    initialize: Some(Promise::class_init),
+    initialize: ClassInitType::InitFn(Promise::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -32,7 +33,7 @@ pub const CLASS_DEF_PROMISE_RESOLVE_FUNCTION: ClassDef = ClassDef {
     ctor_entries: &[],
     call: Some(PromiseResolveFunc::class_call),
     exotic: None,
-    initialize: None,
+    initialize: ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -45,7 +46,7 @@ pub const CLASS_DEF_PROMISE_REJECT_FUNCTION: ClassDef = ClassDef {
     ctor_entries: &[],
     call: Some(PromiseResolveFunc::class_call),
     exotic: None,
-    initialize: None,
+    initialize: ClassInitType::None,
     finalize: None,
     finalize_opaque: None,
     unregister: None,

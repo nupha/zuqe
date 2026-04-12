@@ -6,6 +6,7 @@ mod proxy;
 
 pub use {class_proxy::*, proxy::*};
 
+use crate::class::ClassInitType;
 use crate::{Atom, ClassDef};
 
 pub const CLASS_DEF_PROXY: ClassDef = ClassDef {
@@ -15,7 +16,7 @@ pub const CLASS_DEF_PROXY: ClassDef = ClassDef {
     ctor_entries: js_proxy_funcs,
     call: Some(Proxy::class_call),
     exotic: Some(&js_proxy_exotic_methods),
-    initialize: Some(Proxy::class_init),
+    initialize: ClassInitType::InitFn(Proxy::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,

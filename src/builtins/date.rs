@@ -11,7 +11,7 @@ use gc_lite::{GcTrace, GcTraceCtx};
 use crate::{
     ClassDef, JS_CLASS_DATE, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
     atom::{Atom, AtomKind},
-    class::ClassID,
+    class::{ClassID, ClassInitType},
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -1193,7 +1193,7 @@ pub const CLASS_DEF_DATE: ClassDef = ClassDef {
     ctor_entries: js_date_funcs,
     call: None,
     exotic: None,
-    initialize: Some(Datetime::class_init),
+    initialize: ClassInitType::InitFn(Datetime::class_init),
     finalize: None,
     finalize_opaque: None,
     unregister: None,
