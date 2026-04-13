@@ -7,21 +7,15 @@ use crate::{
     JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
     atom::Atom,
     builtins::{
-        array::{
-            js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs,
-            js_array_proto_funcs,
-        },
-        boolean::{js_boolean_constructor, js_boolean_proto_funcs},
+        array::{js_array_iterator_proto_funcs, js_array_proto_funcs},
+        boolean::js_boolean_proto_funcs,
         error::js_error_constructor,
         function::js_function_proto_funcs,
         generator::{js_generator_function_proto_funcs, js_generator_proto_funcs},
         global::js_global_eval,
-        number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
-        object::{js_object_constructor, js_object_funcs, js_object_proto_funcs},
-        string::{
-            js_string_constructor, js_string_funcs, js_string_iterator_proto_funcs,
-            js_string_proto_funcs,
-        },
+        number::js_number_proto_funcs,
+        object::js_object_proto_funcs,
+        string::{js_string_iterator_proto_funcs, js_string_proto_funcs},
     },
     context::{ScopedContext, ctx::ProtoCtorPair},
     error::{ErrorKind, STD_ERROR_NAMES},
@@ -39,20 +33,17 @@ impl<'c> ScopedContext<'c> {
         let mut obj = self.class_proto(JS_CLASS_OBJECT).unwrap();
         obj.install_fields(self, js_object_proto_funcs).unwrap();
 
-        let mut ctor = self
-            .create_constructor_internal(
-                "Object",
-                Callback::ConstructorOrFunc(js_object_constructor),
-                1,
-                obj,
-                0,
-                true,
+        self.use_class(JS_CLASS_OBJECT).unwrap();
+        let ctor = self.class_constructor(JS_CLASS_OBJECT).unwrap();
+
+        self.global_obj()
+            .define_property_value(
+                self,
+                Atom::CONST_Object,
+                ctor.into(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
-
-        ctor.install_fields(self, js_object_funcs).unwrap();
-
-        self.class_slots[JS_CLASS_OBJECT as usize].ctor = Some(ctor);
     }
 
     pub(super) fn intrinsic_base_function(&mut self) {
@@ -157,18 +148,18 @@ impl<'c> ScopedContext<'c> {
     pub(super) fn intrinsic_base_errors(&mut self) {
         debug_assert!(self.class_slots[JS_CLASS_ERROR as usize].proto.is_some());
 
-        let proto = self.class_proto(JS_CLASS_ERROR).unwrap();
-        let ctor = self
-            .create_constructor_internal(
-                "Error",
-                Callback::ConstructorOrFunc(js_error_constructor),
-                1,
-                proto,
-                -1,
-                true,
+        self.use_class(JS_CLASS_ERROR).unwrap();
+
+        let ctor = self.class_constructor(JS_CLASS_ERROR).unwrap();
+
+        self.global_obj()
+            .define_property_value(
+                self,
+                Atom::CONST_Error,
+                ctor.into(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
-        self.class_slots[JS_CLASS_ERROR as usize].ctor = Some(ctor);
 
         // standard error constructors
         for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
@@ -206,16 +197,9 @@ impl<'c> ScopedContext<'c> {
 
         self.array_proto_values = array_proto.get_property(self, Atom::CONST_values).unwrap();
 
-        let array_ctor = self
-            .init_class_constructor_or_func(
-                JS_CLASS_ARRAY,
-                js_array_constructor,
-                1,
-                0,
-                array_proto,
-                js_array_funcs,
-            )
-            .unwrap();
+        self.use_class(JS_CLASS_ARRAY).unwrap();
+
+        let array_ctor = self.class_constructor(JS_CLASS_ARRAY).unwrap();
 
         self.global_obj()
             .define_property_value(
@@ -282,23 +266,20 @@ impl<'c> ScopedContext<'c> {
             .unwrap();
         proto.install_fields(self, js_number_proto_funcs).unwrap();
 
-        let mut ctor = self
-            .create_constructor_internal(
-                "Number",
-                Callback::ConstructorOrFunc(js_number_constructor),
-                1,
-                proto,
-                0,
-                true,
+        self.class_slots[JS_CLASS_NUMBER as usize].proto = Some(proto);
+
+        self.use_class(JS_CLASS_NUMBER).unwrap();
+
+        let ctor = self.class_constructor(JS_CLASS_NUMBER).unwrap();
+
+        self.global_obj()
+            .define_property_value(
+                self,
+                Atom::CONST_Number,
+                ctor.into(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
-
-        ctor.install_fields(self, js_number_funcs).unwrap();
-
-        self.class_slots[JS_CLASS_NUMBER as usize] = ProtoCtorPair {
-            proto: Some(proto),
-            ctor: Some(ctor),
-        };
     }
 
     pub(super) fn intrinsic_base_boolean(&mut self) {
@@ -308,24 +289,21 @@ impl<'c> ScopedContext<'c> {
                 ObjectPayload::BOOLEAN(false),
             )
             .unwrap();
-
         proto.install_fields(self, js_boolean_proto_funcs).unwrap();
+        self.class_slots[JS_CLASS_BOOLEAN as usize].proto = Some(proto);
 
-        let ctor = self
-            .create_constructor_internal(
-                "Boolean",
-                Callback::ConstructorOrFunc(js_boolean_constructor),
-                1,
-                proto,
-                0,
-                true,
+        self.use_class(JS_CLASS_BOOLEAN).unwrap();
+
+        let ctor = self.class_constructor(JS_CLASS_BOOLEAN).unwrap();
+
+        self.global_obj()
+            .define_property_value(
+                self,
+                Atom::CONST_Boolean,
+                ctor.into(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
-
-        self.class_slots[JS_CLASS_BOOLEAN as usize] = ProtoCtorPair {
-            proto: Some(proto),
-            ctor: Some(ctor),
-        };
     }
 
     pub(super) fn intrinsic_base_string(&mut self) {
@@ -342,19 +320,6 @@ impl<'c> ScopedContext<'c> {
             o
         };
 
-        let mut string_ctor = self
-            .create_constructor_internal(
-                "String",
-                Callback::ConstructorOrFunc(js_string_constructor),
-                1,
-                string_proto,
-                0,
-                true,
-            )
-            .unwrap();
-
-        string_ctor.install_fields(self, js_string_funcs).unwrap();
-
         let iter_proto = self.iterator_proto().unwrap();
         let mut string_iter = self
             .create_base_object_with_proto(Some(iter_proto))
@@ -365,12 +330,25 @@ impl<'c> ScopedContext<'c> {
 
         self.class_slots[JS_CLASS_STRING as usize] = ProtoCtorPair {
             proto: Some(string_proto),
-            ctor: Some(string_ctor),
+            ctor: None,
         };
         self.class_slots[JS_CLASS_STRING_ITERATOR as usize] = ProtoCtorPair {
             proto: Some(string_iter),
             ctor: None,
         };
+
+        self.use_class(JS_CLASS_STRING).unwrap();
+
+        let ctor = self.class_constructor(JS_CLASS_STRING).unwrap();
+
+        self.global_obj()
+            .define_property_value(
+                self,
+                Atom::CONST_String,
+                ctor.into(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )
+            .unwrap();
     }
 
     #[cfg(feature = "builtin_symbol")]
@@ -380,18 +358,19 @@ impl<'c> ScopedContext<'c> {
             .install_fields(self, crate::builtins::symbol::js_symbol_proto_funcs)
             .unwrap();
 
-        let mut ctor = self
-            .create_constructor_internal(
-                "Symbol",
-                Callback::ConstructorOrFunc(crate::builtins::symbol::js_symbol_constructor),
-                0,
-                proto,
-                0,
-                true,
-            )
-            .unwrap();
+        self.class_slots[crate::JS_CLASS_SYMBOL as usize].proto = Some(proto);
 
-        ctor.install_fields(self, crate::builtins::symbol::js_symbol_funcs)
+        self.use_class(crate::JS_CLASS_SYMBOL).unwrap();
+
+        let mut ctor = self.class_constructor(crate::JS_CLASS_SYMBOL).unwrap();
+
+        self.global_obj()
+            .define_property_value(
+                self,
+                Atom::CONST_Symbol,
+                ctor.into(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )
             .unwrap();
 
         // pre-define builtin Symbol_XXX
