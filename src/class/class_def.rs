@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    FieldDef, RuntimeImpl,
+    Callback, FieldDef, RuntimeImpl,
     atom::Atom,
     class::{
         ClassCallFn, ClassFinalizeOpaqueFn, ClassInitializeFn, ClassUnregisterFn, GetPrototypeFn,
         SetPrototypeFn,
     },
     context::ScopedContext,
-    function::FunctionDef,
+    function::{CallbackFn, FunctionDef},
     object::{JS_PROP_NO_EXOTIC, ObjectPayload},
     value::JSValue,
 };
@@ -73,10 +73,20 @@ impl Default for ClassFieldsDef {
 }
 
 #[derive(Clone, Copy)]
+pub struct ClassCtorDef {
+    pub(crate) callback: Callback,
+    pub(crate) length: i32,
+    pub(crate) magic: i16,
+    pub(crate) entries: &'static [FieldDef],
+}
+
+#[derive(Clone, Copy)]
 pub enum ClassInitType {
-    None,
+    Entries {
+        proto_entries: &'static [FieldDef],
+        ctor: Option<ClassCtorDef>,
+    },
     InitFn(ClassInitializeFn),
-    Entries(&'static [FieldDef]),
 }
 
 /// class definition
@@ -114,7 +124,10 @@ impl Default for ClassDef {
             ctor_entries: &[],
             call: None,
             exotic: None,
-            initialize: ClassInitType::None,
+            initialize: ClassInitType::Entries {
+                proto_entries: &[],
+                ctor: None,
+            },
             finalize: None,
             finalize_opaque: None,
             unregister: None,
@@ -136,7 +149,10 @@ impl ClassDef {
             exotic: None,
 
             unregister: None,
-            initialize: ClassInitType::None,
+            initialize: ClassInitType::Entries {
+                proto_entries: &[],
+                ctor: None,
+            },
             finalize: Some(Self::default_fini_fn),
             finalize_opaque: None,
         }

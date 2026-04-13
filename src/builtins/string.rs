@@ -1155,7 +1155,15 @@ pub const CLASS_DEF_STRING: ClassDef = ClassDef {
     ctor_entries: js_string_funcs,
     call: None,
     exotic: Some(&js_string_exotic_methods),
-    initialize: crate::class::ClassInitType::None,
+    initialize: crate::class::ClassInitType::Entries {
+        proto_entries: js_string_proto_funcs,
+        ctor: Some(crate::class::ClassCtorDef {
+            callback: crate::Callback::ConstructorOrFunc(js_string_constructor),
+            length: 1,
+            magic: 0,
+            entries: js_string_funcs,
+        }),
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -1168,7 +1176,10 @@ pub const CLASS_DEF_STRING_ITERATOR: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: crate::class::ClassInitType::None,
+    initialize: crate::class::ClassInitType::Entries {
+        proto_entries: js_string_iterator_proto_funcs,
+        ctor: None,
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,

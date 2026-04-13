@@ -18,7 +18,10 @@ pub const CLASS_DEF_GENERATOR_FUNCTION: ClassDef = ClassDef {
     ctor_entries: &[],
     call: Some(js_generator_function_call),
     exotic: None,
-    initialize: ClassInitType::None,
+    initialize: ClassInitType::Entries {
+        proto_entries: js_generator_function_proto_funcs,
+        ctor: None,
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -31,7 +34,10 @@ pub const CLASS_DEF_GENERATOR: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: ClassInitType::None,
+    initialize: ClassInitType::Entries {
+        proto_entries: js_generator_proto_funcs,
+        ctor: None,
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,

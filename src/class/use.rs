@@ -453,6 +453,7 @@ impl<'c> ScopedContext<'c> {
                 for id in class_ids {
                     let class_id = *id;
 
+                    // Note: each class in context must be initialized only once
                     if self.class_proto(class_id).is_none() {
                         if let Some(class_def) = self.rt().class_registry.get(class_id as usize) {
                             match class_def.initialize {
@@ -472,16 +473,26 @@ impl<'c> ScopedContext<'c> {
                                         ));
                                     }
                                 }
-                                ClassInitType::Entries(entries) => {
-                                    let proto = self.init_class_proto(class_id, entries)?;
+                                ClassInitType::Entries {
+                                    proto_entries,
+                                    ctor,
+                                } => {
+                                    let proto = self.init_class_proto(class_id, proto_entries)?;
                                     debug_assert!(
                                         self.class_slots[class_id as usize]
                                             .proto
-                                            .is_none_or(|p| p == proto)
+                                            .is_some_and(|p| p == proto)
                                     );
-                                }
-                                ClassInitType::None => {
-                                    self.init_class_proto(class_id, &[])?;
+
+                                    debug_assert!(
+                                        self.class_slots[class_id as usize].ctor.is_none()
+                                    );
+                                    if let Some(c) = ctor {
+                                        self.init_class_ctor_internal(
+                                            class_id, c.callback, c.length, c.magic, proto,
+                                            c.entries,
+                                        )?;
+                                    }
                                 }
                             }
                         } else {

@@ -33,7 +33,10 @@ pub const CLASS_DEF_PROMISE_RESOLVE_FUNCTION: ClassDef = ClassDef {
     ctor_entries: &[],
     call: Some(PromiseResolveFunc::class_call),
     exotic: None,
-    initialize: ClassInitType::None,
+    initialize: ClassInitType::Entries {
+        proto_entries: &[],
+        ctor: None,
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -46,7 +49,10 @@ pub const CLASS_DEF_PROMISE_REJECT_FUNCTION: ClassDef = ClassDef {
     ctor_entries: &[],
     call: Some(PromiseResolveFunc::class_call),
     exotic: None,
-    initialize: ClassInitType::None,
+    initialize: ClassInitType::Entries {
+        proto_entries: &[],
+        ctor: None,
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,

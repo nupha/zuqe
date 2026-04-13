@@ -17,7 +17,10 @@ pub const CLASS_DEF_FOR_IN_ITERATOR: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: ClassInitType::None,
+    initialize: ClassInitType::Entries {
+        proto_entries: &[],
+        ctor: None,
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,
