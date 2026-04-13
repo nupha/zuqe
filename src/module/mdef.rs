@@ -162,10 +162,13 @@ impl ModuleDefImpl {
     }
 
     /// create a native module def with module init func.
-    fn create(rt: RuntimePtr, name: &str, init: impl ModuleInitFn + 'static) -> Result<Self, i32> {
-        let name = Atom::new(rt, name)?;
-        let mut md = Self::new(name);
-        md.init_func.replace(Box::new(init));
+    fn create(
+        rt: RuntimePtr,
+        name: &str,
+        init_fn: impl ModuleInitFn + 'static,
+    ) -> Result<Self, i32> {
+        let mut md = Self::new(Atom::new(rt, name)?);
+        md.init_func.replace(Box::new(init_fn));
         Ok(md)
     }
 

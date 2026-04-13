@@ -139,13 +139,13 @@ impl NFuncPayload {
             Callback::FF(f) => {
                 //debug_assert!(data.is_none(), "binding data not allowed");
                 cc.arg(0)
-                    .to_f64(&mut realm_scope)
-                    .map(|n| JSValue::from(unsafe { f(n) }))
+                    .to_number(&mut realm_scope)
+                    .map(|n| JSValue::from(unsafe { f(n.to_f64()) }))
             }
             Callback::FFF(f) => {
                 //debug_assert!(data.is_none(), "binding data not allowed");
-                let d1 = cc.arg(0).to_f64(&mut realm_scope)?;
-                let d2 = cc.arg(1).to_f64(&mut realm_scope)?;
+                let d1 = cc.arg(0).to_number(&mut realm_scope).map(|n| n.to_f64())?;
+                let d2 = cc.arg(1).to_number(&mut realm_scope).map(|n| n.to_f64())?;
                 Ok(JSValue::from(unsafe { f(d1, d2) }))
             }
         };

@@ -283,11 +283,10 @@ impl<'s> JSParseState<'s> {
             inp.seek_relative(1);
         }
 
-        let atom = Atom::new(
+        Atom::new(
             self.ctx().rt_ptr(),
             std::str::from_utf8(&buf).map_err(|_| -1)?,
-        )?;
-        Ok(atom)
+        )
     }
 
     fn json_parse_value(&mut self) -> JSResult {

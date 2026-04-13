@@ -86,9 +86,12 @@ impl<'c> ScopedContext<'c> {
                 mode |= ExecMode::STRIP;
             }
             if eval_type == EvalType::Module {
-                let name = Atom::new(self.rt_ptr(), filename)?;
                 mode |= ExecMode::STRICT;
-                (None, Some(ModuleDef::new(self, name)?), mode)
+                (
+                    None,
+                    Some(ModuleDef::new(self, Atom::new(self.rt_ptr(), filename)?)?),
+                    mode,
+                )
             } else {
                 (None, None, mode)
             }

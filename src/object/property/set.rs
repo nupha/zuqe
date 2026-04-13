@@ -535,15 +535,14 @@ impl ObjectImpl {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn set_property_str(
         &mut self,
         ctx: &mut ScopedContext,
         prop: &str,
         val: JSValue,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt_ptr(), prop)?;
-        self.set_property(ctx, atom, val)
+        self.set_property(ctx, Atom::new(ctx.rt_ptr(), prop)?, val)
     }
 }
 
@@ -627,15 +626,14 @@ impl JSValue {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn set_property_str(
         &mut self,
         ctx: &mut ScopedContext,
         prop: &str,
         val: Self,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt_ptr(), prop)?;
-        self.set_property(ctx, atom, val)
+        self.set_property(ctx, Atom::new(ctx.rt_ptr(), prop)?, val)
     }
 }
 

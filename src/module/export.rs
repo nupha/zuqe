@@ -187,11 +187,10 @@ impl ModuleDefImpl {
 
     /// declare a module export name
     pub fn add_export(&mut self, ctx: &mut ScopedContext, export_name: &str) -> Result<(), i32> {
-        let atom = Atom::new(ctx.rt_ptr(), export_name)?;
         self.add_export_internal(
             ctx,
             Atom::NULL,
-            atom,
+            Atom::new(ctx.rt_ptr(), export_name)?,
             ExportType::JS_EXPORT_TYPE_LOCAL {
                 var_idx: u16::MAX, // unknown
                 var_ref: None,
