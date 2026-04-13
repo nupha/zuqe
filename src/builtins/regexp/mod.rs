@@ -19,7 +19,16 @@ pub const CLASS_DEF_REGEXP: ClassDef = ClassDef {
     ctor_entries: js_regexp_funcs,
     call: None,
     exotic: None,
-    initialize: ClassInitType::InitFn(RegExp::class_init),
+    initialize: ClassInitType::Entries {
+        proto_entries: js_regexp_proto_funcs,
+        ctor: Some(crate::class::ClassCtorDef {
+            callback: crate::Callback::ConstructorOrFunc(js_regexp_constructor),
+            length: 2,
+            magic: 0,
+            entries: js_regexp_funcs,
+            global_name: Some(Atom::CONST_RegExp),
+        }),
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,

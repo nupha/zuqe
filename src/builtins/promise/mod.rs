@@ -10,8 +10,10 @@ pub use {class_promise::*, promise::*, resolving::*};
 
 pub(crate) use job::*;
 
-use crate::class::ClassInitType;
-use crate::{Atom, ClassDef};
+use crate::{
+    Atom,
+    class::{ClassDef, ClassInitType},
+};
 
 pub const CLASS_DEF_PROMISE: ClassDef = ClassDef {
     name: "",
@@ -20,7 +22,16 @@ pub const CLASS_DEF_PROMISE: ClassDef = ClassDef {
     ctor_entries: js_promise_funcs,
     call: None,
     exotic: None,
-    initialize: ClassInitType::InitFn(Promise::class_init),
+    initialize: ClassInitType::Entries {
+        proto_entries: js_promise_proto_funcs,
+        ctor: Some(crate::class::ClassCtorDef {
+            callback: crate::Callback::Constructor(Promise::class_constructor),
+            length: 1,
+            magic: 0,
+            entries: js_promise_funcs,
+            global_name: Some(Atom::CONST_Promise),
+        }),
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,

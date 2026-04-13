@@ -10,7 +10,7 @@ use crate::{
     JS_CLASS_REGEXP, USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
     builtins::{generator::js_async_iterator_proto_funcs, iterator::js_iterator_proto_funcs},
-    class::{ClassDef, ClassID, ClassInitType},
+    class::{ClassDef, ClassID},
     context::{ContextImpl, ProtoCtorPair, ScopedContext},
     error::ERR_TOO_MANY_CLASSES,
     function::{Callback, CallbackFn, NativeFunction},

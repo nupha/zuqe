@@ -8,8 +8,10 @@ mod ta;
 
 pub use {class_dataview::*, class_typedarray::*, dv::*, ta::*};
 
-use crate::{Atom, ClassDef};
-use crate::class::ClassInitType;
+use crate::{
+    Atom,
+    class::{ClassDef, ClassInitType},
+};
 
 macro_rules! ta_class_def {
     ($name:ident) => {
@@ -47,8 +49,17 @@ pub const CLASS_DEF_DATAVIEW: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: ClassInitType::InitFn(DataView::class_init),
-    finalize: Some(DataView::class_finalize),
+    initialize: ClassInitType::Entries {
+        proto_entries: js_dataview_proto_funcs,
+        ctor: Some(crate::class::ClassCtorDef {
+            callback: crate::Callback::Constructor(js_dataview_constructor),
+            length: 1,
+            magic: 0,
+            entries: &[],
+            global_name: Some(Atom::CONST_DataView),
+        }),
+    },
+    finalize: None,
     finalize_opaque: None,
     unregister: None,
 };

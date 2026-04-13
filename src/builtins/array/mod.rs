@@ -24,6 +24,7 @@ pub const CLASS_DEF_ARRAY: ClassDef = ClassDef {
             length: 1,
             magic: 0,
             entries: js_array_funcs,
+            global_name: Some(Atom::CONST_Array),
         }),
     },
     finalize: None,

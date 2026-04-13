@@ -7,8 +7,10 @@ mod map;
 
 pub use {class_map::*, iter::*, map::*};
 
-use crate::{Atom, ClassDef};
-use crate::class::ClassInitType;
+use crate::{
+    Atom,
+    class::{ClassDef, ClassInitType},
+};
 
 pub const CLASS_DEF_MAP: ClassDef = ClassDef {
     name: "",
@@ -17,7 +19,16 @@ pub const CLASS_DEF_MAP: ClassDef = ClassDef {
     ctor_entries: js_map_funcs,
     call: None,
     exotic: None,
-    initialize: ClassInitType::InitFn(MapSet::class_init),
+    initialize: ClassInitType::Entries {
+        proto_entries: js_map_proto_funcs,
+        ctor: Some(crate::class::ClassCtorDef {
+            callback: crate::Callback::Constructor(js_map_constructor),
+            length: 0,
+            magic: 0,
+            entries: js_map_funcs,
+            global_name: Some(Atom::CONST_Map),
+        }),
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -30,7 +41,16 @@ pub const CLASS_DEF_SET: ClassDef = ClassDef {
     ctor_entries: js_set_funcs,
     call: None,
     exotic: None,
-    initialize: ClassInitType::InitFn(MapSet::class_init),
+    initialize: ClassInitType::Entries {
+        proto_entries: js_set_proto_funcs,
+        ctor: Some(crate::class::ClassCtorDef {
+            callback: crate::Callback::Constructor(js_map_constructor),
+            length: 0,
+            magic: 1,
+            entries: js_set_funcs,
+            global_name: Some(Atom::CONST_Set),
+        }),
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -43,7 +63,16 @@ pub const CLASS_DEF_WEAK_MAP: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: ClassInitType::InitFn(MapSet::class_init),
+    initialize: ClassInitType::Entries {
+        proto_entries: js_weakmap_proto_funcs,
+        ctor: Some(crate::class::ClassCtorDef {
+            callback: crate::Callback::Constructor(js_map_constructor),
+            length: 0,
+            magic: 2,
+            entries: &[],
+            global_name: Some(Atom::CONST_WeakMap),
+        }),
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -56,7 +85,16 @@ pub const CLASS_DEF_WEAK_SET: ClassDef = ClassDef {
     ctor_entries: &[],
     call: None,
     exotic: None,
-    initialize: ClassInitType::InitFn(MapSet::class_init),
+    initialize: ClassInitType::Entries {
+        proto_entries: js_weakset_proto_funcs,
+        ctor: Some(crate::class::ClassCtorDef {
+            callback: crate::Callback::Constructor(js_map_constructor),
+            length: 0,
+            magic: 3,
+            entries: &[],
+            global_name: Some(Atom::CONST_WeakSet),
+        }),
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,

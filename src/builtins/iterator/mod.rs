@@ -7,8 +7,10 @@ mod iter;
 
 pub use {a_iter::*, array_iter::*, iter::*};
 
-use crate::class::ClassInitType;
-use crate::{Atom, ClassDef};
+use crate::{
+    Atom,
+    {ClassDef, class::ClassInitType},
+};
 
 pub const CLASS_DEF_FOR_IN_ITERATOR: ClassDef = ClassDef {
     name: "",

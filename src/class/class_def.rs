@@ -9,8 +9,8 @@ use crate::{
         SetPrototypeFn,
     },
     context::ScopedContext,
-    function::{CallbackFn, FunctionDef},
-    object::{JS_PROP_NO_EXOTIC, ObjectPayload},
+    function::{FunctionDef},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, ObjectPayload},
     value::JSValue,
 };
 
@@ -78,6 +78,7 @@ pub struct ClassCtorDef {
     pub(crate) length: i32,
     pub(crate) magic: i16,
     pub(crate) entries: &'static [FieldDef],
+    pub(crate) global_name: Option<Atom>,
 }
 
 #[derive(Clone, Copy)]
@@ -231,9 +232,18 @@ impl ClassDef {
                     && ctx.class_slots[class_id as usize].ctor.is_none()
                 {
                     let proto = ctx.class_proto(class_id).unwrap();
-                    ctx.init_class_ctor_internal(
+                    let ctor = ctx.init_class_ctor_internal(
                         class_id, c.callback, c.length, c.magic, proto, c.entries,
                     )?;
+
+                    if let Some(global) = c.global_name {
+                        ctx.global_obj().define_property_value(
+                            ctx,
+                            global,
+                            ctor.into(),
+                            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                        )?;
+                    }
                 }
             }
         }

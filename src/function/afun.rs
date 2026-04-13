@@ -4,7 +4,7 @@
 use gc_lite::GcRef;
 
 use crate::{
-    Atom, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_BYTECODE_FUNCTION,
+    Atom, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
     context::ScopedContext,

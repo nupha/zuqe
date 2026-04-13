@@ -6,10 +6,9 @@ use std::{cell::Cell, rc::Rc};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_PROMISE, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
+    JS_CLASS_PROMISE,
     atom::Atom,
     builtins::error::js_aggregate_error_constructor,
-    class::ClassID,
     context::{ContextImpl, ScopedContext},
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
@@ -18,7 +17,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{PromiseReaction, PromiseResolvePayload, js_promise_funcs, js_promise_proto_funcs};
+use super::{PromiseReaction, PromiseResolvePayload};
 
 pub type JSHostPromiseRejectionTracker = fn(
     ctx: &mut ContextImpl,
@@ -308,32 +307,6 @@ impl Promise {
             .unwrap();
 
         Promise::from_executor(ctx, executor, this).map(|p| p.into())
-    }
-
-    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert_eq!(class_id, JS_CLASS_PROMISE);
-        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
-
-        let mut proto = ctx.create_base_object()?;
-        proto.install_fields(ctx, js_promise_proto_funcs)?;
-
-        let ctor = ctx.init_class_constructor(
-            class_id,
-            Self::class_constructor,
-            1,
-            0,
-            proto,
-            js_promise_funcs,
-        )?;
-
-        ctx.global_obj().define_property_value(
-            ctx,
-            Atom::CONST_Promise,
-            ctor.into(),
-            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        )?;
-
-        Ok(Some(proto))
     }
 
     /// see ECMAScript spec `Promise.resolve()` and `Promise.reject()` for details.

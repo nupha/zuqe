@@ -9,13 +9,13 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    ClassDef, JS_CLASS_DATE, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
+    ClassDef,
     atom::{Atom, AtomKind},
-    class::{ClassID, ClassInitType},
+    class::ClassInitType,
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
-    object::{Object, ObjectPayload},
+    object::ObjectPayload,
     string::{CharCode, StringBuf, StringRef},
     value::{HINT_FORCE_ORDINARY, HINT_NONE, HINT_NUMBER, HINT_STRING, JSValue},
 };
@@ -716,32 +716,6 @@ impl Datetime {
         timestamp_ms: INVALID_TIMESTAMP,
     };
 
-    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert_eq!(class_id, JS_CLASS_DATE);
-        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
-
-        let mut proto = ctx.create_base_object()?;
-        proto.install_fields(ctx, js_date_proto_funcs).unwrap();
-
-        let ctor = ctx.init_class_constructor_or_func(
-            class_id,
-            js_date_constructor,
-            7,
-            0,
-            proto,
-            js_date_funcs,
-        )?;
-
-        ctx.global_obj().define_property_value(
-            ctx,
-            Atom::CONST_Date,
-            ctor.into(),
-            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        )?;
-
-        Ok(Some(proto))
-    }
-
     #[inline(always)]
     pub fn from_timestamp_ms(ts: i64) -> Self {
         Self {
@@ -1193,7 +1167,16 @@ pub const CLASS_DEF_DATE: ClassDef = ClassDef {
     ctor_entries: js_date_funcs,
     call: None,
     exotic: None,
-    initialize: ClassInitType::InitFn(Datetime::class_init),
+    initialize: ClassInitType::Entries {
+        proto_entries: js_date_proto_funcs,
+        ctor: Some(crate::class::ClassCtorDef {
+            callback: crate::Callback::ConstructorOrFunc(js_date_constructor),
+            length: 7,
+            magic: 0,
+            entries: js_date_funcs,
+            global_name: Some(Atom::CONST_Date),
+        }),
+    },
     finalize: None,
     finalize_opaque: None,
     unregister: None,

@@ -156,6 +156,7 @@ pub(crate) const CLASS_DEF_SYMBOL: ClassDef = ClassDef {
             length: 0,
             magic: 0,
             entries: js_symbol_funcs,
+            global_name: Some(crate::Atom::CONST_Symbol),
         }),
     },
     finalize: None,

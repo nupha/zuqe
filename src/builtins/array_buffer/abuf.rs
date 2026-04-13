@@ -10,9 +10,7 @@ use std::{
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    Atom, ClassDef, JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER, JS_PROP_CONFIGURABLE,
-    JS_PROP_WRITABLE,
-    class::ClassID,
+    JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
     context::ScopedContext,
     error::JSResult,
     function::CallContext,
@@ -21,11 +19,6 @@ use crate::{
     runtime::RuntimeImpl,
     utils::unlikely,
     value::JSValue,
-};
-
-use super::{
-    js_array_buffer_funcs, js_array_buffer_proto_funcs, js_shared_array_buffer_funcs,
-    js_shared_array_buffer_proto_funcs,
 };
 
 pub type JSFreeArrayBufferDataFunc =
@@ -206,60 +199,6 @@ object_cast!(
 );
 
 impl ArrayBuffer {
-    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
-        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
-
-        match class_id {
-            JS_CLASS_ARRAY_BUFFER => {
-                let mut proto = ctx.create_base_object()?;
-                proto.install_fields(ctx, js_array_buffer_proto_funcs)?;
-
-                let ctor = ctx.init_class_constructor(
-                    class_id,
-                    js_array_buffer_constructor,
-                    1,
-                    0,
-                    proto,
-                    js_array_buffer_funcs,
-                )?;
-
-                ctx.global_obj().define_property_value(
-                    ctx,
-                    Atom::CONST_ArrayBuffer,
-                    ctor.into(),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )?;
-
-                Ok(Some(proto))
-            }
-            JS_CLASS_SHARED_ARRAY_BUFFER => {
-                let mut proto = ctx.create_base_object()?;
-                proto.install_fields(ctx, js_shared_array_buffer_proto_funcs)?;
-
-                let ctor = ctx.init_class_constructor(
-                    class_id,
-                    js_shared_array_buffer_constructor,
-                    1,
-                    0,
-                    proto,
-                    js_shared_array_buffer_funcs,
-                )?;
-
-                ctx.global_obj().define_property_value(
-                    ctx,
-                    Atom::CONST_SharedArrayBuffer,
-                    ctor.into(),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )?;
-
-                Ok(Some(proto))
-            }
-            _ => {
-                unreachable!()
-            }
-        }
-    }
-
     /// also used for SharedArrayBuffer
     pub fn class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, _id: usize) {
         // free data content

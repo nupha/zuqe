@@ -67,6 +67,7 @@ pub const CLASS_DEF_BOOLEAN: ClassDef = ClassDef {
             length: 1,
             magic: 0,
             entries: &[],
+            global_name: Some(crate::Atom::CONST_Boolean),
         }),
     },
     finalize: None,

@@ -7,7 +7,6 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     ScopedContext,
-    array::alloc_fast_array_slots,
     context::ContextPtr,
     error::JSResult,
     function::BCWrapper,

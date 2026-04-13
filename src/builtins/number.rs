@@ -289,6 +289,7 @@ pub(crate) const CLASS_DEF_NUMBER: ClassDef = ClassDef {
             length: 1,
             magic: 0,
             entries: js_number_funcs,
+            global_name: Some(crate::Atom::CONST_Number),
         }),
     },
     finalize: None,

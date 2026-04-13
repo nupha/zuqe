@@ -6,8 +6,10 @@ mod proxy;
 
 pub use {class_proxy::*, proxy::*};
 
-use crate::class::ClassInitType;
-use crate::{Atom, ClassDef};
+use crate::{
+    Atom,
+    class::{ClassDef, ClassInitType},
+};
 
 pub const CLASS_DEF_PROXY: ClassDef = ClassDef {
     name: "",
