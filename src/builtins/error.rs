@@ -153,8 +153,6 @@ pub const js_error_proto_funcs: &[FieldDef] = &[
 pub(crate) const CLASS_DEF_ERROR: ClassDef = ClassDef {
     name: "",
     name_atom: crate::Atom::CONST_Error,
-    proto_entries: js_error_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {

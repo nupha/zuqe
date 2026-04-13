@@ -14,8 +14,6 @@ use crate::{
 pub const CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_ArrayBuffer,
-    proto_entries: js_array_buffer_proto_funcs,
-    ctor_entries: js_array_buffer_funcs,
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {
@@ -36,8 +34,6 @@ pub const CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef {
 pub const CLASS_DEF_SHARED_ARRAY_BUFFER: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_SharedArrayBuffer,
-    proto_entries: js_shared_array_buffer_proto_funcs,
-    ctor_entries: js_shared_array_buffer_funcs,
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {

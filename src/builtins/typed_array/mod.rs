@@ -18,8 +18,6 @@ macro_rules! ta_class_def {
         ClassDef {
             name: "",
             name_atom: Atom::$name,
-            proto_entries: &[],
-            ctor_entries: &[],
             call: None,
             exotic: None,
             initialize: ClassInitType::InitFn(TypedArray::class_init),
@@ -45,8 +43,6 @@ pub const CLASS_DEF_BIG_UINT64_ARRAY: ClassDef = ta_class_def!(CONST_BigUint64Ar
 pub const CLASS_DEF_DATAVIEW: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_DataView,
-    proto_entries: js_dataview_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {

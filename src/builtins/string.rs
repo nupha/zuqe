@@ -1151,8 +1151,6 @@ pub const js_string_funcs: &[FieldDef] = &[
 pub const CLASS_DEF_STRING: ClassDef = ClassDef {
     name: "",
     name_atom: crate::Atom::CONST_String,
-    proto_entries: js_string_proto_funcs,
-    ctor_entries: js_string_funcs,
     call: None,
     exotic: Some(&js_string_exotic_methods),
     initialize: crate::class::ClassInitType::Entries {
@@ -1173,8 +1171,6 @@ pub const CLASS_DEF_STRING: ClassDef = ClassDef {
 pub const CLASS_DEF_STRING_ITERATOR: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_String_Iterator,
-    proto_entries: js_string_iterator_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {

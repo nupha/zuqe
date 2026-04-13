@@ -1163,8 +1163,6 @@ pub const js_date_funcs: &[FieldDef] = &[
 pub const CLASS_DEF_DATE: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Date,
-    proto_entries: js_date_proto_funcs,
-    ctor_entries: js_date_funcs,
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {

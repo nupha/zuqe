@@ -185,8 +185,6 @@ pub const js_function_proto_funcs: &[FieldDef] = &[
 pub const CLASS_DEF_BYTECODE_FUNCTION: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Function,
-    proto_entries: js_function_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {
@@ -201,8 +199,6 @@ pub const CLASS_DEF_BYTECODE_FUNCTION: ClassDef = ClassDef {
 pub const CLASS_DEF_BOUND_FUNCTION: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Function,
-    proto_entries: &[],
-    ctor_entries: &[],
     call: Some(BoundFunction::class_call),
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {
@@ -217,8 +213,6 @@ pub const CLASS_DEF_BOUND_FUNCTION: ClassDef = ClassDef {
 pub const CLASS_DEF_C_FUNCTION: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Function,
-    proto_entries: &[],
-    ctor_entries: &[],
     call: Some(NativeFunction::class_call),
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {
@@ -233,8 +227,6 @@ pub const CLASS_DEF_C_FUNCTION: ClassDef = ClassDef {
 pub const CLASS_DEF_C_FUNCTION_DATA: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Function,
-    proto_entries: &[],
-    ctor_entries: &[],
     call: Some(NativeFunction::class_call_with_data),
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {
@@ -249,8 +241,6 @@ pub const CLASS_DEF_C_FUNCTION_DATA: ClassDef = ClassDef {
 pub const CLASS_DEF_ASYNC_FUNCTION: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_AsyncFunction,
-    proto_entries: &[], // crate::function::js_async_function_proto_funcs,
-    ctor_entries: &[],
     call: Some(AsyncFunction::class_call),
     exotic: None,
     initialize: crate::class::ClassInitType::InitFn(AsyncFunction::class_init),
@@ -262,8 +252,6 @@ pub const CLASS_DEF_ASYNC_FUNCTION: ClassDef = ClassDef {
 pub const CLASS_DEF_ASYNC_FUNCTION_RESOLVE: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_AsyncFunctionResolve,
-    proto_entries: &[],
-    ctor_entries: &[],
     call: Some(AsyncState::class_call),
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {
@@ -278,8 +266,6 @@ pub const CLASS_DEF_ASYNC_FUNCTION_RESOLVE: ClassDef = ClassDef {
 pub const CLASS_DEF_ASYNC_FUNCTION_REJECT: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_AsyncFunctionReject,
-    proto_entries: &[],
-    ctor_entries: &[],
     call: Some(AsyncState::class_call),
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {

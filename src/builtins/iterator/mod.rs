@@ -7,16 +7,11 @@ mod iter;
 
 pub use {a_iter::*, array_iter::*, iter::*};
 
-use crate::{
-    Atom,
-    {ClassDef, class::ClassInitType},
-};
+use crate::{Atom, ClassDef, class::ClassInitType};
 
 pub const CLASS_DEF_FOR_IN_ITERATOR: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_ForInIterPayload,
-    proto_entries: &[],
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {
@@ -31,8 +26,6 @@ pub const CLASS_DEF_FOR_IN_ITERATOR: ClassDef = ClassDef {
 pub const CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_empty_string,
-    proto_entries: js_async_from_sync_iterator_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: ClassInitType::InitFn(AsyncFromSyncIterator::class_init),

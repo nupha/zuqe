@@ -9,7 +9,7 @@ use crate::{
         SetPrototypeFn,
     },
     context::ScopedContext,
-    function::{FunctionDef},
+    function::FunctionDef,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, ObjectPayload},
     value::JSValue,
 };
@@ -98,9 +98,6 @@ pub struct ClassDef {
     /// class name atom. Atom::NULL indicates the class slot is not used
     pub(crate) name_atom: Atom,
 
-    pub(crate) proto_entries: &'static [FieldDef],
-    pub(crate) ctor_entries: &'static [FieldDef],
-
     /// callback handler when called
     pub(crate) call: Option<ClassCallFn>,
     /// exotic property method handlers
@@ -121,8 +118,6 @@ impl Default for ClassDef {
         Self {
             name: "",
             name_atom: Atom::NULL,
-            proto_entries: &[],
-            ctor_entries: &[],
             call: None,
             exotic: None,
             initialize: ClassInitType::Entries {
@@ -143,9 +138,6 @@ impl ClassDef {
         Self {
             name,
             name_atom: Atom::NULL,
-            proto_entries: &[],
-            ctor_entries: &[],
-
             call: None,
             exotic: None,
 
@@ -179,23 +171,8 @@ impl ClassDef {
         self
     }
 
-    pub const fn proto_entries(mut self, entries: &'static [FieldDef]) -> Self {
-        self.proto_entries = entries;
-        self
-    }
-
-    pub const fn ctor_entries(mut self, entries: &'static [FieldDef]) -> Self {
-        self.ctor_entries = entries;
-        self
-    }
-
-    #[deprecated(note = "use ::on_disponse() instead")]
-    pub const fn finalize_opaque(self, f: ClassFinalizeOpaqueFn) -> Self {
-        self.on_dispose(f)
-    }
-
     /// Perform class initialize in context.
-    pub(crate) fn initialize(&self, ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
+    pub(super) fn initialize(&self, ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         match self.initialize {
             ClassInitType::InitFn(init_fn) => {
                 if ctx.class_proto(class_id).is_none() {

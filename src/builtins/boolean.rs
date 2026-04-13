@@ -56,8 +56,6 @@ pub const js_boolean_proto_funcs: &[FieldDef] = &[
 pub const CLASS_DEF_BOOLEAN: ClassDef = ClassDef {
     name: "",
     name_atom: crate::Atom::CONST_Boolean,
-    proto_entries: js_boolean_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {

@@ -13,8 +13,6 @@ use crate::{
 pub const CLASS_DEF_ARRAY: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Array,
-    proto_entries: js_array_proto_funcs,
-    ctor_entries: js_array_funcs,
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {
@@ -35,8 +33,6 @@ pub const CLASS_DEF_ARRAY: ClassDef = ClassDef {
 pub const CLASS_DEF_ARRAY_ITERATOR: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Array_Iterator,
-    proto_entries: js_array_iterator_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {

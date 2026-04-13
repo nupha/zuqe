@@ -9,8 +9,6 @@ pub use {func::*, proto::*};
 pub(crate) const CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef {
     name: "",
     name_atom: crate::Atom::CONST_Object,
-    proto_entries: js_object_proto_funcs,
-    ctor_entries: js_object_funcs,
     call: None,
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {

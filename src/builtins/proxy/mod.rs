@@ -14,8 +14,6 @@ use crate::{
 pub const CLASS_DEF_PROXY: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Proxy,
-    proto_entries: &[],
-    ctor_entries: js_proxy_funcs,
     call: Some(Proxy::class_call),
     exotic: Some(&js_proxy_exotic_methods),
     initialize: ClassInitType::InitFn(Proxy::class_init),

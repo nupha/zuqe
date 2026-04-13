@@ -15,8 +15,6 @@ use crate::{
 pub const CLASS_DEF_REGEXP: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_RegExp,
-    proto_entries: js_regexp_proto_funcs,
-    ctor_entries: js_regexp_funcs,
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {
@@ -37,8 +35,6 @@ pub const CLASS_DEF_REGEXP: ClassDef = ClassDef {
 pub const CLASS_DEF_REGEXP_STRING_ITERATOR: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_RegExp_String_Iterator,
-    proto_entries: js_regexp_string_iterator_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: ClassInitType::InitFn(RegExp::class_init),

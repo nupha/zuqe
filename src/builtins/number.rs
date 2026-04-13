@@ -278,8 +278,6 @@ pub const js_number_funcs: &[FieldDef] = &[
 pub(crate) const CLASS_DEF_NUMBER: ClassDef = ClassDef {
     name: "",
     name_atom: crate::Atom::CONST_Number,
-    proto_entries: js_number_proto_funcs,
-    ctor_entries: js_number_funcs,
     call: None,
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {

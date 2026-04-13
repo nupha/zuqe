@@ -145,8 +145,6 @@ pub const js_symbol_funcs: &[FieldDef] = &[
 pub(crate) const CLASS_DEF_SYMBOL: ClassDef = ClassDef {
     name: "",
     name_atom: crate::Atom::CONST_Symbol,
-    proto_entries: js_symbol_proto_funcs,
-    ctor_entries: js_symbol_funcs,
     call: None,
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {

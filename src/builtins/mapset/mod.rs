@@ -15,8 +15,6 @@ use crate::{
 pub const CLASS_DEF_MAP: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Map,
-    proto_entries: js_map_proto_funcs,
-    ctor_entries: js_map_funcs,
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {
@@ -37,8 +35,6 @@ pub const CLASS_DEF_MAP: ClassDef = ClassDef {
 pub const CLASS_DEF_SET: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Set,
-    proto_entries: js_set_proto_funcs,
-    ctor_entries: js_set_funcs,
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {
@@ -59,8 +55,6 @@ pub const CLASS_DEF_SET: ClassDef = ClassDef {
 pub const CLASS_DEF_WEAK_MAP: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_WeakMap,
-    proto_entries: js_weakmap_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {
@@ -81,8 +75,6 @@ pub const CLASS_DEF_WEAK_MAP: ClassDef = ClassDef {
 pub const CLASS_DEF_WEAK_SET: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_WeakSet,
-    proto_entries: js_weakset_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {
@@ -103,8 +95,6 @@ pub const CLASS_DEF_WEAK_SET: ClassDef = ClassDef {
 pub const CLASS_DEF_MAP_ITERATOR: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Map_Iterator,
-    proto_entries: js_map_iterator_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: ClassInitType::InitFn(MapSet::class_init),
@@ -116,8 +106,6 @@ pub const CLASS_DEF_MAP_ITERATOR: ClassDef = ClassDef {
 pub const CLASS_DEF_SET_ITERATOR: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Set_Iterator,
-    proto_entries: js_set_iterator_proto_funcs,
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: ClassInitType::InitFn(MapSet::class_init),

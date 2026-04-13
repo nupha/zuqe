@@ -48,8 +48,6 @@ use crate::{
 pub const CLASS_DEF_ARGUMENTS: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Arguments,
-    proto_entries: &[],
-    ctor_entries: &[],
     call: None,
     exotic: Some(&js_arguments_exotic_methods),
     initialize: ClassInitType::Entries {
@@ -64,8 +62,6 @@ pub const CLASS_DEF_ARGUMENTS: ClassDef = ClassDef {
 pub const CLASS_DEF_MAPPED_ARGUMENTS: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Arguments,
-    proto_entries: &[],
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {
@@ -80,8 +76,6 @@ pub const CLASS_DEF_MAPPED_ARGUMENTS: ClassDef = ClassDef {
 pub const CLASS_DEF_MODULE_NS: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Object,
-    proto_entries: &[],
-    ctor_entries: &[],
     call: None,
     exotic: Some(&js_module_ns_exotic_methods),
     initialize: ClassInitType::Entries {
@@ -96,8 +90,6 @@ pub const CLASS_DEF_MODULE_NS: ClassDef = ClassDef {
 pub const CLASS_DEF_BIG_INT: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_BigInt,
-    proto_entries: &[],
-    ctor_entries: &[],
     call: None,
     exotic: None,
     initialize: ClassInitType::Entries {
