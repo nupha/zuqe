@@ -16,7 +16,8 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_DATAVIEW, JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY,
-    JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_OBJECT, JS_CLASS_PROMISE,
+    JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
     array::ArrayPayload,
     atom::Atom,
     builtins::{error::js_error_proto_funcs, global::js_global_props, promise::Job},
@@ -246,6 +247,35 @@ impl ContextImpl {
         }
     }
 
+    pub fn class_proto(&self, class_id: ClassID) -> Option<Object> {
+        self.class_slots
+            .get(class_id as usize)
+            .and_then(|x| x.proto)
+    }
+
+    pub fn class_constructor(&self, class_id: ClassID) -> Option<Object> {
+        self.class_slots.get(class_id as usize).and_then(|x| x.ctor)
+    }
+
+    #[inline]
+    pub fn array_ctor(&self) -> Object {
+        debug_assert!(self.class_slots.len() > JS_CLASS_ARRAY as usize);
+        self.class_constructor(JS_CLASS_ARRAY).unwrap()
+    }
+
+    #[cfg(feature = "builtin_regexp")]
+    #[inline]
+    pub fn regexp_ctor(&self) -> Object {
+        debug_assert!(self.class_slots.len() > crate::JS_CLASS_REGEXP as usize);
+        self.class_constructor(crate::JS_CLASS_REGEXP).unwrap()
+    }
+
+    #[inline]
+    pub fn promise_ctor(&self) -> Object {
+        debug_assert!(self.class_slots.len() > JS_CLASS_PROMISE as usize);
+        self.class_constructor(JS_CLASS_PROMISE).unwrap()
+    }
+
     /// initialize random state
     pub(crate) fn init_random_seed(&mut self) {
         let seed = SystemTime::now()
@@ -277,118 +307,6 @@ impl ContextImpl {
         self.async_iterator_proto.take();
         self.global_obj.take();
         self.global_var_obj.take();
-    }
-}
-
-impl<'c> ScopedContext<'c> {
-    /// Initialize minimum amount of objects to be able to compile code and display error messages.
-    /// No Atom should be allocated by this function.
-    fn init_core_objects(&mut self) -> Result<(), i32> {
-        debug_assert!(
-            [
-                JS_CLASS_OBJECT,
-                JS_CLASS_BYTECODE_FUNCTION,
-                JS_CLASS_ARRAY,
-                JS_CLASS_ERROR,
-            ]
-            .iter()
-            .max()
-            .copied()
-            .unwrap()
-                < self.rt_ptr().class_registry.len() as ClassID
-        );
-
-        // Object
-        let mut object = self.create_base_object_with_proto(None)?;
-        object.set_flag_immutable_prototype(true);
-        self.class_slots[JS_CLASS_OBJECT as usize] = ProtoCtorPair {
-            proto: Some(object),
-            ctor: None,
-        };
-
-        // Function
-        {
-            let func = NativeFunction::create(
-                self,
-                Callback::Func(js_function_proto),
-                Atom::CONST_empty_string,
-                0,
-                0,
-                object,
-                None,
-            )?;
-            self.class_slots[JS_CLASS_BYTECODE_FUNCTION as usize] = ProtoCtorPair {
-                proto: Some(func.into()),
-                ctor: None,
-            };
-        }
-
-        // Error
-        {
-            let mut error_proto = self.create_base_object()?;
-            error_proto
-                .install_fields(self, js_error_proto_funcs)
-                .unwrap();
-            self.class_slots[JS_CLASS_ERROR as usize] = ProtoCtorPair {
-                proto: Some(error_proto),
-                ctor: None,
-            };
-
-            // standard error objects
-            let msg = Atom::CONST_empty_string.force_string(self).unwrap();
-            for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
-                let mut err = self.create_base_object_with_proto(Some(error_proto))?;
-
-                let name = self.create_atom_string(name).unwrap();
-                err.define_property_value(
-                    self,
-                    Atom::CONST_name,
-                    JSValue::from(name),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )
-                .unwrap();
-
-                err.define_property_value(
-                    self,
-                    Atom::CONST_message,
-                    JSValue::from(msg),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )
-                .unwrap();
-
-                self.error_protos[i] = err.into();
-            }
-        }
-
-        // Array
-        {
-            // 1. make Array prototype object
-            let array_proto = self
-                .create_object_with_proto(
-                    object.into(),
-                    ObjectPayload::ARRAY(ArrayPayload::default()),
-                )
-                .map_err(|_| -1)?;
-
-            self.class_slots[JS_CLASS_ARRAY as usize] = ProtoCtorPair {
-                proto: Some(array_proto),
-                ctor: None,
-            };
-
-            // 2. make default shape for Array
-            let mut array_shape = Shape::create(self, Some(array_proto), 1).unwrap();
-            // define `length` property at #0
-            array_shape.add_shape_properties(
-                self,
-                &[(Atom::CONST_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)],
-            );
-
-            // register shape
-            self.rt_ptr().register_shape(&array_shape).unwrap();
-            self.array_shape.replace(array_shape);
-        }
-
-        Ok(())
     }
 }
 
@@ -503,14 +421,15 @@ impl<'a> Context<'a> {
             #[cfg(feature = "builtin_symbol")]
             ctx.intrinsic_base_symbol();
 
-            ctx.intrinsic_base_generator(); // Generator
-
             ctx.intrinsic_eval(); // `eval()` function
 
             //
-            // init user classes
+            // init using classes
             //
             let mut use_classes = vec![
+                // generator
+                JS_CLASS_GENERATOR,
+                JS_CLASS_GENERATOR_FUNCTION,
                 // async
                 JS_CLASS_PROMISE,
                 JS_CLASS_ASYNC_FUNCTION,

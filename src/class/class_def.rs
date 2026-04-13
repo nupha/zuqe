@@ -113,7 +113,7 @@ impl ClassCtorDef {
 
 #[derive(Clone, Copy)]
 pub enum ClassInitType {
-    Entries {
+    Normal {
         proto_entries: &'static [FieldDef],
         ctor: Option<ClassCtorDef>,
     },
@@ -148,9 +148,10 @@ impl Default for ClassDef {
         Self {
             name: "",
             name_atom: Atom::NULL,
+
             call: None,
             exotic: None,
-            initialize: ClassInitType::Entries {
+            initialize: ClassInitType::Normal {
                 proto_entries: &[],
                 ctor: None,
             },
@@ -162,8 +163,32 @@ impl Default for ClassDef {
 }
 
 impl ClassDef {
-    /// create a user-defined class def
-    pub const fn new(name: &'static str) -> Self {
+    /// Create user-defined class def with proto entries and optional ctor def
+    pub const fn new(
+        name: &'static str,
+        proto_entries: &'static [FieldDef],
+        ctor: Option<ClassCtorDef>,
+    ) -> Self {
+        debug_assert!(!name.is_empty());
+
+        Self {
+            name,
+            name_atom: Atom::NULL,
+            call: None,
+            exotic: None,
+
+            unregister: None,
+            initialize: ClassInitType::Normal {
+                proto_entries,
+                ctor,
+            },
+            finalize: Some(Self::default_fini_fn),
+            finalize_opaque: None,
+        }
+    }
+
+    /// Create user-defined class def with init fn
+    pub const fn new_with_init_func(name: &'static str, init_fn: ClassInitializeFn) -> Self {
         debug_assert!(!name.is_empty());
         Self {
             name,
@@ -172,19 +197,10 @@ impl ClassDef {
             exotic: None,
 
             unregister: None,
-            initialize: ClassInitType::Entries {
-                proto_entries: &[],
-                ctor: None,
-            },
+            initialize: ClassInitType::InitFn(init_fn),
             finalize: Some(Self::default_fini_fn),
             finalize_opaque: None,
         }
-    }
-
-    /// set class initialize callback
-    pub const fn on_init(mut self, f: ClassInitializeFn) -> Self {
-        self.initialize = ClassInitType::InitFn(f);
-        self
     }
 
     /// Set class instance dispose handler.
@@ -204,25 +220,7 @@ impl ClassDef {
     /// Perform class initialize in context.
     pub(super) fn initialize(&self, ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         match self.initialize {
-            ClassInitType::InitFn(init_fn) => {
-                if ctx.class_proto(class_id).is_none() {
-                    if let Some(proto) = init_fn(ctx, class_id)? {
-                        debug_assert!(
-                            ctx.class_slots[class_id as usize]
-                                .proto
-                                .is_none_or(|p| p == proto)
-                        );
-                        ctx.class_slots[class_id as usize].proto = Some(proto);
-                    }
-
-                    if ctx.class_slots[class_id as usize].proto.is_none() {
-                        ctx.throw_internal_error(&format!(
-                            "class ({class_id}) initialization must setup proto object"
-                        ));
-                    }
-                }
-            }
-            ClassInitType::Entries {
+            ClassInitType::Normal {
                 proto_entries,
                 ctor,
             } => {
@@ -251,6 +249,27 @@ impl ClassDef {
                             ctor.into(),
                             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                         )?;
+                    }
+                }
+            }
+
+            ClassInitType::InitFn(init_fn) => {
+                if ctx.class_proto(class_id).is_none() {
+                    init_fn(ctx, class_id)?;
+
+                    // if let Some(proto) = init_fn(ctx, class_id)? {
+                    //     debug_assert!(
+                    //         ctx.class_slots[class_id as usize]
+                    //             .proto
+                    //             .is_none_or(|p| p == proto)
+                    //     );
+                    //     ctx.class_slots[class_id as usize].proto = Some(proto);
+                    // }
+
+                    if ctx.class_proto(class_id).is_none() {
+                        ctx.throw_internal_error(&format!(
+                            "class ({class_id}) initialization must setup class slot for proto"
+                        ));
                     }
                 }
             }

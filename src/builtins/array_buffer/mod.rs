@@ -16,7 +16,7 @@ pub const CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef {
     name_atom: Atom::CONST_ArrayBuffer,
     call: None,
     exotic: None,
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: js_array_buffer_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_array_buffer_constructor, 1, false)
@@ -34,7 +34,7 @@ pub const CLASS_DEF_SHARED_ARRAY_BUFFER: ClassDef = ClassDef {
     name_atom: Atom::CONST_SharedArrayBuffer,
     call: None,
     exotic: None,
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: js_shared_array_buffer_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_shared_array_buffer_constructor, 1, false)

@@ -427,13 +427,27 @@ pub(crate) fn js_object_hasOwn(ctx: &mut ScopedContext, cc: CallContext) -> JSRe
 // non-standard
 //
 fn js_object___getClass(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let name = if let Some(o) = cc.arg(0).as_object() {
-        ctx.rt().class_registry[o.class_id() as usize].name_atom
-    } else {
-        Atom::CONST_empty_string
-    };
-
-    Ok(name.force_string(ctx).unwrap().into())
+    match cc.magic() {
+        0 => {
+            // get class name
+            let name = if let Some(o) = cc.arg(0).as_object() {
+                ctx.rt().class_registry[o.class_id() as usize].name_atom
+            } else {
+                Atom::CONST_empty_string
+            };
+            Ok(name.force_string(ctx).unwrap().into())
+        }
+        1 => {
+            // get class id
+            Ok(cc
+                .arg(0)
+                .as_object()
+                .map_or(JSValue::NULL, |o| JSValue::Int(o.class_id() as i32)))
+        }
+        _ => {
+            unreachable!();
+        }
+    }
 }
 
 pub const js_object_funcs: &[FieldDef] = &[
@@ -492,6 +506,7 @@ pub const js_object_funcs: &[FieldDef] = &[
     FieldDef::CALL("hasOwn", 2, js_object_hasOwn, 0),
     // non standard
     FieldDef::CALL("__getClass", 1, js_object___getClass, 0),
+    FieldDef::CALL("__getClassId", 1, js_object___getClass, 1),
     //JS_CFUNC_DEF(c"__isObject", 1, js_object___isObject ),
     //JS_CFUNC_DEF(c"__isConstructor", 1, js_object___isConstructor ),
     //JS_CFUNC_DEF(c"__toObject", 1, js_object___toObject ),

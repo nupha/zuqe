@@ -58,7 +58,7 @@ pub const CLASS_DEF_BOOLEAN: ClassDef = ClassDef {
     name_atom: crate::Atom::CONST_Boolean,
     call: None,
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: js_boolean_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_boolean_constructor, 1, true).export_to_global(),

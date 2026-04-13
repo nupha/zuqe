@@ -14,7 +14,7 @@ pub const CLASS_DEF_FOR_IN_ITERATOR: ClassDef = ClassDef {
     name_atom: Atom::CONST_ForInIterPayload,
     call: None,
     exotic: None,
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },

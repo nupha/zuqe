@@ -4,7 +4,7 @@
 mod class_def;
 mod r#use;
 
-pub use class_def::ClassDef;
+pub use class_def::{ClassCtorDef, ClassDef};
 
 pub(crate) use {class_def::*, r#use::*};
 
@@ -30,9 +30,7 @@ pub type ClassCallFn = fn(
 ) -> JSResult;
 
 /// Initialize class proto, constructor to context.
-/// Returns the class proto object created for given `ctx`.
-pub type ClassInitializeFn =
-    fn(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32>;
+pub type ClassInitializeFn = fn(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32>;
 /// class instance finalize callback.
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
 /// free user class instance handler

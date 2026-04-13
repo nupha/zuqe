@@ -316,41 +316,13 @@ impl RegExp {
         RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, Box::new(re)))
     }
 
-    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
+        debug_assert_eq!(class_id, JS_CLASS_REGEXP_STRING_ITERATOR);
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
-        match class_id {
-            JS_CLASS_REGEXP => {
-                let mut proto = ctx.create_base_object()?;
-                proto.install_fields(ctx, js_regexp_proto_funcs).unwrap();
-
-                let ctor = ctx.init_class_constructor_or_func(
-                    class_id,
-                    js_regexp_constructor,
-                    2,
-                    0,
-                    proto,
-                    js_regexp_funcs,
-                )?;
-                ctx.global_obj().define_property_value(
-                    ctx,
-                    Atom::CONST_RegExp,
-                    ctor.into(),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )?;
-
-                Ok(Some(proto))
-            }
-            JS_CLASS_REGEXP_STRING_ITERATOR => {
-                let it_proto = ctx.iterator_proto()?;
-                let mut proto = ctx.create_base_object_with_proto(Some(it_proto))?;
-                proto.install_fields(ctx, js_regexp_string_iterator_proto_funcs)?;
-                Ok(Some(proto))
-            }
-            _ => {
-                unreachable!()
-            }
-        }
+        let it_proto = ctx.iterator_proto()?;
+        let proto = ctx.create_base_object_with_proto(Some(it_proto))?;
+        ctx.init_class_proto_internal(class_id, proto, js_regexp_string_iterator_proto_funcs)
     }
 }
 

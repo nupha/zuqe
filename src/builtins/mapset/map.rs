@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    Atom, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR,
-    JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
+    JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_WEAKMAP,
+    JS_CLASS_WEAKSET,
     class::ClassID,
     context::{ContextImpl, ScopedContext},
     object::{Object, ObjectImpl, ObjectPayload},
@@ -16,11 +16,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{
-    js_map_constructor, js_map_funcs, js_map_iterator_proto_funcs, js_map_proto_funcs,
-    js_set_funcs, js_set_iterator_proto_funcs, js_set_proto_funcs, js_weakmap_proto_funcs,
-    js_weakset_proto_funcs,
-};
+use super::{js_map_iterator_proto_funcs, js_set_iterator_proto_funcs};
 
 /// A key-value pair in a map, either strong or weak
 #[derive(Debug, Clone)]
@@ -348,99 +344,19 @@ object_cast!(
 );
 
 impl MapSet {
-    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         match class_id {
-            JS_CLASS_MAP => {
-                let mut proto = ctx.create_base_object()?;
-                proto.install_fields(ctx, js_map_proto_funcs)?;
-
-                let ctor = ctx.init_class_constructor(
-                    class_id,
-                    js_map_constructor,
-                    0,
-                    0,
-                    proto,
-                    js_map_funcs,
-                )?;
-
-                ctx.global_obj().define_property_value(
-                    ctx,
-                    Atom::CONST_Map,
-                    ctor.into(),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )?;
-
-                Ok(Some(proto))
-            }
-            JS_CLASS_SET => {
-                let mut proto = ctx.create_base_object()?;
-                proto.install_fields(ctx, js_set_proto_funcs)?;
-
-                let ctor = ctx.init_class_constructor(
-                    class_id,
-                    js_map_constructor,
-                    0,
-                    1,
-                    proto,
-                    js_set_funcs,
-                )?;
-
-                ctx.global_obj().define_property_value(
-                    ctx,
-                    Atom::CONST_Set,
-                    ctor.into(),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )?;
-
-                Ok(Some(proto))
-            }
-            JS_CLASS_WEAKMAP => {
-                let mut proto = ctx.create_base_object()?;
-                proto.install_fields(ctx, js_weakmap_proto_funcs)?;
-
-                let ctor =
-                    ctx.init_class_constructor(class_id, js_map_constructor, 0, 2, proto, &[])?;
-
-                ctx.global_obj().define_property_value(
-                    ctx,
-                    Atom::CONST_WeakMap,
-                    ctor.into(),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )?;
-
-                Ok(Some(proto))
-            }
-            JS_CLASS_WEAKSET => {
-                let mut proto = ctx.create_base_object()?;
-                proto.install_fields(ctx, js_weakset_proto_funcs)?;
-
-                let ctor =
-                    ctx.init_class_constructor(class_id, js_map_constructor, 0, 3, proto, &[])?;
-
-                ctx.global_obj().define_property_value(
-                    ctx,
-                    Atom::CONST_WeakSet,
-                    ctor.into(),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )?;
-
-                Ok(Some(proto))
-            }
             JS_CLASS_MAP_ITERATOR => {
                 let iter_proto = ctx.iterator_proto()?;
-                let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                proto.install_fields(ctx, js_map_iterator_proto_funcs)?;
-
-                Ok(Some(proto))
+                let proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
+                ctx.init_class_proto_internal(class_id, proto, js_map_iterator_proto_funcs)
             }
             JS_CLASS_SET_ITERATOR => {
                 let iter_proto = ctx.iterator_proto()?;
-                let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                proto.install_fields(ctx, js_set_iterator_proto_funcs)?;
-
-                Ok(Some(proto))
+                let proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
+                ctx.init_class_proto_internal(class_id, proto, js_set_iterator_proto_funcs)
             }
             _ => {
                 unreachable!()

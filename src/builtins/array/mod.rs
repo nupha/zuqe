@@ -6,7 +6,7 @@ mod class_array;
 pub use class_array::*;
 
 use crate::{
-    Atom, Callback,
+    Atom,
     class::{ClassCtorDef, ClassDef, ClassInitType},
 };
 
@@ -15,7 +15,7 @@ pub const CLASS_DEF_ARRAY: ClassDef = ClassDef {
     name_atom: Atom::CONST_Array,
     call: None,
     exotic: None,
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: js_array_proto_funcs,
         ctor: Some(
             ClassCtorDef::new(js_array_constructor, 1, true)
@@ -33,7 +33,7 @@ pub const CLASS_DEF_ARRAY_ITERATOR: ClassDef = ClassDef {
     name_atom: Atom::CONST_Array_Iterator,
     call: None,
     exotic: None,
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: js_array_iterator_proto_funcs,
         ctor: None,
     },

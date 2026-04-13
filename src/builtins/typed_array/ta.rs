@@ -206,10 +206,7 @@ impl TypedArray {
         Self::TYPED_ARRAY_SIZE_LOG2[(class_id - JS_CLASS_UINT8C_ARRAY) as usize]
     }
 
-    pub(crate) fn class_init(
-        ctx: &mut ScopedContext,
-        class_id: ClassID,
-    ) -> Result<Option<Object>, i32> {
+    pub(crate) fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         debug_assert!(matches!(
             class_id,
             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY
@@ -237,7 +234,6 @@ impl TypedArray {
             0,
         )?;
         ta_func_proto.install_fields(ctx, js_typed_array_base_funcs)?;
-
         ctx.bind_ctor_proto(ta_func_proto.into(), proto)?;
 
         let mut global = ctx.global_obj();
@@ -264,7 +260,6 @@ impl TypedArray {
             )?
             .into();
             ctx.bind_ctor_proto(ta_ctor, ta_proto)?;
-
             ta_ctor.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
             ctx.class_slots[cid as usize].ctor = Some(ta_ctor);
 
@@ -276,7 +271,7 @@ impl TypedArray {
             )?;
         }
 
-        Ok(None)
+        Ok(())
     }
 
     pub(crate) const fn class_finalize(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {

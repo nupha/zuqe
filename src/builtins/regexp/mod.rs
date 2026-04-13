@@ -9,7 +9,7 @@ pub use {class_regexp::*, class_regexp_iter::*, re::*};
 
 use crate::{
     Atom,
-    class::{ClassDef, ClassInitType},
+    class::{ClassCtorDef, ClassDef, ClassInitType},
 };
 
 pub const CLASS_DEF_REGEXP: ClassDef = ClassDef {
@@ -17,10 +17,10 @@ pub const CLASS_DEF_REGEXP: ClassDef = ClassDef {
     name_atom: Atom::CONST_RegExp,
     call: None,
     exotic: None,
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: js_regexp_proto_funcs,
         ctor: Some(
-            crate::class::ClassCtorDef::new(js_regexp_constructor, 2, true)
+            ClassCtorDef::new(js_regexp_constructor, 2, true)
                 .entries(js_regexp_funcs)
                 .export_to_global(),
         ),

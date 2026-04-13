@@ -26,7 +26,7 @@ impl<'c> ScopedContext<'c> {
         ObjectImpl::create(self, Some(shape), payload)
     }
 
-    /// create an object with `payload` data and optional prototype `proto`:
+    /// Create new class instance with `payload` data and optional prototype `proto`:
     ///
     /// - New object will apply the shape determined by `proto`, if provided.
     /// - The `payload` determines what class the new object is.

@@ -147,7 +147,7 @@ pub(crate) const CLASS_DEF_SYMBOL: ClassDef = ClassDef {
     name_atom: crate::Atom::CONST_Symbol,
     call: None,
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: js_symbol_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_symbol_constructor, 0, true)

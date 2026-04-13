@@ -45,9 +45,11 @@ pub const CLASS_DEF_DATAVIEW: ClassDef = ClassDef {
     name_atom: Atom::CONST_DataView,
     call: None,
     exotic: None,
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: js_dataview_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef::new(js_dataview_constructor, 1, false).export_to_global()),
+        ctor: Some(
+            crate::class::ClassCtorDef::new(js_dataview_constructor, 1, false).export_to_global(),
+        ),
     },
     finalize: None,
     finalize_opaque: None,

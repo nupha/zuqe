@@ -11,29 +11,31 @@ use crate::{
     class::{ClassDef, ClassInitType},
 };
 
-pub const CLASS_DEF_GENERATOR_FUNCTION: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Function,
-    call: Some(js_generator_function_call),
-    exotic: None,
-    initialize: ClassInitType::Entries {
-        proto_entries: js_generator_function_proto_funcs,
-        ctor: None,
-    },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
-
 pub const CLASS_DEF_GENERATOR: ClassDef = ClassDef {
     name: "",
     name_atom: Atom::CONST_Generator,
     call: None,
     exotic: None,
-    initialize: ClassInitType::Entries {
-        proto_entries: js_generator_proto_funcs,
-        ctor: None,
-    },
+    initialize: ClassInitType::InitFn(GeneratorFunction::class_init),
+    // initialize: ClassInitType::Normal {
+    //     proto_entries: js_generator_proto_funcs,
+    //     ctor: None,
+    // },
+    finalize: None,
+    finalize_opaque: None,
+    unregister: None,
+};
+
+pub const CLASS_DEF_GENERATOR_FUNCTION: ClassDef = ClassDef {
+    name: "",
+    name_atom: Atom::CONST_Function,
+    call: Some(js_generator_function_call),
+    exotic: None,
+    initialize: ClassInitType::InitFn(GeneratorFunction::class_init),
+    // initialize: ClassInitType::Normal {
+    //     proto_entries: js_generator_function_proto_funcs,
+    //     ctor: None,
+    // },
     finalize: None,
     finalize_opaque: None,
     unregister: None,

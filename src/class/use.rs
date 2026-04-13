@@ -138,10 +138,11 @@ impl RuntimeImpl {
         class_def.name_atom = {
             let a = Atom::from_str(self.into(), class_def.name, AtomKind::String)?;
             let s = a.descriptor(self).gc_head_ptr();
-            self.gc_heap_mut().set_root_node(s);
+            self.gc_heap_mut().set_root_node(s); // class name atom is root gc node
             a
         };
 
+        // find next class serial
         let class_id = self.user_class_id_serial;
         debug_assert!(class_id >= USER_CLASS_ID_START);
         if class_id == u16::MAX {
@@ -169,70 +170,32 @@ impl RuntimeImpl {
     }
 }
 
-impl ContextImpl {
-    pub fn class_proto(&self, class_id: ClassID) -> Option<Object> {
-        self.class_slots
-            .get(class_id as usize)
-            .and_then(|x| x.proto)
-    }
-
-    pub fn class_constructor(&self, class_id: ClassID) -> Option<Object> {
-        self.class_slots.get(class_id as usize).and_then(|x| x.ctor)
-    }
-
-    #[inline]
-    pub fn object_proto(&self) -> Object {
-        debug_assert!(self.class_slots.len() > JS_CLASS_OBJECT as usize);
-        self.class_proto(JS_CLASS_OBJECT).unwrap()
-    }
-
-    #[inline]
-    pub fn function_proto(&self) -> Object {
-        debug_assert!(self.class_slots.len() > JS_CLASS_BYTECODE_FUNCTION as usize);
-        self.class_proto(JS_CLASS_BYTECODE_FUNCTION).unwrap()
-    }
-
-    #[inline]
-    pub fn array_proto(&self) -> Object {
-        debug_assert!(self.class_slots.len() > JS_CLASS_ARRAY as usize);
-        self.class_proto(JS_CLASS_ARRAY).unwrap()
-    }
-
-    #[inline]
-    pub fn array_ctor(&self) -> Object {
-        debug_assert!(self.class_slots.len() > JS_CLASS_ARRAY as usize);
-        self.class_constructor(JS_CLASS_ARRAY).unwrap()
-    }
-
-    #[cfg(feature = "builtin_regexp")]
-    #[inline]
-    pub fn regexp_ctor(&self) -> Object {
-        debug_assert!(self.class_slots.len() > JS_CLASS_REGEXP as usize);
-        self.class_constructor(JS_CLASS_REGEXP).unwrap()
-    }
-
-    #[inline]
-    pub fn promise_ctor(&self) -> Object {
-        debug_assert!(self.class_slots.len() > JS_CLASS_PROMISE as usize);
-        self.class_constructor(JS_CLASS_PROMISE).unwrap()
-    }
-}
+impl ContextImpl {}
 
 impl<'c> ScopedContext<'c> {
-    pub fn init_class_proto(
+    pub(crate) fn init_class_proto_internal(
         &mut self,
         class_id: ClassID,
+        mut proto: Object,
         entries: &[FieldDef],
-    ) -> Result<Object, i32> {
+    ) -> Result<(), i32> {
         debug_assert!(self.class_slots.len() > class_id as usize);
         debug_assert!(
             self.class_slots[class_id as usize].proto.is_none(),
             "class proto has been created"
         );
+        proto.install_fields(self, entries)?;
+        self.class_slots[class_id as usize].proto = Some(proto);
+        Ok(())
+    }
 
-        let mut p = self.create_base_object()?;
-        p.install_fields(self, entries)?;
-        self.class_slots[class_id as usize].proto = Some(p);
+    pub(crate) fn init_class_proto(
+        &mut self,
+        class_id: ClassID,
+        entries: &[FieldDef],
+    ) -> Result<Object, i32> {
+        let p = self.create_base_object()?;
+        self.init_class_proto_internal(class_id, p, entries)?;
         Ok(p)
     }
 
@@ -411,17 +374,15 @@ impl<'c> ScopedContext<'c> {
         self.bind_ctor_proto_ex(ctor, proto, 0, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
     }
 
-    pub fn iterator_proto(&mut self) -> Result<Object, i32> {
-        let obj = if let Some(o) = self.iterator_proto.as_ref().cloned() {
-            o
+    pub(crate) fn iterator_proto(&mut self) -> Result<Object, i32> {
+        if let Some(o) = self.iterator_proto {
+            Ok(o)
         } else {
             let mut o = self.create_base_object()?;
             o.install_fields(self, js_iterator_proto_funcs)?;
             self.iterator_proto.replace(o);
-            o
-        };
-
-        Ok(obj)
+            Ok(o)
+        }
     }
 
     pub(crate) fn async_iterator_proto(&mut self) -> Result<Object, i32> {
@@ -457,49 +418,6 @@ impl<'c> ScopedContext<'c> {
                         self.rt().class_registry.get(class_id as usize).copied()
                     {
                         class_def.initialize(self, class_id)?;
-
-                        // match class_def.initialize {
-                        //     ClassInitType::InitFn(init_fn) => {
-                        //         if self.class_proto(class_id).is_none() {
-                        //             if let Some(proto) = init_fn(self, class_id)? {
-                        //                 debug_assert!(
-                        //                     self.class_slots[class_id as usize]
-                        //                         .proto
-                        //                         .is_none_or(|p| p == proto)
-                        //                 );
-                        //                 self.class_slots[class_id as usize].proto = Some(proto);
-                        //             }
-
-                        //             if self.class_slots[class_id as usize].proto.is_none() {
-                        //                 self.throw_internal_error(&format!(
-                        //                     "class ({class_id}) initialization must setup proto object"
-                        //                 ));
-                        //             }
-                        //         }
-                        //     }
-                        //     ClassInitType::Entries {
-                        //         proto_entries,
-                        //         ctor,
-                        //     } => {
-                        //         if self.class_slots[class_id as usize].proto.is_none() {
-                        //             let proto = self.init_class_proto(class_id, proto_entries)?;
-                        //             debug_assert!(
-                        //                 self.class_slots[class_id as usize]
-                        //                     .proto
-                        //                     .is_some_and(|p| p == proto)
-                        //             );
-                        //         }
-
-                        //         if let Some(c) = ctor
-                        //             && self.class_slots[class_id as usize].ctor.is_none()
-                        //         {
-                        //             let proto = self.class_proto(class_id).unwrap();
-                        //             self.init_class_ctor_internal(
-                        //                 class_id, c.callback, c.length, c.magic, proto, c.entries,
-                        //             )?;
-                        //         }
-                        //     }
-                        // }
                     } else {
                         self.throw_internal_error(&format!("unknown class id {class_id}"));
                         return Err(-1);

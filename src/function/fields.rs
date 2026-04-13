@@ -359,7 +359,7 @@ impl JSValue {
     pub fn install_fields(
         &mut self,
         ctx: &mut ScopedContext,
-        entries: &'static [FieldDef],
+        entries: &[FieldDef],
     ) -> Result<(), i32> {
         if let Self::Object(o) = self {
             o.install_fields(ctx, entries)

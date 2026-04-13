@@ -217,11 +217,6 @@ const CLASS_FILE_PROTO: &[FieldDef] = &[
 pub struct JSFile;
 
 impl JSFile {
-    fn handle_init(ctx: &mut ScopedContext, _: ClassID) -> Result<Option<Object>, i32> {
-        let mut proto = ctx.create_base_object()?;
-        proto.install_fields(ctx, CLASS_FILE_PROTO)?;
-        Ok(Some(proto))
-    }
     fn handle_dispose(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
         if !opaque.is_null() {
             let p = unsafe { Box::from_raw(opaque.cast::<FileDesc>()) };
@@ -237,9 +232,7 @@ impl JSFile {
     pub fn register(mut rt: Runtime) -> Result<ClassID, i32> {
         let class_id = rt
             .register_class(
-                ClassDef::new("File")
-                    .on_init(Self::handle_init)
-                    .on_dispose(Self::handle_dispose),
+                ClassDef::new("File", CLASS_FILE_PROTO, None).on_dispose(Self::handle_dispose),
             )
             .expect("register class File failed");
 

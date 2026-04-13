@@ -1165,7 +1165,7 @@ pub const CLASS_DEF_DATE: ClassDef = ClassDef {
     name_atom: Atom::CONST_Date,
     call: None,
     exotic: None,
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: js_date_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_date_constructor, 7, true)

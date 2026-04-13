@@ -187,7 +187,7 @@ pub const CLASS_DEF_BYTECODE_FUNCTION: ClassDef = ClassDef {
     name_atom: Atom::CONST_Function,
     call: None,
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: js_function_proto_funcs,
         ctor: None,
     },
@@ -201,7 +201,7 @@ pub const CLASS_DEF_BOUND_FUNCTION: ClassDef = ClassDef {
     name_atom: Atom::CONST_Function,
     call: Some(BoundFunction::class_call),
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
@@ -215,7 +215,7 @@ pub const CLASS_DEF_C_FUNCTION: ClassDef = ClassDef {
     name_atom: Atom::CONST_Function,
     call: Some(NativeFunction::class_call),
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
@@ -229,7 +229,7 @@ pub const CLASS_DEF_C_FUNCTION_DATA: ClassDef = ClassDef {
     name_atom: Atom::CONST_Function,
     call: Some(NativeFunction::class_call_with_data),
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
@@ -254,7 +254,7 @@ pub const CLASS_DEF_ASYNC_FUNCTION_RESOLVE: ClassDef = ClassDef {
     name_atom: Atom::CONST_AsyncFunctionResolve,
     call: Some(AsyncState::class_call),
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
@@ -268,7 +268,7 @@ pub const CLASS_DEF_ASYNC_FUNCTION_REJECT: ClassDef = ClassDef {
     name_atom: Atom::CONST_AsyncFunctionReject,
     call: Some(AsyncState::class_call),
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },

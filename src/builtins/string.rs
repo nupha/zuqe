@@ -1153,7 +1153,7 @@ pub const CLASS_DEF_STRING: ClassDef = ClassDef {
     name_atom: crate::Atom::CONST_String,
     call: None,
     exotic: Some(&js_string_exotic_methods),
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: js_string_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_string_constructor, 1, true)
@@ -1171,7 +1171,7 @@ pub const CLASS_DEF_STRING_ITERATOR: ClassDef = ClassDef {
     name_atom: Atom::CONST_String_Iterator,
     call: None,
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: js_string_iterator_proto_funcs,
         ctor: None,
     },

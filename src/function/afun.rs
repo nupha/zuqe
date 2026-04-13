@@ -25,14 +25,11 @@ pub struct AsyncFunction(pub(crate) GcRef<ObjectImpl>);
 object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
-    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
-        let mut proto = {
-            let o = ctx.function_proto();
-            ctx.create_base_object_with_proto(Some(o))?
-        };
-        proto.install_fields(ctx, js_async_function_proto_funcs)?;
+        let proto = ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
+        ctx.init_class_proto_internal(class_id, proto, js_async_function_proto_funcs)?;
 
         let ctor = NativeFunction::create(
             ctx,
@@ -40,13 +37,13 @@ impl AsyncFunction {
             Atom::CONST_AsyncFunction,
             1,
             FunctionKind::Async as i16,
-            ctx.function_proto(),
+            ctx.function_ctor(),
             None,
         )?;
         ctx.bind_ctor_proto_ex(ctor.into(), proto, 0, JS_PROP_CONFIGURABLE)?;
         ctx.class_slots[class_id as usize].ctor = Some(ctor.into());
 
-        Ok(Some(proto))
+        Ok(())
     }
 
     /// Wrapper to run async function, returns a Promise.

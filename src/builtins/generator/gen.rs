@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_GENERATOR,
+    Atom, Callback, ClassID, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
     context::ScopedContext,
     error::JSResult,
-    function::{AsyncState, CallContext, FieldDef, IteratorState},
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    function::{
+        AsyncState, BytecodeFunction, CallContext, FieldDef, FunctionKind, IteratorState,
+        NativeFunction,
+    },
+    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
+    object_cast,
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -80,6 +84,72 @@ impl GeneratorPayload {
     pub fn complete(&mut self) {
         if self.state != GenState::JS_GENERATOR_STATE_COMPLETED {
             self.set_state(GenState::JS_GENERATOR_STATE_COMPLETED);
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct GeneratorFunction(GcRef<ObjectImpl>);
+
+object_cast!(GeneratorFunction, JS_CLASS_GENERATOR_FUNCTION);
+
+impl GeneratorFunction {
+    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
+        debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
+
+        match class_id {
+            JS_CLASS_GENERATOR => {
+                let iter_proto = ctx.iterator_proto()?;
+                let proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
+                ctx.init_class_proto_internal(class_id, proto, js_generator_proto_funcs)
+            }
+            JS_CLASS_GENERATOR_FUNCTION => {
+                let mut gen_func_proto =
+                    ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
+                gen_func_proto.install_fields(ctx, js_generator_function_proto_funcs)?;
+                ctx.class_slots[class_id as usize].proto = Some(gen_func_proto);
+
+                let gen_proto = if let Some(o) = ctx.class_proto(JS_CLASS_GENERATOR) {
+                    o
+                } else {
+                    // init AsyncGenerator first
+                    const {
+                        debug_assert!(JS_CLASS_GENERATOR_FUNCTION > JS_CLASS_GENERATOR);
+                    }
+                    Self::class_init(ctx, JS_CLASS_GENERATOR)?;
+                    ctx.class_proto(JS_CLASS_GENERATOR).unwrap()
+                };
+                ctx.bind_ctor_proto_ex(
+                    gen_func_proto,
+                    gen_proto,
+                    JS_PROP_CONFIGURABLE,
+                    JS_PROP_CONFIGURABLE,
+                )?;
+
+                let gen_func_ctor = NativeFunction::create(
+                    ctx,
+                    Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
+                    Atom::CONST_GeneratorFunction,
+                    1,
+                    FunctionKind::Generator as i16,
+                    ctx.function_ctor(),
+                    None,
+                )?;
+                ctx.bind_ctor_proto_ex(
+                    gen_func_ctor.into(),
+                    gen_func_proto,
+                    0,
+                    JS_PROP_CONFIGURABLE,
+                )?;
+                ctx.class_slots[JS_CLASS_GENERATOR_FUNCTION as usize].ctor =
+                    Some(gen_func_ctor.into());
+
+                Ok(())
+            }
+            _ => {
+                unreachable!();
+            }
         }
     }
 }

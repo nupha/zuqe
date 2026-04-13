@@ -280,7 +280,7 @@ pub(crate) const CLASS_DEF_NUMBER: ClassDef = ClassDef {
     name_atom: crate::Atom::CONST_Number,
     call: None,
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: js_number_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_number_constructor, 1, true)

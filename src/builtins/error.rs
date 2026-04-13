@@ -155,7 +155,7 @@ pub(crate) const CLASS_DEF_ERROR: ClassDef = ClassDef {
     name_atom: crate::Atom::CONST_Error,
     call: None,
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: js_error_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_error_constructor, 1, true)

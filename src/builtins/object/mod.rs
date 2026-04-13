@@ -11,7 +11,7 @@ pub(crate) const CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef {
     name_atom: crate::Atom::CONST_Object,
     call: None,
     exotic: None,
-    initialize: crate::class::ClassInitType::Entries {
+    initialize: crate::class::ClassInitType::Normal {
         proto_entries: js_object_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(func::js_object_constructor, 1, true)

@@ -50,7 +50,7 @@ pub const CLASS_DEF_ARGUMENTS: ClassDef = ClassDef {
     name_atom: Atom::CONST_Arguments,
     call: None,
     exotic: Some(&js_arguments_exotic_methods),
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
@@ -64,7 +64,7 @@ pub const CLASS_DEF_MAPPED_ARGUMENTS: ClassDef = ClassDef {
     name_atom: Atom::CONST_Arguments,
     call: None,
     exotic: None,
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
@@ -78,7 +78,7 @@ pub const CLASS_DEF_MODULE_NS: ClassDef = ClassDef {
     name_atom: Atom::CONST_Object,
     call: None,
     exotic: Some(&js_module_ns_exotic_methods),
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
@@ -92,7 +92,7 @@ pub const CLASS_DEF_BIG_INT: ClassDef = ClassDef {
     name_atom: Atom::CONST_BigInt,
     call: None,
     exotic: None,
-    initialize: ClassInitType::Entries {
+    initialize: ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },

@@ -3,21 +3,19 @@
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION,
-    JS_CLASS_ERROR, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
-    JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
+    JS_CLASS_ERROR, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
     atom::Atom,
     builtins::{
         array::{js_array_iterator_proto_funcs, js_array_proto_funcs},
         boolean::js_boolean_proto_funcs,
         error::js_error_constructor,
         function::js_function_proto_funcs,
-        generator::{js_generator_function_proto_funcs, js_generator_proto_funcs},
         global::js_global_eval,
         number::js_number_proto_funcs,
         object::js_object_proto_funcs,
         string::{js_string_iterator_proto_funcs, js_string_proto_funcs},
     },
-    context::{ScopedContext, ctx::ProtoCtorPair},
+    context::ScopedContext,
     error::{ErrorKind, STD_ERROR_NAMES},
     function::{BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{
@@ -54,6 +52,7 @@ impl<'c> ScopedContext<'c> {
         );
 
         let mut proto = self.function_proto();
+        proto.install_fields(self, js_function_proto_funcs).unwrap();
 
         // FOR LEGACY: make throw type error function
         let mut throw_type_error = self
@@ -121,8 +120,6 @@ impl<'c> ScopedContext<'c> {
                 )
                 .unwrap();
         }
-
-        proto.install_fields(self, js_function_proto_funcs).unwrap();
 
         let ctor = self
             .init_class_constructor_or_func(
@@ -375,58 +372,6 @@ impl<'c> ScopedContext<'c> {
                 .unwrap();
             }
         }
-    }
-
-    pub(super) fn intrinsic_base_generator(&mut self) {
-        // generator prototype
-        let iter_proto = self.iterator_proto().unwrap();
-        let function_proto = self.function_proto();
-
-        // generator
-        let mut gen_proto = self
-            .create_base_object_with_proto(Some(iter_proto))
-            .unwrap();
-        gen_proto
-            .install_fields(self, js_generator_proto_funcs)
-            .unwrap();
-
-        self.class_slots[JS_CLASS_GENERATOR as usize] = ProtoCtorPair {
-            proto: Some(gen_proto),
-            ctor: None,
-        };
-
-        // generator function
-        let mut gen_func_proto = self
-            .create_base_object_with_proto(Some(function_proto))
-            .unwrap();
-        gen_func_proto
-            .install_fields(self, js_generator_function_proto_funcs)
-            .unwrap();
-        self.class_slots[JS_CLASS_GENERATOR_FUNCTION as usize] = ProtoCtorPair {
-            proto: Some(gen_func_proto),
-            ctor: None,
-        };
-
-        // generator constructor
-        let ctor = self
-            .create_native_function(
-                Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
-                "GeneratorFunction",
-                1,
-                FunctionKind::Generator as i16,
-            )
-            .unwrap();
-
-        self.bind_ctor_proto_ex(
-            gen_func_proto,
-            gen_proto,
-            JS_PROP_CONFIGURABLE,
-            JS_PROP_CONFIGURABLE,
-        )
-        .unwrap();
-
-        self.bind_ctor_proto_ex(ctor.into(), gen_func_proto, 0, JS_PROP_CONFIGURABLE)
-            .unwrap();
     }
 
     pub(super) fn intrinsic_eval(&mut self) {
