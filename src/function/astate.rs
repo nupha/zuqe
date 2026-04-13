@@ -224,14 +224,14 @@ impl AsyncStateImpl {
             throw_flag,
         );
 
-        // Note: closure values could be allocated in stack-frame's gc scope during execution,
-        // before stack-frame is dropping, promote closure values up to func's gc scope.
-        let mut rt = scope.rt_ptr();
-        for vr in bf.closure_var_refs() {
-            if let Some(n) = vr.value().gc_node_ptr() {
-                rt.gc_heap_mut().bind(func_node, n);
-            }
-        }
+        // // Note: closure values could be allocated in stack-frame's gc scope during execution,
+        // // before stack-frame is dropping, promote closure values up to func's gc scope.
+        // let mut rt = scope.rt_ptr();
+        // for vr in bf.closure_var_refs() {
+        //     if let Some(n) = vr.value().gc_node_ptr() {
+        //         rt.gc_heap_mut().bind(func_node, n);
+        //     }
+        // }
 
         let res = ret_val.err();
         if let Ok(v) = res {

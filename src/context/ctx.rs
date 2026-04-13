@@ -257,12 +257,6 @@ impl ContextImpl {
         self.class_slots.get(class_id as usize).and_then(|x| x.ctor)
     }
 
-    #[inline]
-    pub fn array_ctor(&self) -> Object {
-        debug_assert!(self.class_slots.len() > JS_CLASS_ARRAY as usize);
-        self.class_constructor(JS_CLASS_ARRAY).unwrap()
-    }
-
     #[cfg(feature = "builtin_regexp")]
     #[inline]
     pub fn regexp_ctor(&self) -> Object {
@@ -271,7 +265,7 @@ impl ContextImpl {
     }
 
     #[inline]
-    pub fn promise_ctor(&self) -> Object {
+    pub(crate) fn promise_ctor(&self) -> Object {
         debug_assert!(self.class_slots.len() > JS_CLASS_PROMISE as usize);
         self.class_constructor(JS_CLASS_PROMISE).unwrap()
     }

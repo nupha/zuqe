@@ -11,8 +11,8 @@ mod call;
 mod closure;
 mod cpool;
 mod emit;
-mod fdef;
 mod fields;
+mod func_def;
 mod label;
 mod mkbc;
 mod nfun;
@@ -27,7 +27,7 @@ mod var;
 mod var_ref;
 
 pub use {
-    afun::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, fdef::*, fields::*, label::*,
+    afun::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, fields::*, func_def::*, label::*,
     nfun::*, optimize::*, scope::*, var::*, var_ref::*,
 };
 

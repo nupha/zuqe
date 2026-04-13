@@ -139,4 +139,10 @@ impl ContextImpl {
         debug_assert!(self.class_slots.len() > JS_CLASS_BYTECODE_FUNCTION as usize);
         self.class_constructor(JS_CLASS_BYTECODE_FUNCTION).unwrap()
     }
+
+    #[inline]
+    pub fn array_ctor(&self) -> Object {
+        debug_assert!(self.class_slots.len() > JS_CLASS_ARRAY as usize);
+        self.class_constructor(JS_CLASS_ARRAY).unwrap()
+    }
 }
