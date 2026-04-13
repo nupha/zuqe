@@ -230,15 +230,15 @@ impl TypedArray {
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
 
-        let mut ta_base_func = ctx.create_native_function(
+        let mut ta_func_proto = ctx.create_native_function(
             Callback::Func(js_typed_array_base_constructor),
             "TypedArray",
             0,
             0,
         )?;
-        ta_base_func.install_fields(ctx, js_typed_array_base_funcs)?;
+        ta_func_proto.install_fields(ctx, js_typed_array_base_funcs)?;
 
-        ctx.bind_ctor_proto(ta_base_func.into(), proto)?;
+        ctx.bind_ctor_proto(ta_func_proto.into(), proto)?;
 
         let mut global = ctx.global_obj();
 
@@ -253,13 +253,13 @@ impl TypedArray {
             ta_proto.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
             ctx.class_slots[cid as usize].proto = Some(ta_proto);
 
-            let mut ta_ctor: Object = NativeFunction::create_internal(
+            let mut ta_ctor: Object = NativeFunction::create(
                 ctx,
                 Callback::Constructor(js_typed_array_constructor),
                 name,
                 3,
                 cid as i16, // magic
-                Some(ta_base_func.into()),
+                ta_func_proto.into(),
                 None,
             )?
             .into();

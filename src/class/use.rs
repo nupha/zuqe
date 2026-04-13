@@ -253,13 +253,13 @@ impl<'c> ScopedContext<'c> {
 
         let class_name = self.rt().class_registry[class_id as usize].name_atom;
 
-        let mut ctor: Object = NativeFunction::create_internal(
+        let mut ctor: Object = NativeFunction::create(
             self,
             handler,
             class_name,
             length as _,
             magic,
-            Some(self.function_proto()),
+            self.function_proto(),
             None,
         )?
         .into();

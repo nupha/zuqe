@@ -48,7 +48,7 @@ fn js_promise_then_finally_func(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     )?;
 
     // create inner resolving function for finally()
-    let then_func: JSValue = NativeFunction::create_internal(
+    let then_func: JSValue = NativeFunction::create(
         ctx,
         Callback::Func(|cx: &mut ScopedContext<'_>, cc: CallContext| -> JSResult {
             let val = cc.data(0);
@@ -62,7 +62,7 @@ fn js_promise_then_finally_func(ctx: &mut ScopedContext, cc: CallContext) -> JSR
         Atom::CONST_empty_string,
         0, // resolve function has length=0
         cc.magic() as _,
-        None,
+        ctx.function_proto(),
         Some([cc.arg(0)].into()), // data: argument#0
     )?
     .into();
@@ -80,23 +80,23 @@ pub fn js_promise_finally(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     } else {
         let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
         [
-            NativeFunction::create_internal(
+            NativeFunction::create(
                 ctx,
                 Callback::Func(js_promise_then_finally_func),
                 Atom::CONST_empty_string,
                 1,
                 0,
-                None,
+                ctx.function_proto(),
                 Some([ctor, on_finally].into()), // see callback for data usage
             )?
             .into(),
-            NativeFunction::create_internal(
+            NativeFunction::create(
                 ctx,
                 Callback::Func(js_promise_then_finally_func),
                 Atom::CONST_empty_string,
                 1,
                 1,
-                None,
+                ctx.function_proto(),
                 Some([ctor, on_finally].into()), // see callback for data usage
             )?
             .into(),
@@ -207,13 +207,13 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 return fail_reject(ctx);
             };
 
-            let Ok(resolve_element) = NativeFunction::create_internal(
+            let Ok(resolve_element) = NativeFunction::create(
                 ctx,
                 Callback::Func(js_promise_all_resolve_element),
                 Atom::CONST_empty_string,
                 1,
                 cc.magic() as _,
-                Some(ctx.function_proto()),
+                ctx.function_proto(),
                 Some(
                     [
                         JSValue::Bool(false),
@@ -231,13 +231,13 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
             let reject_element: JSValue = match cc.magic() {
                 PROMISE_MAGIC_allSettled => {
-                    let Ok(r) = NativeFunction::create_internal(
+                    let Ok(r) = NativeFunction::create(
                         ctx,
                         Callback::Func(js_promise_all_resolve_element),
                         Atom::CONST_empty_string,
                         1,
                         (cc.magic() | 4) as _,
-                        Some(ctx.function_proto()),
+                        ctx.function_proto(),
                         Some(
                             [
                                 JSValue::Bool(false),

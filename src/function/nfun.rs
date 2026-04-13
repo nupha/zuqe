@@ -276,13 +276,13 @@ impl NativeFunction {
 
     /// Create native function object.
     /// at least `length` arguments can be readable in arguments.
-    pub(crate) fn create_internal(
+    pub(crate) fn create(
         ctx: &mut ScopedContext,
         callback: Callback,
         name: Atom,
         length: u8,
         magic: i16,
-        proto: Option<Object>,
+        proto: Object,
         binding_data: Option<Box<[JSValue]>>,
     ) -> Result<Self, i32> {
         let has_binding_data = binding_data.is_some();
@@ -296,7 +296,7 @@ impl NativeFunction {
                 data: binding_data,
             });
             ctx.create_object_with_proto(
-                proto,
+                Some(proto),
                 if has_binding_data {
                     ObjectPayload::C_FUNCTION_DATA(p)
                 } else {
@@ -317,21 +317,6 @@ impl NativeFunction {
         js_function_set_properties(ctx, func_obj, name, length as i32);
 
         Ok(Self(func_obj.gc_ref()))
-    }
-
-    /// Create native function object.
-    /// at least `length` arguments can be readable in arguments.
-    pub(crate) fn create(
-        ctx: &mut ScopedContext,
-        callback: Callback,
-        name: &str,
-        length: u8,
-        magic: i16,
-        proto: Option<Object>,
-        binding_data: Option<Box<[JSValue]>>,
-    ) -> Result<Self, i32> {
-        let name_atom = Atom::new(ctx.rt_ptr(), name)?;
-        Self::create_internal(ctx, callback, name_atom, length, magic, proto, binding_data)
     }
 
     #[inline(always)]
@@ -380,10 +365,10 @@ impl<'c> ScopedContext<'c> {
         NativeFunction::create(
             self,
             callback,
-            name,
+            Atom::new(self.rt_ptr(), name)?,
             length,
             magic,
-            Some(self.function_proto()),
+            self.function_proto(),
             None,
         )
     }

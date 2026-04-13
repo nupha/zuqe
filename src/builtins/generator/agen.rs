@@ -420,13 +420,13 @@ impl AsyncGeneratorFunction {
                     JS_PROP_CONFIGURABLE,
                 )?;
 
-                let ctor = NativeFunction::create_internal(
+                let ctor = NativeFunction::create(
                     ctx,
                     Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
                     Atom::CONST_AsyncGeneratorFunction,
                     1,
                     FunctionKind::AsyncGenerator as i16,
-                    Some(func_proto),
+                    func_proto,
                     None,
                 )?;
                 ctx.bind_ctor_proto_ex(ctor.into(), agen_func_proto, 0, JS_PROP_CONFIGURABLE)?;
@@ -493,24 +493,24 @@ fn js_async_generator_resolve_function_create(
 ) -> Result<[JSValue; 2], i32> {
     let resolving_funcs: [JSValue; 2] = [
         // handle fullfil
-        NativeFunction::create_internal(
+        NativeFunction::create(
             ctx,
             Callback::Func(js_async_generator_resolve_function),
             Atom::CONST_empty_string,
             1,
             if is_resume_next { 2 } else { 0 },
-            None,
+            ctx.function_proto(),
             Some([generator].into()),
         )?
         .into(),
         // handle reject
-        NativeFunction::create_internal(
+        NativeFunction::create(
             ctx,
             Callback::Func(js_async_generator_resolve_function),
             Atom::CONST_empty_string,
             1,
             if is_resume_next { 3 } else { 1 },
-            None,
+            ctx.function_proto(),
             Some([generator].into()),
         )?
         .into(),

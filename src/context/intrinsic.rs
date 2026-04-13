@@ -175,14 +175,14 @@ impl<'c> ScopedContext<'c> {
             let func_obj = NativeFunction::create(
                 self,
                 Callback::ConstructorOrFunc(js_error_constructor),
-                name,
+                Atom::new(self.rt_ptr(), name).unwrap(),
                 if i == ErrorKind::Aggregate as usize {
                     2
                 } else {
                     1
                 },
                 i as _, // magic
-                Some(ctor),
+                ctor,
                 None,
             )
             .unwrap();

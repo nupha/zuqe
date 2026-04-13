@@ -156,13 +156,13 @@ impl Promise {
         ctx: &mut ScopedContext,
         ctor: JSValue,
     ) -> Result<(Object, [JSValue; 2]), i32> {
-        let executor = NativeFunction::create_internal(
+        let executor = NativeFunction::create(
             ctx,
             Callback::Func(Promise::executor_handler),
             Atom::CONST_empty_string,
             2,
             0,
-            Some(ctx.function_proto()),
+            ctx.function_proto(),
             // resolving functions, initially undefined.
             // these two fields will be replace by real Function object
             // in callback handler, which takes two arguments: resolve, reject.

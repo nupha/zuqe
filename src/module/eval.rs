@@ -281,22 +281,22 @@ impl ModuleDef {
 
         // Hint: `promise.then()` don't call bytecode execution inside, won't trigger gc collection,
         // protect promise, success, fail nodes is not required.
-        let success = NativeFunction::create_internal(
+        let success = NativeFunction::create(
             ctx,
             Callback::Func(ModuleDef::execute_async_fulfilled),
             Atom::CONST_empty_string,
             0,
             0,
-            None,
+            ctx.function_proto(),
             Some([JSValue::Module(*self)].into()),
         )?;
-        let fail = NativeFunction::create_internal(
+        let fail = NativeFunction::create(
             ctx,
             Callback::Func(ModuleDef::execute_async_rejected),
             Atom::CONST_empty_string,
             0,
             0,
-            None,
+            ctx.function_proto(),
             Some([JSValue::Module(*self)].into()),
         )?;
         promise.then(ctx, success.into(), fail.into())?;

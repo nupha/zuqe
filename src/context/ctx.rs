@@ -308,13 +308,13 @@ impl<'c> ScopedContext<'c> {
 
         // Function
         {
-            let func = NativeFunction::create_internal(
+            let func = NativeFunction::create(
                 self,
                 Callback::Func(js_function_proto),
                 Atom::CONST_empty_string,
                 0,
                 0,
-                Some(object),
+                object,
                 None,
             )?;
             self.class_slots[JS_CLASS_BYTECODE_FUNCTION as usize] = ProtoCtorPair {

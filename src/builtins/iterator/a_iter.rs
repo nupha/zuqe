@@ -59,13 +59,13 @@ fn js_async_from_sync_iterator_unwrap(ctx: &mut ScopedContext, cc: CallContext) 
 }
 
 fn js_async_from_sync_iterator_unwrap_func_create(ctx: &mut ScopedContext, done: bool) -> JSValue {
-    NativeFunction::create_internal(
+    NativeFunction::create(
         ctx,
         Callback::Func(js_async_from_sync_iterator_unwrap),
         Atom::CONST_empty_string,
         1,
         0,
-        None,
+        ctx.function_proto(),
         Some([JSValue::Bool(done)].into()),
     )
     .map_or(JSValue::EXCEPTION, |x| x.into())

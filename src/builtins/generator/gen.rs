@@ -120,8 +120,8 @@ pub fn js_generator_next(
     let magic = cc.magic();
 
     *iter_state = IteratorState::Done;
-
     let mut this = cc.this();
+
     if let ObjectPayload::GENERATOR(g) = this.retrive_object_payload_mut(ctx, JS_CLASS_GENERATOR)? {
         enum WhatToDo {
             ExecNoArg,
@@ -202,7 +202,9 @@ pub fn js_generator_next(
                 ret_val.err()
             }
             WhatToDo::Done => {
-                // execution is finished
+                // execution is finished, mark generator as completed
+                g.complete();
+
                 match magic {
                     GEN_MAGIC_NEXT => Ok(JSValue::UNDEFINED),
                     GEN_MAGIC_RETURN => Ok(cc.arg(0)),

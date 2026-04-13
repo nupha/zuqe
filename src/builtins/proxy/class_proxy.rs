@@ -43,7 +43,7 @@ fn js_proxy_revocable(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     // create revoke function
     let func_proto = ctx.function_proto();
-    let revoke_func = NativeFunction::create_internal(
+    let revoke_func = NativeFunction::create(
         ctx,
         Callback::Func(|_, mut cc| -> JSResult {
             if let Some(px) = cc.data(0).as_object_Proxy() {
@@ -56,7 +56,7 @@ fn js_proxy_revocable(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         Atom::CONST_empty_string,
         0,
         0,
-        Some(func_proto),
+        func_proto,
         Some([proxy].into()),
     )?;
 

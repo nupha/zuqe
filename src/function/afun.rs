@@ -34,13 +34,13 @@ impl AsyncFunction {
         };
         proto.install_fields(ctx, js_async_function_proto_funcs)?;
 
-        let ctor = NativeFunction::create_internal(
+        let ctor = NativeFunction::create(
             ctx,
             Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
             Atom::CONST_AsyncFunction,
             1,
             FunctionKind::Async as i16,
-            ctx.class_constructor(JS_CLASS_BYTECODE_FUNCTION),
+            ctx.function_proto(),
             None,
         )?;
         ctx.bind_ctor_proto_ex(ctor.into(), proto, 0, JS_PROP_CONFIGURABLE)?;
