@@ -154,7 +154,7 @@ impl GeneratorFunction {
     }
 }
 
-pub(crate) fn js_generator_function_call(
+pub(super) fn js_generator_function_call(
     ctx: &mut ScopedContext,
     func_obj: JSValue,
     this_obj: JSValue,
@@ -182,7 +182,7 @@ pub(crate) fn js_generator_function_call(
         .map_err(|_| -1)
 }
 
-pub fn js_generator_next(
+fn js_generator_next(
     ctx: &mut ScopedContext,
     cc: CallContext,
     iter_state: &mut IteratorState,
@@ -293,7 +293,7 @@ pub fn js_generator_next(
     }
 }
 
-pub const js_generator_proto_funcs: &[FieldDef] = &[
+const js_generator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 1, js_generator_next, GEN_MAGIC_NEXT as _),
     FieldDef::ITERATOR_NEXT("return", 1, js_generator_next, GEN_MAGIC_RETURN as _),
     FieldDef::ITERATOR_NEXT("throw", 1, js_generator_next, GEN_MAGIC_THROW as _),
@@ -301,7 +301,7 @@ pub const js_generator_proto_funcs: &[FieldDef] = &[
     FieldDef::STR("[Symbol.toStringTag]", "Generator", JS_PROP_CONFIGURABLE),
 ];
 
-pub const js_generator_function_proto_funcs: &[FieldDef] = &[
+const js_generator_function_proto_funcs: &[FieldDef] = &[
     #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",

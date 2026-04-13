@@ -6,10 +6,9 @@ use std::{ffi::c_void, ptr::NonNull};
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
-    FieldDef, JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT, JS_CLASS_PROMISE,
-    JS_CLASS_REGEXP, USER_CLASS_ID_START,
+    FieldDef, USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
-    builtins::{generator::js_async_iterator_proto_funcs, iterator::js_iterator_proto_funcs},
+    builtins::iterator::{js_async_iterator_proto_funcs, js_iterator_proto_funcs},
     class::{ClassDef, ClassID},
     context::{ContextImpl, ProtoCtorPair, ScopedContext},
     error::ERR_TOO_MANY_CLASSES,

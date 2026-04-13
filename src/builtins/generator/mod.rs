@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-mod agen;
+mod a_gen;
 mod r#gen;
 
-pub use {agen::*, r#gen::*};
+pub(crate) use {a_gen::*, r#gen::*};
 
 use crate::{
     Atom,
@@ -17,10 +17,6 @@ pub const CLASS_DEF_GENERATOR: ClassDef = ClassDef {
     call: None,
     exotic: None,
     initialize: ClassInitType::InitFn(GeneratorFunction::class_init),
-    // initialize: ClassInitType::Normal {
-    //     proto_entries: js_generator_proto_funcs,
-    //     ctor: None,
-    // },
     finalize: None,
     finalize_opaque: None,
     unregister: None,
@@ -32,10 +28,6 @@ pub const CLASS_DEF_GENERATOR_FUNCTION: ClassDef = ClassDef {
     call: Some(js_generator_function_call),
     exotic: None,
     initialize: ClassInitType::InitFn(GeneratorFunction::class_init),
-    // initialize: ClassInitType::Normal {
-    //     proto_entries: js_generator_function_proto_funcs,
-    //     ctor: None,
-    // },
     finalize: None,
     finalize_opaque: None,
     unregister: None,

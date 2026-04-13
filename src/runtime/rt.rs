@@ -6,26 +6,17 @@ use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
 use gc_lite::{GcHeap, GcPartitionId, GcTraceCtx, GcWeak};
 
 use crate::{
-    BUILTIN_CLASS_DEFS, JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION,
-    JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_ASYNC_FUNCTION_RESOLVE,
-    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION, JS_CLASS_C_FUNCTION,
-    JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT,
-    JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_CLASS_STRING,
-    USER_CLASS_ID_START,
+    BUILTIN_CLASS_DEFS, JS_CLASS_OBJECT, USER_CLASS_ID_START,
     atom::AtomRegistry,
     builtins::{
-        array_buffer::JSSharedArrayBufferFunctions,
-        generator::{AsyncGeneratorFunction, js_generator_function_call},
-        promise::{JSHostPromiseRejectionTracker, PromiseResolveFunc},
+        array_buffer::JSSharedArrayBufferFunctions, promise::JSHostPromiseRejectionTracker,
     },
-    class::{ClassDef, ClassID, js_arguments_exotic_methods},
+    class::{ClassDef, ClassID},
     context::ContextPtr,
-    function::{AsyncFunction, AsyncState, BoundFunction, NativeFunction},
     gc::gc::GC_TYPE_REGISTRY,
-    module::{ModuleLoadFn, ModuleNormalizeFn, js_module_ns_exotic_methods},
+    module::{ModuleLoadFn, ModuleNormalizeFn},
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeImpl},
     stack_frame::{ExecMode, StackFrame},
-    string::js_string_exotic_methods,
     utils::js_get_stack_pointer,
     value::JSValue,
 };
@@ -159,66 +150,7 @@ impl RuntimeImpl {
         };
 
         rt.init_const_atoms();
-
-        // register builtin classes
         rt.register_builtin_classes(BUILTIN_CLASS_DEFS, JS_CLASS_OBJECT)?;
-
-        // // setup common classes
-        // {
-        //     rt.class_registry[JS_CLASS_ARGUMENTS as usize]
-        //         .exotic
-        //         .replace(&js_arguments_exotic_methods);
-
-        //     rt.class_registry[JS_CLASS_STRING as usize]
-        //         .exotic
-        //         .replace(&js_string_exotic_methods);
-
-        //     rt.class_registry[JS_CLASS_MODULE_NS as usize]
-        //         .exotic
-        //         .replace(&js_module_ns_exotic_methods);
-
-        //     rt.class_registry[JS_CLASS_C_FUNCTION as usize]
-        //         .call
-        //         .replace(NativeFunction::class_call);
-        //     rt.class_registry[JS_CLASS_C_FUNCTION_DATA as usize]
-        //         .call
-        //         .replace(NativeFunction::class_call_with_data);
-        //     rt.class_registry[JS_CLASS_BOUND_FUNCTION as usize]
-        //         .call
-        //         .replace(BoundFunction::class_call);
-        //     rt.class_registry[JS_CLASS_GENERATOR_FUNCTION as usize]
-        //         .call
-        //         .replace(js_generator_function_call);
-        // }
-
-        // // Proxy
-        // #[cfg(feature = "builtin_proxy")]
-        // {
-        //     rt.class_registry[crate::JS_CLASS_PROXY as usize]
-        //         .exotic
-        //         .replace(&crate::builtins::proxy::js_proxy_exotic_methods);
-        //     rt.class_registry[crate::JS_CLASS_PROXY as usize]
-        //         .call
-        //         .replace(crate::builtins::proxy::Proxy::class_call);
-        // }
-
-        // // setup async related classes
-        // {
-        //     rt.class_registry[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
-        //         Some(PromiseResolveFunc::class_call);
-        //     rt.class_registry[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
-        //         Some(PromiseResolveFunc::class_call);
-
-        //     rt.class_registry[JS_CLASS_ASYNC_FUNCTION as usize].call =
-        //         Some(AsyncFunction::class_call);
-        //     rt.class_registry[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
-        //         Some(AsyncState::class_call);
-        //     rt.class_registry[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
-        //         Some(AsyncState::class_call);
-
-        //     rt.class_registry[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
-        //         Some(AsyncGeneratorFunction::class_call);
-        // }
 
         JS_UpdateStackTop(&mut rt);
 

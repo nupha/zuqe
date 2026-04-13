@@ -214,3 +214,8 @@ pub(super) const js_async_from_sync_iterator_proto_funcs: &[FieldDef] = &[
         GEN_MAGIC_THROW as _,
     ),
 ];
+
+pub(crate) const js_async_iterator_proto_funcs: &[FieldDef] = &[
+    #[cfg(feature = "builtin_symbol")]
+    FieldDef::CALL("[Symbol.asyncIterator]", 0, crate::builtins::js_get_this, 0),
+];

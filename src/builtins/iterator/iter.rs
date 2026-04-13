@@ -603,7 +603,7 @@ pub(crate) fn js_array_from_iterator(
     }
 }
 
-pub const js_iterator_proto_funcs: &[FieldDef] = &[
+pub(crate) const js_iterator_proto_funcs: &[FieldDef] = &[
     #[cfg(feature = "builtin_symbol")]
     FieldDef::CALL("[Symbol.iterator]", 0, js_get_this, 0),
 ];

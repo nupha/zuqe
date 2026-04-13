@@ -5,7 +5,7 @@ mod a_iter;
 mod array_iter;
 mod iter;
 
-pub use {a_iter::*, array_iter::*, iter::*};
+pub(crate) use {a_iter::*, array_iter::*, iter::*};
 
 use crate::{Atom, ClassDef, class::ClassInitType};
 

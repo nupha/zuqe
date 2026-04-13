@@ -346,46 +346,6 @@ pub struct AsyncGeneratorFunction(GcRef<ObjectImpl>);
 object_cast!(AsyncGeneratorFunction, JS_CLASS_ASYNC_GENERATOR_FUNCTION);
 
 impl AsyncGeneratorFunction {
-    pub fn class_call(
-        ctx: &mut ScopedContext,
-        func_obj: JSValue,
-        this_obj: JSValue,
-        args: &[JSValue],
-        _flags: i32,
-    ) -> JSResult {
-        let async_state = AsyncState::new(
-            ctx,
-            [const { JSValue::UNDEFINED }; 2],
-            *func_obj.as_object_BCWrapper().unwrap(),
-            this_obj,
-            args,
-        )?;
-        let mut s = Box::new(AGenPayload {
-            generator: RefCell::new(GcWeak::default()),
-            state: AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
-            async_state,
-            queue: Vec::with_capacity(2),
-        });
-
-        // execute the function till 'OpCode::INITIAL_YIELD' (no yield nor await are possible)
-        s.async_state.resume(ctx)?;
-
-        // create AsyncGenerator object
-        let mut obj = ctx
-            .create_object_from_ctor(func_obj, ObjectPayload::ASYNC_GENERATOR(s))
-            .map_err(|_| -1)?;
-
-        // set generator to obj weakref
-        let w = obj.downgrade();
-        *obj.payload_mut()
-            .async_generator_mut()
-            .unwrap()
-            .generator
-            .borrow_mut() = w;
-
-        Ok(obj.into())
-    }
-
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
@@ -442,6 +402,46 @@ impl AsyncGeneratorFunction {
                 unreachable!();
             }
         }
+    }
+
+    pub fn class_call(
+        ctx: &mut ScopedContext,
+        func_obj: JSValue,
+        this_obj: JSValue,
+        args: &[JSValue],
+        _flags: i32,
+    ) -> JSResult {
+        let async_state = AsyncState::new(
+            ctx,
+            [const { JSValue::UNDEFINED }; 2],
+            *func_obj.as_object_BCWrapper().unwrap(),
+            this_obj,
+            args,
+        )?;
+        let mut s = Box::new(AGenPayload {
+            generator: RefCell::new(GcWeak::default()),
+            state: AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
+            async_state,
+            queue: Vec::with_capacity(2),
+        });
+
+        // execute the function till 'OpCode::INITIAL_YIELD' (no yield nor await are possible)
+        s.async_state.resume(ctx)?;
+
+        // create AsyncGenerator object
+        let mut obj = ctx
+            .create_object_from_ctor(func_obj, ObjectPayload::ASYNC_GENERATOR(s))
+            .map_err(|_| -1)?;
+
+        // set generator to obj weakref
+        let w = obj.downgrade();
+        *obj.payload_mut()
+            .async_generator_mut()
+            .unwrap()
+            .generator
+            .borrow_mut() = w;
+
+        Ok(obj.into())
     }
 }
 
@@ -556,12 +556,7 @@ fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     Ok(promise.into())
 }
 
-pub const js_async_iterator_proto_funcs: &[FieldDef] = &[
-    #[cfg(feature = "builtin_symbol")]
-    FieldDef::CALL("[Symbol.asyncIterator]", 0, crate::builtins::js_get_this, 0),
-];
-
-pub const js_async_generator_proto_funcs: &[FieldDef] = &[
+const js_async_generator_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
     FieldDef::CALL("return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
     FieldDef::CALL("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
@@ -573,7 +568,7 @@ pub const js_async_generator_proto_funcs: &[FieldDef] = &[
     ),
 ];
 
-pub const js_async_generator_function_proto_funcs: &[FieldDef] = &[
+const js_async_generator_function_proto_funcs: &[FieldDef] = &[
     #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
