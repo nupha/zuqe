@@ -265,13 +265,11 @@ impl<'c> ScopedContext<'c> {
             )
             .unwrap();
         proto.install_fields(self, js_number_proto_funcs).unwrap();
-
         self.class_slots[JS_CLASS_NUMBER as usize].proto = Some(proto);
 
         self.use_class(JS_CLASS_NUMBER).unwrap();
 
         let ctor = self.class_constructor(JS_CLASS_NUMBER).unwrap();
-
         self.global_obj()
             .define_property_value(
                 self,
@@ -308,7 +306,6 @@ impl<'c> ScopedContext<'c> {
 
     pub(super) fn intrinsic_base_string(&mut self) {
         let empty_str = Atom::CONST_empty_string.force_string(self).unwrap();
-
         let string_proto = {
             let mut o = self
                 .create_object_with_proto(
@@ -319,6 +316,7 @@ impl<'c> ScopedContext<'c> {
             o.install_fields(self, js_string_proto_funcs).unwrap();
             o
         };
+        self.class_slots[JS_CLASS_STRING as usize].proto = Some(string_proto);
 
         let iter_proto = self.iterator_proto().unwrap();
         let mut string_iter = self
@@ -327,20 +325,11 @@ impl<'c> ScopedContext<'c> {
         string_iter
             .install_fields(self, js_string_iterator_proto_funcs)
             .unwrap();
-
-        self.class_slots[JS_CLASS_STRING as usize] = ProtoCtorPair {
-            proto: Some(string_proto),
-            ctor: None,
-        };
-        self.class_slots[JS_CLASS_STRING_ITERATOR as usize] = ProtoCtorPair {
-            proto: Some(string_iter),
-            ctor: None,
-        };
+        self.class_slots[JS_CLASS_STRING_ITERATOR as usize].proto = Some(string_iter);
 
         self.use_class(JS_CLASS_STRING).unwrap();
 
         let ctor = self.class_constructor(JS_CLASS_STRING).unwrap();
-
         self.global_obj()
             .define_property_value(
                 self,
@@ -357,13 +346,11 @@ impl<'c> ScopedContext<'c> {
         proto
             .install_fields(self, crate::builtins::symbol::js_symbol_proto_funcs)
             .unwrap();
-
         self.class_slots[crate::JS_CLASS_SYMBOL as usize].proto = Some(proto);
 
         self.use_class(crate::JS_CLASS_SYMBOL).unwrap();
 
         let mut ctor = self.class_constructor(crate::JS_CLASS_SYMBOL).unwrap();
-
         self.global_obj()
             .define_property_value(
                 self,
@@ -373,15 +360,12 @@ impl<'c> ScopedContext<'c> {
             )
             .unwrap();
 
-        // pre-define builtin Symbol_XXX
+        // pre-defined builtin Symbol_XXX
         {
-            // let mut ctx_ptr = ContextPtr::from(self);
             let rt = self.rt_ptr();
-
             for i in crate::atom::ATOM_CONST_SYMBOL_RANGE {
                 let a = Atom::from_id(i);
                 let atom_val = a.to_value(self).unwrap();
-
                 ctor.define_property_value_str(
                     self,
                     a.to_utf8(&rt).split_once('.').unwrap().1, // skip "Symbol."
@@ -391,11 +375,6 @@ impl<'c> ScopedContext<'c> {
                 .unwrap();
             }
         }
-
-        self.class_slots[crate::JS_CLASS_SYMBOL as usize] = ProtoCtorPair {
-            proto: Some(proto),
-            ctor: Some(ctor),
-        };
     }
 
     pub(super) fn intrinsic_base_generator(&mut self) {

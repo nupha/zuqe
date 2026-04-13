@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    Callback, FieldDef, RuntimeImpl,
+    Callback, ClassID, FieldDef, RuntimeImpl,
     atom::Atom,
     class::{
         ClassCallFn, ClassFinalizeOpaqueFn, ClassInitializeFn, ClassUnregisterFn, GetPrototypeFn,
@@ -188,14 +188,57 @@ impl ClassDef {
         self
     }
 
-    #[deprecated(note = "use ::on_init() instead")]
-    pub const fn initialize(self, f: ClassInitializeFn) -> Self {
-        self.on_init(f)
-    }
-
     #[deprecated(note = "use ::on_disponse() instead")]
     pub const fn finalize_opaque(self, f: ClassFinalizeOpaqueFn) -> Self {
         self.on_dispose(f)
+    }
+
+    /// Perform class initialize in context.
+    pub(crate) fn initialize(&self, ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
+        match self.initialize {
+            ClassInitType::InitFn(init_fn) => {
+                if ctx.class_proto(class_id).is_none() {
+                    if let Some(proto) = init_fn(ctx, class_id)? {
+                        debug_assert!(
+                            ctx.class_slots[class_id as usize]
+                                .proto
+                                .is_none_or(|p| p == proto)
+                        );
+                        ctx.class_slots[class_id as usize].proto = Some(proto);
+                    }
+
+                    if ctx.class_slots[class_id as usize].proto.is_none() {
+                        ctx.throw_internal_error(&format!(
+                            "class ({class_id}) initialization must setup proto object"
+                        ));
+                    }
+                }
+            }
+            ClassInitType::Entries {
+                proto_entries,
+                ctor,
+            } => {
+                if ctx.class_slots[class_id as usize].proto.is_none() {
+                    let proto = ctx.init_class_proto(class_id, proto_entries)?;
+                    debug_assert!(
+                        ctx.class_slots[class_id as usize]
+                            .proto
+                            .is_some_and(|p| p == proto)
+                    );
+                }
+
+                if let Some(c) = ctor
+                    && ctx.class_slots[class_id as usize].ctor.is_none()
+                {
+                    let proto = ctx.class_proto(class_id).unwrap();
+                    ctx.init_class_ctor_internal(
+                        class_id, c.callback, c.length, c.magic, proto, c.entries,
+                    )?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn default_fini_fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
