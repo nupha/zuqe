@@ -1167,13 +1167,11 @@ pub const CLASS_DEF_DATE: ClassDef = ClassDef {
     exotic: None,
     initialize: ClassInitType::Entries {
         proto_entries: js_date_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef {
-            callback: crate::Callback::ConstructorOrFunc(js_date_constructor),
-            length: 7,
-            magic: 0,
-            entries: js_date_funcs,
-            export_to_global: true,
-        }),
+        ctor: Some(
+            crate::class::ClassCtorDef::new(js_date_constructor, 7, true)
+                .entries(js_date_funcs)
+                .export_to_global(),
+        ),
     },
     finalize: None,
     finalize_opaque: None,

@@ -17,13 +17,11 @@ pub const CLASS_DEF_ARRAY: ClassDef = ClassDef {
     exotic: None,
     initialize: ClassInitType::Entries {
         proto_entries: js_array_proto_funcs,
-        ctor: Some(ClassCtorDef {
-            callback: Callback::ConstructorOrFunc(js_array_constructor),
-            length: 1,
-            magic: 0,
-            entries: js_array_funcs,
-            export_to_global: true,
-        }),
+        ctor: Some(
+            ClassCtorDef::new(js_array_constructor, 1, true)
+                .entries(js_array_funcs)
+                .export_to_global(),
+        ),
     },
     finalize: None,
     finalize_opaque: None,

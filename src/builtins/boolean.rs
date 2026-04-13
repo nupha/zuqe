@@ -60,13 +60,9 @@ pub const CLASS_DEF_BOOLEAN: ClassDef = ClassDef {
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {
         proto_entries: js_boolean_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef {
-            callback: crate::Callback::ConstructorOrFunc(js_boolean_constructor),
-            length: 1,
-            magic: 0,
-            entries: &[],
-            export_to_global: true,
-        }),
+        ctor: Some(
+            crate::class::ClassCtorDef::new(js_boolean_constructor, 1, true).export_to_global(),
+        ),
     },
     finalize: None,
     finalize_opaque: None,

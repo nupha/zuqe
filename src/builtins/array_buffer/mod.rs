@@ -18,13 +18,11 @@ pub const CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef {
     exotic: None,
     initialize: ClassInitType::Entries {
         proto_entries: js_array_buffer_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef {
-            callback: crate::Callback::Constructor(js_array_buffer_constructor),
-            length: 1,
-            magic: 0,
-            entries: js_array_buffer_funcs,
-            export_to_global: true,
-        }),
+        ctor: Some(
+            crate::class::ClassCtorDef::new(js_array_buffer_constructor, 1, false)
+                .entries(js_array_buffer_funcs)
+                .export_to_global(),
+        ),
     },
     finalize: Some(ArrayBuffer::class_finalize),
     finalize_opaque: None,
@@ -38,13 +36,11 @@ pub const CLASS_DEF_SHARED_ARRAY_BUFFER: ClassDef = ClassDef {
     exotic: None,
     initialize: ClassInitType::Entries {
         proto_entries: js_shared_array_buffer_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef {
-            callback: crate::Callback::Constructor(js_shared_array_buffer_constructor),
-            length: 1,
-            magic: 0,
-            entries: js_shared_array_buffer_funcs,
-            export_to_global: true,
-        }),
+        ctor: Some(
+            crate::class::ClassCtorDef::new(js_shared_array_buffer_constructor, 1, false)
+                .entries(js_shared_array_buffer_funcs)
+                .export_to_global(),
+        ),
     },
     finalize: Some(ArrayBuffer::class_finalize),
     finalize_opaque: None,

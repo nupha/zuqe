@@ -282,13 +282,11 @@ pub(crate) const CLASS_DEF_NUMBER: ClassDef = ClassDef {
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {
         proto_entries: js_number_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef {
-            callback: crate::Callback::ConstructorOrFunc(js_number_constructor),
-            length: 1,
-            magic: 0,
-            entries: js_number_funcs,
-            export_to_global: true,
-        }),
+        ctor: Some(
+            crate::class::ClassCtorDef::new(js_number_constructor, 1, true)
+                .entries(js_number_funcs)
+                .export_to_global(),
+        ),
     },
     finalize: None,
     finalize_opaque: None,

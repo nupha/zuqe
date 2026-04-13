@@ -19,13 +19,11 @@ pub const CLASS_DEF_REGEXP: ClassDef = ClassDef {
     exotic: None,
     initialize: ClassInitType::Entries {
         proto_entries: js_regexp_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef {
-            callback: crate::Callback::ConstructorOrFunc(js_regexp_constructor),
-            length: 2,
-            magic: 0,
-            entries: js_regexp_funcs,
-            export_to_global: true,
-        }),
+        ctor: Some(
+            crate::class::ClassCtorDef::new(js_regexp_constructor, 2, true)
+                .entries(js_regexp_funcs)
+                .export_to_global(),
+        ),
     },
     finalize: None,
     finalize_opaque: None,

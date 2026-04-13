@@ -22,13 +22,11 @@ pub const CLASS_DEF_PROMISE: ClassDef = ClassDef {
     exotic: None,
     initialize: ClassInitType::Entries {
         proto_entries: js_promise_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef {
-            callback: crate::Callback::Constructor(Promise::class_constructor),
-            length: 1,
-            magic: 0,
-            entries: js_promise_funcs,
-            export_to_global: true,
-        }),
+        ctor: Some(
+            crate::class::ClassCtorDef::new(Promise::class_constructor, 1, false)
+                .entries(js_promise_funcs)
+                .export_to_global(),
+        ),
     },
     finalize: None,
     finalize_opaque: None,

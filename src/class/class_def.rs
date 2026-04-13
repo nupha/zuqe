@@ -9,7 +9,7 @@ use crate::{
         SetPrototypeFn,
     },
     context::ScopedContext,
-    function::FunctionDef,
+    function::{CallbackFn, FunctionDef},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, ObjectPayload},
     value::JSValue,
 };
@@ -81,6 +81,36 @@ pub struct ClassCtorDef {
     pub(crate) export_to_global: bool,
 }
 
+impl ClassCtorDef {
+    pub const fn new(callback: CallbackFn, length: i32, call_as_func: bool) -> Self {
+        Self {
+            callback: if call_as_func {
+                Callback::ConstructorOrFunc(callback)
+            } else {
+                Callback::Constructor(callback)
+            },
+            length,
+            magic: 0,
+            entries: &[],
+            export_to_global: false,
+        }
+    }
+
+    pub const fn magic(mut self, magic: i16) -> Self {
+        self.magic = magic;
+        self
+    }
+    pub const fn entries(mut self, entries: &'static [FieldDef]) -> Self {
+        self.entries = entries;
+        self
+    }
+
+    pub const fn export_to_global(mut self) -> Self {
+        self.export_to_global = true;
+        self
+    }
+}
+
 #[derive(Clone, Copy)]
 pub enum ClassInitType {
     Entries {
@@ -98,7 +128,7 @@ pub struct ClassDef {
     /// class name atom. Atom::NULL indicates the class slot is not used
     pub(crate) name_atom: Atom,
 
-    /// callback handler when called
+    /// native handler when class is called (for function-like instances)
     pub(crate) call: Option<ClassCallFn>,
     /// exotic property method handlers
     pub(crate) exotic: Option<&'static ClassExoticMethods>,

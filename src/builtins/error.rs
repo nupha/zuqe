@@ -157,13 +157,11 @@ pub(crate) const CLASS_DEF_ERROR: ClassDef = ClassDef {
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {
         proto_entries: js_error_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef {
-            callback: crate::Callback::ConstructorOrFunc(js_error_constructor),
-            length: 1,
-            magic: -1,
-            entries: &[],
-            export_to_global: true,
-        }),
+        ctor: Some(
+            crate::class::ClassCtorDef::new(js_error_constructor, 1, true)
+                .magic(-1)
+                .export_to_global(),
+        ),
     },
     finalize: None,
     finalize_opaque: None,

@@ -13,13 +13,11 @@ pub(crate) const CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef {
     exotic: None,
     initialize: crate::class::ClassInitType::Entries {
         proto_entries: js_object_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef {
-            callback: crate::Callback::ConstructorOrFunc(func::js_object_constructor),
-            length: 1,
-            magic: 0,
-            entries: js_object_funcs,
-            export_to_global: true,
-        }),
+        ctor: Some(
+            crate::class::ClassCtorDef::new(func::js_object_constructor, 1, true)
+                .entries(js_object_funcs)
+                .export_to_global(),
+        ),
     },
     finalize: None,
     finalize_opaque: None,

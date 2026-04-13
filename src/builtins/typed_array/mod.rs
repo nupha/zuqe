@@ -47,13 +47,7 @@ pub const CLASS_DEF_DATAVIEW: ClassDef = ClassDef {
     exotic: None,
     initialize: ClassInitType::Entries {
         proto_entries: js_dataview_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef {
-            callback: crate::Callback::Constructor(js_dataview_constructor),
-            length: 1,
-            magic: 0,
-            entries: &[],
-            export_to_global: true,
-        }),
+        ctor: Some(crate::class::ClassCtorDef::new(js_dataview_constructor, 1, false).export_to_global()),
     },
     finalize: None,
     finalize_opaque: None,

@@ -1155,13 +1155,11 @@ pub const CLASS_DEF_STRING: ClassDef = ClassDef {
     exotic: Some(&js_string_exotic_methods),
     initialize: crate::class::ClassInitType::Entries {
         proto_entries: js_string_proto_funcs,
-        ctor: Some(crate::class::ClassCtorDef {
-            callback: crate::Callback::ConstructorOrFunc(js_string_constructor),
-            length: 1,
-            magic: 0,
-            entries: js_string_funcs,
-            export_to_global: true,
-        }),
+        ctor: Some(
+            crate::class::ClassCtorDef::new(js_string_constructor, 1, true)
+                .entries(js_string_funcs)
+                .export_to_global(),
+        ),
     },
     finalize: None,
     finalize_opaque: None,
