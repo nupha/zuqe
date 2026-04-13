@@ -18,7 +18,7 @@ pub(crate) const CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef {
             length: 1,
             magic: 0,
             entries: js_object_funcs,
-            global_name: Some(crate::Atom::CONST_Object),
+            export_to_global: true,
         }),
     },
     finalize: None,

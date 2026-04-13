@@ -52,7 +52,7 @@ pub const CLASS_DEF_DATAVIEW: ClassDef = ClassDef {
             length: 1,
             magic: 0,
             entries: &[],
-            global_name: Some(Atom::CONST_DataView),
+            export_to_global: true,
         }),
     },
     finalize: None,

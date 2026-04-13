@@ -78,7 +78,7 @@ pub struct ClassCtorDef {
     pub(crate) length: i32,
     pub(crate) magic: i16,
     pub(crate) entries: &'static [FieldDef],
-    pub(crate) global_name: Option<Atom>,
+    pub(crate) export_to_global: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -213,10 +213,11 @@ impl ClassDef {
                         class_id, c.callback, c.length, c.magic, proto, c.entries,
                     )?;
 
-                    if let Some(global) = c.global_name {
+                    if c.export_to_global {
+                        debug_assert!(self.name_atom != Atom::NULL);
                         ctx.global_obj().define_property_value(
                             ctx,
-                            global,
+                            self.name_atom,
                             ctor.into(),
                             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                         )?;

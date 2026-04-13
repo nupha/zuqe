@@ -27,7 +27,7 @@ pub const CLASS_DEF_PROMISE: ClassDef = ClassDef {
             length: 1,
             magic: 0,
             entries: js_promise_funcs,
-            global_name: Some(Atom::CONST_Promise),
+            export_to_global: true,
         }),
     },
     finalize: None,

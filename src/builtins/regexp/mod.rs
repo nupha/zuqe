@@ -24,7 +24,7 @@ pub const CLASS_DEF_REGEXP: ClassDef = ClassDef {
             length: 2,
             magic: 0,
             entries: js_regexp_funcs,
-            global_name: Some(Atom::CONST_RegExp),
+            export_to_global: true,
         }),
     },
     finalize: None,

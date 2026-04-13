@@ -162,7 +162,7 @@ pub(crate) const CLASS_DEF_ERROR: ClassDef = ClassDef {
             length: 1,
             magic: -1,
             entries: &[],
-            global_name: Some(crate::Atom::CONST_Error),
+            export_to_global: true,
         }),
     },
     finalize: None,

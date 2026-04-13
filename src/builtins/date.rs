@@ -1172,7 +1172,7 @@ pub const CLASS_DEF_DATE: ClassDef = ClassDef {
             length: 7,
             magic: 0,
             entries: js_date_funcs,
-            global_name: Some(Atom::CONST_Date),
+            export_to_global: true,
         }),
     },
     finalize: None,

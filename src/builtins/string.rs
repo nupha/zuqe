@@ -1160,7 +1160,7 @@ pub const CLASS_DEF_STRING: ClassDef = ClassDef {
             length: 1,
             magic: 0,
             entries: js_string_funcs,
-            global_name: Some(crate::Atom::CONST_String),
+            export_to_global: true,
         }),
     },
     finalize: None,
