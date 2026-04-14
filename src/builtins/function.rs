@@ -54,7 +54,7 @@ fn js_function_bind(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let mut func_obj = {
         let p = ctx.function_proto();
-        ctx.create_object_with_proto(Some(p), ObjectPayload::BOUND_FUNCTION(bf))
+        ctx.create_instance_with_proto_payload(Some(p), ObjectPayload::BOUND_FUNCTION(bf))
             .map_err(|_| -1)?
     };
 

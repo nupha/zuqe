@@ -877,7 +877,7 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         // invoked as a function, returns toString()
         datetime_format(ctx, tm.into(), 0x13).map(JSValue::from)
     } else {
-        ctx.create_object_from_ctor(new_target, ObjectPayload::DATE(tm))
+        ctx.create_instance_with_ctor(new_target, ObjectPayload::DATE(tm))
             .map(JSValue::Object)
             .map_err(|_| -1)
     }

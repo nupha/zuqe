@@ -38,7 +38,7 @@ pub(crate) fn js_error_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
     debug_assert!(proto.is_object());
 
     let mut obj = ctx
-        .create_object_with_proto(Object::try_from(proto).ok(), ObjectPayload::ERROR)
+        .create_instance_with_proto_payload(Object::try_from(proto).ok(), ObjectPayload::ERROR)
         .map_err(|_| -1)?;
 
     let mut arg_index = if magic == ErrorKind::Aggregate as i32 {
@@ -94,7 +94,7 @@ pub(crate) fn js_aggregate_error_constructor(ctx: &mut ScopedContext, errors: JS
         .as_object()
         .copied();
 
-    if let Ok(mut obj) = ctx.create_object_with_proto(err_proto, ObjectPayload::ERROR) {
+    if let Ok(mut obj) = ctx.create_instance_with_proto_payload(err_proto, ObjectPayload::ERROR) {
         obj.define_property_value(
             ctx,
             Atom::CONST_errors,

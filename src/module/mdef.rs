@@ -261,7 +261,7 @@ impl ModuleDefImpl {
 
                 self.bytecode = {
                     let p = ObjectPayload::BYTECODE_FUNCTION(BFuncPayload::new(bc, var_refs));
-                    ctx.create_object_with_proto(Some(ctx.function_proto()), p)
+                    ctx.create_instance_with_proto_payload(Some(ctx.function_proto()), p)
                         .map_err(|_| -1)?
                         .into()
                 };

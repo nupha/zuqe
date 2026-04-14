@@ -24,7 +24,7 @@ pub fn js_proxy_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     };
 
     let mut obj = ctx
-        .create_object_with_proto(
+        .create_instance_with_proto_payload(
             None,
             ObjectPayload::PROXY(ProxyPayload::new(target, handler.into())),
         )

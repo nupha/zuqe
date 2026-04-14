@@ -209,7 +209,7 @@ impl AsyncState {
 
         for i in 0..2 {
             let func_obj = ctx
-                .create_object_with_proto(Some(ctx.function_proto()), {
+                .create_instance_with_proto_payload(Some(ctx.function_proto()), {
                     if i == 0 {
                         ObjectPayload::ASYNC_FUNCTION_RESOLVE(state)
                     } else {

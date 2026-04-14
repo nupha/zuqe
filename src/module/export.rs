@@ -368,7 +368,7 @@ impl ModuleDef {
     /// build module ns object
     fn build_module_ns(&self, ctx: &mut ScopedContext) -> Result<Object, i32> {
         let mut obj = ctx
-            .create_object(ObjectPayload::MODULE_NS)
+            .create_instance_with_payload(ObjectPayload::MODULE_NS)
             .map_err(|_| -1)?;
 
         let mut state = GetExportNamesState::default();

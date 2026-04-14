@@ -367,7 +367,7 @@ impl MapSet {
 
 impl<'c> ScopedContext<'c> {
     pub fn create_map_with_entries(&mut self, entries: JSMapState) -> Result<Object, i32> {
-        self.create_object(ObjectPayload::MAP(Box::new(entries)))
+        self.create_instance_with_payload(ObjectPayload::MAP(Box::new(entries)))
             .map_err(|_| -1)
     }
 }

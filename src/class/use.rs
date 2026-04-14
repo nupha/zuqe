@@ -460,7 +460,7 @@ impl<'c> ScopedContext<'c> {
         ctor: JSValue,
         opaque: *mut c_void,
     ) -> Result<Object, i32> {
-        self.create_object_from_ctor(
+        self.create_instance_with_ctor(
             ctor,
             ObjectPayload::OTHER(Box::new(OtherPayload { class_id, opaque })),
         )

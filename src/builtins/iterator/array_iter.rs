@@ -91,7 +91,7 @@ pub fn js_create_array_iterator(ctx: &mut ScopedContext, cc: CallContext) -> JSR
         idx: UnsafeCell::new(0),
         kind,
     });
-    ctx.create_object(if class_id == JS_CLASS_STRING_ITERATOR {
+    ctx.create_instance_with_payload(if class_id == JS_CLASS_STRING_ITERATOR {
         ObjectPayload::STRING_ITERATOR(isa)
     } else {
         ObjectPayload::ARRAY_ITERATOR(isa)

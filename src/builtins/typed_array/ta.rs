@@ -329,7 +329,7 @@ impl TypedArray {
         };
 
         let ta = ctx
-            .create_object_from_ctor(new_target, isa)
+            .create_instance_with_ctor(new_target, isa)
             .map_err(|_| -1)?;
 
         // establish mutual references between TypedArray <==> ArrayBuffer

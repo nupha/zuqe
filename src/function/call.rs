@@ -154,7 +154,7 @@ impl ObjectImpl {
 
             let this: JSValue = if is_legacy_ctor {
                 // legacy constructor behavior.
-                ctx.create_object_from_ctor(new_target, ObjectPayload::OBJECT)
+                ctx.create_instance_with_ctor(new_target, ObjectPayload::OBJECT)
                     .map_err(|_| {
                         ctx.throw_type_error("constructor must return an object");
                         -1

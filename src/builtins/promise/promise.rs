@@ -131,7 +131,7 @@ impl Promise {
             is_handled: false,
         });
         let promise = Self(
-            ctx.create_object_from_ctor(ctor, ObjectPayload::PROMISE(isa))
+            ctx.create_instance_with_ctor(ctor, ObjectPayload::PROMISE(isa))
                 .map_err(|_| -1)?
                 .0,
         );
@@ -216,7 +216,7 @@ impl Promise {
                 resolved: resolved_flag.clone(), // flag is shared between two functions
             });
             let func = ctx
-                .create_object_with_proto(
+                .create_instance_with_proto_payload(
                     Some(func_proto),
                     if i == 0 {
                         ObjectPayload::PROMISE_RESOLVE_FUNCTION(p)

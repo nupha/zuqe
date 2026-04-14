@@ -256,7 +256,7 @@ impl<'c> ScopedContext<'c> {
 
     pub(super) fn intrinsic_base_number(&mut self) {
         let mut proto = self
-            .create_object_with_proto(
+            .create_instance_with_proto_payload(
                 self.class_proto(JS_CLASS_OBJECT),
                 ObjectPayload::NUMBER(JSValue::Int(0)),
             )
@@ -279,7 +279,7 @@ impl<'c> ScopedContext<'c> {
 
     pub(super) fn intrinsic_base_boolean(&mut self) {
         let mut proto = self
-            .create_object_with_proto(
+            .create_instance_with_proto_payload(
                 self.class_proto(JS_CLASS_OBJECT),
                 ObjectPayload::BOOLEAN(false),
             )
@@ -305,7 +305,7 @@ impl<'c> ScopedContext<'c> {
         let empty_str = Atom::CONST_empty_string.force_string(self).unwrap();
         let string_proto = {
             let mut o = self
-                .create_object_with_proto(
+                .create_instance_with_proto_payload(
                     self.class_proto(JS_CLASS_OBJECT),
                     ObjectPayload::STRING(empty_str),
                 )

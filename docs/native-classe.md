@@ -214,14 +214,14 @@ This pattern lets you expose native classes declaratively, alongside functions a
 
 ## 4. Creating Instances
 
-Use `create_object_user_class` to create instances and attach a Rust-side payload. In the `zjs` example, `JSFile` provides helper constructors for regular files and for standard streams:
+Use `create_class_instance_with_opaque` to create instances and attach a Rust-side payload. In the `zjs` example, `JSFile` provides helper constructors for regular files and for standard streams:
 
 ```rust
 impl JSFile {
     fn new_instance_internal(ctx: &mut ScopedContext, fd: FileDesc) -> Result<Object, i32> {
         let class_id = Self::class_id();
         let opaque = Box::into_raw(Box::new(fd)).cast::<c_void>();
-        ctx.create_object_user_class(class_id, opaque).map_err(|e| {
+        ctx.create_class_instance_with_opaque(class_id, opaque).map_err(|e| {
             let p = e.other().unwrap();
             let _ = unsafe { Box::from_raw(p.opaque().cast::<FileDesc>()) };
             -1

@@ -177,7 +177,7 @@ pub(super) fn js_generator_function_call(
     p.resume(ctx)?;
 
     // create Generator instance
-    ctx.create_object_from_ctor(func_obj, ObjectPayload::GENERATOR(p))
+    ctx.create_instance_with_ctor(func_obj, ObjectPayload::GENERATOR(p))
         .map(JSValue::Object)
         .map_err(|_| -1)
 }

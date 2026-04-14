@@ -430,7 +430,7 @@ impl AsyncGeneratorFunction {
 
         // create AsyncGenerator object
         let mut obj = ctx
-            .create_object_from_ctor(func_obj, ObjectPayload::ASYNC_GENERATOR(s))
+            .create_instance_with_ctor(func_obj, ObjectPayload::ASYNC_GENERATOR(s))
             .map_err(|_| -1)?;
 
         // set generator to obj weakref

@@ -250,11 +250,12 @@ impl JSFile {
     fn new_instance_internal(ctx: &mut ScopedContext, fd: FileDesc) -> Result<Object, i32> {
         let class_id = Self::class_id();
         let opaque = Box::into_raw(Box::new(fd)).cast::<c_void>();
-        ctx.create_object_user_class(class_id, opaque).map_err(|e| {
-            let p = e.other().unwrap();
-            let _ = unsafe { Box::from_raw(p.opaque().cast::<FileDesc>()) };
-            -1
-        })
+        ctx.create_class_instance_with_opaque(class_id, opaque)
+            .map_err(|e| {
+                let p = e.other().unwrap();
+                let _ = unsafe { Box::from_raw(p.opaque().cast::<FileDesc>()) };
+                -1
+            })
     }
     pub fn new_instance(ctx: &mut ScopedContext, fh: std::fs::File) -> Result<Object, i32> {
         Self::new_instance_internal(ctx, FileDesc::File(fh))

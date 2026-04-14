@@ -253,7 +253,7 @@ impl Bytecode {
                 FunctionKind::AsyncGenerator => ObjectPayload::ASYNC_GENERATOR_FUNCTION(p),
             };
             BCWrapper(
-                ctx.create_object_with_proto(
+                ctx.create_instance_with_proto_payload(
                     proto.or_else(|| ctx.class_proto(isa.class_id())),
                     isa,
                 )

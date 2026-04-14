@@ -78,7 +78,7 @@ pub fn js_regexp_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         RegExpData::create(ctx, pattern, flags_str)?
     }));
     let mut obj = ctx
-        .create_object_from_ctor(cc.this(), payload)
+        .create_instance_with_ctor(cc.this(), payload)
         .map_err(|_| -1)?;
 
     obj.define_property_value(
@@ -427,7 +427,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
     regexp.set_property(ctx, Atom::CONST_lastIndex, last_index.into())?;
 
     // make regexp string iterator object
-    ctx.create_object(ObjectPayload::REGEXP_STRING_ITERATOR(
+    ctx.create_instance_with_payload(ObjectPayload::REGEXP_STRING_ITERATOR(
         RegExpStringIterPayload::new(
             regexp.try_into().unwrap(),
             str.gc_ref().into(),

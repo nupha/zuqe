@@ -117,7 +117,7 @@ impl DataView {
         }
 
         let o = ctx
-            .create_object_from_ctor(
+            .create_instance_with_ctor(
                 ctor,
                 ObjectPayload::DATAVIEW(DataViewPayload::new(array_buffer, offset, len)),
             )

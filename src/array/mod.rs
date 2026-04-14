@@ -495,13 +495,13 @@ impl<'c> ScopedContext<'c> {
     pub fn create_array_with_values(&mut self, values: Vec<JSValue>) -> Result<Array, i32> {
         let len = values.len();
 
-        let mut arr = self
-            .create_object_with_shape(
-                self.array_shape.clone().unwrap(),
-                ObjectPayload::ARRAY(ArrayPayload::new(values)),
-            )
-            .map(|o| Array(o.0))
-            .map_err(|_| -1)?;
+        let mut arr = ObjectImpl::create(
+            self,
+            self.array_shape.clone(),
+            ObjectPayload::ARRAY(ArrayPayload::new(values)),
+        )
+        .map(|o| Array(o.0))
+        .map_err(|_| -1)?;
 
         debug_assert!(arr.flags().is_exotic());
         debug_assert!(arr.flags().is_fast_array());

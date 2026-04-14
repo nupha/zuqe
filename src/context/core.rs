@@ -91,7 +91,7 @@ impl<'c> ScopedContext<'c> {
         {
             // 1. make Array prototype object
             let array_proto = self
-                .create_object_with_proto(
+                .create_instance_with_proto_payload(
                     object.into(),
                     ObjectPayload::ARRAY(ArrayPayload::default()),
                 )

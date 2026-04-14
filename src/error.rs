@@ -100,7 +100,8 @@ impl<'c> ScopedContext<'c> {
         add_backtrace: bool,
     ) {
         let proto = self.error_protos[kind as usize].as_object().copied();
-        let exc_val = if let Ok(mut o) = self.create_object_with_proto(proto, ObjectPayload::ERROR)
+        let exc_val = if let Ok(mut o) =
+            self.create_instance_with_proto_payload(proto, ObjectPayload::ERROR)
         {
             let s = self.create_string_from_str(message);
             let _ = o.define_property_value(

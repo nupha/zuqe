@@ -108,7 +108,7 @@ impl ForInIterPayload {
             }
         }
 
-        ctx.create_object_with_proto(None, ObjectPayload::FOR_IN_ITERATOR(it))
+        ctx.create_instance_with_proto_payload(None, ObjectPayload::FOR_IN_ITERATOR(it))
             .map_err(|_| -1)
     }
 
@@ -417,12 +417,12 @@ impl JSValue {
                     })?;
                     let next_method = it.get_property(ctx, Atom::CONST_next)?;
 
-                    ctx.create_object(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(Box::new(
-                        JSAsyncFromSyncIteratorData {
+                    ctx.create_instance_with_payload(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(
+                        Box::new(JSAsyncFromSyncIteratorData {
                             obj: it,
                             next_method,
-                        },
-                    )))
+                        }),
+                    ))
                     .map(Some)
                     .map_err(|_| -1)
                 } else {

@@ -16,7 +16,7 @@ pub fn js_boolean_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let b = cc.arg(0).to_bool().unwrap_or(true);
 
     if !new_target.is_undefined() {
-        ctx.create_object_from_ctor(new_target, ObjectPayload::BOOLEAN(b))
+        ctx.create_instance_with_ctor(new_target, ObjectPayload::BOOLEAN(b))
             .map(JSValue::Object)
             .map_err(|_| -1)
     } else {

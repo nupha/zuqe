@@ -19,7 +19,7 @@ use super::JS_MAX_LOCAL_VARS;
 /// Make Arguments class instance with values.
 pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) -> JSValue {
     let object_proto = ctx.class_proto(JS_CLASS_OBJECT);
-    let mut obj = if let Ok(o) = ctx.create_object_with_proto(
+    let mut obj = if let Ok(o) = ctx.create_instance_with_proto_payload(
         object_proto,
         ObjectPayload::ARGUMENTS(ArrayPayload::default()),
     ) {
@@ -80,7 +80,7 @@ pub(crate) fn js_build_mapped_arguments(
     arg_count: i32,
 ) -> Result<Object, i32> {
     let mut obj = ctx
-        .create_object_with_proto(
+        .create_instance_with_proto_payload(
             ctx.class_proto(JS_CLASS_OBJECT),
             ObjectPayload::MAPPED_ARGUMENTS,
         )

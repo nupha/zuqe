@@ -15,49 +15,45 @@ use crate::{
 };
 
 impl<'c> ScopedContext<'c> {
-    /// create object using `shape` and `payload`.
-    /// when failed, `payload` is returned back in Err, caller should free it.
-    #[inline(always)]
-    pub(crate) fn create_object_with_shape(
-        &mut self,
-        shape: Shape,
-        payload: ObjectPayload,
-    ) -> Result<Object, ObjectPayload> {
-        ObjectImpl::create(self, Some(shape), payload)
-    }
-
-    /// Create new class instance with `payload` data and optional prototype `proto`:
+    /// Create new class instance with prototype `proto` and `payload`:
     ///
     /// - New object will apply the shape determined by `proto`, if provided.
     /// - The `payload` determines what class the new object is.
-    pub fn create_object_with_proto(
+    pub(crate) fn create_instance_with_proto_payload(
         &mut self,
         proto: Option<Object>,
         payload: ObjectPayload,
     ) -> Result<Object, ObjectPayload> {
         // find shape by prototype
-        let shape = {
-            match self.rt().find_shape_by_proto(proto) {
-                Some(sh) => sh,
-                None => {
-                    let Ok(sh) = Shape::create(self, proto, 0) else {
-                        return Err(payload);
-                    };
-                    sh
-                }
+        let shape = match self.rt().find_shape_by_proto(proto) {
+            Some(sh) => sh,
+            None => {
+                let Ok(sh) = Shape::create(self, proto, 0) else {
+                    return Err(payload);
+                };
+                sh
             }
         };
 
-        self.create_object_with_shape(shape, payload)
+        ObjectImpl::create(self, Some(shape), payload)
     }
 
-    /// create object applying constructor `ctor`, with `payload` data.
-    /// new object's class is determined by `payload` kind.
+    /// Create an instance with `payload` data, applying payload's implied (default) class and proto.
+    #[inline(always)]
+    pub(crate) fn create_instance_with_payload(
+        &mut self,
+        payload: ObjectPayload,
+    ) -> Result<Object, ObjectPayload> {
+        self.create_instance_with_proto_payload(self.class_proto(payload.class_id()), payload)
+    }
+
+    /// create instance applying constructor `ctor`, with `payload` data.
+    /// new object's class is implied by `payload` kind.
     ///
     /// the `ctor` could be:
     /// - undefined: use the `payload` kind associated class prototype,
     /// - otherwise retrieve property `ctor.prototype` for prototype.
-    pub fn create_object_from_ctor(
+    pub(crate) fn create_instance_with_ctor(
         &mut self,
         ctor: JSValue,
         payload: ObjectPayload,
@@ -81,42 +77,39 @@ impl<'c> ScopedContext<'c> {
             return Err(payload);
         };
 
-        self.create_object_with_proto(proto, payload)
+        self.create_instance_with_proto_payload(proto, payload)
     }
 
-    /// Create object with `payload` data, applying its implied class.
-    /// That means the new object's prototype and shape are determined by `payload` automatically.
-    #[inline(always)]
-    pub fn create_object(&mut self, payload: ObjectPayload) -> Result<Object, ObjectPayload> {
-        self.create_object_with_proto(self.class_proto(payload.class_id()), payload)
-    }
-
-    /// Create object of user defined native class
-    #[inline]
-    pub fn create_object_user_class(
+    /// Create an instance of a user-defined (non-builtin) class with an attached raw pointer.
+    ///
+    /// Note: this method is for non-builtin class only.
+    /// If you want to create builtin class instance, use `create_instance_with_payload` instead.
+    pub fn create_class_instance_with_opaque(
         &mut self,
         class_id: ClassID,
         opaque: *mut c_void,
     ) -> Result<Object, ObjectPayload> {
         if class_id < USER_CLASS_ID_START {
-            self.throw_internal_error("expect user defined native class id");
+            self.throw_internal_error("expect non-builtin class");
             Err(ObjectPayload::OTHER(OtherPayload::new(class_id, opaque)))
         } else {
-            let payload = ObjectPayload::OTHER(OtherPayload::new(class_id, opaque));
-            self.create_object(payload)
+            self.create_instance_with_payload(ObjectPayload::OTHER(OtherPayload::new(
+                class_id, opaque,
+            )))
         }
     }
 
-    /// create basic object with given prototype `proto`.
+    /// Create base Object with prototype `proto`.
     #[inline(always)]
     pub fn create_base_object_with_proto(&mut self, proto: Option<Object>) -> Result<Object, i32> {
-        self.create_object_with_proto(proto, ObjectPayload::OBJECT)
+        self.create_instance_with_proto_payload(proto, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     }
 
-    /// Create new basic object using default Object prototype
+    /// Create new base Object using default Object prototype
     #[inline(always)]
     pub fn create_base_object(&mut self) -> Result<Object, i32> {
-        self.create_object(ObjectPayload::OBJECT).map_err(|_| -1)
+        self.create_instance_with_payload(ObjectPayload::OBJECT)
+            .map_err(|_| -1)
     }
 }

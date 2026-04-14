@@ -227,7 +227,10 @@ impl std::fmt::Display for ObjectImpl {
 }
 
 impl ObjectImpl {
-    pub(super) fn create(
+    /// Create an instance object with `shape` and `payload` data. The class is implied by payload.
+    ///
+    /// When fail, `payload` is returned back in Err, caller should free it.
+    pub(crate) fn create(
         ctx: &mut ScopedContext,
         mut shape: Option<Shape>,
         payload: ObjectPayload,
@@ -797,13 +800,15 @@ impl JSValue {
             Self::String(s) => s.objectify(ctx, JSValue::UNDEFINED),
 
             Self::Int(_) | Self::Float64(_) => ctx
-                .create_object(ObjectPayload::NUMBER(*self))
+                .create_instance_with_payload(ObjectPayload::NUMBER(*self))
                 .map_err(|_| -1),
             Self::Bool(b) => ctx
-                .create_object(ObjectPayload::BOOLEAN(*b))
+                .create_instance_with_payload(ObjectPayload::BOOLEAN(*b))
                 .map_err(|_| -1),
             #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(s) => ctx.create_object(ObjectPayload::SYMBOL(*s)).map_err(|_| -1),
+            Self::Symbol(s) => ctx
+                .create_instance_with_payload(ObjectPayload::SYMBOL(*s))
+                .map_err(|_| -1),
 
             Self::EXCEPTION => {
                 #[cfg(debug_assertions)]

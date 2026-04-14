@@ -24,7 +24,7 @@ pub fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
     let isa = Box::new(JSMapState::new(is_weak, 8));
     let obj = ctx
-        .create_object_from_ctor(
+        .create_instance_with_ctor(
             new_target,
             match magic {
                 0 => ObjectPayload::MAP(isa),
@@ -257,7 +257,7 @@ pub(crate) fn js_create_map_iterator(ctx: &mut ScopedContext, cc: CallContext) -
         kind,
         index: 0,
     });
-    ctx.create_object(match cc.magic() & 1 {
+    ctx.create_instance_with_payload(match cc.magic() & 1 {
         0 => ObjectPayload::MAP_ITERATOR(isa),
         1 => ObjectPayload::SET_ITERATOR(isa),
         _ => unreachable!(),
