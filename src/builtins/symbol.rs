@@ -142,7 +142,7 @@ pub const js_symbol_funcs: &[FieldDef] = &[
     FieldDef::CALL("keyFor", 1, js_symbol_keyFor, 0),
 ];
 
-pub(crate) const CLASS_DEF_SYMBOL: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_SYMBOL: ClassDef = ClassDef::builtin(
     crate::Atom::CONST_Symbol,
     js_symbol_proto_funcs,
     Some(

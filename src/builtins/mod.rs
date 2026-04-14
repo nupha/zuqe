@@ -42,10 +42,10 @@ use crate::{
 // simple class defs
 //
 
-pub(crate) const CLASS_DEF_MODULE_NS: ClassDef =
+pub(crate) static CLASS_DEF_MODULE_NS: ClassDef =
     ClassDef::builtin(Atom::CONST_Object, &[], None).exotic(&js_module_ns_exotic_methods);
 
-pub(crate) const CLASS_DEF_BIG_INT: ClassDef = ClassDef::builtin(Atom::CONST_BigInt, &[], None);
+pub(crate) static CLASS_DEF_BIG_INT: ClassDef = ClassDef::builtin(Atom::CONST_BigInt, &[], None);
 
 //
 // common proto methods

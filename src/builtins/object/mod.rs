@@ -6,7 +6,7 @@ mod proto;
 
 pub use {func::*, proto::*};
 
-pub(crate) const CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef::builtin(
+pub(crate) static CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef::builtin(
     crate::Atom::CONST_Object,
     js_object_proto_funcs,
     Some(

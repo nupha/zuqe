@@ -182,25 +182,25 @@ pub(crate) const js_function_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("lineNumber", Some(js_function_proto_lineNumber), None, 0),
 ];
 
-pub(crate) const CLASS_DEF_BYTECODE_FUNCTION: ClassDef =
+pub(crate) static CLASS_DEF_BYTECODE_FUNCTION: ClassDef =
     ClassDef::builtin(Atom::CONST_Function, js_function_proto_funcs, None);
 
-pub(crate) const CLASS_DEF_BOUND_FUNCTION: ClassDef =
+pub(crate) static CLASS_DEF_BOUND_FUNCTION: ClassDef =
     ClassDef::builtin(Atom::CONST_Function, &[], None).on_call(BoundFunction::class_call);
 
-pub(crate) const CLASS_DEF_C_FUNCTION: ClassDef =
+pub(crate) static CLASS_DEF_C_FUNCTION: ClassDef =
     ClassDef::builtin(Atom::CONST_Function, &[], None).on_call(NativeFunction::class_call);
 
-pub(crate) const CLASS_DEF_C_FUNCTION_DATA: ClassDef =
+pub(crate) static CLASS_DEF_C_FUNCTION_DATA: ClassDef =
     ClassDef::builtin(Atom::CONST_Function, &[], None)
         .on_call(NativeFunction::class_call_with_data);
 
-pub(crate) const CLASS_DEF_ASYNC_FUNCTION: ClassDef =
+pub(crate) static CLASS_DEF_ASYNC_FUNCTION: ClassDef =
     ClassDef::builtin_with_init_func(Atom::CONST_AsyncFunction, AsyncFunction::class_init)
         .on_call(AsyncFunction::class_call);
 
-pub(crate) const CLASS_DEF_ASYNC_FUNCTION_RESOLVE: ClassDef =
+pub(crate) static CLASS_DEF_ASYNC_FUNCTION_RESOLVE: ClassDef =
     ClassDef::builtin(Atom::CONST_AsyncFunctionResolve, &[], None).on_call(AsyncState::class_call);
 
-pub(crate) const CLASS_DEF_ASYNC_FUNCTION_REJECT: ClassDef =
+pub(crate) static CLASS_DEF_ASYNC_FUNCTION_REJECT: ClassDef =
     ClassDef::builtin(Atom::CONST_AsyncFunctionReject, &[], None).on_call(AsyncState::class_call);

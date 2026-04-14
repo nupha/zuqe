@@ -8,7 +8,7 @@ pub use {abuf::*, class_arraybuffer::*};
 
 use crate::{Atom, class::ClassDef};
 
-pub(crate) const CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef::builtin(
     Atom::CONST_ArrayBuffer,
     js_array_buffer_proto_funcs,
     Some(
@@ -19,7 +19,7 @@ pub(crate) const CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef::builtin(
 )
 .on_finalize(ArrayBuffer::class_finalize);
 
-pub(crate) const CLASS_DEF_SHARED_ARRAY_BUFFER: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_SHARED_ARRAY_BUFFER: ClassDef = ClassDef::builtin(
     Atom::CONST_SharedArrayBuffer,
     js_shared_array_buffer_proto_funcs,
     Some(

@@ -17,19 +17,19 @@ macro_rules! ta_class_def {
     };
 }
 
-pub(crate) const CLASS_DEF_UINT8C_ARRAY: ClassDef = ta_class_def!(CONST_Uint8ClampedArray);
-pub(crate) const CLASS_DEF_UINT8_ARRAY: ClassDef = ta_class_def!(CONST_Uint8Array);
-pub(crate) const CLASS_DEF_INT8_ARRAY: ClassDef = ta_class_def!(CONST_Int8Array);
-pub(crate) const CLASS_DEF_UINT16_ARRAY: ClassDef = ta_class_def!(CONST_Uint16Array);
-pub(crate) const CLASS_DEF_INT16_ARRAY: ClassDef = ta_class_def!(CONST_Int16Array);
-pub(crate) const CLASS_DEF_UINT32_ARRAY: ClassDef = ta_class_def!(CONST_Uint32Array);
-pub(crate) const CLASS_DEF_INT32_ARRAY: ClassDef = ta_class_def!(CONST_Int32Array);
-pub(crate) const CLASS_DEF_FLOAT32_ARRAY: ClassDef = ta_class_def!(CONST_Float32Array);
-pub(crate) const CLASS_DEF_FLOAT64_ARRAY: ClassDef = ta_class_def!(CONST_Float64Array);
-pub(crate) const CLASS_DEF_BIG_INT64_ARRAY: ClassDef = ta_class_def!(CONST_BigInt64Array);
-pub(crate) const CLASS_DEF_BIG_UINT64_ARRAY: ClassDef = ta_class_def!(CONST_BigUint64Array);
+pub(crate) static CLASS_DEF_UINT8C_ARRAY: ClassDef = ta_class_def!(CONST_Uint8ClampedArray);
+pub(crate) static CLASS_DEF_UINT8_ARRAY: ClassDef = ta_class_def!(CONST_Uint8Array);
+pub(crate) static CLASS_DEF_INT8_ARRAY: ClassDef = ta_class_def!(CONST_Int8Array);
+pub(crate) static CLASS_DEF_UINT16_ARRAY: ClassDef = ta_class_def!(CONST_Uint16Array);
+pub(crate) static CLASS_DEF_INT16_ARRAY: ClassDef = ta_class_def!(CONST_Int16Array);
+pub(crate) static CLASS_DEF_UINT32_ARRAY: ClassDef = ta_class_def!(CONST_Uint32Array);
+pub(crate) static CLASS_DEF_INT32_ARRAY: ClassDef = ta_class_def!(CONST_Int32Array);
+pub(crate) static CLASS_DEF_FLOAT32_ARRAY: ClassDef = ta_class_def!(CONST_Float32Array);
+pub(crate) static CLASS_DEF_FLOAT64_ARRAY: ClassDef = ta_class_def!(CONST_Float64Array);
+pub(crate) static CLASS_DEF_BIG_INT64_ARRAY: ClassDef = ta_class_def!(CONST_BigInt64Array);
+pub(crate) static CLASS_DEF_BIG_UINT64_ARRAY: ClassDef = ta_class_def!(CONST_BigUint64Array);
 
-pub(crate) const CLASS_DEF_DATAVIEW: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_DATAVIEW: ClassDef = ClassDef::builtin(
     Atom::CONST_DataView,
     js_dataview_proto_funcs,
     Some(crate::class::ClassCtorDef::new(js_dataview_constructor, 1, false).global()),

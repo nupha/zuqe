@@ -9,8 +9,8 @@ pub(crate) use {a_iter::*, array_iter::*, iter::*};
 
 use crate::{Atom, ClassDef};
 
-pub(crate) const CLASS_DEF_FOR_IN_ITERATOR: ClassDef =
+pub(crate) static CLASS_DEF_FOR_IN_ITERATOR: ClassDef =
     ClassDef::builtin(Atom::CONST_ForInIterPayload, &[], None);
 
-pub(crate) const CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR: ClassDef =
+pub(crate) static CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR: ClassDef =
     ClassDef::builtin_with_init_func(Atom::CONST_empty_string, AsyncFromSyncIterator::class_init);

@@ -9,7 +9,7 @@ pub use {class_map::*, iter::*, map::*};
 
 use crate::{Atom, class::ClassDef};
 
-pub(crate) const CLASS_DEF_MAP: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_MAP: ClassDef = ClassDef::builtin(
     Atom::CONST_Map,
     js_map_proto_funcs,
     Some(
@@ -19,7 +19,7 @@ pub(crate) const CLASS_DEF_MAP: ClassDef = ClassDef::builtin(
     ),
 );
 
-pub(crate) const CLASS_DEF_SET: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_SET: ClassDef = ClassDef::builtin(
     Atom::CONST_Set,
     js_set_proto_funcs,
     Some(
@@ -30,7 +30,7 @@ pub(crate) const CLASS_DEF_SET: ClassDef = ClassDef::builtin(
     ),
 );
 
-pub(crate) const CLASS_DEF_WEAK_MAP: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_WEAK_MAP: ClassDef = ClassDef::builtin(
     Atom::CONST_WeakMap,
     js_weakmap_proto_funcs,
     Some(
@@ -40,7 +40,7 @@ pub(crate) const CLASS_DEF_WEAK_MAP: ClassDef = ClassDef::builtin(
     ),
 );
 
-pub(crate) const CLASS_DEF_WEAK_SET: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_WEAK_SET: ClassDef = ClassDef::builtin(
     Atom::CONST_WeakSet,
     js_weakset_proto_funcs,
     Some(
@@ -50,8 +50,8 @@ pub(crate) const CLASS_DEF_WEAK_SET: ClassDef = ClassDef::builtin(
     ),
 );
 
-pub(crate) const CLASS_DEF_MAP_ITERATOR: ClassDef =
+pub(crate) static CLASS_DEF_MAP_ITERATOR: ClassDef =
     ClassDef::builtin_with_init_func(Atom::CONST_Map_Iterator, MapSet::class_init);
 
-pub(crate) const CLASS_DEF_SET_ITERATOR: ClassDef =
+pub(crate) static CLASS_DEF_SET_ITERATOR: ClassDef =
     ClassDef::builtin_with_init_func(Atom::CONST_Set_Iterator, MapSet::class_init);

@@ -53,7 +53,7 @@ pub const js_boolean_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("valueOf", 0, js_boolean_valueOf, 0),
 ];
 
-pub(crate) const CLASS_DEF_BOOLEAN: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_BOOLEAN: ClassDef = ClassDef::builtin(
     crate::Atom::CONST_Boolean,
     js_boolean_proto_funcs,
     Some(crate::class::ClassCtorDef::new(js_boolean_constructor, 1, true).global()),

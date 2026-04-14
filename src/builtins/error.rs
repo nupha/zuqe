@@ -150,7 +150,7 @@ pub const js_error_proto_funcs: &[FieldDef] = &[
     FieldDef::STR("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
 ];
 
-pub(crate) const CLASS_DEF_ERROR: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_ERROR: ClassDef = ClassDef::builtin(
     Atom::CONST_Error,
     js_error_proto_funcs,
     Some(

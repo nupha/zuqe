@@ -45,8 +45,8 @@ pub(crate) const js_arguments_exotic_methods: ClassExoticMethods = ClassExoticMe
     set_prototype: None,
 };
 
-pub(crate) const CLASS_DEF_ARGUMENTS: ClassDef =
+pub(crate) static CLASS_DEF_ARGUMENTS: ClassDef =
     ClassDef::builtin(Atom::CONST_Arguments, &[], None).exotic(&js_arguments_exotic_methods);
 
-pub(crate) const CLASS_DEF_MAPPED_ARGUMENTS: ClassDef =
+pub(crate) static CLASS_DEF_MAPPED_ARGUMENTS: ClassDef =
     ClassDef::builtin(Atom::CONST_Arguments, &[], None);

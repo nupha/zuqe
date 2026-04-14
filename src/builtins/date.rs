@@ -1159,7 +1159,7 @@ const js_date_funcs: &[FieldDef] = &[
     FieldDef::CALL("UTC", 7, js_Date_UTC, 0),
 ];
 
-pub(crate) const CLASS_DEF_DATE: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_DATE: ClassDef = ClassDef::builtin(
     Atom::CONST_Date,
     js_date_proto_funcs,
     Some(

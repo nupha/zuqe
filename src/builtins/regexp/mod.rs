@@ -12,7 +12,7 @@ use crate::{
     class::{ClassCtorDef, ClassDef},
 };
 
-pub(crate) const CLASS_DEF_REGEXP: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_REGEXP: ClassDef = ClassDef::builtin(
     Atom::CONST_RegExp,
     js_regexp_proto_funcs,
     Some(
@@ -22,5 +22,5 @@ pub(crate) const CLASS_DEF_REGEXP: ClassDef = ClassDef::builtin(
     ),
 );
 
-pub(crate) const CLASS_DEF_REGEXP_STRING_ITERATOR: ClassDef =
+pub(crate) static CLASS_DEF_REGEXP_STRING_ITERATOR: ClassDef =
     ClassDef::builtin_with_init_func(Atom::CONST_RegExp_String_Iterator, RegExp::class_init);

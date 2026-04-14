@@ -557,11 +557,9 @@ pub fn gen_std_class_defs(outfile: &Path) {
 
     // builtin class defs
     //
-    cdefs.push("pub(crate) const BUILTIN_CLASS_DEFS: &[ClassDef] = &[".to_string());
+    cdefs.push("pub(crate) const BUILTIN_CLASS_DEFS: &[&ClassDef] = &[".to_string());
 
     for (i, cdef) in CLASS_DEF_LIST.iter().enumerate() {
-        let name = cdef.class_name;
-
         match cdef.const_name {
             "PROMISE" => {
                 async_start = Some(i);
@@ -573,7 +571,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
         }
 
         cdefs.push(format!(
-            "// #{i}: id={} {}\n{},",
+            "// #{i}: id={} {}\n&{},",
             i + 1,
             cdef.const_name,
             cdef.class_def

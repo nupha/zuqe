@@ -10,7 +10,7 @@ use crate::{
     class::{ClassCtorDef, ClassDef},
 };
 
-pub(crate) const CLASS_DEF_ARRAY: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_ARRAY: ClassDef = ClassDef::builtin(
     Atom::CONST_Array,
     js_array_proto_funcs,
     Some(
@@ -20,7 +20,7 @@ pub(crate) const CLASS_DEF_ARRAY: ClassDef = ClassDef::builtin(
     ),
 );
 
-pub(crate) const CLASS_DEF_ARRAY_ITERATOR: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_ARRAY_ITERATOR: ClassDef = ClassDef::builtin(
     Atom::CONST_Array_Iterator,
     js_array_iterator_proto_funcs,
     None,

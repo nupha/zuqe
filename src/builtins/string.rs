@@ -1148,7 +1148,7 @@ pub const js_string_funcs: &[FieldDef] = &[
     FieldDef::CALL("raw", 1, js_string_raw, 0),
 ];
 
-pub(crate) const CLASS_DEF_STRING: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_STRING: ClassDef = ClassDef::builtin(
     crate::Atom::CONST_String,
     js_string_proto_funcs,
     Some(
@@ -1159,7 +1159,7 @@ pub(crate) const CLASS_DEF_STRING: ClassDef = ClassDef::builtin(
 )
 .exotic(&js_string_exotic_methods);
 
-pub(crate) const CLASS_DEF_STRING_ITERATOR: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_STRING_ITERATOR: ClassDef = ClassDef::builtin(
     Atom::CONST_String_Iterator,
     js_string_iterator_proto_funcs,
     None,

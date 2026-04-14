@@ -115,14 +115,14 @@ impl RuntimeImpl {
 
     pub(crate) fn register_builtin_classes(
         &mut self,
-        tab: &[ClassDef],
+        tab: &[&ClassDef],
         start_id: ClassID,
     ) -> Result<(), i32> {
         debug_assert!(start_id > 0);
         let mut class_id = start_id;
 
         for item in tab {
-            self.register_class_internal(class_id, *item)?;
+            self.register_class_internal(class_id, **item)?;
             class_id += 1;
         }
 

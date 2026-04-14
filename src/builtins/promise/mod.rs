@@ -12,7 +12,7 @@ pub(crate) use job::*;
 
 use crate::{Atom, class::ClassDef};
 
-pub(crate) const CLASS_DEF_PROMISE: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_PROMISE: ClassDef = ClassDef::builtin(
     Atom::CONST_Promise,
     js_promise_proto_funcs,
     Some(
@@ -22,10 +22,10 @@ pub(crate) const CLASS_DEF_PROMISE: ClassDef = ClassDef::builtin(
     ),
 );
 
-pub(crate) const CLASS_DEF_PROMISE_RESOLVE_FUNCTION: ClassDef =
+pub(crate) static CLASS_DEF_PROMISE_RESOLVE_FUNCTION: ClassDef =
     ClassDef::builtin(Atom::CONST_PromiseResolveFunction, &[], None)
         .on_call(PromiseResolveFunc::class_call);
 
-pub(crate) const CLASS_DEF_PROMISE_REJECT_FUNCTION: ClassDef =
+pub(crate) static CLASS_DEF_PROMISE_REJECT_FUNCTION: ClassDef =
     ClassDef::builtin(Atom::CONST_PromiseRejectFunction, &[], None)
         .on_call(PromiseResolveFunc::class_call);

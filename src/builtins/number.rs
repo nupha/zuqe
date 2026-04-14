@@ -275,7 +275,7 @@ pub const js_number_funcs: &[FieldDef] = &[
     FieldDef::FLOAT64("MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
 ];
 
-pub(crate) const CLASS_DEF_NUMBER: ClassDef = ClassDef::builtin(
+pub(crate) static CLASS_DEF_NUMBER: ClassDef = ClassDef::builtin(
     crate::Atom::CONST_Number,
     js_number_proto_funcs,
     Some(
