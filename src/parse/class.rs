@@ -5,8 +5,8 @@ use crate::{
     atom::{Atom, js_atom_concat_num, js_atom_concat_str},
     bytecode::{OpCode, OpCodeTemp},
     class::{
-        ClassFieldsDef, JS_DEFINE_CLASS_HAS_HERITAGE, OP_DEFINE_METHOD_GETTER,
-        OP_DEFINE_METHOD_METHOD, OP_DEFINE_METHOD_SETTER,
+        JS_DEFINE_CLASS_HAS_HERITAGE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
+        OP_DEFINE_METHOD_SETTER,
     },
     defer,
     function::{FunctionDef, FunctionKind, JSVarDefEnum, JSVarKindEnum},
@@ -23,6 +23,42 @@ use super::{
     esm::JSParseExportEnum, function::JSParseFunctionEnum, obj::set_object_name_computed,
     state::JSParseState, tokenize::TokenKind,
 };
+
+#[derive(Debug)]
+pub(super) struct ClassFieldsParse {
+    pub(super) fields_init_fd: *mut FunctionDef,
+    pub(super) computed_fields_count: i32,
+    pub(super) is_static: bool,
+
+    /// class private brand requires Symbol support
+    #[cfg(feature = "builtin_symbol")]
+    pub(super) need_brand: bool,
+    #[cfg(feature = "builtin_symbol")]
+    pub(super) brand_push_pos: i32,
+}
+
+impl Drop for ClassFieldsParse {
+    fn drop(&mut self) {
+        if !self.fields_init_fd.is_null() {
+            drop(Box::from(self.fields_init_fd));
+        }
+    }
+}
+
+impl Default for ClassFieldsParse {
+    fn default() -> Self {
+        Self {
+            fields_init_fd: std::ptr::null_mut(),
+            computed_fields_count: 0,
+            is_static: false,
+
+            #[cfg(feature = "builtin_symbol")]
+            need_brand: false,
+            #[cfg(feature = "builtin_symbol")]
+            brand_push_pos: 0,
+        }
+    }
+}
 
 impl<'s> JSParseState<'s> {
     /// TODO: return Result<Option<Atom>,i32>
@@ -50,7 +86,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// parse class field defination
-    fn parse_class_field(&mut self, cls_fields: &mut ClassFieldsDef) -> Result<(), i32> {
+    fn parse_class_field(&mut self, cls_fields: &mut ClassFieldsParse) -> Result<(), i32> {
         let mut init_fd = std::ptr::null_mut::<FunctionDef>();
 
         if cls_fields.fields_init_fd.is_null() {
@@ -97,7 +133,7 @@ impl<'s> JSParseState<'s> {
         is_private: bool,
         is_static: bool,
         name: Atom,
-        cf: &mut ClassFieldsDef,
+        cf: &mut ClassFieldsParse,
         start_ptr: *const u8,
     ) -> Result<(), i32> {
         if is_private {
@@ -219,7 +255,7 @@ impl<'s> JSParseState<'s> {
         class_name: Atom,
         class_var_name: Atom,
         class_flags: i32,
-        class_fields: &mut [ClassFieldsDef; 2],
+        class_fields: &mut [ClassFieldsParse; 2],
     ) -> Result<i32, i32> {
         const MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED: &str =
             "private class field is already defined";
@@ -619,8 +655,8 @@ impl<'s> JSParseState<'s> {
         self.parse_expect(TokenKind::Char('{'))?;
 
         let mut class_fields = [
-            ClassFieldsDef::default(), // for instance
-            ClassFieldsDef::default(), // for static
+            ClassFieldsParse::default(), // for instance
+            ClassFieldsParse::default(), // for static
         ];
 
         // entering class body {

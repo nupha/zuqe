@@ -266,7 +266,7 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     ClassInfo::class_def(
         "Arguments",
         "ARGUMENTS",
-        "crate::builtins::CLASS_DEF_ARGUMENTS",
+        "crate::builtins::arguments::CLASS_DEF_ARGUMENTS",
         PayloadKey::Array,
         None,
         None,
@@ -274,7 +274,7 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     ClassInfo::class_def(
         "Arguments",
         "MAPPED_ARGUMENTS",
-        "crate::builtins::CLASS_DEF_MAPPED_ARGUMENTS",
+        "crate::builtins::arguments::CLASS_DEF_MAPPED_ARGUMENTS",
         PayloadKey::None,
         None,
         None,

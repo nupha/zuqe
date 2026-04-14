@@ -9,7 +9,7 @@ use crate::{
         SetPrototypeFn,
     },
     context::ScopedContext,
-    function::{CallbackFn, FunctionDef},
+    function::CallbackFn,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, ObjectPayload},
     value::JSValue,
 };
@@ -34,42 +34,6 @@ pub(crate) struct ClassExoticMethods {
 
     pub get_prototype: Option<GetPrototypeFn>,
     pub set_prototype: Option<SetPrototypeFn>,
-}
-
-#[derive(Debug)]
-pub(crate) struct ClassFieldsDef {
-    pub(crate) fields_init_fd: *mut FunctionDef,
-    pub(crate) computed_fields_count: i32,
-    pub(crate) is_static: bool,
-
-    /// class private brand requires Symbol support
-    #[cfg(feature = "builtin_symbol")]
-    pub(crate) need_brand: bool,
-    #[cfg(feature = "builtin_symbol")]
-    pub(crate) brand_push_pos: i32,
-}
-
-impl Drop for ClassFieldsDef {
-    fn drop(&mut self) {
-        if !self.fields_init_fd.is_null() {
-            drop(Box::from(self.fields_init_fd));
-        }
-    }
-}
-
-impl Default for ClassFieldsDef {
-    fn default() -> Self {
-        Self {
-            fields_init_fd: std::ptr::null_mut(),
-            computed_fields_count: 0,
-            is_static: false,
-
-            #[cfg(feature = "builtin_symbol")]
-            need_brand: false,
-            #[cfg(feature = "builtin_symbol")]
-            brand_push_pos: 0,
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -257,15 +221,6 @@ impl ClassDef {
                 if ctx.class_proto(class_id).is_none() {
                     init_fn(ctx, class_id)?;
 
-                    // if let Some(proto) = init_fn(ctx, class_id)? {
-                    //     debug_assert!(
-                    //         ctx.class_slots[class_id as usize]
-                    //             .proto
-                    //             .is_none_or(|p| p == proto)
-                    //     );
-                    //     ctx.class_slots[class_id as usize].proto = Some(proto);
-                    // }
-
                     if ctx.class_proto(class_id).is_none() {
                         ctx.throw_internal_error(&format!(
                             "class ({class_id}) initialization must setup class slot for proto"
@@ -288,46 +243,3 @@ impl ClassDef {
         }
     }
 }
-
-fn js_arguments_define_own_property(
-    ctx: &mut ScopedContext,
-    this_obj: JSValue,
-    prop: Atom,
-    val: JSValue,
-    getter: JSValue,
-    setter: JSValue,
-    flags: i32,
-) -> Result<bool, i32> {
-    let mut obj = this_obj.as_object().copied().unwrap();
-
-    // convert to normal array when redefining an existing numeric field
-    if obj.flags().is_fast_array()
-        && prop
-            .to_array_index(ctx.rt())
-            .is_some_and(|i| i < obj.fast_array_count())
-    {
-        obj.destruct_fast_array(ctx)?;
-    }
-
-    // run the default define own property
-    obj.define_property(
-        ctx,
-        prop,
-        val,
-        getter,
-        setter,
-        flags as u32 | JS_PROP_NO_EXOTIC,
-    )
-}
-
-pub(crate) const js_arguments_exotic_methods: ClassExoticMethods = ClassExoticMethods {
-    define_own_property: Some(js_arguments_define_own_property),
-    delete_property: None,
-    get_own_property: None,
-    get_own_property_names: None,
-    has_property: None,
-    get_property: None,
-    set_property: None,
-    get_prototype: None,
-    set_prototype: None,
-};

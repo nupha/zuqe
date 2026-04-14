@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+pub mod arguments;
 pub mod array;
 pub mod array_buffer;
 pub mod boolean;
@@ -34,7 +35,7 @@ pub mod symbol;
 
 use crate::{
     Atom,
-    class::{ClassDef, ClassInitType, js_arguments_exotic_methods},
+    class::{ClassDef, ClassInitType},
     context::ScopedContext,
     error::JSResult,
     function::CallContext,
@@ -44,34 +45,6 @@ use crate::{
 //
 // simple class defs
 //
-
-pub const CLASS_DEF_ARGUMENTS: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Arguments,
-    call: None,
-    exotic: Some(&js_arguments_exotic_methods),
-    initialize: ClassInitType::Normal {
-        proto_entries: &[],
-        ctor: None,
-    },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
-
-pub const CLASS_DEF_MAPPED_ARGUMENTS: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Arguments,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
-        proto_entries: &[],
-        ctor: None,
-    },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
 
 pub const CLASS_DEF_MODULE_NS: ClassDef = ClassDef {
     name: "",

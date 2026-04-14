@@ -4,12 +4,11 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
-    class::ClassFieldsDef,
     function::{FunctionDef, FunctionKind},
     value::JSValue,
 };
 
-use super::{JSParseFunctionEnum, state::JSParseState};
+use super::{JSParseFunctionEnum, class::ClassFieldsParse, state::JSParseState};
 
 impl<'s> JSParseState<'s> {
     /// emit on current function def
@@ -120,7 +119,7 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_class_field_init(ln);
     }
 
-    pub(super) fn emit_class_init_start(&mut self, cd: &mut ClassFieldsDef) -> Result<(), i32> {
+    pub(super) fn emit_class_init_start(&mut self, cd: &mut ClassFieldsParse) -> Result<(), i32> {
         debug_assert!(cd.fields_init_fd.is_null());
 
         cd.fields_init_fd = Box::into_raw(self.make_class_fields_init_fd()?);
@@ -156,7 +155,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    pub(super) fn emit_class_init_end(&mut self, cd: &ClassFieldsDef) {
+    pub(super) fn emit_class_init_end(&mut self, cd: &ClassFieldsParse) {
         self.cur_func_def = cd.fields_init_fd;
         self.emit_op(OpCode::RETURN_UNDEF);
 
