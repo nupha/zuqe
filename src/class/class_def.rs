@@ -10,8 +10,7 @@ use crate::{
     },
     context::ScopedContext,
     function::CallbackFn,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, ObjectPayload},
-    value::JSValue,
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload},
 };
 
 use super::{
@@ -23,7 +22,7 @@ use super::{
 pub(crate) const JS_DEFINE_CLASS_HAS_HERITAGE: i32 = 1 << 0;
 
 #[derive(Copy, Clone, Default)]
-pub(crate) struct ClassExoticMethods {
+pub struct ClassExoticMethods {
     pub get_own_property: Option<GetOwnPropertyFn>,
     pub get_own_property_names: Option<GetOwnPropertyNamesFn>,
     pub delete_property: Option<DeletePropertyFn>,
