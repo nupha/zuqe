@@ -46,33 +46,22 @@ use crate::{
 // simple class defs
 //
 
-pub const CLASS_DEF_MODULE_NS: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Object,
-    call: None,
-    exotic: Some(&js_module_ns_exotic_methods),
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_MODULE_NS: ClassDef = ClassDef::builtin(
+    Atom::CONST_Object,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+)
+.exotic(&js_module_ns_exotic_methods);
 
-pub const CLASS_DEF_BIG_INT: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_BigInt,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_BIG_INT: ClassDef = ClassDef::builtin(
+    Atom::CONST_BigInt,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);
 
 //
 // common proto methods

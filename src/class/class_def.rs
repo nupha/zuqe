@@ -166,6 +166,7 @@ impl ClassDef {
         }
     }
 
+    /// Create a builtin class def
     pub(crate) const fn builtin(name: Atom, initialize: ClassInitType) -> Self {
         Self {
             name: "",
@@ -186,6 +187,14 @@ impl ClassDef {
 
     pub const fn on_call(mut self, call: ClassCallFn) -> Self {
         self.call = Some(call);
+        self
+    }
+
+    /// Set class finalize callback of builtin class def.
+    ///
+    /// This method is for builtin class def only. User class def should use on_dispose (which is a public api) instead.
+    pub(crate) const fn on_finalize(mut self, f: ClassFinalizeFn) -> Self {
+        self.finalize = Some(f);
         self
     }
 

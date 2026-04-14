@@ -47,30 +47,19 @@ pub(crate) const js_arguments_exotic_methods: ClassExoticMethods = ClassExoticMe
     set_prototype: None,
 };
 
-pub const CLASS_DEF_ARGUMENTS: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Arguments,
-    call: None,
-    exotic: Some(&js_arguments_exotic_methods),
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_ARGUMENTS: ClassDef = ClassDef::builtin(
+    Atom::CONST_Arguments,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+)
+.exotic(&js_arguments_exotic_methods);
 
-pub const CLASS_DEF_MAPPED_ARGUMENTS: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Arguments,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_MAPPED_ARGUMENTS: ClassDef = ClassDef::builtin(
+    Atom::CONST_Arguments,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);

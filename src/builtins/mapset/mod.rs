@@ -12,12 +12,9 @@ use crate::{
     class::{ClassDef, ClassInitType},
 };
 
-pub const CLASS_DEF_MAP: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Map,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_MAP: ClassDef = ClassDef::builtin(
+    Atom::CONST_Map,
+    ClassInitType::Normal {
         proto_entries: js_map_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_map_constructor, 0, false)
@@ -25,17 +22,11 @@ pub const CLASS_DEF_MAP: ClassDef = ClassDef {
                 .export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);
 
-pub const CLASS_DEF_SET: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Set,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_SET: ClassDef = ClassDef::builtin(
+    Atom::CONST_Set,
+    ClassInitType::Normal {
         proto_entries: js_set_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_map_constructor, 0, false)
@@ -44,17 +35,11 @@ pub const CLASS_DEF_SET: ClassDef = ClassDef {
                 .export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);
 
-pub const CLASS_DEF_WEAK_MAP: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_WeakMap,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_WEAK_MAP: ClassDef = ClassDef::builtin(
+    Atom::CONST_WeakMap,
+    ClassInitType::Normal {
         proto_entries: js_weakmap_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_map_constructor, 0, false)
@@ -62,17 +47,11 @@ pub const CLASS_DEF_WEAK_MAP: ClassDef = ClassDef {
                 .export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);
 
-pub const CLASS_DEF_WEAK_SET: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_WeakSet,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_WEAK_SET: ClassDef = ClassDef::builtin(
+    Atom::CONST_WeakSet,
+    ClassInitType::Normal {
         proto_entries: js_weakset_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_map_constructor, 0, false)
@@ -80,29 +59,14 @@ pub const CLASS_DEF_WEAK_SET: ClassDef = ClassDef {
                 .export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);
 
-pub const CLASS_DEF_MAP_ITERATOR: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Map_Iterator,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::InitFn(MapSet::class_init),
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+pub(crate) const CLASS_DEF_MAP_ITERATOR: ClassDef = ClassDef::builtin(
+    Atom::CONST_Map_Iterator,
+    ClassInitType::InitFn(MapSet::class_init),
+);
 
-pub const CLASS_DEF_SET_ITERATOR: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Set_Iterator,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::InitFn(MapSet::class_init),
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+pub(crate) const CLASS_DEF_SET_ITERATOR: ClassDef = ClassDef::builtin(
+    Atom::CONST_Set_Iterator,
+    ClassInitType::InitFn(MapSet::class_init),
+);

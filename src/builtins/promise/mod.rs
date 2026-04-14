@@ -15,12 +15,9 @@ use crate::{
     class::{ClassDef, ClassInitType},
 };
 
-pub const CLASS_DEF_PROMISE: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Promise,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_PROMISE: ClassDef = ClassDef::builtin(
+    Atom::CONST_Promise,
+    ClassInitType::Normal {
         proto_entries: js_promise_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(Promise::class_constructor, 1, false)
@@ -28,35 +25,22 @@ pub const CLASS_DEF_PROMISE: ClassDef = ClassDef {
                 .export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);
 
-pub const CLASS_DEF_PROMISE_RESOLVE_FUNCTION: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_PromiseResolveFunction,
-    call: Some(PromiseResolveFunc::class_call),
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_PROMISE_RESOLVE_FUNCTION: ClassDef = ClassDef::builtin(
+    Atom::CONST_PromiseResolveFunction,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+)
+.on_call(PromiseResolveFunc::class_call);
 
-pub const CLASS_DEF_PROMISE_REJECT_FUNCTION: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_PromiseRejectFunction,
-    call: Some(PromiseResolveFunc::class_call),
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_PROMISE_REJECT_FUNCTION: ClassDef = ClassDef::builtin(
+    Atom::CONST_PromiseRejectFunction,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+)
+.on_call(PromiseResolveFunc::class_call);

@@ -6,12 +6,9 @@ mod proto;
 
 pub use {func::*, proto::*};
 
-pub(crate) const CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef {
-    name: "",
-    name_atom: crate::Atom::CONST_Object,
-    call: None,
-    exotic: None,
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef::builtin(
+    crate::Atom::CONST_Object,
+    crate::class::ClassInitType::Normal {
         proto_entries: js_object_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(func::js_object_constructor, 1, true)
@@ -19,7 +16,4 @@ pub(crate) const CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef {
                 .export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);

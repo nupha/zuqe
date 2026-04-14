@@ -11,46 +11,24 @@ use crate::{
     class::{ClassDef, ClassInitType},
 };
 
-pub const CLASS_DEF_GENERATOR: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Generator,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::InitFn(GeneratorFunction::class_init),
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+pub(crate) const CLASS_DEF_GENERATOR: ClassDef = ClassDef::builtin(
+    Atom::CONST_Generator,
+    ClassInitType::InitFn(GeneratorFunction::class_init),
+);
 
-pub const CLASS_DEF_GENERATOR_FUNCTION: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Function,
-    call: Some(js_generator_function_call),
-    exotic: None,
-    initialize: ClassInitType::InitFn(GeneratorFunction::class_init),
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+pub(crate) const CLASS_DEF_GENERATOR_FUNCTION: ClassDef = ClassDef::builtin(
+    Atom::CONST_Function,
+    ClassInitType::InitFn(GeneratorFunction::class_init),
+)
+.on_call(js_generator_function_call);
 
-pub const CLASS_DEF_ASYNC_GENERATOR: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_AsyncGenerator,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::InitFn(AsyncGeneratorFunction::class_init),
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+pub(crate) const CLASS_DEF_ASYNC_GENERATOR: ClassDef = ClassDef::builtin(
+    Atom::CONST_AsyncGenerator,
+    ClassInitType::InitFn(AsyncGeneratorFunction::class_init),
+);
 
-pub const CLASS_DEF_ASYNC_GENERATOR_FUNCTION: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_AsyncGeneratorFunction,
-    call: Some(AsyncGeneratorFunction::class_call),
-    exotic: None,
-    initialize: ClassInitType::InitFn(AsyncGeneratorFunction::class_init),
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+pub(crate) const CLASS_DEF_ASYNC_GENERATOR_FUNCTION: ClassDef = ClassDef::builtin(
+    Atom::CONST_AsyncGeneratorFunction,
+    ClassInitType::InitFn(AsyncGeneratorFunction::class_init),
+)
+.on_call(AsyncGeneratorFunction::class_call);

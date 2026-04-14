@@ -11,13 +11,7 @@ use crate::{
     class::{ClassDef, ClassInitType},
 };
 
-pub const CLASS_DEF_PROXY: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Proxy,
-    call: Some(Proxy::class_call),
-    exotic: Some(&js_proxy_exotic_methods),
-    initialize: ClassInitType::InitFn(Proxy::class_init),
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+pub(crate) const CLASS_DEF_PROXY: ClassDef =
+    ClassDef::builtin(Atom::CONST_Proxy, ClassInitType::InitFn(Proxy::class_init))
+        .exotic(&js_proxy_exotic_methods)
+        .on_call(Proxy::class_call);

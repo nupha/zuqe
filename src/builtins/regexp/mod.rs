@@ -12,12 +12,9 @@ use crate::{
     class::{ClassCtorDef, ClassDef, ClassInitType},
 };
 
-pub const CLASS_DEF_REGEXP: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_RegExp,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_REGEXP: ClassDef = ClassDef::builtin(
+    Atom::CONST_RegExp,
+    ClassInitType::Normal {
         proto_entries: js_regexp_proto_funcs,
         ctor: Some(
             ClassCtorDef::new(js_regexp_constructor, 2, true)
@@ -25,18 +22,9 @@ pub const CLASS_DEF_REGEXP: ClassDef = ClassDef {
                 .export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);
 
-pub const CLASS_DEF_REGEXP_STRING_ITERATOR: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_RegExp_String_Iterator,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::InitFn(RegExp::class_init),
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+pub(crate) const CLASS_DEF_REGEXP_STRING_ITERATOR: ClassDef = ClassDef::builtin(
+    Atom::CONST_RegExp_String_Iterator,
+    ClassInitType::InitFn(RegExp::class_init),
+);

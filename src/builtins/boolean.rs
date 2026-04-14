@@ -53,18 +53,12 @@ pub const js_boolean_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("valueOf", 0, js_boolean_valueOf, 0),
 ];
 
-pub const CLASS_DEF_BOOLEAN: ClassDef = ClassDef {
-    name: "",
-    name_atom: crate::Atom::CONST_Boolean,
-    call: None,
-    exotic: None,
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_BOOLEAN: ClassDef = ClassDef::builtin(
+    crate::Atom::CONST_Boolean,
+    crate::class::ClassInitType::Normal {
         proto_entries: js_boolean_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_boolean_constructor, 1, true).export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);

@@ -1148,12 +1148,9 @@ pub const js_string_funcs: &[FieldDef] = &[
     FieldDef::CALL("raw", 1, js_string_raw, 0),
 ];
 
-pub const CLASS_DEF_STRING: ClassDef = ClassDef {
-    name: "",
-    name_atom: crate::Atom::CONST_String,
-    call: None,
-    exotic: Some(&js_string_exotic_methods),
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_STRING: ClassDef = ClassDef::builtin(
+    crate::Atom::CONST_String,
+    crate::class::ClassInitType::Normal {
         proto_entries: js_string_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_string_constructor, 1, true)
@@ -1161,21 +1158,13 @@ pub const CLASS_DEF_STRING: ClassDef = ClassDef {
                 .export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+)
+.exotic(&js_string_exotic_methods);
 
-pub const CLASS_DEF_STRING_ITERATOR: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_String_Iterator,
-    call: None,
-    exotic: None,
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_STRING_ITERATOR: ClassDef = ClassDef::builtin(
+    Atom::CONST_String_Iterator,
+    crate::class::ClassInitType::Normal {
         proto_entries: js_string_iterator_proto_funcs,
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);

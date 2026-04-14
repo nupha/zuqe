@@ -9,27 +9,15 @@ pub(crate) use {a_iter::*, array_iter::*, iter::*};
 
 use crate::{Atom, ClassDef, class::ClassInitType};
 
-pub const CLASS_DEF_FOR_IN_ITERATOR: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_ForInIterPayload,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_FOR_IN_ITERATOR: ClassDef = ClassDef::builtin(
+    Atom::CONST_ForInIterPayload,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);
 
-pub const CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_empty_string,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::InitFn(AsyncFromSyncIterator::class_init),
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+pub(crate) const CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR: ClassDef = ClassDef::builtin(
+    Atom::CONST_empty_string,
+    ClassInitType::InitFn(AsyncFromSyncIterator::class_init),
+);

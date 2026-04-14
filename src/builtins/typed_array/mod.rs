@@ -15,16 +15,8 @@ use crate::{
 
 macro_rules! ta_class_def {
     ($name:ident) => {
-        ClassDef {
-            name: "",
-            name_atom: Atom::$name,
-            call: None,
-            exotic: None,
-            initialize: ClassInitType::InitFn(TypedArray::class_init),
-            finalize: Some(TypedArray::class_finalize),
-            finalize_opaque: None,
-            unregister: None,
-        }
+        ClassDef::builtin(Atom::$name, ClassInitType::InitFn(TypedArray::class_init))
+            .on_finalize(TypedArray::class_finalize)
     };
 }
 
@@ -40,18 +32,12 @@ pub const CLASS_DEF_FLOAT64_ARRAY: ClassDef = ta_class_def!(CONST_Float64Array);
 pub const CLASS_DEF_BIG_INT64_ARRAY: ClassDef = ta_class_def!(CONST_BigInt64Array);
 pub const CLASS_DEF_BIG_UINT64_ARRAY: ClassDef = ta_class_def!(CONST_BigUint64Array);
 
-pub const CLASS_DEF_DATAVIEW: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_DataView,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_DATAVIEW: ClassDef = ClassDef::builtin(
+    Atom::CONST_DataView,
+    ClassInitType::Normal {
         proto_entries: js_dataview_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_dataview_constructor, 1, false).export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);

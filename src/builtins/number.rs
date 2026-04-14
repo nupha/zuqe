@@ -275,12 +275,9 @@ pub const js_number_funcs: &[FieldDef] = &[
     FieldDef::FLOAT64("MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
 ];
 
-pub(crate) const CLASS_DEF_NUMBER: ClassDef = ClassDef {
-    name: "",
-    name_atom: crate::Atom::CONST_Number,
-    call: None,
-    exotic: None,
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_NUMBER: ClassDef = ClassDef::builtin(
+    crate::Atom::CONST_Number,
+    crate::class::ClassInitType::Normal {
         proto_entries: js_number_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_number_constructor, 1, true)
@@ -288,7 +285,4 @@ pub(crate) const CLASS_DEF_NUMBER: ClassDef = ClassDef {
                 .export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);

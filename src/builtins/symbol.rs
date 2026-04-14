@@ -142,12 +142,9 @@ pub const js_symbol_funcs: &[FieldDef] = &[
     FieldDef::CALL("keyFor", 1, js_symbol_keyFor, 0),
 ];
 
-pub(crate) const CLASS_DEF_SYMBOL: ClassDef = ClassDef {
-    name: "",
-    name_atom: crate::Atom::CONST_Symbol,
-    call: None,
-    exotic: None,
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_SYMBOL: ClassDef = ClassDef::builtin(
+    crate::Atom::CONST_Symbol,
+    crate::class::ClassInitType::Normal {
         proto_entries: js_symbol_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_symbol_constructor, 0, true)
@@ -155,7 +152,4 @@ pub(crate) const CLASS_DEF_SYMBOL: ClassDef = ClassDef {
                 .export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);
