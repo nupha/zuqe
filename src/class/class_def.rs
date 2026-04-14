@@ -166,6 +166,29 @@ impl ClassDef {
         }
     }
 
+    pub(crate) const fn builtin(name: Atom, initialize: ClassInitType) -> Self {
+        Self {
+            name: "",
+            name_atom: name,
+            call: None,
+            exotic: None,
+            unregister: None,
+            initialize,
+            finalize: None,
+            finalize_opaque: None,
+        }
+    }
+
+    pub const fn exotic(mut self, exotic: &'static ClassExoticMethods) -> Self {
+        self.exotic = Some(exotic);
+        self
+    }
+
+    pub const fn on_call(mut self, call: ClassCallFn) -> Self {
+        self.call = Some(call);
+        self
+    }
+
     /// Set class instance dispose handler.
     ///
     /// This callback could be use to process opaque pointer when class instance is disposed.

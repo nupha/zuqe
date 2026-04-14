@@ -1154,18 +1154,15 @@ fn js_Date_UTC(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(dt.into())
 }
 
-pub const js_date_funcs: &[FieldDef] = &[
+const js_date_funcs: &[FieldDef] = &[
     FieldDef::CALL("now", 0, js_Date_now, 0),
     FieldDef::CALL("parse", 1, js_Date_parse, 0),
     FieldDef::CALL("UTC", 7, js_Date_UTC, 0),
 ];
 
-pub const CLASS_DEF_DATE: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Date,
-    call: None,
-    exotic: None,
-    initialize: ClassInitType::Normal {
+pub(crate) const CLASS_DEF_DATE: ClassDef = ClassDef::builtin(
+    Atom::CONST_Date,
+    ClassInitType::Normal {
         proto_entries: js_date_proto_funcs,
         ctor: Some(
             crate::class::ClassCtorDef::new(js_date_constructor, 7, true)
@@ -1173,7 +1170,4 @@ pub const CLASS_DEF_DATE: ClassDef = ClassDef {
                 .export_to_global(),
         ),
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);

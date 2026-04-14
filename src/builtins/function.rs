@@ -4,6 +4,7 @@
 use crate::{
     ClassDef, ScopedContext,
     atom::Atom,
+    class::ClassInitType,
     error::JSResult,
     function::{
         AsyncFunction, AsyncState, BoundFuncObjPayload, BoundFunction, CallContext, FieldDef,
@@ -171,7 +172,7 @@ fn js_function_proto_lineNumber(_: &mut ScopedContext, cc: CallContext) -> JSRes
     }
 }
 
-pub const js_function_proto_funcs: &[FieldDef] = &[
+pub(crate) const js_function_proto_funcs: &[FieldDef] = &[
     FieldDef::CALL("call", 1, js_function_call, 0),
     FieldDef::CALL("apply", 2, js_function_apply, 0),
     FieldDef::CALL("bind", 1, js_function_bind, 0),
@@ -182,97 +183,61 @@ pub const js_function_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("lineNumber", Some(js_function_proto_lineNumber), None, 0),
 ];
 
-pub const CLASS_DEF_BYTECODE_FUNCTION: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Function,
-    call: None,
-    exotic: None,
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_BYTECODE_FUNCTION: ClassDef = ClassDef::builtin(
+    Atom::CONST_Function,
+    ClassInitType::Normal {
         proto_entries: js_function_proto_funcs,
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+);
 
-pub const CLASS_DEF_BOUND_FUNCTION: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Function,
-    call: Some(BoundFunction::class_call),
-    exotic: None,
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_BOUND_FUNCTION: ClassDef = ClassDef::builtin(
+    Atom::CONST_Function,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+)
+.on_call(BoundFunction::class_call);
 
-pub const CLASS_DEF_C_FUNCTION: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Function,
-    call: Some(NativeFunction::class_call),
-    exotic: None,
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_C_FUNCTION: ClassDef = ClassDef::builtin(
+    Atom::CONST_Function,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+)
+.on_call(NativeFunction::class_call);
 
-pub const CLASS_DEF_C_FUNCTION_DATA: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_Function,
-    call: Some(NativeFunction::class_call_with_data),
-    exotic: None,
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_C_FUNCTION_DATA: ClassDef = ClassDef::builtin(
+    Atom::CONST_Function,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+)
+.on_call(NativeFunction::class_call_with_data);
 
-pub const CLASS_DEF_ASYNC_FUNCTION: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_AsyncFunction,
-    call: Some(AsyncFunction::class_call),
-    exotic: None,
-    initialize: crate::class::ClassInitType::InitFn(AsyncFunction::class_init),
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+pub(crate) const CLASS_DEF_ASYNC_FUNCTION: ClassDef = ClassDef::builtin(
+    Atom::CONST_AsyncFunction,
+    ClassInitType::InitFn(AsyncFunction::class_init),
+)
+.on_call(AsyncFunction::class_call);
 
-pub const CLASS_DEF_ASYNC_FUNCTION_RESOLVE: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_AsyncFunctionResolve,
-    call: Some(AsyncState::class_call),
-    exotic: None,
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_ASYNC_FUNCTION_RESOLVE: ClassDef = ClassDef::builtin(
+    Atom::CONST_AsyncFunctionResolve,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+)
+.on_call(AsyncState::class_call);
 
-pub const CLASS_DEF_ASYNC_FUNCTION_REJECT: ClassDef = ClassDef {
-    name: "",
-    name_atom: Atom::CONST_AsyncFunctionReject,
-    call: Some(AsyncState::class_call),
-    exotic: None,
-    initialize: crate::class::ClassInitType::Normal {
+pub(crate) const CLASS_DEF_ASYNC_FUNCTION_REJECT: ClassDef = ClassDef::builtin(
+    Atom::CONST_AsyncFunctionReject,
+    ClassInitType::Normal {
         proto_entries: &[],
         ctor: None,
     },
-    finalize: None,
-    finalize_opaque: None,
-    unregister: None,
-};
+)
+.on_call(AsyncState::class_call);
