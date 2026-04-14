@@ -11,7 +11,6 @@ use gc_lite::{GcTrace, GcTraceCtx};
 use crate::{
     ClassDef,
     atom::{Atom, AtomKind},
-    class::ClassInitType,
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -1162,12 +1161,10 @@ const js_date_funcs: &[FieldDef] = &[
 
 pub(crate) const CLASS_DEF_DATE: ClassDef = ClassDef::builtin(
     Atom::CONST_Date,
-    ClassInitType::Normal {
-        proto_entries: js_date_proto_funcs,
-        ctor: Some(
-            crate::class::ClassCtorDef::new(js_date_constructor, 7, true)
-                .entries(js_date_funcs)
-                .export_to_global(),
-        ),
-    },
+    js_date_proto_funcs,
+    Some(
+        crate::class::ClassCtorDef::new(js_date_constructor, 7, true)
+            .entries(js_date_funcs)
+            .global(),
+    ),
 );

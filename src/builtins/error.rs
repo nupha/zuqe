@@ -7,7 +7,6 @@ use crate::{
     ClassCtorDef, ClassDef, FieldDef, JS_CLASS_ERROR,
     atom::Atom,
     builtins::iterator::iterator_to_array,
-    class::ClassInitType,
     context::{ContextPtr, ScopedContext},
     error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
     function::CallContext,
@@ -153,12 +152,10 @@ pub const js_error_proto_funcs: &[FieldDef] = &[
 
 pub(crate) const CLASS_DEF_ERROR: ClassDef = ClassDef::builtin(
     Atom::CONST_Error,
-    ClassInitType::Normal {
-        proto_entries: js_error_proto_funcs,
-        ctor: Some(
-            ClassCtorDef::new(js_error_constructor, 1, true)
-                .magic(-1)
-                .export_to_global(),
-        ),
-    },
+    js_error_proto_funcs,
+    Some(
+        ClassCtorDef::new(js_error_constructor, 1, true)
+            .magic(-1)
+            .global(),
+    ),
 );

@@ -1,7 +1,5 @@
 use crate::{
-    Atom, ClassDef, JSValue, ScopedContext,
-    class::{ClassExoticMethods, ClassInitType},
-    object::JS_PROP_NO_EXOTIC,
+    Atom, ClassDef, JSValue, ScopedContext, class::ClassExoticMethods, object::JS_PROP_NO_EXOTIC,
 };
 
 fn js_arguments_define_own_property(
@@ -47,19 +45,8 @@ pub(crate) const js_arguments_exotic_methods: ClassExoticMethods = ClassExoticMe
     set_prototype: None,
 };
 
-pub(crate) const CLASS_DEF_ARGUMENTS: ClassDef = ClassDef::builtin(
-    Atom::CONST_Arguments,
-    ClassInitType::Normal {
-        proto_entries: &[],
-        ctor: None,
-    },
-)
-.exotic(&js_arguments_exotic_methods);
+pub(crate) const CLASS_DEF_ARGUMENTS: ClassDef =
+    ClassDef::builtin(Atom::CONST_Arguments, &[], None).exotic(&js_arguments_exotic_methods);
 
-pub(crate) const CLASS_DEF_MAPPED_ARGUMENTS: ClassDef = ClassDef::builtin(
-    Atom::CONST_Arguments,
-    ClassInitType::Normal {
-        proto_entries: &[],
-        ctor: None,
-    },
-);
+pub(crate) const CLASS_DEF_MAPPED_ARGUMENTS: ClassDef =
+    ClassDef::builtin(Atom::CONST_Arguments, &[], None);

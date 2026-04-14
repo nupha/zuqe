@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    ClassDef,
+    ClassCtorDef, ClassDef,
     atom::{Atom, AtomKind},
     context::ScopedContext,
     error::JSResult,
@@ -144,12 +144,10 @@ pub const js_symbol_funcs: &[FieldDef] = &[
 
 pub(crate) const CLASS_DEF_SYMBOL: ClassDef = ClassDef::builtin(
     crate::Atom::CONST_Symbol,
-    crate::class::ClassInitType::Normal {
-        proto_entries: js_symbol_proto_funcs,
-        ctor: Some(
-            crate::class::ClassCtorDef::new(js_symbol_constructor, 0, true)
-                .entries(js_symbol_funcs)
-                .export_to_global(),
-        ),
-    },
+    js_symbol_proto_funcs,
+    Some(
+        ClassCtorDef::new(js_symbol_constructor, 0, true)
+            .entries(js_symbol_funcs)
+            .global(),
+    ),
 );

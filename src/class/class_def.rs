@@ -68,14 +68,14 @@ impl ClassCtorDef {
         self
     }
 
-    pub const fn export_to_global(mut self) -> Self {
+    pub const fn global(mut self) -> Self {
         self.export_to_global = true;
         self
     }
 }
 
 #[derive(Clone, Copy)]
-pub enum ClassInitType {
+enum ClassInitType {
     Normal {
         proto_entries: &'static [FieldDef],
         ctor: Option<ClassCtorDef>,
@@ -166,15 +166,36 @@ impl ClassDef {
         }
     }
 
-    /// Create a builtin class def
-    pub(crate) const fn builtin(name: Atom, initialize: ClassInitType) -> Self {
+    /// Create builtin class def
+    pub(crate) const fn builtin(
+        name: Atom,
+        proto_entries: &'static [FieldDef],
+        ctor: Option<ClassCtorDef>,
+    ) -> Self {
         Self {
             name: "",
             name_atom: name,
             call: None,
             exotic: None,
             unregister: None,
-            initialize,
+            initialize: ClassInitType::Normal {
+                proto_entries,
+                ctor,
+            },
+            finalize: None,
+            finalize_opaque: None,
+        }
+    }
+
+    /// Create builtin class def with customized init func
+    pub(crate) const fn builtin_with_init_func(name: Atom, init_fn: ClassInitializeFn) -> Self {
+        Self {
+            name: "",
+            name_atom: name,
+            call: None,
+            exotic: None,
+            unregister: None,
+            initialize: ClassInitType::InitFn(init_fn),
             finalize: None,
             finalize_opaque: None,
         }
@@ -235,9 +256,7 @@ impl ClassDef {
                     let ctor = ctx.init_class_ctor_internal(
                         class_id, c.callback, c.length, c.magic, proto, c.entries,
                     )?;
-
                     if c.export_to_global {
-                        debug_assert!(self.name_atom != Atom::NULL);
                         ctx.global_obj().define_property_value(
                             ctx,
                             self.name_atom,

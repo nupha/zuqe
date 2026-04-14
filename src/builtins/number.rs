@@ -277,12 +277,10 @@ pub const js_number_funcs: &[FieldDef] = &[
 
 pub(crate) const CLASS_DEF_NUMBER: ClassDef = ClassDef::builtin(
     crate::Atom::CONST_Number,
-    crate::class::ClassInitType::Normal {
-        proto_entries: js_number_proto_funcs,
-        ctor: Some(
-            crate::class::ClassCtorDef::new(js_number_constructor, 1, true)
-                .entries(js_number_funcs)
-                .export_to_global(),
-        ),
-    },
+    js_number_proto_funcs,
+    Some(
+        crate::class::ClassCtorDef::new(js_number_constructor, 1, true)
+            .entries(js_number_funcs)
+            .global(),
+    ),
 );

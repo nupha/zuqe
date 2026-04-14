@@ -6,33 +6,26 @@ mod class_arraybuffer;
 
 pub use {abuf::*, class_arraybuffer::*};
 
-use crate::{
-    Atom,
-    class::{ClassDef, ClassInitType},
-};
+use crate::{Atom, class::ClassDef};
 
 pub(crate) const CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef::builtin(
     Atom::CONST_ArrayBuffer,
-    ClassInitType::Normal {
-        proto_entries: js_array_buffer_proto_funcs,
-        ctor: Some(
-            crate::class::ClassCtorDef::new(js_array_buffer_constructor, 1, false)
-                .entries(js_array_buffer_funcs)
-                .export_to_global(),
-        ),
-    },
+    js_array_buffer_proto_funcs,
+    Some(
+        crate::class::ClassCtorDef::new(js_array_buffer_constructor, 1, false)
+            .entries(js_array_buffer_funcs)
+            .global(),
+    ),
 )
 .on_finalize(ArrayBuffer::class_finalize);
 
 pub(crate) const CLASS_DEF_SHARED_ARRAY_BUFFER: ClassDef = ClassDef::builtin(
     Atom::CONST_SharedArrayBuffer,
-    ClassInitType::Normal {
-        proto_entries: js_shared_array_buffer_proto_funcs,
-        ctor: Some(
-            crate::class::ClassCtorDef::new(js_shared_array_buffer_constructor, 1, false)
-                .entries(js_shared_array_buffer_funcs)
-                .export_to_global(),
-        ),
-    },
+    js_shared_array_buffer_proto_funcs,
+    Some(
+        crate::class::ClassCtorDef::new(js_shared_array_buffer_constructor, 1, false)
+            .entries(js_shared_array_buffer_funcs)
+            .global(),
+    ),
 )
 .on_finalize(ArrayBuffer::class_finalize);

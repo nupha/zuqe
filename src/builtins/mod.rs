@@ -34,11 +34,7 @@ pub mod regexp;
 pub mod symbol;
 
 use crate::{
-    Atom,
-    class::{ClassDef, ClassInitType},
-    context::ScopedContext,
-    error::JSResult,
-    function::CallContext,
+    Atom, class::ClassDef, context::ScopedContext, error::JSResult, function::CallContext,
     module::js_module_ns_exotic_methods,
 };
 
@@ -46,22 +42,10 @@ use crate::{
 // simple class defs
 //
 
-pub(crate) const CLASS_DEF_MODULE_NS: ClassDef = ClassDef::builtin(
-    Atom::CONST_Object,
-    ClassInitType::Normal {
-        proto_entries: &[],
-        ctor: None,
-    },
-)
-.exotic(&js_module_ns_exotic_methods);
+pub(crate) const CLASS_DEF_MODULE_NS: ClassDef =
+    ClassDef::builtin(Atom::CONST_Object, &[], None).exotic(&js_module_ns_exotic_methods);
 
-pub(crate) const CLASS_DEF_BIG_INT: ClassDef = ClassDef::builtin(
-    Atom::CONST_BigInt,
-    ClassInitType::Normal {
-        proto_entries: &[],
-        ctor: None,
-    },
-);
+pub(crate) const CLASS_DEF_BIG_INT: ClassDef = ClassDef::builtin(Atom::CONST_BigInt, &[], None);
 
 //
 // common proto methods

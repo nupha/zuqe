@@ -9,22 +9,18 @@ pub use {class_regexp::*, class_regexp_iter::*, re::*};
 
 use crate::{
     Atom,
-    class::{ClassCtorDef, ClassDef, ClassInitType},
+    class::{ClassCtorDef, ClassDef},
 };
 
 pub(crate) const CLASS_DEF_REGEXP: ClassDef = ClassDef::builtin(
     Atom::CONST_RegExp,
-    ClassInitType::Normal {
-        proto_entries: js_regexp_proto_funcs,
-        ctor: Some(
-            ClassCtorDef::new(js_regexp_constructor, 2, true)
-                .entries(js_regexp_funcs)
-                .export_to_global(),
-        ),
-    },
+    js_regexp_proto_funcs,
+    Some(
+        ClassCtorDef::new(js_regexp_constructor, 2, true)
+            .entries(js_regexp_funcs)
+            .global(),
+    ),
 );
 
-pub(crate) const CLASS_DEF_REGEXP_STRING_ITERATOR: ClassDef = ClassDef::builtin(
-    Atom::CONST_RegExp_String_Iterator,
-    ClassInitType::InitFn(RegExp::class_init),
-);
+pub(crate) const CLASS_DEF_REGEXP_STRING_ITERATOR: ClassDef =
+    ClassDef::builtin_with_init_func(Atom::CONST_RegExp_String_Iterator, RegExp::class_init);

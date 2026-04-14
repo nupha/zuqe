@@ -1150,21 +1150,17 @@ pub const js_string_funcs: &[FieldDef] = &[
 
 pub(crate) const CLASS_DEF_STRING: ClassDef = ClassDef::builtin(
     crate::Atom::CONST_String,
-    crate::class::ClassInitType::Normal {
-        proto_entries: js_string_proto_funcs,
-        ctor: Some(
-            crate::class::ClassCtorDef::new(js_string_constructor, 1, true)
-                .entries(js_string_funcs)
-                .export_to_global(),
-        ),
-    },
+    js_string_proto_funcs,
+    Some(
+        crate::class::ClassCtorDef::new(js_string_constructor, 1, true)
+            .entries(js_string_funcs)
+            .global(),
+    ),
 )
 .exotic(&js_string_exotic_methods);
 
 pub(crate) const CLASS_DEF_STRING_ITERATOR: ClassDef = ClassDef::builtin(
     Atom::CONST_String_Iterator,
-    crate::class::ClassInitType::Normal {
-        proto_entries: js_string_iterator_proto_funcs,
-        ctor: None,
-    },
+    js_string_iterator_proto_funcs,
+    None,
 );

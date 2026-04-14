@@ -7,25 +7,21 @@ pub use class_array::*;
 
 use crate::{
     Atom,
-    class::{ClassCtorDef, ClassDef, ClassInitType},
+    class::{ClassCtorDef, ClassDef},
 };
 
 pub(crate) const CLASS_DEF_ARRAY: ClassDef = ClassDef::builtin(
     Atom::CONST_Array,
-    ClassInitType::Normal {
-        proto_entries: js_array_proto_funcs,
-        ctor: Some(
-            ClassCtorDef::new(js_array_constructor, 1, true)
-                .entries(js_array_funcs)
-                .export_to_global(),
-        ),
-    },
+    js_array_proto_funcs,
+    Some(
+        ClassCtorDef::new(js_array_constructor, 1, true)
+            .entries(js_array_funcs)
+            .global(),
+    ),
 );
 
 pub(crate) const CLASS_DEF_ARRAY_ITERATOR: ClassDef = ClassDef::builtin(
     Atom::CONST_Array_Iterator,
-    ClassInitType::Normal {
-        proto_entries: js_array_iterator_proto_funcs,
-        ctor: None,
-    },
+    js_array_iterator_proto_funcs,
+    None,
 );
