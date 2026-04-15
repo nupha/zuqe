@@ -3,12 +3,18 @@
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
-use crate::{ScopedContext, context::ContextImpl, error::JSResult, value::JSValue};
+use crate::{ScopedContext, context::ContextImpl, value::JSValue};
 
 use super::Promise;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum JobState {
+    Done,
+    Again,
+}
+
 pub(crate) struct Job {
-    run: Box<dyn FnOnce(&mut ScopedContext) -> JSResult>,
+    runnable: Box<dyn Fn(&mut ScopedContext) -> Result<JobState, i32>>,
     pub(crate) gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
 }
 
@@ -22,8 +28,8 @@ impl GcTrace for Job {
 
 impl Job {
     #[inline(always)]
-    pub fn run(self, ctx: &mut ScopedContext) -> JSResult {
-        (self.run)(ctx)
+    pub fn run(&self, ctx: &mut ScopedContext) -> Result<JobState, i32> {
+        (self.runnable)(ctx)
     }
 }
 
@@ -31,11 +37,11 @@ impl ContextImpl {
     /// Append a job to job queue.
     pub(crate) fn queue_job_with_trace(
         &mut self,
-        run: impl FnOnce(&mut ScopedContext) -> JSResult + 'static,
+        runnable: impl Fn(&mut ScopedContext) -> Result<JobState, i32> + 'static,
         trace: impl Fn(&mut GcTraceCtx) + 'static,
     ) {
         self.job_list.push_back(Job {
-            run: Box::new(run),
+            runnable: Box::new(runnable),
             gc_trace: Some(Box::new(trace)),
         });
     }
@@ -47,7 +53,7 @@ pub(super) fn promise_reaction_job(
     handler: JSValue,
     is_reject: bool,
     arg: JSValue,
-) -> JSResult {
+) -> Result<JobState, i32> {
     let mut result = if handler.is_undefined() {
         if is_reject {
             ctx.throw(arg);
@@ -73,10 +79,10 @@ pub(super) fn promise_reaction_job(
     // as an extension, we support undefined as value to avoid
     // creating a dummy promise in the 'await' implementation of async functions
     if !func.is_undefined() {
-        func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&result))
-    } else {
-        Ok(JSValue::UNDEFINED)
+        func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&result))?;
     }
+
+    Ok(JobState::Done)
 }
 
 pub(super) fn js_promise_resolve_thenable_job(
@@ -84,12 +90,12 @@ pub(super) fn js_promise_resolve_thenable_job(
     promise: Promise,
     thenable: JSValue,
     then: JSValue,
-) -> JSResult {
+) -> Result<JobState, i32> {
     let rr = promise.create_resolving_functions(ctx)?;
-    if let Ok(r) = then.call(ctx, thenable, &rr) {
-        Ok(r)
-    } else {
+    if then.call(ctx, thenable, &rr).is_err() {
         let exc = ctx.rt_mut().take_exception();
-        rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc))
+        rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc))?;
     }
+
+    Ok(JobState::Done)
 }

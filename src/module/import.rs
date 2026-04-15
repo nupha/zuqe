@@ -6,7 +6,7 @@ use gc_lite::{GcTrace, GcTraceCtx};
 use crate::{
     Callback,
     atom::Atom,
-    builtins::promise::Promise,
+    builtins::promise::{JobState, Promise},
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, NativeFunction},
@@ -45,7 +45,7 @@ pub(crate) fn js_dynamic_import(ctx: &mut ScopedContext, specifier: JSValue) -> 
     ctx.queue_job_with_trace(
         move |cx| {
             js_dynamic_import_job(cx, resolving_funcs, basename_val, specifier);
-            Ok(JSValue::UNDEFINED)
+            Ok(JobState::Done)
         },
         {
             // Note: job tick is performed in root scope,

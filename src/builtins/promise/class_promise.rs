@@ -116,21 +116,25 @@ pub(crate) fn js_promise_resolve(ctx: &mut ScopedContext, cc: CallContext) -> JS
         return Err(-1);
     }
 
-    let arg0 = cc.arg(0);
-    if !is_reject && arg0.retrive_object_payload0(JS_CLASS_PROMISE).is_some() {
+    let resolution = cc.arg(0);
+
+    if !is_reject
+        && resolution
+            .retrive_object_payload0(JS_CLASS_PROMISE)
+            .is_some()
+    {
         // resolve and argument #0 is Promise
-        let ctor = arg0.get_property(ctx, Atom::CONST_constructor)?;
+        let ctor = resolution.get_property(ctx, Atom::CONST_constructor)?;
         if ctor.is_same(this) {
-            return Ok(arg0);
+            return Ok(resolution);
         }
     }
 
-    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, this)?;
-
+    let (result_promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;
     resolving_funcs[is_reject as usize].call(
         ctx,
         JSValue::UNDEFINED,
-        std::slice::from_ref(&arg0),
+        std::slice::from_ref(&resolution),
     )?;
 
     Ok(result_promise.into())
@@ -145,7 +149,7 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, this)?;
+    let (result_promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;
     debug_assert!(result_promise.gc_node().is_local());
 
     // protect `resolving_funcs` before promise.call()
@@ -328,7 +332,7 @@ pub fn js_promise_race(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let (promise, resolving_funcs) = Promise::create_from_ctor(ctx, this)?;
+    let (promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;
     debug_assert!(promise.gc_node().is_local());
 
     // protect resoving_funcs before calling promise.call()
@@ -389,7 +393,7 @@ pub fn js_promise_withResolvers(ctx: &mut ScopedContext, cc: CallContext) -> JSR
         return Err(-1);
     }
 
-    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, this)?;
+    let (result_promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;
     debug_assert!(result_promise.gc_node().is_local());
 
     let mut obj = ctx.create_base_object()?;

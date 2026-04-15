@@ -65,7 +65,7 @@ impl PromiseResolveFunc {
         s.resolved.set(true);
 
         let is_reject = class_id == JS_CLASS_PROMISE_REJECT_FUNCTION;
-        let arg0 = if !args.is_empty() {
+        let resolution = if !args.is_empty() {
             args[0]
         } else {
             JSValue::UNDEFINED
@@ -73,22 +73,20 @@ impl PromiseResolveFunc {
 
         let mut promise = s.promise;
 
-        if is_reject || !arg0.is_object() {
-            promise.fulfill_or_reject(ctx, arg0, is_reject);
+        if is_reject || !resolution.is_object() {
+            promise.fulfill_or_reject(ctx, resolution, is_reject);
             return Ok(JSValue::UNDEFINED);
-        } else if unlikely(arg0.is_same(promise.into())) {
+        } else if unlikely(resolution.is_same(promise.into())) {
             let exc = {
                 ctx.throw_type_error("promise self resolution");
                 ctx.rt_mut().take_exception()
             };
             promise.reject(ctx, exc);
             return Ok(JSValue::UNDEFINED);
-        } else if let Ok(then) = arg0.get_property(ctx, Atom::CONST_then) {
-            if !then.is_function() {
-                promise.fulfill_or_reject(ctx, arg0, is_reject);
-            } else {
+        } else if let Ok(then) = resolution.get_property(ctx, Atom::CONST_then) {
+            if then.is_function() {
                 ctx.queue_job_with_trace(
-                    move |cx| js_promise_resolve_thenable_job(cx, promise, arg0, then),
+                    move |cx| js_promise_resolve_thenable_job(cx, promise, resolution, then),
                     {
                         // Note: tick is performed in top-level scope, promote related gc nodes to top-level scope.
                         // let pid = cx.rt_ref().gc_part_hot;
@@ -105,11 +103,13 @@ impl PromiseResolveFunc {
 
                         move |tr| {
                             prf.trace(tr);
-                            arg0.trace(tr);
+                            resolution.trace(tr);
                             then.trace(tr);
                         }
                     },
                 );
+            } else {
+                promise.fulfill_or_reject(ctx, resolution, is_reject);
             }
         } else {
             let exc = ctx.rt_mut().take_exception();
@@ -274,7 +274,7 @@ impl Promise {
         fail: JSValue,
     ) -> Result<Object, i32> {
         let ctor = JS_SpeciesConstructor(ctx, (*self).into(), JSValue::UNDEFINED)?;
-        let (wrap_promise, rr) = Self::create_from_ctor(ctx, ctor)?;
+        let (wrap_promise, rr) = Self::create_with_ctor(ctx, ctor)?;
 
         self.reaction(ctx, [success, fail], rr)?;
         Ok(wrap_promise)
@@ -343,10 +343,16 @@ impl Promise {
         }
     }
 
+    /// Resolve promise with `value`.
+    #[inline(always)]
+    pub fn resolve(&mut self, ctx: &mut ScopedContext, value: JSValue) {
+        self.fulfill_or_reject(ctx, value, false);
+    }
+
     /// Reject promise with `value`.
     /// A shortcut to `fulfill_or_reject()` with is_reject=true.
     #[inline(always)]
-    pub(super) fn reject(&mut self, ctx: &mut ScopedContext, value: JSValue) {
+    pub fn reject(&mut self, ctx: &mut ScopedContext, value: JSValue) {
         self.fulfill_or_reject(ctx, value, true);
     }
 }

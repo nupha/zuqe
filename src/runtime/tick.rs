@@ -3,7 +3,10 @@
 
 use gc_lite::GcNode;
 
-use crate::context::{ContextPtr, ScopedContext};
+use crate::{
+    builtins::promise::JobState,
+    context::{ContextPtr, ScopedContext},
+};
 
 use super::RuntimeImpl;
 
@@ -35,7 +38,9 @@ impl RuntimeImpl {
                 // 1. run pending jobs
                 while let Some(mut job) = scope.job_list.pop_front() {
                     self.gc_cur_job_trace = job.gc_trace.take();
-                    job.run(&mut scope)?;
+                    if job.run(&mut scope)? == JobState::Again {
+                        scope.job_list.push_back(job);
+                    };
                     self.gc_cur_job_trace = None;
                 }
 

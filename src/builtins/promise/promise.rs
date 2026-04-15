@@ -8,7 +8,7 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use crate::{
     JS_CLASS_PROMISE,
     atom::Atom,
-    builtins::error::js_aggregate_error_constructor,
+    builtins::{error::js_aggregate_error_constructor, promise::JobState},
     context::{ContextImpl, ScopedContext},
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
@@ -106,24 +106,18 @@ pub struct Promise(GcRef<ObjectImpl>);
 
 object_cast!(Promise, JS_CLASS_PROMISE);
 
-// impl GcTrace for Promise {
-//     fn trace(&self, tr: &mut GcTraceCtx) {
-//         tr.add(self.0);
-//     }
-// }
-
 impl Promise {
     /// create Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
     /// `executor` must be a callable object.
-    fn from_executor(
+    fn create_with_executor(
         ctx: &mut ScopedContext,
         executor: Object,
         ctor: JSValue,
     ) -> Result<Self, i32> {
         executor.ensure_function(ctx)?;
 
-        // create js object of promise class
+        // create Promise instance
         let isa = Box::new(PromiseData {
             state: PromiseState::Pending,
             reactions: [Vec::new(), Vec::new()],
@@ -136,8 +130,8 @@ impl Promise {
                 .0,
         );
 
+        // call executor function with (resolve, reject) arguments
         let rr = promise.create_resolving_functions(ctx)?;
-
         if executor.call(ctx, JSValue::UNDEFINED, &rr).is_err() {
             let exc = ctx.rt_mut().take_exception();
             rr[1].call(ctx, JSValue::UNDEFINED, &[exc])?;
@@ -146,12 +140,13 @@ impl Promise {
         Ok(promise)
     }
 
-    /// create new Promise and associated resolving function pairs.
+    /// Create Promise (with constructor) and associated \[resolve, reject\] functions pair.
+    ///
     /// returns Object (could be Promise or derived class instance) and \[resolve, reject\] functions.
     /// `ctor` is the constructor function value to instantiate Promise object:
     ///  - when provided, will call this function to create customized Promise object,
     ///  - when it is `undefined`, creates default Promise object.
-    pub(super) fn create_from_ctor(
+    pub(super) fn create_with_ctor(
         ctx: &mut ScopedContext,
         ctor: JSValue,
     ) -> Result<(Object, [JSValue; 2]), i32> {
@@ -169,7 +164,7 @@ impl Promise {
         )?;
 
         let promise: Object = if ctor.is_undefined() {
-            Self::from_executor(ctx, executor.into(), JSValue::UNDEFINED)?.into()
+            Self::create_with_executor(ctx, executor.into(), JSValue::UNDEFINED)?.into()
         } else {
             ctor.call_ctor(ctx, std::slice::from_ref(&executor.into()))
                 .and_then(Object::try_from)?
@@ -191,14 +186,61 @@ impl Promise {
         Ok((promise, resolving_funcs))
     }
 
-    /// create default Promise and its associated resolving functions.
-    /// returns a Promise object and \[resolve, reject\] functions pair.
-    #[inline]
+    /// Create default Promise and its associated \[resolve, reject\] functions pair.
     pub fn create(ctx: &mut ScopedContext) -> Result<(Self, [JSValue; 2]), i32> {
-        Self::create_from_ctor(ctx, JSValue::UNDEFINED).map(|(p, rr)| {
+        Self::create_with_ctor(ctx, JSValue::UNDEFINED).map(|(p, rr)| {
             debug_assert_eq!(p.class_id(), JS_CLASS_PROMISE);
             (Self(p.0), rr)
         })
+    }
+
+    /// Create Promise with background running job.
+    ///
+    /// The `job` function could return:
+    ///  - Some(value) - resolve promise with value.
+    ///  - None - job need to be run again.
+    ///  - Err(err) - reject promise with err.
+    pub fn create_with_job(
+        ctx: &mut ScopedContext,
+        job: impl Fn(&mut ScopedContext) -> Result<Option<JSValue>, i32> + 'static,
+    ) -> Result<Self, i32> {
+        let isa = Box::new(PromiseData {
+            state: PromiseState::Pending,
+            reactions: [Vec::new(), Vec::new()],
+            result: JSValue::UNDEFINED,
+            is_handled: false,
+        });
+        let promise = Self(
+            ctx.create_instance_with_ctor(JSValue::UNDEFINED, ObjectPayload::PROMISE(isa))
+                .map_err(|_| -1)?
+                .0,
+        );
+
+        let rr = promise.create_resolving_functions(ctx)?;
+        let rr2 = rr;
+
+        ctx.queue_job_with_trace(
+            move |cx| -> Result<JobState, i32> {
+                match job(cx) {
+                    Ok(Some(v)) => {
+                        rr[0].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&v))?;
+                        Ok(JobState::Done)
+                    }
+                    Ok(None) => Ok(JobState::Again),
+                    Err(_) => {
+                        let err = cx.rt_mut().take_exception();
+                        rr[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err))?;
+                        Ok(JobState::Done)
+                    }
+                }
+            },
+            move |gcx| {
+                rr2[0].trace(gcx);
+                rr2[1].trace(gcx);
+            },
+        );
+
+        Ok(promise)
     }
 
     /// create and returns \[resolve, reject\] function pairs for `self` promise object.
@@ -294,19 +336,6 @@ impl Promise {
             }
         }
         Ok(JSValue::UNDEFINED)
-    }
-
-    /// the native callback for Promise constructor function
-    pub fn class_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-        let this = cc.this();
-        let executor = cc
-            .arg(0)
-            .ensure_function(ctx)?
-            .as_object()
-            .copied()
-            .unwrap();
-
-        Promise::from_executor(ctx, executor, this).map(|p| p.into())
     }
 
     /// see ECMAScript spec `Promise.resolve()` and `Promise.reject()` for details.
@@ -416,4 +445,15 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
     }
 
     Ok(JSValue::UNDEFINED)
+}
+
+pub(crate) fn js_promise_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let exec_func = cc
+        .arg(0)
+        .ensure_function(ctx)?
+        .as_object()
+        .copied()
+        .unwrap();
+
+    Promise::create_with_executor(ctx, exec_func, cc.this()).map(|p| p.into())
 }

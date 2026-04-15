@@ -46,7 +46,7 @@ pub fn setup_globals(ctx: &mut ScopedContext, script_args: &[String]) -> Result<
 
     {
         let printfn = ctx.create_native_function(Callback::Func(js_print), "print", 0, 0)?;
-        global.set_property_str(ctx, "print", printfn.into())?;
+        global.define_property_value_str(ctx, "print", printfn.into(), JS_PROP_C_W_E)?;
 
         let mut console = ctx.create_base_object()?;
         console.define_property_value_str(ctx, "log", printfn.into(), JS_PROP_C_W_E)?;

@@ -16,7 +16,7 @@ pub(crate) static CLASS_DEF_PROMISE: ClassDef = ClassDef::builtin(
     Atom::CONST_Promise,
     js_promise_proto_funcs,
     Some(
-        crate::class::ClassCtorDef::new(Promise::class_constructor, 1, false)
+        crate::class::ClassCtorDef::new(js_promise_constructor, 1, false)
             .entries(js_promise_funcs)
             .global(),
     ),
