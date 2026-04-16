@@ -146,11 +146,11 @@ impl ContextImpl {
 /// The originating Promise is guaranteed to be already fulfilled or rejected
 /// when this function is called; this function is never invoked while the Promise is pending.
 /// So, this is a oneshot microtask, it won't schedule any new jobs.
-pub(super) fn promise_reaction_job(
+pub(super) fn js_promise_reaction_job(
     ctx: &mut ScopedContext,
     action: PromiseReaction,
-    is_reject: bool,
     arg: JSValue,
+    is_reject: bool,
 ) -> Result<JobState, i32> {
     let mut result = if action.handler.is_undefined() {
         if is_reject {

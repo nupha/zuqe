@@ -17,7 +17,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{Promise, PromiseState, js_promise_resolve_thenable_job, promise_reaction_job};
+use super::{Promise, PromiseState, js_promise_reaction_job, js_promise_resolve_thenable_job};
 
 /// Promise resolving function data
 #[derive(Debug)]
@@ -166,10 +166,10 @@ impl Promise {
             resolving_funcs: cap_resolving_funcs,
             handler: {
                 let h = reaction_funcs[0];
-                if !h.is_function() {
-                    JSValue::UNDEFINED
-                } else {
+                if h.is_function() {
                     h
+                } else {
+                    JSValue::UNDEFINED
                 }
             },
         };
@@ -177,10 +177,10 @@ impl Promise {
             resolving_funcs: cap_resolving_funcs,
             handler: {
                 let h = reaction_funcs[1];
-                if !h.is_function() {
-                    JSValue::UNDEFINED
-                } else {
+                if h.is_function() {
                     h
+                } else {
+                    JSValue::UNDEFINED
                 }
             },
         };
@@ -197,14 +197,14 @@ impl Promise {
             _ => {
                 if state == PromiseState::Rejected
                     && !is_handled
-                    && let Some(cb) = ctx.rt_ptr().host_promise_rejection_tracker
+                    && let Some(cb) = ctx.rt().host_promise_rejection_tracker
                 {
                     cb(
                         ctx,
                         *self,
                         result,
                         true as i32,
-                        ctx.rt_ptr().host_promise_rejection_tracker_opaque,
+                        ctx.rt().host_promise_rejection_tracker_opaque,
                     );
                 }
 
@@ -217,7 +217,7 @@ impl Promise {
                 // add a job to poll promise reaction in runtime tick
                 let is_reject = state == PromiseState::Rejected;
                 ctx.queue_job(
-                    move |cx| promise_reaction_job(cx, act, is_reject, result),
+                    move |cx| js_promise_reaction_job(cx, act, result, is_reject),
                     JobGcTrace2 { a: act, b: result },
                 );
             }
@@ -272,7 +272,7 @@ impl Promise {
         let mut reactions = self.payload_mut().take_reactions();
         for act in reactions[is_reject as usize].drain(..) {
             ctx.queue_job(
-                move |cx| promise_reaction_job(cx, act, is_reject, value),
+                move |cx| js_promise_reaction_job(cx, act, value, is_reject),
                 JobGcTrace2 { a: act, b: value },
             );
         }
