@@ -139,14 +139,20 @@ impl ContextImpl {
     }
 }
 
+/// Execute a Promise reaction job for a settled Promise.
+///
+/// # Description
+///
+/// The originating Promise is guaranteed to be already fulfilled or rejected
+/// when this function is called; this function is never invoked while the Promise is pending.
+/// So, this is a oneshot microtask, it won't schedule any new jobs.
 pub(super) fn promise_reaction_job(
     ctx: &mut ScopedContext,
-    resolving: [JSValue; 2],
-    handler: JSValue,
+    action: PromiseReaction,
     is_reject: bool,
     arg: JSValue,
 ) -> Result<JobState, i32> {
-    let mut result = if handler.is_undefined() {
+    let mut result = if action.handler.is_undefined() {
         if is_reject {
             ctx.throw(arg);
             JSValue::EXCEPTION
@@ -154,7 +160,8 @@ pub(super) fn promise_reaction_job(
             arg
         }
     } else {
-        handler
+        action
+            .handler
             .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&arg))
             .unwrap_or(JSValue::EXCEPTION)
     };
@@ -166,7 +173,7 @@ pub(super) fn promise_reaction_job(
         false
     };
 
-    let func = &resolving[is_reject as usize];
+    let func = &action.resolving_funcs[is_reject as usize];
 
     // as an extension, we support undefined as value to avoid
     // creating a dummy promise in the 'await' implementation of async functions

@@ -43,6 +43,7 @@ impl RuntimeImpl {
                     self.gc_cur_job_trace = job.gc_trace.take(); // save job gc tracing temporarily
 
                     if job.run(&mut scope)? == JobState::Again {
+                        // multi-run task: run again in next iter
                         job.gc_trace = self.gc_cur_job_trace.take(); // restore job gc tracing
                         again.push(job);
                     } else {

@@ -216,17 +216,8 @@ impl Promise {
 
                 // add a job to poll promise reaction in runtime tick
                 let is_reject = state == PromiseState::Rejected;
-
                 ctx.queue_job(
-                    move |cx| {
-                        promise_reaction_job(
-                            cx,
-                            act.resolving_funcs,
-                            act.handler,
-                            is_reject,
-                            result,
-                        )
-                    },
+                    move |cx| promise_reaction_job(cx, act, is_reject, result),
                     JobGcTrace2 { a: act, b: result },
                 );
             }
@@ -281,9 +272,7 @@ impl Promise {
         let mut reactions = self.payload_mut().take_reactions();
         for act in reactions[is_reject as usize].drain(..) {
             ctx.queue_job(
-                move |cx| {
-                    promise_reaction_job(cx, act.resolving_funcs, act.handler, is_reject, value)
-                },
+                move |cx| promise_reaction_job(cx, act, is_reject, value),
                 JobGcTrace2 { a: act, b: value },
             );
         }
