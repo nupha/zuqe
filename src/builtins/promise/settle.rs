@@ -74,7 +74,7 @@ impl PromiseResolveFunc {
         let mut promise = s.promise;
 
         if is_reject || !resolution.is_object() {
-            promise.fulfill_or_reject(ctx, resolution, is_reject);
+            promise.settle(ctx, resolution, is_reject);
             return Ok(JSValue::UNDEFINED);
         } else if unlikely(resolution.is_same(promise.into())) {
             let exc = {
@@ -109,7 +109,7 @@ impl PromiseResolveFunc {
                     },
                 );
             } else {
-                promise.fulfill_or_reject(ctx, resolution, is_reject);
+                promise.settle(ctx, resolution, is_reject);
             }
         } else {
             let exc = ctx.rt_mut().take_exception();
@@ -280,14 +280,9 @@ impl Promise {
         Ok(wrap_promise)
     }
 
-    /// Set resolving result `value`, set promise status to 'fulfilled' or 'rejected'.
-    /// Will call chained reactions which was registered by `then()`, `catch()` or `finally()`.
-    pub(super) fn fulfill_or_reject(
-        &mut self,
-        ctx: &mut ScopedContext,
-        value: JSValue,
-        is_reject: bool,
-    ) {
+    /// Save result `value` and update promise status to 'fulfilled' or 'rejected'.
+    /// Call chained reactions which was registered by `then()`, `catch()` or `finally()`.
+    fn settle(&mut self, ctx: &mut ScopedContext, value: JSValue, is_reject: bool) {
         let (state, is_handled) = {
             let p = self.payload_mut();
             debug_assert_eq!(p.state(), PromiseState::Pending);
@@ -341,13 +336,13 @@ impl Promise {
     /// Call chained reactions.
     #[inline(always)]
     pub fn resolve(&mut self, ctx: &mut ScopedContext, value: JSValue) {
-        self.fulfill_or_reject(ctx, value, false);
+        self.settle(ctx, value, false);
     }
 
     /// Update promise state to rejected with result `value`.
     /// Call chained reactions.
     #[inline(always)]
     pub fn reject(&mut self, ctx: &mut ScopedContext, value: JSValue) {
-        self.fulfill_or_reject(ctx, value, true);
+        self.settle(ctx, value, true);
     }
 }

@@ -90,10 +90,10 @@ pub(super) fn js_promise_resolve_thenable_job(
     ctx: &mut ScopedContext,
     promise: Promise,
     thenable: JSValue,
-    then: JSValue,
+    then_func: JSValue,
 ) -> Result<JobState, i32> {
     let rr = promise.create_resolving_functions(ctx)?;
-    if then.call(ctx, thenable, &rr).is_err() {
+    if then_func.call(ctx, thenable, &rr).is_err() {
         let exc = ctx.rt_mut().take_exception();
         rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc))?;
     }

@@ -4,9 +4,9 @@
 mod class_promise;
 mod job;
 mod promise;
-mod resolving;
+mod settle;
 
-pub use {class_promise::*, promise::*, resolving::*};
+pub use {class_promise::*, promise::*, settle::*};
 
 pub(crate) use job::*;
 
