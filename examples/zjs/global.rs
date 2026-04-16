@@ -29,7 +29,7 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
         colorize_print(
             if inspect {
-                arg.inspect(ctx)?.to_string()
+                arg.inspect(ctx.rt_mut())?.to_string()
             } else {
                 format!("{}", arg.to_string(ctx)?.deref())
             },

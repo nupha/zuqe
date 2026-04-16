@@ -80,7 +80,7 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             print!(" ");
         }
         let arg = cc.arg(i);
-        let repr = arg.inspect(ctx)?;
+        let repr = arg.inspect(ctx.rt_mut())?;
 
         // print!("{}", repr);
 
@@ -104,7 +104,7 @@ fn js_detachArrayBuffer(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let source = cc.arg(0).inspect(ctx)?;
+    let source = cc.arg(0).inspect(ctx.rt_mut())?;
     ctx.with_new_scope(|mut scope| {
         scope.eval(
             source.as_bytes(),

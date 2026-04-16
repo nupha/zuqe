@@ -13,7 +13,10 @@ use std::{io::Write, process::ExitCode};
 use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use libloading::Library;
-use zuqe::{Context, ErrorText, EvalFlags, EvalType, ModuleDef, Runtime, ScopedContext};
+use zuqe::{
+    Context, ErrorText, EvalFlags, EvalType, ModuleDef, Runtime, ScopedContext,
+    builtins::promise::Promise,
+};
 
 use crate::{
     class_file::JSFile,
@@ -226,7 +229,7 @@ fn main() -> ExitCode {
 
         match result {
             Ok(val) => {
-                colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
+                colorize_println(val.inspect(scope.rt_mut()).unwrap(), GreenFg);
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -251,7 +254,9 @@ fn main() -> ExitCode {
 async fn main() -> ExitCode {
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
-    let exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
+    let mut promise_future = None;
+
+    let mut exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
         let result = scope
             .eval(
                 script.as_bytes(),
@@ -270,8 +275,27 @@ async fn main() -> ExitCode {
 
         match result {
             Ok(val) => {
-                colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
-                ExitCode::SUCCESS
+                if let Ok(promise) = Promise::try_from(val) {
+                    match promise.into_future(&mut scope) {
+                        Ok(fut) => {
+                            promise_future = Some(fut);
+                            ExitCode::SUCCESS
+                        }
+                        Err(_) => {
+                            let exc = scope.rt_mut().take_exception();
+                            let err = ErrorText::from(&mut scope, exc);
+                            let mut err_msg = err.message;
+                            if let Some(tb) = err.traceback {
+                                err_msg = format!("{err_msg}\n{tb}");
+                            }
+                            colorize_println(err_msg, RedFg);
+                            ExitCode::FAILURE
+                        }
+                    }
+                } else {
+                    colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);
+                    ExitCode::SUCCESS
+                }
             }
             Err(e) => {
                 let mut err_msg = e.message;
@@ -287,7 +311,30 @@ async fn main() -> ExitCode {
     #[cfg(debug_assertions)]
     debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
 
-    let _ = rt.run_async().await;
+    if let Some(js_fut) = promise_future {
+        let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
+
+        if let Err(code) = rt_res {
+            let msg = format!("runtime error: {code}");
+            colorize_println(msg, RedFg);
+            exit_code = ExitCode::FAILURE;
+        }
+
+        match promise_res {
+            Ok(val) => {
+                colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);
+            }
+            Err(reason) => {
+                let err_msg = reason
+                    .inspect(&mut rt)
+                    .unwrap_or_else(|_| "<exception>".into());
+                colorize_println(err_msg.clone(), RedFg);
+                exit_code = ExitCode::FAILURE;
+            }
+        }
+    } else {
+        let _ = rt.run_async().await;
+    }
 
     exit_code
 }

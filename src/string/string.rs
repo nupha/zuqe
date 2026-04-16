@@ -10,7 +10,7 @@ use std::{
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_STRING,
+    ERR_OUT_OF_MEMORY, JS_CLASS_STRING, RuntimeImpl,
     atom::{Atom, AtomInfo, AtomKind},
     class::ClassExoticMethods,
     context::ScopedContext,
@@ -503,6 +503,25 @@ impl<'c> ScopedContext<'c> {
             bb => StringBuf::Utf16(bb.to_vec()),
         };
         self.create_string_with_buf(sbuf)
+    }
+}
+
+impl RuntimeImpl {
+    /// create string from utf8 encoded data.
+    pub(crate) fn create_string_from_utf8(
+        &mut self,
+        utf8_bytes: Vec<u8>,
+    ) -> Result<StringRef, i32> {
+        debug_assert!(utf8_bytes.len() <= JS_STRING_LEN_MAX);
+
+        if utf8_bytes.is_empty() {
+            Atom::CONST_empty_string.force_string_rt(self)
+        } else {
+            StringRef::create_utf8(RuntimePtr::from(&*self), utf8_bytes).inspect_err(|_| {
+                eprintln!("out of memory");
+                self.set_exception(JSValue::Int(ERR_OUT_OF_MEMORY));
+            })
+        }
     }
 }
 

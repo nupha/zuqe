@@ -243,7 +243,22 @@ impl Atom {
         }
     }
 
-    /// force convert atom to string value.
+    /// force convert atom to StringRef.
+    /// for anonymous symbol, ident convert to empty string value.
+    pub(crate) fn force_string_rt(&self, rt: &mut RuntimeImpl) -> Result<StringRef, i32> {
+        if let Some(n) = self.to_small_int() {
+            rt.create_string_from_utf8(format!("{n}").into_bytes())
+        } else {
+            let s = self.descriptor(rt);
+            if s.content().is_ident() {
+                Self::CONST_empty_string.force_string_rt(rt)
+            } else {
+                Ok(s)
+            }
+        }
+    }
+
+    /// force convert atom to StringRef.
     /// for anonymous symbol, ident convert to empty string value.
     pub fn force_string(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
         if let Some(n) = self.to_small_int() {

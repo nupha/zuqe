@@ -10,6 +10,11 @@ pub use {class_promise::*, promise::*, settle::*};
 
 pub(crate) use microtask::*;
 
+#[cfg(feature = "async_support")]
+mod async_support;
+#[cfg(feature = "async_support")]
+pub use async_support::*;
+
 use crate::{Atom, class::ClassDef};
 
 pub(crate) static CLASS_DEF_PROMISE: ClassDef = ClassDef::builtin(

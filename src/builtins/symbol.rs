@@ -90,7 +90,7 @@ pub fn js_thisSymbolValue(ctx: &mut ScopedContext, val: JSValue) -> JSResult {
 fn js_symbol_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let val = js_thisSymbolValue(ctx, cc.this())?;
     // formatted as 'Symbol(XXX)'
-    let repr = val.inspect(ctx)?.into_bytes();
+    let repr = val.inspect(ctx.rt_mut())?.into_bytes();
     ctx.create_string_from_utf8(repr).map(JSValue::from)
 }
 
