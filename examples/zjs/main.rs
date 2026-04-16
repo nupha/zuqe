@@ -121,7 +121,7 @@ fn parse_byte_size(ss: &str) -> Option<usize> {
     }
 }
 
-fn main() -> ExitCode {
+fn run_zjs() -> (Runtime, ExitCode) {
     #[cfg(debug_assertions)]
     {
         let log_file = std::fs::OpenOptions::new()
@@ -151,98 +151,108 @@ fn main() -> ExitCode {
         }
     };
 
-    // Create runtime
-    let mut rt = Runtime::create().unwrap();
+    let (rt, exit_code) = {
+        let mut rt = Runtime::create().unwrap();
 
-    // In release build, when set panic="abort" in Cargo.toml,
-    // should install panic handler to ensure gc heap deallocate when panic.
-    rt.install_panic_handler();
+        rt.install_panic_handler();
 
-    // memory-limit
-    {
-        let ss = args.memory_limit;
-        if let Some(size) = parse_byte_size(&ss) {
-            rt.gc_set_memory_limit(size);
-        } else {
-            colorize_println(format!("invalid memory-limit: {ss}"), RedFg);
-            std::process::exit(-1);
-        }
-    }
-
-    // stack-size
-    {
-        let ss = args.stack_size;
-        if let Some(size) = parse_byte_size(&ss) {
-            rt.set_stack_size(size);
-        } else {
-            colorize_println(format!("invalid stack-size: {ss}"), RedFg);
-            std::process::exit(-1);
-        }
-    }
-
-    rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
-
-    // 'os' module has gc objects inside which should be traced.
-    // install customized gc trace handler provided by 'os' module.
-    rt.gc_set_trace_handler(|tr| {
-        mod_os_gc_trace(tr);
-    });
-
-    // register native class 'File'
-    let class_id_file = JSFile::register(rt.clone()).unwrap();
-
-    let is_module =
-        args.module || filename.ends_with(".mjs") || ModuleDef::detect_module(script.as_bytes());
-
-    // create context and setup
-    let mut ctx = rt
-        .create_context(|cx| {
-            Context::ECMA_CONTEXT_SETUP(cx)?;
-
-            // use File class
-            cx.use_class(class_id_file).unwrap();
-
-            // register native modules
-            init_mod_std(cx).unwrap();
-            init_mod_os(cx).unwrap();
-
-            setup_globals(cx, &args.script_args)
-        })
-        .unwrap();
-
-    #[cfg(debug_assertions)]
-    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0, "no scope now");
-
-    let exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
-        let ret = scope.eval_wait(
-            script.as_bytes(),
-            &filename,
-            if is_module {
-                EvalType::Module
+        {
+            let ss = args.memory_limit;
+            if let Some(size) = parse_byte_size(&ss) {
+                rt.gc_set_memory_limit(size);
             } else {
-                EvalType::Global
-            },
-            EvalFlags::empty(),
-        );
-
-        match ret {
-            Ok(val) => {
-                colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                let mut err_msg = e.message;
-                if let Some(tb) = e.traceback {
-                    err_msg = format!("{err_msg}\n{tb}");
-                }
-                colorize_println(err_msg, RedFg);
-                ExitCode::FAILURE
+                colorize_println(format!("invalid memory-limit: {ss}"), RedFg);
+                std::process::exit(-1);
             }
         }
-    });
 
-    #[cfg(debug_assertions)]
-    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+        {
+            let ss = args.stack_size;
+            if let Some(size) = parse_byte_size(&ss) {
+                rt.set_stack_size(size);
+            } else {
+                colorize_println(format!("invalid stack-size: {ss}"), RedFg);
+                std::process::exit(-1);
+            }
+        }
+
+        rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
+
+        rt.gc_set_trace_handler(|tr| {
+            mod_os_gc_trace(tr);
+        });
+
+        let class_id_file = JSFile::register(rt.clone()).unwrap();
+
+        let is_module = args.module
+            || filename.ends_with(".mjs")
+            || ModuleDef::detect_module(script.as_bytes());
+
+        let mut ctx = rt
+            .create_context(|cx| {
+                Context::ECMA_CONTEXT_SETUP(cx)?;
+
+                cx.use_class(class_id_file).unwrap();
+
+                init_mod_std(cx).unwrap();
+                init_mod_os(cx).unwrap();
+
+                setup_globals(cx, &args.script_args)
+            })
+            .unwrap();
+
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0, "no scope now");
+
+        let exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
+            let ret = scope.eval_wait(
+                script.as_bytes(),
+                &filename,
+                if is_module {
+                    EvalType::Module
+                } else {
+                    EvalType::Global
+                },
+                EvalFlags::empty(),
+            );
+
+            match ret {
+                Ok(val) => {
+                    colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    let mut err_msg = e.message;
+                    if let Some(tb) = e.traceback {
+                        err_msg = format!("{err_msg}\n{tb}");
+                    }
+                    colorize_println(err_msg, RedFg);
+                    ExitCode::FAILURE
+                }
+            }
+        });
+
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+
+        (rt, exit_code)
+    };
+
+    (rt, exit_code)
+}
+
+#[cfg(not(feature = "async_support"))]
+fn main() -> ExitCode {
+    let (_rt, exit_code) = run_zjs();
+    exit_code
+}
+
+#[cfg(feature = "async_support")]
+#[tokio::main]
+async fn main() -> ExitCode {
+    let (mut rt, exit_code) = run_zjs();
+
+    let _ = rt.run_async().await;
 
     exit_code
 }

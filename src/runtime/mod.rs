@@ -8,3 +8,8 @@ mod tick;
 pub use {handle::Runtime, rt::RuntimeImpl, tick::TickStatus};
 
 pub(crate) use {handle::RuntimePtr, rt::*};
+
+#[cfg(feature = "async_support")]
+mod async_support;
+#[cfg(feature = "async_support")]
+pub use async_support::RuntimeFuture;

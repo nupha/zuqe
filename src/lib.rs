@@ -40,6 +40,9 @@ pub use {
     value::{JSValue, Value},
 };
 
+#[cfg(feature = "async_support")]
+pub use runtime::RuntimeFuture;
+
 mod stdcls {
     include!(concat!(env!("OUT_DIR"), "/std_class_def.rs"));
 }
