@@ -13,23 +13,18 @@ use std::{
 use gc_lite::{GcHeap, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_DATAVIEW, JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY,
-    JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_OBJECT, JS_CLASS_PROMISE,
+    JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
+    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_DATAVIEW,
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_PROMISE,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
-    array::ArrayPayload,
     atom::Atom,
-    builtins::{error::js_error_proto_funcs, global::js_global_props, promise::Job},
+    builtins::{global::js_global_props, promise::Job},
     class::ClassID,
     context::ScopedContext,
-    error::{STD_ERROR_COUNT, STD_ERROR_NAMES},
-    function::{Callback, NativeFunction, js_function_proto},
+    error::STD_ERROR_COUNT,
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
-    object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, Object, ObjectPayload, Shape,
-    },
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, Shape},
     runtime::{RuntimeImpl, RuntimePtr},
     value::JSValue,
 };

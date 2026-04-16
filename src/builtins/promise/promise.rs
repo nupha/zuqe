@@ -140,12 +140,14 @@ impl Promise {
         Ok(promise)
     }
 
-    /// Create Promise (with constructor) and associated \[resolve, reject\] functions pair.
+    /// Create Promise (with constructor) and associated \[resolve, reject\] resolving functions pair.
     ///
     /// returns Object (could be Promise or derived class instance) and \[resolve, reject\] functions.
     /// `ctor` is the constructor function value to instantiate Promise object:
     ///  - when provided, will call this function to create customized Promise object,
     ///  - when it is `undefined`, creates default Promise object.
+    ///
+    /// Resolving functions hold reference to Promise.
     pub(super) fn create_with_ctor(
         ctx: &mut ScopedContext,
         ctor: JSValue,
@@ -186,7 +188,9 @@ impl Promise {
         Ok((promise, resolving_funcs))
     }
 
-    /// Create default Promise and its associated \[resolve, reject\] functions pair.
+    /// Create default Promise and its associated \[resolve, reject\] resolving functions pair.
+    ///
+    /// Resolving functions hold reference to Promise.
     pub fn create(ctx: &mut ScopedContext) -> Result<(Self, [JSValue; 2]), i32> {
         Self::create_with_ctor(ctx, JSValue::UNDEFINED).map(|(p, rr)| {
             debug_assert_eq!(p.class_id(), JS_CLASS_PROMISE);
@@ -243,7 +247,9 @@ impl Promise {
         Ok(promise)
     }
 
-    /// create and returns \[resolve, reject\] function pairs for `self` promise object.
+    /// Create \[resolve, reject\] resolving functions pair for `self` promise object.
+    ///
+    /// Resolving functions hold reference to Promise.
     pub(super) fn create_resolving_functions(
         &self,
         ctx: &mut ScopedContext,

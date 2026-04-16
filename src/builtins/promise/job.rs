@@ -13,6 +13,7 @@ pub(crate) enum JobState {
     Again,
 }
 
+/// A job running in background, known as 'micro task'.
 pub(crate) struct Job {
     runnable: Box<dyn Fn(&mut ScopedContext) -> Result<JobState, i32>>,
     pub(crate) gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
@@ -34,7 +35,7 @@ impl Job {
 }
 
 impl ContextImpl {
-    /// Append a job to job queue.
+    /// Append a job to queue.
     pub(crate) fn queue_job_with_trace(
         &mut self,
         runnable: impl Fn(&mut ScopedContext) -> Result<JobState, i32> + 'static,

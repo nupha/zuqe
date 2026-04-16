@@ -31,8 +31,8 @@ pub struct PromiseResolvePayload {
 }
 
 impl GcTrace for PromiseResolvePayload {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.promise.trace(tr);
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        self.promise.trace(gcx);
     }
 }
 
@@ -101,10 +101,10 @@ impl PromiseResolveFunc {
                         //     heap.set_xref(pid, n);
                         // }
 
-                        move |tr| {
-                            prf.trace(tr);
-                            resolution.trace(tr);
-                            then.trace(tr);
+                        move |gcx| {
+                            prf.trace(gcx);
+                            resolution.trace(gcx);
+                            then.trace(gcx);
                         }
                     },
                 );
@@ -280,9 +280,8 @@ impl Promise {
         Ok(wrap_promise)
     }
 
-    /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.
-    /// set promise state to 'fulfilled' or 'rejected',
-    /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
+    /// Set resolving result `value`, set promise status to 'fulfilled' or 'rejected'.
+    /// Will call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     pub(super) fn fulfill_or_reject(
         &mut self,
         ctx: &mut ScopedContext,
@@ -312,45 +311,41 @@ impl Promise {
             f(ctx, *self, value, 0, opaque);
         }
 
-        // call chained reactions registered by `then()`, `catch()` or `finally()`
+        // call chained reactions
         let mut reactions = self.payload_mut().take_reactions();
-
         for act in reactions[is_reject as usize].drain(..) {
             // queue reaction in job list to resolve in next tick
             ctx.queue_job_with_trace(
                 move |cx| {
                     promise_reaction_job(cx, act.resolving_funcs, act.handler, is_reject, value)
                 },
-                {
-                    // Note: tick is performed in root scope,
-                    // should promote related gc nodes to root scope.
-                    // let mut rt = cx.rt_ptr();
-                    // let top = rt.gc_part_hot;
-                    // let heap = rt.gc_heap_mut();
-                    // for n in act.gc_children(heap) {
-                    //     heap.set_xref(top, n);
-                    // }
-                    // if let Some(v) = value.gc_node_ptr() {
-                    //     heap.set_xref(top, v);
-                    // }
-
-                    move |tr| {
-                        act.trace(tr);
-                        value.trace(tr);
-                    }
+                // Note: tick is performed in root scope, should we promote related gc nodes to root scope?
+                // let mut rt = cx.rt_ptr();
+                // let top = rt.gc_part_hot;
+                // let heap = rt.gc_heap_mut();
+                // for n in act.gc_children(heap) {
+                //     heap.set_xref(top, n);
+                // }
+                // if let Some(v) = value.gc_node_ptr() {
+                //     heap.set_xref(top, v);
+                // }
+                move |gcx| {
+                    act.trace(gcx);
+                    value.trace(gcx);
                 },
             );
         }
     }
 
-    /// Resolve promise with `value`.
+    /// Update promise state to fulfilled with result `value`.
+    /// Call chained reactions.
     #[inline(always)]
     pub fn resolve(&mut self, ctx: &mut ScopedContext, value: JSValue) {
         self.fulfill_or_reject(ctx, value, false);
     }
 
-    /// Reject promise with `value`.
-    /// A shortcut to `fulfill_or_reject()` with is_reject=true.
+    /// Update promise state to rejected with result `value`.
+    /// Call chained reactions.
     #[inline(always)]
     pub fn reject(&mut self, ctx: &mut ScopedContext, value: JSValue) {
         self.fulfill_or_reject(ctx, value, true);

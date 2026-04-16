@@ -75,10 +75,12 @@ fn js_promise_then_finally_func(ctx: &mut ScopedContext, cc: CallContext) -> JSR
 pub fn js_promise_finally(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let on_finally = cc.arg(0);
 
-    let then_funcs: [JSValue; 2] = if !on_finally.is_function() {
+    let then_args: [JSValue; 2] = if !on_finally.is_function() {
         [on_finally, on_finally]
     } else {
+        let function_proto = ctx.function_proto();
         let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
+
         [
             NativeFunction::create(
                 ctx,
@@ -86,7 +88,7 @@ pub fn js_promise_finally(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                 Atom::CONST_empty_string,
                 1,
                 0,
-                ctx.function_proto(),
+                function_proto,
                 Some([ctor, on_finally].into()), // see callback for data usage
             )?
             .into(),
@@ -96,14 +98,14 @@ pub fn js_promise_finally(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                 Atom::CONST_empty_string,
                 1,
                 1,
-                ctx.function_proto(),
+                function_proto,
                 Some([ctor, on_finally].into()), // see callback for data usage
             )?
             .into(),
         ]
     };
 
-    cc.this().invoke(ctx, Atom::CONST_then, &then_funcs)
+    cc.this().invoke(ctx, Atom::CONST_then, &then_args)
 }
 
 /// returned value is Promise object or Exception.
