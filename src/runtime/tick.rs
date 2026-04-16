@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use gc_lite::GcNode;
+use smallvec::SmallVec;
 
 use crate::{
-    builtins::promise::JobState,
+    builtins::promise::{Job, JobState},
     context::{ContextPtr, ScopedContext},
 };
 
@@ -35,13 +36,24 @@ impl RuntimeImpl {
 
         for mut ctx in self.context_list.iter().copied() {
             ctx.with_new_scope(|mut scope| -> Result<(), i32> {
-                // 1. run pending jobs
+                // 1. run pending jobs (not for new added jobs)
+                let mut again = SmallVec::<[Job; 8]>::new();
+
                 while let Some(mut job) = scope.job_list.pop_front() {
-                    self.gc_cur_job_trace = job.gc_trace.take();
+                    self.gc_cur_job_trace = job.gc_trace.take(); // save job gc tracing temporarily
+
                     if job.run(&mut scope)? == JobState::Again {
-                        scope.job_list.push_back(job);
-                    };
-                    self.gc_cur_job_trace = None;
+                        job.gc_trace = self.gc_cur_job_trace.take(); // restore job gc tracing
+                        again.push(job);
+                    } else {
+                        self.gc_cur_job_trace = None;
+                    }
+                }
+
+                // sched jobs to run again in next round
+                if !again.is_empty() {
+                    scope.job_list.extend(again);
+                    need_more_tick = true;
                 }
 
                 // 2. run tick handlers

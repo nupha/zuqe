@@ -6,7 +6,7 @@ use gc_lite::{GcTrace, GcTraceCtx};
 use crate::{
     Callback,
     atom::Atom,
-    builtins::promise::{JobState, Promise},
+    builtins::promise::{JobGcTrace4, JobState, Promise},
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, NativeFunction},
@@ -42,32 +42,16 @@ pub(crate) fn js_dynamic_import(ctx: &mut ScopedContext, specifier: JSValue) -> 
     // cannot run JS_LoadModuleInternal synchronously because it would
     // cause an unexpected recursion in js_evaluate_module()
     let rr = resolving_funcs;
-    ctx.queue_job_with_trace(
+    ctx.queue_job(
         move |cx| {
             js_dynamic_import_job(cx, resolving_funcs, basename_val, specifier);
             Ok(JobState::Done)
         },
-        {
-            // Note: job tick is performed in root scope,
-            // should promote related gc nodes to root scope.
-            // let top = ctx_ptr.rt_ref().gc_part_hot;
-            // let heap = ctx_ptr.rt_mut().gc_heap_mut();
-            // if let Some(n) = basename_val.gc_node_ptr() {
-            //     heap.set_xref(top, n);
-            // }
-            // if let Some(n) = specifier.gc_node_ptr() {
-            //     heap.set_xref(top, n);
-            // }
-            // for n in rr.iter().filter_map(|v| v.gc_node_ptr()) {
-            //     heap.set_xref(top, n);
-            // }
-
-            move |tr| {
-                basename_val.trace(tr);
-                specifier.trace(tr);
-                rr[0].trace(tr);
-                rr[1].trace(tr);
-            }
+        JobGcTrace4 {
+            a: basename_val,
+            b: specifier,
+            c: rr[0],
+            d: rr[1],
         },
     );
 
