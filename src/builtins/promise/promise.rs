@@ -8,7 +8,10 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use crate::{
     JS_CLASS_PROMISE,
     atom::Atom,
-    builtins::{error::js_aggregate_error_constructor, promise::JobState},
+    builtins::{
+        error::js_aggregate_error_constructor,
+        promise::{JobGcTrace2, JobState},
+    },
     context::{ContextImpl, ScopedContext},
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
@@ -221,9 +224,8 @@ impl Promise {
         );
 
         let rr = promise.create_resolving_functions(ctx)?;
-        let rr2 = rr;
 
-        ctx.queue_job_with_trace(
+        ctx.queue_job(
             move |cx| -> Result<JobState, i32> {
                 match job(cx) {
                     Ok(Some(v)) => {
@@ -238,10 +240,7 @@ impl Promise {
                     }
                 }
             },
-            move |gcx| {
-                rr2[0].trace(gcx);
-                rr2[1].trace(gcx);
-            },
+            JobGcTrace2 { a: rr[0], b: rr[1] },
         );
 
         Ok(promise)

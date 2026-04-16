@@ -8,6 +8,7 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     atom::Atom,
+    builtins::promise::{JobGcTrace2, JobGcTrace3},
     context::{ContextImpl, ScopedContext},
     error::JSResult,
     object::{JS_SpeciesConstructor, Object, ObjectImpl, ObjectPayload},
@@ -85,27 +86,12 @@ impl PromiseResolveFunc {
             return Ok(JSValue::UNDEFINED);
         } else if let Ok(then) = resolution.get_property(ctx, Atom::CONST_then) {
             if then.is_function() {
-                ctx.queue_job_with_trace(
+                ctx.queue_job(
                     move |cx| js_promise_resolve_thenable_job(cx, promise, resolution, then),
-                    {
-                        // Note: tick is performed in top-level scope, promote related gc nodes to top-level scope.
-                        // let pid = cx.rt_ref().gc_part_hot;
-                        // let heap = cx.rt_mut().gc_heap_mut();
-                        // for ch in prf.gc_children(heap) {
-                        //     heap.set_xref(pid, ch);
-                        // }
-                        // if let Some(n) = arg0.gc_node_ptr() {
-                        //     heap.set_xref(pid, n);
-                        // }
-                        // if let Some(n) = then.gc_node_ptr() {
-                        //     heap.set_xref(pid, n);
-                        // }
-
-                        move |gcx| {
-                            prf.trace(gcx);
-                            resolution.trace(gcx);
-                            then.trace(gcx);
-                        }
+                    JobGcTrace3 {
+                        a: prf,
+                        b: resolution,
+                        c: then,
                     },
                 );
             } else {
@@ -231,7 +217,7 @@ impl Promise {
                 // add a job to poll promise reaction in runtime tick
                 let is_reject = state == PromiseState::Rejected;
 
-                ctx.queue_job_with_trace(
+                ctx.queue_job(
                     move |cx| {
                         promise_reaction_job(
                             cx,
@@ -241,22 +227,7 @@ impl Promise {
                             result,
                         )
                     },
-                    {
-                        // Note: job tick is performed in top-level scope, promote related gc nodes to top scope.
-                        // let top = cx.rt_ref().gc_part_hot;
-                        // let heap = cx.rt_mut().gc_heap_mut();
-                        // for n in act.gc_children(heap) {
-                        //     heap.set_xref(top, n);
-                        // }
-                        // if let Some(n) = result.gc_node_ptr() {
-                        //     heap.set_xref(top, n);
-                        // }
-
-                        move |tr| {
-                            act.trace(tr);
-                            result.trace(tr);
-                        }
-                    },
+                    JobGcTrace2 { a: act, b: result },
                 );
             }
         }
@@ -309,25 +280,11 @@ impl Promise {
         // call chained reactions
         let mut reactions = self.payload_mut().take_reactions();
         for act in reactions[is_reject as usize].drain(..) {
-            // queue reaction in job list to resolve in next tick
-            ctx.queue_job_with_trace(
+            ctx.queue_job(
                 move |cx| {
                     promise_reaction_job(cx, act.resolving_funcs, act.handler, is_reject, value)
                 },
-                // Note: tick is performed in root scope, should we promote related gc nodes to root scope?
-                // let mut rt = cx.rt_ptr();
-                // let top = rt.gc_part_hot;
-                // let heap = rt.gc_heap_mut();
-                // for n in act.gc_children(heap) {
-                //     heap.set_xref(top, n);
-                // }
-                // if let Some(v) = value.gc_node_ptr() {
-                //     heap.set_xref(top, v);
-                // }
-                move |gcx| {
-                    act.trace(gcx);
-                    value.trace(gcx);
-                },
+                JobGcTrace2 { a: act, b: value },
             );
         }
     }

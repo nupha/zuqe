@@ -5,7 +5,7 @@ use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{ScopedContext, context::ContextImpl, value::JSValue};
 
-use super::Promise;
+use super::{Promise, PromiseReaction, PromiseResolveFunc};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum JobState {
@@ -16,6 +16,8 @@ pub(crate) enum JobState {
 /// A job running in background, known as 'micro task'.
 pub(crate) struct Job {
     runnable: Box<dyn Fn(&mut ScopedContext) -> Result<JobState, i32>>,
+
+    /// To trace gc nodes that are referenced by this job.
     pub(crate) gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
 }
 
@@ -34,16 +36,105 @@ impl Job {
     }
 }
 
+pub(crate) trait JobGcTrace {
+    fn trace_values(&self, tr: &mut GcTraceCtx);
+}
+
+impl JobGcTrace for () {
+    #[inline(always)]
+    fn trace_values(&self, _tr: &mut GcTraceCtx) {}
+}
+
+impl JobGcTrace for JSValue {
+    #[inline(always)]
+    fn trace_values(&self, tr: &mut GcTraceCtx) {
+        self.trace(tr);
+    }
+}
+
+impl JobGcTrace for PromiseReaction {
+    #[inline(always)]
+    fn trace_values(&self, tr: &mut GcTraceCtx) {
+        self.trace(tr);
+    }
+}
+
+impl JobGcTrace for PromiseResolveFunc {
+    #[inline(always)]
+    fn trace_values(&self, tr: &mut GcTraceCtx) {
+        self.trace(tr);
+    }
+}
+
+pub(crate) struct JobGcTrace2<A, B> {
+    pub a: A,
+    pub b: B,
+}
+
+impl<A, B> JobGcTrace for JobGcTrace2<A, B>
+where
+    A: JobGcTrace,
+    B: JobGcTrace,
+{
+    #[inline(always)]
+    fn trace_values(&self, tr: &mut GcTraceCtx) {
+        self.a.trace_values(tr);
+        self.b.trace_values(tr);
+    }
+}
+
+pub(crate) struct JobGcTrace3<A, B, C> {
+    pub a: A,
+    pub b: B,
+    pub c: C,
+}
+
+impl<A, B, C> JobGcTrace for JobGcTrace3<A, B, C>
+where
+    A: JobGcTrace,
+    B: JobGcTrace,
+    C: JobGcTrace,
+{
+    #[inline(always)]
+    fn trace_values(&self, tr: &mut GcTraceCtx) {
+        self.a.trace_values(tr);
+        self.b.trace_values(tr);
+        self.c.trace_values(tr);
+    }
+}
+
+pub(crate) struct JobGcTrace4<A, B, C, D> {
+    pub a: A,
+    pub b: B,
+    pub c: C,
+    pub d: D,
+}
+
+impl<A, B, C, D> JobGcTrace for JobGcTrace4<A, B, C, D>
+where
+    A: JobGcTrace,
+    B: JobGcTrace,
+    C: JobGcTrace,
+    D: JobGcTrace,
+{
+    #[inline(always)]
+    fn trace_values(&self, tr: &mut GcTraceCtx) {
+        self.a.trace_values(tr);
+        self.b.trace_values(tr);
+        self.c.trace_values(tr);
+        self.d.trace_values(tr);
+    }
+}
+
 impl ContextImpl {
-    /// Append a job to queue.
-    pub(crate) fn queue_job_with_trace(
-        &mut self,
-        runnable: impl Fn(&mut ScopedContext) -> Result<JobState, i32> + 'static,
-        trace: impl Fn(&mut GcTraceCtx) + 'static,
-    ) {
+    pub(crate) fn queue_job<GCN, F>(&mut self, runnable: F, gc_trace_nodes: GCN)
+    where
+        GCN: JobGcTrace + 'static,
+        F: Fn(&mut ScopedContext) -> Result<JobState, i32> + 'static,
+    {
         self.job_list.push_back(Job {
             runnable: Box::new(runnable),
-            gc_trace: Some(Box::new(trace)),
+            gc_trace: Some(Box::new(move |tr| gc_trace_nodes.trace_values(tr))),
         });
     }
 }
