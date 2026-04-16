@@ -13,7 +13,7 @@ pub struct RuntimeFuture<'rt> {
 }
 
 impl<'rt> RuntimeFuture<'rt> {
-    pub fn new(rt: &'rt mut Runtime) -> Self {
+    pub const fn new(rt: &'rt mut Runtime) -> Self {
         Self { rt }
     }
 }
@@ -24,7 +24,7 @@ impl<'rt> std::future::Future for RuntimeFuture<'rt> {
     fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
 
-        match this.rt.tick() {
+        match this.rt.tick_internal() {
             Ok(TickStatus::Continue) => {
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -36,8 +36,7 @@ impl<'rt> std::future::Future for RuntimeFuture<'rt> {
 }
 
 impl Runtime {
-    pub fn run_async(&mut self) -> RuntimeFuture<'_> {
+    pub const fn run_async(&mut self) -> RuntimeFuture<'_> {
         RuntimeFuture::new(self)
     }
 }
-

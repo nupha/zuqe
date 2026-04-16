@@ -27,7 +27,7 @@ impl RuntimeImpl {
         self.stop_flag = Some(code);
     }
 
-    pub fn tick(&mut self) -> Result<TickStatus, i32> {
+    pub(crate) fn tick_internal(&mut self) -> Result<TickStatus, i32> {
         if let Some(n) = self.stop_flag.take() {
             return Ok(TickStatus::Stop(n));
         }
@@ -78,5 +78,11 @@ impl RuntimeImpl {
         } else {
             TickStatus::Stop(0)
         })
+    }
+
+    #[cfg(not(feature = "async_support"))]
+    #[inline(always)]
+    pub fn tick(&mut self) -> Result<TickStatus, i32> {
+        self.tick_internal()
     }
 }

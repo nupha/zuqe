@@ -13,7 +13,7 @@ use std::{io::Write, process::ExitCode};
 use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use libloading::Library;
-use zuqe::{Context, EvalFlags, EvalType, ModuleDef, Runtime, ScopedContext};
+use zuqe::{Context, ErrorText, EvalFlags, EvalType, ModuleDef, Runtime, ScopedContext};
 
 use crate::{
     class_file::JSFile,
@@ -121,7 +121,7 @@ fn parse_byte_size(ss: &str) -> Option<usize> {
     }
 }
 
-fn run_zjs() -> (Runtime, ExitCode) {
+fn run_zjs_prepare<'a>() -> (Runtime, Context<'a>, Args, String, bool) {
     #[cfg(debug_assertions)]
     {
         let log_file = std::fs::OpenOptions::new()
@@ -142,8 +142,7 @@ fn run_zjs() -> (Runtime, ExitCode) {
 
     let args = Args::parse();
 
-    let filename = args.filename;
-    let script = match std::fs::read_to_string(&filename) {
+    let script = match std::fs::read_to_string(&args.filename) {
         Ok(s) => s,
         Err(e) => {
             colorize_println(format!("can't load file: {e}"), RedFg);
@@ -151,14 +150,14 @@ fn run_zjs() -> (Runtime, ExitCode) {
         }
     };
 
-    let (rt, exit_code) = {
+    let (mut rt, is_module) = {
         let mut rt = Runtime::create().unwrap();
 
         rt.install_panic_handler();
 
         {
-            let ss = args.memory_limit;
-            if let Some(size) = parse_byte_size(&ss) {
+            let ss = &args.memory_limit;
+            if let Some(size) = parse_byte_size(ss) {
                 rt.gc_set_memory_limit(size);
             } else {
                 colorize_println(format!("invalid memory-limit: {ss}"), RedFg);
@@ -167,8 +166,8 @@ fn run_zjs() -> (Runtime, ExitCode) {
         }
 
         {
-            let ss = args.stack_size;
-            if let Some(size) = parse_byte_size(&ss) {
+            let ss = &args.stack_size;
+            if let Some(size) = parse_byte_size(ss) {
                 rt.set_stack_size(size);
             } else {
                 colorize_println(format!("invalid stack-size: {ss}"), RedFg);
@@ -182,75 +181,111 @@ fn run_zjs() -> (Runtime, ExitCode) {
             mod_os_gc_trace(tr);
         });
 
-        let class_id_file = JSFile::register(rt.clone()).unwrap();
-
         let is_module = args.module
-            || filename.ends_with(".mjs")
+            || args.filename.ends_with(".mjs")
             || ModuleDef::detect_module(script.as_bytes());
-
-        let mut ctx = rt
-            .create_context(|cx| {
-                Context::ECMA_CONTEXT_SETUP(cx)?;
-
-                cx.use_class(class_id_file).unwrap();
-
-                init_mod_std(cx).unwrap();
-                init_mod_os(cx).unwrap();
-
-                setup_globals(cx, &args.script_args)
-            })
-            .unwrap();
-
-        #[cfg(debug_assertions)]
-        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0, "no scope now");
-
-        let exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
-            let ret = scope.eval_wait(
-                script.as_bytes(),
-                &filename,
-                if is_module {
-                    EvalType::Module
-                } else {
-                    EvalType::Global
-                },
-                EvalFlags::empty(),
-            );
-
-            match ret {
-                Ok(val) => {
-                    colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    let mut err_msg = e.message;
-                    if let Some(tb) = e.traceback {
-                        err_msg = format!("{err_msg}\n{tb}");
-                    }
-                    colorize_println(err_msg, RedFg);
-                    ExitCode::FAILURE
-                }
-            }
-        });
-
-        #[cfg(debug_assertions)]
-        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
-
-        (rt, exit_code)
+        (rt, is_module)
     };
 
-    (rt, exit_code)
+    let class_id_file = JSFile::register(rt.clone()).unwrap();
+
+    let ctx = rt
+        .create_context(|cx| {
+            Context::ECMA_CONTEXT_SETUP(cx)?;
+
+            cx.use_class(class_id_file).unwrap();
+
+            init_mod_std(cx).unwrap();
+            init_mod_os(cx).unwrap();
+
+            setup_globals(cx, &args.script_args)
+        })
+        .unwrap();
+
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0, "no scope now");
+
+    (rt, ctx, args, script, is_module)
 }
 
 #[cfg(not(feature = "async_support"))]
 fn main() -> ExitCode {
-    let (_rt, exit_code) = run_zjs();
+    let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
+
+    let exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
+        let result = scope.eval_wait(
+            script.as_bytes(),
+            &args.filename,
+            if is_module {
+                EvalType::Module
+            } else {
+                EvalType::Global
+            },
+            EvalFlags::empty(),
+        );
+
+        match result {
+            Ok(val) => {
+                colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                let mut err_msg = e.message;
+                if let Some(tb) = e.traceback {
+                    err_msg = format!("{err_msg}\n{tb}");
+                }
+                colorize_println(err_msg, RedFg);
+                ExitCode::FAILURE
+            }
+        }
+    });
+
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+
     exit_code
 }
 
 #[cfg(feature = "async_support")]
 #[tokio::main]
 async fn main() -> ExitCode {
-    let (mut rt, exit_code) = run_zjs();
+    let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
+
+    let exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
+        let result = scope
+            .eval(
+                script.as_bytes(),
+                &args.filename,
+                if is_module {
+                    EvalType::Module
+                } else {
+                    EvalType::Global
+                },
+                EvalFlags::empty(),
+            )
+            .map_err(|_| {
+                let exc = scope.rt_mut().take_exception();
+                ErrorText::from(&mut scope, exc)
+            });
+
+        match result {
+            Ok(val) => {
+                colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                let mut err_msg = e.message;
+                if let Some(tb) = e.traceback {
+                    err_msg = format!("{err_msg}\n{tb}");
+                }
+                colorize_println(err_msg, RedFg);
+                ExitCode::FAILURE
+            }
+        }
+    });
+
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
 
     let _ = rt.run_async().await;
 

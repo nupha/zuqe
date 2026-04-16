@@ -265,6 +265,7 @@ impl<'c> ScopedContext<'c> {
 
     /// Eval `source` script in `self` scope, wait till all pending jobs are finished.
     /// Returns the result value.
+    // #[cfg(not(feature = "async_support"))]
     pub fn eval_wait(
         &mut self,
         source: &[u8],
@@ -305,7 +306,7 @@ impl<'c> ScopedContext<'c> {
 
         // tick to finish
         let exit_code = loop {
-            match self.rt_mut().tick() {
+            match self.rt_mut().tick_internal() {
                 Ok(TickStatus::Continue) => {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                     continue;
