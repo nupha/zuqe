@@ -327,8 +327,9 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorT
     Ok(())
 }
 
+#[cfg(not(feature = "async_support"))]
 fn run_test_script(
-    mut ctx: Context,
+    mut ctx: Context<'_>,
     script: &str,
     filename: &Path,
     is_module: bool,
@@ -357,7 +358,57 @@ fn run_test_script(
     })?;
 
     if is_async {
-        // test if the test called $DONE() once
+        let n = ASYNC_DONE.load(Ordering::SeqCst);
+        if n != 1 {
+            return Err(ErrorText {
+                message: format!("TypeError: $DONE() not called {n}"),
+                traceback: None,
+            });
+        }
+    }
+
+    Ok(0)
+}
+
+#[cfg(feature = "async_support")]
+async fn run_test_script(
+    rt: &mut Runtime,
+    mut ctx: Context<'_>,
+    script: &str,
+    filename: &Path,
+    is_module: bool,
+    is_async: bool,
+    is_strict: bool,
+) -> Result<i32, ErrorText> {
+    if is_async {
+        ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    ctx.with_new_scope(|mut scope| {
+        scope
+            .eval(
+                script.as_bytes(),
+                filename.as_os_str().to_str().unwrap(),
+                if is_module {
+                    EvalType::Module
+                } else {
+                    EvalType::Global
+                },
+                if is_strict {
+                    EvalFlags::STRICT
+                } else {
+                    EvalFlags::empty()
+                },
+            )
+            .map_err(|_| {
+                let exc = scope.rt_mut().take_exception();
+                ErrorText::from(&mut scope, exc)
+            })
+    })?;
+
+    let _ = rt.run_async().await;
+
+    if is_async {
         let n = ASYNC_DONE.load(Ordering::SeqCst);
         if n != 1 {
             return Err(ErrorText {
@@ -390,6 +441,7 @@ fn dump_error(
     }
 }
 
+#[cfg(not(feature = "async_support"))]
 fn run_test_file(
     filename: &Path,
     harness_path: &Path,
@@ -588,6 +640,189 @@ fn run_test_file(
     }
 }
 
+#[cfg(feature = "async_support")]
+async fn run_test_file(
+    filename: &Path,
+    harness_path: &Path,
+    excludes: Option<&[String]>,
+    outf: &mut dyn Write,
+    errf: &mut dyn Write,
+) {
+    write!(outf, "{} ... ", filename.display()).unwrap();
+
+    let content = std::fs::read_to_string(filename).unwrap();
+
+    let start = content.find("/*---").unwrap_or(0);
+    let end = content.find("---*/").unwrap_or(0);
+    let config = if start < end {
+        let front_matter = content[start + 5..end].trim();
+        serde_yaml::from_str::<TestConfig>(front_matter).unwrap()
+    } else {
+        writeln!(outf, "no-test").unwrap();
+        return;
+    };
+
+    if let (Some(features), Some(excl)) = (config.features.as_deref(), excludes)
+        && features.iter().any(|x| excl.contains(x))
+    {
+        writeln!(outf, "skip").unwrap();
+        return;
+    }
+
+    println!("{}", filename.to_str().unwrap());
+
+    let mut harness_files = Vec::<PathBuf>::with_capacity(16);
+    harness_files.extend_from_slice(&[harness_path.join("assert.js"), harness_path.join("sta.js")]);
+    if let Some(ff) = &config.flags
+        && ff.iter().any(|s| s == "async")
+    {
+        harness_files.push(harness_path.join("doneprintHandle.js"));
+    }
+
+    if let Some(includes) = config.includes {
+        for include in includes {
+            harness_files.push(harness_path.join(include));
+        }
+    }
+
+    let mut rt = Runtime::create().unwrap();
+
+    #[cfg(debug_assertions)]
+    rt.install_panic_handler();
+
+    rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
+
+    let ctx = rt
+        .create_context(|ctx| {
+            Context::ECMA_CONTEXT_SETUP(ctx)?;
+            setup_ctx_test262_helpers(ctx)?;
+            Ok(())
+        })
+        .unwrap();
+
+    let mut has_err = false;
+
+    if !harness_files.is_empty() {
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+
+        if let Err(exc) = run_harness(ctx, &harness_files) {
+            writeln!(outf, "FAIL: can't eval harness").unwrap();
+            dump_error(&exc, false, false, false, outf);
+
+            writeln!(errf, "{}", filename.display()).unwrap();
+            writeln!(outf, "FAIL: can't eval harness").unwrap();
+            dump_error(&exc, false, false, false, errf);
+
+            has_err = true;
+        }
+
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+    }
+
+    if !has_err {
+        let mut use_strict = false;
+        let mut use_nostrict = true;
+        let mut is_async = false;
+        let mut is_module = false;
+        if let Some(flags) = config.flags {
+            if flags.iter().any(|s| s.as_str() == "module") {
+                is_module = true;
+            }
+            if flags.iter().any(|s| s.as_str() == "onlyStrict") {
+                use_strict = true;
+                use_nostrict = false;
+            }
+            if flags.iter().any(|s| s.as_str() == "noStrict") {
+                use_strict = false;
+                use_nostrict = true;
+            }
+            is_async = flags.iter().any(|s| s.as_str() == "async");
+        }
+
+        let negative = config.negative;
+
+        for strict in [
+            if use_nostrict { Some(false) } else { None },
+            if use_strict { Some(true) } else { None },
+        ]
+        .into_iter()
+        .flatten()
+        {
+            #[cfg(debug_assertions)]
+            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+
+            let res = run_test_script(
+                &mut rt,
+                ctx,
+                content.as_str(),
+                filename,
+                is_module,
+                is_async,
+                strict,
+            )
+            .await;
+
+            #[cfg(debug_assertions)]
+            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+
+            if let Err(exc) = res {
+                if let Some(neg) = &negative {
+                    if let Some(ty) = neg.type_.as_ref() {
+                        let err_class = exc.message.split(':').next().unwrap();
+                        if err_class == ty {
+                            writeln!(outf, "pass").unwrap();
+                        } else {
+                            writeln!(
+                                outf,
+                                "fail: expects error class '{}', got '{}'",
+                                ty, err_class
+                            )
+                            .unwrap();
+                            dump_error(&exc, strict, is_module, is_async, outf);
+
+                            writeln!(errf, "{}", filename.display()).unwrap();
+                            writeln!(
+                                outf,
+                                "fail: expects error class '{}', got '{}'",
+                                ty, err_class
+                            )
+                            .unwrap();
+                            dump_error(&exc, strict, is_module, is_async, errf);
+                        }
+                    } else {
+                        writeln!(outf, "pass").unwrap();
+                    }
+                } else {
+                    writeln!(outf, "fail").unwrap();
+                    dump_error(&exc, strict, is_module, is_async, outf);
+
+                    writeln!(errf, "{}", filename.display()).unwrap();
+                    dump_error(&exc, strict, is_module, is_async, errf);
+                }
+            } else if let Some(neg) = &negative {
+                writeln!(
+                    outf,
+                    "fail: [NEGATIVE] expects error {}",
+                    neg.type_.as_ref().map_or("", |s| s.as_str())
+                )
+                .unwrap();
+
+                writeln!(errf, "{}", filename.display()).unwrap();
+                writeln!(
+                    errf,
+                    "fail: [NEGATIVE] expects error {}",
+                    neg.type_.as_ref().map_or("", |s| s.as_str())
+                )
+                .unwrap();
+            } else {
+                writeln!(outf, "pass").unwrap();
+            }
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct AppConfig {
     base_path: Option<String>,
@@ -605,7 +840,8 @@ struct Args {
     config_file: String,
 }
 
-fn main() {
+#[cfg(not(feature = "async_support"))]
+fn main_impl() {
     let args = Args::parse();
 
     let mut app_cfg = {
@@ -757,4 +993,169 @@ fn main() {
             }
         }
     }
+}
+
+#[cfg(feature = "async_support")]
+async fn main_impl_async() {
+    let args = Args::parse();
+
+    let mut app_cfg = {
+        let mut fp = std::fs::OpenOptions::new()
+            .read(true)
+            .open(args.config_file)
+            .unwrap();
+        let mut txt = String::new();
+
+        fp.read_to_string(&mut txt).unwrap();
+        serde_yaml::from_str::<AppConfig>(txt.as_str()).unwrap()
+    };
+
+    let log_tee: Option<TeeWriter<std::fs::File, std::fs::File>> = if let Some(log) = app_cfg.log {
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(log)
+            .unwrap();
+
+        let tee = TeeWriter::new(Some(log_file), Option::<std::fs::File>::None);
+
+        env_logger::Builder::new()
+            .filter_level(log::LevelFilter::Trace)
+            .target(env_logger::Target::Pipe(Box::new(tee.clone())))
+            .init();
+
+        Some(tee)
+    } else {
+        None
+    };
+
+    let mut base_path: PathBuf = if let Some(txt) = app_cfg.base_path.take() {
+        let p = PathBuf::from(txt);
+        match std::fs::metadata(&p) {
+            Ok(m) => {
+                if !m.is_dir() {
+                    log::error!("invalid directory: {}", p.display());
+                    std::process::exit(1);
+                }
+                p
+            }
+            Err(_) => {
+                log::error!("invalid directory '{}'", p.display());
+                std::process::exit(1);
+            }
+        }
+    } else {
+        std::env::current_dir().unwrap()
+    };
+    if !base_path
+        .to_str()
+        .unwrap()
+        .ends_with(std::path::MAIN_SEPARATOR)
+    {
+        let mut s = base_path.to_string_lossy().into_owned();
+        s.push(std::path::MAIN_SEPARATOR);
+        base_path = s.into()
+    }
+
+    let harness_path = base_path.join("harness");
+
+    let mut out_path: PathBuf = if let Some(txt) = app_cfg.out_path.take() {
+        let p = PathBuf::from(txt);
+        match std::fs::metadata(&p) {
+            Ok(m) => {
+                if !m.is_dir() {
+                    log::error!("invalid directory: {}", p.display());
+                    std::process::exit(1);
+                }
+                p
+            }
+            Err(_) => {
+                log::error!("invalid directory '{}'", p.display());
+                std::process::exit(1);
+            }
+        }
+    } else {
+        std::env::current_dir().unwrap()
+    };
+    if !out_path
+        .to_str()
+        .unwrap()
+        .ends_with(std::path::MAIN_SEPARATOR)
+    {
+        let mut s = out_path.to_string_lossy().into_owned();
+        s.push(std::path::MAIN_SEPARATOR);
+        out_path = s.into()
+    }
+
+    let mut outf = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("test262-result.txt")
+        .unwrap();
+
+    let mut errf = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("test262-fail.txt")
+        .unwrap();
+
+    let mut exclude_tests = HashSet::<PathBuf>::with_capacity(128);
+    if let Some(skip_tests) = app_cfg.exclude_tests.take() {
+        for item in skip_tests {
+            let pat = base_path.join(format!("./test/{item}"));
+            for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
+                let fname = fname.unwrap();
+                exclude_tests.insert(fname);
+            }
+        }
+    }
+
+    if let Some(tests) = app_cfg.tests.take() {
+        let excludes = app_cfg
+            .exclude_features
+            .take()
+            .filter(|lst| !lst.is_empty());
+
+        for item in tests {
+            for path in
+                glob::glob(base_path.join(format!("test/{item}")).to_str().unwrap()).unwrap()
+            {
+                let file_name = path.unwrap();
+
+                if !exclude_tests.contains(&file_name) {
+                    if let Some(f) = log_tee.as_ref().and_then(|t| t.a.clone()) {
+                        let mut fp = f.lock().unwrap();
+                        fp.flush().unwrap();
+                        fp.set_len(0).unwrap();
+                        fp.seek(std::io::SeekFrom::Start(0)).unwrap();
+                        fp.flush().unwrap();
+                    }
+
+                    run_test_file(
+                        &file_name,
+                        &harness_path,
+                        excludes.as_deref(),
+                        &mut outf,
+                        &mut errf,
+                    )
+                    .await;
+                    outf.flush().unwrap();
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "async_support"))]
+fn main() {
+    main_impl();
+}
+
+#[cfg(feature = "async_support")]
+#[tokio::main]
+async fn main() {
+    main_impl_async().await;
 }

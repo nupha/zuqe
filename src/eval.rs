@@ -5,13 +5,11 @@ use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
     atom::Atom,
-    builtins::promise::{Promise, PromiseState},
     context::ScopedContext,
-    error::{ErrorText, JSResult},
+    error::JSResult,
     function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
     parse::JSParseState,
-    runtime::TickStatus,
     stack_frame::ExecMode,
     value::JSValue,
 };
@@ -265,38 +263,38 @@ impl<'c> ScopedContext<'c> {
 
     /// Eval `source` script in `self` scope, wait till all pending jobs are finished.
     /// Returns the result value.
-    // #[cfg(not(feature = "async_support"))]
+    #[cfg(not(feature = "async_support"))]
     pub fn eval_wait(
         &mut self,
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
         flags: EvalFlags,
-    ) -> Result<JSValue, ErrorText> {
+    ) -> Result<JSValue, crate::ErrorText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
         let ret_val = self
             .eval_internal(source, filename, eval_type, flags)
             .map_err(|_| {
                 let exc = self.rt_mut().take_exception();
-                ErrorText::from(self, exc)
+                crate::ErrorText::from(self, exc)
             })?;
 
         // `ret_val` could be used in tick() phase, must ensure it's alive then.
         // Note: ret_val should already be root or local node.
         debug_assert!(ret_val.gc_node().is_none_or(|h| h.is_root_or_local()));
 
-        let mut promise = Promise::try_from(ret_val).ok();
+        let mut promise = crate::builtins::promise::Promise::try_from(ret_val).ok();
         let mut result = if let Some(p) = promise {
             match p.state() {
-                PromiseState::Fulfilled => {
+                crate::builtins::promise::PromiseState::Fulfilled => {
                     promise = None;
                     let res = p.result();
                     Ok(res)
                 }
-                PromiseState::Rejected => {
+                crate::builtins::promise::PromiseState::Rejected => {
                     promise = None;
-                    Err(ErrorText::from(self, p.result()))
+                    Err(crate::ErrorText::from(self, p.result()))
                 }
                 _ => Ok(JSValue::UNDEFINED),
             }
@@ -307,21 +305,21 @@ impl<'c> ScopedContext<'c> {
         // tick to finish
         let exit_code = loop {
             match self.rt_mut().tick_internal() {
-                Ok(TickStatus::Continue) => {
+                Ok(crate::runtime::TickStatus::Continue) => {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                     continue;
                 }
-                Ok(TickStatus::Stop(code)) => {
+                Ok(crate::runtime::TickStatus::Stop(code)) => {
                     if let Some(p) = promise {
                         match p.state() {
-                            PromiseState::Fulfilled => {
+                            crate::builtins::promise::PromiseState::Fulfilled => {
                                 result = Ok(p.result());
                             }
-                            PromiseState::Rejected => {
+                            crate::builtins::promise::PromiseState::Rejected => {
                                 // no need to return reject value
                                 // result = Err(ErrorText::from(self, p.result()));
                             }
-                            PromiseState::Pending => {
+                            crate::builtins::promise::PromiseState::Pending => {
                                 #[cfg(debug_assertions)]
                                 eprintln!("warn: has pending Promise when exit");
                             }
@@ -331,7 +329,7 @@ impl<'c> ScopedContext<'c> {
                 }
                 Err(_) => {
                     let exc = self.rt_mut().take_exception();
-                    result = Err(ErrorText::from(self, exc));
+                    result = Err(crate::ErrorText::from(self, exc));
                     break -1;
                 }
             }
