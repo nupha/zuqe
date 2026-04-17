@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
-
-use std::{cell::Cell, rc::Rc};
+//
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
@@ -246,6 +249,45 @@ impl Promise {
         Ok(promise)
     }
 
+    pub fn create_from_sender<D, Conv>(
+        ctx: &mut ScopedContext,
+        convert: Conv,
+    ) -> Result<(Self, std::sync::mpsc::SyncSender<D>), i32>
+    where
+        D: Send + 'static,
+        Conv: FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
+    {
+        use std::sync::mpsc::sync_channel;
+
+        let (tx, rx) = sync_channel::<D>(1);
+        let convert_slot = Rc::new(RefCell::new(Some(convert)));
+        let convert_slot_job = convert_slot.clone();
+
+        let promise = Promise::create_with_job(ctx, move |cx| -> Result<Option<JSValue>, i32> {
+            use std::sync::mpsc::TryRecvError;
+
+            match rx.try_recv() {
+                Ok(data) => {
+                    let mut slot = convert_slot_job.borrow_mut();
+                    if let Some(conv) = slot.take() {
+                        let v = conv(cx, data)?;
+                        Ok(Some(v))
+                    } else {
+                        cx.throw_internal_error("future result already handled");
+                        Err(-1)
+                    }
+                }
+                Err(TryRecvError::Empty) => Ok(None),
+                Err(TryRecvError::Disconnected) => {
+                    cx.throw_internal_error("future channel disconnected");
+                    Err(-1)
+                }
+            }
+        })?;
+
+        Ok((promise, tx))
+    }
+
     /// Create \[resolve, reject\] resolving functions pair for `self` promise object.
     ///
     /// Resolving functions hold reference to Promise.
@@ -450,6 +492,41 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
     }
 
     Ok(JSValue::UNDEFINED)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::Runtime;
+
+    fn with_rt_ctx(f: impl FnOnce(&mut Runtime, &mut ScopedContext)) {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt.create_context(|_| Ok(())).unwrap();
+        ctx.with_new_scope(|mut scope| {
+            f(&mut rt, &mut scope);
+        });
+    }
+
+    #[test]
+    fn create_from_sender_resolve() {
+        with_rt_ctx(|rt, ctx| {
+            let (p, tx) =
+                Promise::create_from_sender(ctx, |_, n: i32| Ok(JSValue::Int(n))).unwrap();
+            assert_eq!(p.state(), PromiseState::Pending);
+
+            tx.send(321).unwrap();
+
+            loop {
+                match rt.tick_internal().unwrap() {
+                    crate::runtime::TickStatus::Continue => {}
+                    crate::runtime::TickStatus::Stop(_) => break,
+                }
+            }
+
+            assert_eq!(p.state(), PromiseState::Fulfilled);
+            assert_eq!(p.result(), JSValue::Int(321));
+        });
+    }
 }
 
 pub(crate) fn js_promise_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

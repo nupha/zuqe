@@ -36,6 +36,7 @@ impl<'rt> std::future::Future for RuntimeFuture<'rt> {
 }
 
 impl Runtime {
+    /// Execute runtime in async mode, till all background jobs are done
     pub const fn run_async(&mut self) -> RuntimeFuture<'_> {
         RuntimeFuture::new(self)
     }
