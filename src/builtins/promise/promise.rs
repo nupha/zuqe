@@ -249,7 +249,7 @@ impl Promise {
         Ok(promise)
     }
 
-    pub fn create_from_sender<D, Conv>(
+    pub fn create_with_sender<D, Conv>(
         ctx: &mut ScopedContext,
         convert: Conv,
     ) -> Result<(Self, std::sync::mpsc::SyncSender<D>), i32>
@@ -257,15 +257,13 @@ impl Promise {
         D: Send + 'static,
         Conv: FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
     {
-        use std::sync::mpsc::sync_channel;
+        use std::sync::mpsc::{TryRecvError, sync_channel};
 
         let (tx, rx) = sync_channel::<D>(1);
         let convert_slot = Rc::new(RefCell::new(Some(convert)));
         let convert_slot_job = convert_slot.clone();
 
         let promise = Promise::create_with_job(ctx, move |cx| -> Result<Option<JSValue>, i32> {
-            use std::sync::mpsc::TryRecvError;
-
             match rx.try_recv() {
                 Ok(data) => {
                     let mut slot = convert_slot_job.borrow_mut();
@@ -494,6 +492,17 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
     Ok(JSValue::UNDEFINED)
 }
 
+pub(crate) fn js_promise_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let exec_func = cc
+        .arg(0)
+        .ensure_function(ctx)?
+        .as_object()
+        .copied()
+        .unwrap();
+
+    Promise::create_with_executor(ctx, exec_func, cc.this()).map(|p| p.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,7 +520,7 @@ mod tests {
     fn create_from_sender_resolve() {
         with_rt_ctx(|rt, ctx| {
             let (p, tx) =
-                Promise::create_from_sender(ctx, |_, n: i32| Ok(JSValue::Int(n))).unwrap();
+                Promise::create_with_sender(ctx, |_, n: i32| Ok(JSValue::Int(n))).unwrap();
             assert_eq!(p.state(), PromiseState::Pending);
 
             tx.send(321).unwrap();
@@ -527,15 +536,4 @@ mod tests {
             assert_eq!(p.result(), JSValue::Int(321));
         });
     }
-}
-
-pub(crate) fn js_promise_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let exec_func = cc
-        .arg(0)
-        .ensure_function(ctx)?
-        .as_object()
-        .copied()
-        .unwrap();
-
-    Promise::create_with_executor(ctx, exec_func, cc.this()).map(|p| p.into())
 }
