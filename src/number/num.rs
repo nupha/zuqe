@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use core::f64;
-use std::{cmp::Ordering, ops::RangeInclusive};
+use {
+    core::f64,
+    std::{cmp::Ordering, ops::RangeInclusive},
+};
 
 use crate::{
     context::ScopedContext,

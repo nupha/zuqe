@@ -1212,9 +1212,9 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     }
 
     let mut k: i32;
+    let mut d: f64;
     let stop: i32;
     let inc: i32;
-    let mut d = 0.0_f64;
 
     if special == special_lastIndexOf {
         k = len - 1;
@@ -1267,8 +1267,8 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     }
 
     let _is_bigint = false;
-    let mut is_int = false; // avoid warning
-    let mut v64 = 0_i64; // avoid warning
+    let is_int: bool; // avoid warning
+    let v64: i64;
 
     // check value to find
     match cc.arg(0) {
