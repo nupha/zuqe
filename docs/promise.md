@@ -138,22 +138,24 @@ Semantics:
     - Call `convert(ctx, data)`; on success the Promise is fulfilled with the returned `JSValue`.
     - If `convert` returns `Err(-1)` with an exception set on `ctx`, the Promise is rejected.
 
-Example: bridge a background thread computing a `LlamaModel`:
+Example: bridge a background thread computing a `LlamaModel` using a channel and convert thread results into Promise fulfillment or rejection:
 
 ```rust
-let (promise, tx) = Promise::create_from_sender(ctx, |cx, model: LlamaModel| {
-    let obj = JSLlamaModel::new_instance(cx, model)?;
-    Ok(JSValue::Object(obj))
-})?;
+let (promise, tx) =
+    Promise::create_from_sender(ctx, |cx, model: Result<LlamaModel, String>| -> JSResult {
+        let model = model.map_err(|e| {
+            cx.throw_internal_error(&e);
+            -1
+        })?;
+        let obj = JSLlamaModel::new_instance(cx, model)?;
+        Ok(JSValue::Object(obj))
+    })?;
 
-std::thread::spawn(move || {
-    let result: Result<LlamaModel, String> = load_model_from_disk();
-    if let Ok(model) = result {
-        let _ = tx.send(model);
-    } else if let Err(msg) = result {
-        // You can choose to encode errors into D and convert them in the closure
-        let _ = tx.send(LlamaModel::from_error(msg));
-    }
+let _ = std::thread::spawn(move || {
+    let model_params = LlamaModel::default_params();
+    let result =
+        LlamaModel::load_from_file(&CString::new(file_name).unwrap(), model_params);
+    let _ = tx.send(result);
 });
 
 // JS: const model = await host.loadModel(...);
