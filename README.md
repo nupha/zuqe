@@ -143,6 +143,7 @@ For more comprehensive examples, check the [examples](examples/) directory which
   - [Native Classe](docs/native-classe.md)
   - [Native Module](docs/native-module.md)
   - [Running Loop](docs/loop.md)
+  - [Promise](docs/promise.md)
   - [GC](docs/gc.md)
 - **[Examples](examples/)**:
   - [ZJS](docs/zjs.md)

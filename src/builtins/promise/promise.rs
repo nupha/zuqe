@@ -249,7 +249,7 @@ impl Promise {
         Ok(promise)
     }
 
-    pub fn create_with_sender<D, Conv>(
+    pub fn create_from_sender<D, Conv>(
         ctx: &mut ScopedContext,
         convert: Conv,
     ) -> Result<(Self, std::sync::mpsc::SyncSender<D>), i32>
@@ -520,7 +520,7 @@ mod tests {
     fn create_from_sender_resolve() {
         with_rt_ctx(|rt, ctx| {
             let (p, tx) =
-                Promise::create_with_sender(ctx, |_, n: i32| Ok(JSValue::Int(n))).unwrap();
+                Promise::create_from_sender(ctx, |_, n: i32| Ok(JSValue::Int(n))).unwrap();
             assert_eq!(p.state(), PromiseState::Pending);
 
             tx.send(321).unwrap();
