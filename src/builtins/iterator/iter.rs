@@ -6,6 +6,7 @@ use std::{marker::PhantomData, ptr::NonNull};
 use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 
 use crate::{
+    Array,
     atom::Atom,
     builtins::js_get_this,
     context::{ContextPtr, ScopedContext},
@@ -575,7 +576,7 @@ pub(crate) fn js_create_iterator_result(
 
 pub(crate) fn iterator_to_array(ctx: &mut ScopedContext, items: JSValue) -> JSResult {
     let it = items.iter(ctx)?;
-    let mut arr = ctx.create_array()?;
+    let mut arr = Array::create(ctx)?;
     for (i, v) in it.enumerate() {
         arr.define_property_value_i64(ctx, i as i64, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
     }
@@ -589,7 +590,7 @@ pub(crate) fn js_array_from_iterator(
 ) -> Result<(JSValue, usize), i32> {
     if let JSValue::Object(obj) = method.call(ctx, obj, &[])? {
         let it = ObjectIter::new(ctx, obj, Atom::CONST_next)?;
-        let mut arr = ctx.create_array()?;
+        let mut arr = Array::create(ctx)?;
 
         let mut k = 0_i64;
         for val in it {

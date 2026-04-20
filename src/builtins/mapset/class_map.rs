@@ -3,8 +3,9 @@
 
 use crate::{
     JS_CLASS_MAP, ScopedContext,
+    array::Array,
     atom::Atom,
-    builtins::{iterator::JSIteratorKindEnum, js_get_this},
+    builtins::{iterator::JSIteratorKindEnum, js_get_this, mapset::MapSet},
     class::ClassID,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -380,11 +381,11 @@ fn js_map_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut ms = JSMapState::new(false, groups.len());
     for (key, mut lst) in groups {
         lst.shrink_to_fit();
-        let arr = ctx.create_array_with_values(lst)?;
+        let arr = Array::from_values(ctx, lst)?;
         ms.upsert(ctx, key, arr.into())?;
     }
 
-    ctx.create_map_with_entries(ms).map(JSValue::Object)
+    MapSet::from_entries(ctx, ms).map(JSValue::from)
 }
 
 pub const js_map_funcs: &[FieldDef] = &[

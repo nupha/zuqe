@@ -4,7 +4,7 @@
 use std::ops::Deref;
 
 use colorized::{Colors, colorize_print, colorize_println};
-use zuqe::{CallContext, Callback, JS_PROP_C_W_E, JSResult, JSValue, ScopedContext};
+use zuqe::{Array, CallContext, Callback, JS_PROP_C_W_E, JSResult, JSValue, ScopedContext};
 
 fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let level = cc.magic();
@@ -81,7 +81,7 @@ pub fn setup_globals(ctx: &mut ScopedContext, script_args: &[String]) -> Result<
             let s = ctx.create_string_from_utf8(a.as_bytes().to_vec())?;
             args.push(s.into());
         }
-        let arr = ctx.create_array_with_values(args)?;
+        let arr = Array::from_values(ctx, args)?;
         global.set_property_str(ctx, "scriptArgs", arr.into())?;
     }
 

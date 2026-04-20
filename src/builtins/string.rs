@@ -7,7 +7,7 @@ use std::ops::Deref;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::{
-    ClassDef, JS_CLASS_STRING_ITERATOR, ScopedContext,
+    Array, ClassDef, JS_CLASS_STRING_ITERATOR, ScopedContext,
     atom::Atom,
     builtins::iterator::{JSIteratorKindEnum, js_create_array_iterator},
     error::JSResult,
@@ -358,7 +358,7 @@ fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let sep_len = sep.len();
 
     // create result array
-    let mut ret_arr = ctx.create_array()?;
+    let mut ret_arr = Array::create(ctx)?;
 
     if lim == 0 {
         return Ok(ret_arr.into());

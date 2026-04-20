@@ -360,12 +360,12 @@ impl JSValue {
                     lst.push(val);
                 }
                 JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                    let o = ctx.create_array_with_values(vec![key, val])?;
+                    let o = crate::array::Array::from_values(ctx, vec![key, val])?;
                     lst.push(o.into());
                 }
             }
         }
 
-        ctx.create_array_with_values(lst).map(|a| a.into())
+        crate::array::Array::from_values(ctx, lst).map(|a| a.into())
     }
 }

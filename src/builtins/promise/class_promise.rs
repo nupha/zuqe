@@ -188,10 +188,12 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return fail_reject(ctx);
     };
 
-    let Ok(arr) = ctx.create_array() else {
+    let Ok(arr) = crate::array::Array::create(ctx) else {
         return fail_reject(ctx);
     };
-    let Ok(resolve_element_env) = ctx.create_array_with_values(vec![JSValue::Int(1)]) else {
+    let Ok(resolve_element_env) =
+        crate::array::Array::from_values(ctx, vec![JSValue::Int(1)])
+    else {
         return fail_reject(ctx);
     };
 

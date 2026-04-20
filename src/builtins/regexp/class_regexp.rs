@@ -402,7 +402,7 @@ pub fn js_regexp_Symbol_match(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
 
         if !lst.is_empty() {
             lst.shrink_to_fit();
-            ctx.create_array_with_values(lst).map(|x| x.into())
+            Array::from_values(ctx, lst).map(|x| x.into())
         } else {
             Ok(JSValue::NULL)
         }
@@ -627,7 +627,7 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
                 if !named_captures.is_undefined() {
                     aa.push(named_captures);
                 }
-                ctx.create_array_with_values(aa)?.into()
+                Array::from_values(ctx, aa)?.into()
             }];
             js_function_apply(ctx, CallContext::new_simple(rep, &args))?
                 .to_string(ctx)?
@@ -723,7 +723,7 @@ pub fn js_regexp_Symbol_split(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         (Object::try_from(re).unwrap(), is_unicode)
     };
 
-    let mut arr = ctx.create_array()?;
+    let mut arr = Array::create(ctx)?;
     if limit == 0 {
         return Ok(arr.into());
     }

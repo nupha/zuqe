@@ -4,7 +4,7 @@
 use std::cmp::Ordering;
 
 use crate::{
-    JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT32_ARRAY,
+    Array, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT32_ARRAY,
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
     JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::Atom,
@@ -193,7 +193,7 @@ fn js_typed_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let arr: JSValue = if !iterator.is_undefined() {
         // target is enumerable
-        let mut fa = ctx.create_array()?;
+        let mut fa = Array::create(ctx)?;
         for (i, v) in items.iter(ctx)?.enumerate() {
             fa.define_property_value_i64(ctx, i as _, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }

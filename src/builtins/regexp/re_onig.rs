@@ -428,10 +428,10 @@ pub(super) fn make_regexp_capture_array(
 
         if let Some((idxlst, idxgroup)) = &mut indices {
             let idx = if let Some(r) = range {
-                ctx.create_array_with_values(vec![
-                    JSValue::Int(r.start as i32),
-                    JSValue::Int(r.end as i32),
-                ])?
+                crate::array::Array::from_values(
+                    ctx,
+                    vec![JSValue::Int(r.start as i32), JSValue::Int(r.end as i32)],
+                )?
                 .into()
             } else {
                 JSValue::UNDEFINED
@@ -447,7 +447,7 @@ pub(super) fn make_regexp_capture_array(
         }
     }
 
-    let mut arr = ctx.create_array_with_values(lst)?;
+    let mut arr = crate::array::Array::from_values(ctx, lst)?;
     arr.define_property_value(
         ctx,
         Atom::CONST_index,
@@ -458,7 +458,7 @@ pub(super) fn make_regexp_capture_array(
     arr.define_property_value(ctx, Atom::CONST_input, text.into(), prop_flags)?;
 
     if let Some((idxlst, idxgrp)) = indices {
-        let mut idxarr = ctx.create_array_with_values(idxlst)?;
+        let mut idxarr = crate::array::Array::from_values(ctx, idxlst)?;
         idxarr.define_property_value(ctx, Atom::CONST_groups, idxgrp, prop_flags)?;
         arr.define_property_value(ctx, Atom::CONST_indices, idxarr.into(), prop_flags)?;
     }

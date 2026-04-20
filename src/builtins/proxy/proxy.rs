@@ -7,6 +7,7 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_PROXY,
+    array::Array,
     atom::Atom,
     class::{ClassExoticMethods, ClassID},
     context::ScopedContext,
@@ -249,7 +250,7 @@ impl Proxy {
             return JSValue::from(px.target).call(ctx, this_obj, args);
         }
 
-        let arg_array = ctx.create_array_from_slice(args)?;
+        let arg_array = Array::from_slice(ctx, args)?;
         method.call(
             ctx,
             px.handler,
@@ -352,7 +353,7 @@ fn js_proxy_call_constructor(
         return px.target.call_ctor_new_target(ctx, new_target, args);
     }
 
-    let arg_array = ctx.create_array_from_slice(args)?;
+    let arg_array = Array::from_slice(ctx, args)?;
     let ret = method.call(
         ctx,
         px.handler,

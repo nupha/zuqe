@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    Array,
     atom::Atom,
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
@@ -108,10 +109,10 @@ impl<'s> JSParseState<'s> {
         if call {
             // Create a template object: an array of cooked strings
             // Create an array of raw strings and store it to the raw property
-            template_object = self.ctx().create_array()?.into();
+            template_object = Array::create(self.ctx())?.into();
             self.emit_push_const(template_object, false)?;
 
-            raw_array = self.ctx().create_array()?.into();
+            raw_array = Array::create(self.ctx())?.into();
             template_object.define_property_value(
                 self.ctx(),
                 Atom::CONST_raw,

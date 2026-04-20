@@ -144,8 +144,7 @@ pub(crate) fn js_array_iterator_next(
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
                 let val = it.value().get_property_u32(ctx, idx)?;
                 let num = JSValue::from(idx);
-                ctx.create_array_with_values(vec![num, val])
-                    .map(|a| a.into())
+                crate::array::Array::from_values(ctx, vec![num, val]).map(|a| a.into())
             }
         }
     } else {

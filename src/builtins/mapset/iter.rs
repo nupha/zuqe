@@ -4,7 +4,7 @@
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, ScopedContext,
+    Array, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, ScopedContext,
     builtins::iterator::JSIteratorKindEnum,
     class::ClassID,
     error::JSResult,
@@ -98,7 +98,7 @@ fn js_map_iterator_next(
                     JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => key,
                     JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => val,
                     JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                        ctx.create_array_with_values(vec![key, val])?.into()
+                        Array::from_values(ctx, vec![key, val])?.into()
                     }
                 };
                 ret.replace(v);

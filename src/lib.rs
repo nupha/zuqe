@@ -27,6 +27,7 @@ mod utils;
 mod value;
 
 pub use {
+    array::Array,
     atom::Atom,
     class::{ClassCtorDef, ClassDef, ClassID},
     context::{Context, ScopedContext},

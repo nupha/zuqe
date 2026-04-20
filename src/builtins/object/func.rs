@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    Array,
     atom::Atom,
     builtins::{array::js_array_push, iterator::JSIteratorKindEnum},
     context::ScopedContext,
@@ -207,7 +208,7 @@ pub(crate) fn js_object_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSR
 
         if props_arr.is_undefined() {
             // entry is missing, create the entry
-            props_arr = ctx.create_array()?.into();
+            props_arr = Array::create(ctx)?.into();
             // set to groups
             #[cfg(feature = "builtin_mapset")]
             if is_map {

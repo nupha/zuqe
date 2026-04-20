@@ -10,7 +10,8 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 use zuqe::{
-    CallContext, FieldDef, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JSResult, JSValue, ScopedContext,
+    Array, CallContext, FieldDef, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JSResult, JSValue,
+    ScopedContext,
 };
 
 // Declare windows crt functions
@@ -101,7 +102,7 @@ fn js_os_ttyGetWinSize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let mut obj = ctx.create_array()?;
+    let mut obj = Array::create(ctx)?;
     obj.define_property_value_u32(ctx, 0, JSValue::Int(w), JS_PROP_C_W_E)?;
     obj.define_property_value_u32(ctx, 1, JSValue::Int(h), JS_PROP_C_W_E)?;
     Ok(obj.into())

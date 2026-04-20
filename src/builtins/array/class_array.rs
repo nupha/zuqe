@@ -258,12 +258,12 @@ fn js_array_with(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // make Array with values
     #[cfg(debug_assertions)]
     {
-        let arr = ctx.create_array_with_values(new_lst)?;
+        let arr = Array::from_values(ctx, new_lst)?;
         debug_assert_eq!(arr.get_length_prop(ctx).unwrap(), len);
         Ok(arr.into())
     }
     #[cfg(not(debug_assertions))]
-    ctx.create_array_with_values(new_lst).map(|a| a.into())
+    Array::from_values(ctx, new_lst).map(|a| a.into())
 }
 
 fn js_array_concat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -343,7 +343,7 @@ pub(crate) fn js_array_every(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
             JSValue::UNDEFINED,
             &[obj, JSValue::from(len as i32)],
         )?,
-        s if s == special_filter | special_TA => ctx.create_array()?.into(),
+        s if s == special_filter | special_TA => Array::create(ctx)?.into(),
         _ => JSValue::UNDEFINED,
     };
 
@@ -930,7 +930,7 @@ fn js_array_toReversed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         Vec::new()
     };
 
-    ctx.create_array_with_values(new_lst).map(JSValue::from)
+    Array::from_values(ctx, new_lst).map(JSValue::from)
 }
 
 fn js_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -993,7 +993,7 @@ fn js_array_toSorted(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         Vec::new()
     };
 
-    let mut arr = ctx.create_array_with_values(new_lst)?;
+    let mut arr = Array::from_values(ctx, new_lst)?;
     Array::sort(ctx, &mut arr, cmpfn)?;
     Ok(arr.into())
 }
@@ -1190,7 +1190,7 @@ fn js_array_toSpliced(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     // create result array
-    ctx.create_array_with_values(new_lst).map(|a| a.into())
+    Array::from_values(ctx, new_lst).map(|a| a.into())
 }
 
 fn js_array_copyWithin(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -1454,7 +1454,7 @@ fn js_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 let mut arr = if cc.this().is_constructor() {
                     cc.this().call_ctor(ctx, &[])?
                 } else {
-                    ctx.create_array()?.into()
+                    Array::create(ctx)?.into()
                 };
 
                 // NOT NEEDED ANY MORE
@@ -1491,7 +1491,7 @@ fn js_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let mut arr = if cc.this().is_constructor() {
             cc.this().call_ctor(ctx, std::slice::from_ref(&len_val))?
         } else {
-            ctx.create_array_with_capacity(len as usize)?.into()
+            Array::with_capacity(ctx, len as usize)?.into()
         };
 
         // protect arr, src nodes - NOT NEEDED ANY MORE
@@ -1521,7 +1521,7 @@ fn js_array_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut arr = if this.is_constructor() {
         this.call_ctor(ctx, std::slice::from_ref(&JSValue::Int(cc.length() as i32)))?
     } else {
-        ctx.create_array()?.into()
+        Array::create(ctx)?.into()
     };
 
     let cnt = cc.length();

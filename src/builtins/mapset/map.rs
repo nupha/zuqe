@@ -363,11 +363,11 @@ impl MapSet {
             }
         }
     }
-}
 
-impl<'c> ScopedContext<'c> {
-    pub fn create_map_with_entries(&mut self, entries: JSMapState) -> Result<Object, i32> {
-        self.create_instance_with_payload(ObjectPayload::MAP(Box::new(entries)))
-            .map_err(|_| -1)
+    pub fn from_entries(ctx: &mut ScopedContext, entries: JSMapState) -> Result<Self, i32> {
+        let obj = ctx
+            .create_instance_with_payload(ObjectPayload::MAP(Box::new(entries)))
+            .map_err(|_| -1)?;
+        obj.try_into().map_err(|_| -1)
     }
 }

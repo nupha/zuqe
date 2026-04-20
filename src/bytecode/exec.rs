@@ -6,6 +6,7 @@ use std::ptr::NonNull;
 use fallible_collections::TryCollect;
 
 use crate::{
+    Array,
     array::alloc_fast_array_slots,
     atom::{Atom, AtomKind},
     builtins::{
@@ -545,7 +546,7 @@ impl Bytecode {
                                 realm_scope.throw_out_of_memory();
                                 -1
                             })
-                            .and_then(|vv| realm_scope.create_array_with_values(vv))
+                            .and_then(|vv| Array::from_values(realm_scope, vv))
                         {
                             SP_PUT!(0, JSValue::from(arr));
                             SP_GO!(1);
@@ -828,7 +829,7 @@ impl Bytecode {
                             }
 
                             // create array with elements
-                            if let Ok(arr) = realm_scope.create_array_with_values(list) {
+                            if let Ok(arr) = crate::array::Array::from_values(realm_scope, list) {
                                 SP_GO!(-call_argc);
                                 SP_PUT!(0, JSValue::from(arr));
                                 SP_GO!(1);

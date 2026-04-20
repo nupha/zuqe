@@ -360,7 +360,7 @@ impl<'s> JSParseState<'s> {
 
                 // make Array
                 lst.shrink_to_fit();
-                val = self.ctx().create_array_with_values(lst)?.into();
+                val = crate::array::Array::from_values(self.ctx(), lst)?.into();
 
                 json_parse_expect(self, b']')?;
             }

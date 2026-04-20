@@ -291,6 +291,65 @@ impl Array {
         Ok(())
     }
 
+    /// create an empty Array
+    #[inline(always)]
+    pub fn create(ctx: &mut ScopedContext) -> Result<Self, i32> {
+        Self::from_values(ctx, Vec::new())
+    }
+
+    /// create an Array with element values
+    #[inline(always)]
+    pub fn from_values(ctx: &mut ScopedContext, values: Vec<JSValue>) -> Result<Self, i32> {
+        let len = values.len();
+
+        let mut arr = ObjectImpl::create(
+            ctx,
+            ctx.array_shape.clone(),
+            ObjectPayload::ARRAY(ArrayPayload::new(values)),
+        )
+        .map(|o| Array(o.0))
+        .map_err(|_| -1)?;
+
+        debug_assert!(arr.flags().is_exotic());
+        debug_assert!(arr.flags().is_fast_array());
+
+        if len > 0 {
+            arr.set_length(ctx, len as u32, true)?;
+        }
+
+        Ok(arr)
+    }
+
+    /// create an Array from a slice of values
+    #[inline(always)]
+    pub fn from_slice(ctx: &mut ScopedContext, values: &[JSValue]) -> Result<Self, i32> {
+        if let Ok(lst) = values.iter().cloned().try_collect::<Vec<_>>()
+            && let Ok(arr) = Self::from_values(ctx, lst)
+        {
+            Ok(arr)
+        } else {
+            ctx.throw_out_of_memory();
+            Err(-1)
+        }
+    }
+
+    /// create an Array object with pre-allocated capacity.
+    /// `cap` is allowed no greater than i32::MAX
+    #[inline(always)]
+    pub fn with_capacity(ctx: &mut ScopedContext, cap: usize) -> Result<Self, i32> {
+        if cap <= i32::MAX as usize {
+            let lst = alloc_fast_array_slots(ctx, cap)?;
+            let mut fa = Self::from_values(ctx, lst)?;
+            if cap > 0 {
+                fa.set_length(ctx, cap as u32, true)?;
+            }
+            Ok(fa)
+        } else {
+            ctx.throw_range_error("invalid array length");
+            Err(-1)
+        }
+    }
+
     /// sort array-like object `obj`.
     pub(crate) fn sort(
         ctx: &mut ScopedContext,
@@ -488,65 +547,6 @@ fn sort_values_by(
     });
 
     if has_err { Err(-1) } else { Ok(()) }
-}
-
-impl<'c> ScopedContext<'c> {
-    /// create an Array with element values
-    pub fn create_array_with_values(&mut self, values: Vec<JSValue>) -> Result<Array, i32> {
-        let len = values.len();
-
-        let mut arr = ObjectImpl::create(
-            self,
-            self.array_shape.clone(),
-            ObjectPayload::ARRAY(ArrayPayload::new(values)),
-        )
-        .map(|o| Array(o.0))
-        .map_err(|_| -1)?;
-
-        debug_assert!(arr.flags().is_exotic());
-        debug_assert!(arr.flags().is_fast_array());
-
-        if len > 0 {
-            // set array length
-            arr.set_length(self, len as u32, true)?;
-        }
-
-        Ok(arr)
-    }
-
-    #[inline]
-    pub fn create_array_from_slice(&mut self, values: &[JSValue]) -> Result<Array, i32> {
-        if let Ok(lst) = values.iter().cloned().try_collect::<Vec<_>>()
-            && let Ok(arr) = self.create_array_with_values(lst)
-        {
-            Ok(arr)
-        } else {
-            self.throw_out_of_memory();
-            Err(-1)
-        }
-    }
-
-    /// create an Array object with pre-allocated capacity.
-    /// `cap` is allowed no greater than i32::MAX
-    pub(super) fn create_array_with_capacity(&mut self, cap: usize) -> Result<Array, i32> {
-        if cap <= i32::MAX as usize {
-            let lst = alloc_fast_array_slots(self, cap)?;
-            let mut fa = self.create_array_with_values(lst)?;
-            if cap > 0 {
-                fa.set_length(self, cap as u32, true)?;
-            }
-            Ok(fa)
-        } else {
-            self.throw_range_error("invalid array length");
-            Err(-1)
-        }
-    }
-
-    /// create an empty Array
-    #[inline(always)]
-    pub fn create_array(&mut self) -> Result<Array, i32> {
-        self.create_array_with_values(Vec::new())
-    }
 }
 
 impl ObjectImpl {

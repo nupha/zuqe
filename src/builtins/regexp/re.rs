@@ -373,10 +373,10 @@ pub(super) fn make_regexp_capture_array(
 
         if let Some((idxlst, idxgroup)) = &mut indices {
             let idx = if let Some(r) = range {
-                ctx.create_array_with_values(vec![
-                    JSValue::Int(r.start as i32),
-                    JSValue::Int(r.end as i32),
-                ])?
+                Array::from_values(
+                    ctx,
+                    vec![JSValue::Int(r.start as i32), JSValue::Int(r.end as i32)],
+                )?
                 .into()
             } else {
                 JSValue::UNDEFINED
@@ -395,7 +395,7 @@ pub(super) fn make_regexp_capture_array(
         }
     }
 
-    let mut res = ctx.create_array_with_values(items)?;
+    let mut res = Array::from_values(ctx, items)?;
 
     res.define_property_value(
         ctx,
@@ -407,7 +407,7 @@ pub(super) fn make_regexp_capture_array(
     res.define_property_value(ctx, Atom::CONST_groups, groups, prop_flags)?;
 
     if let Some((idx_lst, idx_grp)) = indices {
-        let mut indices = ctx.create_array_with_values(idx_lst)?;
+        let mut indices = Array::from_values(ctx, idx_lst)?;
         indices.define_property_value(
             ctx,
             Atom::CONST_groups,
