@@ -112,7 +112,7 @@ fn js_number_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_number_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let to_locale_string = cc.magic() != 0;
     let val = js_thisNumberValue(ctx, cc.this())?;
-    let d: f64 = val.to_f64(ctx)?;
+    let d: f64 = val.to_number(ctx)?.to_f64();
 
     let radix = if to_locale_string || cc.arg(0).is_undefined() {
         10
@@ -131,7 +131,7 @@ fn js_number_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_number_toPrecision(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let d = js_thisNumberValue(ctx, cc.this())?.to_f64(ctx)?;
+    let d = js_thisNumberValue(ctx, cc.this())?.to_number(ctx)?.to_f64();
 
     let a0 = cc.arg(0);
     let s: Cow<str> = if a0.is_undefined() {
@@ -248,7 +248,7 @@ fn js_number_isSafeInteger(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         return Ok(JSValue::Bool(false));
     }
 
-    let d: f64 = val.to_f64(ctx)?;
+    let d: f64 = val.to_number(ctx)?.to_f64();
     Ok(is_safe_integer(d).into())
 }
 

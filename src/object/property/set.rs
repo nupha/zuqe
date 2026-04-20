@@ -420,7 +420,7 @@ impl ObjectImpl {
             // typed array
             //
             JS_CLASS_UINT8C_ARRAY => {
-                let Ok(v) = val.coerce_to_u8_clamp(ctx) else {
+                let Ok(v) = val.to_number(ctx).map(|n| n.to_u8_clamped()) else {
                     return Some(Err(-1));
                 };
                 let _ = Object::from_ref(self)

@@ -34,7 +34,7 @@ pub const MAGIC_NUM_IS_NAN: i32 = 1;
 pub const MAGIC_NUM_IS_FINITE: i32 = 2;
 
 pub(crate) fn js_global_isNaN_isFinite(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let d = cc.arg(0).to_f64(ctx)?;
+    let d = cc.arg(0).to_number(ctx)?.to_f64();
     let b = match cc.magic() {
         MAGIC_NUM_IS_NAN => f64::is_nan(d),
         MAGIC_NUM_IS_FINITE => f64::is_finite(d),

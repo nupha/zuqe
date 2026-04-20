@@ -403,17 +403,6 @@ impl JSValue {
         self.to_number_internal(ctx, true, JSToNumberHintEnum::TON_FLAG_NUMERIC)
     }
 
-    /// coerce value to f64.
-    #[deprecated(note = "use IntOrFloat::to_f64()")]
-    pub fn to_f64(&self, ctx: &mut ScopedContext) -> Result<f64, i32> {
-        self.to_number(ctx).map(|n| n.to_f64())
-    }
-
-    #[deprecated(note = "use IntOrFloat::to_u8_clamped()")]
-    pub fn coerce_to_u8_clamp(&self, ctx: &mut ScopedContext) -> Result<u8, i32> {
-        self.to_number(ctx).map(|n| n.to_u8_clamped())
-    }
-
     /// convert value to length between \[0, MAX_SAFE_INTEGER\].
     pub fn to_length(&self, ctx: &mut ScopedContext) -> Result<i64, i32> {
         self.to_number(ctx)
@@ -429,7 +418,7 @@ pub enum JSToNumberHintEnum {
     TON_FLAG_NUMERIC,
 }
 
-pub const fn JS_NumberIsNegativeOrMinusZero(val: &JSValue) -> bool {
+const fn JS_NumberIsNegativeOrMinusZero(val: &JSValue) -> bool {
     match val {
         JSValue::Int(v) => *v < 0,
         JSValue::Float64(d) => {

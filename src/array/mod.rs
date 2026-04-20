@@ -522,7 +522,7 @@ fn sort_values_by(
                         }
                     }
                     r => {
-                        if let Ok(f) = r.to_f64(ctx) {
+                        if let Ok(f) = r.to_number(ctx).map(|n| n.to_f64()) {
                             if f == 0.0 {
                                 std::cmp::Ordering::Equal
                             } else if f > 0.0 {

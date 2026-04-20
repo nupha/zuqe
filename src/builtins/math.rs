@@ -146,14 +146,14 @@ fn js_math_hypot(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut r = 0.0;
 
     if cc.length() > 0 {
-        r = cc.arg(0).to_f64(ctx)?;
+        r = cc.arg(0).to_number(ctx)?.to_f64();
 
         if cc.length() == 1 {
             r = r.abs();
         } else {
             // use the built-in function to minimize precision loss
             for v in &cc.arguments()[1..] {
-                let a = v.to_f64(ctx)?;
+                let a = v.to_number(ctx)?.to_f64();
                 r = r.hypot(a);
             }
         }

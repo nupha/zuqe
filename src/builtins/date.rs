@@ -845,7 +845,7 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
                 match cc.arg(0).to_primitive(ctx, HINT_NONE)? {
                     JSValue::String(s) => Datetime::parse(&s.content().encode_utf8_bytes(false))
                         .unwrap_or(Datetime::INVALID),
-                    v => v.to_f64(ctx)?.into(),
+                    v => v.to_number(ctx)?.to_f64().into(),
                 }
             }
         }
@@ -854,7 +854,7 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
             let mut has_invalid = false;
 
             for i in 0..std::cmp::min(n, 7) {
-                let d = cc.arg(i).to_f64(ctx)?;
+                let d = cc.arg(i).to_number(ctx)?.to_f64();
                 if d.is_finite() {
                     fields[i] = d.trunc();
                     if i == 0 && (0.0..100.0).contains(&fields[0]) {
@@ -904,7 +904,7 @@ fn js_date_getTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_date_setTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let _ = JS_ThisTimeValue(ctx, cc.this())?;
-    let a = cc.arg(0).to_f64(ctx)?;
+    let a = cc.arg(0).to_number(ctx)?.to_f64();
     let dt2 = if a.is_finite() {
         Datetime::from_timestamp_ms(a.trunc() as i64) // will clip inside
     } else {
@@ -1003,7 +1003,7 @@ fn set_date_field_internal(
 
     let field_range = first_field as usize..end_field as usize;
     for (v, i) in args.iter().zip(field_range.into_iter()) {
-        let a = v.to_f64(ctx)?;
+        let a = v.to_number(ctx)?.to_f64();
         if a.is_finite() {
             if let Some(f) = &mut fields {
                 f[i] = a.trunc();
@@ -1041,7 +1041,7 @@ fn set_date_field(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_date_setYear(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut y = cc.arg(0).to_f64(ctx)?;
+    let mut y = cc.arg(0).to_number(ctx)?.to_f64();
     if y.is_finite() {
         y = y.trunc();
         if (0.0..100.0).contains(&y) {
@@ -1056,7 +1056,7 @@ fn js_date_toJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let tv = obj.to_primitive(ctx, HINT_NUMBER)?;
     if tv.is_number() {
-        let d = tv.to_f64(ctx)?;
+        let d = tv.to_number(ctx)?.to_f64();
         if !d.is_finite() {
             return Ok(JSValue::NULL);
         }
@@ -1139,7 +1139,7 @@ fn js_Date_UTC(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     } else {
         let mut fields: [f64; 7] = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
         for (i, a) in cc.arguments().iter().take(7).enumerate() {
-            let v = a.to_f64(ctx)?;
+            let v = a.to_number(ctx)?.to_f64();
             if !v.is_finite() {
                 return Ok(JSValue::Float64(f64::NAN));
             }

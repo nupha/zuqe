@@ -1219,7 +1219,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     if special == special_lastIndexOf {
         k = len - 1;
         if cc.length() > 1 {
-            d = cc.arg(1).to_f64(ctx)?;
+            d = cc.arg(1).to_number(ctx)?.to_f64();
             if d.is_nan() {
                 k = 0;
             } else if d >= 0.0 {

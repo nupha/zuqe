@@ -154,7 +154,7 @@ pub fn js_string_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if lastIndexOf != 0 {
         let mut pos = len - v_len;
         if cc.length() > 1 {
-            let d: f64 = cc.arg(1).to_f64(ctx)?;
+            let d: f64 = cc.arg(1).to_number(ctx)?.to_f64();
             if !d.is_nan() {
                 if d <= 0.0 {
                     pos = 0;
