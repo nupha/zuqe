@@ -249,13 +249,12 @@ impl Promise {
         Ok(promise)
     }
 
-    pub fn create_from_sender<D, Conv>(
+    pub fn create_from_sender<D>(
         ctx: &mut ScopedContext,
-        convert: Conv,
+        convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
     ) -> Result<(Self, std::sync::mpsc::SyncSender<D>), i32>
     where
         D: Send + 'static,
-        Conv: FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
     {
         use std::sync::mpsc::{TryRecvError, sync_channel};
 

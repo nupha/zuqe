@@ -439,6 +439,16 @@ impl TypedArray {
         Self::create(ctx, new_target, abuf, 0, count, class_id)
     }
 
+    /// create Uint8Array instance with vec data.
+    pub fn create_from_vec_u8(ctx: &mut ScopedContext, data: Vec<u8>) -> Result<Self, i32> {
+        Self::create_from_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_UINT8_ARRAY)
+    }
+
+    /// create Int16Array instance with vec data.
+    pub fn create_from_vec_i16(ctx: &mut ScopedContext, data: Vec<i16>) -> Result<Self, i32> {
+        Self::create_from_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_INT16_ARRAY)
+    }
+
     /// create Int32Array instance with vec data.
     pub fn create_from_vec_i32(ctx: &mut ScopedContext, data: Vec<i32>) -> Result<Self, i32> {
         Self::create_from_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_INT32_ARRAY)
@@ -447,6 +457,11 @@ impl TypedArray {
     /// create Uint32Array instance with vec data.
     pub fn create_from_vec_u32(ctx: &mut ScopedContext, data: Vec<u32>) -> Result<Self, i32> {
         Self::create_from_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_UINT32_ARRAY)
+    }
+
+    /// create Float32Array instance with vec data.
+    pub fn create_from_vec_f32(ctx: &mut ScopedContext, data: Vec<f32>) -> Result<Self, i32> {
+        Self::create_from_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_FLOAT32_ARRAY)
     }
 
     #[inline(always)]
