@@ -4,6 +4,7 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel},
 };
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
@@ -249,16 +250,19 @@ impl Promise {
         Ok(promise)
     }
 
-    pub fn create_from_sender<D>(
+    /// Create Promise driven by a `Receiver`-backed channel.
+    ///
+    /// The returned Promise is resolved or rejected according to values
+    /// received from `rx`. When a value of type `D` is received, `convert`
+    /// is called once inside a JS context to produce a `JSResult`, whose
+    /// outcome is used to resolve or reject the Promise. If the channel is
+    /// disconnected before a value is received, the Promise is rejected
+    /// with an internal error.
+    pub fn create_with_receiver<D: Send + 'static>(
         ctx: &mut ScopedContext,
+        rx: Receiver<D>,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
-    ) -> Result<(Self, std::sync::mpsc::SyncSender<D>), i32>
-    where
-        D: Send + 'static,
-    {
-        use std::sync::mpsc::{TryRecvError, sync_channel};
-
-        let (tx, rx) = sync_channel::<D>(1);
+    ) -> Result<Self, i32> {
         let convert_slot = Rc::new(RefCell::new(Some(convert)));
         let convert_slot_job = convert_slot.clone();
 
@@ -282,6 +286,23 @@ impl Promise {
             }
         })?;
 
+        Ok(promise)
+    }
+
+    /// Create Promise driven by an internal `sync_channel`.
+    ///
+    /// Returns a pair of `(Promise, SyncSender<D>)`. The sender can be used,
+    /// typically from another thread, to send a single value of type `D`.
+    /// When the value is received, `convert` is called inside a JS context
+    /// to turn it into `JSValue` and resolve the Promise. If the channel is
+    /// disconnected before a value is sent, the Promise is rejected with an
+    /// internal error.
+    pub fn create_with_channel<D: Send + 'static>(
+        ctx: &mut ScopedContext,
+        convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
+    ) -> Result<(Self, SyncSender<D>), i32> {
+        let (tx, rx) = sync_channel::<D>(1);
+        let promise = Promise::create_with_receiver(ctx, rx, convert)?;
         Ok((promise, tx))
     }
 
@@ -516,10 +537,10 @@ mod tests {
     }
 
     #[test]
-    fn create_from_sender_resolve() {
+    fn create_with_channel_resolve() {
         with_rt_ctx(|rt, ctx| {
             let (p, tx) =
-                Promise::create_from_sender(ctx, |_, n: i32| Ok(JSValue::Int(n))).unwrap();
+                Promise::create_with_channel(ctx, |_, n: i32| Ok(JSValue::Int(n))).unwrap();
             assert_eq!(p.state(), PromiseState::Pending);
 
             tx.send(321).unwrap();

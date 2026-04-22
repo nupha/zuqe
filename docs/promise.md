@@ -105,19 +105,68 @@ Use this when:
 - The data source is polled from the JS runtime thread.
 - You do not need Rust `Future` or external async runtimes.
 
-### `Promise::create_from_sender`
+### `Promise::create_with_receiver`
 
-Create a Promise that is completed by sending a value through a channel from any thread or async runtime:
+Zuqe exposes a pair of channel-based helpers: `Promise::create_with_receiver` and `Promise::create_with_channel`. `create_with_receiver` is the lower-level primitive: you provide an existing `Receiver<D>`, and the Promise is driven by values arriving on that channel. `create_with_channel` is a convenience wrapper that allocates a new `sync_channel` internally and returns the sending side.
 
 ```rust
 impl Promise {
-    pub fn create_from_sender<D, Conv>(
+    pub fn create_with_receiver<D: Send + 'static>(
         ctx: &mut ScopedContext,
-        convert: Conv,
-    ) -> Result<(Promise, std::sync::mpsc::SyncSender<D>), i32>
-    where
-        D: Send + 'static,
-        Conv: FnOnce(&mut ScopedContext, D) -> JSResult + 'static;
+        rx: std::sync::mpsc::Receiver<D>,
+        convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
+    ) -> Result<Promise, i32>;
+}
+```
+
+Internally:
+
+- The runtime polls `rx.try_recv()` from the JS thread.
+- When a value `data: D` is received, `convert(ctx, data)` is called exactly once.
+- The returned `JSResult` controls whether the Promise is fulfilled or rejected.
+- If the channel is disconnected before a value is received, the Promise is rejected with an internal error.
+
+Example: use a manually created channel when you need extra control over the sending side:
+
+```rust
+let (tx, rx) = std::sync::mpsc::sync_channel(1);
+
+let promise = Promise::create_with_receiver(ctx, rx, |cx, res: Result<Vec<u8>, String>| {
+    match res {
+        Ok(bytes) => {
+            let obj = JSFileData::new_instance(cx, bytes)?;
+            Ok(JSValue::Object(obj))
+        }
+        Err(e) => {
+            cx.throw_internal_error(&e);
+            Err(-1)
+        }
+    }
+})?;
+
+std::thread::spawn(move || {
+    let result = do_blocking_io();
+    let _ = tx.send(result);
+});
+
+// JS: const data = await host.readFileWithReceiver(...);
+```
+
+Use `create_with_receiver` when:
+
+- You already have a `Receiver<D>` created elsewhere (for example, shared between multiple producers).
+- You need to plug a pre-existing channel into the Promise machinery without allocating a new one.
+
+### `Promise::create_with_channel`
+
+Create a Promise that is completed by sending a value through a channel from any thread or async runtime. This is a convenience wrapper around `create_with_receiver` that allocates a fresh `sync_channel` internally and returns the sending side:
+
+```rust
+impl Promise {
+    pub fn create_with_channel<D: Send + 'static>(
+        ctx: &mut ScopedContext,
+        convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
+    ) -> Result<(Promise, std::sync::mpsc::SyncSender<D>), i32>;
 }
 ```
 
@@ -142,7 +191,7 @@ Example: bridge a background thread computing a `LlamaModel` using a channel and
 
 ```rust
 let (promise, tx) =
-    Promise::create_from_sender(ctx, |cx, model: Result<LlamaModel, String>| -> JSResult {
+    Promise::create_with_channel(ctx, |cx, model: Result<LlamaModel, String>| -> JSResult {
         let model = model.map_err(|e| {
             cx.throw_internal_error(&e);
             -1
@@ -164,7 +213,7 @@ let _ = std::thread::spawn(move || {
 Example: integrate `tokio::fs::read`:
 
 ```rust
-let (promise, tx) = Promise::create_from_sender(ctx, |cx, res: std::io::Result<Vec<u8>>| {
+let (promise, tx) = Promise::create_with_channel(ctx, |cx, res: std::io::Result<Vec<u8>>| {
     match res {
         Ok(bytes) => {
             let obj = JSFileData::new_instance(cx, bytes)?;
@@ -186,10 +235,11 @@ tokio::spawn(async move {
 // JS: const data = await readFile(path);
 ```
 
-Use `create_from_sender` when:
+Use `create_with_channel` when:
 
 - Your async work is naturally expressed as a Rust `Future` or blocking code on some runtime.
 - You want a typed channel from host world (`D`) into JS world, and you need to convert `D` into `JSValue` on the JS runtime thread.
+- You do not already have a `Receiver<D>` and are happy for the helper to create the channel for you. If you already own a `Receiver<D>`, prefer `create_with_receiver`.
 
 ## Promise ↔ Future bridge
 
@@ -325,7 +375,7 @@ When embedding Zuqe in a Rust application, you can mix JS Promise code and Rust 
 - Rust → JS:
   - Expose host async operations as JS Promises by:
     - Using `Promise::create_with_job` when the work is naturally polled on the JS thread.
-    - Using `Promise::create_from_sender` when the work runs in a separate runtime or thread and results are sent through a channel.
+    - Using `Promise::create_with_channel` when the work runs in a separate runtime or thread and results are sent through a channel.
     - Using `Promise::create_from_future` when you prefer a callback-based integration with existing `Future`-returning APIs.
 
 In all cases, Promise settlement (state transitions and reaction execution) remains inside Zhuque’s job + tick microtask engine, preserving ECMAScript semantics while giving the host full control over how and where asynchronous work is actually performed.
