@@ -50,3 +50,28 @@ mod stdcls {
 pub use stdcls::*;
 
 pub mod builtins;
+
+//
+// channel helpers
+//
+#[cfg(not(feature = "crossbeam_channel"))]
+mod channel {
+    pub type Sender<D> = std::sync::mpsc::SyncSender<D>;
+    pub type Receiver<D> = std::sync::mpsc::Receiver<D>;
+    pub type TryRecvError = std::sync::mpsc::TryRecvError;
+
+    pub fn make_bounded_channel<D: Send + 'static>(n: usize) -> (Sender<D>, Receiver<D>) {
+        std::sync::mpsc::sync_channel(n)
+    }
+}
+#[cfg(feature = "crossbeam_channel")]
+mod channel {
+    pub type Sender<D> = crossbeam::channel::Sender<D>;
+    pub type Receiver<D> = crossbeam::channel::Receiver<D>;
+    pub type TryRecvError = crossbeam::channel::TryRecvError;
+
+    pub fn make_bounded_channel<D: Send + 'static>(n: usize) -> (Sender<D>, Receiver<D>) {
+        crossbeam::channel::bounded(n)
+    }
+}
+pub(crate) use channel::*;

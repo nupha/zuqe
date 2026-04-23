@@ -1,20 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::{cell::RefCell, rc::Rc};
+
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel},
-};
 
 use crate::{
-    JS_CLASS_ASYNC_ITERATOR,
+    JS_CLASS_ASYNC_ITERATOR, Receiver, Sender, TryRecvError,
     builtins::promise::Promise,
     class::ClassID,
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
+    make_bounded_channel,
     object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
@@ -94,10 +92,7 @@ impl AsyncIteratorPayload {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Default fetcher: channel-backed
-// ---------------------------------------------------------------------------
-
+/// Channel-backed fetcher
 struct ChannelFetcher<D> {
     rx: RefCell<Option<Receiver<D>>>,
     convert: Box<dyn Fn(&mut ScopedContext, D) -> Result<IterFetchStatus, i32> + Send>,
@@ -216,8 +211,8 @@ impl AsyncIterator {
     pub fn create_with_channel<D: Send + 'static>(
         ctx: &mut ScopedContext,
         convert: impl Fn(&mut ScopedContext, D) -> Result<IterFetchStatus, i32> + Send + 'static,
-    ) -> Result<(Self, SyncSender<D>), i32> {
-        let (tx, rx) = sync_channel::<D>(1);
+    ) -> Result<(Self, Sender<D>), i32> {
+        let (tx, rx) = make_bounded_channel::<D>(1);
         let iter = Self::create_with_receiver(ctx, rx, convert)?;
         Ok((iter, tx))
     }

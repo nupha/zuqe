@@ -4,16 +4,13 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
-    sync::{
-        Arc, Mutex,
-        mpsc::{Receiver, SyncSender, TryRecvError, sync_channel},
-    },
+    sync::{Arc, Mutex},
 };
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_PROMISE,
+    JS_CLASS_PROMISE, Receiver, Sender, TryRecvError,
     atom::Atom,
     builtins::{
         error::js_aggregate_error_constructor,
@@ -22,6 +19,7 @@ use crate::{
     context::{ContextImpl, ScopedContext},
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
+    make_bounded_channel,
     object::{JS_PROP_C_W_E, Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
@@ -344,8 +342,8 @@ impl Promise {
     pub fn create_with_channel<D: Send + 'static>(
         ctx: &mut ScopedContext,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
-    ) -> Result<(Self, SyncSender<D>), i32> {
-        let (tx, rx) = sync_channel::<D>(1);
+    ) -> Result<(Self, Sender<D>), i32> {
+        let (tx, rx) = make_bounded_channel::<D>(1);
         let promise = Promise::create_with_receiver(ctx, rx, convert)?;
         Ok((promise, tx))
     }
