@@ -171,7 +171,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     );
     m.insert(
         PayloadKey::AsyncIterator,
-        "Box<crate::builtins::iterator::AsyncIteratorPayload>",
+        "Box<crate::builtins::iterator::AsyncIterPayload>",
     );
 
     #[cfg(feature = "builtin_date")]
@@ -493,8 +493,8 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         PayloadKey::BcFunction,
     ),
     ClassInfo::class_def(
-        "ASYNC_ITERATOR",
-        "crate::builtins::iterator::CLASS_DEF_ASYNC_ITERATOR",
+        "ASYNC_ITERABLE_ITERATOR",
+        "crate::builtins::iterator::CLASS_DEF_ASYNC_ITERABLE_ITERATOR",
         PayloadKey::AsyncIterator,
     ),
 ];
@@ -515,7 +515,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
             "PROMISE" => {
                 async_start = Some(i);
             }
-            "ASYNC_ITERATOR" => {
+            "ASYNC_ITERABLE_ITERATOR" => {
                 async_end = Some(i);
             }
             _ => {}

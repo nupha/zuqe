@@ -6,7 +6,7 @@ use std::{cell::RefCell, rc::Rc};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_ASYNC_ITERATOR, Receiver, Sender, TryRecvError,
+    JS_CLASS_ASYNC_ITERABLE_ITERATOR, Receiver, Sender, TryRecvError,
     builtins::promise::Promise,
     class::ClassID,
     context::ScopedContext,
@@ -53,7 +53,7 @@ pub trait AsyncIteratorFetcher {
 }
 
 /// Internal payload stored inside the JS `AsyncIterator` object.
-pub struct AsyncIteratorPayload {
+pub struct AsyncIterPayload {
     /// The fetcher that produces `IterFetchStatus` values.
     /// Set to `None` once `return()` is called.
     fetcher: Option<Rc<dyn AsyncIteratorFetcher>>,
@@ -62,22 +62,19 @@ pub struct AsyncIteratorPayload {
     completed: bool,
 }
 
-impl std::fmt::Debug for AsyncIteratorPayload {
+impl std::fmt::Debug for AsyncIterPayload {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AsyncIteratorPayload")
+        f.debug_struct("AsyncIterPayload")
             .field("completed", &self.completed)
             .finish()
     }
 }
 
-impl GcTrace for AsyncIteratorPayload {
-    fn trace(&self, _tr: &mut GcTraceCtx) {
-        // The fetcher is not GC-managed. JSValues are only surfaced
-        // after try_fetch() succeeds.
-    }
+impl GcTrace for AsyncIterPayload {
+    fn trace(&self, _tr: &mut GcTraceCtx) {}
 }
 
-impl AsyncIteratorPayload {
+impl AsyncIterPayload {
     #[inline(always)]
     const fn completed(&self) -> bool {
         self.completed
@@ -172,10 +169,10 @@ impl<D: Send + 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
 #[derive(Debug, Clone, Copy)]
 pub struct AsyncIterator(GcRef<ObjectImpl>);
 
-object_cast!(AsyncIterator, JS_CLASS_ASYNC_ITERATOR);
+object_cast!(AsyncIterator, JS_CLASS_ASYNC_ITERABLE_ITERATOR);
 
 impl AsyncIterator {
-    pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
+    pub(crate) fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         let aiter_proto = ctx.async_iterator_proto()?;
@@ -188,13 +185,13 @@ impl AsyncIterator {
         ctx: &mut ScopedContext,
         fetcher: impl AsyncIteratorFetcher + 'static,
     ) -> Result<Self, i32> {
-        let data = Box::new(AsyncIteratorPayload {
+        let data = Box::new(AsyncIterPayload {
             fetcher: Some(Rc::new(fetcher)),
             completed: false,
         });
 
         let obj = ctx
-            .create_instance_with_payload(ObjectPayload::ASYNC_ITERATOR(data))
+            .create_instance_with_payload(ObjectPayload::ASYNC_ITERABLE_ITERATOR(data))
             .map_err(|_| -1)?;
 
         Ok(Self(obj.0))
@@ -228,7 +225,7 @@ impl AsyncIterator {
     }
 
     #[inline(always)]
-    pub fn payload(&self) -> &AsyncIteratorPayload {
+    pub fn payload(&self) -> &AsyncIterPayload {
         #[cfg(debug_assertions)]
         {
             self.0.payload().async_iterator().unwrap()
@@ -240,7 +237,7 @@ impl AsyncIterator {
     }
 
     #[inline(always)]
-    pub fn payload_mut(&mut self) -> &mut AsyncIteratorPayload {
+    pub fn payload_mut(&mut self) -> &mut AsyncIterPayload {
         #[cfg(debug_assertions)]
         {
             self.0.payload_mut().async_iterator_mut().unwrap()
@@ -320,7 +317,7 @@ const js_async_iterator_proto_funcs: &[FieldDef] = &[
     #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
-        "AsyncIterator",
+        "AsyncIterableIterator",
         JS_PROP_CONFIGURABLE,
     ),
 ];
