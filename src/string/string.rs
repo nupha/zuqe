@@ -496,6 +496,17 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
+    /// create string from static str
+    pub fn create_string_from_static(&mut self, str: &'static str) -> Result<StringRef, i32> {
+        if unlikely(str.is_empty()) {
+            Atom::CONST_empty_string.force_string(self)
+        } else {
+            StringRef::create_static(self.rt_ptr(), str, None).inspect_err(|_| {
+                self.throw_out_of_memory();
+            })
+        }
+    }
+
     /// create string value from a single string char.
     pub fn create_string_from_char(&mut self, ch: CharCode) -> Result<StringRef, i32> {
         let sbuf = match ch.encode_utf16(&mut [0; 2]) {

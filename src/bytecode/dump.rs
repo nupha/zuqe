@@ -300,11 +300,14 @@ pub(crate) fn dump_opcodes(
 
             OpcodeFormat::CONST => {
                 let idx = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) as usize };
-                print!(" {idx}  ; {}", consts[idx].inspect_quoted(ctx).unwrap());
+                print!(
+                    " {idx}  ; {}",
+                    consts[idx].inspect_internal(ctx.rt_mut(), true).unwrap()
+                );
             }
             OpcodeFormat::ATOM => {
                 let a = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) };
-                Atom::from_id(a).with_utf8(ctx.rt_ref(), |s| {
+                Atom::from_id(a).with_utf8(ctx.rt(), |s| {
                     print!(" {a}'{s}");
                 });
             }
@@ -313,7 +316,7 @@ pub(crate) fn dump_opcodes(
                 print!(
                     " {}'{}, {}",
                     atom.id(),
-                    atom.to_utf8(ctx.rt_ref()),
+                    atom.to_utf8(ctx.rt()),
                     if f == OpcodeFormat::ATOM_U8 {
                         bin[pos + 4] as usize
                     } else {
@@ -694,19 +697,19 @@ pub(super) fn dump_run_instruction(
                 " {idx}  ; {}",
                 b.load_const(idx as usize)
                     .unwrap()
-                    .inspect_quoted(ctx)
+                    .inspect_internal(ctx.rt_mut(), true)
                     .unwrap()
             );
         }
         OpcodeFormat::ATOM => {
             let a = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
-            Atom::from_id(a).with_utf8(ctx.rt_ref(), |s| {
+            Atom::from_id(a).with_utf8(ctx.rt(), |s| {
                 print!(" {a}'{s}");
             });
         }
         f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
             let atom = Atom::from_id(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
-            atom.with_utf8(ctx.rt_ref(), |s| {
+            atom.with_utf8(ctx.rt(), |s| {
                 print!(
                     " {}'{s}, {}",
                     atom.id(),
@@ -720,7 +723,7 @@ pub(super) fn dump_run_instruction(
         }
         f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
             let atom = Atom::from_id(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
-            atom.with_utf8(ctx.rt_ref(), |s| {
+            atom.with_utf8(ctx.rt(), |s| {
                 print!(" {}'{s}", atom.id());
             });
 
@@ -854,11 +857,11 @@ pub(super) fn dump_run_stack(
                     if v.as_object_Proxy().is_some() {
                         "[object Proxy]".to_string() // to avoid ::inspect() on a revoked Proxy returnes error
                     } else {
-                        v.inspect_quoted(ctx).unwrap()
+                        v.inspect_internal(ctx.rt_mut(), true).unwrap()
                     }
                     #[cfg(not(feature = "builtin_proxy"))]
                     {
-                        v.inspect_quoted(ctx).unwrap()
+                        v.inspect_internal(ctx.rt_mut(), true).unwrap()
                     }
                 };
 

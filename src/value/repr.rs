@@ -21,7 +21,11 @@ impl JSValue {
     /// Get inspect representation string of `self` value.
     /// `inspect()` string is only used for interactive prompting,
     /// use `to_string()` for other cases.
-    fn inspect_internal(&self, rt: &mut RuntimeImpl, quote_str: bool) -> Result<String, i32> {
+    pub(crate) fn inspect_internal(
+        &self,
+        rt: &mut RuntimeImpl,
+        quoted: bool,
+    ) -> Result<String, i32> {
         match self {
             Self::Int(i) => Ok(format!("{}", *i)),
             Self::Bool(b) => Ok(if *b { "true" } else { "false" }.into()),
@@ -35,7 +39,7 @@ impl JSValue {
             }
 
             Self::String(s) => {
-                if quote_str {
+                if quoted {
                     Ok(format!("\"{}\"", s.content().encode_utf8(true)))
                 } else {
                     Ok(s.content().encode_utf8(false).into())

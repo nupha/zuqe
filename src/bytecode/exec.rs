@@ -1481,16 +1481,17 @@ impl Bytecode {
                                     .map(|m| (o, m))
                             })
                         {
-                            SP_PUT!(-1, JSValue::from(iter_obj));
-                            SP_PUT!(0, next_method);
+                            SP_PUT!(-1, JSValue::from(iter_obj)); // obj[Symbol.iterator] or obj[Symbol.asyncIterator]
+                            SP_PUT!(0, next_method); // iter_obj.next
                             SP_GO!(1);
-                            SP_PUT!(0, JSValue::CatchOffset(0)); // mark for_of_start
+                            SP_PUT!(0, JSValue::CatchOffset(0)); // mark for_of start anchor
                             SP_GO!(1);
                         } else {
                             break State::Exception;
                         }
                     }
                     OpCode::FOR_OF_NEXT => {
+                        // [iter_obj, next, ^] -> [value, done, ^]
                         let offset = -3 - PC_FETCH!(u8) as i32;
                         let r = unsafe { js_for_of_next(realm_scope, sp, offset) };
                         if unlikely(r.is_err()) {

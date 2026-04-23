@@ -37,6 +37,8 @@ default = [
     "builtin_json",
     "builtin_date",
     "builtin_math",
+
+    "dump_bytecode",
 ]
 
 [profile.release]
