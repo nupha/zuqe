@@ -19,7 +19,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{JS_IteratorGetCompleteValue, ObjectIter, js_create_iterator_result};
+use super::{JS_IteratorGetCompleteValue, ObjectIter, make_iterator_next_result};
 
 #[derive(Debug)]
 pub struct JSAsyncFromSyncIteratorData {
@@ -54,7 +54,7 @@ impl AsyncFromSyncIterator {
 fn js_async_from_sync_iterator_unwrap(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let arg0 = cc.arg(0);
     let done = cc.data(0).to_bool()?;
-    js_create_iterator_result(ctx, arg0, done)
+    make_iterator_next_result(ctx, arg0, done)
 }
 
 fn js_async_from_sync_iterator_unwrap_func_create(ctx: &mut ScopedContext, done: bool) -> JSValue {
@@ -122,7 +122,7 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
                 Ok(fval) => {
                     if fval.is_undefined_or_null() {
                         let (err, is_reject) = if cc.magic() == GEN_MAGIC_RETURN {
-                            (js_create_iterator_result(ctx, cc.arg(0), true)?, 0)
+                            (make_iterator_next_result(ctx, cc.arg(0), true)?, 0)
                         } else {
                             (cc.arg(0), 1)
                         };

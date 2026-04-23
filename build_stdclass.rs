@@ -39,6 +39,7 @@ enum PayloadKey {
     AsyncFunctionResolving,
     AsyncFromSyncIterator,
     AsyncGenerator,
+    AsyncIterator,
 }
 
 impl PayloadKey {
@@ -75,6 +76,7 @@ impl PayloadKey {
             PayloadKey::AsyncFunctionResolving => "async_function_resolving",
             PayloadKey::AsyncFromSyncIterator => "async_from_sync_iterator",
             PayloadKey::AsyncGenerator => "async_generator",
+            PayloadKey::AsyncIterator => "async_iterator",
         }
     }
 }
@@ -166,6 +168,10 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     m.insert(
         PayloadKey::AsyncGenerator,
         "Box<crate::builtins::generator::AGenPayload>",
+    );
+    m.insert(
+        PayloadKey::AsyncIterator,
+        "Box<crate::builtins::iterator::AsyncIteratorPayload>",
     );
 
     #[cfg(feature = "builtin_date")]
@@ -486,6 +492,11 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         "crate::builtins::generator::CLASS_DEF_ASYNC_GENERATOR_FUNCTION",
         PayloadKey::BcFunction,
     ),
+    ClassInfo::class_def(
+        "ASYNC_ITERATOR",
+        "crate::builtins::iterator::CLASS_DEF_ASYNC_ITERATOR",
+        PayloadKey::AsyncIterator,
+    ),
 ];
 
 pub fn gen_std_class_defs(outfile: &Path) {
@@ -504,7 +515,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
             "PROMISE" => {
                 async_start = Some(i);
             }
-            "ASYNC_GENERATOR" => {
+            "ASYNC_ITERATOR" => {
                 async_end = Some(i);
             }
             _ => {}

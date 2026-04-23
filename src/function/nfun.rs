@@ -8,7 +8,7 @@ use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
     atom::Atom,
-    builtins::iterator::js_create_iterator_result,
+    builtins::iterator::make_iterator_next_result,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
     object::{Object, ObjectImpl, ObjectPayload},
@@ -113,7 +113,7 @@ impl NFuncPayload {
                 if let Ok(v) = r
                     && iter_state != IteratorState::NotParsed
                 {
-                    js_create_iterator_result(
+                    make_iterator_next_result(
                         &mut realm_scope,
                         v,
                         iter_state == IteratorState::Done,

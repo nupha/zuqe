@@ -557,7 +557,7 @@ pub fn JS_IteratorGetCompleteValue(
 }
 
 /// create an Object with two properties: `value` and `done`.
-pub(crate) fn js_create_iterator_result(
+pub(crate) fn make_iterator_next_result(
     ctx: &mut ScopedContext,
     value: JSValue,
     done: bool,

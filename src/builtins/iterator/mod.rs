@@ -3,9 +3,10 @@
 
 mod a_iter;
 mod array_iter;
+mod async_iter;
 mod iter;
 
-pub(crate) use {a_iter::*, array_iter::*, iter::*};
+pub use {a_iter::*, array_iter::*, async_iter::*, iter::*};
 
 use crate::{Atom, ClassDef};
 
@@ -14,3 +15,6 @@ pub(crate) static CLASS_DEF_FOR_IN_ITERATOR: ClassDef =
 
 pub(crate) static CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR: ClassDef =
     ClassDef::builtin_with_init_func(Atom::CONST_empty_string, AsyncFromSyncIterator::class_init);
+
+pub(crate) static CLASS_DEF_ASYNC_ITERATOR: ClassDef =
+    ClassDef::builtin_with_init_func(Atom::CONST_AsyncIterator, AsyncIterator::class_init);

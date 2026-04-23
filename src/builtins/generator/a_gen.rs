@@ -8,7 +8,7 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 use crate::{
     Atom, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     builtins::{
-        iterator::js_create_iterator_result,
+        iterator::make_iterator_next_result,
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
@@ -328,7 +328,7 @@ impl AGenPayload {
 
     #[inline]
     pub fn resolve(&mut self, ctx: &mut ScopedContext, value: JSValue, done: bool) {
-        let result = js_create_iterator_result(ctx, value, done).unwrap_or(JSValue::EXCEPTION);
+        let result = make_iterator_next_result(ctx, value, done).unwrap_or(JSValue::EXCEPTION);
         self.resolve_or_reject(ctx, &result, false);
     }
 
