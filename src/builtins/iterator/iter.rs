@@ -523,7 +523,11 @@ impl JSValue {
         is_async: bool,
     ) -> Result<Object, i32> {
         self.get_iterator(ctx, is_async)?.ok_or_else(|| {
-            ctx.throw_type_error("value is not iterable");
+            ctx.throw_type_error(if is_async {
+                "value has neither [Symbol.asyncIterator] nor [Symbol.iterator] property"
+            } else {
+                "value has no [Symbol.iterator] property"
+            });
             -1
         })
     }

@@ -20,15 +20,11 @@ use crate::{
 
 use super::make_iterator_next_result;
 
-// ---------------------------------------------------------------------------
-// Payload
-// ---------------------------------------------------------------------------
-
 /// Message envelope produced by an [`AsyncIteratorFetcher`].
 ///
 /// - `Value(JSValue)` — a value to yield (iteration continues).
 /// - `Done`           — end of iteration.
-/// - `Error`          — an error occurred (reject the promise).
+/// - `Wait`           — data not ready
 #[derive(Debug)]
 pub enum IterFetchStatus {
     Value(JSValue),
@@ -45,7 +41,7 @@ pub trait AsyncIteratorFetcher {
     /// Try to fetch the next value.
     ///
     /// Returns:
-    /// - `Ok(IterFetchStatus::Value(v))`.   — yield `v`, iteration continues.
+    /// - `Ok(IterFetchStatus::Value(v))`    — yield `v`, iteration continues.
     /// - `Ok(IterFetchStatus::Done)`        — iteration ended.
     /// - `Ok(IterFetchStatus::Wait)`        — no data yet, retry next tick.
     /// - `Err(_)`                           — error, reject the promise.
@@ -95,29 +91,39 @@ impl AsyncIteratorPayload {
 /// Channel-backed fetcher
 struct ChannelFetcher<D> {
     rx: RefCell<Option<Receiver<D>>>,
-    convert: Box<dyn Fn(&mut ScopedContext, D) -> Result<IterFetchStatus, i32> + Send>,
+
+    /// convert returns:
+    /// - `Ok(Some(v))`    — yield `v`, iteration continues.
+    /// - `Ok(None)`       — iteration ended.
+    /// - `Err(_)`         — error, reject the promise.
+    convert: Box<dyn Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + Send>,
 }
 
 impl<D: Send + 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
     fn try_fetch(&self, cx: &mut ScopedContext) -> Result<IterFetchStatus, i32> {
         let mut guard = self.rx.borrow_mut();
-        let Some(rx) = guard.as_ref() else {
-            return Ok(IterFetchStatus::Done);
-        };
 
-        match rx.try_recv() {
-            Ok(data) => {
-                let r = (self.convert)(cx, data);
-                if matches!(r, Ok(IterFetchStatus::Done) | Err(_)) {
+        if let Some(rx) = guard.as_ref() {
+            match rx.try_recv() {
+                Ok(data) => match (self.convert)(cx, data) {
+                    Ok(Some(v)) => Ok(IterFetchStatus::Value(v)),
+                    Ok(None) => {
+                        guard.take();
+                        Ok(IterFetchStatus::Done)
+                    }
+                    Err(e) => {
+                        guard.take();
+                        Err(e)
+                    }
+                },
+                Err(TryRecvError::Empty) => Ok(IterFetchStatus::Wait),
+                Err(TryRecvError::Disconnected) => {
                     guard.take();
+                    Ok(IterFetchStatus::Done)
                 }
-                r
             }
-            Err(TryRecvError::Empty) => Ok(IterFetchStatus::Wait),
-            Err(TryRecvError::Disconnected) => {
-                guard.take();
-                Ok(IterFetchStatus::Done)
-            }
+        } else {
+            Ok(IterFetchStatus::Done)
         }
     }
 
@@ -194,10 +200,14 @@ impl AsyncIterator {
         Ok(Self(obj.0))
     }
 
+    /// Convert data D to JSValue closure returns:
+    /// - `Ok(Some(v))`    — yield `v`, iteration continues.
+    /// - `Ok(None)`       — iteration ended.
+    /// - `Err(_)`         — error, reject the promise.
     pub fn create_with_receiver<D: Send + 'static>(
         ctx: &mut ScopedContext,
         rx: Receiver<D>,
-        convert: impl Fn(&mut ScopedContext, D) -> Result<IterFetchStatus, i32> + Send + 'static,
+        convert: impl Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + Send + 'static,
     ) -> Result<Self, i32> {
         Self::create(
             ctx,
@@ -210,7 +220,7 @@ impl AsyncIterator {
 
     pub fn create_with_channel<D: Send + 'static>(
         ctx: &mut ScopedContext,
-        convert: impl Fn(&mut ScopedContext, D) -> Result<IterFetchStatus, i32> + Send + 'static,
+        convert: impl Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + Send + 'static,
     ) -> Result<(Self, Sender<D>), i32> {
         let (tx, rx) = make_bounded_channel::<D>(1);
         let iter = Self::create_with_receiver(ctx, rx, convert)?;
@@ -271,8 +281,8 @@ fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
             }
             Ok(IterFetchStatus::Wait) => Ok(None),
             Err(e) => {
-                cx.throw_internal_error("fail to fetch next value");
-                Err(-1)
+                //cx.throw_internal_error("fail to fetch next value");
+                Err(e)
             }
         })?;
         Ok(promise.into())

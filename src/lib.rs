@@ -59,6 +59,7 @@ mod channel {
     pub type Sender<D> = std::sync::mpsc::SyncSender<D>;
     pub type Receiver<D> = std::sync::mpsc::Receiver<D>;
     pub type TryRecvError = std::sync::mpsc::TryRecvError;
+    pub type SendError<T> = std::sync::mpsc::SendError<T>;
 
     pub fn make_bounded_channel<D: Send + 'static>(n: usize) -> (Sender<D>, Receiver<D>) {
         std::sync::mpsc::sync_channel(n)
@@ -69,6 +70,7 @@ mod channel {
     pub type Sender<D> = crossbeam::channel::Sender<D>;
     pub type Receiver<D> = crossbeam::channel::Receiver<D>;
     pub type TryRecvError = crossbeam::channel::TryRecvError;
+    pub type SendError<T> = crossbeam::channel::SendError<T>;
 
     pub fn make_bounded_channel<D: Send + 'static>(n: usize) -> (Sender<D>, Receiver<D>) {
         crossbeam::channel::bounded(n)
