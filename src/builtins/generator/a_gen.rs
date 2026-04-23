@@ -67,7 +67,7 @@ pub struct AGenPayload {
     /// generator state
     state: AGenState,
 
-    /// Async execution state
+    /// Async execution state for bytecode running
     async_state: AsyncState,
 
     /// list of JSAsyncGeneratorRequest.
@@ -411,17 +411,16 @@ impl AsyncGeneratorFunction {
         args: &[JSValue],
         _flags: i32,
     ) -> JSResult {
-        let async_state = AsyncState::new(
-            ctx,
-            [const { JSValue::UNDEFINED }; 2],
-            *func_obj.as_object_BCWrapper().unwrap(),
-            this_obj,
-            args,
-        )?;
         let mut s = Box::new(AGenPayload {
             generator: RefCell::new(GcWeak::default()),
             state: AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
-            async_state,
+            async_state: AsyncState::new(
+                ctx,
+                [const { JSValue::UNDEFINED }; 2],
+                func_obj.as_object_BCWrapper().copied().unwrap(),
+                this_obj,
+                args,
+            )?,
             queue: Vec::with_capacity(2),
         });
 

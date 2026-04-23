@@ -528,10 +528,6 @@ impl TypedArray {
         }
     }
 
-    pub(crate) fn bytes(&self) -> &[u8] {
-        self.payload().bytes()
-    }
-
     /// run closure with underlaying bytes of typed array
     #[inline(always)]
     pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {

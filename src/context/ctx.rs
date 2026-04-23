@@ -422,8 +422,8 @@ impl<'a> Context<'a> {
                 // async
                 JS_CLASS_PROMISE,
                 JS_CLASS_ASYNC_FUNCTION,
-                JS_CLASS_ASYNC_GENERATOR,
-                JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+                JS_CLASS_ASYNC_GENERATOR, // indicates the object returned by calling an async function* function
+                JS_CLASS_ASYNC_GENERATOR_FUNCTION, // indicates the async function* function itself
                 JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
                 // array buffer & dataview
                 JS_CLASS_ARRAY_BUFFER,

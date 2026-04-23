@@ -97,7 +97,7 @@ pub struct ClassDef {
     pub(crate) exotic: Option<&'static ClassExoticMethods>,
 
     /// initialize class proto, constructor to context
-    pub(crate) initialize: ClassInitType,
+    initialize: ClassInitType,
     /// class instance finalize callback
     pub(crate) finalize: Option<ClassFinalizeFn>,
     /// handler on class instance dispose

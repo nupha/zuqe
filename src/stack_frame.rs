@@ -59,9 +59,9 @@ pub struct StackFrame {
 
     /// Execution mode
     pub(crate) mode: ExecMode,
-    /// Stack frame for async?
-    pub(crate) is_async: bool,
 
+    /// This stack frame is within AsyncState?
+    pub(crate) is_async: bool,
     /// Weak backref to async state,
     /// only valid if stack frame is dedicated for an AsyncStateImpl
     pub(crate) async_state: GcWeak<AsyncStateImpl>,

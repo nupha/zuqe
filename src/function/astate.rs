@@ -16,8 +16,10 @@ use crate::{
     value::JSValue,
 };
 
+/// Async execution state for bytecode running, hold a dedicated stack frame for bytecode running.
+/// Used to save execution state of an async function or generator.
 #[derive(Debug)]
-pub struct AsyncStateImpl {
+pub(crate) struct AsyncStateImpl {
     /// 'this' argument
     pub(crate) this_val: JSValue,
     /// number of function arguments
@@ -33,24 +35,24 @@ pub struct AsyncStateImpl {
 }
 
 impl GcTrace for AsyncStateImpl {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.this_val.trace(tr);
-        self.resolving_funcs[0].trace(tr);
-        self.resolving_funcs[1].trace(tr);
-        self.stack_frame.trace(tr);
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        self.this_val.trace(gcx);
+        self.resolving_funcs[0].trace(gcx);
+        self.resolving_funcs[1].trace(gcx);
+        self.stack_frame.trace(gcx);
     }
 }
 
 impl AsyncStateImpl {
     fn new(
         mut ctx: ContextPtr,
-        resolvings: [JSValue; 2],
-        bc_func: BCWrapper,
+        resolving_funcs: [JSValue; 2],
+        bytecode_func: BCWrapper,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {
         let (arg_count, var_count, stack_size, mode) = {
-            let bc = bc_func.payload().bytecode();
+            let bc = bytecode_func.payload().bytecode();
             (bc.arg_count, bc.var_count, bc.stack_size, bc.mode())
         };
 
@@ -83,7 +85,7 @@ impl AsyncStateImpl {
 
         // make a dedicated stack frame for async execution
         let mut stack_frame = Box::pin(StackFrame::new(
-            bc_func.into(),
+            bytecode_func.into(),
             mode | ExecMode::ASYNC,
             [JSValue::UNDEFINED, JSValue::UNDEFINED],
         ));
@@ -103,7 +105,7 @@ impl AsyncStateImpl {
         Ok(Self {
             argc: args.len() as _,
             this_val: this_obj,
-            resolving_funcs: resolvings,
+            resolving_funcs,
             throw_flag: false,
             is_completed: false,
             stack_frame,
@@ -205,7 +207,6 @@ impl AsyncStateImpl {
         let sp_offset = self.stack_frame.cur_sp_offset;
         debug_assert!(sp_offset >= 0);
 
-        let func_node = func.gc_node_ptr();
         let bf = func.payload_mut();
         let bc = bf.bytecode();
 
@@ -246,7 +247,7 @@ impl AsyncStateImpl {
 /// used to save execution state of an async function or generator.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(transparent)]
-pub struct AsyncState(GcRef<AsyncStateImpl>);
+pub(crate) struct AsyncState(GcRef<AsyncStateImpl>);
 
 gcref_wrapper!(AsyncState, AsyncStateImpl);
 
@@ -254,11 +255,11 @@ impl AsyncState {
     pub(crate) fn new(
         ctx: &mut ScopedContext,
         resolvings: [JSValue; 2],
-        bc_func: BCWrapper,
+        bytecode_func: BCWrapper,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {
-        let inner = AsyncStateImpl::new(ctx.into(), resolvings, bc_func, this_obj, args)?;
+        let inner = AsyncStateImpl::new(ctx.into(), resolvings, bytecode_func, this_obj, args)?;
         let mut a_state = ctx.alloc_local(inner).map_err(|_| {
             ctx.throw_out_of_memory();
             -1

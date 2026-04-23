@@ -197,10 +197,7 @@ impl Promise {
 mod tests {
     use super::*;
     use crate::{builtins::promise::PromiseState, runtime::Runtime};
-    use std::{
-        pin::Pin,
-        task::{Context as TaskContext2, Poll as Poll2, RawWaker, RawWakerVTable, Waker},
-    };
+    use std::task::{Context as TaskContext2, Poll as Poll2, RawWaker, RawWakerVTable, Waker};
 
     fn with_rt_ctx(f: impl FnOnce(&mut Runtime, &mut ScopedContext)) {
         let mut rt = Runtime::create().unwrap();

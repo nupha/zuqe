@@ -116,10 +116,9 @@ impl ShapeImpl {
 
             if !prop.is_const() && !prop.is_small_int() {
                 // set Atom string gc node xref
-                ctx.rt_ptr().gc_heap_mut().bind(
-                    shape_node,
-                    prop.descriptor(ctx.rt()).gc_ref().node_ptr(),
-                );
+                ctx.rt_ptr()
+                    .gc_heap_mut()
+                    .bind(shape_node, prop.descriptor(ctx.rt()).gc_ref().node_ptr());
             }
 
             // update shape hash
@@ -161,11 +160,12 @@ impl Drop for Shape {
     fn drop(&mut self) {
         debug_assert!(self.use_count > 0);
         self.use_count -= 1;
-        if self.use_count == 0 {
-            unsafe {
-                self.gc_ref().node_ptr().as_mut().unset_xref();
-            }
-        }
+
+        // if self.use_count == 0 {
+        //     unsafe {
+        //         self.gc_ref().node_ptr().as_mut().unset_xref();
+        //     }
+        // }
     }
 }
 
