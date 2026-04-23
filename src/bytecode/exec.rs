@@ -1470,8 +1470,8 @@ impl Bytecode {
                         SP_GO!(2);
                     }
                     OpCode::FOR_OF_START | OpCode::FOR_AWAIT_OF_START => {
-                        // [obj, ^] -> [obj[Symbol.iterator], next_method, catchoffset(0), ^]
-                        // [obj, ^] -> [obj[Symbol.asyncIterator], next_method, catchoffset(0), ^]
+                        // [obj, ^] -> [iter_obj, next_method, catchoffset(0), ^]
+                        // [obj, ^] -> [iter_obj, next_method, catchoffset(0), ^]
                         let is_async = opcode == OpCode::FOR_AWAIT_OF_START;
 
                         if let Ok((iter_obj, next_method)) = SP_REF!(-1)
@@ -1481,7 +1481,7 @@ impl Bytecode {
                                     .map(|m| (o, m))
                             })
                         {
-                            SP_PUT!(-1, JSValue::from(iter_obj)); // obj[Symbol.iterator] or obj[Symbol.asyncIterator]
+                            SP_PUT!(-1, JSValue::from(iter_obj)); // result of obj[Symbol.iterator]() or obj[Symbol.asyncIterator]()
                             SP_PUT!(0, next_method); // iter_obj.next
                             SP_GO!(1);
                             SP_PUT!(0, JSValue::CatchOffset(0)); // mark for_of start anchor

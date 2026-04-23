@@ -402,40 +402,34 @@ impl JSValue {
         ctx: &mut ScopedContext,
         is_async: bool,
     ) -> Result<Option<Object>, i32> {
-        if is_async {
-            if let Some(it) = self.invoke_defined(ctx, Atom::CONST_Symbol_asyncIterator, &[])? {
-                Object::try_from(it?)
-                    .inspect_err(|_| {
-                        ctx.throw_type_error_not_an_object();
-                    })
-                    .map(Some)
-            } else {
-                // method [Symbol.asyncIterator] is not defined:
-                // get [Symbol.iterator], then wrap it into AsyncFromSyncIterator object.
-                if let Some(r) = self.invoke_callable(ctx, Atom::CONST_Symbol_iterator, &[])? {
-                    let it = Object::try_from(r?).inspect_err(|_| {
-                        ctx.throw_type_error_not_an_object();
-                    })?;
-                    let next_method = it.get_property(ctx, Atom::CONST_next)?;
-
-                    ctx.create_instance_with_payload(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(
-                        Box::new(JSAsyncFromSyncIteratorData {
-                            obj: it,
-                            next_method,
-                        }),
-                    ))
-                    .map(Some)
-                    .map_err(|_| -1)
-                } else {
-                    Ok(None)
-                }
-            }
-        } else if let Some(r) = self.invoke_callable(ctx, Atom::CONST_Symbol_iterator, &[])? {
+        if is_async
+            && let Some(r) = self.invoke_defined(ctx, Atom::CONST_Symbol_asyncIterator, &[])?
+        {
             Object::try_from(r?)
                 .inspect_err(|_| {
                     ctx.throw_type_error_not_an_object();
                 })
                 .map(Some)
+        } else if let Some(r) = self.invoke_callable(ctx, Atom::CONST_Symbol_iterator, &[])? {
+            let sync_it = Object::try_from(r?).inspect_err(|_| {
+                ctx.throw_type_error_not_an_object();
+            })?;
+
+            if is_async {
+                // method [Symbol.asyncIterator] is not defined:
+                // wrap [Symbol.iterator]() object into an AsyncFromSyncIterator
+                let next_method = sync_it.get_property(ctx, Atom::CONST_next)?;
+                ctx.create_instance_with_payload(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(Box::new(
+                    JSAsyncFromSyncIteratorData {
+                        obj: sync_it,
+                        next_method,
+                    },
+                )))
+                .map(Some)
+                .map_err(|_| -1)
+            } else {
+                Ok(Some(sync_it))
+            }
         } else {
             Ok(None)
         }
