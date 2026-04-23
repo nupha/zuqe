@@ -4,7 +4,10 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
-    sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel},
+    sync::{
+        Arc, Mutex,
+        mpsc::{Receiver, SyncSender, TryRecvError, sync_channel},
+    },
 };
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
@@ -106,6 +109,48 @@ impl PromiseData {
         self.is_handled = v;
     }
 }
+
+pub struct PromiseDataSlot<D> {
+    data: Arc<Mutex<Option<D>>>,
+}
+
+impl<D> Clone for PromiseDataSlot<D> {
+    fn clone(&self) -> Self {
+        Self {
+            data: self.data.clone(),
+        }
+    }
+}
+
+impl<D: Send + 'static> PromiseDataSlot<D> {
+    pub fn new() -> Self {
+        Self {
+            data: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.lock().unwrap().is_none()
+    }
+
+    /// Submit a value into the slot.
+    pub fn put_data(&self, data: D) -> Result<(), D> {
+        let mut guard = self.data.lock().unwrap();
+        if guard.is_none() {
+            guard.replace(data);
+            Ok(())
+        } else {
+            Err(data)
+        }
+    }
+
+    fn try_take(&self) -> Option<D> {
+        self.data.lock().unwrap().take()
+    }
+}
+
+unsafe impl<D> Send for PromiseDataSlot<D> {}
+unsafe impl<D> Sync for PromiseDataSlot<D> {}
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
@@ -264,12 +309,11 @@ impl Promise {
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
     ) -> Result<Self, i32> {
         let convert_slot = Rc::new(RefCell::new(Some(convert)));
-        let convert_slot_job = convert_slot.clone();
 
         let promise = Promise::create_with_job(ctx, move |cx| -> Result<Option<JSValue>, i32> {
             match rx.try_recv() {
                 Ok(data) => {
-                    let mut slot = convert_slot_job.borrow_mut();
+                    let mut slot = convert_slot.borrow_mut();
                     if let Some(conv) = slot.take() {
                         let v = conv(cx, data)?;
                         Ok(Some(v))
@@ -304,6 +348,45 @@ impl Promise {
         let (tx, rx) = sync_channel::<D>(1);
         let promise = Promise::create_with_receiver(ctx, rx, convert)?;
         Ok((promise, tx))
+    }
+
+    /// Create Promise driven by a [`PromiseDataSlot`].
+    ///
+    /// Returns a pair of `(Promise, PromiseDataSlot<D>)`. The slot can be used,
+    /// typically from another thread, to submit a single value of type `D`
+    /// via [`PromiseDataSlot::put_data`]. When the value is taken, `convert` is called
+    /// inside a JS context to turn it into a `JSValue` and resolve the Promise.
+    pub fn create_with_data_slot<D: Send + 'static>(
+        ctx: &mut ScopedContext,
+        data_slot: PromiseDataSlot<D>,
+        convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
+    ) -> Result<Self, i32> {
+        if !data_slot.is_empty() {
+            ctx.throw_internal_error("promise data slot is not empty");
+            return Err(-1);
+        }
+
+        let convert_slot = Rc::new(RefCell::new(Some(convert)));
+
+        Promise::create_with_job(ctx, move |cx| -> Result<Option<JSValue>, i32> {
+            match data_slot.try_take() {
+                Some(data) => {
+                    if let Some(conv) = convert_slot.borrow_mut().take() {
+                        let v = conv(cx, data)?;
+                        Ok(Some(v))
+                    } else {
+                        #[cfg(debug_assertions)]
+                        unreachable!("slot value already handled");
+                        #[cfg(not(debug_assertions))]
+                        {
+                            cx.throw_internal_error("slot value already handled");
+                            Err(-1)
+                        }
+                    }
+                }
+                None => Ok(None),
+            }
+        })
     }
 
     /// Create \[resolve, reject\] resolving functions pair for `self` promise object.
@@ -555,5 +638,35 @@ mod tests {
             assert_eq!(p.state(), PromiseState::Fulfilled);
             assert_eq!(p.result(), JSValue::Int(321));
         });
+    }
+
+    #[test]
+    fn create_with_slot_resolve() {
+        with_rt_ctx(|rt, ctx| {
+            let slot = PromiseDataSlot::<i32>::new();
+            let p =
+                Promise::create_with_data_slot(ctx, slot.clone(), |_, n: i32| Ok(JSValue::Int(n)))
+                    .unwrap();
+            assert_eq!(p.state(), PromiseState::Pending);
+
+            slot.put_data(321).unwrap();
+
+            loop {
+                match rt.tick_internal().unwrap() {
+                    crate::runtime::TickStatus::Continue => {}
+                    crate::runtime::TickStatus::Stop(_) => break,
+                }
+            }
+
+            assert_eq!(p.state(), PromiseState::Fulfilled);
+            assert_eq!(p.result(), JSValue::Int(321));
+        });
+    }
+
+    #[test]
+    fn slot_double_put_errors() {
+        let slot: PromiseDataSlot<i32> = PromiseDataSlot::new();
+        assert!(slot.put_data(1).is_ok());
+        assert!(slot.put_data(2).is_err());
     }
 }
