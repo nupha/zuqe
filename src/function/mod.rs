@@ -27,8 +27,8 @@ mod var;
 mod var_ref;
 
 pub use {
-    afun::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, fields::*, func_def::*, label::*,
-    nfun::*, optimize::*, scope::*, var::*, var_ref::*,
+    afun::*, bfun::*, bound::*, bytecode::*, call::*, fields::*, func_def::*, label::*, nfun::*,
+    optimize::*, scope::*, var::*, var_ref::*,
 };
 
-pub(crate) use {argument::*, closure::*, emit::*};
+pub(crate) use {argument::*, astate::*, closure::*, emit::*};

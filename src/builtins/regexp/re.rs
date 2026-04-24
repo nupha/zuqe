@@ -8,7 +8,7 @@ use lre::{Regex, RegexFlags};
 use zerocopy::IntoBytes;
 
 use crate::{
-    JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR, JS_PROP_CONFIGURABLE,
+    JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     array::{Array, alloc_fast_array_slots},
     atom::Atom,
     class::ClassID,
@@ -19,10 +19,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{
-    js_regexp_constructor, js_regexp_funcs, js_regexp_proto_funcs,
-    js_regexp_string_iterator_proto_funcs,
-};
+use super::js_regexp_string_iterator_proto_funcs;
 
 pub const RE_HEADER_FLAGS: usize = 0;
 pub const RE_HEADER_CAPTURE_COUNT: usize = 1;

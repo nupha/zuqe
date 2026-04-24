@@ -101,7 +101,7 @@ impl ObjectImpl {
                 .rt()
                 .class_registry
                 .get(self.class_id() as usize)
-                .and_then(|c| c.exotic.as_deref())
+                .and_then(|c| c.exotic)
                 .and_then(|em| em.set_prototype)
         {
             // exotic handler: Proxy

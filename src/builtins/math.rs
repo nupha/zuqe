@@ -104,10 +104,6 @@ fn js_math_min_max(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     }
                     _ => {}
                 },
-
-                _ => {
-                    unreachable!()
-                }
             }
         }
     }
