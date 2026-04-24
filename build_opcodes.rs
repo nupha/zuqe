@@ -127,6 +127,7 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("define_private_field", 1, 3, 1, "NONE", false),
         DEF!("get_array_el", 1, 2, 1, "NONE", false),
         DEF!("get_array_el2", 1, 2, 2, "NONE", false),
+        DEF!("get_array_el3", 1, 2, 3, "NONE", false),
         DEF!("put_array_el", 1, 3, 0, "NONE", false),
         DEF!("get_super_value", 1, 3, 1, "NONE", false),
         DEF!("put_super_value", 1, 4, 0, "NONE", false),
@@ -170,7 +171,6 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("to_object", 1, 1, 1, "NONE", false),
         DEF!("to_string", 1, 1, 1, "NONE", false),
         DEF!("to_propkey", 1, 1, 1, "NONE", false),
-        DEF!("to_propkey2", 1, 2, 2, "NONE", false),
         DEF!("with_get_var", 10, 1, 0, "ATOM_LABEL_U8", false), // must be in the same order as scope_xxx
         DEF!("with_put_var", 10, 2, 1, "ATOM_LABEL_U8", false), // must be in the same order as scope_xxx
         DEF!("with_delete_var", 10, 1, 0, "ATOM_LABEL_U8", false), // must be in the same order as scope_xxx

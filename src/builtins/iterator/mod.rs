@@ -16,5 +16,7 @@ pub(crate) static CLASS_DEF_FOR_IN_ITERATOR: ClassDef =
 pub(crate) static CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR: ClassDef =
     ClassDef::builtin_with_init_func(Atom::CONST_empty_string, AsyncFromSyncIterator::class_init);
 
-pub(crate) static CLASS_DEF_ASYNC_ITERABLE_ITERATOR: ClassDef =
-    ClassDef::builtin_with_init_func(Atom::CONST_AsyncIterableIterator, AsyncIterator::class_init);
+pub(crate) static CLASS_DEF_ASYNC_ITERABLE_ITERATOR: ClassDef = ClassDef::builtin_with_init_func(
+    Atom::CONST_AsyncIterableIterator,
+    AsyncIterableIterator::class_init,
+);

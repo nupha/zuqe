@@ -110,19 +110,16 @@ pub(crate) fn js_aggregate_error_constructor(ctx: &mut ScopedContext, errors: JS
 }
 
 pub fn js_error_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if !cc.this().is_object() {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
-    }
+    let this = cc.this().ensure_object(ctx)?;
 
-    let name = cc.this().get_property(ctx, Atom::CONST_name)?;
+    let name = this.get_property(ctx, Atom::CONST_name)?;
     let name = if name.is_undefined() {
         Atom::CONST_Error.force_string(ctx)?
     } else {
         name.to_string(ctx)?
     };
 
-    let message = cc.this().get_property(ctx, Atom::CONST_message)?;
+    let message = this.get_property(ctx, Atom::CONST_message)?;
     let message = if message.is_undefined() {
         Atom::CONST_empty_string.force_string(ctx)?
     } else {

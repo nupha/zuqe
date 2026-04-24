@@ -44,7 +44,7 @@ pub enum PromiseState {
 }
 
 #[derive(Debug)]
-pub struct PromiseData {
+pub struct PromisePayload {
     state: PromiseState,
     /// list of pending reactions: #0 for fulfills, #1 for rejects.
     reactions: [Vec<PromiseReaction>; 2],
@@ -52,18 +52,19 @@ pub struct PromiseData {
     result: JSValue,
 
     /// Note: only useful to debug
+    #[deprecated]
     is_handled: bool,
 }
 
-impl GcTrace for PromiseData {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.reactions[0].iter().for_each(|x| x.trace(tr));
-        self.reactions[1].iter().for_each(|x| x.trace(tr));
-        self.result.trace(tr);
+impl GcTrace for PromisePayload {
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        self.reactions[0].iter().for_each(|x| x.trace(gcx));
+        self.reactions[1].iter().for_each(|x| x.trace(gcx));
+        self.result.trace(gcx);
     }
 }
 
-impl PromiseData {
+impl PromisePayload {
     #[inline(always)]
     pub const fn state(&self) -> PromiseState {
         self.state
@@ -108,11 +109,11 @@ impl PromiseData {
     }
 }
 
-pub struct PromiseDataSlot<D> {
+pub struct PromiseResultSlot<D> {
     data: Arc<Mutex<Option<D>>>,
 }
 
-impl<D> Clone for PromiseDataSlot<D> {
+impl<D> Clone for PromiseResultSlot<D> {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
@@ -120,7 +121,7 @@ impl<D> Clone for PromiseDataSlot<D> {
     }
 }
 
-impl<D: Send + 'static> PromiseDataSlot<D> {
+impl<D: Send + 'static> PromiseResultSlot<D> {
     pub fn new() -> Self {
         Self {
             data: Arc::new(Mutex::new(None)),
@@ -132,7 +133,7 @@ impl<D: Send + 'static> PromiseDataSlot<D> {
     }
 
     /// Submit a value into the slot.
-    pub fn put_data(&self, data: D) -> Result<(), D> {
+    pub fn commit(&self, data: D) -> Result<(), D> {
         let mut guard = self.data.lock().unwrap();
         if guard.is_none() {
             guard.replace(data);
@@ -147,8 +148,8 @@ impl<D: Send + 'static> PromiseDataSlot<D> {
     }
 }
 
-unsafe impl<D> Send for PromiseDataSlot<D> {}
-unsafe impl<D> Sync for PromiseDataSlot<D> {}
+unsafe impl<D> Send for PromiseResultSlot<D> {}
+unsafe impl<D> Sync for PromiseResultSlot<D> {}
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
@@ -168,7 +169,7 @@ impl Promise {
         executor.ensure_function(ctx)?;
 
         // create Promise instance
-        let isa = Box::new(PromiseData {
+        let isa = Box::new(PromisePayload {
             state: PromiseState::Pending,
             reactions: [Vec::new(), Vec::new()],
             result: JSValue::UNDEFINED,
@@ -258,7 +259,7 @@ impl Promise {
         ctx: &mut ScopedContext,
         job: impl Fn(&mut ScopedContext) -> Result<Option<JSValue>, i32> + 'static,
     ) -> Result<Self, i32> {
-        let isa = Box::new(PromiseData {
+        let isa = Box::new(PromisePayload {
             state: PromiseState::Pending,
             reactions: [Vec::new(), Vec::new()],
             result: JSValue::UNDEFINED,
@@ -348,15 +349,15 @@ impl Promise {
         Ok((promise, tx))
     }
 
-    /// Create Promise driven by a [`PromiseDataSlot`].
+    /// Create Promise driven by a [`PromiseResultSlot`].
     ///
-    /// Returns a pair of `(Promise, PromiseDataSlot<D>)`. The slot can be used,
+    /// Returns a pair of `(Promise, PromiseResultSlot<D>)`. The slot can be used,
     /// typically from another thread, to submit a single value of type `D`
-    /// via [`PromiseDataSlot::put_data`]. When the value is taken, `convert` is called
+    /// via [`PromiseResultSlot::commit`]. When the value is taken, `convert` is called
     /// inside a JS context to turn it into a `JSValue` and resolve the Promise.
-    pub fn create_with_data_slot<D: Send + 'static>(
+    pub fn create_with_result_slot<D: Send + 'static>(
         ctx: &mut ScopedContext,
-        data_slot: PromiseDataSlot<D>,
+        data_slot: PromiseResultSlot<D>,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
     ) -> Result<Self, i32> {
         if !data_slot.is_empty() {
@@ -427,7 +428,7 @@ impl Promise {
 
     /// get Promise payload
     #[inline(always)]
-    pub fn payload(&self) -> &PromiseData {
+    pub fn payload(&self) -> &PromisePayload {
         #[cfg(debug_assertions)]
         {
             self.0.payload().promise().unwrap()
@@ -440,7 +441,7 @@ impl Promise {
 
     /// get Promise payload
     #[inline(always)]
-    pub fn payload_mut(&mut self) -> &mut PromiseData {
+    pub fn payload_mut(&mut self) -> &mut PromisePayload {
         #[cfg(debug_assertions)]
         {
             self.0.payload_mut().promise_mut().unwrap()
@@ -641,13 +642,14 @@ mod tests {
     #[test]
     fn create_with_slot_resolve() {
         with_rt_ctx(|rt, ctx| {
-            let slot = PromiseDataSlot::<i32>::new();
-            let p =
-                Promise::create_with_data_slot(ctx, slot.clone(), |_, n: i32| Ok(JSValue::Int(n)))
-                    .unwrap();
+            let slot = PromiseResultSlot::<i32>::new();
+            let p = Promise::create_with_result_slot(ctx, slot.clone(), |_, n: i32| {
+                Ok(JSValue::Int(n))
+            })
+            .unwrap();
             assert_eq!(p.state(), PromiseState::Pending);
 
-            slot.put_data(321).unwrap();
+            slot.commit(321).unwrap();
 
             loop {
                 match rt.tick_internal().unwrap() {
@@ -663,8 +665,8 @@ mod tests {
 
     #[test]
     fn slot_double_put_errors() {
-        let slot: PromiseDataSlot<i32> = PromiseDataSlot::new();
-        assert!(slot.put_data(1).is_ok());
-        assert!(slot.put_data(2).is_err());
+        let slot: PromiseResultSlot<i32> = PromiseResultSlot::new();
+        assert!(slot.commit(1).is_ok());
+        assert!(slot.commit(2).is_err());
     }
 }

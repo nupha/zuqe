@@ -1907,6 +1907,34 @@ impl Bytecode {
                             break State::Exception;
                         }
                     }
+                    OpCode::GET_ARRAY_EL3 => {
+                        // [array, prop, ^] -> [array, prop1, value, ^]
+                        match SP_REF!(-2) {
+                            JSValue::Int(_) | JSValue::String(_) | JSValue::Symbol(_) => {}
+                            a => {
+                                // must be tested before ToPropertyKey
+                                if a.is_undefined_or_null() {
+                                    realm_scope.throw_type_error("value has no property ");
+                                    break State::Exception;
+                                }
+                                let Ok(prop1) = SP_REF!(-1).to_propkey(realm_scope) else {
+                                    break State::Exception;
+                                };
+                                SP_PUT!(-1, prop1);
+                            }
+                        }
+
+                        let val = SP_REF!(-2)
+                            .get_property_value(realm_scope, SP_VAL!(-1))
+                            .unwrap_or(JSValue::EXCEPTION);
+                        let is_err = val.is_exception();
+                        SP_PUT!(0, val);
+                        SP_GO!(1);
+
+                        if unlikely(is_err) {
+                            break State::Exception;
+                        }
+                    }
                     OpCode::GET_REF_VALUE => {
                         // [obj, prop, ^] -> [obj, value, ^]
                         if unlikely(SP_REF!(-2).is_undefined()) {
@@ -2020,17 +2048,6 @@ impl Bytecode {
                         let obj = SP_MUT!(-3);
                         let prop = SP_REF!(-2);
                         let value = SP_VAL!(-1);
-
-                        // FIXME: test262 fail
-                        // converting `prop` to atom may invoke toString/valueOf method, which may modify `value`.
-                        // this bytecode has cloned value on stack, this may break the spec.
-                        // a solution is to emit bytecode like this:
-                        // ...
-                        // object
-                        // get_var key
-                        // to_propkey <-- insert this
-                        // get_var value
-                        // define_array_el
 
                         let ret = prop.to_atom(realm_scope).and_then(|a| {
                             obj.define_property_value(
@@ -2309,17 +2326,8 @@ impl Bytecode {
                             }
                         }
                     }
-                    OpCode::TO_PROPKEY | OpCode::TO_PROPKEY2 => {
-                        // TO_PROPKEY: [value, ^] -> [string_or_symbol, ^]
-                        // TOP_PROPKEY2: [target, value, ^] -> [target, string_or_symbol, ^]
-                        if opcode == OpCode::TO_PROPKEY2 {
-                            // must be tested first
-                            if unlikely(SP_REF!(-2).is_undefined_or_null()) {
-                                realm_scope.throw_type_error("value has no property");
-                                break State::Exception;
-                            }
-                        }
-
+                    OpCode::TO_PROPKEY => {
+                        // [value, ^] -> [string_or_symbol, ^]
                         match SP_REF!(-1) {
                             JSValue::Int(_) | JSValue::String(_) => {}
                             #[cfg(feature = "builtin_symbol")]

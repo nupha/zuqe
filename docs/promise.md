@@ -1,6 +1,6 @@
-# Promise API Overview
+# Promise
 
-This document describes the public Promise API of Zuqe, and how to integrate it with Rust async/await code. It focuses on how to _use_ the API; internal details are only sketched where they help understanding.
+This document describes the Promise API of Zuqe, and how to integrate it with Rust async/await code. It focuses on how to _use_ the API; internal details are only sketched where they help understanding.
 
 Zuqe keeps ECMAScript Promise semantics (microtasks, reaction ordering, error handling) and provides host-facing helpers in Rust to:
 
@@ -16,10 +16,10 @@ use zuqe::builtins::promise::Promise;
 
 ## Core Promise type
 
-The internal Promise type is:
+The Promise type is:
 
 ```rust
-pub struct Promise(GcRef<ObjectImpl>);
+pub struct Promise { /* ... */ }
 ```
 
 with an observable state and result:
@@ -38,6 +38,43 @@ impl Promise {
 ```
 
 These helpers are mainly useful on the host side (for example in tests or diagnostics) and are not exposed to JS.
+
+### Direct state manipulation
+
+In addition to the constructor-based helpers, `Promise` exposes methods to directly settle or chain a Promise from Rust:
+
+```rust
+impl Promise {
+    /// Resolve (fulfill) the Promise with the given value.
+    /// Triggers any chained reactions registered via `then()`.
+    pub fn resolve(&mut self, ctx: &mut ScopedContext, value: JSValue);
+
+    /// Reject the Promise with the given reason.
+    /// Triggers any chained reactions registered via `then()`.
+    pub fn reject(&mut self, ctx: &mut ScopedContext, value: JSValue);
+
+    /// Attach success and failure handlers, returning a new wrapper Promise.
+    /// Equivalent to JS `promise.then(success, fail)`.
+    pub fn then(
+        &mut self,
+        ctx: &mut ScopedContext,
+        success: JSValue,
+        fail: JSValue,
+    ) -> Result<Object, i32>;
+}
+```
+
+Typical pattern (create, then resolve from native code):
+
+```rust
+let (promise, resolving_funcs) = Promise::create(ctx)?;
+
+// ... later, in native code:
+promise.resolve(&mut ctx, JSValue::Int(42));
+// or: promise.reject(&mut ctx, error_value);
+```
+
+The `then` method creates a new wrapper Promise (following ECMAScript `SpeciesConstructor` semantics) and registers the success/fail handlers as reactions. This is the same mechanism used by JS `promise.then()`, `promise.catch()`, and `promise.finally()`.
 
 On the JS side, Promise behaves as specified by ECMAScript and is exposed as the global `Promise` constructor with:
 
@@ -81,7 +118,7 @@ The `job` callback is called from the JS runtime thread in the microtask loop an
 - `Ok(Some(value))`  
   Resolve the Promise with `value` and mark the job as finished.
 - `Ok(None)`  
-  The job is not done yet; it will be scheduled again on the next tick.
+  The job is not done yet; it will be called again on the next tick.
 - `Err(err_code)`  
   The job failed. You are expected to set the current exception on `ctx` and return a non-zero error code. The Promise is rejected with that exception.
 
@@ -107,15 +144,22 @@ Use this when:
 
 ### `Promise::create_with_receiver`
 
-Zuqe exposes a pair of channel-based helpers: `Promise::create_with_receiver` and `Promise::create_with_channel`. `create_with_receiver` is the lower-level primitive: you provide an existing `Receiver<D>`, and the Promise is driven by values arriving on that channel. `create_with_channel` is a convenience wrapper that allocates a new `sync_channel` internally and returns the sending side.
+Zuqe exposes a pair of channel-based helpers: `Promise::create_with_receiver` and `Promise::create_with_channel`. `create_with_receiver` is the lower-level primitive: you provide an existing `Receiver<D>`, and the Promise is driven by values arriving on that channel. `create_with_channel` is a convenience wrapper that allocates a new bounded channel internally and returns the sending side.
+
+> **Note on channel types**: Zuqe uses the type aliases `Sender<D>` and `Receiver<D>`, which map to different concrete types depending on the `crossbeam_channel` Cargo feature:
+>
+> - **Without** `crossbeam_channel` (default): `Sender<D>` = `std::sync::mpsc::SyncSender<D>`, `Receiver<D>` = `std::sync::mpsc::Receiver<D>`.
+> - **With** `crossbeam_channel`: `Sender<D>` = `crossbeam::channel::Sender<D>`, `Receiver<D>` = `crossbeam::channel::Receiver<D>`.
+>
+> This means the channel-based Promise helpers work with either std or crossbeam channels transparently.
 
 ```rust
 impl Promise {
     pub fn create_with_receiver<D: Send + 'static>(
         ctx: &mut ScopedContext,
-        rx: std::sync::mpsc::Receiver<D>,
+        rx: Receiver<D>,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
-    ) -> Result<Promise, i32>;
+    ) -> Result<Self, i32>;
 }
 ```
 
@@ -129,7 +173,7 @@ Internally:
 Example: use a manually created channel when you need extra control over the sending side:
 
 ```rust
-let (tx, rx) = std::sync::mpsc::sync_channel(1);
+let (tx, rx) = std::sync::mpsc::sync_channel(1); // or crossbeam::channel::bounded(1) with crossbeam_channel feature
 
 let promise = Promise::create_with_receiver(ctx, rx, |cx, res: Result<Vec<u8>, String>| {
     match res {
@@ -166,13 +210,13 @@ impl Promise {
     pub fn create_with_channel<D: Send + 'static>(
         ctx: &mut ScopedContext,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
-    ) -> Result<(Promise, std::sync::mpsc::SyncSender<D>), i32>;
+    ) -> Result<(Self, Sender<D>), i32>;
 }
 ```
 
 This helper composes three concerns:
 
-- Use `SyncSender<D>` to receive a host-level result `D` from any thread or executor.
+- Use `Sender<D>` to receive a host-level result `D` from any thread or executor.
 - From the JS runtime thread, convert `D` into a `JSValue` using `convert`.
 - Resolve or reject the Promise inside the normal Promise job queue.
 
@@ -180,7 +224,7 @@ Semantics:
 
 - On the JS side, you just see a normal `Promise`.
 - On the host side:
-  - You get `(promise, tx)`.
+  - You get `(promise, tx)` where `tx` is a `Sender<D>` (see channel types note above).
   - You run your async work anywhere (thread, tokio, async-std).
   - When done, you call `tx.send(data)` with `data: D`.
   - At some later tick, the job will:
@@ -241,25 +285,131 @@ Use `create_with_channel` when:
 - You want a typed channel from host world (`D`) into JS world, and you need to convert `D` into `JSValue` on the JS runtime thread.
 - You do not already have a `Receiver<D>` and are happy for the helper to create the channel for you. If you already own a `Receiver<D>`, prefer `create_with_receiver`.
 
+### `Promise::create_with_result_slot`
+
+Create a Promise driven by a [`PromiseResultSlot<D>`]. This is an alternative to the channel-based helpers that uses a shared slot instead of a channel:
+
+```rust
+impl Promise {
+    pub fn create_with_result_slot<D: Send + 'static>(
+        ctx: &mut ScopedContext,
+        data_slot: PromiseResultSlot<D>,
+        convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
+    ) -> Result<Self, i32>;
+}
+```
+
+#### `PromiseResultSlot<D>`
+
+A thread-safe, single-shot data container used to submit a result from another thread into the Promise system:
+
+```rust
+pub struct PromiseResultSlot<D> { /* ... */ }
+
+impl<D: Send + 'static> PromiseResultSlot<D> {
+    pub fn new() -> Self;
+    pub fn is_empty(&self) -> bool;
+    pub fn commit(&self, data: D) -> Result<(), D>;
+}
+```
+
+Key semantics:
+
+- `new()` – creates an empty slot.
+- `is_empty()` – returns `true` if the slot contains no data.
+- `commit(data)` – submits a value into the slot. Returns `Err(data)` if the slot already contains a value (i.e. it is single-shot). This is thread-safe and can be called from any thread.
+
+#### How `create_with_result_slot` works
+
+Internally:
+
+- When a value `D` is taken, `convert(ctx, data)` is called exactly once.
+- The returned `JSResult` controls whether the Promise is fulfilled or rejected.
+- If the slot is empty, the job is rescheduled on the next tick.
+- The slot **must** be empty when `create_with_result_slot` is called; otherwise an internal error is thrown.
+
+Example:
+
+```rust
+let slot = PromiseResultSlot::<i32>::new();
+let promise = Promise::create_with_result_slot(ctx, slot.clone(), |_, n: i32| {
+    Ok(JSValue::Int(n))
+})?;
+
+// From another thread:
+slot.commit(42).unwrap(); // Promise will be fulfilled with 42
+
+// JS: const value = await host.compute(...);
+```
+
+Example with a result type:
+
+```rust
+let slot = PromiseResultSlot::new();
+let promise = Promise::create_with_result_slot(ctx, slot.clone(), |cx, res: Result<Vec<u8>, String>| {
+    match res {
+        Ok(bytes) => {
+            let obj = JSFileData::new_instance(cx, bytes)?;
+            Ok(JSValue::Object(obj))
+        }
+        Err(e) => {
+            cx.throw_internal_error(&e);
+            Err(-1)
+        }
+    }
+})?;
+
+std::thread::spawn(move || {
+    let result = do_blocking_io();
+    let _ = slot.commit(result);
+});
+
+// JS: const data = await host.readFileWithSlot(...);
+```
+
+Use `create_with_result_slot` when:
+
+- You prefer a slot-based pattern over a channel-based pattern.
+- You want a thread-safe, single-shot container that is simpler than a full channel.
+- You need to share the slot between multiple producers (only the first `commit` succeeds).
+
 ## Promise ↔ Future bridge
 
 The async support module (`async_support.rs`, enabled with the `async_support` Cargo feature) provides helpers to translate between Rust `Future` and JS `Promise`.
 
 ### Promise → Future: `Promise::into_future`
 
-Convert a JS Promise into a Rust `Future` that can be `await`ed in host code:
+Convert a JS Promise into a Rust `Future` that can be `await`ed in host code. You typically obtain the `Promise` from a `JSValue` using `Promise::try_from`:
+
+```rust
+impl TryFrom<JSValue> for Promise {
+    type Error = TryFromValueError;
+    // succeeds when the value is a Promise object
+}
+```
+
+Usage pattern:
+
+```rust
+// Evaluate JS code that returns a Promise:
+let val = scope.eval(code, filename, eval_type, flags)?;
+
+// Convert JSValue to Promise:
+if let Ok(promise) = Promise::try_from(val) {
+    let fut = promise.into_future(&mut scope)?;
+    let result = fut.await?; // Result<JSValue, JSValue>
+}
+```
 
 ```rust
 impl Promise {
     pub fn into_future(
-        self,
+        mut self,
         ctx: &mut ScopedContext,
     ) -> Result<PromiseFuture, i32>;
 }
 
-pub struct PromiseFuture {
-    // holds state and waker internally
-}
+pub struct PromiseFuture { /* ... */ }
 
 impl Future for PromiseFuture {
     type Output = Result<JSValue, JSValue>;
@@ -284,7 +434,7 @@ async fn call_js_compute(rt: &mut Runtime) -> JSResult<JSValue> {
         Ok(val)
     })?;
 
-    let promise = promise_value.as_promise().unwrap();
+    let promise = Promise::try_from(promise_value).map_err(|_| -1)?;
     let js_future = promise.into_future(&mut ctx)?;
 
     let result = js_future.await?;
@@ -294,7 +444,7 @@ async fn call_js_compute(rt: &mut Runtime) -> JSResult<JSValue> {
 
 This lets you treat JS async functions as plain Rust `Future`s:
 
-- JS side: `export async function compute(x) { return x * 2; }`
+- JS side: `async function compute(x) { return x * 2; }`
 - Rust side: `let value = promise.into_future(&mut ctx)?.await?;`
 
 Internally, `into_future`:
@@ -324,11 +474,11 @@ This helper is designed to be runtime-agnostic: it does not take a `Future` dire
 Typical usage with a Rust async function:
 
 ```rust
-fn js_fetch_config(ctx: &mut ScopedContext, _cc: CallContext) -> JSResult {
+fn js_fetch(ctx: &mut ScopedContext, _cc: CallContext) -> JSResult {
     let promise = Promise::create_from_future(ctx, |notify| {
-        // The user decides which runtime to use
+        // Assume we're using tokio
         tokio::spawn(async move {
-            let res: Result<JSValue, JSValue> = fetch_config_async().await;
+            let res: Result<JSValue, JSValue> = an_async_func().await;
             notify(res);
         });
     })?;
@@ -346,7 +496,7 @@ Internally, `create_from_future`:
 - Schedules a job that:
   - Checks whether a result has been written by `notify`.
   - If so, resolves or rejects the `Promise` accordingly and completes the job.
-  - Otherwise, returns `JobState::Again` to be polled again in a later tick.
+  - Otherwise, reschedules the job to be polled again in a later tick.
 
 This design keeps the JS Promise semantics inside Zhuque’s job + tick system, while allowing the host to decide how to schedule and execute the actual Rust async work.
 
@@ -354,11 +504,11 @@ This design keeps the JS Promise semantics inside Zhuque’s job + tick system, 
 
 On the JS side, the runtime exposes a standard `Promise` constructor and methods, implemented over the internal `Promise` type:
 
-- `new Promise(executor)` – uses `create_with_executor` internally, passing `resolve` and `reject` into the executor.
-- `Promise.resolve(value)` / `Promise.reject(value)` – use `from_resolve_value` / `from_reject_value`.
-- `Promise.all`, `Promise.allSettled`, `Promise.any`, `Promise.race` – implemented via microtask jobs and internal helpers in `class_promise.rs` and `settle.rs`.
-- `Promise.withResolvers()` – returns an object `{ promise, resolve, reject }` built on top of `Promise::create_with_ctor`.
-- `promise.then(onFulfilled, onRejected)` – attaches `PromiseReaction`s using the internal `reaction` mechanism.
+- `new Promise(executor)` – creates a Promise and calls the executor with `resolve` and `reject` functions.
+- `Promise.resolve(value)` / `Promise.reject(value)` – create an already-settled Promise.
+- `Promise.all`, `Promise.allSettled`, `Promise.any`, `Promise.race` – combinator methods implemented via microtask jobs.
+- `Promise.withResolvers()` – returns an object `{ promise, resolve, reject }`.
+- `promise.then(onFulfilled, onRejected)` – attaches reaction handlers.
 - `promise.catch(onRejected)` and `promise.finally(onFinally)` – implemented in terms of `then`.
 
 As a user of the Rust embedding API, you normally do not need to manipulate these directly; you use the Rust helpers to produce a `Promise` and then return it to JS code.
@@ -376,6 +526,7 @@ When embedding Zuqe in a Rust application, you can mix JS Promise code and Rust 
   - Expose host async operations as JS Promises by:
     - Using `Promise::create_with_job` when the work is naturally polled on the JS thread.
     - Using `Promise::create_with_channel` when the work runs in a separate runtime or thread and results are sent through a channel.
+    - Using `Promise::create_with_result_slot` when you prefer a slot-based, single-shot pattern to submit results from another thread.
     - Using `Promise::create_from_future` when you prefer a callback-based integration with existing `Future`-returning APIs.
 
 In all cases, Promise settlement (state transitions and reaction execution) remains inside Zhuque’s job + tick microtask engine, preserving ECMAScript semantics while giving the host full control over how and where asynchronous work is actually performed.

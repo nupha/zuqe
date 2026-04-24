@@ -405,16 +405,9 @@ impl JSValue {
         if is_async
             && let Some(r) = self.invoke_defined(ctx, Atom::CONST_Symbol_asyncIterator, &[])?
         {
-            Object::try_from(r?)
-                .inspect_err(|_| {
-                    ctx.throw_type_error_not_an_object();
-                })
-                .map(Some)
-        } else if let Some(r) = self.invoke_callable(ctx, Atom::CONST_Symbol_iterator, &[])? {
-            let sync_it = Object::try_from(r?).inspect_err(|_| {
-                ctx.throw_type_error_not_an_object();
-            })?;
-
+            r.and_then(|v| v.ensure_object(ctx)).map(Some)
+        } else if let Some(r) = self.invoke_defined(ctx, Atom::CONST_Symbol_iterator, &[])? {
+            let sync_it = r.and_then(|v| v.ensure_object(ctx))?;
             if is_async {
                 // method [Symbol.asyncIterator] is not defined:
                 // wrap [Symbol.iterator]() object into an AsyncFromSyncIterator
@@ -532,7 +525,19 @@ impl JSValue {
         })
     }
 
-    /// Return ObjectIter to iterate JSValue.
+    /// Return ObjectIter used to iterate, if `self` value has [Symbol.iterator] method.
+    pub(crate) fn iter_maybe(
+        &self,
+        ctx: &mut ScopedContext,
+    ) -> Result<Option<ObjectIter<'_>>, i32> {
+        if let Some(target) = self.get_iterator(ctx, false)? {
+            ObjectIter::new(ctx, target, Atom::CONST_next).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Return ObjectIter used to iterate. Assume `self` must have [Symbol.iterator] method.
     pub(crate) fn iter(&self, ctx: &mut ScopedContext) -> Result<ObjectIter<'_>, i32> {
         let target = self.get_iterator_must(ctx, false)?;
         ObjectIter::new(ctx, target, Atom::CONST_next)
@@ -581,24 +586,32 @@ pub(crate) fn iterator_to_array(ctx: &mut ScopedContext, items: JSValue) -> JSRe
     Ok(arr.into())
 }
 
-pub(crate) fn js_array_from_iterator(
-    ctx: &mut ScopedContext,
-    obj: JSValue,
-    method: JSValue,
-) -> Result<(JSValue, usize), i32> {
-    if let JSValue::Object(obj) = method.call(ctx, obj, &[])? {
-        let it = ObjectIter::new(ctx, obj, Atom::CONST_next)?;
-        let mut arr = Array::create(ctx)?;
+impl Array {
+    /// create Array with values retreived from an iterable object.
+    /// returns Array and length
+    ///
+    /// # Arguments
+    /// * `ctx` - The context in which the array is created.
+    /// * `iterable` - The iterable object.
+    /// * `method` - The method to get the iterator from `iterable`.
+    pub(crate) fn from_iterator(
+        ctx: &mut ScopedContext,
+        iterable: Object,
+        method: JSValue,
+    ) -> Result<(Self, usize), i32> {
+        let target = method
+            .call(ctx, iterable.into(), &[])
+            .and_then(|v| v.ensure_object(ctx))?;
 
-        let mut k = 0_i64;
+        let it = ObjectIter::new(ctx, target, Atom::CONST_next)?;
+
+        let mut lst = Vec::<JSValue>::new();
         for val in it {
-            arr.define_property_value_i64(ctx, k, val?, JS_PROP_C_W_E | JS_PROP_THROW)?;
-            k += 1;
+            lst.push(val?);
         }
-        Ok((arr.into(), k as usize))
-    } else {
-        ctx.throw_type_error_not_an_object();
-        Err(-1)
+
+        let len = lst.len();
+        Ok((Array::from_values(ctx, lst)?, len))
     }
 }
 

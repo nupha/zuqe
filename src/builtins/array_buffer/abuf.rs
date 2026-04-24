@@ -319,15 +319,16 @@ impl ArrayBuffer {
         Ok(obj)
     }
 
+    /// create array buffer with owned bytes.
     #[inline(always)]
-    pub fn from_data(
+    pub fn from_bytes(
         ctx: &mut ScopedContext,
         new_target: JSValue,
         shared: bool,
-        data: Box<[u8]>,
+        bytes: Box<[u8]>,
         opaque: *mut c_void,
     ) -> Result<Self, i32> {
-        Self::create_internal(ctx, new_target, shared, ABufData::Owned(data), opaque)
+        Self::create_internal(ctx, new_target, shared, ABufData::Owned(bytes), opaque)
     }
 
     /// create empty array buffer instance with required capacity.

@@ -551,24 +551,37 @@ impl JSValue {
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     ///
     /// In case of `Reflect.set(obj, val, [receiver])`, `receiver` could be null, undefined or Some(object).
-    /// For other cases,  `receiver` should be None, suggesting it's same to `self`.
+    /// For other cases, `receiver` should be None, suggesting it's same to `self`.
     pub(crate) fn set_property_internal(
-        &self,
+        &self, // a.k.a. obj
         ctx: &mut ScopedContext,
         prop: Atom,
         val: Self,
-        receiver: Option<Object>,
+        receiver: Option<Object>, // a.k.a. this_obj
         flags: u32,
     ) -> Result<bool, i32> {
-        if let Self::Object(o) = self {
-            o.set_property_internal(ctx, prop, val, receiver.or(Some(*o)), flags)
-        } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
-            p.set_property_internal(ctx, prop, val, receiver, flags)
-        } else if unlikely(ctx.rt().can_throw(flags)) {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
-        } else {
-            Ok(false)
+        match self {
+            JSValue::Object(o) => {
+                o.set_property_internal(ctx, prop, val, receiver.or(Some(*o)), flags)
+            }
+            JSValue::NULL | JSValue::UNDEFINED => {
+                ctx.throw_type_error(if self.is_undefined() {
+                    "cannot set property of undefined"
+                } else {
+                    "cannot set property of null"
+                });
+                Err(-1)
+            }
+            _ => {
+                if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
+                    p.set_property_internal(ctx, prop, val, receiver, flags)
+                } else if unlikely(ctx.rt().can_throw(flags)) {
+                    ctx.throw_type_error_not_an_object();
+                    Err(-1)
+                } else {
+                    Ok(false)
+                }
+            }
         }
     }
 

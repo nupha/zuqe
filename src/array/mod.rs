@@ -297,7 +297,7 @@ impl Array {
         Self::from_values(ctx, Vec::new())
     }
 
-    /// create an Array with element values
+    /// create Array with element values
     #[inline(always)]
     pub fn from_values(ctx: &mut ScopedContext, values: Vec<JSValue>) -> Result<Self, i32> {
         let len = values.len();
@@ -320,7 +320,7 @@ impl Array {
         Ok(arr)
     }
 
-    /// create an Array from a slice of values
+    /// create Array from a JSValue slice
     #[inline(always)]
     pub fn from_slice(ctx: &mut ScopedContext, values: &[JSValue]) -> Result<Self, i32> {
         if let Ok(lst) = values.iter().cloned().try_collect::<Vec<_>>()
@@ -333,7 +333,7 @@ impl Array {
         }
     }
 
-    /// create an Array object with pre-allocated capacity.
+    /// create Array object with pre-allocated capacity.
     /// `cap` is allowed no greater than i32::MAX
     #[inline(always)]
     pub fn with_capacity(ctx: &mut ScopedContext, cap: usize) -> Result<Self, i32> {

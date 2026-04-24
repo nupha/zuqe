@@ -356,16 +356,12 @@ impl JSValue {
                         .unwrap_or(Ok(JSValue::UNDEFINED))
                 }
             }
-            v @ (Self::NULL | Self::UNDEFINED) => {
-                let prop_str = prop.to_utf8(ctx.rt());
-                ctx.throw_type_error(&format!(
-                    "cannot read property '{prop_str}' of {}",
-                    if v.is_undefined() {
-                        "undefined"
-                    } else {
-                        "null"
-                    }
-                ));
+            Self::NULL | Self::UNDEFINED => {
+                ctx.throw_type_error(if self.is_undefined() {
+                    "cannot read property of undefined"
+                } else {
+                    "cannot read property of null"
+                });
                 Err(-1)
             }
             Self::EXCEPTION => {
@@ -388,13 +384,21 @@ impl JSValue {
     }
 
     /// get property by prop value
-    #[inline]
     pub fn get_property_value(&self, ctx: &mut ScopedContext, prop: JSValue) -> JSResult {
-        if let JSValue::Object(o) = self {
-            o.get_property_value(ctx, prop)
-        } else {
-            let atom = prop.to_atom(ctx)?;
-            self.get_property_internal(ctx, atom, *self, false)
+        match self {
+            JSValue::Object(o) => o.get_property_value(ctx, prop),
+            JSValue::NULL | JSValue::UNDEFINED => {
+                ctx.throw_type_error(if self.is_undefined() {
+                    "cannot read property of undefined"
+                } else {
+                    "cannot read property of null"
+                });
+                Err(-1)
+            }
+            _ => {
+                let atom = prop.to_atom(ctx)?;
+                self.get_property_internal(ctx, atom, *self, false)
+            }
         }
     }
 

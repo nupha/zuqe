@@ -115,7 +115,12 @@ impl ObjectImpl {
             class_id => {
                 let atom = rt.class_registry[class_id as usize].name_atom;
                 let name = atom.force_string_rt(rt)?;
-                Ok(format!("{} {{ }}", name.encode_utf8(false)))
+
+                if let Some(ta) = self.payload().typed_array() {
+                    Ok(format!("{}({})", name.encode_utf8(false), ta.count()))
+                } else {
+                    Ok(format!("{} {{ }}", name.encode_utf8(false)))
+                }
             }
         }
     }

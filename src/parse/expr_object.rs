@@ -95,6 +95,11 @@ impl<'s> JSParseState<'s> {
                     }
                     self.emit_u8(op_flags as u8 | OP_DEFINE_METHOD_ENUMERABLE);
                 } else {
+                    if name.is_null() {
+                        // must be done before evaluating expr
+                        self.emit_op(OpCode::TO_PROPKEY);
+                    }
+
                     self.parse_expect(TokenKind::Char(':'))?;
                     self.parse_assign_expr()?;
 

@@ -251,7 +251,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if prop_name.is_null() {
-                    self.emit_op(OpCode::TO_PROPKEY2);
+                    self.emit_op(OpCode::TO_PROPKEY);
                     if has_ellipsis {
                         /* define the property in excludeList */
                         self.emit_op(OpCode::PERM3);

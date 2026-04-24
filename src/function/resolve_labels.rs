@@ -467,7 +467,7 @@ impl FunctionDef {
                         Some(ResolveLabelsState::NoChange)
                     }
                 }
-                opcodes::OP_to_propkey | opcodes::OP_to_propkey2 => {
+                opcodes::OP_to_propkey => {
                     let mut goto = Some(ResolveLabelsState::NoChange);
                     if OPTIMIZE {
                         // remove redundant to_propkey/to_propkey2 opcodes when storing simple data

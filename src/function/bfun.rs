@@ -257,19 +257,6 @@ impl ObjectImpl {
     }
 }
 
-impl JSValue {
-    /// check if value `self` is a function or a callable object.
-    /// raise exception if not.
-    pub fn ensure_function(self, ctx: &mut ScopedContext) -> Result<Self, i32> {
-        if self.is_function() {
-            Ok(self)
-        } else {
-            ctx.throw_type_error("not a function");
-            Err(-1)
-        }
-    }
-}
-
 pub(crate) fn get_func_name(func_obj: Object) -> Option<String> {
     // in order to avoid executing arbitrary code during the stack trace generation,
     // we only look at simple 'name' properties containing a string.

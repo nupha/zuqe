@@ -6,12 +6,12 @@ use std::cell::UnsafeCell;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
+    Array, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::Atom,
-    builtins::{array_buffer::ArrayBuffer, iterator::js_array_from_iterator},
+    builtins::array_buffer::ArrayBuffer,
     class::ClassID,
     context::ScopedContext,
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
@@ -382,31 +382,124 @@ impl TypedArray {
                         Self(o.0).create_to_new(ctx, new_target, class_id)
                     }
                     _ => {
-                        // source is an enumetable object.
-                        // get property from source object and set to new array.
-                        let iterator = {
-                            #[cfg(feature = "builtin_symbol")]
-                            {
-                                o.get_property(ctx, Atom::CONST_Symbol_iterator)?
+                        // if source is iterable, retrieve values and create new typed array.
+                        #[cfg(feature = "builtin_symbol")]
+                        if let Some(it) = source.iter_maybe(ctx)? {
+                            // Note: according to ECMAScript specification,
+                            // must collect values from iterator first, then do number convert.
+                            let mut vals = Vec::<JSValue>::with_capacity(64);
+                            for v in it {
+                                vals.push(v?);
                             }
-                            #[cfg(not(feature = "builtin_symbol"))]
-                            JSValue::UNDEFINED
-                        };
 
-                        let (enum_obj, count) = if !iterator.is_undefined_or_null() {
-                            js_array_from_iterator(ctx, o.into(), iterator)?
-                        } else {
-                            let len = o.get_length_prop(ctx)? as usize;
-                            (o.into(), len)
-                        };
+                            let count = vals.len();
+                            let mut bytes = Vec::<u8>::with_capacity(count << size_log2);
 
-                        let abuf = ArrayBuffer::create(ctx, false, count << size_log2)?;
-                        let mut new_ta = Self::create(ctx, new_target, abuf, 0, count, class_id)?;
+                            for val in vals {
+                                let n = val.to_number(ctx)?;
+                                match class_id {
+                                    JS_CLASS_UINT8C_ARRAY => {
+                                        bytes.push(n.to_u8_clamped());
+                                    }
+                                    JS_CLASS_INT8_ARRAY
+                                    | JS_CLASS_UINT8_ARRAY
+                                    | JS_CLASS_INT16_ARRAY
+                                    | JS_CLASS_UINT16_ARRAY
+                                    | JS_CLASS_INT32_ARRAY
+                                    | JS_CLASS_UINT32_ARRAY => {
+                                        let n = n.to_i32();
+                                        match class_id {
+                                            JS_CLASS_INT8_ARRAY => {
+                                                bytes.push(n as u8);
+                                            }
+                                            JS_CLASS_UINT8_ARRAY => {
+                                                bytes.push(n as u8);
+                                            }
+                                            JS_CLASS_INT16_ARRAY => {
+                                                bytes.extend((n as i16).to_ne_bytes());
+                                            }
+                                            JS_CLASS_UINT16_ARRAY => {
+                                                bytes.extend((n as u16).to_ne_bytes());
+                                            }
+                                            JS_CLASS_INT32_ARRAY => {
+                                                bytes.extend(n.to_ne_bytes());
+                                            }
+                                            JS_CLASS_UINT32_ARRAY => {
+                                                bytes.extend((n as u32).to_ne_bytes());
+                                            }
+                                            _ => {
+                                                unreachable!();
+                                            }
+                                        }
+                                    }
+                                    JS_CLASS_FLOAT32_ARRAY | JS_CLASS_FLOAT64_ARRAY => {
+                                        let n = n.to_f64();
+                                        match class_id {
+                                            JS_CLASS_FLOAT32_ARRAY => {
+                                                bytes.extend((n as f32).to_ne_bytes());
+                                            }
+                                            JS_CLASS_FLOAT64_ARRAY => {
+                                                bytes.extend(n.to_ne_bytes());
+                                            }
+                                            _ => {
+                                                unreachable!();
+                                            }
+                                        }
+                                    }
+                                    JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
+                                        unimplemented!("BigInt64 and BigUint64 is not supported");
+                                    }
+                                    c => {
+                                        unreachable!("class_id: {c}");
+                                    }
+                                }
+                            }
 
-                        for i in 0..count {
-                            let v = enum_obj.get_property_u32(ctx, i as u32)?;
+                            let abuf = ArrayBuffer::from_bytes(
+                                ctx,
+                                JSValue::UNDEFINED,
+                                false,
+                                bytes.into_boxed_slice(),
+                                std::ptr::null_mut(),
+                            )?;
+                            return Self::create(ctx, JSValue::UNDEFINED, abuf, 0, count, class_id);
+                        }
+
+                        // Slow path: get indexed property from source then set to new typed array.
+                        let len = o.get_length_prop(ctx)? as usize;
+                        let abuf = ArrayBuffer::create(ctx, false, len << size_log2)?;
+                        let mut new_ta = Self::create(ctx, new_target, abuf, 0, len, class_id)?;
+
+                        for i in 0..len {
+                            let v = o.get_property_u32(ctx, i as u32)?;
                             new_ta.set_property_u32(ctx, i as u32, v)?;
                         }
+
+                        // LEGACY
+                        // let iterator_method = {
+                        //     #[cfg(feature = "builtin_symbol")]
+                        //     {
+                        //         o.get_property(ctx, Atom::CONST_Symbol_iterator)?
+                        //     }
+                        //     #[cfg(not(feature = "builtin_symbol"))]
+                        //     JSValue::UNDEFINED
+                        // };
+
+                        // let (enum_obj, count) = if !iterator_method.is_undefined_or_null() {
+                        //     Array::from_iterator(ctx, o, iterator_method)
+                        //         .map(|(a, len)| (JSValue::from(a), len))?
+                        // } else {
+                        //     let len = o.get_length_prop(ctx)? as usize;
+                        //     (o.into(), len)
+                        // };
+
+                        // let abuf = ArrayBuffer::create(ctx, false, count << size_log2)?;
+                        // let mut new_ta = Self::create(ctx, new_target, abuf, 0, count, class_id)?;
+
+                        // for i in 0..count {
+                        //     let v = enum_obj.get_property_u32(ctx, i as u32)?;
+                        //     new_ta.set_property_u32(ctx, i as u32, v)?;
+                        // }
 
                         Ok(new_ta)
                     }
@@ -435,7 +528,7 @@ impl TypedArray {
         };
 
         let abuf =
-            ArrayBuffer::from_data(ctx, JSValue::UNDEFINED, false, data, std::ptr::null_mut())?;
+            ArrayBuffer::from_bytes(ctx, JSValue::UNDEFINED, false, data, std::ptr::null_mut())?;
         Self::create(ctx, new_target, abuf, 0, count, class_id)
     }
 

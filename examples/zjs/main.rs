@@ -325,10 +325,11 @@ async fn main() -> ExitCode {
                 colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);
             }
             Err(reason) => {
-                let err_msg = reason
-                    .inspect(&mut rt)
-                    .unwrap_or_else(|_| "<exception>".into());
-                colorize_println(err_msg.clone(), RedFg);
+                let err_msg = ctx.with_new_scope(|mut cx| {
+                    let s = reason.to_string(&mut cx).unwrap();
+                    s.encode_utf8(false).to_string()
+                });
+                colorize_println(err_msg, RedFg);
                 exit_code = ExitCode::FAILURE;
             }
         }

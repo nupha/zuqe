@@ -173,10 +173,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_u16(scope);
                 }
                 opcodes::OP_get_array_el => {
-                    // XXX: replace by a single opcode ?
-                    self.emit_op(OpCode::TO_PROPKEY2);
-                    self.emit_op(OpCode::DUP2);
-                    self.emit_op(OpCode::GET_ARRAY_EL);
+                    self.emit_op(OpCode::GET_ARRAY_EL3);
                 }
                 opcodes::OP_get_super_value => {
                     self.emit_op(OpCode::TO_PROPKEY);
@@ -188,28 +185,19 @@ impl<'s> JSParseState<'s> {
                 }
             }
         } else {
-            match opcode {
-                opcodes::op_scope_get_var => {
-                    label = self
-                        .cur_func_mut()
-                        .add_label()
-                        .expect("add_label() can't fail") as i32;
+            if opcode == opcodes::op_scope_get_var {
+                label = self
+                    .cur_func_mut()
+                    .add_label()
+                    .expect("add_label() can't fail") as i32;
 
-                    self.emit_op_temp(OpCodeTemp::SCOPE_MAKE_REF);
-                    self.emit_atom(name);
-                    self.emit_u32(label as _);
-                    self.emit_u16(scope);
-                    self.cur_func_mut().update_label_ref_count(label as _, 1);
+                self.emit_op_temp(OpCodeTemp::SCOPE_MAKE_REF);
+                self.emit_atom(name);
+                self.emit_u32(label as _);
+                self.emit_u16(scope);
+                self.cur_func_mut().update_label_ref_count(label as _, 1);
 
-                    opcode = OpCode::GET_REF_VALUE as _;
-                }
-                opcodes::OP_get_array_el => {
-                    self.emit_op(OpCode::TO_PROPKEY2);
-                }
-                opcodes::OP_get_super_value => {
-                    self.emit_op(OpCode::TO_PROPKEY);
-                }
-                _ => {}
+                opcode = OpCode::GET_REF_VALUE as _;
             }
         }
 

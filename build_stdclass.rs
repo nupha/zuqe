@@ -39,7 +39,7 @@ enum PayloadKey {
     AsyncFunctionResolving,
     AsyncFromSyncIterator,
     AsyncGenerator,
-    AsyncIterator,
+    AsyncIterableIterator,
 }
 
 impl PayloadKey {
@@ -76,7 +76,7 @@ impl PayloadKey {
             PayloadKey::AsyncFunctionResolving => "async_function_resolving",
             PayloadKey::AsyncFromSyncIterator => "async_from_sync_iterator",
             PayloadKey::AsyncGenerator => "async_generator",
-            PayloadKey::AsyncIterator => "async_iterator",
+            PayloadKey::AsyncIterableIterator => "async_iterator",
         }
     }
 }
@@ -151,7 +151,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     );
     m.insert(
         PayloadKey::Promise,
-        "Box<crate::builtins::promise::PromiseData>",
+        "Box<crate::builtins::promise::PromisePayload>",
     );
     m.insert(
         PayloadKey::PromiseResolvingFunction,
@@ -170,7 +170,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         "Box<crate::builtins::generator::AGenPayload>",
     );
     m.insert(
-        PayloadKey::AsyncIterator,
+        PayloadKey::AsyncIterableIterator,
         "Box<crate::builtins::iterator::AsyncIterPayload>",
     );
 
@@ -495,7 +495,7 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     ClassInfo::class_def(
         "ASYNC_ITERABLE_ITERATOR",
         "crate::builtins::iterator::CLASS_DEF_ASYNC_ITERABLE_ITERATOR",
-        PayloadKey::AsyncIterator,
+        PayloadKey::AsyncIterableIterator,
     ),
 ];
 

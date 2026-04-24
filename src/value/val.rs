@@ -10,7 +10,7 @@ use std::{
 use gc_lite::{GcHead, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_ERROR,
+    JS_CLASS_ERROR, ScopedContext,
     atom::{Atom, AtomKind},
     function::Bytecode,
     module::ModuleDef,
@@ -371,6 +371,28 @@ impl JSValue {
             Err(-1)
         } else {
             Ok(self)
+        }
+    }
+
+    /// check if value `self` is an object.
+    /// raise exception if not.
+    pub fn ensure_object(self, ctx: &mut ScopedContext) -> Result<Object, i32> {
+        if let Self::Object(o) = self {
+            Ok(o)
+        } else {
+            ctx.throw_type_error_not_an_object();
+            Err(-1)
+        }
+    }
+
+    /// check if value `self` is a function or a callable object.
+    /// raise exception if not.
+    pub fn ensure_function(self, ctx: &mut ScopedContext) -> Result<Self, i32> {
+        if self.is_function() {
+            Ok(self)
+        } else {
+            ctx.throw_type_error("not a function");
+            Err(-1)
         }
     }
 

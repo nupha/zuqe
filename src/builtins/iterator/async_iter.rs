@@ -52,7 +52,7 @@ pub trait AsyncIteratorFetcher {
     fn close(&self) {}
 }
 
-/// Internal payload stored inside the JS `AsyncIterator` object.
+/// Internal payload stored inside the JS `AsyncIterableIterator` object.
 pub struct AsyncIterPayload {
     /// The fetcher that produces `IterFetchStatus` values.
     /// Set to `None` once `return()` is called.
@@ -129,11 +129,7 @@ impl<D: Send + 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// AsyncIterator — typed wrapper (like struct Promise)
-// ---------------------------------------------------------------------------
-
-/// An `AsyncIterator` object that wraps a data fetcher.
+/// An `AsyncIterableIterator` object that wraps a data fetcher.
 ///
 /// It implements the async iterator protocol (`next()` → `Promise<{value, done}>`),
 /// suitable for use with `for await...of` loops in JavaScript.
@@ -141,12 +137,12 @@ impl<D: Send + 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
 /// # Example (Rust side)
 ///
 /// ```ignore
-/// let (iter, tx) = AsyncIterator::create(ctx, |_, n: i32| {
+/// let (iter, tx) = AsyncIterableIterator::create(ctx, |_, n: i32| {
 ///     Ok(Some(JSValue::Int(n)))
 /// }, None)?;
 ///
 /// // With on_return callback:
-/// let (iter, tx) = AsyncIterator::create(
+/// let (iter, tx) = AsyncIterableIterator::create(
 ///     ctx,
 ///     |_, n: i32| Ok(Some(JSValue::Int(n))),
 ///     Some(|| { println!("iterator closed"); }),
@@ -167,11 +163,11 @@ impl<D: Send + 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
 /// ```
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
-pub struct AsyncIterator(GcRef<ObjectImpl>);
+pub struct AsyncIterableIterator(GcRef<ObjectImpl>);
 
-object_cast!(AsyncIterator, JS_CLASS_ASYNC_ITERABLE_ITERATOR);
+object_cast!(AsyncIterableIterator, JS_CLASS_ASYNC_ITERABLE_ITERATOR);
 
-impl AsyncIterator {
+impl AsyncIterableIterator {
     pub(crate) fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
@@ -254,7 +250,7 @@ impl AsyncIterator {
     }
 }
 
-/// `AsyncIterator.prototype.next(value)` — returns a `Promise<{value, done}>`.
+/// `AsyncIterableIterator.prototype.next(value)` — returns a `Promise<{value, done}>`.
 ///
 /// Each call creates a new Promise backed by a polling job that calls
 /// `AsyncIteratorFetcher::try_fetch` on every engine tick.
@@ -262,7 +258,7 @@ fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     let this = cc.this();
 
     let Some(ait) = this.as_object().and_then(|o| o.payload().async_iterator()) else {
-        ctx.throw_type_error("not an AsyncIterator");
+        ctx.throw_type_error("not an AsyncIterableIterator");
         return Err(-1);
     };
 
@@ -288,7 +284,7 @@ fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     }
 }
 
-/// `AsyncIterator.prototype.return(value)` — ends the iteration immediately.
+/// `AsyncIterableIterator.prototype.return(value)` — ends the iteration immediately.
 ///
 /// Invokes the `on_return` callback (if set) and notifies the fetcher to
 /// release its resources.
