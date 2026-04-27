@@ -130,29 +130,6 @@ impl gc_lite::GcTrace for JSValue {
         if let Some(p) = self.gc_node_ptr() {
             tr.add_node(p);
         }
-
-        // match self {
-        //     Self::String(s) => {
-        //         if s.rt().is_some() {
-        //             // not string for const atom
-        //             s.trace(tracer);
-        //         }
-        //     }
-        //     Self::Object(o) => {
-        //         o.trace(tracer);
-        //     }
-        //     #[cfg(feature = "builtin_symbol")]
-        //     Self::Symbol(a) => {
-        //         a.trace(tracer);
-        //     }
-        //     Self::Bytecode(b) => {
-        //         b.trace(tracer);
-        //     }
-        //     Self::Module(m) => {
-        //         m.trace(tracer);
-        //     }
-        //     _ => {}
-        // }
     }
 }
 
