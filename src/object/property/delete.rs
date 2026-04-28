@@ -5,7 +5,7 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
     context::ScopedContext,
-    object::{JSProperty, Object, ObjectImpl},
+    object::{JS_PROP_FORCE, JSProperty, Object, ObjectImpl},
     utils::unlikely,
     value::JSValue,
 };
@@ -25,20 +25,22 @@ impl ObjectImpl {
         &mut self,
         ctx: &mut ScopedContext,
         prop: Atom,
+        force: bool,
     ) -> Result<bool, i32> {
         let obj_flags = self.flags();
 
         loop {
             // find in shape properties
             if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
-                return if unlikely(prs_flags & JS_PROP_CONFIGURABLE == 0) {
+                return if !force && (prs_flags & JS_PROP_CONFIGURABLE == 0) {
+                    // property is not configurable and not-force: can't delete
                     Ok(false)
                 } else {
                     // remove shape property
                     let compact = self.modify_shape(ctx, |sh| {
                         sh.prop_defs.remove_index(idx);
 
-                        // 1/8+ deletion
+                        // 1/8+ deletion: do slot compact
                         if (sh.prop_defs.count_deleted() << 3) >= sh.prop_defs.len() {
                             sh.prop_defs.compact();
                             true
@@ -117,10 +119,10 @@ impl ObjectImpl {
         prop: Atom,
         flags: u32,
     ) -> Result<bool, i32> {
-        if self.delete_property_internal(ctx, prop)? {
+        if self.delete_property_internal(ctx, prop, flags & JS_PROP_FORCE != 0)? {
             Ok(true)
         } else {
-            // not configurable
+            // can't delete (not configurable)
             if ctx.rt().can_throw(flags) {
                 ctx.throw_type_error("could not delete property");
                 Err(-1)
@@ -148,7 +150,7 @@ impl ObjectImpl {
 
 impl JSValue {
     /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
-    /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
+    /// flags 可以是 0, JS_PROP_FORCE, JS_PROP_THROW, JS_PROP_THROW_STRICT
     #[inline(always)]
     pub fn delete_property(
         &mut self,

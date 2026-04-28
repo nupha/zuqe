@@ -36,7 +36,10 @@ pub use {
     function::{CallContext, Callback, FieldDef},
     module::ModuleDef,
     number::IntOrFloat,
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, Object},
+    object::{
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_FORCE, JS_PROP_WRITABLE,
+        Object,
+    },
     runtime::{Runtime, RuntimeImpl},
     value::{JSValue, Value},
 };

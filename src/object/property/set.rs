@@ -12,9 +12,9 @@ use crate::{
     context::ScopedContext,
     error::JS_ThrowReferenceErrorNotDefined,
     object::{
-        JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
-        JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, Object,
-        ObjectImpl,
+        JS_PROP_FORCE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE,
+        JS_PROP_LAZYINIT, JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF,
+        JSProperty, Object, ObjectImpl,
     },
     utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
@@ -52,7 +52,6 @@ impl ObjectImpl {
                 }
             };
         }
-
         macro_rules! fail_read_only {
             ($prop:expr) => {
                 return if ctx.rt().can_throw(flags) {
@@ -76,17 +75,16 @@ impl ObjectImpl {
                             debug_assert_eq!(cur_obj.class_id(), JS_CLASS_ARRAY);
                             debug_assert_eq!(prop, Atom::CONST_length);
 
-                            let arr_len = val.to_array_length(ctx, false)?;
+                            let length = val.to_array_length(ctx, false)?;
                             let can_throw = ctx.rt().can_throw(flags);
 
                             return unsafe {
                                 cur_obj
                                     .as_Array_mut_unchecked()
-                                    .set_length(ctx, arr_len, can_throw)
+                                    .set_length(ctx, length, can_throw)
                             };
-                        }
-
-                        if unlikely(prs_flags & JS_PROP_WRITABLE != 0) {
+                        } else if prs_flags & JS_PROP_WRITABLE != 0 || flags & JS_PROP_FORCE != 0 {
+                            // property is writable or has force-set flag
                             cur_obj.set_prop_slot(idx, JSProperty::Normal(val));
                             return Ok(true);
                         } else {
@@ -550,7 +548,7 @@ impl JSValue {
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     ///
-    /// In case of `Reflect.set(obj, val, [receiver])`, `receiver` could be null, undefined or Some(object).
+    /// In case of `Reflect.set(obj, val, [receiver])`, `receiver` could be null, undefined or object.
     /// For other cases, `receiver` should be None, suggesting it's same to `self`.
     pub(crate) fn set_property_internal(
         &self, // a.k.a. obj

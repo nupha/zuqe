@@ -16,17 +16,19 @@ use crate::{
 
 // Property flags
 /// Indicates if a property can be modified or deleted
-pub const JS_PROP_CONFIGURABLE: u32 = 1 << 0;
+pub const JS_PROP_CONFIGURABLE: u32 = 1;
 /// Indicates if a property's value can be changed
 pub const JS_PROP_WRITABLE: u32 = 1 << 1;
 /// Indicates if a property appears in enumeration of object's properties
 pub const JS_PROP_ENUMERABLE: u32 = 1 << 2;
 /// Combined flag for configurable, writable and enumerable properties
 pub const JS_PROP_C_W_E: u32 = JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_ENUMERABLE;
+
 /// Special flag for length property
 pub const JS_PROP_LENGTH: u32 = 1 << 3;
 /// Mask for property type
 pub const JS_PROP_TMASK: u32 = 3 << 4;
+
 /// Normal property type
 pub const JS_PROP_NORMAL: u32 = 0 << 4;
 /// Getter/setter property type
@@ -59,6 +61,9 @@ pub const JS_PROP_THROW_STRICT: u32 = 1 << 15;
 pub const JS_PROP_NO_ADD: u32 = 1 << 16;
 /// Prevent exotic object behavior
 pub const JS_PROP_NO_EXOTIC: u32 = 1 << 17;
+/// Force to set/delete an existing property regardless of writable/configurable setting.
+/// Be cautious, this is for experts only
+pub const JS_PROP_FORCE: u32 = 1 << 18;
 
 // Property types
 /// Regular identifier property

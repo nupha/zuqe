@@ -440,6 +440,21 @@ impl Atom {
         }
     }
 
+    /// make atom from static &str
+    pub fn from_static(rt: &RuntimeImpl, str: &'static str) -> Result<Self, i32> {
+        if str.is_empty() {
+            Ok(Atom::CONST_empty_string)
+        } else if let Some(i) = parse_u32(str)
+            && i <= JS_ATOM_MAX_INT
+        {
+            Ok(Self::new_small_int(i))
+        } else {
+            let rt = RuntimePtr::from(rt);
+            let s = StringRef::create_static(rt, str, None)?;
+            Self::from_string(rt, s, AtomKind::String)
+        }
+    }
+
     /// Create const atom
     #[inline(always)]
     pub const fn new_const(id: u32) -> Self {

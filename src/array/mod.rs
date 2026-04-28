@@ -167,7 +167,7 @@ impl Array {
             .is_writable()
         {
             return if throw {
-                ctx.throw_type_error("'length' is read-only");
+                ctx.throw_type_error_read_only(Atom::CONST_length);
                 Err(-1)
             } else {
                 Ok(false)
@@ -198,7 +198,7 @@ impl Array {
                     // faster to iterate
                     while cur_len > length {
                         let atom = Atom::from_i64(ctx.rt_ptr(), cur_len as i64 - 1)?;
-                        let ret = self.delete_property_internal(ctx, atom);
+                        let ret = self.delete_property_internal(ctx, atom, false);
                         if let Ok(false) = ret {
                             break; // property is not configurable
                         }
@@ -224,7 +224,7 @@ impl Array {
                             if let Some(idx) = prop.to_array_index(ctx.rt())
                                 && idx >= cur_len
                             {
-                                let _r = self.delete_property_internal(ctx, prop);
+                                let _r = self.delete_property_internal(ctx, prop, false);
                                 debug_assert!(_r.is_ok());
 
                                 // WARNING: the shape may have been modified
@@ -644,7 +644,7 @@ impl ObjectImpl {
 
             if unlikely(r & JS_PROP_WRITABLE == 0) {
                 return if ctx.rt().can_throw(flags) {
-                    ctx.throw_type_error("'length' is read-only");
+                    ctx.throw_type_error_read_only(Atom::CONST_length);
                     Err(-1)
                 } else {
                     Ok(false)
