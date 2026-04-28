@@ -540,7 +540,7 @@ impl ObjectImpl {
         prop: &str,
         val: JSValue,
     ) -> Result<bool, i32> {
-        self.set_property(ctx, Atom::new(ctx.rt_ptr(), prop)?, val)
+        self.set_property(ctx, Atom::from_str(ctx.rt_ptr(), prop)?, val)
     }
 }
 
@@ -644,7 +644,7 @@ impl JSValue {
         prop: &str,
         val: Self,
     ) -> Result<bool, i32> {
-        self.set_property(ctx, Atom::new(ctx.rt_ptr(), prop)?, val)
+        self.set_property(ctx, Atom::from_str(ctx.rt_ptr(), prop)?, val)
     }
 }
 

@@ -4,7 +4,7 @@
 use std::ptr::NonNull;
 
 use crate::{
-    atom::Atom,
+    atom::{Atom, AtomKind},
     context::ScopedContext,
     function::{
         Callback, CallbackFn, GetterFn, IteratorFn, JSCFunctionFF, JSCFunctionFFF, SetterFn,
@@ -397,5 +397,5 @@ fn prop_name_to_atom(ctx: &mut ScopedContext, str: &str) -> Result<Atom, i32> {
         return Err(-1);
     }
 
-    Atom::new(ctx.rt_ptr(), str)
+    Atom::from_str(ctx.rt_ptr(), str)
 }

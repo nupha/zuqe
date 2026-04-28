@@ -387,40 +387,30 @@ impl StringRef {
         mut rt: RuntimePtr,
         content: StringData,
         atom_info: Option<AtomInfo>,
-    ) -> Result<StringRef, i32> {
+    ) -> Result<Self, i32> {
         let s = StringImpl::new(rt, content, atom_info);
-        let ss = rt.gc_alloc(s).map(StringRef).map_err(|_| {
+        rt.gc_alloc(s).map(Self).map_err(|_| {
             eprintln!("[O.o] alloc error");
             -1
-        })?;
-
-        // O.o
-        #[cfg(debug_assertions)]
-        unsafe {
-            use gc_lite::GcNode;
-
-            let t = format!("[StringImpl] {}", ss.encode_utf8(true));
-            ss.gc_head_ptr().as_mut().debug_set_dbg_string(t.into());
-        }
-
-        Ok(ss)
+        })
     }
 
     #[inline(always)]
-    pub(crate) fn create(rt: RuntimePtr, content: StringData) -> Result<StringRef, i32> {
+    pub(crate) fn create(rt: RuntimePtr, content: StringData) -> Result<Self, i32> {
         Self::create_internal(rt, content, None)
     }
 
-    #[inline]
-    pub(crate) fn create_str(rt: RuntimePtr, s: &str) -> Result<StringRef, i32> {
-        let sbuf = StringBuf::from_str(s)?;
-        Self::create_internal(rt, StringData::from_buf(sbuf), None)
+    /// Create StringRef from &str
+    pub(crate) fn create_str(rt: RuntimePtr, s: &str) -> Result<Self, i32> {
+        Self::create_internal(rt, StringData::from_buf(StringBuf::from_str(s)?), None)
     }
 
-    #[inline]
-    pub(crate) fn create_utf8(rt: RuntimePtr, utf8_bytes: Vec<u8>) -> Result<StringRef, i32> {
-        let data = StringData::from_buf(StringBuf::from_utf8(utf8_bytes).map_err(|_| -1)?);
-        Self::create(rt, data)
+    /// Create StringRef from utf8 encoded bytes
+    pub(crate) fn create_utf8(rt: RuntimePtr, utf8_bytes: Vec<u8>) -> Result<Self, i32> {
+        Self::create(
+            rt,
+            StringData::from_buf(StringBuf::from_utf8(utf8_bytes).map_err(|_| -1)?),
+        )
     }
 
     /// static str `s` must be ascii str.
@@ -429,7 +419,7 @@ impl StringRef {
         rt: RuntimePtr,
         s: &'static str,
         atom_info: Option<AtomInfo>,
-    ) -> Result<StringRef, i32> {
+    ) -> Result<Self, i32> {
         Self::create_internal(rt, StringData::from_static(s), atom_info)
     }
 

@@ -354,7 +354,7 @@ impl StringImpl {
 impl<'c> ScopedContext<'c> {
     /// create or reuse an Atom from `str`
     pub fn create_atom_string(&mut self, str: &str) -> Result<StringRef, i32> {
-        let atom = Atom::new(self.rt_ptr(), str)?;
+        let atom = Atom::from_str(self.rt_ptr(), str)?;
         atom.force_string(self)
     }
 }
@@ -476,7 +476,8 @@ pub(crate) fn js_atom_concat_str(
     buf.push_str(&astr);
     buf.push_str(str1);
 
-    Atom::new(ctx.rt_ptr(), &buf)
+    let s = ctx.create_string_from_utf8(buf.into_bytes())?;
+    Atom::from_string(ctx.rt_ptr(), s, AtomKind::String)
 }
 
 /// Note: returned atom should be freed by caller.

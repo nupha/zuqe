@@ -63,11 +63,7 @@ impl<'s> JSParseState<'s> {
         if self.token.kind == TokenKind::STRING {
             // import "module-name"
             let rt = self.ctx().rt_ptr();
-            module_name = Atom::from_str(
-                rt,
-                &self.token.data.string().unwrap().to_utf8(),
-                AtomKind::String,
-            )?;
+            module_name = Atom::from_str(rt, &self.token.data.string().unwrap().to_utf8())?;
 
             self.next_token()?;
         } else {
@@ -127,7 +123,6 @@ impl<'s> JSParseState<'s> {
                                 TokenKind::STRING => Atom::from_str(
                                     self.ctx().rt_ptr(),
                                     &self.token.data.string().unwrap().to_utf8(),
-                                    AtomKind::String,
                                 )?,
                                 t if t.is_keyword() => t.keyword_atom().unwrap(),
                                 _ => {
@@ -236,7 +231,7 @@ impl<'s> JSParseState<'s> {
                         TokenKind::STRING => {
                             let rt = self.ctx().rt_ptr();
                             let s = self.token.data.string().unwrap();
-                            Atom::from_str(rt, &s.to_utf8(), AtomKind::String)?
+                            Atom::from_str(rt, &s.to_utf8())?
                         }
                         t if t.is_keyword() => t.keyword_atom().unwrap(),
                         _ => {
@@ -256,7 +251,7 @@ impl<'s> JSParseState<'s> {
                             TokenKind::STRING => {
                                 let rt = self.ctx().rt_ptr();
                                 let s = self.token.data.string().unwrap();
-                                Atom::from_str(rt, &s.to_utf8(), AtomKind::String)?
+                                Atom::from_str(rt, &s.to_utf8())?
                             }
                             t if t.is_keyword() => t.keyword_atom().unwrap(),
                             _ => {
@@ -315,7 +310,7 @@ impl<'s> JSParseState<'s> {
                         TokenKind::STRING => {
                             let rt = self.ctx().rt_ptr();
                             let s = self.token.data.string().unwrap();
-                            Atom::from_str(rt, &s.to_utf8(), AtomKind::String)?
+                            Atom::from_str(rt, &s.to_utf8())?
                         }
                         t if t.is_keyword() => t.keyword_atom().unwrap(),
                         _ => {

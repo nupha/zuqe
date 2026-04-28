@@ -4,7 +4,7 @@
 use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
-    atom::Atom,
+    atom::{Atom, AtomKind},
     context::ScopedContext,
     error::JSResult,
     function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
@@ -87,7 +87,10 @@ impl<'c> ScopedContext<'c> {
                 mode |= ExecMode::STRICT;
                 (
                     None,
-                    Some(ModuleDef::new(self, Atom::new(self.rt_ptr(), filename)?)?),
+                    Some(ModuleDef::new(
+                        self,
+                        Atom::from_str(self.rt_ptr(), filename)?,
+                    )?),
                     mode,
                 )
             } else {

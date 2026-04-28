@@ -7,7 +7,7 @@ use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
-    atom::Atom,
+    atom::{Atom, AtomKind},
     builtins::iterator::make_iterator_next_result,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
@@ -365,7 +365,7 @@ impl<'c> ScopedContext<'c> {
         NativeFunction::create(
             self,
             callback,
-            Atom::new(self.rt_ptr(), name)?,
+            Atom::from_str(self.rt_ptr(), name)?,
             length,
             magic,
             self.function_proto(),

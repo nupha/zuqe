@@ -163,7 +163,7 @@ impl<'c> ScopedContext<'c> {
             let func_obj = NativeFunction::create(
                 self,
                 Callback::ConstructorOrFunc(js_error_constructor),
-                Atom::new(self.rt_ptr(), name).unwrap(),
+                Atom::new_static_str(self.rt(), name).unwrap(),
                 if i == ErrorKind::Aggregate as usize {
                     2
                 } else {

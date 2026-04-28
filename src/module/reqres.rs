@@ -129,7 +129,7 @@ pub(super) fn js_host_resolve_imported_module(
         js_default_module_normalize_name(ctx, base_name, name)
     }?;
 
-    let module_name = Atom::new(ctx.rt_ptr(), &norm_name)?;
+    let module_name = Atom::from_str(ctx.rt_ptr(), &norm_name)?;
 
     // search in loaded_modules
     if let Some(m) = ctx.find_loaded_module(module_name) {

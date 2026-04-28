@@ -269,7 +269,7 @@ impl ObjectImpl {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.define_property_value(ctx, Atom::new(ctx.rt_ptr(), prop)?, val, flags)
+        self.define_property_value(ctx, Atom::from_str(ctx.rt_ptr(), prop)?, val, flags)
     }
 
     #[inline(always)]
@@ -478,7 +478,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt_ptr(), prop)?;
+        let atom = Atom::from_str(ctx.rt_ptr(), prop)?;
         self.define_property_value(ctx, atom, val, flags)
     }
 

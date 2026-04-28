@@ -190,7 +190,7 @@ impl ModuleDefImpl {
         self.add_export_internal(
             ctx,
             Atom::NULL,
-            Atom::new(ctx.rt_ptr(), export_name)?,
+            Atom::from_str(ctx.rt_ptr(), export_name)?,
             ExportType::JS_EXPORT_TYPE_LOCAL {
                 var_idx: u16::MAX, // unknown
                 var_ref: None,
@@ -219,7 +219,7 @@ impl ModuleDefImpl {
                 FieldDetail::Str(s) => ctx.create_string_from_str(s)?.into(),
                 FieldDetail::Class => ctx
                     .rt()
-                    .query_class_id(Atom::new(ctx.rt_ptr(), entry.name)?)
+                    .query_class_id(Atom::from_str(ctx.rt_ptr(), entry.name)?)
                     .and_then(|class_id| ctx.class_slots.get(class_id as usize))
                     .and_then(|x| x.ctor)
                     .map_or(JSValue::UNDEFINED, JSValue::Object),
@@ -248,7 +248,7 @@ impl ModuleDefImpl {
         export_name: &str,
         value: JSValue,
     ) -> Result<(), i32> {
-        let atom = Atom::new(rt, export_name)?;
+        let atom = Atom::from_str(rt, export_name)?;
 
         if let Some(me) = self.find_export(atom) {
             if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {

@@ -132,6 +132,16 @@ impl ObjectImpl {
         }
     }
 
+    #[inline]
+    pub fn delete_property_str(
+        &mut self,
+        ctx: &mut ScopedContext,
+        str: &str,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        self.delete_property(ctx, Atom::from_str(ctx.rt_ptr(), str)?, flags)
+    }
+
     pub fn delete_property_i64(
         &mut self,
         ctx: &mut ScopedContext,
@@ -160,6 +170,17 @@ impl JSValue {
     ) -> Result<bool, i32> {
         self.objectify(ctx)
             .and_then(|mut o| o.delete_property(ctx, prop, flags))
+    }
+
+    #[inline]
+    pub fn delete_property_str(
+        &mut self,
+        ctx: &mut ScopedContext,
+        str: &str,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        self.objectify(ctx)
+            .and_then(|mut o| o.delete_property_str(ctx, str, flags))
     }
 
     #[inline]

@@ -4,7 +4,7 @@
 use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 
 use crate::{
-    atom::Atom,
+    atom::{Atom, AtomKind},
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::ContextPtr,
     eval::EvalType,
@@ -265,7 +265,7 @@ impl FunctionDef {
             line_number_last: 0,
             line_number_last_pc: 0,
 
-            filename: Atom::new(ctx.rt_ptr(), filename)?,
+            filename: Atom::from_str(ctx.rt_ptr(), filename)?,
             line_num,
             pc2line: None,
             source: None,

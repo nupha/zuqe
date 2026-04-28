@@ -88,7 +88,7 @@ impl ObjectImpl {
 
     #[inline]
     pub fn has_own_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> Result<bool, i32> {
-        self.has_own_property(ctx, Atom::new(ctx.rt_ptr(), prop)?)
+        self.has_own_property(ctx, Atom::from_str(ctx.rt_ptr(), prop)?)
     }
 
     /// get own property descriptor.

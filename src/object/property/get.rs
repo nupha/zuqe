@@ -295,7 +295,7 @@ impl ObjectImpl {
 
     #[inline(always)]
     pub fn get_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> JSResult {
-        self.get_property(ctx, Atom::new(ctx.rt_ptr(), prop)?)
+        self.get_property(ctx, Atom::from_str(ctx.rt_ptr(), prop)?)
     }
 
     /// Check if `self` has a generalized numeric property `idx`.
@@ -405,7 +405,7 @@ impl JSValue {
     /// get property by str prop
     #[inline(always)]
     pub fn get_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> JSResult {
-        self.get_property(ctx, Atom::new(ctx.rt_ptr(), prop)?)
+        self.get_property(ctx, Atom::from_str(ctx.rt_ptr(), prop)?)
     }
 
     /// get property by u32 prop

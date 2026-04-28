@@ -418,7 +418,7 @@ impl Atom {
     }
 
     /// make atom from `str`. if `str` is a safe-integer representation, create int-atom instead.
-    pub(crate) fn from_str(rt: RuntimePtr, str: &str, kind: AtomKind) -> Result<Self, i32> {
+    pub(crate) fn from_str(rt: RuntimePtr, str: &str) -> Result<Self, i32> {
         if str.is_empty() {
             Ok(Atom::CONST_empty_string)
         } else if let Some(i) = parse_u32(str)
@@ -427,7 +427,7 @@ impl Atom {
             Ok(Self::new_small_int(i))
         } else {
             let s = StringRef::create_str(rt, str)?;
-            Self::from_string(rt, s, kind)
+            Self::from_string(rt, s, AtomKind::String)
         }
     }
 
@@ -440,8 +440,14 @@ impl Atom {
         }
     }
 
-    /// make atom from static &str
-    pub fn from_static(rt: &RuntimeImpl, str: &'static str) -> Result<Self, i32> {
+    /// create new or reuse existing atom for `str`.
+    #[inline(always)]
+    pub fn new(rt: &RuntimeImpl, str: &str) -> Result<Self, i32> {
+        Self::from_str(rt.into(), str)
+    }
+
+    /// create atom from static &str
+    pub fn new_static_str(rt: &RuntimeImpl, str: &'static str) -> Result<Self, i32> {
         if str.is_empty() {
             Ok(Atom::CONST_empty_string)
         } else if let Some(i) = parse_u32(str)
@@ -457,7 +463,7 @@ impl Atom {
 
     /// Create const atom
     #[inline(always)]
-    pub const fn new_const(id: u32) -> Self {
+    pub(crate) const fn new_const(id: u32) -> Self {
         debug_assert!(is_const_atom(id));
         Self(id)
     }
@@ -468,18 +474,6 @@ impl Atom {
     pub(crate) fn new_small_int(n: u32) -> Self {
         debug_assert!(n <= JS_ATOM_MAX_INT);
         Self(n | JS_ATOM_TAG_INT)
-    }
-
-    /// create new or reuse existing atom for `str`.
-    #[inline(always)]
-    pub(crate) fn new(rt: RuntimePtr, str: &str) -> Result<Self, i32> {
-        // if str.is_empty() || !str.chars().next().unwrap().is_ascii_digit() {
-        //     // find atom in registry
-        //     if let Some(atom) = Self::find(str, AtomKind::String) {
-        //         return Ok(atom);
-        //     }
-        // }
-        Self::from_str(rt, str, AtomKind::String)
     }
 
     /// calc atom hash with str and kind
