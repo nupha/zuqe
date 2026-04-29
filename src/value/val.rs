@@ -503,49 +503,191 @@ impl<'a> std::fmt::Debug for Value<'a> {
 
 #[cfg(feature = "serde_json_support")]
 mod serde_json_support {
-    use crate::Array;
+    use smallvec::SmallVec;
 
-    use super::*;
+    use crate::{
+        Array, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext,
+        builtins::iterator::JSIteratorKindEnum,
+        object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, Object},
+        string::StringRef,
+        value::JSValue,
+    };
 
     impl JSValue {
+        /// Convert a serde_json::Value to a JSValue.
         pub fn from_serde_json(
             ctx: &mut ScopedContext,
             json: &serde_json::Value,
         ) -> Result<Self, i32> {
-            json_value_to_js(ctx, json)
+            match json {
+                serde_json::Value::Null => Ok(JSValue::NULL),
+                serde_json::Value::Bool(b) => Ok(JSValue::Bool(*b)),
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        Ok(JSValue::from(i))
+                    } else {
+                        Ok(n.as_f64().unwrap_or(0.0).into())
+                    }
+                }
+                serde_json::Value::String(s) => ctx
+                    .create_string_from_utf8(s.clone().into_bytes())
+                    .map(JSValue::String),
+                serde_json::Value::Array(arr) => {
+                    let mut values = Vec::with_capacity(arr.len());
+                    for item in arr {
+                        values.push(Self::from_serde_json(ctx, item)?);
+                    }
+                    Array::from_values(ctx, values).map(JSValue::from)
+                }
+                serde_json::Value::Object(map) => {
+                    let mut obj = ctx.create_base_object()?;
+                    for (k, v) in map {
+                        let js_val = Self::from_serde_json(ctx, v)?;
+                        obj.set_property_str(ctx, k, js_val)?;
+                    }
+                    Ok(obj.into())
+                }
+            }
+        }
+
+        /// Convert this JSValue to a serde_json::Value.
+        ///
+        /// For non-JSON-serializable values (undefined, functions, symbols, NaN, Infinity),
+        /// they are converted to Null (following JSON.stringify behavior).
+        /// Circular references in objects/arrays will cause a TypeError.
+        pub fn to_serde_json(&self, ctx: &mut ScopedContext) -> Result<serde_json::Value, i32> {
+            jsvalue_to_serde_json(ctx, self, &mut SmallVec::new())
         }
     }
 
-    /// Recursively convert a serde_json::Value to a JS value.
-    fn json_value_to_js(ctx: &mut ScopedContext, val: &serde_json::Value) -> Result<JSValue, i32> {
+    impl Object {
+        /// Convert a JS Object to a serde_json::Value.
+        ///
+        /// Handles boxed primitives (String, Number, Boolean), arrays, and plain objects.
+        /// Detects circular references and throws TypeError.
+        pub fn to_serde_json(&self, ctx: &mut ScopedContext) -> Result<serde_json::Value, i32> {
+            object_to_serde_json(ctx, self, &mut SmallVec::new())
+        }
+    }
+
+    /// Recursively convert a JSValue to a serde_json::Value.
+    fn jsvalue_to_serde_json(
+        ctx: &mut ScopedContext,
+        val: &JSValue,
+        stack: &mut SmallVec<[Object; 16]>,
+    ) -> Result<serde_json::Value, i32> {
         match val {
-            serde_json::Value::Null => Ok(JSValue::NULL),
-            serde_json::Value::Bool(b) => Ok(JSValue::Bool(*b)),
-            serde_json::Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    Ok(JSValue::from(i))
+            JSValue::NULL | JSValue::UNDEFINED => Ok(serde_json::Value::Null),
+            JSValue::Bool(b) => Ok(serde_json::Value::Bool(*b)),
+            JSValue::Int(i) => Ok(serde_json::Value::Number((*i as i64).into())),
+            JSValue::Float64(f) => {
+                if !f.is_finite() {
+                    // NaN, +Infinity, -Infinity → null (same as JSON.stringify)
+                    Ok(serde_json::Value::Null)
                 } else {
-                    Ok(n.as_f64().unwrap_or(0.0).into())
+                    Ok(serde_json::Number::from_f64(*f)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or(serde_json::Value::Null))
                 }
             }
-            serde_json::Value::String(s) => ctx
-                .create_string_from_utf8(s.clone().into_bytes())
-                .map(JSValue::String),
-            serde_json::Value::Array(arr) => {
-                let mut values = Vec::with_capacity(arr.len());
-                for item in arr {
-                    values.push(json_value_to_js(ctx, item)?);
-                }
-                Array::from_values(ctx, values).map(JSValue::from)
+            JSValue::String(s) => {
+                let rust_str = s.content().encode_utf8(false).into_owned();
+                Ok(serde_json::Value::String(rust_str))
             }
-            serde_json::Value::Object(map) => {
-                let mut obj = ctx.create_base_object()?;
-                for (k, v) in map {
-                    let js_val = json_value_to_js(ctx, v)?;
-                    obj.set_property_str(ctx, k, js_val)?;
-                }
-                Ok(obj.into())
+            JSValue::Object(obj) => object_to_serde_json(ctx, obj, stack),
+            _ => {
+                // Bytecode, Module, CatchOffset, etc. → null
+                Ok(serde_json::Value::Null)
             }
         }
+    }
+
+    /// Convert a JS Object to a serde_json::Value.
+    ///
+    /// Handles boxed primitives (String, Number, Boolean), arrays, and plain objects.
+    /// Detects circular references and throws TypeError.
+    fn object_to_serde_json(
+        ctx: &mut ScopedContext,
+        obj: &Object,
+        stack: &mut SmallVec<[Object; 16]>,
+    ) -> Result<serde_json::Value, i32> {
+        match obj.class_id() {
+            JS_CLASS_STRING => {
+                if let Some(s) = obj.payload().string() {
+                    let rust_str = s.content().encode_utf8(false).into_owned();
+                    return Ok(serde_json::Value::String(rust_str));
+                }
+            }
+            JS_CLASS_NUMBER => {
+                if let Some(n) = obj.payload().value() {
+                    return match n {
+                        JSValue::Int(i) => Ok(serde_json::Value::Number((*i as i64).into())),
+                        JSValue::Float64(f) => {
+                            if f.is_finite() {
+                                Ok(serde_json::Number::from_f64(*f)
+                                    .map(serde_json::Value::Number)
+                                    .unwrap_or(serde_json::Value::Null))
+                            } else {
+                                Ok(serde_json::Value::Null)
+                            }
+                        }
+                        _ => Ok(serde_json::Value::Null),
+                    };
+                }
+            }
+            JS_CLASS_BOOLEAN => {
+                if let Some(b) = obj.payload().bool() {
+                    return Ok(serde_json::Value::Bool(*b));
+                }
+            }
+            _ => {}
+        }
+
+        // Functions are not JSON-serializable → null
+        if obj.is_function() {
+            return Ok(serde_json::Value::Null);
+        }
+
+        // Check for circular reference
+        if stack.iter().any(|v| obj.eq(v)) {
+            ctx.throw_type_error("circular reference");
+            return Err(-1);
+        }
+
+        stack.push(*obj);
+        //let val = JSValue::Object(*obj);
+
+        let result = if obj.is_array(ctx)? {
+            // Array → serde_json::Array
+            let len = obj.get_length_prop(ctx)?;
+            let mut arr = Vec::with_capacity(len as usize);
+            for i in 0..len {
+                let prop_val = obj.get_property_i64(ctx, i)?;
+                arr.push(jsvalue_to_serde_json(ctx, &prop_val, stack)?);
+            }
+            serde_json::Value::Array(arr)
+        } else {
+            // Plain object → serde_json::Object
+            let mut o = *obj;
+            let kvs = o.get_own_property_kvs(
+                ctx,
+                JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK,
+                JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
+            )?;
+
+            let mut map = serde_json::Map::new();
+            for (key, _) in kvs {
+                let key_sr = StringRef::try_from(key).map_err(|_| -1)?;
+                let key_str = key_sr.content().encode_utf8(false).into_owned();
+
+                let prop_val = obj.get_property_value(ctx, key_sr.into())?;
+                let json_val = jsvalue_to_serde_json(ctx, &prop_val, stack)?;
+                map.insert(key_str, json_val);
+            }
+            serde_json::Value::Object(map)
+        };
+
+        stack.pop();
+        Ok(result)
     }
 }
