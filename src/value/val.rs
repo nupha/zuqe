@@ -500,3 +500,52 @@ impl<'a> std::fmt::Debug for Value<'a> {
         write!(f, "{:?}", self.inner)
     }
 }
+
+#[cfg(feature = "serde_json_support")]
+mod serde_json_support {
+    use crate::Array;
+
+    use super::*;
+
+    impl JSValue {
+        pub fn from_serde_json(
+            ctx: &mut ScopedContext,
+            json: &serde_json::Value,
+        ) -> Result<Self, i32> {
+            json_value_to_js(ctx, json)
+        }
+    }
+
+    /// Recursively convert a serde_json::Value to a JS value.
+    fn json_value_to_js(ctx: &mut ScopedContext, val: &serde_json::Value) -> Result<JSValue, i32> {
+        match val {
+            serde_json::Value::Null => Ok(JSValue::NULL),
+            serde_json::Value::Bool(b) => Ok(JSValue::Bool(*b)),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Ok(JSValue::from(i))
+                } else {
+                    Ok(n.as_f64().unwrap_or(0.0).into())
+                }
+            }
+            serde_json::Value::String(s) => ctx
+                .create_string_from_utf8(s.clone().into_bytes())
+                .map(JSValue::String),
+            serde_json::Value::Array(arr) => {
+                let mut values = Vec::with_capacity(arr.len());
+                for item in arr {
+                    values.push(json_value_to_js(ctx, item)?);
+                }
+                Array::from_values(ctx, values).map(JSValue::from)
+            }
+            serde_json::Value::Object(map) => {
+                let mut obj = ctx.create_base_object()?;
+                for (k, v) in map {
+                    let js_val = json_value_to_js(ctx, v)?;
+                    obj.set_property_str(ctx, k, js_val)?;
+                }
+                Ok(obj.into())
+            }
+        }
+    }
+}

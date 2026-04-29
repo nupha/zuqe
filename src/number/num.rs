@@ -291,9 +291,8 @@ impl From<i64> for JSValue {
     ///
     /// if value beyonds \[-2^53, 2^53\] range, precision is not guaranteed.
     fn from(i: i64) -> Self {
-        let v32 = i as i32;
-        if i == v32 as i64 {
-            Self::Int(v32)
+        if (i32::MIN as i64..=i32::MAX as i64).contains(&i) {
+            Self::Int(i as i32)
         } else {
             #[cfg(debug_assertions)]
             if !SAFE_INTEGER_RANGE.contains(&i) {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
-//
+
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -98,12 +98,12 @@ impl PromisePayload {
         std::mem::take(&mut self.reactions)
     }
 
-    #[inline(always)]
+    #[deprecated]
     pub(super) const fn is_handled(&self) -> bool {
         self.is_handled
     }
 
-    #[inline(always)]
+    #[deprecated]
     pub(super) const fn set_handled(&mut self, v: bool) {
         self.is_handled = v;
     }
@@ -133,7 +133,7 @@ impl<D: Send + 'static> PromiseResultSlot<D> {
     }
 
     /// Submit a value into the slot.
-    pub fn commit(&self, data: D) -> Result<(), D> {
+    pub fn commit(self, data: D) -> Result<(), D> {
         let mut guard = self.data.lock().unwrap();
         if guard.is_none() {
             guard.replace(data);
@@ -661,12 +661,5 @@ mod tests {
             assert_eq!(p.state(), PromiseState::Fulfilled);
             assert_eq!(p.result(), JSValue::Int(321));
         });
-    }
-
-    #[test]
-    fn slot_double_put_errors() {
-        let slot: PromiseResultSlot<i32> = PromiseResultSlot::new();
-        assert!(slot.commit(1).is_ok());
-        assert!(slot.commit(2).is_err());
     }
 }

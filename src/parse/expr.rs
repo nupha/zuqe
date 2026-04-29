@@ -58,7 +58,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_assign_expr2(parse_flags)?;
 
                 if op == TokenKind::Char('=') {
-                    if opcode == OpCode::GET_REF_VALUE as _ && name == name0 {
+                    if opcode == OpCode::GET_REF_VALUE as i32 && name == name0 {
                         self.set_object_name(name);
                     }
                 } else {

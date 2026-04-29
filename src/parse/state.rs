@@ -65,8 +65,8 @@ pub struct JSParseState<'s> {
     /// Controls whether HTML-style comments are allowed
     pub(crate) allow_html_comments: bool,
 
-    #[cfg(feature = "builtin_json")]
     /// Enables parsing of JSON superset syntax
+    #[cfg(feature = "builtin_json")]
     pub(super) ext_json: bool,
 }
 

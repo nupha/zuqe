@@ -4,7 +4,7 @@
 use smallvec::SmallVec;
 
 use crate::{
-    atom::{Atom, AtomKind},
+    atom::Atom,
     context::ScopedContext,
     error::JSResult,
     number::{ATOD_ACCEPT_BIN_OCT, js_aton},
