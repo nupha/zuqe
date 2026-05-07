@@ -7,7 +7,7 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ASYNC_ITERABLE_ITERATOR, Receiver, Sender, TryRecvError,
-    builtins::promise::Promise,
+    builtins::promise::{Promise, PromiseResultSlot},
     class::ClassID,
     context::ScopedContext,
     error::JSResult,
@@ -129,6 +129,28 @@ impl<D: Send + 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
     }
 }
 
+/// Slot-backed fetcher that polls a [`PromiseResultSlot`].
+///
+/// The `done_value` is a special sentinel: when the slot contains this value,
+/// the fetcher returns [`IterFetchStatus::Done`] instead of yielding it.
+struct SlotFetcher<D: Send + 'static> {
+    slot: PromiseResultSlot<D>,
+    convert: Box<dyn Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + Send>,
+}
+
+impl<D: Send + 'static> AsyncIteratorFetcher for SlotFetcher<D> {
+    fn try_fetch(&self, cx: &mut ScopedContext) -> Result<IterFetchStatus, i32> {
+        match self.slot.try_take() {
+            Some(data) => match (self.convert)(cx, data) {
+                Ok(Some(v)) => Ok(IterFetchStatus::Value(v)),
+                Ok(None) => Ok(IterFetchStatus::Done),
+                Err(e) => Err(e),
+            },
+            None => Ok(IterFetchStatus::Wait),
+        }
+    }
+}
+
 /// An `AsyncIterableIterator` object that wraps a data fetcher.
 ///
 /// It implements the async iterator protocol (`next()` → `Promise<{value, done}>`),
@@ -218,6 +240,32 @@ impl AsyncIterableIterator {
         let (tx, rx) = make_bounded_channel::<D>(1);
         let iter = Self::create_with_receiver(ctx, rx, convert)?;
         Ok((iter, tx))
+    }
+
+    /// Create an `AsyncIterableIterator` driven by a [`PromiseResultSlot`].
+    ///
+    /// Returns the iterator. The slot can be used, typically from another thread,
+    /// to submit values of type `D` via [`PromiseResultSlot::commit`].
+    ///
+    /// The `done_value` is a special sentinel: when the slot receives this value,
+    /// the iterator yields `{value: undefined, done: true}` and stops.
+    ///
+    /// The `convert` closure transforms each received `D` into an `Option<JSValue>`:
+    /// - `Ok(Some(v))` — yield `v`, iteration continues.
+    /// - `Ok(None)`    — iteration ended.
+    /// - `Err(_)`      — error, reject the promise.
+    pub fn create_with_result_slot<D: Send + 'static>(
+        ctx: &mut ScopedContext,
+        data_slot: PromiseResultSlot<D>,
+        convert: impl Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + Send + 'static,
+    ) -> Result<Self, i32> {
+        Self::create(
+            ctx,
+            SlotFetcher {
+                slot: data_slot,
+                convert: Box::new(convert),
+            },
+        )
     }
 
     #[inline(always)]

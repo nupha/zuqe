@@ -133,7 +133,7 @@ impl<D: Send + 'static> PromiseResultSlot<D> {
     }
 
     /// Submit a value into the slot.
-    pub fn commit(self, data: D) -> Result<(), D> {
+    pub fn commit(&self, data: D) -> Result<(), D> {
         let mut guard = self.data.lock().unwrap();
         if guard.is_none() {
             guard.replace(data);
@@ -143,7 +143,7 @@ impl<D: Send + 'static> PromiseResultSlot<D> {
         }
     }
 
-    fn try_take(&self) -> Option<D> {
+    pub(crate) fn try_take(&self) -> Option<D> {
         self.data.lock().unwrap().take()
     }
 }
