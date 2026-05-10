@@ -75,7 +75,7 @@ pub fn eval_wait(
 }
 ```
 
-## The Tick
+## 2. The Tick
 
 The tick system is the heart-beat of the running loop. Every execution cycle is driven by the `tick()` function. Each `tick()` call returns the status to indicate whether there need more ticks or stop:
 
@@ -125,9 +125,58 @@ The tick handler registration design is especially useful for:
 - **Periodic Tasks**: Running background tasks at regular intervals
 - **I/O Operations**: Handling file descriptor readiness and network events
 
-## 5. An example of complex loop
+## 3. Async runtime mode (`async_support` feature)
 
-Looking at `examples/zjs/main.rs`, here's how a complex application sets up its execution loop:
+When the `async_support` Cargo feature is enabled, you can drive
+the runtime as a Rust `Future` with `Runtime::run_async()`. This allows your
+host application to `await` the runtime alongside other concurrent work in a
+Tokio (or other async runtime) context.
+
+```rust
+use zuqe::{EvalFlags, EvalType, Promise};
+
+async fn run_in_async_context(mut rt: Runtime, mut ctx: Context) {
+    let mut promise_future = None;
+
+    ctx.with_new_scope(|mut scope| {
+        // Use non-blocking eval()
+        let val = scope.eval(
+            b"Promise.resolve(42)",
+            "example.js",
+            EvalType::Global,
+            EvalFlags::empty(),
+        )?;
+
+        if let Ok(promise) = Promise::try_from(val) {
+            promise_future = Some(promise.into_future(&mut scope)?);
+        }
+        Ok(())
+    });
+
+    if let Some(js_fut) = promise_future {
+        // Drive the runtime loop and the JS Promise concurrently
+        let (_rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
+        // The JS Promise has now settled
+    }
+}
+```
+
+In this mode:
+
+- The runtime’s internal tick loop is driven by `RuntimeFuture` (the return type
+  of `run_async()`), which integrates with the Rust async executor’s waker
+  mechanism.
+- JS Promises are converted to Rust `Future`s via `Promise::into_future()`.
+- `tokio::join!` (or `futures::join!`) runs them both until completion.
+
+When `async_support` is disabled, the runtime runs synchronously as
+shown in sections 1 and 2. The host calls `eval_wait()` or manually loops on
+`rt.tick()`.
+
+## 4. An example of complex loop
+
+Looking at `examples/zjs/main.rs` (synchronous variant), here's how a complex
+application sets up its execution loop:
 
 ```rust
 fn main() -> ExitCode {

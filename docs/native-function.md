@@ -133,7 +133,7 @@ Common error methods:
 - `ctx.throw_reference_error(message)`
 - `ctx.throw_internal_error(message)`
 
-## 8. Setting Global Functions
+## 7. Setting Global Functions
 
 Attach functions directly to the global object:
 
@@ -149,7 +149,7 @@ pub fn setup_globals(ctx: &mut ScopedContext) -> Result<(), i32> {
 }
 ```
 
-## 9. Constructor Functions
+## 8. Constructor Functions
 
 Create constructor functions that can be called with `new`:
 
@@ -172,7 +172,7 @@ let constructor = ctx.create_native_function(
     0)?;
 ```
 
-## 10. Complete Example
+## 9. Complete Example
 
 Here's a complete example combining all concepts:
 

@@ -15,7 +15,6 @@ zjs [options] <filename>
 - **`-m, --module`**: Load the script as an ES6 module. When this flag is set, the script will be parsed and executed using ES6 module semantics instead of global script execution.
 
 - **`--stack-size <n>`**: Set the JavaScript virtual machine stack size to `n` bytes. The stack size can be specified with suffixes:
-
   - `k` or `K` for kilobytes (multiply by 2^10)
   - `m` or `M` for megabytes (multiply by 2^20)
   - `g` or `G` for gigabytes (multiply by 2^30)
@@ -114,25 +113,21 @@ This will result `target/release/examples/zjs`, which is the CLI executable.
 The ZJS example demonstrates how to embed the Zuqe engine in a Rust application. Here's an overview of the key components:
 
 1. **Main Entry Point** (`main.rs`):
-
    - Command-line argument parsing using `clap`
    - Script file loading and execution
    - Runtime configuration (stack size, module loading)
    - Error handling and result display
 
 2. **Global Functions** (`global.rs`):
-
    - Implementation of built-in global functions like `print()` and `createRealm()`
    - Integration with the Zhuque runtime
 
 3. **Native class `File`** (`class_file.rs`):
-
    - Custom `File` class implementation
    - File I/O operations integration
    - Bridge between JavaScript and Rust file operations
 
 4. **Native module `os`** (`mod_os.rs`):
-
    - OS-specific functionality exposure to JavaScript
    - Time operations (`os.now()`)
    - Terminal operations (`os.isatty()`, `os.ttyGetWinSize()`)
@@ -184,3 +179,53 @@ ctx.with_new_scope(|mut scope| {
 ```
 
 The ZJS example serves as both a practical command-line tool and an educational resource for understanding how to integrate JavaScript capabilities into Rust applications using the Zuqe engine.
+
+### Async mode with `async_support`
+
+When zjs is compiled with the `async_support` Cargo feature enabled (default in
+the workspace), the main function switches to an async entry point using Tokio.
+Instead of `eval_wait()`, it uses the non-blocking `eval()` and converts the
+returned JS Promise into a Rust `Future` via `Promise::into_future()`:
+
+```rust
+#[cfg(feature = "async_support")]
+#[tokio::main]
+async fn main() -> ExitCode {
+    let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
+
+    let mut promise_future = None;
+
+    ctx.with_new_scope(|mut scope| {
+        let result = scope.eval(
+            script.as_bytes(),
+            &args.filename,
+            if is_module { EvalType::Module } else { EvalType::Global },
+            EvalFlags::empty(),
+        );
+
+        match result {
+            Ok(val) => {
+                if let Ok(promise) = Promise::try_from(val) {
+                    promise_future = Some(promise.into_future(&mut scope)?);
+                }
+            }
+            Err(_) => { /* handle error */ }
+        }
+    });
+
+    if let Some(js_fut) = promise_future {
+        let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
+        // Both the runtime and the JS Promise complete here
+    }
+
+    exit_code
+}
+```
+
+Key differences from the synchronous variant:
+
+- `#[tokio::main]` makes the entry point async.
+- `scope.eval()` is used instead of `scope.eval_wait()` — it does not block.
+- `rt.run_async().await` drives the runtime’s tick loop as a `Future`.
+- `Promise::into_future()` converts a JS Promise into a Rust `Future` that can
+  be `await`ed directly.
