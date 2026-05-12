@@ -317,13 +317,13 @@ impl Promise {
                         let v = conv(cx, data)?;
                         Ok(Some(v))
                     } else {
-                        cx.throw_internal_error("future result already handled");
+                        cx.throw_internal_error("result already handled");
                         Err(-1)
                     }
                 }
                 Err(TryRecvError::Empty) => Ok(None),
                 Err(TryRecvError::Disconnected) => {
-                    cx.throw_internal_error("future channel disconnected");
+                    cx.throw_internal_error("channel disconnected");
                     Err(-1)
                 }
             }
