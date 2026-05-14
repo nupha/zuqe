@@ -222,20 +222,18 @@ impl ArrayBuffer {
     fn create_internal(
         ctx: &mut ScopedContext,
         new_target: JSValue,
-        shared: bool,
         data: ABufData,
         opaque: *mut c_void,
     ) -> Result<Self, i32> {
+        let shared = matches!(data, ABufData::Shared(_));
+
         // make ArrayBuffer payload
-        let ab = {
-            let inner = ArrayBufferPayload {
-                data,
-                detached: false,
-                typed_array_list: Vec::new(),
-                opaque,
-            };
-            Box::new(inner)
-        };
+        let ab = Box::new(ArrayBufferPayload {
+            data,
+            detached: false,
+            typed_array_list: Vec::new(),
+            opaque,
+        });
 
         // create array buffer or shared array buffer instance
         ctx.create_instance_with_ctor(
@@ -324,11 +322,10 @@ impl ArrayBuffer {
     pub fn from_bytes(
         ctx: &mut ScopedContext,
         new_target: JSValue,
-        shared: bool,
         bytes: Box<[u8]>,
         opaque: *mut c_void,
     ) -> Result<Self, i32> {
-        Self::create_internal(ctx, new_target, shared, ABufData::Owned(bytes), opaque)
+        Self::create_internal(ctx, new_target, ABufData::Owned(bytes), opaque)
     }
 
     /// create empty array buffer instance with required capacity.

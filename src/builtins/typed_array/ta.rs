@@ -458,7 +458,6 @@ impl TypedArray {
                             let abuf = ArrayBuffer::from_bytes(
                                 ctx,
                                 JSValue::UNDEFINED,
-                                false,
                                 bytes.into_boxed_slice(),
                                 std::ptr::null_mut(),
                             )?;
@@ -474,32 +473,6 @@ impl TypedArray {
                             let v = o.get_property_u32(ctx, i as u32)?;
                             new_ta.set_property_u32(ctx, i as u32, v)?;
                         }
-
-                        // LEGACY
-                        // let iterator_method = {
-                        //     #[cfg(feature = "builtin_symbol")]
-                        //     {
-                        //         o.get_property(ctx, Atom::CONST_Symbol_iterator)?
-                        //     }
-                        //     #[cfg(not(feature = "builtin_symbol"))]
-                        //     JSValue::UNDEFINED
-                        // };
-
-                        // let (enum_obj, count) = if !iterator_method.is_undefined_or_null() {
-                        //     Array::from_iterator(ctx, o, iterator_method)
-                        //         .map(|(a, len)| (JSValue::from(a), len))?
-                        // } else {
-                        //     let len = o.get_length_prop(ctx)? as usize;
-                        //     (o.into(), len)
-                        // };
-
-                        // let abuf = ArrayBuffer::create(ctx, false, count << size_log2)?;
-                        // let mut new_ta = Self::create(ctx, new_target, abuf, 0, count, class_id)?;
-
-                        // for i in 0..count {
-                        //     let v = enum_obj.get_property_u32(ctx, i as u32)?;
-                        //     new_ta.set_property_u32(ctx, i as u32, v)?;
-                        // }
 
                         Ok(new_ta)
                     }
@@ -527,8 +500,7 @@ impl TypedArray {
             Vec::from_raw_parts(ptr, len * elem_size, cap * elem_size).into_boxed_slice()
         };
 
-        let abuf =
-            ArrayBuffer::from_bytes(ctx, JSValue::UNDEFINED, false, data, std::ptr::null_mut())?;
+        let abuf = ArrayBuffer::from_bytes(ctx, JSValue::UNDEFINED, data, std::ptr::null_mut())?;
         Self::create(ctx, new_target, abuf, 0, count, class_id)
     }
 
