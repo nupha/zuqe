@@ -16,7 +16,7 @@ use std::{
 use clap::Parser;
 use serde::Deserialize;
 use zuqe::{
-    CallContext, Callback, Context, ErrorText, EvalFlags, EvalType, JS_PROP_C_W_E, JSResult,
+    CallContext, Callback, Context, EvalFlags, EvalType, ExceptionText, JS_PROP_C_W_E, JSResult,
     JSValue, ModuleDef, Runtime, ScopedContext,
 };
 
@@ -301,7 +301,7 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorText> {
+fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ExceptionText> {
     for file in harness_files {
         let src = std::fs::read_to_string(file)
             .inspect_err(|_| {
@@ -319,7 +319,7 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorT
                 )
                 .map_err(|_| {
                     let exc = scope.rt_mut().take_exception();
-                    ErrorText::from(&mut scope, exc)
+                    exc.to_text(&mut scope)
                 })
         })?;
     }
@@ -335,7 +335,7 @@ fn run_test_script(
     is_module: bool,
     is_async: bool,
     is_strict: bool,
-) -> Result<i32, ErrorText> {
+) -> Result<i32, ExceptionText> {
     if is_async {
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
@@ -360,7 +360,7 @@ fn run_test_script(
     if is_async {
         let n = ASYNC_DONE.load(Ordering::SeqCst);
         if n != 1 {
-            return Err(ErrorText {
+            return Err(ExceptionText {
                 message: format!("TypeError: $DONE() not called {n}"),
                 traceback: None,
             });
@@ -379,7 +379,7 @@ async fn run_test_script(
     is_module: bool,
     is_async: bool,
     is_strict: bool,
-) -> Result<i32, ErrorText> {
+) -> Result<i32, ExceptionText> {
     if is_async {
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
@@ -402,7 +402,7 @@ async fn run_test_script(
             )
             .map_err(|_| {
                 let exc = scope.rt_mut().take_exception();
-                ErrorText::from(&mut scope, exc)
+                exc.to_text(&mut scope)
             })
     })?;
 
@@ -411,7 +411,7 @@ async fn run_test_script(
     if is_async {
         let n = ASYNC_DONE.load(Ordering::SeqCst);
         if n != 1 {
-            return Err(ErrorText {
+            return Err(ExceptionText {
                 message: format!("TypeError: $DONE() not called {n}"),
                 traceback: None,
             });
@@ -422,7 +422,7 @@ async fn run_test_script(
 }
 
 fn dump_error(
-    err_val: &ErrorText,
+    exc_text: &ExceptionText,
     strict: bool,
     is_module: bool,
     is_async: bool,
@@ -434,9 +434,9 @@ fn dump_error(
     )
     .unwrap();
 
-    writeln!(outf, "{}", err_val.message).unwrap();
+    writeln!(outf, "{}", exc_text.message).unwrap();
 
-    if let Some(tb) = err_val.traceback.as_ref() {
+    if let Some(tb) = exc_text.traceback.as_ref() {
         writeln!(outf, "{tb}").unwrap();
     }
 }

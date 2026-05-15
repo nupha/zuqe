@@ -82,7 +82,8 @@ impl PromiseResolveFunc {
                 ctx.throw_type_error("promise self resolution");
                 ctx.rt_mut().take_exception()
             };
-            promise.reject(ctx, exc);
+            let err_val = exc.to_error_value(ctx);
+            promise.reject(ctx, err_val);
             return Ok(JSValue::UNDEFINED);
         } else if let Ok(then) = resolution.get_property(ctx, Atom::CONST_then) {
             if then.is_function() {
@@ -99,7 +100,8 @@ impl PromiseResolveFunc {
             }
         } else {
             let exc = ctx.rt_mut().take_exception();
-            promise.reject(ctx, exc);
+            let err_val = exc.to_error_value(ctx);
+            promise.reject(ctx, err_val);
         }
 
         Ok(JSValue::UNDEFINED)

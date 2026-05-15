@@ -166,8 +166,9 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // }
 
     let fail_reject = |cx: &mut ScopedContext| -> JSResult {
-        let error = cx.rt_mut().take_exception();
-        resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&error))?;
+        let exc = cx.rt_mut().take_exception();
+        let err_val = exc.to_error_value(cx);
+        resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
 
         debug_assert!(result_promise.gc_node().is_local());
         Ok(JSValue::Object(result_promise))
@@ -191,8 +192,7 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Ok(arr) = crate::array::Array::create(ctx) else {
         return fail_reject(ctx);
     };
-    let Ok(resolve_element_env) =
-        crate::array::Array::from_values(ctx, vec![JSValue::Int(1)])
+    let Ok(resolve_element_env) = crate::array::Array::from_values(ctx, vec![JSValue::Int(1)])
     else {
         return fail_reject(ctx);
     };
@@ -351,8 +351,9 @@ pub fn js_promise_race(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // }
 
     let fail_reject = |cx: &mut ScopedContext| -> JSResult {
-        let error = cx.rt_mut().take_exception();
-        resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&error))?;
+        let exc = cx.rt_mut().take_exception();
+        let err_val = exc.to_error_value(cx);
+        resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
         Ok(promise.into())
     };
 

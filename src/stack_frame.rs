@@ -13,7 +13,7 @@ use crate::{
     Object,
     builtins::iterator::ObjectIter,
     context::ScopedContext,
-    error::{JS_IsUncatchableError, is_backtrace_needed},
+    error::{Exception, is_backtrace_needed},
     function::{AsyncStateImpl, VarRef},
     runtime::RuntimePtr,
     value::JSValue,
@@ -241,16 +241,19 @@ impl StackFrame {
         pc: usize,
         mut sp: usize,
     ) -> Option<(usize, usize)> {
-        if is_backtrace_needed(ctx.rt_ptr().exception()) {
+        let exc = ctx.rt().exception();
+
+        if let Exception::Error(err) = exc
+            && is_backtrace_needed(err)
+        {
             // add the backtrace information now:
             // it is not done before if the exception happens in a bytecode operation
             self.cur_pc_offset = pc;
 
-            let exc = ctx.rt_ptr().exception();
-            ctx.build_backtrace_to(exc, None, 0);
+            ctx.build_backtrace_to(err, None, 0);
         }
 
-        if unsafe { !JS_IsUncatchableError(ctx.rt_ptr().exception()) } {
+        if !exc.is_uncatchable() {
             let sp_base = self.stack_base_ptr().as_ptr();
 
             // find catch offset
@@ -273,8 +276,10 @@ impl StackFrame {
                             let _ = ObjectIter::close_iter_internal(ctx, o, true);
                         }
                     } else {
+                        let exc = ctx.rt_mut().take_exception();
+                        let err_val = exc.to_error_value(ctx);
                         unsafe {
-                            std::ptr::replace(sp_base.add(sp), ctx.rt_mut().take_exception());
+                            std::ptr::replace(sp_base.add(sp), err_val);
                         }
                         sp += 1;
                         return Some((pos as usize, sp));

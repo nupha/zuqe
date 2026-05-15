@@ -10,7 +10,7 @@ use crate::{
     atom::Atom,
     builtins::js_get_this,
     context::{ContextPtr, ScopedContext},
-    error::JSResult,
+    error::{Exception, JSResult},
     function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
@@ -170,7 +170,7 @@ pub struct ObjectIter<'a> {
 impl Drop for ObjectIter<'_> {
     fn drop(&mut self) {
         if !self.done {
-            let has_exc = !self.ctx.rt().exception().is_undefined_or_null();
+            let has_exc = self.ctx.rt().exception() != Exception::No;
             let _ = self.close(has_exc);
         }
     }
@@ -335,19 +335,18 @@ impl<'a> ObjectIter<'a> {
         let pending_exc = if has_exception {
             ctx.rt_mut().take_exception()
         } else {
-            JSValue::UNDEFINED
+            Exception::No
         };
 
-        // prevent pending_exc from being collected
+        // prevent pending_exc from being collected:
+        // add to current scope to protect it.
+        if let Exception::Error(err) = pending_exc
+            && let Some(n) = err.gc_node_ptr()
+            && unsafe { !n.as_ref().is_root_or_local() }
         {
-            if let Some(n) = pending_exc.gc_node_ptr()
-                && unsafe { !n.as_ref().is_root_or_local() }
-            {
-                // add to current scope to protect it.
-                ctx.gc_heap_mut().with_current_scope(|s| {
-                    s.add_non_local(n);
-                });
-            }
+            ctx.gc_heap_mut().with_current_scope(|s| {
+                s.add_non_local(n);
+            });
         }
 
         if let Ok(method) = obj.get_property(ctx, Atom::CONST_return) {
@@ -363,7 +362,7 @@ impl<'a> ObjectIter<'a> {
         }
 
         if has_exception {
-            ctx.throw(pending_exc);
+            ctx.rt_mut().set_exception(pending_exc);
             Err(-1)
         } else {
             Ok(())

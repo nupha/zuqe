@@ -80,8 +80,9 @@ fn js_dynamic_import_job(
 
     if r.is_err() {
         // call reject func if has error
-        let err = ctx.rt_mut().take_exception();
-        let _ = resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+        let exc = ctx.rt_mut().take_exception();
+        let err_val = exc.to_error_value(ctx);
+        let _ = resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
     }
 }
 
@@ -96,8 +97,12 @@ fn js_load_module_internal(
             if ctx.resolve_module(md).is_err() {
                 js_free_modules(ctx, JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED);
                 let exc = ctx.rt_mut().take_exception();
-                let _ =
-                    resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
+                let err_val = exc.to_error_value(ctx);
+                let _ = resolving_funcs[1].call(
+                    ctx,
+                    JSValue::UNDEFINED,
+                    std::slice::from_ref(&err_val),
+                );
                 return;
             }
 
@@ -134,17 +139,20 @@ fn js_load_module_internal(
                 }
                 Err(_) => {
                     let exc = ctx.rt_mut().take_exception();
+                    let err_val = exc.to_error_value(ctx);
                     let _ = resolving_funcs[1].call(
                         ctx,
                         JSValue::UNDEFINED,
-                        std::slice::from_ref(&exc),
+                        std::slice::from_ref(&err_val),
                     );
                 }
             }
         }
         Err(_) => {
             let exc = ctx.rt_mut().take_exception();
-            let _ = resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
+            let err_val = exc.to_error_value(ctx);
+            let _ =
+                resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
         }
     }
 }
@@ -171,10 +179,11 @@ fn js_load_module_fulfilled(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         let _ = cc.data(0).call(ctx, JSValue::UNDEFINED, &[ns.into()]);
     } else {
         // reject() with error
-        let err = ctx.rt_ptr().take_exception();
+        let exc = ctx.rt_ptr().take_exception();
+        let err_val = exc.to_error_value(ctx);
         let _ = cc
             .data(1)
-            .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+            .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
     }
 
     Ok(JSValue::UNDEFINED)

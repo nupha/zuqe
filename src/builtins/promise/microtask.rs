@@ -167,7 +167,8 @@ pub(super) fn js_promise_reaction_job(
     };
 
     let is_reject = if result.is_exception() {
-        result = ctx.rt_mut().take_exception();
+        let exc = ctx.rt_mut().take_exception();
+        result = exc.to_error_value(ctx);
         true
     } else {
         false
@@ -193,7 +194,8 @@ pub(super) fn js_promise_resolve_thenable_job(
     let rr = promise.create_resolving_functions(ctx)?;
     if then_func.call(ctx, thenable, &rr).is_err() {
         let exc = ctx.rt_mut().take_exception();
-        rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc))?;
+        let err_val = exc.to_error_value(ctx);
+        rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
     }
 
     Ok(JobState::Done)

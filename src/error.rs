@@ -14,6 +14,110 @@ use crate::{
     value::JSValue,
 };
 
+#[repr(u8)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub enum Exception {
+    /// No exception
+    #[default]
+    No,
+    /// Out of memory in runtime level
+    OutOfMemory,
+    /// Too many classes registered
+    TooManyClasses,
+    /// Virtual machine interrupted, see Runtime::set_interrupt_handler()
+    Interrupted,
+    /// JavaScript error value from one of context
+    Error(JSValue),
+}
+
+impl From<JSValue> for Exception {
+    fn from(err_val: JSValue) -> Self {
+        if err_val.is_undefined() {
+            Exception::No
+        } else {
+            Exception::Error(err_val)
+        }
+    }
+}
+
+impl Exception {
+    pub fn is_uncatchable(&self) -> bool {
+        match self {
+            Self::Error(v) => v.as_object().is_some_and(|o| {
+                o.class_id() == JS_CLASS_ERROR && o.flags().is_uncatchable_error()
+            }),
+            Self::No => false,
+            _ => true,
+        }
+    }
+
+    pub fn to_text(self, ctx: &mut ScopedContext) -> ExceptionText {
+        match self {
+            Self::No => ExceptionText {
+                message: String::new(),
+                traceback: None,
+            },
+            Self::OutOfMemory => ExceptionText {
+                message: String::from("Out of memory"),
+                traceback: None,
+            },
+            Self::TooManyClasses => ExceptionText {
+                message: String::from("Too many classes"),
+                traceback: None,
+            },
+            Self::Interrupted => ExceptionText {
+                message: String::from("Interrupted"),
+                traceback: None,
+            },
+            Self::Error(e) => {
+                let mut t = ExceptionText {
+                    message: e
+                        .to_string(ctx)
+                        .map_or(String::from("<can't get error message>"), |s| {
+                            s.content().encode_utf8(false).to_string()
+                        }),
+                    traceback: None,
+                };
+
+                match e.get_property(ctx, Atom::CONST_stack) {
+                    Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
+                    Ok(s) => {
+                        if let Ok(ss) = s.inspect(ctx.rt_mut()) {
+                            t.traceback.replace(ss);
+                        }
+                    }
+                    Err(_) => {}
+                }
+
+                t
+            }
+        }
+    }
+
+    /// align exception to jsvalue
+    pub(crate) fn to_error_value(self, ctx: &mut ScopedContext) -> JSValue {
+        match self {
+            Self::No => JSValue::UNDEFINED,
+            Self::OutOfMemory => ctx
+                .create_string_from_static("out of memory")
+                .map_or(JSValue::Int(-1), JSValue::from),
+            Self::TooManyClasses => ctx
+                .create_string_from_static("too many classes")
+                .map_or(JSValue::Int(-1), JSValue::from),
+            Self::Interrupted => ctx
+                .create_string_from_static("interrupted")
+                .map_or(JSValue::Int(-1), JSValue::from),
+            Self::Error(v) => v,
+        }
+    }
+}
+
+/// Represent exception in text
+pub struct ExceptionText {
+    pub message: String,
+    pub traceback: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ErrorKind {
@@ -25,36 +129,6 @@ pub enum ErrorKind {
     Uri,
     Internal,
     Aggregate,
-}
-
-/// Represent error in text
-pub struct ErrorText {
-    pub message: String,
-    pub traceback: Option<String>,
-}
-
-impl ErrorText {
-    /// create error text info from `value`
-    pub fn from(ctx: &mut ScopedContext, value: JSValue) -> Self {
-        let mut ret = Self {
-            message: value.to_string(ctx).map_or("".to_string(), |s| {
-                s.content().encode_utf8(false).to_string()
-            }),
-            traceback: None,
-        };
-
-        match value.get_property(ctx, Atom::CONST_stack) {
-            Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
-            Ok(s) => {
-                if let Ok(ss) = s.inspect(ctx.rt_mut()) {
-                    ret.traceback.replace(ss);
-                }
-            }
-            Err(_) => {}
-        }
-
-        ret
-    }
 }
 
 pub type JSResult = Result<JSValue, i32>;
@@ -77,15 +151,11 @@ pub const JS_THROW_VAR_UNINITIALIZED: u8 = 2;
 pub const JS_THROW_ERROR_DELETE_SUPER: u8 = 3;
 pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
-const ERR_RUNTIME_BASE: i32 = 100;
-pub const ERR_OUT_OF_MEMORY: i32 = ERR_RUNTIME_BASE;
-pub const ERR_TOO_MANY_CLASSES: i32 = ERR_RUNTIME_BASE + 1;
-
 impl ContextImpl {
-    /// put `obj` to current_exception.
+    /// put error value to current_exception.
     #[cold]
-    pub(crate) fn throw(&mut self, obj: JSValue) {
-        self.rt_mut().set_exception(obj);
+    pub(crate) fn throw(&mut self, val: JSValue) {
+        self.rt_mut().set_exception(val.into());
     }
 }
 
@@ -100,11 +170,11 @@ impl<'c> ScopedContext<'c> {
         add_backtrace: bool,
     ) {
         let proto = self.error_protos[kind as usize].as_object().copied();
-        let exc_val = if let Ok(mut o) =
+        if let Ok(mut err_obj) =
             self.create_instance_with_proto_payload(proto, ObjectPayload::ERROR)
         {
             let s = self.create_string_from_str(message);
-            let _ = o.define_property_value(
+            let _ = err_obj.define_property_value(
                 self,
                 Atom::CONST_message,
                 s.map_or(JSValue::EXCEPTION, JSValue::from),
@@ -112,16 +182,14 @@ impl<'c> ScopedContext<'c> {
             );
 
             if add_backtrace {
-                self.build_backtrace_to(o.into(), None, 0);
+                self.build_backtrace_to(err_obj.into(), None, 0);
             }
 
-            o.into()
+            self.throw(err_obj.into());
         } else {
-            // out of memory: throw error code ERR_OUT_OF_MEMORY to avoid recursing
-            JSValue::Int(ERR_OUT_OF_MEMORY)
-        };
-
-        self.throw(exc_val);
+            // out of memory: set exception directly to avoid recursing
+            self.rt_mut().set_exception(Exception::OutOfMemory);
+        }
     }
 
     /// make error object and throw it as current exception.
@@ -323,10 +391,10 @@ impl<'c> ScopedContext<'c> {
 }
 
 pub(crate) const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
-/* only taken into account if filename is provided */
+/// only taken into account if filename is provided
 pub(crate) const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
 
-/* Note: it is important that no exception is returned by this function */
+/// Note: it is important that no exception is returned by this function
 #[cold]
 pub(crate) fn is_backtrace_needed(obj: JSValue) -> bool {
     if let JSValue::Object(p) = obj {
@@ -382,15 +450,6 @@ pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &mut ScopedContext, atom: Atom) {
 
 pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &mut ScopedContext, prop: Atom) {
     ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())));
-}
-
-/// used to avoid catching interrupt exceptions
-pub unsafe fn JS_IsUncatchableError(val: JSValue) -> bool {
-    if let JSValue::Object(p) = val {
-        p.class_id() == JS_CLASS_ERROR && p.flags().is_uncatchable_error()
-    } else {
-        false
-    }
 }
 
 pub fn JS_SetUncatchableError(error_val: JSValue, is_uncatchable: bool) {

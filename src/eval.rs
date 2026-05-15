@@ -273,14 +273,14 @@ impl<'c> ScopedContext<'c> {
         filename: &str,
         eval_type: EvalType,
         flags: EvalFlags,
-    ) -> Result<JSValue, crate::ErrorText> {
+    ) -> Result<JSValue, crate::ExceptionText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
         let ret_val = self
             .eval_internal(source, filename, eval_type, flags)
             .map_err(|_| {
                 let exc = self.rt_mut().take_exception();
-                crate::ErrorText::from(self, exc)
+                exc.to_text(self)
             })?;
 
         // `ret_val` could be used in tick() phase, must ensure it's alive then.
@@ -297,7 +297,7 @@ impl<'c> ScopedContext<'c> {
                 }
                 crate::builtins::promise::PromiseState::Rejected => {
                     promise = None;
-                    Err(crate::ErrorText::from(self, p.result()))
+                    Err(Exception::from(p.result()).to_text(self))
                 }
                 _ => Ok(JSValue::UNDEFINED),
             }
@@ -332,7 +332,7 @@ impl<'c> ScopedContext<'c> {
                 }
                 Err(_) => {
                     let exc = self.rt_mut().take_exception();
-                    result = Err(crate::ErrorText::from(self, exc));
+                    result = Err(exc.to_text(self));
                     break -1;
                 }
             }

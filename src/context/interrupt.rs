@@ -3,7 +3,7 @@
 
 use crate::{
     context::ScopedContext,
-    error::JS_SetUncatchableError,
+    error::Exception,
     runtime::{InterruptFn, RuntimeImpl},
 };
 
@@ -39,9 +39,7 @@ impl<'c> ScopedContext<'c> {
             if counter <= 0 {
                 // call interrupt callback
                 if cb(&rt) {
-                    // XXX: should set a specific flag to avoid catching
-                    self.throw_internal_error("interrupted");
-                    JS_SetUncatchableError(rt.exception(), true);
+                    self.rt_mut().set_exception(Exception::Interrupted);
                     return Err(-1);
                 };
             }

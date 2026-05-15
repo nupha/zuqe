@@ -13,6 +13,7 @@ use crate::{
     },
     class::{ClassDef, ClassID},
     context::ContextPtr,
+    error::Exception,
     gc::gc::GC_TYPE_REGISTRY,
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeImpl},
@@ -48,8 +49,8 @@ pub struct RuntimeImpl {
     #[cfg(debug_assertions)]
     stack_depth: i32,
 
-    /// current exception value
-    pub(super) cur_exception: JSValue,
+    /// current exception
+    pub(super) cur_exception: Exception,
     /// indicating out of memory error, to avoid recursing
     pub(crate) out_of_memory: bool,
 
@@ -126,7 +127,7 @@ impl RuntimeImpl {
             stack_top: 0,
             stack_limit: 0,
 
-            cur_exception: JSValue::NULL,
+            cur_exception: Exception::No,
             out_of_memory: false,
 
             #[cfg(feature = "builtin_regexp")]
@@ -176,34 +177,30 @@ impl RuntimeImpl {
         self.update_stack_limit();
     }
 
-    /// get current exception value
+    /// Peek current exception
     #[inline(always)]
-    pub const fn exception(&self) -> JSValue {
+    pub const fn exception(&self) -> Exception {
         self.cur_exception
     }
 
-    /// put new obj to cur_exception. Returns old exception value
+    /// put a new exception to cur_exception. Returns the old one
     #[cold]
-    pub(crate) fn set_exception(&mut self, obj: JSValue) -> JSValue {
+    pub(crate) fn set_exception(&mut self, exc: Exception) -> Exception {
         #[cfg(debug_assertions)]
-        if let Some(n) = obj.gc_node_ptr() {
+        if let Exception::Error(val) = exc
+            && let Some(n) = val.gc_node_ptr()
+        {
             unsafe {
                 n.as_ref().debug_assert_node_valid_simple();
             }
         }
 
-        std::mem::replace(&mut self.cur_exception, obj)
+        std::mem::replace(&mut self.cur_exception, exc)
     }
 
-    /// Take current exception, reset cur_exception to null.
-    #[inline(always)]
-    pub const fn cur_exception(&self) -> JSValue {
-        self.cur_exception
-    }
-
-    /// Take current exception, reset cur_exception to null.
-    pub fn take_exception(&mut self) -> JSValue {
-        self.set_exception(JSValue::NULL)
+    /// Take current exception, clear cur_exception.
+    pub fn take_exception(&mut self) -> Exception {
+        std::mem::take(&mut self.cur_exception)
     }
 
     /// get stack frame for current running function
@@ -298,7 +295,7 @@ impl RuntimeImpl {
             "all gc scope must be cleared"
         );
 
-        self.cur_exception = JSValue::UNDEFINED;
+        self.cur_exception = Exception::default();
         self.context_list.clear();
         self.shape_registry.clear();
 

@@ -81,10 +81,11 @@ pub struct ModuleDefImpl {
     pub(super) async_evaluation_timestamp: i64,
     pub(super) pending_async_dependencies: i32,
 
-    pub promise: Option<Promise>, /* corresponds to spec field: capability */
-    pub resolving_funcs: [JSValue; 2], /* corresponds to spec field: capability */
-    pub eval_exception: Option<JSValue>,
+    pub(super) promise: Option<Promise>, /* corresponds to spec field: capability */
+    pub(super) resolving_funcs: [JSValue; 2], /* corresponds to spec field: capability */
 
+    /// undefined means no exception
+    eval_error: JSValue,
     /// the `import.meta` object of module
     pub meta_obj: Option<Object>,
 }
@@ -114,12 +115,10 @@ impl GcTrace for ModuleDefImpl {
         if let Some(x) = self.cycle_root {
             x.trace(tr)
         }
-        if let Some(x) = self.eval_exception {
-            x.trace(tr)
-        }
         if let Some(x) = self.meta_obj {
             x.trace(tr)
         }
+        self.eval_error.trace(tr);
     }
 }
 
@@ -155,7 +154,7 @@ impl ModuleDefImpl {
 
             promise: None,
             resolving_funcs: [const { JSValue::UNDEFINED }; 2],
-            eval_exception: None,
+            eval_error: JSValue::UNDEFINED,
 
             meta_obj: None,
         }
@@ -189,16 +188,16 @@ impl ModuleDefImpl {
         self.has_tla = b;
     }
 
-    /// get eval exception. None means no exception.
+    /// get eval error. undefined means no exception.
     #[inline(always)]
-    pub(crate) const fn eval_exception(&self) -> Option<JSValue> {
-        self.eval_exception
+    pub(crate) const fn get_eval_error(&self) -> JSValue {
+        self.eval_error
     }
 
-    /// set eval exception
-    pub(crate) fn set_eval_exception(&mut self, exc: Option<JSValue>) {
-        debug_assert!(exc.as_ref().is_none_or(|v| !v.is_undefined_or_null()));
-        self.eval_exception = exc;
+    /// set eval error, can't be undefined or null
+    pub(crate) fn set_eval_error(&mut self, err_val: JSValue) {
+        debug_assert!(!err_val.is_undefined_or_null());
+        self.eval_error = err_val;
     }
 
     /// get module `import.meta` object.

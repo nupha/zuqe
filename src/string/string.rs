@@ -10,10 +10,11 @@ use std::{
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    ERR_OUT_OF_MEMORY, JS_CLASS_STRING, RuntimeImpl,
+    JS_CLASS_STRING, RuntimeImpl,
     atom::{Atom, AtomInfo, AtomKind},
     class::ClassExoticMethods,
     context::ScopedContext,
+    error::Exception,
     number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, JS_DTOA_VAR_FORMAT, f64_stringify, js_aton},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
@@ -519,8 +520,7 @@ impl RuntimeImpl {
             Atom::CONST_empty_string.force_string_rt(self)
         } else {
             StringRef::create_utf8(RuntimePtr::from(&*self), utf8_bytes).inspect_err(|_| {
-                eprintln!("out of memory");
-                self.set_exception(JSValue::Int(ERR_OUT_OF_MEMORY));
+                self.set_exception(Exception::OutOfMemory);
             })
         }
     }

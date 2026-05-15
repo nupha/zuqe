@@ -16,7 +16,7 @@ use std::sync::{
 
 use gc_lite::GcHeap;
 
-use crate::{JSValue, runtime::RuntimeImpl};
+use crate::{JSValue, error::Exception, runtime::RuntimeImpl};
 
 #[cfg(not(debug_assertions))]
 static PANIC_RUNTIME: AtomicPtr<RuntimeImpl> = AtomicPtr::new(std::ptr::null_mut());
@@ -80,7 +80,7 @@ impl Runtime {
 
 impl RuntimeImpl {
     unsafe fn panic_free_gc(&mut self) {
-        self.cur_exception = JSValue::UNDEFINED;
+        self.cur_exception = Exception::default();
         self.context_list.clear();
         self.shape_registry.clear();
 

@@ -14,8 +14,7 @@ use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use libloading::Library;
 use zuqe::{
-    Context, ErrorText, EvalFlags, EvalType, ModuleDef, Runtime, ScopedContext,
-    builtins::promise::Promise,
+    Context, EvalFlags, EvalType, ModuleDef, Runtime, ScopedContext, builtins::promise::Promise,
 };
 
 use crate::{
@@ -270,7 +269,7 @@ async fn main() -> ExitCode {
             )
             .map_err(|_| {
                 let exc = scope.rt_mut().take_exception();
-                ErrorText::from(&mut scope, exc)
+                exc.to_text(&mut scope)
             });
 
         match result {
@@ -283,9 +282,10 @@ async fn main() -> ExitCode {
                         }
                         Err(_) => {
                             let exc = scope.rt_mut().take_exception();
-                            let err = ErrorText::from(&mut scope, exc);
-                            let mut err_msg = err.message;
-                            if let Some(tb) = err.traceback {
+                            let err_txt = exc.to_text(&mut scope);
+
+                            let mut err_msg = err_txt.message;
+                            if let Some(tb) = err_txt.traceback {
                                 err_msg = format!("{err_msg}\n{tb}");
                             }
                             colorize_println(err_msg, RedFg);

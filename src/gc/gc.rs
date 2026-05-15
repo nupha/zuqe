@@ -7,6 +7,7 @@ use gc_lite::{
 
 use crate::{
     context::ContextImpl,
+    error::Exception,
     function::{AsyncStateImpl, BytecodeImpl, VarRefImpl},
     module::ModuleDefImpl,
     object::{ObjectImpl, ShapeImpl},
@@ -87,8 +88,10 @@ impl RuntimeImpl {
         if let Some(sf) = self.current_stack_frame() {
             sf.trace(&mut gcx);
         }
-        // mark exception
-        self.cur_exception().trace(&mut gcx);
+        // mark error value
+        if let Exception::Error(err) = self.exception() {
+            err.trace(&mut gcx);
+        }
 
         // mark user defined
         if let Some(f) = self.gc_user_trace.as_ref() {

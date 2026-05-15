@@ -110,7 +110,7 @@ impl ModuleDef {
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                         | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
                 ));
-                debug_assert!(md.eval_exception().is_none());
+                debug_assert!(md.get_eval_error().is_undefined());
 
                 if !md.async_evaluation() {
                     debug_assert_eq!(md.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
@@ -120,14 +120,15 @@ impl ModuleDef {
                         std::slice::from_ref(&JSValue::UNDEFINED),
                     );
                 }
+
                 debug_assert!(stack_top.is_none());
             }
-            Err(result) => {
+            Err(err) => {
                 while let Some(mut m1) = stack_top.take() {
                     debug_assert_eq!(m1.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATING);
 
                     m1.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
-                    m1.set_eval_exception(Some(result));
+                    m1.set_eval_error(err);
                     m1.set_cycle_root(md); // spec bug: should be present
 
                     stack_top = m1.stack_prev.take();
@@ -135,16 +136,20 @@ impl ModuleDef {
 
                 debug_assert_eq!(md.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
 
-                let func_obj = md.resolving_funcs[1]; // reject func
-                let exc = md.eval_exception().unwrap();
-                let _ = func_obj.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc));
+                // reject
+                let err_val = md.get_eval_error();
+                let _ = md.resolving_funcs[1].call(
+                    ctx,
+                    JSValue::UNDEFINED,
+                    std::slice::from_ref(&err_val),
+                );
             }
         }
 
         Ok(promise)
     }
 
-    /// InnerModuleEvaluation, returns depth index or Err value.
+    /// InnerModuleEvaluation, returns depth index or error value.
     /// `index`: depth index
     fn run_internal(
         &mut self,
@@ -154,14 +159,16 @@ impl ModuleDef {
     ) -> Result<i32, JSValue> {
         if js_check_stack_overflow(ctx.rt(), 0) {
             ctx.throw_stack_overflow();
-            return Err(ctx.rt_mut().take_exception());
+            return Err(ctx.rt_mut().take_exception().to_error_value(ctx));
         }
 
         match self.status() {
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => {
-                return if let Some(exc) = self.eval_exception() {
-                    Err(exc)
+                let err = self.get_eval_error();
+                return if !err.is_undefined() {
+                    debug_assert!(!err.is_null());
+                    Err(err)
                 } else {
                     Ok(index)
                 };
@@ -207,8 +214,9 @@ impl ModuleDef {
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                         | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
                 ));
-                if let Some(exc) = m1.eval_exception() {
-                    return Err(exc);
+                let err = m1.get_eval_error();
+                if !err.is_undefined() {
+                    return Err(err);
                 }
             }
 
@@ -219,7 +227,7 @@ impl ModuleDef {
                     && m1.async_parent_modules.try_reserve(1).is_err()
                 {
                     ctx.throw_out_of_memory();
-                    return Err(ctx.rt_mut().take_exception());
+                    return Err(ctx.rt_mut().take_exception().to_error_value(ctx));
                 }
 
                 m1.async_parent_modules.push(*self);
@@ -311,12 +319,12 @@ impl ModuleDef {
         };
 
         if md.status == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
-            debug_assert!(md.eval_exception().is_some());
+            debug_assert!(!md.get_eval_error().is_undefined());
             return Ok(JSValue::UNDEFINED);
         }
 
         debug_assert_eq!(md.status, JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC);
-        debug_assert!(md.eval_exception().is_none());
+        debug_assert!(md.get_eval_error().is_undefined());
         debug_assert!(md.async_evaluation());
 
         md.set_async_evaluation(false);
@@ -334,7 +342,7 @@ impl ModuleDef {
 
         for mut m in exec_list {
             if m.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
-                debug_assert!(m.eval_exception().is_some());
+                debug_assert!(!m.get_eval_error().is_undefined());
             } else if m.has_tla() {
                 m.execute_async_module(ctx)?;
             } else {
@@ -376,7 +384,7 @@ impl ModuleDef {
         let err_val = cc.arg(0);
 
         if md.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
-            debug_assert!(md.eval_exception().is_some());
+            debug_assert!(!md.get_eval_error().is_undefined());
             return Ok(JSValue::UNDEFINED);
         }
 
@@ -384,10 +392,10 @@ impl ModuleDef {
             md.status(),
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
         );
-        debug_assert!(md.eval_exception().is_none());
+        debug_assert!(md.get_eval_error().is_undefined());
         debug_assert!(md.async_evaluation());
 
-        md.set_eval_exception(Some(err_val));
+        md.set_eval_error(err_val);
         md.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
 
         for m in md.async_parent_modules.iter() {
@@ -416,7 +424,7 @@ impl ModuleDef {
         if let Some(f) = self.init_func.as_ref() {
             // is native module: no asynchronous execution
             if unlikely(f(ctx, self).is_err()) {
-                Err(ctx.rt_mut().take_exception())
+                Err(ctx.rt_mut().take_exception().to_error_value(ctx))
             } else {
                 Ok(())
             }
@@ -428,14 +436,14 @@ impl ModuleDef {
             // eval bytecode function
             let promise = bc
                 .call_async(ctx, JSValue::UNDEFINED, &[], 0)
-                .map_err(|_| ctx.rt_mut().take_exception())?;
+                .map_err(|_| ctx.rt_mut().take_exception().to_error_value(ctx))?;
 
             match promise.state() {
                 PromiseState::Fulfilled => Ok(()),
                 PromiseState::Rejected => Err(promise.result()),
                 PromiseState::Pending => {
                     ctx.throw_type_error("promise is pending");
-                    Err(ctx.rt_mut().take_exception())
+                    Err(ctx.rt_mut().take_exception().to_error_value(ctx))
                 }
             }
         }
@@ -453,13 +461,16 @@ fn gather_module_ancestors(
     }
 
     for mut m in module.async_parent_modules.iter().copied() {
-        if !exec_list.contains(&m) && m.cycle_root().is_some_and(|x| x.eval_exception().is_none()) {
+        if !exec_list.contains(&m)
+            && m.cycle_root()
+                .is_some_and(|x| x.get_eval_error().is_undefined())
+        {
             debug_assert_eq!(
                 m.status(),
                 JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             );
             debug_assert!(m.async_evaluation());
-            debug_assert!(m.eval_exception().is_none());
+            debug_assert!(m.get_eval_error().is_undefined());
             debug_assert!(m.pending_async_dependencies > 0);
 
             let adep = m.pending_async_dependencies;

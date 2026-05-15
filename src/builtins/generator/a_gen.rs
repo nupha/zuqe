@@ -129,14 +129,7 @@ impl AGenPayload {
                     } else if completion_type == GEN_MAGIC_RETURN {
                         self.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_AWAITING_RETURN);
                         if unlikely(self.completed_return(ctx, result).is_err()) {
-                            eprintln!(
-                                "{}",
-                                ctx.rt_ptr()
-                                    .exception()
-                                    .to_string(ctx)
-                                    .map(|s| s.content().encode_utf8(false).to_string())
-                                    .unwrap_or("Error".to_string())
-                            );
+                            eprintln!("{}", ctx.rt().exception().to_text(ctx).message);
                         }
                     } else {
                         self.reject(ctx, result);
@@ -193,8 +186,9 @@ impl AGenPayload {
                             }
                             Err(_) => {
                                 let exc = ctx.rt_mut().take_exception();
+                                let err_val = exc.to_error_value(ctx);
                                 self.complete();
-                                self.reject(ctx, exc);
+                                self.reject(ctx, err_val);
                             }
                         }
                     } else {
@@ -259,11 +253,12 @@ impl AGenPayload {
                 // A poisoned .constructor property is observable and the resulting
                 // exception should be delivered to the catch handler.
                 let exc = ctx.rt_mut().take_exception();
+                let err_val = exc.to_error_value(ctx);
                 js_promise_resolve(
                     ctx,
                     CallContext::new(
                         ctx.promise_ctor().into(),
-                        std::slice::from_ref(&exc),
+                        std::slice::from_ref(&err_val),
                         1, // is_reject=1
                         None,
                     ),
@@ -548,8 +543,9 @@ fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
             s.resume_next(ctx);
         }
     } else {
-        let err = ctx.rt_ptr().take_exception();
-        resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err))?;
+        let exc = ctx.rt_mut().take_exception();
+        let err_val = exc.to_error_value(ctx);
+        resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
     }
 
     Ok(promise.into())

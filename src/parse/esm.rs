@@ -420,8 +420,9 @@ impl<'s> JSParseState<'s> {
 
                     let fln = (self.filename, self.line_num);
                     let exc = self.ctx().rt_mut().exception();
+                    let err_val = exc.to_error_value(self.ctx());
                     self.ctx()
-                        .build_backtrace_to(exc, Some(fln), backtrace_flags);
+                        .build_backtrace_to(err_val, Some(fln), backtrace_flags);
                 }
                 Err(e)
             }

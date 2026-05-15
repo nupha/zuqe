@@ -7,11 +7,11 @@ use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     FieldDef, USER_CLASS_ID_START,
-    atom::{Atom, AtomKind},
+    atom::Atom,
     builtins::iterator::{js_async_iterator_proto_funcs, js_iterator_proto_funcs},
     class::{ClassDef, ClassID},
     context::{ContextImpl, ProtoCtorPair, ScopedContext},
-    error::ERR_TOO_MANY_CLASSES,
+    error::Exception,
     function::{Callback, CallbackFn, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
     runtime::RuntimeImpl,
@@ -144,11 +144,13 @@ impl RuntimeImpl {
         // find next class serial
         let class_id = self.user_class_id_serial;
         debug_assert!(class_id >= USER_CLASS_ID_START);
+
         if class_id == u16::MAX {
-            self.set_exception(JSValue::Int(ERR_TOO_MANY_CLASSES));
-            eprintln!("internal error: too many classes registered");
+            self.set_exception(Exception::TooManyClasses);
+            eprintln!("runtime error: too many classes registered");
             return Err(-1);
         }
+
         self.user_class_id_serial = class_id + 1;
 
         self.register_class_internal(class_id, class_def)?;
