@@ -25,7 +25,7 @@ pub enum Exception {
     /// Too many classes registered
     TooManyClasses,
     /// Virtual machine interrupted, see Runtime::set_interrupt_handler()
-    Interrupted,
+    Interrupted(i32),
     /// JavaScript error value from one of context
     Error(JSValue),
 }
@@ -65,8 +65,8 @@ impl Exception {
                 message: String::from("Too many classes"),
                 traceback: None,
             },
-            Self::Interrupted => ExceptionText {
-                message: String::from("Interrupted"),
+            Self::Interrupted(code) => ExceptionText {
+                message: format!("Interrupted({code})"),
                 traceback: None,
             },
             Self::Error(e) => {
@@ -104,7 +104,7 @@ impl Exception {
             Self::TooManyClasses => ctx
                 .create_string_from_static("too many classes")
                 .map_or(JSValue::Int(-1), JSValue::from),
-            Self::Interrupted => ctx
+            Self::Interrupted(_) => ctx
                 .create_string_from_static("interrupted")
                 .map_or(JSValue::Int(-1), JSValue::from),
             Self::Error(v) => v,

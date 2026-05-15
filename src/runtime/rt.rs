@@ -185,7 +185,7 @@ impl RuntimeImpl {
 
     /// put a new exception to cur_exception. Returns the old one
     #[cold]
-    pub(crate) fn set_exception(&mut self, exc: Exception) -> Exception {
+    pub fn set_exception(&mut self, exc: Exception) -> Exception {
         #[cfg(debug_assertions)]
         if let Exception::Error(val) = exc
             && let Some(n) = val.gc_node_ptr()

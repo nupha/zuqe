@@ -56,7 +56,6 @@ impl PromiseFutureRegistry {
 }
 
 pub struct PromiseFuture {
-    id: i32,
     state: Rc<RefCell<PromiseFutureState>>,
 }
 
@@ -189,7 +188,7 @@ impl Promise {
 
         let _ = self.then(ctx, ok_func.into(), err_func.into())?;
 
-        Ok(PromiseFuture { id, state })
+        Ok(PromiseFuture { state })
     }
 }
 

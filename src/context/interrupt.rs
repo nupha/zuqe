@@ -39,7 +39,7 @@ impl<'c> ScopedContext<'c> {
             if counter <= 0 {
                 // call interrupt callback
                 if cb(&rt) {
-                    self.rt_mut().set_exception(Exception::Interrupted);
+                    self.rt_mut().set_exception(Exception::Interrupted(130)); // ctrl-c exit code
                     return Err(-1);
                 };
             }

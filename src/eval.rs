@@ -247,7 +247,7 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
-    /// Eval source in dedicated scope.
+    /// Eval source.
     ///
     /// Compile source then run. Return value will be promoted to upper scope.
     pub fn eval(
@@ -257,11 +257,11 @@ impl<'c> ScopedContext<'c> {
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> JSResult {
-        let ret_val = self.eval_internal(source, filename, eval_type, flags);
-        if let Ok(r) = ret_val {
+        let ret = self.eval_internal(source, filename, eval_type, flags);
+        if let Ok(r) = ret {
             self.set_return_value(r);
         }
-        ret_val
+        ret
     }
 
     /// Eval `source` script in `self` scope, wait till all pending jobs are finished.
