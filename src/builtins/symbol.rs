@@ -148,6 +148,6 @@ pub(crate) static CLASS_DEF_SYMBOL: ClassDef = ClassDef::builtin(
     Some(
         ClassCtorDef::new(js_symbol_constructor, 0, true)
             .entries(js_symbol_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 );

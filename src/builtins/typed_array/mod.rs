@@ -32,5 +32,5 @@ pub(crate) static CLASS_DEF_BIG_UINT64_ARRAY: ClassDef = ta_class_def!(CONST_Big
 pub(crate) static CLASS_DEF_DATAVIEW: ClassDef = ClassDef::builtin(
     Atom::CONST_DataView,
     js_dataview_proto_funcs,
-    Some(crate::class::ClassCtorDef::new(js_dataview_constructor, 1, false).global()),
+    Some(crate::class::ClassCtorDef::new(js_dataview_constructor, 1, false).expose_to_global()),
 );

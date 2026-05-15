@@ -18,7 +18,7 @@ pub(crate) static CLASS_DEF_REGEXP: ClassDef = ClassDef::builtin(
     Some(
         ClassCtorDef::new(js_regexp_constructor, 2, true)
             .entries(js_regexp_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 );
 

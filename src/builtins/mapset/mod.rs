@@ -15,7 +15,7 @@ pub(crate) static CLASS_DEF_MAP: ClassDef = ClassDef::builtin(
     Some(
         crate::class::ClassCtorDef::new(js_map_constructor, 0, false)
             .entries(js_map_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 );
 
@@ -26,7 +26,7 @@ pub(crate) static CLASS_DEF_SET: ClassDef = ClassDef::builtin(
         crate::class::ClassCtorDef::new(js_map_constructor, 0, false)
             .magic(1)
             .entries(js_set_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 );
 
@@ -36,7 +36,7 @@ pub(crate) static CLASS_DEF_WEAK_MAP: ClassDef = ClassDef::builtin(
     Some(
         crate::class::ClassCtorDef::new(js_map_constructor, 0, false)
             .magic(2)
-            .global(),
+            .expose_to_global(),
     ),
 );
 
@@ -46,7 +46,7 @@ pub(crate) static CLASS_DEF_WEAK_SET: ClassDef = ClassDef::builtin(
     Some(
         crate::class::ClassCtorDef::new(js_map_constructor, 0, false)
             .magic(3)
-            .global(),
+            .expose_to_global(),
     ),
 );
 

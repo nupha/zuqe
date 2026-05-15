@@ -16,7 +16,7 @@ pub(crate) static CLASS_DEF_ARRAY: ClassDef = ClassDef::builtin(
     Some(
         ClassCtorDef::new(js_array_constructor, 1, true)
             .entries(js_array_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 );
 

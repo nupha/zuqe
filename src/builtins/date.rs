@@ -1165,6 +1165,6 @@ pub(crate) static CLASS_DEF_DATE: ClassDef = ClassDef::builtin(
     Some(
         crate::class::ClassCtorDef::new(js_date_constructor, 7, true)
             .entries(js_date_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 );

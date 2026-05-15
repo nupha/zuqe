@@ -281,6 +281,6 @@ pub(crate) static CLASS_DEF_NUMBER: ClassDef = ClassDef::builtin(
     Some(
         crate::class::ClassCtorDef::new(js_number_constructor, 1, true)
             .entries(js_number_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 );

@@ -1154,7 +1154,7 @@ pub(crate) static CLASS_DEF_STRING: ClassDef = ClassDef::builtin(
     Some(
         crate::class::ClassCtorDef::new(js_string_constructor, 1, true)
             .entries(js_string_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 )
 .exotic(&js_string_exotic_methods);

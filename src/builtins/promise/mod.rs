@@ -23,7 +23,7 @@ pub(crate) static CLASS_DEF_PROMISE: ClassDef = ClassDef::builtin(
     Some(
         crate::class::ClassCtorDef::new(js_promise_constructor, 1, false)
             .entries(js_promise_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 );
 

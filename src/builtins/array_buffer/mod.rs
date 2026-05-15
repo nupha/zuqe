@@ -14,7 +14,7 @@ pub(crate) static CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef::builtin(
     Some(
         crate::class::ClassCtorDef::new(js_array_buffer_constructor, 1, false)
             .entries(js_array_buffer_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 )
 .on_finalize(ArrayBuffer::class_finalize);
@@ -25,7 +25,7 @@ pub(crate) static CLASS_DEF_SHARED_ARRAY_BUFFER: ClassDef = ClassDef::builtin(
     Some(
         crate::class::ClassCtorDef::new(js_shared_array_buffer_constructor, 1, false)
             .entries(js_shared_array_buffer_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 )
 .on_finalize(ArrayBuffer::class_finalize);

@@ -12,6 +12,6 @@ pub(crate) static CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef::builtin(
     Some(
         crate::class::ClassCtorDef::new(func::js_object_constructor, 1, true)
             .entries(js_object_funcs)
-            .global(),
+            .expose_to_global(),
     ),
 );

@@ -153,6 +153,6 @@ pub(crate) static CLASS_DEF_ERROR: ClassDef = ClassDef::builtin(
     Some(
         ClassCtorDef::new(js_error_constructor, 1, true)
             .magic(-1)
-            .global(),
+            .expose_to_global(),
     ),
 );

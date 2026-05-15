@@ -68,7 +68,8 @@ impl ClassCtorDef {
         self
     }
 
-    pub const fn global(mut self) -> Self {
+    /// expose constructor to global namespace
+    pub const fn expose_to_global(mut self) -> Self {
         self.export_to_global = true;
         self
     }
