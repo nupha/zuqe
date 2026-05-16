@@ -242,15 +242,15 @@ impl StackFrame {
         mut sp: usize,
     ) -> Option<(usize, usize)> {
         let exc = ctx.rt().exception();
+        debug_assert!(exc != Exception::No);
 
-        if let Exception::Error(err) = exc
-            && is_backtrace_needed(err)
+        if let Exception::Error(err_val) = exc
+            && is_backtrace_needed(err_val)
         {
             // add the backtrace information now:
             // it is not done before if the exception happens in a bytecode operation
             self.cur_pc_offset = pc;
-
-            ctx.build_backtrace_to(err, None, 0);
+            ctx.build_backtrace_to(err_val, None, 0);
         }
 
         if !exc.is_uncatchable() {
@@ -273,7 +273,7 @@ impl StackFrame {
                         if let JSValue::Object(o) =
                             unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) }
                         {
-                            let _ = ObjectIter::close_iter_internal(ctx, o, true);
+                            let _ = ObjectIter::close_iter_internal(ctx, o);
                         }
                     } else {
                         let exc = ctx.rt_mut().take_exception();

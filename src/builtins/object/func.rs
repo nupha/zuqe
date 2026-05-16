@@ -409,7 +409,7 @@ pub(crate) fn js_object_fromEntries(ctx: &mut ScopedContext, cc: CallContext) ->
                 // fail calling next()
                 // close the iterator object, preserving pending exception
                 debug_assert!(!enum_obj.done);
-                let _ = enum_obj.close(true);
+                let _ = enum_obj.close();
                 return Err(-1);
             }
         }

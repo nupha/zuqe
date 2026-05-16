@@ -93,11 +93,6 @@ impl AGenPayload {
         self.state = state;
     }
 
-    #[inline]
-    fn set_throw_flag(&mut self, is_reject: bool) {
-        self.async_state.set_throw_flag(is_reject);
-    }
-
     pub(crate) fn resume_next(&mut self, ctx: &mut ScopedContext) {
         enum State {
             Resume,
@@ -115,7 +110,7 @@ impl AGenPayload {
                 AGenState::JS_ASYNC_GENERATOR_STATE_AWAITING_RETURN => State::Done,
                 AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START => {
                     if completion_type == GEN_MAGIC_NEXT {
-                        self.set_throw_flag(false);
+                        self.async_state.set_throw_flag(false);
                         self.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
                         State::Resume
                     } else {
@@ -142,12 +137,11 @@ impl AGenPayload {
                         && completion_type == GEN_MAGIC_THROW
                     {
                         ctx.throw(result);
-                        self.set_throw_flag(true);
+                        self.async_state.set_throw_flag(true);
                     } else {
                         // 'yield' returns a value. 'yield *' also returns a value
                         // in case the 'throw' method is called
                         self.async_state.set_throw_flag(false);
-                        self.set_throw_flag(false);
 
                         // to update stack:
                         // SP[-1] <- value
@@ -223,7 +217,8 @@ impl AGenPayload {
                             }
                             FUNC_RET_AWAIT => {
                                 if self._await(ctx, value).is_err() {
-                                    self.set_throw_flag(true);
+                                    debug_assert!(ctx.rt().exception() != crate::Exception::No);
+                                    self.async_state.set_throw_flag(true);
                                     continue 'resume;
                                 } else {
                                     return;
@@ -497,10 +492,12 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
             // restart function execution after await()
             debug_assert_eq!(s.state(), AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
 
-            s.set_throw_flag(is_reject);
             if unlikely(is_reject) {
                 ctx.throw(arg);
+                s.async_state.set_throw_flag(true);
             } else {
+                s.async_state.set_throw_flag(false);
+
                 // set return value of await.
                 unsafe {
                     *s.async_state

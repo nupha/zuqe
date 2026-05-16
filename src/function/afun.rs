@@ -113,9 +113,7 @@ impl AsyncState {
     ) -> JSResult {
         let mut o = unsafe { *func_obj.as_object_unchecked() };
         let is_reject = o.class_id() == JS_CLASS_ASYNC_FUNCTION_REJECT;
-
         let a_state = o.payload_mut().async_function_resolving_mut().unwrap();
-        a_state.set_throw_flag(is_reject);
 
         if is_reject {
             ctx.throw(if args.is_empty() {
@@ -123,9 +121,12 @@ impl AsyncState {
             } else {
                 args[0]
             });
+            a_state.set_throw_flag(true);
         } else {
             // return value of await
             debug_assert!(a_state.stack_frame.cur_sp_offset > 0);
+
+            a_state.set_throw_flag(false);
             a_state.set_return_value(if args.is_empty() {
                 JSValue::UNDEFINED
             } else {

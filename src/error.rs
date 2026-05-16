@@ -4,7 +4,7 @@
 use std::{borrow::Cow, io::Write, process::ExitCode};
 
 use crate::{
-    JS_CLASS_ERROR, ScopedContext,
+    JS_CLASS_ERROR, Object, ScopedContext,
     atom::Atom,
     class::ClassID,
     context::ContextImpl,
@@ -156,15 +156,15 @@ impl ContextImpl {
 }
 
 impl<'c> ScopedContext<'c> {
-    /// make error object and throw it as current exception.
-    #[inline(never)]
+    /// Create Error object.
+    /// Return None if can't create error object, usually due ot out of memory.
     #[cold]
-    pub(crate) fn throw_error_internal(
+    pub(crate) fn create_error_object(
         &mut self,
         kind: ErrorKind,
         message: &str,
         add_backtrace: bool,
-    ) {
+    ) -> Option<Object> {
         let proto = self.error_protos[kind as usize].as_object().copied();
         if let Ok(mut err_obj) =
             self.create_instance_with_proto_payload(proto, ObjectPayload::ERROR)
@@ -181,6 +181,22 @@ impl<'c> ScopedContext<'c> {
                 self.build_backtrace_to(err_obj.into(), None, 0);
             }
 
+            Some(err_obj)
+        } else {
+            None // out of memory
+        }
+    }
+
+    /// make error object and throw it as current exception.
+    #[inline(never)]
+    #[cold]
+    pub(crate) fn throw_error_internal(
+        &mut self,
+        kind: ErrorKind,
+        message: &str,
+        add_backtrace: bool,
+    ) {
+        if let Some(err_obj) = self.create_error_object(kind, message, add_backtrace) {
             self.throw(err_obj.into());
         } else {
             // out of memory: set exception directly to avoid recursing

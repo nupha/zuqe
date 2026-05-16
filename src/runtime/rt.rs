@@ -52,6 +52,7 @@ pub struct RuntimeImpl {
     /// current exception
     pub(super) cur_exception: Exception,
     /// indicating out of memory error, to avoid recursing
+    #[deprecated(note = "check if cur_exception is Exception::OutOfMemory")]
     pub(crate) out_of_memory: bool,
 
     /// pre-compiled regexp in parsing state.
@@ -180,9 +181,14 @@ impl RuntimeImpl {
         self.cur_exception
     }
 
+    /// Take current exception, clear cur_exception.
+    pub fn take_exception(&mut self) -> Exception {
+        std::mem::take(&mut self.cur_exception)
+    }
+
     /// put a new exception to cur_exception. Returns the old one
     #[cold]
-    pub fn set_exception(&mut self, exc: Exception) -> Exception {
+    pub(crate) fn set_exception(&mut self, exc: Exception) -> Exception {
         #[cfg(debug_assertions)]
         if let Exception::Error(val) = exc
             && let Some(n) = val.gc_node_ptr()
@@ -193,11 +199,6 @@ impl RuntimeImpl {
         }
 
         std::mem::replace(&mut self.cur_exception, exc)
-    }
-
-    /// Take current exception, clear cur_exception.
-    pub fn take_exception(&mut self) -> Exception {
-        std::mem::take(&mut self.cur_exception)
     }
 
     /// get stack frame for current running function

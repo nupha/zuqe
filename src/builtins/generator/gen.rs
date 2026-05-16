@@ -59,10 +59,6 @@ impl GeneratorPayload {
         self.state = state;
     }
 
-    fn set_throw_flag(&mut self, b: bool) {
-        self.async_state.set_throw_flag(b);
-    }
-
     #[inline(always)]
     pub fn is_completed(&self) -> bool {
         self.async_state.is_completed
@@ -201,7 +197,7 @@ fn js_generator_next(
         let action: WhatToDo = match g.state() {
             GenState::JS_GENERATOR_STATE_SUSPENDED_START => {
                 if magic == GEN_MAGIC_NEXT {
-                    g.set_throw_flag(false);
+                    g.async_state.set_throw_flag(false);
                     WhatToDo::ExecNoArg
                 } else {
                     WhatToDo::Done
@@ -216,7 +212,7 @@ fn js_generator_next(
                     && g.state() == GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD
                 {
                     ctx.throw(val);
-                    g.set_throw_flag(true);
+                    g.async_state.set_throw_flag(true);
                 } else {
                     g.with_stack_frame_mut(|sf| unsafe {
                         let sp_ptr = sf.stack_cur_ptr();
@@ -231,7 +227,7 @@ fn js_generator_next(
                         sf.cur_sp_offset += 1; // move sp pointer
                     });
 
-                    g.set_throw_flag(false);
+                    g.async_state.set_throw_flag(false);
                 }
                 WhatToDo::ExecNoArg
             }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{marker::PhantomData, ptr::NonNull};
+use std::{future::pending, marker::PhantomData, ptr::NonNull};
 
 use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 
@@ -170,8 +170,7 @@ pub struct ObjectIter<'a> {
 impl Drop for ObjectIter<'_> {
     fn drop(&mut self) {
         if !self.done {
-            let has_exc = self.ctx.rt().exception() != Exception::No;
-            let _ = self.close(has_exc);
+            let _ = self.close();
         }
     }
 }
@@ -325,21 +324,14 @@ impl<'a> ObjectIter<'a> {
     }
 
     /// pre-close before iterate is done, calling `return` method if available.
-    pub(crate) fn close_iter_internal(
-        ctx: &mut ScopedContext,
-        obj: Object,
-        has_exception: bool,
-    ) -> Result<(), i32> {
+    pub(crate) fn close_iter_internal(ctx: &mut ScopedContext, obj: Object) -> Result<(), i32> {
         debug_assert!(ctx.gc_heap().scope_max_depth() > 0);
 
-        let pending_exc = if has_exception {
-            ctx.rt_mut().take_exception()
-        } else {
-            Exception::No
-        };
+        let pending_exc = ctx.rt_mut().take_exception();
+        let has_exception = pending_exc != Exception::No;
 
-        // prevent pending_exc from being collected:
-        // add to current scope to protect it.
+        // prevent pending_exc value from being collected:
+        // add the error value to current scope to protect it.
         if let Exception::Error(err) = pending_exc
             && let Some(n) = err.gc_node_ptr()
             && unsafe { !n.as_ref().is_root_or_local() }
@@ -370,16 +362,14 @@ impl<'a> ObjectIter<'a> {
     }
 
     /// pre-close before iterate is done, calling `return` method if available.
-    pub fn close(&mut self, has_exception: bool) -> Result<(), i32> {
+    pub fn close(&mut self) -> Result<(), i32> {
         if !self.done {
             self.done = true;
             self.next_method = JSValue::UNDEFINED;
             self.ctx
-                .with_current_scope(|mut scope| {
-                    Self::close_iter_internal(&mut scope, self.target, has_exception)
-                })
+                .with_current_scope(|mut scope| Self::close_iter_internal(&mut scope, self.target))
                 .unwrap()
-        } else if has_exception {
+        } else if self.ctx.rt().exception() != Exception::No {
             Err(-1)
         } else {
             Ok(())

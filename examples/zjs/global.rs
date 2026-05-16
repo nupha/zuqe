@@ -37,7 +37,7 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         );
     }
 
-    colorize_println("", color());
+    println!();
     Ok(JSValue::UNDEFINED)
 }
 

@@ -24,8 +24,13 @@ pub(crate) struct AsyncStateImpl {
     pub(crate) this_val: JSValue,
     /// number of function arguments
     pub(crate) argc: i32,
-    /// used to throw an exception in JS_CallInternal()
+
+    /// indicates there is an exception on runtime (used by  JS_CallInternal())
+    #[deprecated(
+        note = "this method is useless, you may detect exception by checking runtime current exception != Exception::No"
+    )]
     pub(crate) throw_flag: bool,
+
     /// TRUE if the function has returned. The stack frame is no longer valid
     pub(crate) is_completed: bool,
     /// for async function only
@@ -127,9 +132,13 @@ impl AsyncStateImpl {
         self.stack_frame.arg_real_count as usize
     }
 
+    /// Note: is_reject=true indicates runtime must be an effective Exception
+    #[deprecated(
+        note = "this method is useless, you may detect exception by checking runtime current exception != Exception::No"
+    )]
     #[inline(always)]
-    pub(crate) const fn set_throw_flag(&mut self, b: bool) {
-        self.throw_flag = b;
+    pub(crate) const fn set_throw_flag(&mut self, is_reject: bool) {
+        self.throw_flag = is_reject;
     }
 
     /// put given value to stack at position current stack pointer -1
@@ -199,8 +208,6 @@ impl AsyncStateImpl {
     ) -> JSResult {
         scope.poll_interrupts()?;
 
-        let throw_flag = self.throw_flag;
-
         // state has a dedicated stack frame for async function
         let mut func = *self.stack_frame.func_obj.as_BCWrapper().unwrap();
         let pc_offset = self.stack_frame.cur_pc_offset;
@@ -222,7 +229,7 @@ impl AsyncStateImpl {
             sp_offset as usize,
             bf.closure_var_refs_mut(),
             args,
-            throw_flag,
+            self.throw_flag,
         );
 
         // // Note: closure values could be allocated in stack-frame's gc scope during execution,
