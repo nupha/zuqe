@@ -306,13 +306,13 @@ impl<'c> ScopedContext<'c> {
         };
 
         // tick to finish
-        let exit_code = loop {
-            match self.rt_mut().tick_internal() {
+        loop {
+            match self.rt_mut().tick() {
                 Ok(crate::runtime::TickStatus::Continue) => {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                     continue;
                 }
-                Ok(crate::runtime::TickStatus::Stop(code)) => {
+                Ok(crate::runtime::TickStatus::Stop) => {
                     if let Some(p) = promise {
                         match p.state() {
                             crate::builtins::promise::PromiseState::Fulfilled => {
@@ -328,15 +328,15 @@ impl<'c> ScopedContext<'c> {
                             }
                         }
                     }
-                    break code;
+                    break;
                 }
                 Err(_) => {
                     let exc = self.rt_mut().take_exception();
                     result = Err(exc.to_text(self));
-                    break -1;
+                    break;
                 }
             }
-        };
+        }
 
         // promote result value and return
         if let Ok(v) = result {

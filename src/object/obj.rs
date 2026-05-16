@@ -559,7 +559,7 @@ impl ObjectImpl {
         }
 
         // call class finalize handler.
-        if let Some(cb) = rt.class_registry[self.class_id() as usize].finalize {
+        if let Some(cb) = rt.class_registry[self.class_id() as usize].on_finalize {
             let id = self.id();
             cb(&mut rt, &self.payload, id);
         }

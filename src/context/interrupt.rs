@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    Exception,
     context::ScopedContext,
-    error::Exception,
     runtime::{InterruptFn, RuntimeImpl},
 };
 
@@ -23,11 +23,10 @@ impl RuntimeImpl {
 }
 
 impl<'c> ScopedContext<'c> {
+    /// Returns `Err` if abort running with exception set
     #[inline(never)]
     pub(crate) fn poll_interrupts(&mut self) -> Result<(), i32> {
-        let rt = self.rt_ptr();
-
-        if let Some(cb) = rt.interrupt_handler.as_ref() {
+        if let Some(cb) = self.rt().interrupt_handler.as_ref() {
             let mut counter = self.interrupt_counter.get();
             counter -= 1;
             self.interrupt_counter.set(if counter > 0 {
@@ -38,10 +37,11 @@ impl<'c> ScopedContext<'c> {
 
             if counter <= 0 {
                 // call interrupt callback
-                if cb(&rt) {
-                    self.rt_mut().set_exception(Exception::Interrupted(130)); // ctrl-c exit code
+                if cb(self.rt()) {
+                    self.rt_mut()
+                        .set_exception(Exception::Interrupted(130.into()));
                     return Err(-1);
-                };
+                }
             }
         }
 

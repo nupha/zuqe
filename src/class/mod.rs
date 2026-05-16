@@ -35,7 +35,6 @@ pub type ClassInitializeFn = fn(ctx: &mut ScopedContext, class_id: ClassID) -> R
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
 /// free user class instance handler
 pub type ClassFinalizeOpaqueFn = fn(rt: &mut RuntimeImpl, opaque: *mut c_void, id: usize);
-
 /// class unregister handler.
 pub type ClassUnregisterFn = fn();
 

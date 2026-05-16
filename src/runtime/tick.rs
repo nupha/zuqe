@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::process::ExitCode;
+
 use gc_lite::GcNode;
 use smallvec::SmallVec;
 
 use crate::{
+    Exception,
     builtins::promise::{Job, JobState},
     context::{ContextPtr, ScopedContext},
 };
@@ -19,20 +22,19 @@ impl<'c> ScopedContext<'c> {
 
 pub enum TickStatus {
     Continue,
-    Stop(i32),
+    Stop,
 }
 
 impl RuntimeImpl {
-    pub const fn stop(&mut self, code: i32) {
-        self.stop_flag = Some(code);
+    /// Interrupt running.
+    /// When in native function handler, after calling this, must returns Err
+    pub fn interrupt(&mut self, code: ExitCode) {
+        self.set_exception(Exception::Interrupted(code));
     }
 
-    pub(crate) fn tick_internal(&mut self) -> Result<TickStatus, i32> {
-        if let Some(n) = self.stop_flag.take() {
-            return Ok(TickStatus::Stop(n));
-        }
-
-        let mut need_more_tick = false;
+    /// to run background jobs for one round
+    pub(crate) fn tick(&mut self) -> Result<TickStatus, i32> {
+        let mut more_ticks = false;
 
         for mut ctx in self.context_list.iter().copied() {
             ctx.with_new_scope(|mut scope| -> Result<(), i32> {
@@ -54,14 +56,14 @@ impl RuntimeImpl {
                 // sched jobs to run again in next round
                 if !again.is_empty() {
                     scope.job_list.extend(again);
-                    need_more_tick = true;
+                    more_ticks = true;
                 }
 
                 // 2. run tick handlers
                 let ctx_ptr = ContextPtr::from(scope.gc_ref());
                 for f in ctx_ptr.tick_handlers.iter() {
                     if f(&mut scope) {
-                        need_more_tick = true;
+                        more_ticks = true;
                     }
                 }
 
@@ -73,16 +75,10 @@ impl RuntimeImpl {
             self.gc_collect();
         }
 
-        Ok(if need_more_tick {
+        Ok(if more_ticks {
             TickStatus::Continue
         } else {
-            TickStatus::Stop(0)
+            TickStatus::Stop
         })
-    }
-
-    #[cfg(not(feature = "async_support"))]
-    #[inline(always)]
-    pub fn tick(&mut self) -> Result<TickStatus, i32> {
-        self.tick_internal()
     }
 }

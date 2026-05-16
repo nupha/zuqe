@@ -6,38 +6,40 @@ use std::{
     task::{Context as TaskContext, Poll},
 };
 
-use super::{Runtime, TickStatus};
+use crate::Exception;
 
-pub struct RuntimeFuture<'rt> {
+use super::{Runtime, tick::TickStatus};
+
+pub struct RunFuture<'rt> {
     rt: &'rt mut Runtime,
 }
 
-impl<'rt> RuntimeFuture<'rt> {
+impl<'rt> RunFuture<'rt> {
     pub const fn new(rt: &'rt mut Runtime) -> Self {
         Self { rt }
     }
 }
 
-impl<'rt> std::future::Future for RuntimeFuture<'rt> {
-    type Output = Result<i32, i32>;
+impl<'rt> std::future::Future for RunFuture<'rt> {
+    type Output = Result<(), Exception>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
 
-        match this.rt.tick_internal() {
+        match this.rt.tick() {
             Ok(TickStatus::Continue) => {
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            Ok(TickStatus::Stop(code)) => Poll::Ready(Ok(code)),
-            Err(e) => Poll::Ready(Err(e)),
+            Ok(TickStatus::Stop) => Poll::Ready(Ok(())),
+            Err(_) => Poll::Ready(Err(this.rt.take_exception())),
         }
     }
 }
 
 impl Runtime {
-    /// Execute runtime in async mode, await till all background jobs are done
-    pub const fn run_async(&mut self) -> RuntimeFuture<'_> {
-        RuntimeFuture::new(self)
+    /// Await till all background jobs are executed
+    pub const fn run_async(&mut self) -> RunFuture<'_> {
+        RunFuture::new(self)
     }
 }

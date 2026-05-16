@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
+use std::{collections::HashMap, ffi::c_void, pin::Pin, process::ExitCode, ptr::NonNull};
 
 use gc_lite::{GcHeap, GcPartitionId, GcTraceCtx, GcWeak};
 
@@ -82,8 +82,6 @@ pub struct RuntimeImpl {
     /// gc request flag
     pub(crate) gc_req: bool,
 
-    /// loop stop flag
-    pub(crate) stop_flag: Option<i32>,
     pub(crate) interrupt_handler: Option<Box<dyn InterruptFn>>,
 
     #[deprecated]
@@ -143,7 +141,6 @@ impl RuntimeImpl {
             gc_cur_job_trace: None,
             gc_req: false,
 
-            stop_flag: None,
             interrupt_handler: None,
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
@@ -312,7 +309,7 @@ impl RuntimeImpl {
 
         // class unregister callbacks
         for c in &self.class_registry {
-            if let Some(f) = c.unregister {
+            if let Some(f) = c.on_unregister {
                 f();
             }
         }

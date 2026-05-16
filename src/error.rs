@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{borrow::Cow, io::Write};
+use std::{borrow::Cow, io::Write, process::ExitCode};
 
 use crate::{
     JS_CLASS_ERROR, ScopedContext,
@@ -25,18 +25,14 @@ pub enum Exception {
     /// Too many classes registered
     TooManyClasses,
     /// Virtual machine interrupted, see Runtime::set_interrupt_handler()
-    Interrupted(i32),
+    Interrupted(ExitCode),
     /// JavaScript error value from one of context
     Error(JSValue),
 }
 
 impl From<JSValue> for Exception {
     fn from(err_val: JSValue) -> Self {
-        if err_val.is_undefined() {
-            Exception::No
-        } else {
-            Exception::Error(err_val)
-        }
+        Exception::Error(err_val)
     }
 }
 
@@ -66,7 +62,7 @@ impl Exception {
                 traceback: None,
             },
             Self::Interrupted(code) => ExceptionText {
-                message: format!("Interrupted({code})"),
+                message: format!("Interrupted({:?})", code),
                 traceback: None,
             },
             Self::Error(e) => {

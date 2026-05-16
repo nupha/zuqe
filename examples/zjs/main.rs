@@ -14,7 +14,8 @@ use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use libloading::Library;
 use zuqe::{
-    Context, EvalFlags, EvalType, ModuleDef, Runtime, ScopedContext, builtins::promise::Promise,
+    Context, EvalFlags, EvalType, Exception, ModuleDef, Runtime, ScopedContext,
+    builtins::promise::Promise,
 };
 
 use crate::{
@@ -251,26 +252,23 @@ fn main() -> ExitCode {
 #[cfg(feature = "async_support")]
 #[tokio::main]
 async fn main() -> ExitCode {
+    use zuqe::ExceptionText;
+
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
     let mut promise_future = None;
 
-    let mut exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
-        let result = scope
-            .eval(
-                script.as_bytes(),
-                &args.filename,
-                if is_module {
-                    EvalType::Module
-                } else {
-                    EvalType::Global
-                },
-                EvalFlags::empty(),
-            )
-            .map_err(|_| {
-                let exc = scope.rt_mut().take_exception();
-                exc.to_text(&mut scope)
-            });
+    let res = ctx.with_new_scope(|mut scope| -> Result<(), ExceptionText> {
+        let result = scope.eval(
+            script.as_bytes(),
+            &args.filename,
+            if is_module {
+                EvalType::Module
+            } else {
+                EvalType::Global
+            },
+            EvalFlags::empty(),
+        );
 
         match result {
             Ok(val) => {
@@ -278,32 +276,21 @@ async fn main() -> ExitCode {
                     match promise.into_future(&mut scope) {
                         Ok(fut) => {
                             promise_future = Some(fut);
-                            ExitCode::SUCCESS
+                            Ok(())
                         }
                         Err(_) => {
                             let exc = scope.rt_mut().take_exception();
-                            let err_txt = exc.to_text(&mut scope);
-
-                            let mut err_msg = err_txt.message;
-                            if let Some(tb) = err_txt.traceback {
-                                err_msg = format!("{err_msg}\n{tb}");
-                            }
-                            colorize_println(err_msg, RedFg);
-                            ExitCode::FAILURE
+                            Err(exc.to_text(&mut scope))
                         }
                     }
                 } else {
                     colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);
-                    ExitCode::SUCCESS
+                    Ok(())
                 }
             }
-            Err(e) => {
-                let mut err_msg = e.message;
-                if let Some(tb) = e.traceback {
-                    err_msg = format!("{err_msg}\n{tb}");
-                }
-                colorize_println(err_msg, RedFg);
-                ExitCode::FAILURE
+            Err(_) => {
+                let exc = scope.rt_mut().take_exception();
+                Err(exc.to_text(&mut scope))
             }
         }
     });
@@ -311,33 +298,56 @@ async fn main() -> ExitCode {
     #[cfg(debug_assertions)]
     debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
 
-    if let Some(js_fut) = promise_future {
-        let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
-
-        if let Err(code) = rt_res {
-            let msg = format!("runtime error: {code}");
-            colorize_println(msg, RedFg);
-            exit_code = ExitCode::FAILURE;
+    if let Err(e) = res {
+        // eval has error
+        let mut err_msg = e.message;
+        if let Some(tb) = e.traceback {
+            err_msg = format!("{err_msg}\n{tb}");
         }
+        colorize_println(err_msg, RedFg);
+        return ExitCode::FAILURE;
+    }
+
+    // await tick background done
+    let run_result = if let Some(js_fut) = promise_future {
+        let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
 
         match promise_res {
             Ok(val) => {
                 colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);
             }
             Err(reason) => {
+                // reject
                 let err_msg = ctx.with_new_scope(|mut cx| {
                     let s = reason.to_string(&mut cx).unwrap();
                     s.encode_utf8(false).to_string()
                 });
                 colorize_println(err_msg, RedFg);
-                exit_code = ExitCode::FAILURE;
             }
         }
-    } else {
-        let _ = rt.run_async().await;
-    }
 
-    exit_code
+        rt_res
+    } else {
+        rt.run_async().await
+    };
+
+    match run_result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(Exception::OutOfMemory) => {
+            colorize_println("out of memory", RedFg);
+            ExitCode::FAILURE
+        }
+        Err(Exception::Interrupted(code)) => code,
+        Err(Exception::Error(err)) => {
+            ctx.with_new_scope(|mut cx| {
+                colorize_println(err.to_string(&mut cx).unwrap().encode_utf8(false), RedFg);
+            });
+            ExitCode::FAILURE
+        }
+        Err(Exception::No | Exception::TooManyClasses) => {
+            unreachable!();
+        }
+    }
 }
 
 pub type JsInitModuleFn = fn(&mut ScopedContext, &str) -> Result<ModuleDef, i32>;

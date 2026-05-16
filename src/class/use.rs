@@ -132,7 +132,7 @@ impl RuntimeImpl {
     /// Register a user-defined (non-builtin) class
     pub fn register_class(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
         debug_assert!(!class_def.name.is_empty());
-        debug_assert!(class_def.finalize.is_some());
+        debug_assert!(class_def.on_finalize.is_some());
 
         class_def.name_atom = {
             let a = Atom::from_str(self.into(), class_def.name)?;

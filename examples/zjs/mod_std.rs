@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cell::Cell;
+use std::{cell::Cell, process::ExitCode};
 
 use zuqe::{
     CallContext, EvalFlags, EvalType, Exception, FieldDef, JS_SetUncatchableError, JSResult,
@@ -161,7 +161,7 @@ fn js_gc(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
 
 fn std_exit(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let n = cc.arg(0).to_number(ctx)?.to_i32();
-    ctx.rt_mut().stop(n);
+    ctx.rt_mut().interrupt(ExitCode::from(n as u8));
     Ok(JSValue::UNDEFINED)
 }
 

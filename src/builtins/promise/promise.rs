@@ -610,7 +610,7 @@ pub(crate) fn js_promise_constructor(ctx: &mut ScopedContext, cc: CallContext) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::Runtime;
+    use crate::runtime::{Runtime, TickStatus};
 
     fn with_rt_ctx(f: impl FnOnce(&mut Runtime, &mut ScopedContext)) {
         let mut rt = Runtime::create().unwrap();
@@ -630,9 +630,9 @@ mod tests {
             tx.send(321).unwrap();
 
             loop {
-                match rt.tick_internal().unwrap() {
-                    crate::runtime::TickStatus::Continue => {}
-                    crate::runtime::TickStatus::Stop(_) => break,
+                match rt.tick().unwrap() {
+                    TickStatus::Continue => {}
+                    TickStatus::Stop => break,
                 }
             }
 
@@ -654,9 +654,9 @@ mod tests {
             slot.commit(321).unwrap();
 
             loop {
-                match rt.tick_internal().unwrap() {
+                match rt.tick().unwrap() {
                     crate::runtime::TickStatus::Continue => {}
-                    crate::runtime::TickStatus::Stop(_) => break,
+                    crate::runtime::TickStatus::Stop => break,
                 }
             }
 

@@ -98,13 +98,13 @@ pub struct ClassDef {
     pub(crate) exotic: Option<&'static ClassExoticMethods>,
 
     /// initialize class proto, constructor to context
-    initialize: ClassInitType,
+    on_initialize: ClassInitType,
     /// class instance finalize callback
-    pub(crate) finalize: Option<ClassFinalizeFn>,
+    pub(crate) on_finalize: Option<ClassFinalizeFn>,
     /// handler on class instance dispose
-    pub(crate) finalize_opaque: Option<ClassFinalizeOpaqueFn>,
+    pub(crate) on_finalize_opaque: Option<ClassFinalizeOpaqueFn>,
     /// class def unregister handler.
-    pub(crate) unregister: Option<ClassUnregisterFn>,
+    pub(crate) on_unregister: Option<ClassUnregisterFn>,
 }
 
 impl Default for ClassDef {
@@ -115,20 +115,20 @@ impl Default for ClassDef {
 
             call: None,
             exotic: None,
-            initialize: ClassInitType::Normal {
+            on_initialize: ClassInitType::Normal {
                 proto_entries: &[],
                 ctor: None,
             },
-            finalize: None,
-            finalize_opaque: None,
-            unregister: None,
+            on_finalize: None,
+            on_finalize_opaque: None,
+            on_unregister: None,
         }
     }
 }
 
 impl ClassDef {
     /// Create user-defined class def with proto entries and optional ctor def
-    pub const fn new(
+    pub fn new(
         name: &'static str,
         proto_entries: &'static [FieldDef],
         ctor: Option<ClassCtorDef>,
@@ -141,13 +141,13 @@ impl ClassDef {
             call: None,
             exotic: None,
 
-            unregister: None,
-            initialize: ClassInitType::Normal {
+            on_unregister: None,
+            on_initialize: ClassInitType::Normal {
                 proto_entries,
                 ctor,
             },
-            finalize: Some(Self::default_fini_fn),
-            finalize_opaque: None,
+            on_finalize: Some(Self::default_fini_fn),
+            on_finalize_opaque: None,
         }
     }
 
@@ -160,10 +160,10 @@ impl ClassDef {
             call: None,
             exotic: None,
 
-            unregister: None,
-            initialize: ClassInitType::InitFn(init_fn),
-            finalize: Some(Self::default_fini_fn),
-            finalize_opaque: None,
+            on_unregister: None,
+            on_initialize: ClassInitType::InitFn(init_fn),
+            on_finalize: Some(Self::default_fini_fn),
+            on_finalize_opaque: None,
         }
     }
 
@@ -178,13 +178,13 @@ impl ClassDef {
             name_atom: name,
             call: None,
             exotic: None,
-            unregister: None,
-            initialize: ClassInitType::Normal {
+            on_unregister: None,
+            on_initialize: ClassInitType::Normal {
                 proto_entries,
                 ctor,
             },
-            finalize: None,
-            finalize_opaque: None,
+            on_finalize: None,
+            on_finalize_opaque: None,
         }
     }
 
@@ -195,10 +195,10 @@ impl ClassDef {
             name_atom: name,
             call: None,
             exotic: None,
-            unregister: None,
-            initialize: ClassInitType::InitFn(init_fn),
-            finalize: None,
-            finalize_opaque: None,
+            on_unregister: None,
+            on_initialize: ClassInitType::InitFn(init_fn),
+            on_finalize: None,
+            on_finalize_opaque: None,
         }
     }
 
@@ -216,7 +216,7 @@ impl ClassDef {
     ///
     /// This method is for builtin class def only. User class def should use on_dispose (which is a public api) instead.
     pub(crate) const fn on_finalize(mut self, f: ClassFinalizeFn) -> Self {
-        self.finalize = Some(f);
+        self.on_finalize = Some(f);
         self
     }
 
@@ -224,19 +224,19 @@ impl ClassDef {
     ///
     /// This callback could be use to process opaque pointer when class instance is disposed.
     pub const fn on_dispose(mut self, f: ClassFinalizeOpaqueFn) -> Self {
-        self.finalize_opaque.replace(f);
+        self.on_finalize_opaque.replace(f);
         self
     }
 
     /// set class unregister callback
     pub const fn on_unregister(mut self, f: ClassUnregisterFn) -> Self {
-        self.unregister.replace(f);
+        self.on_unregister.replace(f);
         self
     }
 
     /// Perform class initialize in context.
     pub(super) fn initialize(&self, ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
-        match self.initialize {
+        match self.on_initialize {
             ClassInitType::Normal {
                 proto_entries,
                 ctor,
@@ -286,7 +286,7 @@ impl ClassDef {
 
     fn default_fini_fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
         if let Some(u) = isa.other() {
-            if let Some(f) = rt.class_registry[u.class_id as usize].finalize_opaque {
+            if let Some(f) = rt.class_registry[u.class_id as usize].on_finalize_opaque {
                 f(rt, u.opaque, id)
             }
         } else {

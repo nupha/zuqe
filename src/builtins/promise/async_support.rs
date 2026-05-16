@@ -216,9 +216,9 @@ mod tests {
             assert_eq!(p.state(), PromiseState::Pending);
 
             loop {
-                match rt.tick_internal().unwrap() {
+                match rt.tick().unwrap() {
                     crate::runtime::TickStatus::Continue => {}
-                    crate::runtime::TickStatus::Stop(_) => break,
+                    crate::runtime::TickStatus::Stop => break,
                 }
             }
 
@@ -230,16 +230,16 @@ mod tests {
     #[test]
     fn create_from_future_reject() {
         with_rt_ctx(|rt, ctx| {
-            let mut p = Promise::create_from_future(ctx, |notify| {
+            let p = Promise::create_from_future(ctx, |notify| {
                 notify(Err(JSValue::Int(456)));
             })
             .unwrap();
             assert_eq!(p.state(), PromiseState::Pending);
 
             loop {
-                match rt.tick_internal().unwrap() {
+                match rt.tick().unwrap() {
                     crate::runtime::TickStatus::Continue => {}
-                    crate::runtime::TickStatus::Stop(_) => break,
+                    crate::runtime::TickStatus::Stop => break,
                 }
             }
 
@@ -303,9 +303,9 @@ mod tests {
             assert_eq!(p.state(), PromiseState::Pending);
 
             loop {
-                match rt.tick_internal().unwrap() {
+                match rt.tick().unwrap() {
                     crate::runtime::TickStatus::Continue => {}
-                    crate::runtime::TickStatus::Stop(_) => break,
+                    crate::runtime::TickStatus::Stop => break,
                 }
             }
 

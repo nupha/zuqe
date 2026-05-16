@@ -45,7 +45,7 @@ pub use {
 };
 
 #[cfg(feature = "async_support")]
-pub use runtime::RuntimeFuture;
+pub use runtime::RunFuture;
 
 mod stdcls {
     include!(concat!(env!("OUT_DIR"), "/std_class_def.rs"));
