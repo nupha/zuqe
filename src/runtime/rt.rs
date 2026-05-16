@@ -51,9 +51,6 @@ pub struct RuntimeImpl {
 
     /// current exception
     pub(super) cur_exception: Exception,
-    /// indicating out of memory error, to avoid recursing
-    #[deprecated(note = "check if cur_exception is Exception::OutOfMemory")]
-    pub(crate) out_of_memory: bool,
 
     /// pre-compiled regexp in parsing state.
     #[cfg(feature = "builtin_regexp")]
@@ -127,7 +124,6 @@ impl RuntimeImpl {
             stack_limit: 0,
 
             cur_exception: Exception::No,
-            out_of_memory: false,
 
             #[cfg(feature = "builtin_regexp")]
             regexp_precompiled: Vec::new(),

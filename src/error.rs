@@ -30,12 +30,6 @@ pub enum Exception {
     Error(JSValue),
 }
 
-impl From<JSValue> for Exception {
-    fn from(err_val: JSValue) -> Self {
-        Exception::Error(err_val)
-    }
-}
-
 impl Exception {
     pub fn is_uncatchable(&self) -> bool {
         match self {
@@ -151,7 +145,7 @@ impl ContextImpl {
     /// put error value to current_exception.
     #[cold]
     pub(crate) fn throw(&mut self, val: JSValue) {
-        self.rt_mut().set_exception(val.into());
+        self.rt_mut().set_exception(Exception::Error(val));
     }
 }
 
@@ -212,7 +206,7 @@ impl<'c> ScopedContext<'c> {
         let rt = self.rt();
 
         // add backtrace if called from a bytecode function
-        let add_backtrace = !rt.out_of_memory
+        let add_backtrace = rt.exception() != Exception::OutOfMemory
             && rt
                 .current_stack_frame()
                 .is_none_or(|sf| sf.func_obj.as_BCWrapper().is_some());
@@ -282,10 +276,8 @@ impl<'c> ScopedContext<'c> {
 
     #[cold]
     pub fn throw_out_of_memory(&mut self) {
-        if !self.rt().out_of_memory {
-            self.rt_mut().out_of_memory = true;
+        if self.rt().exception() != Exception::OutOfMemory {
             self.throw_internal_error("out of memory");
-            self.rt_mut().out_of_memory = false;
         }
     }
 
