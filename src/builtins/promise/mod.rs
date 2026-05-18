@@ -6,9 +6,7 @@ mod microtask;
 mod promise;
 mod settle;
 
-pub use {class_promise::*, promise::*, settle::*};
-
-pub(crate) use microtask::*;
+pub use {class_promise::*, microtask::*, promise::*, settle::*};
 
 #[cfg(feature = "async_support")]
 mod async_support;

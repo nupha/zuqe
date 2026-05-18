@@ -8,13 +8,14 @@ use crate::{ScopedContext, context::ContextImpl, value::JSValue};
 use super::{Promise, PromiseReaction, PromiseResolveFunc};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum JobState {
+pub enum JobState {
     Done,
     Again,
 }
 
 /// A job running in background, known as 'micro task'.
 pub(crate) struct Job {
+    /// It's safe to call js functions inside this closure.
     runnable: Box<dyn Fn(&mut ScopedContext) -> Result<JobState, i32>>,
 
     /// To trace gc nodes that are referenced by this job.
@@ -36,7 +37,7 @@ impl Job {
     }
 }
 
-pub(crate) trait JobGcTrace {
+pub trait JobGcTrace {
     fn trace_values(&self, tr: &mut GcTraceCtx);
 }
 
@@ -127,7 +128,7 @@ where
 }
 
 impl ContextImpl {
-    pub(crate) fn queue_job<GCN, F>(&mut self, runnable: F, gc_trace_nodes: GCN)
+    pub fn queue_job<GCN, F>(&mut self, runnable: F, gc_trace_nodes: GCN)
     where
         GCN: JobGcTrace + 'static,
         F: Fn(&mut ScopedContext) -> Result<JobState, i32> + 'static,
