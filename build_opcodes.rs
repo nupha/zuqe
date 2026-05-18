@@ -373,7 +373,7 @@ pub fn gen_opcodes(outfile: &Path) {
         "LABEL_U16",
     ];
     enums.push(
-        "#[derive(Debug,Clone,Copy,PartialEq)]\n#[repr(u8)]\n#[allow(clippy::upper_case_acronyms)]"
+        "#[allow(dead_code)]\n#[derive(Debug,Clone,Copy,PartialEq)]\n#[repr(u8)]\n#[allow(clippy::upper_case_acronyms)]"
             .into(),
     );
     enums.push("pub enum OpcodeFormat {".into());
