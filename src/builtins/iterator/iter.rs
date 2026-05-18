@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{future::pending, marker::PhantomData, ptr::NonNull};
+use std::{marker::PhantomData, ptr::NonNull};
 
 use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 

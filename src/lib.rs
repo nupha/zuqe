@@ -16,6 +16,7 @@ mod error;
 mod eval;
 mod function;
 mod gc;
+mod microtask;
 mod module;
 mod number;
 mod object;
@@ -34,6 +35,7 @@ pub use {
     error::{Exception, ExceptionText, JS_SetUncatchableError, JSResult},
     eval::{EvalFlags, EvalType},
     function::{CallContext, Callback, FieldDef},
+    microtask::*,
     module::ModuleDef,
     number::IntOrFloat,
     object::{

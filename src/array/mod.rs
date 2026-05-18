@@ -4,11 +4,11 @@
 use std::collections::TryReserveError;
 
 use fallible_collections::{FallibleVec, TryCollect};
-use gc_lite::{GcPartitionId, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
-    IntOrFloat, JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, RuntimeImpl,
+    IntOrFloat, JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY,
     atom::Atom,
     context::ScopedContext,
     number::MAX_SAFE_INTEGER,
@@ -74,6 +74,7 @@ impl ArrayPayload {
         self.values.pop()
     }
 
+    #[inline(always)]
     pub(crate) fn extend(&mut self, vals: impl Iterator<Item = JSValue>) {
         self.values.extend(vals);
     }
@@ -83,22 +84,13 @@ impl ArrayPayload {
         self.values.remove(index)
     }
 
-    pub fn set_nth(
-        &mut self,
-        rt: &mut RuntimeImpl,
-        index: usize,
-        value: JSValue,
-        xref: GcPartitionId,
-    ) {
+    #[inline(always)]
+    pub fn set_nth(&mut self, index: usize, value: JSValue) {
         self.values[index] = value;
     }
 
-    pub fn replace_values(
-        &mut self,
-        rt: &mut RuntimeImpl,
-        values: Vec<JSValue>,
-        xref: GcPartitionId,
-    ) {
+    #[inline(always)]
+    pub fn replace_values(&mut self, values: Vec<JSValue>) {
         self.values = values;
     }
 }
@@ -279,10 +271,7 @@ impl Array {
         }
 
         let len = values.len();
-        let self_xref = self.gc_node().partition_id();
-
-        self.payload_mut()
-            .replace_values(ctx.rt_mut(), values, self_xref);
+        self.payload_mut().replace_values(values);
         self.set_flag_fast_array(true);
 
         // set array length, can't fail

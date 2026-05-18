@@ -1579,13 +1579,7 @@ fn copy_sub_array(
 
             if from < len && to < len {
                 let val = arr_data.values()[from];
-                arr_data.set_nth(
-                    ctx.rt_mut(),
-                    to,
-                    val,
-                    val.gc_node()
-                        .map_or(GcPartitionId::NONE, |x| x.partition_id()),
-                );
+                arr_data.set_nth(to, val);
             } else {
                 done_count = i;
                 break;

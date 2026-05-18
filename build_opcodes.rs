@@ -148,10 +148,8 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("set_loc", 3, 1, 1, "LOC", false),
         DEF!("get_arg", 3, 0, 1, "ARG", false),
         DEF!("put_arg", 3, 1, 0, "ARG", false),
-        DEF!("set_arg", 3, 1, 1, "ARG", false),
         DEF!("get_var_ref", 3, 0, 1, "VAR_REF", false),
         DEF!("put_var_ref", 3, 1, 0, "VAR_REF", false),
-        DEF!("set_var_ref", 3, 1, 1, "VAR_REF", false),
         DEF!("set_loc_uninitialized", 3, 0, 0, "LOC", false),
         DEF!("get_loc_check", 3, 0, 1, "LOC", false),
         DEF!("put_loc_check", 3, 1, 0, "LOC", false),
@@ -169,7 +167,6 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("ret", 1, 1, 0, "NONE", false),
         DEF!("nip_catch", 1, 2, 1, "NONE", false),
         DEF!("to_object", 1, 1, 1, "NONE", false),
-        DEF!("to_string", 1, 1, 1, "NONE", false),
         DEF!("to_propkey", 1, 1, 1, "NONE", false),
         DEF!("with_get_var", 10, 1, 0, "ATOM_LABEL_U8", false), // must be in the same order as scope_xxx
         DEF!("with_put_var", 10, 2, 1, "ATOM_LABEL_U8", false), // must be in the same order as scope_xxx
@@ -234,8 +231,6 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("or", 1, 2, 1, "NONE", false),
         DEF!("is_undefined_or_null", 1, 1, 1, "NONE", false),
         DEF!("private_in", 1, 2, 1, "NONE", false),
-        DEF!("mul_pow10", 1, 2, 1, "NONE", false),
-        DEF!("math_mod", 1, 2, 1, "NONE", false),
         DEF!("nop", 1, 0, 0, "NONE", false),
         //
         // intermediate
@@ -292,6 +287,7 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
     //     DEF!("set_loc1", 1, 1, 1, "NONE_LOC", true),
     //     DEF!("set_loc2", 1, 1, 1, "NONE_LOC", true),
     //     DEF!("set_loc3", 1, 1, 1, "NONE_LOC", true),
+    //     DEF!("set_arg", 3, 1, 1, "ARG", false),
     //     DEF!("get_arg0", 1, 0, 1, "NONE_ARG", true),
     //     DEF!("get_arg1", 1, 0, 1, "NONE_ARG", true),
     //     DEF!("get_arg2", 1, 0, 1, "NONE_ARG", true),
@@ -312,6 +308,7 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
     //     DEF!("put_var_ref1", 1, 1, 0, "NONE_VAR_REF", true),
     //     DEF!("put_var_ref2", 1, 1, 0, "NONE_VAR_REF", true),
     //     DEF!("put_var_ref3", 1, 1, 0, "NONE_VAR_REF", true),
+    //     DEF!("set_var_ref", 3, 1, 1, "VAR_REF", false),
     //     DEF!("set_var_ref0", 1, 1, 1, "NONE_VAR_REF", true),
     //     DEF!("set_var_ref1", 1, 1, 1, "NONE_VAR_REF", true),
     //     DEF!("set_var_ref2", 1, 1, 1, "NONE_VAR_REF", true),
@@ -388,7 +385,7 @@ pub fn gen_opcodes(outfile: &Path) {
     );
     enums.push("}".into());
 
-    enums.push("#[allow(clippy::upper_case_acronyms)]\n#[derive(Debug,Clone,Copy,PartialEq,Eq)]\n#[repr(u8)]".into());
+    enums.push("#[allow(dead_code)]\n#[allow(clippy::upper_case_acronyms)]\n#[derive(Debug,Clone,Copy,PartialEq,Eq)]\n#[repr(u8)]".into());
     enums.push("pub enum OpCode {".into());
 
     enums_temp.push("#[allow(clippy::upper_case_acronyms)]\n#[derive(Debug,Clone,Copy,PartialEq,Eq)]\n#[repr(u8)]".into());
@@ -501,7 +498,7 @@ pub struct Opcode {
             //
             // opcodes as const u8
             //
-            "pub mod opcodes {\nuse super::*;".to_string(),
+            "#[allow(dead_code)]\npub mod opcodes {\nuse super::*;".to_string(),
             consts.join("\n"),
             "}".to_string(),
             info_common.join("\n"),

@@ -138,13 +138,7 @@ impl ObjectImpl {
                                     continue; // redo_prop_update
                                 }
                                 if flags & JS_PROP_HAS_VALUE != 0 {
-                                    let xref = self.gc_head().partition_id();
-                                    self.payload_mut().array_mut().unwrap().set_nth(
-                                        ctx.rt_mut(),
-                                        idx,
-                                        val,
-                                        xref,
-                                    );
+                                    self.payload_mut().array_mut().unwrap().set_nth(idx, val);
                                 }
                                 return Ok(true);
                             }

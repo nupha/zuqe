@@ -10,12 +10,9 @@ use std::{
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_PROMISE, Receiver, Sender, TryRecvError,
+    JS_CLASS_PROMISE, JobState, Receiver, Sender, TryRecvError,
     atom::Atom,
-    builtins::{
-        error::js_aggregate_error_constructor,
-        promise::{JobGcTrace2, JobState},
-    },
+    builtins::error::js_aggregate_error_constructor,
     context::{ContextImpl, ScopedContext},
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
@@ -25,7 +22,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{PromiseReaction, PromiseResolvePayload};
+use super::{JobGcTrace2, PromiseReaction, PromiseResolvePayload};
 
 pub type JSHostPromiseRejectionTracker = fn(
     ctx: &mut ContextImpl,
@@ -145,6 +142,12 @@ impl<D: Send + 'static> PromiseResultSlot<D> {
 
     pub(crate) fn try_take(&self) -> Option<D> {
         self.data.lock().unwrap().take()
+    }
+}
+
+impl<D: Send + 'static> Default for PromiseResultSlot<D> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

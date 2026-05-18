@@ -340,7 +340,6 @@ impl ObjectImpl {
         match self.class_id() {
             JS_CLASS_ARRAY => {
                 if self.flags().extensible() {
-                    let self_xref = self.gc_ref().node_info().partition_id();
                     let this = Object::from_ref(self);
 
                     if self.is_fast_array()
@@ -349,7 +348,7 @@ impl ObjectImpl {
                         match index.cmp(&arr_data.len()) {
                             std::cmp::Ordering::Less => {
                                 // update existing
-                                arr_data.set_nth(ctx.rt_mut(), index, val, self_xref);
+                                arr_data.set_nth(index, val);
                                 Some(Ok(true)) // fast array exit
                             }
                             std::cmp::Ordering::Equal => {
@@ -398,13 +397,11 @@ impl ObjectImpl {
             }
 
             JS_CLASS_ARGUMENTS => {
-                let self_xref = self.gc_ref().node_info().partition_id();
-
                 if self.is_fast_array()
                     && let Some(arr_data) = self.payload_mut().array_mut()
                 {
                     if index < arr_data.len() {
-                        arr_data.set_nth(ctx.rt_mut(), index, val, self_xref);
+                        arr_data.set_nth(index, val);
                         Some(Ok(true))
                     } else {
                         None

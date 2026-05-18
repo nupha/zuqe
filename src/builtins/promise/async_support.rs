@@ -11,6 +11,7 @@ use std::{
 };
 
 use crate::{
+    JobState,
     atom::Atom,
     context::ScopedContext,
     error::JSResult,
@@ -18,7 +19,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{JobGcTrace2, JobState, Promise};
+use super::{JobGcTrace2, Promise};
 
 thread_local! {
     static PROMISE_FUTURE_REGISTRY: RefCell<PromiseFutureRegistry> =

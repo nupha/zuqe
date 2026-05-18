@@ -16,7 +16,7 @@ use std::sync::{
 
 use gc_lite::GcHeap;
 
-use crate::{JSValue, error::Exception, runtime::RuntimeImpl};
+use crate::{error::Exception, runtime::RuntimeImpl};
 
 #[cfg(not(debug_assertions))]
 static PANIC_RUNTIME: AtomicPtr<RuntimeImpl> = AtomicPtr::new(std::ptr::null_mut());

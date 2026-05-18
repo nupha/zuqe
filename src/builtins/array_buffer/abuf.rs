@@ -56,11 +56,6 @@ impl ABufData {
         }
     }
 
-    #[inline(always)]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     fn as_ptr(&self) -> *const u8 {
         match self {
             Self::Empty => std::ptr::null(),

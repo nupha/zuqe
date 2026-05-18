@@ -1213,7 +1213,6 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
     let mut k: i32;
     let mut d: f64;
-    let stop: i32;
     let inc: i32;
 
     if special == special_lastIndexOf {
@@ -1238,7 +1237,6 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                 k = d as i32;
             }
         }
-        stop = -1;
         inc = -1;
     } else {
         k = if cc.length() > 1 {
@@ -1246,7 +1244,6 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         } else {
             0
         };
-        stop = len;
         inc = 1;
     }
 

@@ -8,8 +8,8 @@ use smallvec::SmallVec;
 
 use crate::{
     Exception,
-    builtins::promise::{Job, JobState},
     context::{ContextPtr, ScopedContext},
+    microtask::{Job, JobState},
 };
 
 use super::RuntimeImpl;

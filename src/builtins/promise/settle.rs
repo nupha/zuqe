@@ -8,7 +8,6 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     atom::Atom,
-    builtins::promise::{JobGcTrace2, JobGcTrace3},
     context::{ContextImpl, ScopedContext},
     error::JSResult,
     object::{JS_SpeciesConstructor, Object, ObjectImpl, ObjectPayload},
@@ -17,7 +16,10 @@ use crate::{
     value::JSValue,
 };
 
-use super::{Promise, PromiseState, js_promise_reaction_job, js_promise_resolve_thenable_job};
+use super::{
+    JobGcTrace2, JobGcTrace3, Promise, PromiseState, js_promise_reaction_job,
+    js_promise_resolve_thenable_job,
+};
 
 /// Promise resolving function data
 #[derive(Debug)]

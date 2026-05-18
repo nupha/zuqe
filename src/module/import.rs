@@ -4,9 +4,9 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    Callback,
+    Callback, JobState,
     atom::Atom,
-    builtins::promise::{JobGcTrace4, JobState, Promise},
+    builtins::promise::{JobGcTrace4, Promise},
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, NativeFunction},
