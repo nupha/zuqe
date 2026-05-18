@@ -22,8 +22,6 @@ use crate::{
 pub(crate) struct AsyncStateImpl {
     /// 'this' argument
     pub(crate) this_val: JSValue,
-    /// number of function arguments
-    pub(crate) argc: i32,
 
     /// indicates there is an exception on runtime (used by  JS_CallInternal())
     #[deprecated(
@@ -108,7 +106,6 @@ impl AsyncStateImpl {
         }
 
         Ok(Self {
-            argc: args.len() as _,
             this_val: this_obj,
             resolving_funcs,
             throw_flag: false,

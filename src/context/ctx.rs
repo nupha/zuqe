@@ -79,9 +79,6 @@ pub struct ContextImpl {
     pub(crate) job_list: VecDeque<Job>,
     /// user defined tick handlers
     pub(crate) tick_handlers: Vec<fn(&mut ScopedContext) -> bool>,
-
-    /// User data pointer
-    pub(crate) user_opaque: *mut std::ffi::c_void,
 }
 
 impl GcTrace for ContextImpl {
@@ -170,8 +167,6 @@ impl ContextImpl {
 
             job_list: VecDeque::new(),
             tick_handlers: Vec::new(),
-
-            user_opaque: std::ptr::null_mut(),
         };
 
         Ok(c)

@@ -58,31 +58,6 @@ impl TwoNumbers {
                 }
                 (n1, n2) => Ok(Self::Float(n1.to_f64(), n2.to_f64())),
             }
-
-            // let mut op1 = val1;
-            // let mut op2 = val2;
-
-            // loop {
-            //     // Note: despite original val1, val2 are from stack - traced by StackFrame,
-            //     // but op1, op2 could be new created orphan gc nodes,
-            //     // they must be protected in loop to avoid being collected
-            //     // in case toPrimitive or valueOf method is user defined bytecode function.
-            //     {
-            //         let heap = ctx.gc_heap_mut();
-            //         if let Some(n) = op1.gc_node_ptr() {
-            //             heap.protect_node(n);
-            //         }
-            //         if let Some(n) = op2.gc_node_ptr() {
-            //             heap.protect_node(n);
-            //         }
-            //     }
-
-            //     op1 = op1.to_number(ctx)?;
-            //     op2 = op2.to_number(ctx)?;
-            //     if let Some(n2) = Self::from_values0(op1, op2) {
-            //         break Ok(n2);
-            //     }
-            // }
         } else {
             Err(-1)
         }

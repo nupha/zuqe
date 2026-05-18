@@ -145,9 +145,6 @@ impl<'s> JSParseState<'s> {
     /// free atom if any.
     #[inline(always)]
     pub(super) fn clear_token_data(&mut self) {
-        // if let TokenData::Ident { atom, .. } = &mut self.token.data {
-        //     *atom = Atom::NULL;
-        // }
         self.token.data = TokenData::None;
     }
 

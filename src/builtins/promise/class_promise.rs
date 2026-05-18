@@ -18,10 +18,6 @@ use super::{
     js_promise_all_resolve_element, remainingElementsCount_add,
 };
 
-//
-// Instance methods
-//
-
 fn js_promise_then(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut this = cc.this();
     if let Some(p) = this.as_object_Promise_mut() {

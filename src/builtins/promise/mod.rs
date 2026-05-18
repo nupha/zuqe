@@ -6,7 +6,8 @@ mod job;
 mod promise;
 mod settle;
 
-pub use {class_promise::*, job::*, promise::*, settle::*};
+pub(crate) use job::*;
+pub use {class_promise::*, promise::*, settle::*};
 
 #[cfg(feature = "async_support")]
 mod async_support;

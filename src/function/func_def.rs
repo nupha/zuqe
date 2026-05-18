@@ -4,7 +4,7 @@
 use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 
 use crate::{
-    atom::{Atom, AtomKind},
+    atom::Atom,
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::ContextPtr,
     eval::EvalType,

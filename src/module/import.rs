@@ -19,12 +19,15 @@ use crate::{
 
 #[derive(Debug)]
 pub struct ImportEntry {
-    pub var_idx: u16, // closure variable index
+    /// closure variable index
+    pub var_idx: u16,
     pub import_name: Atom,
-    pub req_module_idx: i32, // in dependencies
+    /// in dependencies
+    pub req_module_idx: i32,
 }
 
 impl GcTrace for ImportEntry {
+    #[inline(always)]
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.import_name.trace(tr);
     }

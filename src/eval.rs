@@ -4,7 +4,7 @@
 use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
-    atom::{Atom, AtomKind},
+    atom::Atom,
     context::ScopedContext,
     error::JSResult,
     function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
@@ -32,8 +32,6 @@ bitflags::bitflags! {
         const STRICT = 1 << 0;
         /// strip debug source
         const STRIP = 1 << 1;
-        // /// indicates dedicated stack frame for async function execution
-        // const ASYNC = 1 << 2;
 
         const BACKTRACE_BARRIER = 1 << 4;
         /// compile script as root async function,

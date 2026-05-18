@@ -7,7 +7,7 @@ use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
-    atom::{Atom, AtomKind},
+    atom::Atom,
     builtins::iterator::make_iterator_next_result,
     context::{ContextPtr, ScopedContext},
     error::JSResult,

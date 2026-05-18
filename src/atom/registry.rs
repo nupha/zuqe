@@ -294,9 +294,6 @@ impl RuntimeImpl {
             hash,
         ));
 
-        let xref = self.gc_part_id();
-        self.gc_heap_mut().set_xref(xref, desc_str.gc_head_ptr());
-
         if let Some(i) = idx {
             debug_assert_eq!(i, atom_id as usize - ATOM_CONST_COUNT as usize - 1);
             debug_assert!(
