@@ -1209,8 +1209,6 @@ impl Bytecode {
                         *ARG_REF!(idx) = SP_VAL!(-1);
                         SP_GO!(-1);
                     }
-
-                    #[cfg(feature = "short_opcode")]
                     OpCode::SET_ARG => {
                         let idx = PC_FETCH!(u16);
                         *ARG_REF![idx] = SP_VAL!(-1);
@@ -1235,8 +1233,6 @@ impl Bytecode {
                         captured_vars[idx as usize].set_value(SP_VAL!(-1));
                         SP_GO!(-1);
                     }
-
-                    #[cfg(feature = "short_opcode")]
                     OpCode::SET_VAR_REF => {
                         // [value, ^] -> [value, ^]
                         // store stack top value to var_ref
