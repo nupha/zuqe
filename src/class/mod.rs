@@ -37,6 +37,9 @@ pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usi
 pub type ClassFinalizeOpaqueFn = fn(rt: &mut RuntimeImpl, opaque: *mut c_void, id: usize);
 /// class unregister handler.
 pub type ClassUnregisterFn = fn();
+/// GC mark callback for user class opaque payload.
+/// Called during GC mark phase to trace JSValues held inside opaque.
+pub type ClassGcTraceFn = fn(opaque: *mut c_void, tr: &mut gc_lite::GcTraceCtx);
 
 pub type DefineOwnPropertyFn = fn(
     ctx: &mut ScopedContext,

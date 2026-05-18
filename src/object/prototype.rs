@@ -164,6 +164,15 @@ impl ObjectImpl {
 
         Ok(true)
     }
+
+    /// Modify object `self`'s prototype.
+    pub fn set_prototype(
+        &mut self,
+        ctx: &mut ScopedContext,
+        proto_val: JSValue,
+    ) -> Result<bool, i32> {
+        self.set_prototype_internal(ctx, proto_val, true)
+    }
 }
 
 impl JSValue {
@@ -198,5 +207,14 @@ impl JSValue {
             ctx.throw_type_error_not_an_object();
             Err(-1)
         }
+    }
+
+    /// Modify value `self`'s prototype.
+    pub fn set_prototype(
+        &mut self,
+        ctx: &mut ScopedContext,
+        proto_val: JSValue,
+    ) -> Result<bool, i32> {
+        self.set_prototype_internal(ctx, proto_val, true)
     }
 }

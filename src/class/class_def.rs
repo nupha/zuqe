@@ -5,8 +5,8 @@ use crate::{
     Callback, ClassID, FieldDef, RuntimeImpl,
     atom::Atom,
     class::{
-        ClassCallFn, ClassFinalizeOpaqueFn, ClassInitializeFn, ClassUnregisterFn, GetPrototypeFn,
-        SetPrototypeFn,
+        ClassCallFn, ClassFinalizeOpaqueFn, ClassGcTraceFn, ClassInitializeFn, ClassUnregisterFn,
+        GetPrototypeFn, SetPrototypeFn,
     },
     context::ScopedContext,
     function::CallbackFn,
@@ -105,6 +105,8 @@ pub struct ClassDef {
     pub(crate) on_finalize_opaque: Option<ClassFinalizeOpaqueFn>,
     /// class def unregister handler.
     pub(crate) on_unregister: Option<ClassUnregisterFn>,
+    /// GC mark callback — trace JSValues stored in opaque payload
+    pub(crate) on_gc_mark: Option<ClassGcTraceFn>,
 }
 
 impl Default for ClassDef {
@@ -122,6 +124,7 @@ impl Default for ClassDef {
             on_finalize: None,
             on_finalize_opaque: None,
             on_unregister: None,
+            on_gc_mark: None,
         }
     }
 }
@@ -148,6 +151,7 @@ impl ClassDef {
             },
             on_finalize: Some(Self::default_fini_fn),
             on_finalize_opaque: None,
+            on_gc_mark: None,
         }
     }
 
@@ -164,6 +168,7 @@ impl ClassDef {
             on_initialize: ClassInitType::InitFn(init_fn),
             on_finalize: Some(Self::default_fini_fn),
             on_finalize_opaque: None,
+            on_gc_mark: None,
         }
     }
 
@@ -185,6 +190,7 @@ impl ClassDef {
             },
             on_finalize: None,
             on_finalize_opaque: None,
+            on_gc_mark: None,
         }
     }
 
@@ -199,6 +205,7 @@ impl ClassDef {
             on_initialize: ClassInitType::InitFn(init_fn),
             on_finalize: None,
             on_finalize_opaque: None,
+            on_gc_mark: None,
         }
     }
 
@@ -231,6 +238,12 @@ impl ClassDef {
     /// set class unregister callback
     pub const fn on_unregister(mut self, f: ClassUnregisterFn) -> Self {
         self.on_unregister.replace(f);
+        self
+    }
+
+    /// Set GC mark callback for tracing JSValues in opaque payload.
+    pub const fn on_gc_trace(mut self, f: ClassGcTraceFn) -> Self {
+        self.on_gc_mark = Some(f);
         self
     }
 

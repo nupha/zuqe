@@ -637,6 +637,8 @@ pub fn gen_class_payload(outfile: &Path) {
         }
     }
 
+    gc_trace_arms.push("Self::OTHER(x) => { x.trace(tr); }".to_string());
+
     get_payload_methods.push("pub const fn other(&self)->Option<&crate::class::OtherPayload> { if let Self::OTHER(o)=self {Some(o)} else{None} }".to_string());
     get_payload_methods.push("pub const fn other_mut(&mut self)->Option<&mut crate::class::OtherPayload> { if let Self::OTHER(o)=self {Some(o)} else{None} }".to_string());
 

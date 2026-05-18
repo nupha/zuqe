@@ -555,6 +555,8 @@ mod serde_json_support {
         /// For non-JSON-serializable values (undefined, functions, symbols, NaN, Infinity),
         /// they are converted to Null (following JSON.stringify behavior).
         /// Circular references in objects/arrays will cause a TypeError.
+        ///
+        /// Note: undefined value will be converted to Null.
         pub fn to_serde_json(&self, ctx: &mut ScopedContext) -> Result<serde_json::Value, i32> {
             jsvalue_to_serde_json(ctx, self, &mut SmallVec::new())
         }
@@ -681,8 +683,11 @@ mod serde_json_support {
                 let key_str = key_sr.content().encode_utf8(false).into_owned();
 
                 let prop_val = obj.get_property_value(ctx, key_sr.into())?;
-                let json_val = jsvalue_to_serde_json(ctx, &prop_val, stack)?;
-                map.insert(key_str, json_val);
+                // Note: ignore undefined fields — same as JSON.stringify behavior
+                if !prop_val.is_undefined() {
+                    let json_val = jsvalue_to_serde_json(ctx, &prop_val, stack)?;
+                    map.insert(key_str, json_val);
+                }
             }
             serde_json::Value::Object(map)
         };

@@ -25,8 +25,21 @@ pub struct OtherPayload {
 }
 
 impl GcTrace for OtherPayload {
-    #[inline(always)]
-    fn trace(&self, _: &mut GcTraceCtx) {}
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        if !self.opaque.is_null() {
+            // Hint: gcx.opaque() holds the *const RuntimeImpl，set when heap was created.
+            debug_assert!(!gcx.opaque().is_null());
+            let rt = unsafe { &*(gcx.opaque() as *const RuntimeImpl) };
+
+            if let Some(f) = rt
+                .class_registry
+                .get(self.class_id as usize)
+                .and_then(|c| c.on_gc_mark)
+            {
+                f(self.opaque, gcx);
+            }
+        }
+    }
 }
 
 impl OtherPayload {
