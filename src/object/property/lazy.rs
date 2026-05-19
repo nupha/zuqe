@@ -8,7 +8,7 @@ use crate::{
     atom::Atom,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
-    function::FieldDef,
+    function::{FieldDef, prop_str_to_atom},
     module::ModuleDef,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_WRITABLE, Object, ObjectImpl,
@@ -144,7 +144,7 @@ impl ObjectImpl {
         builder: fn(&mut ScopedContext) -> Result<JSValue, i32>,
         flags: u32,
     ) -> Result<&mut Self, i32> {
-        let atom = Atom::from_str(ctx.rt_ptr(), prop)?;
+        let atom = prop_str_to_atom(ctx, prop)?;
         self.define_lazy_property(ctx, atom, LazyInit::ValueFn(builder), flags)
     }
 }

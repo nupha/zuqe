@@ -6,6 +6,7 @@ use crate::{
     atom::Atom,
     context::ScopedContext,
     error::JS_ThrowReferenceErrorUninitialized,
+    function::prop_str_to_atom,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_LAZYINIT, JS_PROP_NO_EXOTIC, JS_PROP_NORMAL,
@@ -88,7 +89,8 @@ impl ObjectImpl {
 
     #[inline]
     pub fn has_own_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> Result<bool, i32> {
-        self.has_own_property(ctx, Atom::from_str(ctx.rt_ptr(), prop)?)
+        let atom = prop_str_to_atom(ctx, prop)?;
+        self.has_own_property(ctx, atom)
     }
 
     /// get own property descriptor.
@@ -447,7 +449,7 @@ impl JSValue {
     }
 
     pub fn has_own_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> Result<bool, i32> {
-        if let JSValue::Object(p) = self {
+        if let Some(p) = self.as_object() {
             p.has_own_property_str(ctx, prop)
         } else {
             ctx.throw_type_error_not_an_object();

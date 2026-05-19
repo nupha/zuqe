@@ -11,6 +11,7 @@ use crate::{
     atom::Atom,
     context::ScopedContext,
     error::JS_ThrowReferenceErrorNotDefined,
+    function::prop_str_to_atom,
     object::{
         JS_PROP_FORCE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE,
         JS_PROP_LAZYINIT, JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF,
@@ -530,14 +531,15 @@ impl ObjectImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn set_property_str(
         &mut self,
         ctx: &mut ScopedContext,
         prop: &str,
         val: JSValue,
     ) -> Result<bool, i32> {
-        self.set_property(ctx, Atom::from_str(ctx.rt_ptr(), prop)?, val)
+        let atom = prop_str_to_atom(ctx, prop)?;
+        self.set_property(ctx, atom, val)
     }
 }
 
@@ -634,14 +636,15 @@ impl JSValue {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn set_property_str(
         &mut self,
         ctx: &mut ScopedContext,
         prop: &str,
         val: Self,
     ) -> Result<bool, i32> {
-        self.set_property(ctx, Atom::from_str(ctx.rt_ptr(), prop)?, val)
+        let atom = prop_str_to_atom(ctx, prop)?;
+        self.set_property(ctx, atom, val)
     }
 }
 

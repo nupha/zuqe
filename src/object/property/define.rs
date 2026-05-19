@@ -6,6 +6,7 @@ use crate::{
     atom::{Atom, JS_ATOM_TAG_INT},
     bytecode::operators::js_get_function_name,
     context::ScopedContext,
+    function::prop_str_to_atom,
     number::IntOrFloat,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSProperty, Object,
@@ -261,7 +262,8 @@ impl ObjectImpl {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.define_property_value(ctx, Atom::from_str(ctx.rt_ptr(), prop)?, val, flags)
+        let atom = prop_str_to_atom(ctx, prop)?;
+        self.define_property_value(ctx, atom, val, flags)
     }
 
     #[inline(always)]
@@ -470,7 +472,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::from_str(ctx.rt_ptr(), prop)?;
+        let atom = prop_str_to_atom(ctx, prop)?;
         self.define_property_value(ctx, atom, val, flags)
     }
 

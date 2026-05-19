@@ -208,10 +208,9 @@ impl ModuleDefImpl {
 
         for entry in entries {
             let val: JSValue = match &entry.detail {
-                FieldDetail::Func { callback, length }
-                | FieldDetail::LazyFunc { callback, length } => ctx
-                    .create_native_function(*callback, entry.name, *length, 0)?
-                    .into(),
+                FieldDetail::LazyFunc { callback, length } => ctx
+                    .create_native_function(*callback, entry.name, *length, 0)
+                    .map(JSValue::from)?,
                 FieldDetail::LazyObject(fields) => {
                     let mut o = ctx.create_base_object()?;
                     o.install_fields(ctx, fields)?;

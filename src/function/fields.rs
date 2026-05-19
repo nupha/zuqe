@@ -20,12 +20,6 @@ pub(crate) enum FieldDetail {
         set: Option<Callback>,
     },
 
-    #[deprecated]
-    Func {
-        callback: Callback,
-        length: u8,
-    },
-
     LazyObject(&'static [FieldDef]),
     LazyStr(&'static str),
     LazyValueFn(fn(&mut ScopedContext) -> Result<JSValue, i32>),
@@ -99,7 +93,7 @@ impl FieldDef {
         }
     }
 
-    /// Define an iterator next function field backed by a native callback handler.
+    /// Define a lazy initialized iterator next function field backed by a native callback handler.
     pub const fn ITERATOR_NEXT(
         name: &'static str,
         length: u8,
@@ -174,24 +168,6 @@ impl FieldDef {
             detail: FieldDetail::Undefined,
             prop_flags: prop_flags as u8,
             magic: 0,
-        }
-    }
-
-    /// Define a lazy initialized function backed by native handler.
-    pub const fn LAZY_FUNC(
-        name: &'static str,
-        length: u8,
-        callback: CallbackFn,
-        magic: i16,
-    ) -> Self {
-        Self {
-            name,
-            detail: FieldDetail::LazyFunc {
-                callback: Callback::Func(callback),
-                length,
-            },
-            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
-            magic,
         }
     }
 
@@ -279,7 +255,7 @@ impl ObjectImpl {
         entries: &[FieldDef],
     ) -> Result<(), i32> {
         for entry in entries {
-            let atom = prop_name_to_atom(ctx, entry.name)?;
+            let atom = prop_str_to_atom(ctx, entry.name)?;
             self.install_field_entry(ctx, atom, entry.clone())?;
         }
         Ok(())
@@ -312,18 +288,6 @@ impl ObjectImpl {
                 return self
                     .define_property_getset(ctx, atom, getter, setter, prop_flags as _)
                     .map(|_| ());
-            }
-            FieldDetail::Func { callback, length } => {
-                #[cfg(feature = "builtin_symbol")]
-                if atom == Atom::CONST_Symbol_toPrimitive {
-                    prop_flags = JS_PROP_CONFIGURABLE as u8; // Symbol.toPrimitive functions are not writable
-                } else if atom == Atom::CONST_Symbol_hasInstance {
-                    prop_flags = 0; // Function.prototype[Symbol.hasInstance] is not writable nor configurable
-                }
-
-                let func = ctx.create_native_function(callback, entry.name, length, entry.magic)?;
-                self.define_property_value(ctx, atom, func.into(), prop_flags as _)?;
-                return Ok(());
             }
 
             FieldDetail::LazyValueFn(f) => {
@@ -384,7 +348,7 @@ impl ObjectImpl {
 
             FieldDetail::Alias { name, base } => {
                 // using autoinit for aliases is not safe
-                let name_atom = prop_name_to_atom(ctx, name)?;
+                let name_atom = prop_str_to_atom(ctx, name)?;
                 val = match base {
                     -1 => self.get_property(ctx, name_atom)?,
                     0 => ctx.global_obj().get_property(ctx, name_atom)?,
@@ -425,7 +389,7 @@ impl JSValue {
     }
 }
 
-fn prop_name_to_atom(ctx: &mut ScopedContext, str: &str) -> Result<Atom, i32> {
+pub(crate) fn prop_str_to_atom(ctx: &mut ScopedContext, str: &str) -> Result<Atom, i32> {
     #[cfg(not(feature = "builtin_symbol"))]
     debug_assert!(
         !(str.starts_with('[') && str.ends_with(']')),

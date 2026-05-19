@@ -11,6 +11,7 @@ use crate::{
     atom::{Atom, JS_ATOM_MAX_INT},
     context::ScopedContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
+    function::prop_str_to_atom,
     object::{JSProperty, Object, ObjectImpl},
     utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
@@ -293,9 +294,10 @@ impl ObjectImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn get_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> JSResult {
-        self.get_property(ctx, Atom::from_str(ctx.rt_ptr(), prop)?)
+        let atom = prop_str_to_atom(ctx, prop)?;
+        self.get_property(ctx, atom)
     }
 
     /// Check if `self` has a generalized numeric property `idx`.
@@ -403,9 +405,10 @@ impl JSValue {
     }
 
     /// get property by str prop
-    #[inline(always)]
+    #[inline]
     pub fn get_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> JSResult {
-        self.get_property(ctx, Atom::from_str(ctx.rt_ptr(), prop)?)
+        let atom = prop_str_to_atom(ctx, prop)?;
+        self.get_property(ctx, atom)
     }
 
     /// get property by u32 prop

@@ -5,8 +5,8 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
     context::ScopedContext,
+    function::prop_str_to_atom,
     object::{JS_PROP_FORCE, JSProperty, Object, ObjectImpl},
-    utils::unlikely,
     value::JSValue,
 };
 
@@ -136,10 +136,11 @@ impl ObjectImpl {
     pub fn delete_property_str(
         &mut self,
         ctx: &mut ScopedContext,
-        str: &str,
+        prop: &str,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.delete_property(ctx, Atom::from_str(ctx.rt_ptr(), str)?, flags)
+        let atom = prop_str_to_atom(ctx, prop)?;
+        self.delete_property(ctx, atom, flags)
     }
 
     pub fn delete_property_i64(
@@ -176,11 +177,11 @@ impl JSValue {
     pub fn delete_property_str(
         &mut self,
         ctx: &mut ScopedContext,
-        str: &str,
+        prop: &str,
         flags: u32,
     ) -> Result<bool, i32> {
         self.objectify(ctx)
-            .and_then(|mut o| o.delete_property_str(ctx, str, flags))
+            .and_then(|mut o| o.delete_property_str(ctx, prop, flags))
     }
 
     #[inline]
