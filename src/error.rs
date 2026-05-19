@@ -153,7 +153,7 @@ impl<'c> ScopedContext<'c> {
     /// Create Error object.
     /// Return None if can't create error object, usually due ot out of memory.
     #[cold]
-    pub(crate) fn create_error_object(
+    pub fn create_error_object(
         &mut self,
         kind: ErrorKind,
         message: &str,

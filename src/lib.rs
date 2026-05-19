@@ -32,7 +32,7 @@ pub use {
     atom::Atom,
     class::{ClassCtorDef, ClassDef, ClassID},
     context::{Context, ScopedContext},
-    error::{Exception, ExceptionText, JS_SetUncatchableError, JSResult},
+    error::{ErrorKind, Exception, ExceptionText, JS_SetUncatchableError, JSResult},
     eval::{EvalFlags, EvalType},
     function::{CallContext, Callback, FieldDef},
     microtask::*,
