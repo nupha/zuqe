@@ -852,11 +852,11 @@ pub const js_regexp_proto_funcs: &[FieldDef] = &[
         None,
         RegexFlags::INDICES.to_u32() as _,
     ),
-    FieldDef::CALL("exec", 1, js_regexp_exec, 0),
-    FieldDef::CALL("compile", 2, js_regexp_compile, 0),
-    FieldDef::CALL("test", 1, js_regexp_test, 0),
-    FieldDef::CALL("toString", 0, js_regexp_toString, 0),
-    FieldDef::CALL(
+    FieldDef::FUNC("exec", 1, js_regexp_exec, 0),
+    FieldDef::FUNC("compile", 2, js_regexp_compile, 0),
+    FieldDef::FUNC("test", 1, js_regexp_test, 0),
+    FieldDef::FUNC("toString", 0, js_regexp_toString, 0),
+    FieldDef::FUNC(
         #[cfg(feature = "builtin_symbol")]
         "[Symbol.replace]",
         #[cfg(not(feature = "builtin_symbol"))]
@@ -865,7 +865,7 @@ pub const js_regexp_proto_funcs: &[FieldDef] = &[
         js_regexp_Symbol_replace,
         0,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         #[cfg(feature = "builtin_symbol")]
         "[Symbol.match]",
         #[cfg(not(feature = "builtin_symbol"))]
@@ -874,7 +874,7 @@ pub const js_regexp_proto_funcs: &[FieldDef] = &[
         js_regexp_Symbol_match,
         0,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         #[cfg(feature = "builtin_symbol")]
         "[Symbol.matchAll]",
         #[cfg(not(feature = "builtin_symbol"))]
@@ -883,7 +883,7 @@ pub const js_regexp_proto_funcs: &[FieldDef] = &[
         js_regexp_Symbol_matchAll,
         0,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         #[cfg(feature = "builtin_symbol")]
         "[Symbol.search]",
         #[cfg(not(feature = "builtin_symbol"))]
@@ -892,7 +892,7 @@ pub const js_regexp_proto_funcs: &[FieldDef] = &[
         js_regexp_Symbol_search,
         0,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         #[cfg(feature = "builtin_symbol")]
         "[Symbol.split]",
         #[cfg(not(feature = "builtin_symbol"))]

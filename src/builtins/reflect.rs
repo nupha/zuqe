@@ -137,24 +137,24 @@ fn js_reflect_ownKeys(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 const js_reflect_funcs: &[FieldDef] = &[
-    FieldDef::CALL("apply", 3, js_reflect_apply, 0),
-    FieldDef::CALL("construct", 2, js_reflect_construct, 0),
-    FieldDef::CALL("defineProperty", 3, js_object_defineProperty, 1),
-    FieldDef::CALL("deleteProperty", 2, js_reflect_deleteProperty, 0),
-    FieldDef::CALL("get", 2, js_reflect_get, 0),
-    FieldDef::CALL(
+    FieldDef::FUNC("apply", 3, js_reflect_apply, 0),
+    FieldDef::FUNC("construct", 2, js_reflect_construct, 0),
+    FieldDef::FUNC("defineProperty", 3, js_object_defineProperty, 1),
+    FieldDef::FUNC("deleteProperty", 2, js_reflect_deleteProperty, 0),
+    FieldDef::FUNC("get", 2, js_reflect_get, 0),
+    FieldDef::FUNC(
         "getOwnPropertyDescriptor",
         2,
         js_object_getOwnPropertyDescriptor,
         1,
     ),
-    FieldDef::CALL("getPrototypeOf", 1, js_object_getPrototypeOf, 1),
-    FieldDef::CALL("has", 2, js_reflect_has, 0),
-    FieldDef::CALL("isExtensible", 1, js_object_isExtensible, 1),
-    FieldDef::CALL("ownKeys", 1, js_reflect_ownKeys, 0),
-    FieldDef::CALL("preventExtensions", 1, js_object_preventExtensions, 1),
-    FieldDef::CALL("set", 3, js_reflect_set, 0),
-    FieldDef::CALL("setPrototypeOf", 2, js_reflect_setPrototypeOf, 0),
+    FieldDef::FUNC("getPrototypeOf", 1, js_object_getPrototypeOf, 1),
+    FieldDef::FUNC("has", 2, js_reflect_has, 0),
+    FieldDef::FUNC("isExtensible", 1, js_object_isExtensible, 1),
+    FieldDef::FUNC("ownKeys", 1, js_reflect_ownKeys, 0),
+    FieldDef::FUNC("preventExtensions", 1, js_object_preventExtensions, 1),
+    FieldDef::FUNC("set", 3, js_reflect_set, 0),
+    FieldDef::FUNC("setPrototypeOf", 2, js_reflect_setPrototypeOf, 0),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Reflect", JS_PROP_CONFIGURABLE),
 ];

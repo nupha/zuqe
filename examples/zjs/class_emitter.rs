@@ -75,8 +75,8 @@ fn js_emitter_emit(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 const CLASS_EMITTER_PROTO: &[FieldDef] = &[
-    FieldDef::CALL("on", 1, js_emitter_on, 0),
-    FieldDef::CALL("emit", 1, js_emitter_emit, 0),
+    FieldDef::FUNC("on", 1, js_emitter_on, 0),
+    FieldDef::FUNC("emit", 1, js_emitter_emit, 0),
 ];
 
 pub struct JSEmitter;

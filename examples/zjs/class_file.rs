@@ -207,11 +207,11 @@ fn js_file_close(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 const CLASS_FILE_PROTO: &[FieldDef] = &[
-    FieldDef::CALL("fileno", 0, js_file_fileno, 0),
-    FieldDef::CALL("readAsString", 0, js_file_readAsString, 0),
-    FieldDef::CALL("puts", 1, js_file_puts, 1),
-    FieldDef::CALL("flush", 0, js_file_flush, 0),
-    FieldDef::CALL("close", 0, js_file_close, 0),
+    FieldDef::FUNC("fileno", 0, js_file_fileno, 0),
+    FieldDef::FUNC("readAsString", 0, js_file_readAsString, 0),
+    FieldDef::FUNC("puts", 1, js_file_puts, 1),
+    FieldDef::FUNC("flush", 0, js_file_flush, 0),
+    FieldDef::FUNC("close", 0, js_file_close, 0),
 ];
 
 pub struct JSFile;

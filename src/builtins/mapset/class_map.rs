@@ -268,26 +268,26 @@ pub(crate) fn js_create_map_iterator(ctx: &mut ScopedContext, cc: CallContext) -
 }
 
 pub const js_map_proto_funcs: &[FieldDef] = &[
-    FieldDef::CALL("set", 2, js_map_set, 0),
-    FieldDef::CALL("get", 1, js_map_get, 0),
-    FieldDef::CALL("has", 1, js_map_has, 0),
-    FieldDef::CALL("delete", 1, js_map_delete, 0),
-    FieldDef::CALL("clear", 0, js_map_clear, 0),
+    FieldDef::FUNC("set", 2, js_map_set, 0),
+    FieldDef::FUNC("get", 1, js_map_get, 0),
+    FieldDef::FUNC("has", 1, js_map_has, 0),
+    FieldDef::FUNC("delete", 1, js_map_delete, 0),
+    FieldDef::FUNC("clear", 0, js_map_clear, 0),
     FieldDef::GETSET("size", Some(js_map_get_size), None, 0),
-    FieldDef::CALL("forEach", 1, js_map_forEach, 0),
-    FieldDef::CALL(
+    FieldDef::FUNC("forEach", 1, js_map_forEach, 0),
+    FieldDef::FUNC(
         "values",
         0,
         js_create_map_iterator,
         (JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "keys",
         0,
         js_create_map_iterator,
         (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16) << 2,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "entries",
         0,
         js_create_map_iterator,
@@ -300,13 +300,13 @@ pub const js_map_proto_funcs: &[FieldDef] = &[
 ];
 
 pub const js_set_proto_funcs: &[FieldDef] = &[
-    FieldDef::CALL("add", 1, js_map_set, 1),
-    FieldDef::CALL("has", 1, js_map_has, 1),
-    FieldDef::CALL("delete", 1, js_map_delete, 1),
-    FieldDef::CALL("clear", 0, js_map_clear, 1),
+    FieldDef::FUNC("add", 1, js_map_set, 1),
+    FieldDef::FUNC("has", 1, js_map_has, 1),
+    FieldDef::FUNC("delete", 1, js_map_delete, 1),
+    FieldDef::FUNC("clear", 0, js_map_clear, 1),
     FieldDef::GETSET("size", Some(js_map_get_size), None, 1),
-    FieldDef::CALL("forEach", 1, js_map_forEach, 1),
-    FieldDef::CALL(
+    FieldDef::FUNC("forEach", 1, js_map_forEach, 1),
+    FieldDef::FUNC(
         "values",
         0,
         js_create_map_iterator,
@@ -315,7 +315,7 @@ pub const js_set_proto_funcs: &[FieldDef] = &[
     FieldDef::ALIAS("keys", "values"),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::ALIAS("[Symbol.iterator]", "values"),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "entries",
         0,
         js_create_map_iterator,
@@ -326,18 +326,18 @@ pub const js_set_proto_funcs: &[FieldDef] = &[
 ];
 
 pub const js_weakmap_proto_funcs: &[FieldDef] = &[
-    FieldDef::CALL("set", 2, js_map_set, 2),
-    FieldDef::CALL("get", 1, js_map_get, 2),
-    FieldDef::CALL("has", 1, js_map_has, 2),
-    FieldDef::CALL("delete", 1, js_map_delete, 2),
+    FieldDef::FUNC("set", 2, js_map_set, 2),
+    FieldDef::FUNC("get", 1, js_map_get, 2),
+    FieldDef::FUNC("has", 1, js_map_has, 2),
+    FieldDef::FUNC("delete", 1, js_map_delete, 2),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "WeakMap", JS_PROP_CONFIGURABLE),
 ];
 
 pub const js_weakset_proto_funcs: &[FieldDef] = &[
-    FieldDef::CALL("add", 1, js_map_set, 3),
-    FieldDef::CALL("has", 1, js_map_has, 3),
-    FieldDef::CALL("delete", 1, js_map_delete, 3),
+    FieldDef::FUNC("add", 1, js_map_set, 3),
+    FieldDef::FUNC("has", 1, js_map_has, 3),
+    FieldDef::FUNC("delete", 1, js_map_delete, 3),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "WeakSet", JS_PROP_CONFIGURABLE),
 ];
@@ -389,7 +389,7 @@ fn js_map_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_map_funcs: &[FieldDef] = &[
-    FieldDef::CALL("groupBy", 2, js_map_groupBy, 0),
+    FieldDef::FUNC("groupBy", 2, js_map_groupBy, 0),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];

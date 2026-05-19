@@ -67,4 +67,4 @@ fn js_proxy_revocable(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub const js_proxy_funcs: &[FieldDef] = &[FieldDef::CALL("revocable", 2, js_proxy_revocable, 0)];
+pub const js_proxy_funcs: &[FieldDef] = &[FieldDef::FUNC("revocable", 2, js_proxy_revocable, 0)];

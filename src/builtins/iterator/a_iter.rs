@@ -199,19 +199,19 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
 }
 
 pub(super) const js_async_from_sync_iterator_proto_funcs: &[FieldDef] = &[
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "next",
         1,
         js_async_from_sync_iterator_next,
         GEN_MAGIC_NEXT as _,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "return",
         1,
         js_async_from_sync_iterator_next,
         GEN_MAGIC_RETURN as _,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "throw",
         1,
         js_async_from_sync_iterator_next,
@@ -221,5 +221,5 @@ pub(super) const js_async_from_sync_iterator_proto_funcs: &[FieldDef] = &[
 
 pub(crate) const js_async_iterator_proto_funcs: &[FieldDef] = &[
     #[cfg(feature = "builtin_symbol")]
-    FieldDef::CALL("[Symbol.asyncIterator]", 0, crate::builtins::js_get_this, 0),
+    FieldDef::FUNC("[Symbol.asyncIterator]", 0, crate::builtins::js_get_this, 0),
 ];

@@ -254,7 +254,7 @@ pub enum JSProperty {
     /// TODO: use Box<PropertyLazy>
     LazyInit {
         realm: ContextPtr,
-        init_type: LazyInit,
+        init: LazyInit,
     },
 
     Deleted,
@@ -277,7 +277,10 @@ impl GcTrace for JSProperty {
             Self::VarRef(vr) => {
                 vr.trace(tr);
             }
-            Self::LazyInit { realm, init_type } => {
+            Self::LazyInit {
+                realm,
+                init: init_type,
+            } => {
                 realm.trace(tr);
                 init_type.trace(tr);
             }

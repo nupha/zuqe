@@ -412,18 +412,18 @@ pub fn js_promise_withResolvers(ctx: &mut ScopedContext, cc: CallContext) -> JSR
 }
 
 pub const js_promise_funcs: &[FieldDef] = &[
-    FieldDef::CALL("resolve", 1, js_promise_resolve, 0),
-    FieldDef::CALL("reject", 1, js_promise_resolve, 1),
-    FieldDef::CALL("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
-    FieldDef::CALL(
+    FieldDef::FUNC("resolve", 1, js_promise_resolve, 0),
+    FieldDef::FUNC("reject", 1, js_promise_resolve, 1),
+    FieldDef::FUNC("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
+    FieldDef::FUNC(
         "allSettled",
         1,
         js_promise_all,
         PROMISE_MAGIC_allSettled as _,
     ),
-    FieldDef::CALL("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
-    FieldDef::CALL("race", 1, js_promise_race, 0),
-    FieldDef::CALL("withResolvers", 0, js_promise_withResolvers, 0),
+    FieldDef::FUNC("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
+    FieldDef::FUNC("race", 1, js_promise_race, 0),
+    FieldDef::FUNC("withResolvers", 0, js_promise_withResolvers, 0),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
@@ -441,9 +441,9 @@ pub const js_promise_funcs: &[FieldDef] = &[
 // }
 
 pub const js_promise_proto_funcs: &[FieldDef] = &[
-    FieldDef::CALL("then", 2, js_promise_then, 0),
-    FieldDef::CALL("catch", 1, js_promise_catch, 0),
-    FieldDef::CALL("finally", 1, js_promise_finally, 0),
+    FieldDef::FUNC("then", 2, js_promise_then, 0),
+    FieldDef::FUNC("catch", 1, js_promise_catch, 0),
+    FieldDef::FUNC("finally", 1, js_promise_finally, 0),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Promise", JS_PROP_CONFIGURABLE),
 ];

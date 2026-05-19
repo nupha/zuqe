@@ -166,11 +166,11 @@ fn std_exit(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 const MOD_STD_ENTRIES: &[FieldDef] = &[
-    FieldDef::CALL("open", 2, js_std_open, 0),
-    FieldDef::CALL("puts", 1, js_file_puts, 0), // stdout
-    FieldDef::CALL("evalScript", 1, js_evalScript, 0),
-    FieldDef::CALL("gc", 0, js_gc, 0),
-    FieldDef::CALL("exit", 1, std_exit, 0),
+    FieldDef::FUNC("open", 2, js_std_open, 0),
+    FieldDef::FUNC("puts", 1, js_file_puts, 0), // stdout
+    FieldDef::FUNC("evalScript", 1, js_evalScript, 0),
+    FieldDef::FUNC("gc", 0, js_gc, 0),
+    FieldDef::FUNC("exit", 1, std_exit, 0),
     FieldDef::BUILD(
         "in",
         |cx| {

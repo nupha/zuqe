@@ -288,37 +288,37 @@ pub const js_dataview_proto_funcs: &[FieldDef] = &[
         None,
         TA_GET_BYTE_OFFSET as _,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "getInt8",
         1,
         js_dataview_getValue,
         JS_CLASS_INT8_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "getUint8",
         1,
         js_dataview_getValue,
         JS_CLASS_UINT8_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "getInt16",
         1,
         js_dataview_getValue,
         JS_CLASS_INT16_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "getUint16",
         1,
         js_dataview_getValue,
         JS_CLASS_UINT16_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "getInt32",
         1,
         js_dataview_getValue,
         JS_CLASS_INT32_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "getUint32",
         1,
         js_dataview_getValue,
@@ -336,49 +336,49 @@ pub const js_dataview_proto_funcs: &[FieldDef] = &[
     //     js_dataview_getValue,
     //     JS_CLASS_BIG_UINT64_ARRAY as i16
     // ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "getFloat32",
         1,
         js_dataview_getValue,
         JS_CLASS_FLOAT32_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "getFloat64",
         1,
         js_dataview_getValue,
         JS_CLASS_FLOAT64_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "setInt8",
         2,
         js_dataview_setValue,
         JS_CLASS_INT8_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "setUint8",
         2,
         js_dataview_setValue,
         JS_CLASS_UINT8_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "setInt16",
         2,
         js_dataview_setValue,
         JS_CLASS_INT16_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "setUint16",
         2,
         js_dataview_setValue,
         JS_CLASS_UINT16_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "setInt32",
         2,
         js_dataview_setValue,
         JS_CLASS_INT32_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "setUint32",
         2,
         js_dataview_setValue,
@@ -396,13 +396,13 @@ pub const js_dataview_proto_funcs: &[FieldDef] = &[
     //     js_dataview_setValue,
     //     JS_CLASS_BIG_UINT64_ARRAY as i16
     // ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "setFloat32",
         2,
         js_dataview_setValue,
         JS_CLASS_FLOAT32_ARRAY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "setFloat64",
         2,
         js_dataview_setValue,

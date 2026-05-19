@@ -606,7 +606,7 @@ impl Array {
 
 pub(crate) const js_iterator_proto_funcs: &[FieldDef] = &[
     #[cfg(feature = "builtin_symbol")]
-    FieldDef::CALL("[Symbol.iterator]", 0, js_get_this, 0),
+    FieldDef::FUNC("[Symbol.iterator]", 0, js_get_this, 0),
 ];
 
 #[cfg(not(feature = "builtin_symbol"))]

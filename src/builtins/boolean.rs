@@ -49,8 +49,8 @@ fn js_boolean_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_boolean_proto_funcs: &[FieldDef] = &[
-    FieldDef::CALL("toString", 0, js_boolean_toString, 0),
-    FieldDef::CALL("valueOf", 0, js_boolean_valueOf, 0),
+    FieldDef::FUNC("toString", 0, js_boolean_toString, 0),
+    FieldDef::FUNC("valueOf", 0, js_boolean_valueOf, 0),
 ];
 
 pub(crate) static CLASS_DEF_BOOLEAN: ClassDef = ClassDef::builtin(

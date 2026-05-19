@@ -192,8 +192,8 @@ pub fn js_math_random(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
 }
 
 pub const js_math_funcs: &[FieldDef] = &[
-    FieldDef::CALL("min", 2, js_math_min_max, 0),
-    FieldDef::CALL("max", 2, js_math_min_max, 1),
+    FieldDef::FUNC("min", 2, js_math_min_max, 0),
+    FieldDef::FUNC("max", 2, js_math_min_max, 1),
     //
     FieldDef::CALL_FF("abs", 1, f64::abs, 0),
     FieldDef::CALL_FF("floor", 1, f64::floor, 0),
@@ -248,11 +248,11 @@ pub const js_math_funcs: &[FieldDef] = &[
     FieldDef::CALL_FF("log2", 1, f64::log2, 0),
     FieldDef::CALL_FF("log10", 1, f64::log10, 0),
     FieldDef::CALL_FF("cbrt", 1, f64::cbrt, 0),
-    FieldDef::CALL("hypot", 2, js_math_hypot, 0),
-    FieldDef::CALL("random", 0, js_math_random, 0),
+    FieldDef::FUNC("hypot", 2, js_math_hypot, 0),
+    FieldDef::FUNC("random", 0, js_math_random, 0),
     FieldDef::CALL_FF("fround", 1, |a: f64| -> f64 { (a as f32) as f64 }, 0),
-    FieldDef::CALL("imul", 2, js_math_imul, 0),
-    FieldDef::CALL("clz32", 1, js_math_clz32, 0),
+    FieldDef::FUNC("imul", 2, js_math_imul, 0),
+    FieldDef::FUNC("clz32", 1, js_math_clz32, 0),
     FieldDef::FLOAT64("E", std::f64::consts::E, 0),
     FieldDef::FLOAT64("LN10", std::f64::consts::LN_10, 0),
     FieldDef::FLOAT64("LN2", std::f64::consts::LN_2, 0),

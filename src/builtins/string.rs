@@ -957,43 +957,43 @@ fn js_string__quote(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub const js_string_proto_funcs: &[FieldDef] = &[
     FieldDef::INT32("length", 0, JS_PROP_CONFIGURABLE),
-    FieldDef::CALL("charAt", 1, js_string_at, 0),
-    FieldDef::CALL("at", 1, js_string_at, 1),
-    FieldDef::CALL("charCodeAt", 1, js_string_at, 2),
-    FieldDef::CALL("concat", 1, js_string_concat, 0),
-    FieldDef::CALL("codePointAt", 1, js_string_codePointAt, 0),
-    FieldDef::CALL("isWellFormed", 0, js_string_isWellFormed, 0),
-    FieldDef::CALL("toWellFormed", 0, js_string_toWellFormed, 0),
-    FieldDef::CALL("indexOf", 1, js_string_indexOf, 0),
-    FieldDef::CALL("lastIndexOf", 1, js_string_indexOf, 1),
-    FieldDef::CALL("includes", 1, js_string_includes, MAGIC_INCLUDES as _),
-    FieldDef::CALL("endsWith", 1, js_string_includes, MAGIC_ENDS_WITH as _),
-    FieldDef::CALL("startsWith", 1, js_string_includes, MAGIC_STARTS_WITH as _),
-    FieldDef::CALL("match", 1, js_string_match, MAGIC_MATCH as _),
-    FieldDef::CALL("matchAll", 1, js_string_match, MAGIC_MATCH_ALL as _),
-    FieldDef::CALL("search", 1, js_string_match, MAGIC_MATCH_SEARCH as _),
-    FieldDef::CALL("split", 2, js_string_split, 0),
-    FieldDef::CALL("substring", 2, js_string_substring, 0),
-    FieldDef::CALL("substr", 2, js_string_substr, 0),
-    FieldDef::CALL("slice", 2, js_string_slice, 0),
-    FieldDef::CALL("repeat", 1, js_string_repeat, 0),
-    FieldDef::CALL("replace", 2, js_string_replace, 0),
-    FieldDef::CALL("replaceAll", 2, js_string_replace, 1),
-    FieldDef::CALL("padEnd", 1, js_string_pad, 1),
-    FieldDef::CALL("padStart", 1, js_string_pad, 0),
-    FieldDef::CALL("trim", 0, js_string_trim, 3),
-    FieldDef::CALL("trimEnd", 0, js_string_trim, 2),
+    FieldDef::FUNC("charAt", 1, js_string_at, 0),
+    FieldDef::FUNC("at", 1, js_string_at, 1),
+    FieldDef::FUNC("charCodeAt", 1, js_string_at, 2),
+    FieldDef::FUNC("concat", 1, js_string_concat, 0),
+    FieldDef::FUNC("codePointAt", 1, js_string_codePointAt, 0),
+    FieldDef::FUNC("isWellFormed", 0, js_string_isWellFormed, 0),
+    FieldDef::FUNC("toWellFormed", 0, js_string_toWellFormed, 0),
+    FieldDef::FUNC("indexOf", 1, js_string_indexOf, 0),
+    FieldDef::FUNC("lastIndexOf", 1, js_string_indexOf, 1),
+    FieldDef::FUNC("includes", 1, js_string_includes, MAGIC_INCLUDES as _),
+    FieldDef::FUNC("endsWith", 1, js_string_includes, MAGIC_ENDS_WITH as _),
+    FieldDef::FUNC("startsWith", 1, js_string_includes, MAGIC_STARTS_WITH as _),
+    FieldDef::FUNC("match", 1, js_string_match, MAGIC_MATCH as _),
+    FieldDef::FUNC("matchAll", 1, js_string_match, MAGIC_MATCH_ALL as _),
+    FieldDef::FUNC("search", 1, js_string_match, MAGIC_MATCH_SEARCH as _),
+    FieldDef::FUNC("split", 2, js_string_split, 0),
+    FieldDef::FUNC("substring", 2, js_string_substring, 0),
+    FieldDef::FUNC("substr", 2, js_string_substr, 0),
+    FieldDef::FUNC("slice", 2, js_string_slice, 0),
+    FieldDef::FUNC("repeat", 1, js_string_repeat, 0),
+    FieldDef::FUNC("replace", 2, js_string_replace, 0),
+    FieldDef::FUNC("replaceAll", 2, js_string_replace, 1),
+    FieldDef::FUNC("padEnd", 1, js_string_pad, 1),
+    FieldDef::FUNC("padStart", 1, js_string_pad, 0),
+    FieldDef::FUNC("trim", 0, js_string_trim, 3),
+    FieldDef::FUNC("trimEnd", 0, js_string_trim, 2),
     FieldDef::ALIAS("trimRight", "trimEnd"),
-    FieldDef::CALL("trimStart", 0, js_string_trim, 1),
+    FieldDef::FUNC("trimStart", 0, js_string_trim, 1),
     FieldDef::ALIAS("trimLeft", "trimStart"),
-    FieldDef::CALL("toString", 0, js_string_toString, 0),
-    FieldDef::CALL("valueOf", 0, js_string_toString, 0),
-    FieldDef::CALL("toLowerCase", 0, js_string_toLowerCase, 1),
-    FieldDef::CALL("toUpperCase", 0, js_string_toLowerCase, 0),
-    FieldDef::CALL("toLocaleLowerCase", 0, js_string_toLowerCase, 1),
-    FieldDef::CALL("toLocaleUpperCase", 0, js_string_toLowerCase, 0),
+    FieldDef::FUNC("toString", 0, js_string_toString, 0),
+    FieldDef::FUNC("valueOf", 0, js_string_toString, 0),
+    FieldDef::FUNC("toLowerCase", 0, js_string_toLowerCase, 1),
+    FieldDef::FUNC("toUpperCase", 0, js_string_toLowerCase, 0),
+    FieldDef::FUNC("toLocaleLowerCase", 0, js_string_toLowerCase, 1),
+    FieldDef::FUNC("toLocaleUpperCase", 0, js_string_toLowerCase, 0),
     #[cfg(feature = "builtin_symbol")]
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "[Symbol.iterator]",
         0,
         js_create_array_iterator,
@@ -1002,11 +1002,11 @@ pub const js_string_proto_funcs: &[FieldDef] = &[
     //
     // all unicode
     #[cfg(feature = "all_unicode")]
-    FieldDef::CALL("normalize", 0, js_string_normalize, 0),
+    FieldDef::FUNC("normalize", 0, js_string_normalize, 0),
     #[cfg(feature = "all_unicode")]
-    FieldDef::CALL("localeCompare", 1, js_string_localeCompare, 0),
+    FieldDef::FUNC("localeCompare", 1, js_string_localeCompare, 0),
     // DEBUG: for repl only
-    FieldDef::CALL("__quote", 0, js_string__quote, 0),
+    FieldDef::FUNC("__quote", 0, js_string__quote, 0),
 ];
 
 fn js_string_iterator_next(
@@ -1143,9 +1143,9 @@ fn js_string_raw(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_string_funcs: &[FieldDef] = &[
-    FieldDef::CALL("fromCharCode", 1, js_string_fromCharCode, 0),
-    FieldDef::CALL("fromCodePoint", 1, js_string_fromCodePoint, 0),
-    FieldDef::CALL("raw", 1, js_string_raw, 0),
+    FieldDef::FUNC("fromCharCode", 1, js_string_fromCharCode, 0),
+    FieldDef::FUNC("fromCodePoint", 1, js_string_fromCodePoint, 0),
+    FieldDef::FUNC("raw", 1, js_string_raw, 0),
 ];
 
 pub(crate) static CLASS_DEF_STRING: ClassDef = ClassDef::builtin(

@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ptr::NonNull;
-
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
+    Callback,
     atom::Atom,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
-    function::{FieldDef, FieldDetail},
+    function::FieldDef,
     module::ModuleDef,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_WRITABLE, Object, ObjectImpl,
@@ -24,10 +23,20 @@ use super::JSProperty;
 pub enum LazyInit {
     /// Build prototype and set as constructor for target object
     Prototype,
-    /// Build value from field def.
-    Prop(NonNull<FieldDef>),
     /// Build module namespace object
     ModuleNS(ModuleDef),
+    /// Build object from entries
+    Object(&'static [FieldDef]),
+    ValueFn(fn(&mut ScopedContext) -> Result<JSValue, i32>),
+    String(&'static str),
+    /// Build value by calling the function
+    /// Build function object
+    Func {
+        name: &'static str,
+        callback: Callback,
+        length: u8,
+        magic: i16,
+    },
 }
 
 impl GcTrace for LazyInit {
@@ -39,8 +48,8 @@ impl GcTrace for LazyInit {
 }
 
 impl LazyInit {
-    /// apply init. returns instantiated value.
-    pub fn instantiate(&mut self, ctx: &mut ScopedContext, this_obj: Object) -> JSResult {
+    /// apply lazy initialization. returns instantiated value.
+    fn instantiate(&mut self, ctx: &mut ScopedContext, this_obj: Object) -> JSResult {
         match self {
             Self::Prototype => {
                 let mut obj = ctx.create_base_object()?;
@@ -52,26 +61,25 @@ impl LazyInit {
                 )?;
                 Ok(obj.into())
             }
-
             Self::ModuleNS(md) => md.ns(ctx).map(JSValue::Object),
-
-            Self::Prop(field) => {
-                let field = unsafe { field.as_ref() };
-                let val: JSValue = match &field.detail {
-                    FieldDetail::Func { callback, length } => ctx
-                        .create_native_function(*callback, field.name, *length, field.magic)?
-                        .into(),
-                    FieldDetail::Str(s) => ctx.create_atom_string(s)?.into(),
-                    FieldDetail::Object(entries) => {
-                        let mut obj = ctx.create_base_object()?;
-                        obj.install_fields(ctx, entries)?;
-                        obj.into()
-                    }
-                    _ => {
-                        unreachable!("");
-                    }
-                };
-                Ok(val)
+            Self::ValueFn(f) => f(ctx),
+            Self::String(s) => {
+                ctx.create_atom_string(s).map(JSValue::from)
+                // why not create a value?
+                // ctx.create_string_from_str(s).map(JSValue::from)
+            }
+            Self::Func {
+                name,
+                callback,
+                length,
+                magic,
+            } => ctx
+                .create_native_function(*callback, name, *length, *magic)
+                .map(JSValue::from),
+            Self::Object(entries) => {
+                let mut obj = ctx.create_base_object()?;
+                obj.install_fields(ctx, entries)?;
+                Ok(obj.into())
             }
         }
     }
@@ -84,10 +92,10 @@ impl JSProperty {
     ///
     /// Note: will panic if property is not lazy type.
     pub(super) fn instantiate(&mut self, this_obj: Object) -> JSResult {
-        if let JSProperty::LazyInit { realm, init_type } = self {
+        if let JSProperty::LazyInit { realm, init } = self {
             realm
                 .with_current_scope(|mut scope| {
-                    let ret_val = init_type.instantiate(&mut scope, this_obj)?;
+                    let ret_val = init.instantiate(&mut scope, this_obj)?;
                     scope.set_return_value(ret_val);
                     Ok(ret_val)
                 })
@@ -99,14 +107,14 @@ impl JSProperty {
 }
 
 impl ObjectImpl {
-    /// define an AutoInit property on object
-    pub fn define_lazy_property(
+    /// define an lazy init property on object
+    pub(crate) fn define_lazy_property(
         &mut self,
         ctx: &mut ScopedContext,
         prop: Atom,
-        lazy_init: LazyInit,
+        lazy_val: LazyInit,
         flags: u32,
-    ) -> Result<(), i32> {
+    ) -> Result<&mut Self, i32> {
         debug_assert!(
             !self.has_shape_property(prop),
             "auto init property already exists: {} {:?}",
@@ -122,8 +130,21 @@ impl ObjectImpl {
             (flags & JS_PROP_C_W_E) | JS_PROP_LAZYINIT,
             JSProperty::LazyInit {
                 realm,
-                init_type: lazy_init,
+                init: lazy_val,
             },
-        )
+        )?;
+        Ok(self)
+    }
+
+    /// define a lazy init property with value builder function
+    pub fn define_lazy_property_with(
+        &mut self,
+        ctx: &mut ScopedContext,
+        prop: &str,
+        builder: fn(&mut ScopedContext) -> Result<JSValue, i32>,
+        flags: u32,
+    ) -> Result<&mut Self, i32> {
+        let atom = Atom::from_str(ctx.rt_ptr(), prop)?;
+        self.define_lazy_property(ctx, atom, LazyInit::ValueFn(builder), flags)
     }
 }

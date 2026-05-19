@@ -142,7 +142,7 @@ pub fn js_error_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_error_proto_funcs: &[FieldDef] = &[
-    FieldDef::CALL("toString", 0, js_error_toString, 0),
+    FieldDef::FUNC("toString", 0, js_error_toString, 0),
     FieldDef::STR("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
     FieldDef::STR("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
 ];

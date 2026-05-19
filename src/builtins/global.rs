@@ -172,17 +172,17 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_global_props: &[FieldDef] = &[
-    FieldDef::CALL("parseInt", 2, js_parseInt, 0),
-    FieldDef::CALL("parseFloat", 1, js_parseFloat, 0),
-    FieldDef::CALL("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
-    FieldDef::CALL(
+    FieldDef::FUNC("parseInt", 2, js_parseInt, 0),
+    FieldDef::FUNC("parseFloat", 1, js_parseFloat, 0),
+    FieldDef::FUNC("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
+    FieldDef::FUNC(
         "isFinite",
         1,
         js_global_isNaN_isFinite,
         MAGIC_NUM_IS_FINITE as _,
     ),
-    FieldDef::CALL("decodeURI", 1, js_global_decodeURI, 0),
-    FieldDef::CALL("decodeURIComponent", 1, js_global_decodeURI, 1),
+    FieldDef::FUNC("decodeURI", 1, js_global_decodeURI, 0),
+    FieldDef::FUNC("decodeURIComponent", 1, js_global_decodeURI, 1),
     // JS_CFUNC_MAGIC_DEF("encodeURI", 1, js_global_encodeURI, 0),
     // JS_CFUNC_MAGIC_DEF("encodeURIComponent", 1, js_global_encodeURI, 1),
     // JS_CFUNC_DEF("escape", 1, js_global_escape),

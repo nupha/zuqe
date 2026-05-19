@@ -226,8 +226,8 @@ fn js_typed_array_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_typed_array_base_funcs: &[FieldDef] = &[
-    FieldDef::CALL("from", 1, js_typed_array_from, 0),
-    FieldDef::CALL("of", 0, js_typed_array_of, 0),
+    FieldDef::FUNC("from", 1, js_typed_array_from, 0),
+    FieldDef::FUNC("of", 0, js_typed_array_of, 0),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
@@ -1424,8 +1424,8 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
 pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("length", Some(js_typed_array_get_length), None, 0),
-    FieldDef::CALL("at", 1, js_typed_array_at, 0),
-    FieldDef::CALL("with", 2, js_typed_array_with, 0),
+    FieldDef::FUNC("at", 1, js_typed_array_at, 0),
+    FieldDef::FUNC("with", 2, js_typed_array_with, 0),
     FieldDef::GETSET(
         "buffer",
         Some(js_typed_array_getter),
@@ -1444,8 +1444,8 @@ pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
         None,
         TA_GET_BYTE_OFFSET as _,
     ),
-    FieldDef::CALL("set", 1, js_typed_array_set, 0),
-    FieldDef::CALL(
+    FieldDef::FUNC("set", 1, js_typed_array_set, 0),
+    FieldDef::FUNC(
         "values",
         0,
         js_create_typed_array_iterator,
@@ -1453,13 +1453,13 @@ pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
     ),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::ALIAS("[Symbol.iterator]", "values"),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "keys",
         0,
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "entries",
         0,
         js_create_typed_array_iterator,
@@ -1472,75 +1472,75 @@ pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
         None,
         0,
     ),
-    FieldDef::CALL("copyWithin", 2, js_typed_array_copyWithin, 0),
-    FieldDef::CALL(
+    FieldDef::FUNC("copyWithin", 2, js_typed_array_copyWithin, 0),
+    FieldDef::FUNC(
         "every",
         1,
         js_array_every,
         (special_every | special_TA) as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "some",
         1,
         js_array_every,
         (special_some | special_TA) as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "forEach",
         1,
         js_array_every,
         (special_forEach | special_TA) as i16,
     ),
-    FieldDef::CALL("map", 1, js_array_every, (special_map | special_TA) as i16),
-    FieldDef::CALL(
+    FieldDef::FUNC("map", 1, js_array_every, (special_map | special_TA) as i16),
+    FieldDef::FUNC(
         "filter",
         1,
         js_array_every,
         (special_filter | special_TA) as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "reduce",
         1,
         js_array_reduce,
         (special_reduce | special_TA) as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "reduceRight",
         1,
         js_array_reduce,
         (special_reduceRight | special_TA) as i16,
     ),
-    FieldDef::CALL("fill", 1, js_typed_array_fill, 0),
-    FieldDef::CALL("find", 1, js_typed_array_find, special_find as i16),
-    FieldDef::CALL(
+    FieldDef::FUNC("fill", 1, js_typed_array_fill, 0),
+    FieldDef::FUNC("find", 1, js_typed_array_find, special_find as i16),
+    FieldDef::FUNC(
         "findIndex",
         1,
         js_typed_array_find,
         special_findIndex as i16,
     ),
-    FieldDef::CALL("findLast", 1, js_typed_array_find, special_findLast as i16),
-    FieldDef::CALL(
+    FieldDef::FUNC("findLast", 1, js_typed_array_find, special_findLast as i16),
+    FieldDef::FUNC(
         "findLastIndex",
         1,
         js_typed_array_find,
         special_findLastIndex as i16,
     ),
-    FieldDef::CALL("reverse", 0, js_typed_array_reverse, 0),
-    FieldDef::CALL("toReversed", 0, js_typed_array_toReversed, 0),
-    FieldDef::CALL("slice", 2, js_typed_array_slice, 0),
-    FieldDef::CALL("subarray", 2, js_typed_array_subarray, 0),
-    FieldDef::CALL("sort", 1, js_typed_array_sort, 0),
-    FieldDef::CALL("toSorted", 1, js_typed_array_toSorted, 0),
-    FieldDef::CALL("join", 1, js_typed_array_join, 0),
-    FieldDef::CALL("toLocaleString", 0, js_typed_array_join, 1),
-    FieldDef::CALL("indexOf", 1, js_typed_array_indexOf, special_indexOf as i16),
-    FieldDef::CALL(
+    FieldDef::FUNC("reverse", 0, js_typed_array_reverse, 0),
+    FieldDef::FUNC("toReversed", 0, js_typed_array_toReversed, 0),
+    FieldDef::FUNC("slice", 2, js_typed_array_slice, 0),
+    FieldDef::FUNC("subarray", 2, js_typed_array_subarray, 0),
+    FieldDef::FUNC("sort", 1, js_typed_array_sort, 0),
+    FieldDef::FUNC("toSorted", 1, js_typed_array_toSorted, 0),
+    FieldDef::FUNC("join", 1, js_typed_array_join, 0),
+    FieldDef::FUNC("toLocaleString", 0, js_typed_array_join, 1),
+    FieldDef::FUNC("indexOf", 1, js_typed_array_indexOf, special_indexOf as i16),
+    FieldDef::FUNC(
         "lastIndexOf",
         1,
         js_typed_array_indexOf,
         special_lastIndexOf as i16,
     ),
-    FieldDef::CALL(
+    FieldDef::FUNC(
         "includes",
         1,
         js_typed_array_indexOf,

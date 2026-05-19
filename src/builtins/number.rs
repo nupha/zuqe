@@ -221,12 +221,12 @@ fn js_number_toFixed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_number_proto_funcs: &[FieldDef] = &[
-    FieldDef::CALL("toFixed", 1, js_number_toFixed, 0),
-    FieldDef::CALL("toPrecision", 1, js_number_toPrecision, 0),
-    FieldDef::CALL("toExponential", 1, js_number_toExponential, 0),
-    FieldDef::CALL("toString", 1, js_number_toString, 0),
-    FieldDef::CALL("toLocaleString", 0, js_number_toString, 1),
-    FieldDef::CALL("valueOf", 0, js_number_valueOf, 0),
+    FieldDef::FUNC("toFixed", 1, js_number_toFixed, 0),
+    FieldDef::FUNC("toPrecision", 1, js_number_toPrecision, 0),
+    FieldDef::FUNC("toExponential", 1, js_number_toExponential, 0),
+    FieldDef::FUNC("toString", 1, js_number_toString, 0),
+    FieldDef::FUNC("toLocaleString", 0, js_number_toString, 1),
+    FieldDef::FUNC("valueOf", 0, js_number_valueOf, 0),
 ];
 
 fn js_number_isNaN_isFinite(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -256,15 +256,15 @@ pub const js_number_funcs: &[FieldDef] = &[
     // global ParseInt and parseFloat should be defined already or delayed
     FieldDef::ALIAS_BASE("parseInt", "parseInt", 0),
     FieldDef::ALIAS_BASE("parseFloat", "parseFloat", 0),
-    FieldDef::CALL("isNaN", 1, js_number_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
-    FieldDef::CALL(
+    FieldDef::FUNC("isNaN", 1, js_number_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
+    FieldDef::FUNC(
         "isFinite",
         1,
         js_number_isNaN_isFinite,
         MAGIC_NUM_IS_FINITE as _,
     ),
-    FieldDef::CALL("isInteger", 1, js_number_isInteger, 0),
-    FieldDef::CALL("isSafeInteger", 1, js_number_isSafeInteger, 0),
+    FieldDef::FUNC("isInteger", 1, js_number_isInteger, 0),
+    FieldDef::FUNC("isSafeInteger", 1, js_number_isSafeInteger, 0),
     FieldDef::FLOAT64("MAX_VALUE", 1.797_693_134_862_315_7e308, 0),
     FieldDef::FLOAT64("MIN_VALUE", 5e-324, 0),
     FieldDef::FLOAT64("NaN", f64::NAN, 0),

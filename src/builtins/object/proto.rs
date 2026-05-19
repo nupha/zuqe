@@ -208,12 +208,12 @@ unsafe fn js_object___lookupGetter__(
 }
 
 pub const js_object_proto_funcs: &[FieldDef] = &[
-    FieldDef::CALL("toString", 0, js_object_toString, 0),
-    FieldDef::CALL("toLocaleString", 0, js_object_toLocaleString, 0),
-    FieldDef::CALL("valueOf", 0, js_object_valueOf, 0),
-    FieldDef::CALL("hasOwnProperty", 1, js_object_hasOwnProperty, 0),
-    FieldDef::CALL("isPrototypeOf", 1, js_object_isPrototypeOf, 0),
-    FieldDef::CALL("propertyIsEnumerable", 1, js_object_propertyIsEnumerable, 0),
+    FieldDef::FUNC("toString", 0, js_object_toString, 0),
+    FieldDef::FUNC("toLocaleString", 0, js_object_toLocaleString, 0),
+    FieldDef::FUNC("valueOf", 0, js_object_valueOf, 0),
+    FieldDef::FUNC("hasOwnProperty", 1, js_object_hasOwnProperty, 0),
+    FieldDef::FUNC("isPrototypeOf", 1, js_object_isPrototypeOf, 0),
+    FieldDef::FUNC("propertyIsEnumerable", 1, js_object_propertyIsEnumerable, 0),
     FieldDef::GETSET(
         "__proto__",
         Some(js_object_getset___proto__),

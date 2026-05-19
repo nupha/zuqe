@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ptr::NonNull;
-
 use crate::{
-    atom::{Atom, AtomKind},
+    atom::Atom,
     context::ScopedContext,
     function::{
         Callback, CallbackFn, GetterFn, IteratorFn, JSCFunctionFF, JSCFunctionFFF, SetterFn,
@@ -16,27 +14,35 @@ use crate::{
 #[repr(u8)]
 #[derive(Debug, Clone)]
 pub(crate) enum FieldDetail {
-    Func {
-        callback: Callback,
-        length: u8,
-    },
+    Class,
     GetSet {
         get: Option<Callback>,
         set: Option<Callback>,
     },
+
+    #[deprecated]
+    Func {
+        callback: Callback,
+        length: u8,
+    },
+
+    LazyObject(&'static [FieldDef]),
+    LazyStr(&'static str),
+    LazyValueFn(fn(&mut ScopedContext) -> Result<JSValue, i32>),
+    LazyFunc {
+        callback: Callback,
+        length: u8,
+    },
+
+    Int32(i32),
+    Float64(f64),
+    Undefined,
+    #[deprecated(note = "Use LazyBuild instead")]
+    Build(fn(&mut ScopedContext) -> Result<JSValue, i32>),
     Alias {
         name: &'static str,
         base: i32,
     },
-    /// Lazy init object with entries
-    Object(&'static [FieldDef]),
-    Class,
-    Str(&'static str),
-    Int32(i32),
-    Float64(f64),
-    Undefined,
-    /// user defined value build func
-    Build(fn(&mut ScopedContext) -> Result<JSValue, i32>),
 }
 
 #[derive(Debug, Clone)]
@@ -48,17 +54,23 @@ pub struct FieldDef {
 }
 
 impl FieldDef {
-    /// Define a callback function backed by a native handler.
-    pub const fn CALL(name: &'static str, length: u8, callback: CallbackFn, magic: i16) -> Self {
+    /// Define a lazy initialized function backed by a native handler.
+    pub const fn FUNC(name: &'static str, length: u8, callback: CallbackFn, magic: i16) -> Self {
         Self {
             name,
-            detail: FieldDetail::Func {
+            detail: FieldDetail::LazyFunc {
                 callback: Callback::Func(callback),
                 length,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
             magic,
         }
+    }
+
+    /// Define a lazy initialized function backed by a native handler.
+    #[deprecated(note = "use ::FUNC instead")]
+    pub const fn CALL(name: &'static str, length: u8, callback: CallbackFn, magic: i16) -> Self {
+        Self::FUNC(name, length, callback, magic)
     }
 
     /// Define a getter, setter field
@@ -96,7 +108,7 @@ impl FieldDef {
     ) -> Self {
         Self {
             name,
-            detail: FieldDetail::Func {
+            detail: FieldDetail::LazyFunc {
                 callback: Callback::IteratorNext(callback),
                 length,
             },
@@ -105,12 +117,12 @@ impl FieldDef {
         }
     }
 
-    /// Define a lazy init object with entries.
+    /// Define a lazy initialized object with entries.
     pub const fn OBJECT(name: &'static str, entries: &'static [Self], prop_flags: u32) -> Self {
         Self {
             name,
-            detail: FieldDetail::Object(entries),
-            prop_flags: prop_flags as u8,
+            detail: FieldDetail::LazyObject(entries),
+            prop_flags: prop_flags as _,
             magic: 0,
         }
     }
@@ -145,11 +157,11 @@ impl FieldDef {
         }
     }
 
-    /// Define a str field
+    /// Define a lazy initialized string field
     pub const fn STR(name: &'static str, val: &'static str, prop_flags: u32) -> Self {
         Self {
             name,
-            detail: FieldDetail::Str(val),
+            detail: FieldDetail::LazyStr(val),
             prop_flags: prop_flags as u8,
             magic: 0,
         }
@@ -165,13 +177,39 @@ impl FieldDef {
         }
     }
 
-    pub const fn BUILD(
+    /// Define a lazy initialized function backed by native handler.
+    pub const fn LAZY_FUNC(
         name: &'static str,
-        f: fn(&mut ScopedContext) -> Result<JSValue, i32>,
-        prop_flags: u32,
+        length: u8,
+        callback: CallbackFn,
+        magic: i16,
     ) -> Self {
         Self {
             name,
+            detail: FieldDetail::LazyFunc {
+                callback: Callback::Func(callback),
+                length,
+            },
+            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
+            magic,
+        }
+    }
+
+    /// Define a lazy initialized value field with build function
+    pub const fn VALUE(f: fn(&mut ScopedContext) -> Result<JSValue, i32>, prop_flags: u32) -> Self {
+        Self {
+            name: "",
+            detail: FieldDetail::LazyValueFn(f),
+            prop_flags: prop_flags as u8,
+            magic: 0,
+        }
+    }
+
+    /// Define a value field with build function
+    #[deprecated]
+    pub const fn BUILD(f: fn(&mut ScopedContext) -> Result<JSValue, i32>, prop_flags: u32) -> Self {
+        Self {
+            name: "",
             detail: FieldDetail::Build(f),
             prop_flags: prop_flags as u8,
             magic: 0,
@@ -206,7 +244,7 @@ impl FieldDef {
     ) -> Self {
         Self {
             name,
-            detail: FieldDetail::Func {
+            detail: FieldDetail::LazyFunc {
                 callback: Callback::FF(callback),
                 length,
             },
@@ -224,7 +262,7 @@ impl FieldDef {
     ) -> Self {
         Self {
             name,
-            detail: FieldDetail::Func {
+            detail: FieldDetail::LazyFunc {
                 callback: Callback::FFF(callback),
                 length,
             },
@@ -242,7 +280,7 @@ impl ObjectImpl {
     ) -> Result<(), i32> {
         for entry in entries {
             let atom = prop_name_to_atom(ctx, entry.name)?;
-            self.install_field_entry(ctx, atom, entry)?;
+            self.install_field_entry(ctx, atom, entry.clone())?;
         }
         Ok(())
     }
@@ -251,31 +289,12 @@ impl ObjectImpl {
         &mut self,
         ctx: &mut ScopedContext,
         atom: Atom,
-        entry: &FieldDef,
+        entry: FieldDef,
     ) -> Result<(), i32> {
         let val: JSValue;
         let mut prop_flags = entry.prop_flags;
 
         match entry.detail {
-            FieldDetail::Func { .. } => {
-                #[cfg(feature = "builtin_symbol")]
-                if atom == Atom::CONST_Symbol_toPrimitive {
-                    // Symbol.toPrimitive functions are not writable
-                    prop_flags = JS_PROP_CONFIGURABLE as u8;
-                } else if atom == Atom::CONST_Symbol_hasInstance {
-                    // Function.prototype[Symbol.hasInstance] is not writable nor configurable
-                    prop_flags = 0;
-                }
-
-                self.define_lazy_property(
-                    ctx,
-                    atom,
-                    LazyInit::Prop(NonNull::from(entry)),
-                    prop_flags as _,
-                )?;
-
-                return Ok(());
-            }
             FieldDetail::GetSet { get, set } => {
                 // XXX: use autoinit again ?
                 let getter = if let Some(f) = get {
@@ -294,15 +313,51 @@ impl ObjectImpl {
                     .define_property_getset(ctx, atom, getter, setter, prop_flags as _)
                     .map(|_| ());
             }
-            FieldDetail::Str(_) | FieldDetail::Object(_) => {
-                return self.define_lazy_property(
+            FieldDetail::Func { callback, length } => {
+                #[cfg(feature = "builtin_symbol")]
+                if atom == Atom::CONST_Symbol_toPrimitive {
+                    prop_flags = JS_PROP_CONFIGURABLE as u8; // Symbol.toPrimitive functions are not writable
+                } else if atom == Atom::CONST_Symbol_hasInstance {
+                    prop_flags = 0; // Function.prototype[Symbol.hasInstance] is not writable nor configurable
+                }
+
+                let func = ctx.create_native_function(callback, entry.name, length, entry.magic)?;
+                self.define_property_value(ctx, atom, func.into(), prop_flags as _)?;
+                return Ok(());
+            }
+
+            FieldDetail::LazyValueFn(f) => {
+                self.define_lazy_property(ctx, atom, LazyInit::ValueFn(f), prop_flags as _)?;
+                return Ok(());
+            }
+            FieldDetail::LazyFunc { callback, length } => {
+                #[cfg(feature = "builtin_symbol")]
+                if atom == Atom::CONST_Symbol_toPrimitive {
+                    prop_flags = JS_PROP_CONFIGURABLE as u8; // Symbol.toPrimitive functions are not writable
+                } else if atom == Atom::CONST_Symbol_hasInstance {
+                    prop_flags = 0; // Function.prototype[Symbol.hasInstance] is not writable nor configurable
+                }
+
+                self.define_lazy_property(
                     ctx,
                     atom,
-                    LazyInit::Prop(unsafe {
-                        NonNull::new_unchecked(entry as *const FieldDef as *mut FieldDef)
-                    }),
+                    LazyInit::Func {
+                        callback,
+                        length,
+                        magic: entry.magic,
+                        name: entry.name,
+                    },
                     prop_flags as _,
-                );
+                )?;
+                return Ok(());
+            }
+            FieldDetail::LazyStr(s) => {
+                self.define_lazy_property(ctx, atom, LazyInit::String(s), prop_flags as _)?;
+                return Ok(());
+            }
+            FieldDetail::LazyObject(tab) => {
+                self.define_lazy_property(ctx, atom, LazyInit::Object(tab), prop_flags as _)?;
+                return Ok(());
             }
 
             FieldDetail::Class => {

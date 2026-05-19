@@ -197,7 +197,36 @@ impl ObjectImpl {
             //
             // Debug mode: panic immediately to force the constructor author to fix it.
             // Release mode: silently fix the prototype as a safety net.
-            if is_ctor {
+            //
+            // Per ECMAScript spec, every built-in constructor that creates instances uses
+            // OrdinaryCreateFromConstructor (§10.1.13), which derives the instance prototype
+            // from newTarget.prototype (with GetFunctionRealm fallback). The prototype
+            // check below applies to ALL such constructors by default.
+            //
+            // The following classes are excluded because their spec algorithms explicitly
+            // do NOT use OrdinaryCreateFromConstructor:
+            //
+            // - Proxy (§10.4.11): [[Construct]] invokes the construct trap and returns
+            //   the trap's result directly; no prototype constraint is enforced.
+            // - BoundFunction (§10.4.12): [[Construct]] delegates to
+            //   target.[[Construct]](args, newTarget); the target handles prototype itself.
+            // - AsyncFunction: spec says "not a constructor"; cannot be invoked with `new`.
+            // - PromiseResolve/RejectFunction, AsyncFunctionResolve/Reject: internal
+            //   callable objects with no [[Construct]] defined in spec.
+            //
+            // NOTE: When adding a new class with `on_call`, re-evaluate whether its
+            // spec algorithm calls OrdinaryCreateFromConstructor. If not, add it here.
+            const SKIP_PROTO_CHECK: &[crate::ClassID] = &[
+                crate::JS_CLASS_PROXY, // §10.4.11: construct trap returns arbitrary object
+                crate::JS_CLASS_BOUND_FUNCTION, // §10.4.12: delegates to target.[[Construct]]
+                crate::JS_CLASS_ASYNC_FUNCTION, // spec: not a constructor
+                crate::JS_CLASS_ASYNC_FUNCTION_RESOLVE, // internal callable, no [[Construct]]
+                crate::JS_CLASS_ASYNC_FUNCTION_REJECT, // internal callable, no [[Construct]]
+                crate::JS_CLASS_PROMISE_RESOLVE_FUNCTION, // internal callable, no [[Construct]]
+                crate::JS_CLASS_PROMISE_REJECT_FUNCTION, // internal callable, no [[Construct]]
+            ];
+
+            if is_ctor && !SKIP_PROTO_CHECK.contains(&self.class_id()) {
                 let self_val: JSValue = Object::from_ref(self).into();
 
                 if new_target != self_val   // new_target differs from this constructor → called as super()
@@ -206,20 +235,29 @@ impl ObjectImpl {
                         && let Ok(proto_val) = new_target.get_property(ctx, Atom::CONST_prototype)
                         && (proto_val.is_object() || proto_val.is_null())
                 {
-                    // This shouldn't happen.
+                    // Per ES OrdinaryCreateFromConstructor:
+                    //   1. proto = Get(newTarget, "prototype")
+                    //   2. If proto_val is not an Object, proto = GetFunctionRealm(newTarget).intrinsicDefaultProto
+                    //
+                    // When newTarget.prototype is not an object, the fallback prototype
+                    // comes from newTarget's realm, NOT the current realm.
+                    let expected_proto = if let Some(p) = proto_val.as_object().copied() {
+                        Some(p)
+                    } else {
+                        // Fallback: GetFunctionRealm(newTarget) → realm.class_proto(class_id)
+                        let class_id = obj.class_id();
+                        new_target
+                            .as_object()
+                            .and_then(|o| o.realm(ctx.ctx_ptr).ok())
+                            .and_then(|realm| realm.class_proto(class_id))
+                    };
 
                     // Debug mode behavior: panic immediately to force the constructor author to fix it
                     #[cfg(debug_assertions)]
                     {
                         let actual_proto = obj.shape_proto();
-                        let expected_proto = proto_val.as_object().copied();
-                        let is_correct = if proto_val.is_null() {
-                            actual_proto.is_none()
-                        } else {
-                            actual_proto == expected_proto
-                        };
                         debug_assert!(
-                            is_correct,
+                            actual_proto == expected_proto,
                             "Native constructor returned object with wrong prototype. \
                                      The constructor should use \
                                      `create_class_instance_with_opaque(new_target, class_id, opaque)` \
@@ -230,7 +268,11 @@ impl ObjectImpl {
                     }
 
                     // Release mode behavior: fix the prototype silently
-                    let _ = obj.set_prototype(ctx, proto_val);
+                    if let Some(p) = expected_proto {
+                        let _ = obj.set_prototype(ctx, JSValue::Object(p));
+                    } else {
+                        let _ = obj.set_prototype(ctx, JSValue::NULL);
+                    }
                 }
             }
 

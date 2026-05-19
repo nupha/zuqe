@@ -111,10 +111,10 @@ fn js_symbol_get_description(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 }
 
 pub const js_symbol_proto_funcs: &[FieldDef] = &[
-    FieldDef::CALL("toString", 0, js_symbol_toString, 0),
-    FieldDef::CALL("valueOf", 0, js_symbol_valueOf, 0),
+    FieldDef::FUNC("toString", 0, js_symbol_toString, 0),
+    FieldDef::FUNC("valueOf", 0, js_symbol_valueOf, 0),
     // XXX: should have writable: false
-    FieldDef::CALL("[Symbol.toPrimitive]", 1, js_symbol_valueOf, 0),
+    FieldDef::FUNC("[Symbol.toPrimitive]", 1, js_symbol_valueOf, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Symbol", JS_PROP_CONFIGURABLE),
     FieldDef::GETSET("description", Some(js_symbol_get_description), None, 0),
 ];
@@ -138,8 +138,8 @@ fn js_symbol_keyFor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_symbol_funcs: &[FieldDef] = &[
-    FieldDef::CALL("for", 1, js_symbol_for, 0),
-    FieldDef::CALL("keyFor", 1, js_symbol_keyFor, 0),
+    FieldDef::FUNC("for", 1, js_symbol_for, 0),
+    FieldDef::FUNC("keyFor", 1, js_symbol_keyFor, 0),
 ];
 
 pub(crate) static CLASS_DEF_SYMBOL: ClassDef = ClassDef::builtin(
