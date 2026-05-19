@@ -218,5 +218,5 @@ macro_rules! object_cast {
                 }
             }
         }
-    };
+    }
 }

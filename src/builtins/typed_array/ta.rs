@@ -132,7 +132,7 @@ impl TypedArrayPayload {
     }
 
     /// Get underlaying bytes
-    pub(crate) fn bytes(&self) -> &[u8] {
+    pub fn bytes(&self) -> &[u8] {
         let ptr = self.as_ptr();
         if !ptr.is_null() {
             let len = self.byte_length as usize;
@@ -143,7 +143,7 @@ impl TypedArrayPayload {
     }
 
     /// run closure with underlaying bytes of typed array.
-    pub(crate) fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+    pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
         self.array_buffer()
@@ -591,6 +591,12 @@ impl TypedArray {
         } else {
             self.payload().offset as usize
         }
+    }
+
+    /// returns underlaying bytes of typed array
+    #[inline(always)]
+    pub fn bytes(&self) -> &[u8] {
+        self.payload().bytes()
     }
 
     /// run closure with underlaying bytes of typed array

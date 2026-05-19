@@ -68,6 +68,7 @@ impl ABufData {
         }
     }
 
+    /// get underlaying bytes of ArrayBuffer. Not for SharedArrayBuffer.
     pub(crate) fn bytes(&self) -> &[u8] {
         match self {
             Self::Empty => &[],
@@ -391,13 +392,13 @@ impl ArrayBuffer {
 pub fn js_array_buffer_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let size = cc.arg(0).to_index(ctx)? as usize;
     ArrayBuffer::with_capacity_ex(ctx, cc.this(), false, size, std::ptr::null_mut())
-        .map(|x| x.into())
+        .map(JSValue::from)
 }
 
 pub fn js_shared_array_buffer_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let size = cc.arg(0).to_index(ctx)? as usize;
     ArrayBuffer::with_capacity_ex(ctx, cc.this(), true, size, std::ptr::null_mut())
-        .map(|x| x.into())
+        .map(JSValue::from)
 }
 
 // also used for SharedArrayBuffer
