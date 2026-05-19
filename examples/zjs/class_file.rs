@@ -250,7 +250,9 @@ impl JSFile {
     fn new_instance_internal(ctx: &mut ScopedContext, fd: FileDesc) -> Result<Object, i32> {
         let class_id = Self::class_id();
         let opaque = Box::into_raw(Box::new(fd)).cast::<c_void>();
-        ctx.create_class_instance_with_opaque(class_id, opaque)
+        // Not a constructor callback — pass undefined as new_target,
+        // which causes the class's default prototype to be used.
+        ctx.create_class_instance_with_opaque(JSValue::UNDEFINED, class_id, opaque)
             .map_err(|e| {
                 let p = e.other().unwrap();
                 let _ = unsafe { Box::from_raw(p.opaque().cast::<FileDesc>()) };

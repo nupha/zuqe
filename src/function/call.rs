@@ -178,13 +178,63 @@ impl ObjectImpl {
                 .call
         } {
             // calling class defined exotic callback (e.g. bound function, native function, async function etc)
-            cb(
+            let mut result = cb(
                 ctx,
                 Object::from_ref(self).into(),
                 if is_ctor { new_target } else { this_obj },
                 args,
                 flags,
-            )
+            );
+
+            // ES2023 OrdinaryCreateFromConstructor: when a constructor is called
+            // via super() from a derived class, newTarget determines the instance
+            // prototype. Native constructors should use
+            // `create_class_instance_with_opaque(new_target, ...)` to create
+            // instances with the correct prototype from the start.
+            //
+            // If a native constructor used the deprecated `create_class_instance_with_opaque()`
+            // (which ignores newTarget), the instance prototype will be wrong.
+            //
+            // Debug mode: panic immediately to force the constructor author to fix it.
+            // Release mode: silently fix the prototype as a safety net.
+            if is_ctor {
+                let self_val: JSValue = Object::from_ref(self).into();
+
+                if new_target != self_val   // new_target differs from this constructor → called as super()
+                   && let Ok(ref mut val) = result
+                        && let Some(obj) = val.as_object_mut()
+                        && let Ok(proto_val) = new_target.get_property(ctx, Atom::CONST_prototype)
+                        && (proto_val.is_object() || proto_val.is_null())
+                {
+                    // This shouldn't happen.
+
+                    // Debug mode behavior: panic immediately to force the constructor author to fix it
+                    #[cfg(debug_assertions)]
+                    {
+                        let actual_proto = obj.shape_proto();
+                        let expected_proto = proto_val.as_object().copied();
+                        let is_correct = if proto_val.is_null() {
+                            actual_proto.is_none()
+                        } else {
+                            actual_proto == expected_proto
+                        };
+                        debug_assert!(
+                            is_correct,
+                            "Native constructor returned object with wrong prototype. \
+                                     The constructor should use \
+                                     `create_class_instance_with_opaque(new_target, class_id, opaque)` \
+                                     instead of the deprecated \
+                                     `create_class_instance_with_opaque(class_id, opaque)` \
+                                     to respect newTarget.prototype per ES OrdinaryCreateFromConstructor."
+                        );
+                    }
+
+                    // Release mode behavior: fix the prototype silently
+                    let _ = obj.set_prototype(ctx, proto_val);
+                }
+            }
+
+            result
         } else {
             ctx.throw_type_error("not a function");
             Err(-1)

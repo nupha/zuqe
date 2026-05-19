@@ -3,6 +3,7 @@
 
 #![allow(non_snake_case)]
 
+mod class_emitter;
 mod class_file;
 mod global;
 mod mod_os;
@@ -19,6 +20,7 @@ use zuqe::{
 };
 
 use crate::{
+    class_emitter::JSEmitter,
     class_file::JSFile,
     global::setup_globals,
     mod_os::{init_mod_os, mod_os_gc_trace},
@@ -191,12 +193,14 @@ fn run_zjs_prepare<'a>() -> (Runtime, Context<'a>, Args, String, bool) {
     };
 
     let class_id_file = JSFile::register(rt.clone()).unwrap();
+    let class_id_emitter = JSEmitter::register(rt.clone()).unwrap();
 
     let ctx = rt
         .create_context(|cx| {
             Context::ECMA_CONTEXT_SETUP(cx)?;
 
             cx.use_class(class_id_file).unwrap();
+            cx.use_class(class_id_emitter).unwrap();
 
             init_mod_std(cx).unwrap();
             init_mod_os(cx).unwrap();

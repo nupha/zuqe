@@ -19,6 +19,10 @@ impl<'c> ScopedContext<'c> {
     ///
     /// - New object will apply the shape determined by `proto`, if provided.
     /// - The `payload` determines what class the new object is.
+    ///
+    /// This method is the most fundamental way to instantiate a class.
+    /// Higher-level methods (like `create_instance_with_payload` which provide sugars)
+    /// are finally directed to this method.
     pub(crate) fn create_instance_with_proto_payload(
         &mut self,
         proto: Option<Object>,
@@ -39,11 +43,20 @@ impl<'c> ScopedContext<'c> {
     }
 
     /// Create an instance with `payload` data, applying payload's implied (default) class and proto.
+    ///
+    /// This method is for **builtin class only**. For user-defined (non-builtin) classes,
+    /// use `create_class_instance_with_opaque` instead, which respects `newTarget`
+    /// per ES `OrdinaryCreateFromConstructor`.
     #[inline(always)]
     pub(crate) fn create_instance_with_payload(
         &mut self,
         payload: ObjectPayload,
     ) -> Result<Object, ObjectPayload> {
+        debug_assert!(
+            payload.class_id() < USER_CLASS_ID_START,
+            "create_instance_with_payload is for builtin class only; \
+             use create_class_instance_with_opaque for user-defined classes"
+        );
         self.create_instance_with_proto_payload(self.class_proto(payload.class_id()), payload)
     }
 
@@ -80,12 +93,22 @@ impl<'c> ScopedContext<'c> {
         self.create_instance_with_proto_payload(proto, payload)
     }
 
-    /// Create an instance of a user-defined (non-builtin) class with an attached raw pointer.
+    /// Create an instance of a user-defined (non-builtin) class with an attached raw pointer,
+    /// respecting `newTarget.prototype` for the object's prototype chain.
     ///
-    /// Note: this method is for non-builtin class only.
-    /// If you want to create builtin class instance, use `create_instance_with_payload` instead.
+    /// This is the `newTarget`-aware version of `create_class_instance_with_opaque`,
+    /// analogous to how builtin constructors use `create_instance_with_ctor`.
+    ///
+    /// When called from a native constructor, pass `cc.this()` (which is `newTarget`)
+    /// so that `class MySub extends NativeClass` creates instances with the correct
+    /// prototype (`MySub.prototype` instead of `NativeClass.prototype`).
+    ///
+    /// - If `new_target` is undefined, falls back to the class's default prototype.
+    /// - If `new_target.prototype` is an object, uses it as the instance prototype.
+    /// - If `new_target.prototype` is not an object, falls back to the class's default prototype.
     pub fn create_class_instance_with_opaque(
         &mut self,
+        new_target: JSValue,
         class_id: ClassID,
         opaque: *mut c_void,
     ) -> Result<Object, ObjectPayload> {
@@ -93,9 +116,10 @@ impl<'c> ScopedContext<'c> {
             self.throw_internal_error("expect non-builtin class");
             Err(ObjectPayload::OTHER(OtherPayload::new(class_id, opaque)))
         } else {
-            self.create_instance_with_payload(ObjectPayload::OTHER(OtherPayload::new(
-                class_id, opaque,
-            )))
+            self.create_instance_with_ctor(
+                new_target,
+                ObjectPayload::OTHER(OtherPayload::new(class_id, opaque)),
+            )
         }
     }
 
