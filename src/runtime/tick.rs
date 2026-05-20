@@ -4,12 +4,11 @@
 use std::process::ExitCode;
 
 use gc_lite::GcNode;
-use smallvec::SmallVec;
 
 use crate::{
     Exception,
     context::{ContextPtr, ScopedContext},
-    microtask::{Job, JobState},
+    microtask::JobState,
 };
 
 use super::RuntimeImpl;
@@ -39,23 +38,22 @@ impl RuntimeImpl {
         for mut ctx in self.context_list.iter().copied() {
             ctx.with_new_scope(|mut scope| -> Result<(), i32> {
                 // 1. run pending jobs (not for new added jobs)
-                let mut again = SmallVec::<[Job; 8]>::new();
 
-                while let Some(mut job) = scope.job_list.pop_front() {
-                    self.gc_cur_job_trace = job.gc_trace.take(); // save job gc tracing temporarily
+                while let Some(job) = scope.job_list.pop_front() {
+                    // put job into gc-visible collection first, so GC can trace it during run()
+                    self.gc_jobs.push(job);
 
+                    let job = self.gc_jobs.last().unwrap();
                     if job.run(&mut scope)? == JobState::Again {
-                        // multi-run task: run again in next iter
-                        job.gc_trace = self.gc_cur_job_trace.take(); // restore job gc tracing
-                        again.push(job);
+                        // multi-run task: leave in gc_jobs, run again in next tick
                     } else {
-                        self.gc_cur_job_trace = None;
+                        self.gc_jobs.pop();
                     }
                 }
 
-                // sched jobs to run again in next round
-                if !again.is_empty() {
-                    scope.job_list.extend(again);
+                // re-enqueue pending (Again) jobs to job_list for next round
+                if !self.gc_jobs.is_empty() {
+                    scope.job_list.extend(self.gc_jobs.drain(..));
                     more_ticks = true;
                 }
 

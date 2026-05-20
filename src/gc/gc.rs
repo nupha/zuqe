@@ -97,9 +97,10 @@ impl RuntimeImpl {
         if let Some(f) = self.gc_user_trace.as_ref() {
             f(&mut gcx);
         }
-        // mark currently running job
-        if let Some(f) = self.gc_cur_job_trace.as_ref() {
-            f(&mut gcx);
+        // trace gc_jobs: jobs removed from job_list but still alive during tick
+        // (they are in gc_jobs — a GC-traced Runtime field — and must not be swept)
+        for job in self.gc_jobs.iter() {
+            job.trace(&mut gcx);
         }
 
         for n in gcx.take_nodes() {

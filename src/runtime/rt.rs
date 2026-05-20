@@ -15,6 +15,7 @@ use crate::{
     context::ContextPtr,
     error::Exception,
     gc::gc::GC_TYPE_REGISTRY,
+    microtask::Job,
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeImpl},
     stack_frame::{ExecMode, StackFrame},
@@ -73,10 +74,12 @@ pub struct RuntimeImpl {
     pub(crate) gc_heap: GcHeap,
     /// gc partition id
     pub(crate) gc_part_hot: GcPartitionId,
+    /// Jobs temporarily held here during tick() so GC can trace them.
+    /// Jobs are pushed before run(), popped on completion (Done),
+    /// or kept for retry (Again) then re-enqueued to job_list at end of tick.
+    pub(crate) gc_jobs: Vec<Job>,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
-    /// gc trace of current running job
-    pub(crate) gc_cur_job_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
     /// gc request flag
     pub(crate) gc_req: bool,
 
@@ -135,7 +138,7 @@ impl RuntimeImpl {
             gc_heap,
             gc_part_hot: gc_part_id,
             gc_user_trace: None,
-            gc_cur_job_trace: None,
+            gc_jobs: Vec::with_capacity(8),
             gc_req: false,
 
             interrupt_handler: None,
