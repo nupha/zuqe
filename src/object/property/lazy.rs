@@ -76,22 +76,16 @@ impl LazyInit {
                 callback,
                 length,
                 magic,
-            } => {
-                NativeFunction::create(
-                    ctx,
-                    *callback,
-                    prop,
-                    *length,
-                    *magic,
-                    ctx.function_proto(),
-                    None,
-                )
-                .map(JSValue::from)
-
-                //  ctx
-                // .create_native_function(*callback, name, *length, *magic)
-                // .map(JSValue::from)
-            }
+            } => NativeFunction::create(
+                ctx,
+                *callback,
+                prop,
+                *length,
+                *magic,
+                ctx.function_proto(),
+                None,
+            )
+            .map(JSValue::from),
 
             Self::Class(f) => {
                 let class_id = f();
@@ -119,7 +113,7 @@ impl LazyInit {
 impl JSProperty {
     /// Instantiate lazy value.
     ///
-    /// `this_obj` is the `this` bind used to call instantiate function.
+    /// `this_obj` is used for LazyInit::Prototype case only, indicating the value of `constructor` field.
     ///
     /// Note: will panic if property is not lazy type.
     pub(super) fn instantiate(self, prop: Atom, this_obj: Object) -> JSResult {

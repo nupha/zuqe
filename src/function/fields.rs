@@ -134,7 +134,7 @@ impl FieldDef {
         }
     }
 
-    /// Define a lazy inisitializd class constructor field
+    /// Define a lazy initialized class constructor field
     pub const fn CLASS(name: &'static str, f: fn() -> ClassID, prop_flags: u32) -> Self {
         Self {
             name,
