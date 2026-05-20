@@ -83,7 +83,7 @@ impl ObjectImpl {
                             })?;
 
                             // instantiate the value, and set it to prop slot
-                            let val = pd.instantiate(Object::from_ref(self));
+                            let val = pd.instantiate(prop, Object::from_ref(self));
                             cur_obj.set_prop_slot(idx, JSProperty::Normal(val?));
 
                             // redo again to get prop value from slot

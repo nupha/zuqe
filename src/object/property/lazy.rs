@@ -4,11 +4,11 @@
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
-    Callback,
+    Callback, ClassID,
     atom::Atom,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
-    function::{FieldDef, prop_str_to_atom},
+    function::{FieldDef, NativeFunction, prop_str_to_atom},
     module::ModuleDef,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_WRITABLE, Object, ObjectImpl,
@@ -34,11 +34,12 @@ pub enum LazyInit {
     String(&'static str),
     /// function value
     Func {
-        name: &'static str,
         callback: Callback,
         length: u8,
         magic: i16,
     },
+    /// class constructor by class id
+    Class(fn() -> ClassID),
 }
 
 impl GcTrace for LazyInit {
@@ -51,7 +52,7 @@ impl GcTrace for LazyInit {
 
 impl LazyInit {
     /// apply lazy initialization. returns instantiated value.
-    fn instantiate(&mut self, ctx: &mut ScopedContext, this_obj: Object) -> JSResult {
+    fn instantiate(&mut self, ctx: &mut ScopedContext, prop: Atom, this_obj: Object) -> JSResult {
         match self {
             Self::Prototype => {
                 let mut obj = ctx.create_base_object()?;
@@ -70,14 +71,42 @@ impl LazyInit {
                 // why not create a value?
                 // ctx.create_string_from_str(s).map(JSValue::from)
             }
+
             Self::Func {
-                name,
                 callback,
                 length,
                 magic,
-            } => ctx
-                .create_native_function(*callback, name, *length, *magic)
-                .map(JSValue::from),
+            } => {
+                NativeFunction::create(
+                    ctx,
+                    *callback,
+                    prop,
+                    *length,
+                    *magic,
+                    ctx.function_proto(),
+                    None,
+                )
+                .map(JSValue::from)
+
+                //  ctx
+                // .create_native_function(*callback, name, *length, *magic)
+                // .map(JSValue::from)
+            }
+
+            Self::Class(f) => {
+                let class_id = f();
+                ctx.class_slots
+                    .get(class_id as usize)
+                    .and_then(|x| x.ctor)
+                    .map(JSValue::Object)
+                    .ok_or_else(|| {
+                        ctx.throw_internal_error(&format!(
+                            "can't get constructor for class {class_id}: either class is not registered, not used or has no constructor"
+                        ));
+                       -1
+                    })
+            }
+
             Self::Object(entries) => {
                 let mut obj = ctx.create_base_object()?;
                 obj.install_fields(ctx, entries)?;
@@ -93,21 +122,21 @@ impl JSProperty {
     /// `this_obj` is the `this` bind used to call instantiate function.
     ///
     /// Note: will panic if property is not lazy type.
-    pub(super) fn instantiate(self, this_obj: Object) -> JSResult {
+    pub(super) fn instantiate(self, prop: Atom, this_obj: Object) -> JSResult {
         if let JSProperty::LazyInit {
             mut realm,
             mut init,
         } = self
         {
             realm
-                .with_current_scope(|mut scope| {
-                    let ret_val = init.instantiate(&mut scope, this_obj)?;
-                    scope.set_return_value(ret_val);
+                .with_current_scope(|mut cx| {
+                    let ret_val = init.instantiate(&mut cx, prop, this_obj)?;
+                    cx.set_return_value(ret_val);
                     Ok(ret_val)
                 })
                 .unwrap()
         } else {
-            unreachable!("expect lazy property, but got {:?}", self);
+            unreachable!();
         }
     }
 }

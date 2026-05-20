@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    ClassID,
     atom::Atom,
     context::ScopedContext,
     function::{
@@ -14,7 +15,6 @@ use crate::{
 #[repr(u8)]
 #[derive(Debug, Clone)]
 pub(crate) enum FieldDetail {
-    Class,
     GetSet {
         get: Option<Callback>,
         set: Option<Callback>,
@@ -26,13 +26,15 @@ pub(crate) enum FieldDetail {
     /// build String from &str
     LazyStr(&'static str),
     /// build Value from a builder func
-    LazyValue(fn(&mut ScopedContext) -> Result<JSValue, i32>),
+    LazyValueFn(fn(&mut ScopedContext) -> Result<JSValue, i32>),
     /// build Function object with callback
     LazyFunc {
         callback: Callback,
         length: u8,
         magic: i16,
     },
+    /// build class constructor from class id
+    LazyClass(fn() -> ClassID),
 
     Int32(i32),
     Float64(f64),
@@ -114,7 +116,7 @@ impl FieldDef {
         }
     }
 
-    /// Define a lazy initialized object with field entries.
+    /// Define a lazy initialized base object with field definations.
     pub const fn OBJECT(name: &'static str, entries: &'static [Self], prop_flags: u32) -> Self {
         Self {
             name,
@@ -132,11 +134,11 @@ impl FieldDef {
         }
     }
 
-    /// Define a class constructor field
-    pub const fn CLASS(class_name: &'static str, prop_flags: u32) -> Self {
+    /// Define a lazy inisitializd class constructor field
+    pub const fn CLASS(name: &'static str, f: fn() -> ClassID, prop_flags: u32) -> Self {
         Self {
-            name: class_name,
-            detail: FieldDetail::Class,
+            name,
+            detail: FieldDetail::LazyClass(f),
             prop_flags: prop_flags as u8,
         }
     }
@@ -176,7 +178,7 @@ impl FieldDef {
     ) -> Self {
         Self {
             name,
-            detail: FieldDetail::LazyValue(f),
+            detail: FieldDetail::LazyValueFn(f),
             prop_flags: prop_flags as u8,
         }
     }
@@ -255,8 +257,10 @@ impl ObjectImpl {
         atom: Atom,
         entry: FieldDef,
     ) -> Result<(), i32> {
-        let val: JSValue;
+        debug_assert!(!entry.name.is_empty());
+
         let mut prop_flags = entry.prop_flags;
+        let val: JSValue;
 
         match entry.detail {
             FieldDetail::GetSet { get, set, magic } => {
@@ -278,7 +282,7 @@ impl ObjectImpl {
                     .map(|_| ());
             }
 
-            FieldDetail::LazyValue(f) => {
+            FieldDetail::LazyValueFn(f) => {
                 self.define_lazy_property(ctx, atom, LazyInit::ValueFn(f), prop_flags as _)?;
                 return Ok(());
             }
@@ -301,7 +305,6 @@ impl ObjectImpl {
                         callback,
                         length,
                         magic,
-                        name: entry.name,
                     },
                     prop_flags as _,
                 )?;
@@ -315,14 +318,9 @@ impl ObjectImpl {
                 self.define_lazy_property(ctx, atom, LazyInit::Object(tab), prop_flags as _)?;
                 return Ok(());
             }
-
-            FieldDetail::Class => {
-                val = ctx
-                    .rt()
-                    .query_class_id(atom)
-                    .and_then(|class_id| ctx.class_slots.get(class_id as usize))
-                    .and_then(|x| x.ctor)
-                    .map_or(JSValue::UNDEFINED, JSValue::Object);
+            FieldDetail::LazyClass(f) => {
+                self.define_lazy_property(ctx, atom, LazyInit::Class(f), prop_flags as _)?;
+                return Ok(());
             }
 
             FieldDetail::Int32(i) => {
@@ -336,12 +334,11 @@ impl ObjectImpl {
             }
 
             FieldDetail::Alias { name, base } => {
-                // using autoinit for aliases is not safe
-                let name_atom = prop_str_to_atom(ctx, name)?;
+                let src_atom = prop_str_to_atom(ctx, name)?;
                 val = match base {
-                    -1 => self.get_property(ctx, name_atom)?,
-                    0 => ctx.global_obj().get_property(ctx, name_atom)?,
-                    1 => ctx.array_proto().get_property(ctx, name_atom)?,
+                    -1 => self.get_property(ctx, src_atom)?,
+                    0 => ctx.global_obj().get_property(ctx, src_atom)?,
+                    1 => ctx.array_proto().get_property(ctx, src_atom)?,
                     _ => {
                         unreachable!();
                     }

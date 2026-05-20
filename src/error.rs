@@ -103,6 +103,7 @@ impl Exception {
 }
 
 /// Represent exception in text
+#[derive(Debug)]
 pub struct ExceptionText {
     pub message: String,
     pub traceback: Option<String>,

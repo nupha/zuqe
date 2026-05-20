@@ -208,6 +208,8 @@ impl ModuleDefImpl {
 
         for entry in entries {
             let val: JSValue = match &entry.detail {
+                FieldDetail::LazyValueFn(f) => f(ctx)?,
+                FieldDetail::LazyStr(s) => ctx.create_string_from_str(s)?.into(),
                 FieldDetail::LazyFunc {
                     callback,
                     length,
@@ -220,17 +222,23 @@ impl ModuleDefImpl {
                     o.install_fields(ctx, tab)?;
                     o.into()
                 }
-                FieldDetail::LazyStr(s) => ctx.create_string_from_str(s)?.into(),
-                FieldDetail::LazyValue(f) => f(ctx)?,
-                FieldDetail::Class => ctx
-                    .rt()
-                    .query_class_id(Atom::from_str(ctx.rt_ptr(), entry.name)?)
-                    .and_then(|class_id| ctx.class_slots.get(class_id as usize))
-                    .and_then(|x| x.ctor)
-                    .map_or(JSValue::UNDEFINED, JSValue::Object),
-                FieldDetail::Int32(i) => JSValue::Int(*i),
+                FieldDetail::LazyClass(f) => {
+                    let class_id = f();
+                    ctx.class_slots
+                        .get(class_id as usize)
+                        .and_then(|x| x.ctor)
+                        .map(JSValue::Object)
+                        .ok_or_else(|| {
+                            ctx.throw_internal_error(&format!(
+                                "can't get constructor for class id {class_id}: class is not registered, not used or has no constructor"
+                            ));
+                           -1
+                        })?
+                }
 
+                FieldDetail::Int32(i) => JSValue::Int(*i),
                 FieldDetail::Float64(d) => JSValue::from(*d),
+
                 FieldDetail::Undefined | FieldDetail::Alias { .. } | FieldDetail::GetSet { .. } => {
                     // module export ignores Alias, Get/Set, Undefined fields
                     JSValue::UNDEFINED

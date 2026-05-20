@@ -130,7 +130,7 @@ impl ObjectImpl {
                             .modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
 
                         // instantiate the value, and set it to prop slot
-                        let val = pd.instantiate(Object::from_ref(self));
+                        let val = pd.instantiate(prop, Object::from_ref(self));
                         cur_obj.set_prop_slot(idx, JSProperty::Normal(val?));
 
                         continue 'shape;
