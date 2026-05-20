@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use smallvec::SmallVec;
+
 use crate::{
     Array,
     atom::Atom,
@@ -277,7 +279,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(
 ) -> JSResult {
     let reflect = cc.magic() != 0;
 
-    let obj = if reflect {
+    let mut obj = if reflect {
         // Reflect.getOwnPropertyDescriptor
         if let JSValue::Object(p) = cc.arg(0) {
             p
@@ -335,22 +337,26 @@ pub(crate) fn js_object_getOwnPropertyDescriptors(
     ctx: &mut ScopedContext,
     cc: CallContext,
 ) -> JSResult {
-    let obj = cc.arg(0).objectify(ctx)?;
-    let mut res_obj = ctx.create_base_object()?;
+    let mut obj = cc.arg(0).objectify(ctx)?;
 
+    let mut keys = SmallVec::<[Atom; 8]>::new();
     obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, pkey| {
-        let atom_value = pkey.atom.to_value(cx)?;
+        keys.push(pkey.atom);
+        Ok(())
+    })?;
+
+    let mut res_obj = ctx.create_base_object()?;
+    for atom in keys {
+        let atom_value = atom.to_value(ctx)?;
         let desc = js_object_getOwnPropertyDescriptor(
-            cx,
-            CallContext::new_simple(JSValue::UNDEFINED, [obj.into(), atom_value].as_slice()),
+            ctx,
+            CallContext::new_simple(JSValue::UNDEFINED, &[obj.into(), atom_value]),
         )?;
 
         if !desc.is_undefined() {
-            res_obj.define_property_value(cx, pkey.atom, desc, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            res_obj.define_property_value(ctx, atom, desc, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }
-
-        Ok(())
-    })?;
+    }
 
     Ok(res_obj.into())
 }
@@ -419,7 +425,7 @@ pub(crate) fn js_object_fromEntries(ctx: &mut ScopedContext, cc: CallContext) ->
 }
 
 pub(crate) fn js_object_hasOwn(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).objectify(ctx)?;
+    let mut obj = cc.arg(0).objectify(ctx)?;
     let atom = cc.arg(1).to_atom(ctx)?;
     Ok(JSValue::Bool(obj.get_own_property(ctx, atom)?.is_some()))
 }

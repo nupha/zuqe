@@ -327,17 +327,17 @@ impl ObjectImpl {
         ctx: &mut ScopedContext,
         properties: JSValue,
     ) -> Result<(), i32> {
-        let props = properties.objectify(ctx)?;
+        let mut props = properties.objectify(ctx)?;
 
         // Note: each property of `props` is a descriptor object
         let mut this = Object::from_ref(self);
-        let props2 = props;
 
+        let p = props;
         props.own_property_names_foreach(
             ctx,
             JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
             |cx, key: PropertyKey| -> Result<(), i32> {
-                let desc = props2.get_property(cx, key.atom)?;
+                let desc = p.get_property(cx, key.atom)?;
                 this.define_property_desc(cx, key.atom, desc, JS_PROP_THROW)?;
                 Ok(())
             },

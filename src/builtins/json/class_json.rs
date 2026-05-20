@@ -35,7 +35,7 @@ fn internalize_json_property(
 
     let mut val = holder.get_property(ctx, name)?;
 
-    if let Some(o) = val.as_object().copied() {
+    if let Some(mut o) = val.as_object().copied() {
         let is_array = o.is_array(ctx)?;
         let len: u32;
         let pks: Box<[PropertyKey]>;

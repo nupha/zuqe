@@ -378,7 +378,7 @@ pub(super) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                     }
 
                     // walk up prototype chain.
-                    if let Some(up) = ob.prototype(ctx)? {
+                    if let Some(mut up) = ob.prototype(ctx)? {
                         it.obj.replace(up);
 
                         // must check for timeout to avoid infinite loop

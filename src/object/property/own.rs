@@ -96,7 +96,7 @@ impl ObjectImpl {
     /// get own property descriptor.
     /// Returns None if own property does not exist.
     pub fn get_own_property(
-        &self,
+        &mut self,
         ctx: &mut ScopedContext,
         prop: Atom,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
@@ -127,18 +127,16 @@ impl ObjectImpl {
                     }
                 }
                 JS_PROP_LAZYINIT => {
-                    let mut this = Object::from_ref(self);
-
                     // take lazy field definition
-                    let pd = this.replace_prop_slot(idx, JSProperty::default());
+                    let pd = self.replace_prop_slot(idx, JSProperty::default());
                     debug_assert!(matches!(pd, JSProperty::LazyInit { .. }));
 
                     // modify shape property kind to NORMAL
-                    this.modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
+                    self.modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
 
                     // instantiate the value, and set it to prop slot
                     let val = pd.instantiate(Object::from_ref(self));
-                    this.set_prop_slot(idx, JSProperty::Normal(val?));
+                    self.set_prop_slot(idx, JSProperty::Normal(val?));
 
                     continue;
                 }

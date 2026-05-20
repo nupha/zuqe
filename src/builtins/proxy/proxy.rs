@@ -374,10 +374,10 @@ fn js_proxy_call_constructor(
 
 fn js_proxy_get_own_property(
     ctx: &mut ScopedContext,
-    obj: JSValue,
+    mut obj: JSValue,
     prop: Atom,
 ) -> Result<Option<JSPropertyDescriptor>, i32> {
-    let Some(px) = obj.as_object_Proxy().map(|x| x.payload()) else {
+    let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
         return Err(-1);
     };
 
@@ -455,7 +455,7 @@ fn js_proxy_get_own_property(
 
 fn js_proxy_define_own_property(
     ctx: &mut ScopedContext,
-    obj: JSValue,
+    mut obj: JSValue,
     prop: Atom,
     value: JSValue,
     getter: JSValue,
@@ -464,7 +464,7 @@ fn js_proxy_define_own_property(
 ) -> Result<bool, i32> {
     let flags = flags as u32;
 
-    let Some(px) = obj.as_object_Proxy().map(|x| x.payload()) else {
+    let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
         return Err(-1);
     };
 
@@ -712,8 +712,13 @@ fn js_proxy_has(ctx: &mut ScopedContext, mut obj: Object, atom: Atom) -> Result<
     Ok(ret)
 }
 
-fn js_proxy_get(ctx: &mut ScopedContext, obj: JSValue, atom: Atom, receiver: JSValue) -> JSResult {
-    let Some(px) = obj.as_object_Proxy().map(|x| x.payload()) else {
+fn js_proxy_get(
+    ctx: &mut ScopedContext,
+    mut obj: JSValue,
+    atom: Atom,
+    receiver: JSValue,
+) -> JSResult {
+    let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
         return Err(-1);
     };
 
@@ -746,19 +751,19 @@ fn js_proxy_get(ctx: &mut ScopedContext, obj: JSValue, atom: Atom, receiver: JSV
 
 fn js_proxy_set(
     ctx: &mut ScopedContext,
-    obj: JSValue,
+    mut obj: JSValue,
     atom: Atom,
     value: JSValue,
     receiver: JSValue,
     flags: i32,
 ) -> Result<bool, i32> {
-    let Some(s) = obj.as_object_Proxy().map(|x| x.payload()) else {
+    let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
         return Err(-1);
     };
 
-    let method = s.get_proxy_method(ctx, Atom::CONST_set)?;
+    let method = px.get_proxy_method(ctx, Atom::CONST_set)?;
     if method.is_undefined() {
-        return s.target.set_property_internal(
+        return px.target.set_property_internal(
             ctx,
             atom,
             value,
@@ -778,13 +783,13 @@ fn js_proxy_set(
     let ret = method
         .call(
             ctx,
-            s.handler,
-            &[s.target.into(), atom_val, value, receiver],
+            px.handler,
+            &[px.target.into(), atom_val, value, receiver],
         )?
         .to_bool()?;
 
     if ret {
-        if let Some(desc) = s.target.get_own_property(ctx, atom)? {
+        if let Some(desc) = px.target.get_own_property(ctx, atom)? {
             if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0 {
                 if !desc.value.is_same(value) {
                     ctx.throw_type_error("proxy: inconsistent set");

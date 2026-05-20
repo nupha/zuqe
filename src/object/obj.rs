@@ -4,6 +4,7 @@
 use std::{fmt::Formatter, ops::Deref};
 
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx, GcWeak};
+use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -658,30 +659,46 @@ impl ObjectImpl {
     }
 
     /// check if object is sealed.
-    pub fn is_sealed(&self, ctx: &mut ScopedContext, is_frozen: bool) -> Result<bool, i32> {
-        const NOT_SEALED_ERR: i32 = i32::MAX;
+    pub fn is_sealed(&mut self, ctx: &mut ScopedContext, is_frozen: bool) -> Result<bool, i32> {
+        let mut keys = SmallVec::<[Atom; 8]>::new();
 
-        if let Err(e) = self.own_property_names_foreach(
-            ctx,
-            JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
-            |cx, pk| {
-                if let Some(desc) = self.get_own_property(cx, pk.atom)?
-                    && (desc.flags & JS_PROP_CONFIGURABLE != 0
-                        || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0)))
-                {
-                    // found writable prop: that means object is not sealed
-                    // return Err to stop iterate name
-                    return Err(NOT_SEALED_ERR);
-                }
-                Ok(())
-            },
-        ) {
-            return if e == NOT_SEALED_ERR {
-                Ok(false) // not sealed
-            } else {
-                Err(e) // real error
-            };
+        self.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |_, pk| {
+            keys.push(pk.atom);
+            Ok(())
+        })?;
+
+        for a in keys {
+            if let Some(desc) = self.get_own_property(ctx, a)?
+                && (desc.flags & JS_PROP_CONFIGURABLE != 0
+                    || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0)))
+            {
+                // found writable prop: that means object is not sealed
+                return Ok(false);
+            }
         }
+
+        // const NOT_SEALED_ERR: i32 = i32::MAX;
+        // if let Err(e) = self.own_property_names_foreach(
+        //     ctx,
+        //     JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
+        //     |cx, pk| {
+        //         if let Some(desc) = o.get_own_property(cx, pk.atom)?
+        //             && (desc.flags & JS_PROP_CONFIGURABLE != 0
+        //                 || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0)))
+        //         {
+        //             // found writable prop: that means object is not sealed
+        //             // return Err to stop iterate name
+        //             return Err(NOT_SEALED_ERR);
+        //         }
+        //         Ok(())
+        //     },
+        // ) {
+        //     return if e == NOT_SEALED_ERR {
+        //         Ok(false) // not sealed
+        //     } else {
+        //         Err(e) // real error
+        //     };
+        // }
 
         self.is_extensible_obj(ctx).map(|b| !b)
     }
@@ -842,8 +859,8 @@ impl JSValue {
     }
 
     /// check if value is sealed. Object value will check property, Non-object value is always treated as sealed.
-    pub fn is_sealed(&self, ctx: &mut ScopedContext, is_frozen: bool) -> Result<bool, i32> {
-        self.as_object()
+    pub fn is_sealed(&mut self, ctx: &mut ScopedContext, is_frozen: bool) -> Result<bool, i32> {
+        self.as_object_mut()
             .map_or(Ok(true), |o| o.is_sealed(ctx, is_frozen))
     }
 }

@@ -84,7 +84,7 @@ impl ForInIterPayload {
             prop_enums: Box::new([]),
         });
 
-        if let Some(ob) = it.obj {
+        if let Some(mut ob) = it.obj {
             if ob.flags().is_fast_array() {
                 // check that there are no enumerable normal fields
                 if !ob
@@ -118,12 +118,12 @@ impl ForInIterPayload {
     pub(crate) fn prepare_prototype_chain_enum(
         &mut self,
         ctx: &mut ScopedContext,
-        obj: Object,
+        mut obj: Object,
     ) -> Result<bool, i32> {
         // fast path: check if there are enumerable properties in shape proto chain
         let mut slow_path = false;
 
-        for proto in obj.shape_proto_iter(true) {
+        for mut proto in obj.shape_proto_iter(true) {
             // count own property on proto
             let mut props_count: u32 = 0;
             proto.own_property_names_foreach(

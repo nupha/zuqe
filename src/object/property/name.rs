@@ -82,7 +82,7 @@ impl ObjectImpl {
     /// 1. Then indices (if is array or string)
     /// 1. Then exotic properties (if has exotic `get_own_property_names`)
     pub fn own_property_names_foreach(
-        &self,
+        &mut self,
         ctx: &mut ScopedContext,
         flags: i32,
         mut callback: impl FnMut(&mut ScopedContext, PropertyKey) -> Result<(), i32>,
@@ -207,7 +207,7 @@ impl ObjectImpl {
     /// - Sorted by: numbers first, then strings, symbols, and exotic names.
     /// - Can be filtered using flags
     pub fn get_own_property_names(
-        &self,
+        &mut self,
         ctx: &mut ScopedContext,
         flags: i32,
     ) -> Result<Box<[PropertyKey]>, i32> {

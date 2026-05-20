@@ -338,7 +338,7 @@ impl ObjectImpl {
 
     /// test if property `prop` exists, check along proto chain.
     pub fn has_property(&self, ctx: &mut ScopedContext, prop: Atom) -> Result<bool, i32> {
-        for cur_obj in self.shape_proto_iter(true) {
+        for mut cur_obj in self.shape_proto_iter(true) {
             if cur_obj.flags().is_exotic()
                 && let Some(cb) = ctx.rt_ptr().class_registry[cur_obj.class_id() as usize]
                     .exotic
@@ -367,7 +367,7 @@ impl ObjectImpl {
     pub(crate) fn copy_data_properties_from(
         &mut self,
         ctx: &mut ScopedContext,
-        source: Object,
+        mut source: Object,
         excluded: Option<Object>,
         setprop: bool,
     ) -> Result<(), i32> {
@@ -385,7 +385,7 @@ impl ObjectImpl {
         }
 
         for k in source.get_own_property_names(ctx, gpn_flags)? {
-            if let Some(excl) = excluded {
+            if let Some(mut excl) = excluded {
                 let skip = excl.get_own_property(ctx, k.atom).map(|x| x.is_some())?;
                 if skip {
                     continue; // excluded prop, skip

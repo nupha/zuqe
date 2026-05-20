@@ -4,8 +4,8 @@
 use std::{cell::Cell, process::ExitCode};
 
 use zuqe::{
-    CallContext, EvalFlags, EvalType, Exception, FieldDef, JS_SetUncatchableError, JSResult,
-    JSValue, ScopedContext,
+    CallContext, EvalFlags, EvalType, Exception, FieldDef, JS_PROP_ENUMERABLE,
+    JS_SetUncatchableError, JSResult, JSValue, ScopedContext,
 };
 
 use crate::{
@@ -171,29 +171,29 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
     FieldDef::FUNC("evalScript", 1, js_evalScript, 0),
     FieldDef::FUNC("gc", 0, js_gc, 0),
     FieldDef::FUNC("exit", 1, std_exit, 0),
-    FieldDef::BUILD(
+    FieldDef::VALUE(
         "in",
         |cx| {
             let obj = JSFile::new_instance_stdin(cx)?;
             Ok(JSValue::Object(obj))
         },
-        0,
+        JS_PROP_ENUMERABLE,
     ),
-    FieldDef::BUILD(
+    FieldDef::VALUE(
         "out",
         |cx| {
             let obj = JSFile::new_instance_stdout(cx)?;
             Ok(JSValue::Object(obj))
         },
-        0,
+        JS_PROP_ENUMERABLE,
     ),
-    FieldDef::BUILD(
+    FieldDef::VALUE(
         "err",
         |cx| {
             let obj = JSFile::new_instance_stderr(cx)?;
             Ok(JSValue::Object(obj))
         },
-        0,
+        JS_PROP_ENUMERABLE,
     ),
 ];
 

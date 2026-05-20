@@ -35,10 +35,13 @@ pub(crate) fn js_object_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSR
 }
 
 pub(crate) fn js_object_hasOwnProperty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    // must be done first
-    let atom = cc.arg(0).to_atom(ctx)?;
-    let obj = cc.this().objectify(ctx)?;
-    Ok(obj.get_own_property(ctx, atom)?.is_some().into())
+    let atom = cc.arg(0).to_atom(ctx)?; // must be done first
+    Ok(cc
+        .this()
+        .objectify(ctx)
+        .and_then(|mut o| o.get_own_property(ctx, atom))?
+        .is_some()
+        .into())
 }
 
 pub(crate) fn js_object_isPrototypeOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -68,14 +71,13 @@ pub(crate) fn js_object_isPrototypeOf(ctx: &mut ScopedContext, cc: CallContext) 
 }
 
 pub(crate) fn js_object_propertyIsEnumerable(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let obj = cc.this().objectify(ctx)?;
+    let mut obj = cc.this().objectify(ctx)?;
     let atom = cc.arg(0).to_atom(ctx)?;
 
-    Ok(if let Some(desc) = obj.get_own_property(ctx, atom)? {
-        JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0)
-    } else {
-        JSValue::Bool(false)
-    })
+    Ok(obj
+        .get_own_property(ctx, atom)?
+        .is_some_and(|desc| desc.flags & JS_PROP_ENUMERABLE != 0)
+        .into())
 }
 
 pub(crate) fn js_object_getset___proto__(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
