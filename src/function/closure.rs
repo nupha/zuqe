@@ -288,7 +288,6 @@ impl Bytecode {
             // creating cycles for every javascript function. The prototype
             // object is created on the fly when first accessed
             obj.set_flag_constructor(true);
-
             obj.define_lazy_property(
                 ctx,
                 Atom::CONST_prototype,

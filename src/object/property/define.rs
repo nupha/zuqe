@@ -62,25 +62,17 @@ impl ObjectImpl {
                 }
 
                 if prs_flags & JS_PROP_TMASK == JS_PROP_LAZYINIT {
-                    // Instantiate lazy property
-                    let val = {
-                        let this = Object::from_ref(self);
-                        self.prop_slot_mut(idx).instantiate(this)
-                    };
+                    // take lazy field definition
+                    let pd = self.replace_prop_slot(idx, JSProperty::default());
+                    debug_assert!(matches!(pd, JSProperty::LazyInit { .. }));
 
                     // modify shape property kind to NORMAL
                     self.modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
-                    // update prop slot value
-                    self.set_prop_slot(
-                        idx,
-                        JSProperty::Normal(if let Ok(v) = val {
-                            v
-                        } else {
-                            JSValue::UNDEFINED
-                        }),
-                    );
 
-                    val?;
+                    // instantiate the value, and set it to prop slot
+                    let val = pd.instantiate(Object::from_ref(self));
+                    self.set_prop_slot(idx, JSProperty::Normal(val?));
+
                     continue;
                 }
 

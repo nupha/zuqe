@@ -18,21 +18,25 @@ pub(crate) enum FieldDetail {
     GetSet {
         get: Option<Callback>,
         set: Option<Callback>,
+        magic: i16,
     },
 
+    /// build Object with defined fields
     LazyObject(&'static [FieldDef]),
+    /// build String from &str
     LazyStr(&'static str),
-    LazyValueFn(fn(&mut ScopedContext) -> Result<JSValue, i32>),
+    /// build Value from a builder func
+    LazyValue(fn(&mut ScopedContext) -> Result<JSValue, i32>),
+    /// build Function object with callback
     LazyFunc {
         callback: Callback,
         length: u8,
+        magic: i16,
     },
 
     Int32(i32),
     Float64(f64),
     Undefined,
-    #[deprecated(note = "Use LazyBuild instead")]
-    Build(fn(&mut ScopedContext) -> Result<JSValue, i32>),
     Alias {
         name: &'static str,
         base: i32,
@@ -44,7 +48,6 @@ pub struct FieldDef {
     pub(crate) name: &'static str,
     pub(crate) detail: FieldDetail,
     pub(crate) prop_flags: u8,
-    pub(crate) magic: i16,
 }
 
 impl FieldDef {
@@ -55,9 +58,9 @@ impl FieldDef {
             detail: FieldDetail::LazyFunc {
                 callback: Callback::Func(callback),
                 length,
+                magic,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
-            magic,
         }
     }
 
@@ -87,9 +90,9 @@ impl FieldDef {
                 } else {
                     None
                 },
+                magic,
             },
             prop_flags: JS_PROP_CONFIGURABLE as u8,
-            magic,
         }
     }
 
@@ -105,49 +108,18 @@ impl FieldDef {
             detail: FieldDetail::LazyFunc {
                 callback: Callback::IteratorNext(callback),
                 length,
+                magic,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
-            magic,
         }
     }
 
-    /// Define a lazy initialized object with entries.
+    /// Define a lazy initialized object with field entries.
     pub const fn OBJECT(name: &'static str, entries: &'static [Self], prop_flags: u32) -> Self {
         Self {
             name,
             detail: FieldDetail::LazyObject(entries),
             prop_flags: prop_flags as _,
-            magic: 0,
-        }
-    }
-
-    /// Define a class constructor field
-    pub const fn CLASS(class_name: &'static str, prop_flags: u32) -> Self {
-        Self {
-            name: class_name,
-            detail: FieldDetail::Class,
-            prop_flags: prop_flags as u8,
-            magic: 0,
-        }
-    }
-
-    /// Define an i32 field
-    pub const fn INT32(name: &'static str, val: i32, prop_flags: u32) -> Self {
-        Self {
-            name,
-            detail: FieldDetail::Int32(val),
-            prop_flags: prop_flags as u8,
-            magic: 0,
-        }
-    }
-
-    /// Define an f64 field
-    pub const fn FLOAT64(name: &'static str, val: f64, prop_flags: u32) -> Self {
-        Self {
-            name,
-            detail: FieldDetail::Float64(val),
-            prop_flags: prop_flags as u8,
-            magic: 0,
         }
     }
 
@@ -157,38 +129,55 @@ impl FieldDef {
             name,
             detail: FieldDetail::LazyStr(val),
             prop_flags: prop_flags as u8,
-            magic: 0,
         }
     }
 
-    /// Define an undefined value field
+    /// Define a class constructor field
+    pub const fn CLASS(class_name: &'static str, prop_flags: u32) -> Self {
+        Self {
+            name: class_name,
+            detail: FieldDetail::Class,
+            prop_flags: prop_flags as u8,
+        }
+    }
+
+    /// Define an i32 field
+    pub const fn INT32(name: &'static str, val: i32, prop_flags: u32) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Int32(val),
+            prop_flags: prop_flags as u8,
+        }
+    }
+
+    /// Define a f64 field
+    pub const fn FLOAT64(name: &'static str, val: f64, prop_flags: u32) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Float64(val),
+            prop_flags: prop_flags as u8,
+        }
+    }
+
+    /// Define a undefined value field
     pub const fn UNDEFINED(name: &'static str, prop_flags: u32) -> Self {
         Self {
             name,
             detail: FieldDetail::Undefined,
             prop_flags: prop_flags as u8,
-            magic: 0,
         }
     }
 
     /// Define a lazy initialized value field with build function
-    pub const fn VALUE(f: fn(&mut ScopedContext) -> Result<JSValue, i32>, prop_flags: u32) -> Self {
+    pub const fn VALUE(
+        name: &'static str,
+        f: fn(&mut ScopedContext) -> Result<JSValue, i32>,
+        prop_flags: u32,
+    ) -> Self {
         Self {
-            name: "",
-            detail: FieldDetail::LazyValueFn(f),
+            name,
+            detail: FieldDetail::LazyValue(f),
             prop_flags: prop_flags as u8,
-            magic: 0,
-        }
-    }
-
-    /// Define a value field with build function
-    #[deprecated]
-    pub const fn BUILD(f: fn(&mut ScopedContext) -> Result<JSValue, i32>, prop_flags: u32) -> Self {
-        Self {
-            name: "",
-            detail: FieldDetail::Build(f),
-            prop_flags: prop_flags as u8,
-            magic: 0,
         }
     }
 
@@ -201,7 +190,6 @@ impl FieldDef {
                 base,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
-            magic: 0,
         }
     }
 
@@ -223,9 +211,9 @@ impl FieldDef {
             detail: FieldDetail::LazyFunc {
                 callback: Callback::FF(callback),
                 length,
+                magic,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
-            magic,
         }
     }
 
@@ -241,9 +229,9 @@ impl FieldDef {
             detail: FieldDetail::LazyFunc {
                 callback: Callback::FFF(callback),
                 length,
+                magic,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
-            magic,
         }
     }
 }
@@ -271,16 +259,16 @@ impl ObjectImpl {
         let mut prop_flags = entry.prop_flags;
 
         match entry.detail {
-            FieldDetail::GetSet { get, set } => {
+            FieldDetail::GetSet { get, set, magic } => {
                 // XXX: use autoinit again ?
                 let getter = if let Some(f) = get {
-                    ctx.create_native_function(f, &format!("get {}", entry.name), 0, entry.magic)?
+                    ctx.create_native_function(f, &format!("get {}", entry.name), 0, magic)?
                         .into()
                 } else {
                     JSValue::UNDEFINED
                 };
                 let setter = if let Some(f) = set {
-                    ctx.create_native_function(f, &format!("set {}", entry.name), 1, entry.magic)?
+                    ctx.create_native_function(f, &format!("set {}", entry.name), 1, magic)?
                         .into()
                 } else {
                     JSValue::UNDEFINED
@@ -290,11 +278,15 @@ impl ObjectImpl {
                     .map(|_| ());
             }
 
-            FieldDetail::LazyValueFn(f) => {
+            FieldDetail::LazyValue(f) => {
                 self.define_lazy_property(ctx, atom, LazyInit::ValueFn(f), prop_flags as _)?;
                 return Ok(());
             }
-            FieldDetail::LazyFunc { callback, length } => {
+            FieldDetail::LazyFunc {
+                callback,
+                length,
+                magic,
+            } => {
                 #[cfg(feature = "builtin_symbol")]
                 if atom == Atom::CONST_Symbol_toPrimitive {
                     prop_flags = JS_PROP_CONFIGURABLE as u8; // Symbol.toPrimitive functions are not writable
@@ -308,7 +300,7 @@ impl ObjectImpl {
                     LazyInit::Func {
                         callback,
                         length,
-                        magic: entry.magic,
+                        magic,
                         name: entry.name,
                     },
                     prop_flags as _,
@@ -341,9 +333,6 @@ impl ObjectImpl {
             }
             FieldDetail::Undefined => {
                 val = JSValue::UNDEFINED;
-            }
-            FieldDetail::Build(f) => {
-                val = f(ctx)?;
             }
 
             FieldDetail::Alias { name, base } => {

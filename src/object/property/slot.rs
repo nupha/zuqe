@@ -54,7 +54,13 @@ impl ObjectImpl {
         }
     }
 
-    /// set property at slot `idx`, and set gc cross reference
+    /// set property at slot `idx`, returns the old one
+    pub(crate) fn replace_prop_slot(&mut self, idx: usize, p: JSProperty) -> JSProperty {
+        debug_assert!(idx < self.prop_values.len());
+        unsafe { std::ptr::replace(self.prop_values.get_unchecked_mut(idx), p) }
+    }
+
+    /// set property at slot `idx`
     pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
         debug_assert!(idx < self.prop_values.len());
 

@@ -73,28 +73,20 @@ impl ObjectImpl {
                             };
                         }
                         JS_PROP_LAZYINIT => {
-                            // instantiate lazy object
-                            let val = cur_obj
-                                .prop_slot_mut(idx)
-                                .instantiate(Object::from_ref(self));
+                            // take lazy field definition
+                            let pd = cur_obj.replace_prop_slot(idx, JSProperty::default());
+                            debug_assert!(matches!(pd, JSProperty::LazyInit { .. }));
 
                             // modify shape property kind to NORMAL
                             cur_obj.modify_shape_property_index_flags(ctx, idx, |f| {
                                 f & !JS_PROP_TMASK
                             })?;
 
-                            // set value to prop slot
-                            cur_obj.set_prop_slot(
-                                idx,
-                                JSProperty::Normal(if let Ok(v) = val {
-                                    v
-                                } else {
-                                    JSValue::UNDEFINED
-                                }),
-                            );
+                            // instantiate the value, and set it to prop slot
+                            let val = pd.instantiate(Object::from_ref(self));
+                            cur_obj.set_prop_slot(idx, JSProperty::Normal(val?));
 
-                            // redo to get prop value from slot
-                            val?;
+                            // redo again to get prop value from slot
                             continue 'redo;
                         }
                         _ => unreachable!(),

@@ -18,19 +18,21 @@ use crate::{
 
 use super::JSProperty;
 
+/// Lazy initialize a value
 #[repr(u8)]
 #[derive(Debug)]
 pub enum LazyInit {
-    /// Build prototype and set as constructor for target object
+    /// Build prototype and set as the `constructor` field of target object
     Prototype,
-    /// Build module namespace object
+    /// module namespace object
     ModuleNS(ModuleDef),
-    /// Build object from entries
+    /// base object with defined field entries
     Object(&'static [FieldDef]),
+    /// value from calling a function
     ValueFn(fn(&mut ScopedContext) -> Result<JSValue, i32>),
+    /// string value
     String(&'static str),
-    /// Build value by calling the function
-    /// Build function object
+    /// function value
     Func {
         name: &'static str,
         callback: Callback,
@@ -86,13 +88,17 @@ impl LazyInit {
 }
 
 impl JSProperty {
-    /// Instantiate lazy object, and returns instantiated value.
+    /// Instantiate lazy value.
     ///
     /// `this_obj` is the `this` bind used to call instantiate function.
     ///
     /// Note: will panic if property is not lazy type.
-    pub(super) fn instantiate(&mut self, this_obj: Object) -> JSResult {
-        if let JSProperty::LazyInit { realm, init } = self {
+    pub(super) fn instantiate(self, this_obj: Object) -> JSResult {
+        if let JSProperty::LazyInit {
+            mut realm,
+            mut init,
+        } = self
+        {
             realm
                 .with_current_scope(|mut scope| {
                     let ret_val = init.instantiate(&mut scope, this_obj)?;

@@ -208,16 +208,20 @@ impl ModuleDefImpl {
 
         for entry in entries {
             let val: JSValue = match &entry.detail {
-                FieldDetail::LazyFunc { callback, length } => ctx
-                    .create_native_function(*callback, entry.name, *length, 0)
+                FieldDetail::LazyFunc {
+                    callback,
+                    length,
+                    magic,
+                } => ctx
+                    .create_native_function(*callback, entry.name, *length, *magic)
                     .map(JSValue::from)?,
-                FieldDetail::LazyObject(fields) => {
+                FieldDetail::LazyObject(tab) => {
                     let mut o = ctx.create_base_object()?;
-                    o.install_fields(ctx, fields)?;
+                    o.install_fields(ctx, tab)?;
                     o.into()
                 }
                 FieldDetail::LazyStr(s) => ctx.create_string_from_str(s)?.into(),
-                FieldDetail::LazyValueFn(f) => f(ctx)?,
+                FieldDetail::LazyValue(f) => f(ctx)?,
                 FieldDetail::Class => ctx
                     .rt()
                     .query_class_id(Atom::from_str(ctx.rt_ptr(), entry.name)?)
@@ -225,9 +229,8 @@ impl ModuleDefImpl {
                     .and_then(|x| x.ctor)
                     .map_or(JSValue::UNDEFINED, JSValue::Object),
                 FieldDetail::Int32(i) => JSValue::Int(*i),
-                FieldDetail::Float64(d) => JSValue::from(*d),
 
-                FieldDetail::Build(f) => f(ctx)?,
+                FieldDetail::Float64(d) => JSValue::from(*d),
                 FieldDetail::Undefined | FieldDetail::Alias { .. } | FieldDetail::GetSet { .. } => {
                     // module export ignores Alias, Get/Set, Undefined fields
                     JSValue::UNDEFINED
