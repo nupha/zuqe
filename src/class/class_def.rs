@@ -99,7 +99,7 @@ pub struct ClassDef {
 
     /// initialize class proto, constructor to context
     on_initialize: ClassInitType,
-    /// class instance finalize callback
+    /// class instance finalize callback, callbed before Object::drop()
     pub(crate) on_finalize: Option<ClassFinalizeFn>,
     /// handler on class instance dispose
     pub(crate) on_finalize_opaque: Option<ClassFinalizeOpaqueFn>,
@@ -219,7 +219,7 @@ impl ClassDef {
         self
     }
 
-    /// Set class finalize callback of builtin class def.
+    /// Set class finalize callback of builtin class def. Callbed before Object::drop().
     ///
     /// This method is for builtin class def only. User class def should use on_dispose (which is a public api) instead.
     pub(crate) const fn on_finalize(mut self, f: ClassFinalizeFn) -> Self {

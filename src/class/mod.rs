@@ -2,9 +2,13 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 mod class_def;
+mod native;
 mod r#use;
 
-pub use class_def::{ClassCtorDef, ClassDef};
+pub use {
+    class_def::{ClassCtorDef, ClassDef},
+    native::*,
+};
 
 pub(crate) use {class_def::*, r#use::*};
 

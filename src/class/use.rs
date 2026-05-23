@@ -140,7 +140,7 @@ impl RuntimeImpl {
     }
 
     /// Register a user-defined (non-builtin) class
-    pub fn register_class(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
+    pub fn register_class_def(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
         debug_assert!(!class_def.name.is_empty());
         debug_assert!(class_def.on_finalize.is_some());
 
@@ -165,6 +165,12 @@ impl RuntimeImpl {
 
         self.register_class_internal(class_id, class_def)?;
         Ok(class_id)
+    }
+
+    /// Register a user-defined (non-builtin) class
+    #[deprecated(note = "renamed to register_class_def")]
+    pub fn register_class(&mut self, class_def: ClassDef) -> Result<ClassID, i32> {
+        self.register_class_def(class_def)
     }
 
     pub fn is_class_registered(&self, class_id: ClassID) -> bool {
