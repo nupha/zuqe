@@ -9,13 +9,12 @@ use crate::{
     atom::Atom,
     context::ScopedContext,
     error::ErrorKind,
-    function::{FieldDef, FieldDetail, VarRef},
+    function::{FieldDef, FieldDetail, VarRef, prop_str_to_atom},
     module::{ModuleDef, ModuleDefImpl},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, Object,
         ObjectPayload,
     },
-    runtime::RuntimePtr,
     utils::unlikely,
     value::JSValue,
 };
@@ -185,12 +184,17 @@ impl ModuleDefImpl {
         }
     }
 
-    /// declare a module export name
-    pub fn add_export(&mut self, ctx: &mut ScopedContext, export_name: &str) -> Result<(), i32> {
+    /// Declare a module export name
+    pub fn declare_export_name(
+        &mut self,
+        ctx: &mut ScopedContext,
+        export_name: &str,
+    ) -> Result<(), i32> {
+        let atom = prop_str_to_atom(ctx, export_name)?;
         self.add_export_internal(
             ctx,
             Atom::NULL,
-            Atom::from_str(ctx.rt_ptr(), export_name)?,
+            atom,
             ExportType::JS_EXPORT_TYPE_LOCAL {
                 var_idx: u16::MAX, // unknown
                 var_ref: None,
@@ -204,18 +208,18 @@ impl ModuleDefImpl {
         ctx: &mut ScopedContext,
         entries: &[FieldDef],
     ) -> Result<(), i32> {
-        let rt = ctx.rt_ptr();
-
         for entry in entries {
-            let val: JSValue = match &entry.detail {
+            let atom = prop_str_to_atom(ctx, entry.name)?;
+
+            let val: JSValue = match entry.detail {
                 FieldDetail::LazyValueFn(f) => f(ctx)?,
-                FieldDetail::LazyStr(s) => ctx.create_string_from_str(s)?.into(),
+                FieldDetail::LazyStr(s) => ctx.create_string_from_str(s).map(JSValue::from)?,
                 FieldDetail::LazyFunc {
                     callback,
                     length,
                     magic,
                 } => ctx
-                    .create_native_function(*callback, entry.name, *length, *magic)
+                    .create_native_function(callback, entry.name, length, magic)
                     .map(JSValue::from)?,
                 FieldDetail::LazyObject(tab) => {
                     let mut o = ctx.create_base_object()?;
@@ -236,32 +240,28 @@ impl ModuleDefImpl {
                         })?
                 }
 
-                FieldDetail::Int32(i) => JSValue::Int(*i),
-                FieldDetail::Float64(d) => JSValue::from(*d),
+                FieldDetail::Int32(i) => JSValue::Int(i),
+                FieldDetail::Float64(d) => JSValue::from(d),
 
-                FieldDetail::Undefined | FieldDetail::Alias { .. } | FieldDetail::GetSet { .. } => {
-                    // module export ignores Alias, Get/Set, Undefined fields
+                FieldDetail::GetSet { .. } => {
+                    #[cfg(debug_assertions)]
+                    unreachable!("Export get/set for a module is not supported");
+                    #[cfg(not(debug_assertions))]
                     JSValue::UNDEFINED
                 }
+                FieldDetail::Undefined | FieldDetail::Alias { .. } => JSValue::UNDEFINED,
             };
 
             if !val.is_undefined() {
-                self.set_export_value(rt, entry.name, val)?;
+                self.set_export_value(atom, val)?;
             }
         }
 
         Ok(())
     }
 
-    /// update or add a module export entry named `export_name`, with given value
-    fn set_export_value(
-        &self,
-        rt: RuntimePtr,
-        export_name: &str,
-        value: JSValue,
-    ) -> Result<(), i32> {
-        let atom = Atom::from_str(rt, export_name)?;
-
+    /// update a module export entry
+    fn set_export_value(&self, atom: Atom, value: JSValue) -> Result<(), i32> {
         if let Some(me) = self.find_export(atom) {
             if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
                 debug_assert!(
@@ -271,8 +271,7 @@ impl ModuleDefImpl {
                 var_ref.unwrap().set_value(value);
                 Ok(())
             } else {
-                // not a local export entry
-                unreachable!()
+                unreachable!("not a local export")
             }
         } else {
             // export_name is not declared

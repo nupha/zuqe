@@ -264,7 +264,7 @@ impl ObjectImpl {
 
         match entry.detail {
             FieldDetail::GetSet { get, set, magic } => {
-                // XXX: use autoinit again ?
+                // TODO: use lazy init?
                 let getter = if let Some(f) = get {
                     ctx.create_native_function(f, &format!("get {}", entry.name), 0, magic)?
                         .into()

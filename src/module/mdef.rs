@@ -8,7 +8,7 @@ use crate::{
     builtins::promise::Promise,
     class::ClassExoticMethods,
     context::{ContextImpl, ScopedContext},
-    function::{BFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, VarRef},
+    function::{BFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, VarRef, prop_str_to_atom},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, Object, ObjectPayload},
@@ -162,12 +162,13 @@ impl ModuleDefImpl {
 
     /// create a native module def with module init func.
     fn create(
-        rt: RuntimePtr,
-        name: &str,
+        ctx: &mut ScopedContext,
+        module_name: &str,
         init_fn: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
-        let mut md = Self::new(Atom::from_str(rt, name)?);
-        md.init_func.replace(Box::new(init_fn));
+        let atom = prop_str_to_atom(ctx, module_name)?;
+        let mut md = Self::new(atom);
+        md.init_func = Some(Box::new(init_fn));
         Ok(md)
     }
 
@@ -337,42 +338,43 @@ impl ModuleDef {
         Ok(md)
     }
 
-    /// create a native module def.
-    pub(crate) fn create(
+    /// Create native module def with initialization callback. Declare exported names.
+    pub(crate) fn create<'a, N: Iterator<Item = &'a str>>(
         ctx: &mut ScopedContext,
-        name: &str,
+        module_name: &str,
+        export_names: N,
         init_fn: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
-        let m = ctx
-            .alloc_local(ModuleDefImpl::create(ctx.rt_ptr(), name, init_fn)?)
-            .map(Self)
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+        let payload = ModuleDefImpl::create(ctx, module_name, init_fn)?;
+        let mut md = ctx.alloc_local(payload).map(Self).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
-        ctx.loaded_modules.push(m);
-        Ok(m)
+        ctx.loaded_modules.push(md);
+
+        // declare export names
+        for name in export_names {
+            md.declare_export_name(ctx, name)?;
+        }
+
+        Ok(md)
     }
 }
 
 impl<'c> ScopedContext<'c> {
-    /// create a native module def
+    /// Create native module def with initialization callback. Declare exported names to module.
     pub fn create_module(
         &mut self,
         name: &str,
         entries: &'static [FieldDef],
     ) -> Result<ModuleDef, i32> {
-        let mut md = ModuleDef::create(self, name, |cx, m| -> Result<(), i32> {
-            m.set_export_values(cx, entries)
-        })?;
-
-        // declare export names
-        for me in entries {
-            md.add_export(self, me.name)?;
-        }
-
-        Ok(md)
+        ModuleDef::create(
+            self,
+            name,
+            entries.iter().map(|e| e.name),
+            |cx, m| -> Result<(), i32> { m.set_export_values(cx, entries) },
+        )
     }
 
     #[deprecated(note = "use ::create_module() instead")]
@@ -502,7 +504,7 @@ pub(super) fn get_script_or_module_name(
     // function from the debug info. May need to add a ScriptOrModule
     // info in Bytecode.
     for sf in ctx
-        .rt_ptr()
+        .rt()
         .current_stack_frame()
         .map_or(StackFrameParentIter::EMPTY, |f| f.parent_iter(true))
         .skip(n_stack_levels)
