@@ -388,11 +388,11 @@ pub(crate) fn js_array_every(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
                         break;
                     }
                 }
-                s if s == special_some || s == special_some | special_TA => {
-                    if res.to_bool().unwrap_or(true) {
-                        ret = JSValue::Bool(true);
-                        break;
-                    }
+                s if (s == special_some || s == special_some | special_TA)
+                    && res.to_bool().unwrap_or(true) =>
+                {
+                    ret = JSValue::Bool(true);
+                    break;
                 }
                 special_map => {
                     ret.define_property_value_i64(ctx, k, res, JS_PROP_C_W_E | JS_PROP_THROW)?;
@@ -400,11 +400,11 @@ pub(crate) fn js_array_every(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
                 s if s == special_map | special_TA => {
                     ret.set_property_value(ctx, JSValue::Int(k as i32), res, JS_PROP_THROW)?;
                 }
-                s if s == special_filter || s == special_filter | special_TA => {
-                    if res.to_bool().unwrap_or(true) {
-                        ret.define_property_value_i64(ctx, n, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
-                        n += 1;
-                    }
+                s if (s == special_filter || s == special_filter | special_TA)
+                    && res.to_bool().unwrap_or(true) =>
+                {
+                    ret.define_property_value_i64(ctx, n, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
+                    n += 1;
                 }
                 _ => {}
             }

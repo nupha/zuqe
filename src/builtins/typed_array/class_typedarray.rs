@@ -572,11 +572,7 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             // 1 byte per element
             if start < final_ {
                 ta.with_bytes_mut(|buf| unsafe {
-                    std::ptr::write_bytes(
-                        buf.as_mut_ptr().add(start),
-                        v64 as u8,
-                        (final_ - start) as usize,
-                    );
+                    std::ptr::write_bytes(buf.as_mut_ptr().add(start), v64 as u8, final_ - start);
                 });
             }
         }
@@ -1315,41 +1311,30 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     }
 
     match ta.class_id() {
-        JS_CLASS_INT8_ARRAY => {
-            if is_int && (v64 as i8) as i64 == v64 {
-                let v: i8 = v64 as i8;
-                find!(i8, 0, v);
-            }
+        JS_CLASS_INT8_ARRAY if is_int && (v64 as i8) as i64 == v64 => {
+            let v: i8 = v64 as i8;
+            find!(i8, 0, v);
         }
-        JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => {
-            if is_int && (v64 as u8) as i64 == v64 {
-                let v: u8 = v64 as u8;
-                find!(u8, 0, v);
-            }
+        JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY if is_int && (v64 as u8) as i64 == v64 => {
+            let v: u8 = v64 as u8;
+            find!(u8, 0, v);
         }
-        JS_CLASS_INT16_ARRAY => {
-            if is_int && (v64 as i16) as i64 == v64 {
-                let v = v64 as i16;
-                find!(i16, 1, v);
-            }
+        JS_CLASS_INT16_ARRAY if is_int && (v64 as i16) as i64 == v64 => {
+            let v = v64 as i16;
+            find!(i16, 1, v);
         }
-        JS_CLASS_UINT16_ARRAY => {
-            if is_int && (v64 as u16) as i64 == v64 {
-                let v = v64 as u16;
-                find!(u16, 1, v);
-            }
+        JS_CLASS_UINT16_ARRAY if is_int && (v64 as u16) as i64 == v64 => {
+            let v = v64 as u16;
+            find!(u16, 1, v);
         }
-        JS_CLASS_INT32_ARRAY => {
-            if is_int && (v64 as i32) as i64 == v64 {
-                let v = v64 as i32;
-                find!(i32, 2, v);
-            }
+        JS_CLASS_INT32_ARRAY if is_int && (v64 as i32) as i64 == v64 => {
+            let v = v64 as i32;
+            find!(i32, 2, v);
         }
-        JS_CLASS_UINT32_ARRAY => {
-            if is_int && (v64 as u32) as i64 == v64 {
-                let v = v64 as u32;
-                find!(u32, 2, v);
-            }
+
+        JS_CLASS_UINT32_ARRAY if is_int && (v64 as u32) as i64 == v64 => {
+            let v = v64 as u32;
+            find!(u32, 2, v);
         }
         JS_CLASS_FLOAT32_ARRAY => {
             if d.is_nan() {

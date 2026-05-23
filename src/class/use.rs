@@ -132,13 +132,10 @@ impl RuntimeImpl {
         start_id: ClassID,
     ) -> Result<(), i32> {
         debug_assert!(start_id > 0);
-        let mut class_id = start_id;
 
-        for item in tab {
+        for (class_id, item) in (start_id..).zip(tab.iter()) {
             self.register_class_internal(class_id, **item)?;
-            class_id += 1;
         }
-
         Ok(())
     }
 
@@ -173,14 +170,6 @@ impl RuntimeImpl {
     pub fn is_class_registered(&self, class_id: ClassID) -> bool {
         class_id < self.class_registry.len() as ClassID
             && !self.class_registry[class_id as usize].name_atom.is_null()
-    }
-
-    pub(crate) fn query_class_id(&self, class_name: Atom) -> Option<ClassID> {
-        self.class_registry
-            .iter()
-            .enumerate()
-            .find(|(_, x)| !x.name_atom.is_null() && x.name_atom == class_name)
-            .map(|(i, _)| i as ClassID)
     }
 }
 

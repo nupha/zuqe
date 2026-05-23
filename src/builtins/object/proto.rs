@@ -106,108 +106,108 @@ pub(crate) fn js_object_getset___proto__(ctx: &mut ScopedContext, cc: CallContex
     }
 }
 
-// magic = 1 if called as __defineSetter__
-unsafe fn js_object___defineGetter__(
-    ctx: &mut ScopedContext,
-    this_val: JSValue,
-    _argc: i32,
-    argv: *mut JSValue,
-    magic: i32,
-) -> JSValue {
-    let mut obj = this_val
-        .objectify(ctx)
-        .map_or(JSValue::EXCEPTION, JSValue::Object);
+// // magic = 1 if called as __defineSetter__
+// unsafe fn js_object___defineGetter__(
+//     ctx: &mut ScopedContext,
+//     this_val: JSValue,
+//     _argc: i32,
+//     argv: *mut JSValue,
+//     magic: i32,
+// ) -> JSValue {
+//     let mut obj = this_val
+//         .objectify(ctx)
+//         .map_or(JSValue::EXCEPTION, JSValue::Object);
 
-    if obj.is_exception() {
-        return JSValue::EXCEPTION;
-    }
+//     if obj.is_exception() {
+//         return JSValue::EXCEPTION;
+//     }
 
-    let prop = unsafe { *argv.offset(0) };
-    let value = unsafe { *argv.offset(1) };
+//     let prop = unsafe { *argv.offset(0) };
+//     let value = unsafe { *argv.offset(1) };
 
-    if unlikely(value.ensure_function(ctx).is_err()) {
-        return JSValue::EXCEPTION;
-    }
+//     if unlikely(value.ensure_function(ctx).is_err()) {
+//         return JSValue::EXCEPTION;
+//     }
 
-    let atom = prop.to_atom(ctx).unwrap_or(Atom::NULL);
-    if atom.is_null() {
-        return JSValue::EXCEPTION;
-    }
+//     let atom = prop.to_atom(ctx).unwrap_or(Atom::NULL);
+//     if atom.is_null() {
+//         return JSValue::EXCEPTION;
+//     }
 
-    let mut flags = JS_PROP_THROW
-        | JS_PROP_HAS_ENUMERABLE
-        | JS_PROP_ENUMERABLE
-        | JS_PROP_HAS_CONFIGURABLE
-        | JS_PROP_CONFIGURABLE;
+//     let mut flags = JS_PROP_THROW
+//         | JS_PROP_HAS_ENUMERABLE
+//         | JS_PROP_ENUMERABLE
+//         | JS_PROP_HAS_CONFIGURABLE
+//         | JS_PROP_CONFIGURABLE;
 
-    let (get, set) = if magic != 0 {
-        flags |= JS_PROP_HAS_SET;
-        (JSValue::UNDEFINED, value)
-    } else {
-        flags |= JS_PROP_HAS_GET;
-        (value, JSValue::UNDEFINED)
-    };
+//     let (get, set) = if magic != 0 {
+//         flags |= JS_PROP_HAS_SET;
+//         (JSValue::UNDEFINED, value)
+//     } else {
+//         flags |= JS_PROP_HAS_GET;
+//         (value, JSValue::UNDEFINED)
+//     };
 
-    let ret = obj.define_property(ctx, atom, JSValue::UNDEFINED, get, set, flags);
-    if ret.is_err() {
-        JSValue::EXCEPTION
-    } else {
-        JSValue::UNDEFINED
-    }
-}
+//     let ret = obj.define_property(ctx, atom, JSValue::UNDEFINED, get, set, flags);
+//     if ret.is_err() {
+//         JSValue::EXCEPTION
+//     } else {
+//         JSValue::UNDEFINED
+//     }
+// }
 
-unsafe fn js_object___lookupGetter__(
-    ctx: &mut ScopedContext,
-    this_val: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-    setter: i32,
-) -> JSValue {
-    let mut obj = this_val
-        .objectify(ctx)
-        .map_or(JSValue::EXCEPTION, JSValue::Object);
-    if obj.is_exception() {
-        return JSValue::EXCEPTION;
-    }
+// unsafe fn js_object___lookupGetter__(
+//     ctx: &mut ScopedContext,
+//     this_val: JSValue,
+//     argc: i32,
+//     argv: *mut JSValue,
+//     setter: i32,
+// ) -> JSValue {
+//     let mut obj = this_val
+//         .objectify(ctx)
+//         .map_or(JSValue::EXCEPTION, JSValue::Object);
+//     if obj.is_exception() {
+//         return JSValue::EXCEPTION;
+//     }
 
-    let prop = unsafe { (*argv.offset(0)).to_atom(ctx).unwrap_or(Atom::NULL) };
-    if prop.is_null() {
-        return JSValue::EXCEPTION;
-    }
+//     let prop = unsafe { (*argv.offset(0)).to_atom(ctx).unwrap_or(Atom::NULL) };
+//     if prop.is_null() {
+//         return JSValue::EXCEPTION;
+//     }
 
-    loop {
-        match obj.get_own_property(ctx, prop) {
-            Ok(Some(desc)) => {
-                break if desc.flags & JS_PROP_GETSET != 0 {
-                    if setter != 0 {
-                        desc.setter
-                    } else {
-                        desc.getter
-                    }
-                } else {
-                    JSValue::UNDEFINED
-                };
-            }
-            Ok(None) => {
-                obj = obj.prototype(ctx).unwrap_or(JSValue::EXCEPTION);
-                if obj.is_exception() {
-                    // obj is Proxy
-                    break JSValue::EXCEPTION;
-                } else if obj.is_null() {
-                    break JSValue::UNDEFINED;
-                }
+//     loop {
+//         match obj.get_own_property(ctx, prop) {
+//             Ok(Some(desc)) => {
+//                 break if desc.flags & JS_PROP_GETSET != 0 {
+//                     if setter != 0 {
+//                         desc.setter
+//                     } else {
+//                         desc.getter
+//                     }
+//                 } else {
+//                     JSValue::UNDEFINED
+//                 };
+//             }
+//             Ok(None) => {
+//                 obj = obj.prototype(ctx).unwrap_or(JSValue::EXCEPTION);
+//                 if obj.is_exception() {
+//                     // obj is Proxy
+//                     break JSValue::EXCEPTION;
+//                 } else if obj.is_null() {
+//                     break JSValue::UNDEFINED;
+//                 }
 
-                // avoid infinite loop (possible with proxies)
-                if ctx.poll_interrupts().is_err() {
-                    break JSValue::EXCEPTION;
-                }
-            }
-            Err(_) => {
-                break JSValue::EXCEPTION;
-            }
-        }
-    }
-}
+//                 // avoid infinite loop (possible with proxies)
+//                 if ctx.poll_interrupts().is_err() {
+//                     break JSValue::EXCEPTION;
+//                 }
+//             }
+//             Err(_) => {
+//                 break JSValue::EXCEPTION;
+//             }
+//         }
+//     }
+// }
 
 pub const js_object_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("toString", 0, js_object_toString, 0),

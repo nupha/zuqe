@@ -18,7 +18,7 @@ use super::AsyncState;
 #[derive(Debug)]
 pub enum VarRefImpl {
     /// var ref is detached, point to nowhere.
-    Detached { is_arg: bool, value: JSValue },
+    Detached(JSValue),
     /// reference to a var slot in stack frame
     Bind {
         is_arg: bool,
@@ -33,7 +33,7 @@ pub enum VarRefImpl {
 }
 
 impl GcTrace for VarRefImpl {
-    fn trace(&self, tr: &mut GcTraceCtx) {
+    fn trace(&self, gcx: &mut GcTraceCtx) {
         match self {
             Self::Bind {
                 async_state,
@@ -41,14 +41,14 @@ impl GcTrace for VarRefImpl {
                 ..
             } => {
                 unsafe {
-                    pvalue.as_ref().trace(tr);
+                    pvalue.as_ref().trace(gcx);
                 }
                 if let Some(a) = async_state {
-                    a.trace(tr);
+                    a.trace(gcx);
                 }
             }
-            Self::Detached { value, .. } => {
-                value.trace(tr);
+            Self::Detached(value) => {
+                value.trace(gcx);
             }
         }
     }
@@ -60,7 +60,7 @@ impl VarRefImpl {
     pub(crate) const fn value(&self) -> JSValue {
         match self {
             Self::Bind { pvalue, .. } => unsafe { *pvalue.as_ref() },
-            Self::Detached { value, .. } => *value,
+            Self::Detached(value) => *value,
         }
     }
 
@@ -70,7 +70,7 @@ impl VarRefImpl {
             Self::Bind { pvalue, .. } => unsafe {
                 *pvalue.as_mut() = new_value;
             },
-            Self::Detached { value, .. } => {
+            Self::Detached(value) => {
                 *value = new_value;
             }
         }
@@ -85,11 +85,8 @@ impl VarRefImpl {
     /// if has async funtion, free it too.
     /// if `self` is already detached, do nothing.
     const fn detach(&mut self) {
-        if let Self::Bind { pvalue, is_arg, .. } = self {
-            *self = Self::Detached {
-                is_arg: *is_arg,
-                value: unsafe { *pvalue.as_ref() },
-            };
+        if let Self::Bind { pvalue, .. } = self {
+            *self = Self::Detached(unsafe { *pvalue.as_ref() });
         }
     }
 
@@ -117,15 +114,12 @@ gcref_wrapper!(VarRef, VarRefImpl);
 impl VarRef {
     /// create a detached var ref
     pub(crate) fn create(ctx: &mut ScopedContext, value: JSValue) -> Result<Self, i32> {
-        ctx.alloc_local(VarRefImpl::Detached {
-            value,
-            is_arg: false,
-        })
-        .map(Self)
-        .map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })
+        ctx.alloc_local(VarRefImpl::Detached(value))
+            .map(Self)
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })
     }
 
     /// create a bind var ref

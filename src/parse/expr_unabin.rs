@@ -80,13 +80,7 @@ impl<'s> JSParseState<'s> {
                     TokenKind::LTE => OpCode::LTE,
                     TokenKind::GTE => OpCode::GTE,
                     TokenKind::INSTANCEOF => OpCode::INSTANCEOF,
-                    TokenKind::IN => {
-                        if parse_flags & PF_IN_ACCEPTED != 0 {
-                            OpCode::IN
-                        } else {
-                            return Ok(());
-                        }
-                    }
+                    TokenKind::IN if parse_flags & PF_IN_ACCEPTED != 0 => OpCode::IN,
                     _ => {
                         return Ok(());
                     }

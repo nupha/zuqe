@@ -88,11 +88,11 @@ impl JSParseState<'_> {
                 | TokenKind::PRIVATE
                 | TokenKind::PROTECTED
                 | TokenKind::PUBLIC
-                | TokenKind::STATIC => {
+                | TokenKind::STATIC
+                    if self.got_lf =>
+                {
                     // automatic insertion of ';'
-                    if self.got_lf {
-                        has_semi = true;
-                    }
+                    has_semi = true;
                 }
                 _ => {}
             }

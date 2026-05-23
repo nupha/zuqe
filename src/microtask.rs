@@ -21,9 +21,9 @@ pub(crate) struct Job {
 }
 
 impl GcTrace for Job {
-    fn trace(&self, tr: &mut GcTraceCtx) {
+    fn trace(&self, gcx: &mut GcTraceCtx) {
         if let Some(f) = self.gc_trace.as_ref() {
-            f(tr)
+            f(gcx)
         }
     }
 }

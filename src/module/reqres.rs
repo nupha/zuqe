@@ -98,15 +98,6 @@ impl<'c> ScopedContext<'c> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JSResolveResultEnum {
-    JS_RESOLVE_RES_EXCEPTION = -1, /* memory alloc error */
-    JS_RESOLVE_RES_FOUND = 0,
-    JS_RESOLVE_RES_NOT_FOUND,
-    JS_RESOLVE_RES_CIRCULAR,
-    JS_RESOLVE_RES_AMBIGUOUS,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum JSModuleStatus {
     JS_MODULE_STATUS_UNLINKED,

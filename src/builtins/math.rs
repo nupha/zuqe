@@ -60,15 +60,11 @@ fn js_math_min_max(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 (IntOrFloat::Int64(n), IntOrFloat::Float64(mx)) => {
                     let n = n as f64;
                     match n.total_cmp(mx) {
-                        std::cmp::Ordering::Greater => {
-                            if is_max {
-                                *mx = n;
-                            }
+                        std::cmp::Ordering::Greater if is_max => {
+                            *mx = n;
                         }
-                        std::cmp::Ordering::Less => {
-                            if !is_max {
-                                *mx = n;
-                            }
+                        std::cmp::Ordering::Less if !is_max => {
+                            *mx = n;
                         }
                         _ => {}
                     }
@@ -76,15 +72,11 @@ fn js_math_min_max(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 (IntOrFloat::Float64(d), IntOrFloat::Int64(mx)) => {
                     let mut m = *mx as f64;
                     match d.total_cmp(&m) {
-                        std::cmp::Ordering::Greater => {
-                            if is_max {
-                                m = d;
-                            }
+                        std::cmp::Ordering::Greater if is_max => {
+                            m = d;
                         }
-                        std::cmp::Ordering::Less => {
-                            if !is_max {
-                                m = d;
-                            }
+                        std::cmp::Ordering::Less if !is_max => {
+                            m = d;
                         }
                         _ => {}
                     }
@@ -92,15 +84,11 @@ fn js_math_min_max(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 }
 
                 (IntOrFloat::Float64(d), IntOrFloat::Float64(mx)) => match d.total_cmp(mx) {
-                    std::cmp::Ordering::Greater => {
-                        if is_max {
-                            *mx = d;
-                        }
+                    std::cmp::Ordering::Greater if is_max => {
+                        *mx = d;
                     }
-                    std::cmp::Ordering::Less => {
-                        if !is_max {
-                            *mx = d;
-                        }
+                    std::cmp::Ordering::Less if !is_max => {
+                        *mx = d;
                     }
                     _ => {}
                 },

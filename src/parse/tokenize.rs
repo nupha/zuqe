@@ -967,10 +967,8 @@ impl<'s> JSParseState<'s> {
     pub(super) fn peek_token_internal(inp: &mut Utf8Stream, no_line_terminator: bool) -> TokenKind {
         while let Some((_, sc)) = inp.next_char() {
             match sc {
-                CharCode::Char('\r' | '\n') => {
-                    if no_line_terminator {
-                        return TokenKind::Char('\n');
-                    }
+                CharCode::Char('\r' | '\n') if no_line_terminator => {
+                    return TokenKind::Char('\n');
                 }
                 // 0x0c: \f, 0x0b: \v
                 CharCode::Char(' ' | '\t' | '\x0c' | '\x0b') => {}

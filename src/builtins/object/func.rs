@@ -340,7 +340,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptors(
     let mut obj = cc.arg(0).objectify(ctx)?;
 
     let mut keys = SmallVec::<[Atom; 8]>::new();
-    obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, pkey| {
+    obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |_, pkey| {
         keys.push(pkey.atom);
         Ok(())
     })?;

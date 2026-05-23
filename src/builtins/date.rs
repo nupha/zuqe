@@ -1002,7 +1002,7 @@ fn set_date_field_internal(
         };
 
     let field_range = first_field as usize..end_field as usize;
-    for (v, i) in args.iter().zip(field_range.into_iter()) {
+    for (v, i) in args.iter().zip(field_range) {
         let a = v.to_number(ctx)?.to_f64();
         if a.is_finite() {
             if let Some(f) = &mut fields {

@@ -12,7 +12,7 @@ use crate::{
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, Object, ObjectPayload},
-    runtime::{RuntimeImpl, RuntimePtr},
+    runtime::RuntimeImpl,
     stack_frame::StackFrameParentIter,
     value::JSValue,
 };

@@ -675,29 +675,21 @@ impl StringData {
             (Self::Ascii(s), StringBuf::Ascii(b)) => s.as_ref() == b.as_slice(),
             (Self::Utf16(s), StringBuf::Utf16(b)) => s.as_ref() == b.as_slice(),
 
-            (Self::Utf16(s), StringBuf::Ascii(b)) => {
-                if s.len() == b.len() {
-                    for (a, b) in s.iter().zip(b.iter().map(|x| *x as u16)) {
-                        if *a != b {
-                            return false;
-                        }
+            (Self::Utf16(s), StringBuf::Ascii(b)) if s.len() == b.len() => {
+                for (a, b) in s.iter().zip(b.iter().map(|x| *x as u16)) {
+                    if *a != b {
+                        return false;
                     }
-                    true
-                } else {
-                    false
                 }
+                true
             }
-            (Self::Ascii(s), StringBuf::Utf16(b)) => {
-                if s.len() == b.len() {
-                    for (a, b) in s.iter().map(|x| *x as u16).zip(b.iter()) {
-                        if a != *b {
-                            return false;
-                        }
+            (Self::Ascii(s), StringBuf::Utf16(b)) if s.len() == b.len() => {
+                for (a, b) in s.iter().map(|x| *x as u16).zip(b.iter()) {
+                    if a != *b {
+                        return false;
                     }
-                    true
-                } else {
-                    false
                 }
+                true
             }
 
             _ => false,

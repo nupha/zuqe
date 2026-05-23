@@ -192,12 +192,10 @@ impl ObjectImpl {
         }
 
         match self.class_id() {
-            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                if self.is_fast_array() {
-                    let arr_data = self.payload().array().unwrap();
-                    if let Some(&el) = arr_data.values().get(idx) {
-                        return Some(Ok(el));
-                    }
+            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS if self.is_fast_array() => {
+                let arr_data = self.payload().array().unwrap();
+                if let Some(&el) = arr_data.values().get(idx) {
+                    return Some(Ok(el));
                 }
             }
 
@@ -253,14 +251,12 @@ impl ObjectImpl {
                     return r;
                 }
             }
-            JSValue::Float64(f) if f >= 0.0 => {
-                if f.fract() == 0.0 {
-                    let n = f.trunc() as i64;
-                    if n <= u32::MAX as i64
-                        && let Some(r) = self.get_property_index(n as usize)
-                    {
-                        return r;
-                    }
+            JSValue::Float64(f) if f >= 0.0 && f.fract() == 0.0 => {
+                let n = f.trunc() as i64;
+                if n <= u32::MAX as i64
+                    && let Some(r) = self.get_property_index(n as usize)
+                {
+                    return r;
                 }
             }
             _ => {}
