@@ -123,6 +123,28 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
+    /// Create an instance of a user-defined (non-builtin) class,
+    /// respecting `newTarget.prototype` for the object's prototype chain.
+    ///
+    /// This is the `newTarget`-aware version of `create_class_instance_with_opaque`,
+    /// analogous to how builtin constructors use `create_instance_with_ctor`.
+    ///
+    /// When called from a native constructor, pass `cc.this()` (which is `newTarget`)
+    /// so that `class MySub extends NativeClass` creates instances with the correct
+    /// prototype (`MySub.prototype` instead of `NativeClass.prototype`).
+    ///
+    /// - If `new_target` is undefined, falls back to the class's default prototype.
+    /// - If `new_target.prototype` is an object, uses it as the instance prototype.
+    /// - If `new_target.prototype` is not an object, falls back to the class's default prototype.
+    #[inline(always)]
+    pub fn create_class_instance(
+        &mut self,
+        new_target: JSValue,
+        class_id: ClassID,
+    ) -> Result<Object, ObjectPayload> {
+        self.create_class_instance_with_opaque(new_target, class_id, std::ptr::null_mut())
+    }
+
     /// Create base Object with prototype `proto`.
     #[inline(always)]
     pub fn create_base_object_with_proto(&mut self, proto: Option<Object>) -> Result<Object, i32> {
