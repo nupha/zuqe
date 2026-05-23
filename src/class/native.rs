@@ -6,7 +6,7 @@ use crate::{
 
 /// Native payload for class instance
 pub trait NativePayload {
-    unsafe fn into_raw(self) -> *mut c_void;
+    fn into_raw(self) -> *mut c_void;
     unsafe fn from_raw(ptr: *mut c_void) -> Self;
     unsafe fn raw_as_ref<'a>(ptr: *mut c_void) -> &'a Self;
 }
@@ -65,9 +65,10 @@ pub trait NativeObjectWithPayload<T: NativePayload>:
     /// called when a class instance is collected, just before Object::drop()
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
     fn on_dispose(rt: &mut RuntimeImpl, opaque: *mut c_void, obj_id: usize) {
-        debug_assert!(!opaque.is_null());
-        unsafe {
-            let _ = T::from_raw(opaque);
+        if !opaque.is_null() {
+            unsafe {
+                let _ = T::from_raw(opaque);
+            }
         }
     }
 
@@ -94,7 +95,7 @@ pub trait NativeObjectWithPayload<T: NativePayload>:
         new_target: JSValue,
         payload: T,
     ) -> Result<Object, i32> {
-        let opaque = unsafe { T::into_raw(payload) };
+        let opaque = T::into_raw(payload);
         debug_assert!(!opaque.is_null());
 
         ctx.create_class_instance_with_opaque(new_target, Self::class_id(), opaque)
@@ -149,4 +150,108 @@ impl RuntimeImpl {
 
         Ok(class_id)
     }
+}
+
+#[macro_export]
+macro_rules! def_native_object_with_payload {
+    ($name:expr, $cls:ident, $payload:ident, $proto:expr, $ctor:expr) => {
+        #[repr(transparent)]
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        pub struct $cls($crate::Object);
+
+        impl $cls {
+            thread_local! {
+                static CLASS_ID: std::cell::Cell<$crate::ClassID> = const { Cell::new(0) };
+            }
+        }
+
+        impl $crate::NativeObjectWithPayload<$payload> for $cls {
+            fn class_name() -> &'static str {
+                $name
+            }
+
+            fn class_proto_entries() -> &'static [FieldDef] {
+                $proto
+            }
+
+            fn class_ctor_def() -> Option<$crate::ClassCtorDef> {
+                $ctor
+            }
+
+            fn class_id() -> ClassID {
+                Self::CLASS_ID.with(|x| x.get())
+            }
+
+            fn set_class_id(class_id: ClassID) {
+                Self::CLASS_ID.with(|x| x.set(class_id));
+            }
+
+            fn as_object(&self) -> &Object {
+                &self.0
+            }
+        }
+
+        impl TryFrom<$crate::Object> for $cls {
+            type Error = i32;
+
+            fn try_from(o: Object) -> Result<Self, Self::Error> {
+                if o.class_id() == <Self as $crate::NativeObjectWithPayload<$payload>>::class_id() {
+                    Ok(Self(o))
+                } else {
+                    Err(-1)
+                }
+            }
+        }
+
+        impl TryFrom<$crate::JSValue> for $cls {
+            type Error = i32;
+
+            fn try_from(v: JSValue) -> Result<Self, Self::Error> {
+                if let JSValue::Object(o) = v {
+                    TryFrom::<$crate::Object>::try_from(o)
+                } else {
+                    Err(-1)
+                }
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! def_native_object_with_payload_base {
+    ($cls:ident, $payload:ident) => {
+        #[repr(transparent)]
+        #[derive(Debug, Clone)]
+        pub struct $cls($crate::Object);
+
+        impl $cls {
+            thread_local! {
+                static CLASS_ID: std::cell::Cell<$crate::ClassID> = const { Cell::new(0) };
+            }
+        }
+
+        impl TryFrom<$crate::Object> for $cls {
+            type Error = i32;
+
+            fn try_from(o: Object) -> Result<Self, Self::Error> {
+                if o.class_id() == <Self as NativeObjectWithPayload<$payload>>::class_id() {
+                    Ok(Self(o))
+                } else {
+                    Err(-1)
+                }
+            }
+        }
+
+        impl TryFrom<$crate::JSValue> for $cls {
+            type Error = i32;
+
+            fn try_from(v: JSValue) -> Result<Self, Self::Error> {
+                if let JSValue::Object(o) = v {
+                    TryFrom::<$crate::Object>::try_from(o)
+                } else {
+                    Err(-1)
+                }
+            }
+        }
+    };
 }
