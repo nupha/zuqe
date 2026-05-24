@@ -17,10 +17,7 @@ pub trait NativeObject: Clone + TryFrom<JSValue> + TryFrom<Object> {
     /// get class prototype entries
     fn class_proto_entries() -> &'static [FieldDef];
     /// get class constructor definition
-    fn class_ctor_def() -> Option<ClassCtorDef> {
-        None
-    }
-
+    fn class_ctor_def() -> Option<ClassCtorDef>;
     /// set class id
     fn set_class_id(class_id: ClassID);
     /// get registered class id. Should return 0 if class has not been registered.
@@ -186,6 +183,20 @@ macro_rules! def_native_object_base {
                 } else {
                     Err(-1)
                 }
+            }
+        }
+
+        impl $crate::NativePayload for $payload {
+            fn into_raw(self) -> *mut std::ffi::c_void {
+                Box::into_raw(Box::new(self)).cast()
+            }
+
+            unsafe fn from_raw(ptr: *mut std::ffi::c_void) -> Self {
+                *unsafe { Box::from_raw(ptr.cast::<Self>()) }
+            }
+
+            unsafe fn raw_as_ref<'a>(ptr: *mut std::ffi::c_void) -> &'a Self {
+                unsafe { &*ptr.cast::<Self>() }
             }
         }
     };
