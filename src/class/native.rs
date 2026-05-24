@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
+
 use std::ffi::c_void;
 
 use crate::{ClassID, JSValue, Object};
@@ -23,18 +26,14 @@ impl NativePayload for () {
     }
 }
 
-pub trait NativeObject<T: NativePayload>:
-    Clone + TryFrom<JSValue> + TryFrom<Object>
-{
+pub trait NativeObject<T: NativePayload>: Clone + TryFrom<JSValue> + TryFrom<Object> {
     /// Get registered class id.
     /// Should return 0 if class has not been registered.
     fn class_id() -> ClassID;
 }
 
 impl Object {
-    pub fn as_native_object<P: NativePayload, NOBJ: NativeObject<P>>(
-        &self,
-    ) -> Option<&NOBJ> {
+    pub fn as_native_object<P: NativePayload, NOBJ: NativeObject<P>>(&self) -> Option<&NOBJ> {
         if self.class_id() == NOBJ::class_id() {
             Some(unsafe { std::mem::transmute::<&Object, &NOBJ>(self) })
         } else {
@@ -44,9 +43,7 @@ impl Object {
 }
 
 impl JSValue {
-    pub fn as_native_object<P: NativePayload, NOBJ: NativeObject<P>>(
-        &self,
-    ) -> Option<&NOBJ> {
+    pub fn as_native_object<P: NativePayload, NOBJ: NativeObject<P>>(&self) -> Option<&NOBJ> {
         self.as_object()
             .and_then(|o| o.as_native_object::<P, NOBJ>())
     }
