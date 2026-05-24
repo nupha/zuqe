@@ -241,23 +241,49 @@ macro_rules! impl_native_object {
 /// Define a native object class
 #[macro_export]
 macro_rules! def_native_object {
-    // Dummy payload
-    ($name:expr, $native_ty:ident, (), $proto:expr, $ctor:expr
+    // Dummy payload, no constructor
+    ($name:expr, $native_ty:ident, (), $proto:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?) => {
-        $crate::def_native_object_base!($name, $native_ty, (), $proto, $ctor
+        $crate::def_native_object_base!($name, $native_ty, (), $proto, None
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?);
 
         $crate::impl_native_object!($native_ty, ());
     };
 
-    // With payload
-    ($name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr, $ctor:expr
+    // Dummy payload, with constructor
+    ($name:expr, $native_ty:ident, (), $proto:expr
+        , constructor: $ctor:expr
+        $(, on_class_register: $on_register:expr)?
+        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $crate::def_native_object_base!($name, $native_ty, (), $proto, Some($ctor)
+            $(, on_class_register: $on_register)?
+            $(, on_class_unregister: $on_unregister)?);
+
+        $crate::impl_native_object!($native_ty, ());
+    };
+
+    // With payload, no constructor
+    ($name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
-        $crate::def_native_object_base!($name, $native_ty, $payload_ty, $proto, $ctor
+        $crate::def_native_object_base!($name, $native_ty, $payload_ty, $proto, None
+            $(, on_class_register: $on_register)?
+            $(, on_class_unregister: $on_unregister)?
+            $(, on_payload_gc: $on_payload_gc)?);
+
+        $crate::impl_native_object!($native_ty, $payload_ty);
+    };
+
+    // With payload, with constructor
+    ($name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr
+        , constructor: $ctor:expr
+        $(, on_class_register: $on_register:expr)?
+        $(, on_class_unregister: $on_unregister:expr)?
+        $(, on_payload_gc: $on_payload_gc:expr)?) => {
+        $crate::def_native_object_base!($name, $native_ty, $payload_ty, $proto, Some($ctor)
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?
             $(, on_payload_gc: $on_payload_gc)?);
