@@ -71,7 +71,7 @@ macro_rules! def_native_object_struct {
             }
 
             /// register this native class to runtime, returns class id.
-            pub fn register_native_class(rt: &mut $crate::RuntimeImpl) -> Result<$crate::ClassID, i32> {
+            pub fn register(rt: &mut $crate::RuntimeImpl) -> Result<$crate::ClassID, i32> {
                 debug_assert_eq!(Self::class_id(), 0, "class has been registered");
 
                 // call on_register handler
@@ -85,10 +85,10 @@ macro_rules! def_native_object_struct {
                     }
                 });
 
-                // on unregister handler
+                // set class unregister handler
                 $(cd = cd.on_unregister($on_unregister);)?
 
-                // payload gc trace handler
+                // set payload gc handler
                 $(
                     cd = cd.on_gc_trace(|opaque, gcx| {
                         debug_assert!(!opaque.is_null());
@@ -133,7 +133,7 @@ macro_rules! def_native_object_struct {
 #[macro_export]
 macro_rules! def_native_object_base {
     // Without payload
-    ($name:expr, $native_ty:ident, $proto:expr, $ctor:expr
+    ($name:expr, $native_ty:ident, (), $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?) => {
         $crate::def_native_object_struct!($name, $native_ty, (), $proto, $ctor
@@ -233,7 +233,7 @@ macro_rules! def_native_object {
     ($name:expr, $native_ty:ident, (), $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?) => {
-        $crate::def_native_object_base!($name, $native_ty, $proto, $ctor
+        $crate::def_native_object_base!($name, $native_ty, (), $proto, $ctor
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?);
 
