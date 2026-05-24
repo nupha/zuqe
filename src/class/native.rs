@@ -89,7 +89,7 @@ macro_rules! def_native_object_struct {
 
             /// register this native class to runtime, returns class id.
             pub fn register(rt: &mut $crate::RuntimeImpl) -> Result<$crate::ClassID, i32> {
-                debug_assert_eq!(Self::class_id(), 0, "class has been registered");
+                debug_assert_eq!(<Self as $crate::NativeObject<$payload_ty>>::class_id(), 0, "class has been registered");
 
                 // call on_register handler
                 $($on_register(rt);)?
@@ -120,7 +120,7 @@ macro_rules! def_native_object_struct {
             type Error = i32;
 
             fn try_from(o: Object) -> Result<Self, Self::Error> {
-                if o.class_id() == <Self as NativeObject<$payload_ty>>::class_id() {
+                if o.class_id() == <Self as $crate::NativeObject<$payload_ty>>::class_id() {
                     Ok(Self(o))
                 } else {
                     Err(-1)
@@ -158,7 +158,7 @@ macro_rules! def_native_object_base {
                 ctx: &mut $crate::ScopedContext,
                 new_target: $crate::JSValue,
             ) -> Result<Object, i32> {
-                ctx.create_class_instance_with_opaque(new_target, Self::class_id(), std::ptr::null_mut())
+                ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject<()>>::class_id(), std::ptr::null_mut())
                     .map_err(|_| {
                         -1
                     })
@@ -179,7 +179,7 @@ macro_rules! def_native_object_base {
         impl $native_ty {
             /// get payload data
             pub fn payload(&self) -> Option<&$payload_ty> {
-                debug_assert_eq!(Self::class_id(), self.as_object().class_id());
+                debug_assert_eq!(<Self as $crate::NativeObject<$payload_ty>>::class_id(), self.as_object().class_id());
 
                 if let Some(p) = self.as_object().payload().other() {
                     let ptr = p.opaque();
@@ -202,7 +202,7 @@ macro_rules! def_native_object_base {
                 let opaque = <$payload_ty as $crate::NativePayload>::into_raw(payload);
                 debug_assert!(!opaque.is_null());
 
-                ctx.create_class_instance_with_opaque(new_target, Self::class_id(), opaque)
+                ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject<$payload_ty>>::class_id(), opaque)
                     .map_err(|_| {
                         unsafe {
                             let _ = <$payload_ty as $crate::NativePayload>::from_raw(opaque);
