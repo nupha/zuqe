@@ -153,19 +153,19 @@ impl RuntimeImpl {
 }
 
 #[macro_export]
-macro_rules! def_native_object_with_payload_base {
-    ($cls:ident, $payload:ident) => {
+macro_rules! def_native_object_base {
+    ($type_name:ident, $payload:ident) => {
         #[repr(transparent)]
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub struct $cls($crate::Object);
+        pub struct $type_name($crate::Object);
 
-        impl $cls {
+        impl $type_name {
             thread_local! {
                 static CLASS_ID: std::cell::Cell<$crate::ClassID> = const { Cell::new(0) };
             }
         }
 
-        impl TryFrom<$crate::Object> for $cls {
+        impl TryFrom<$crate::Object> for $type_name {
             type Error = i32;
 
             fn try_from(o: Object) -> Result<Self, Self::Error> {
@@ -177,7 +177,7 @@ macro_rules! def_native_object_with_payload_base {
             }
         }
 
-        impl TryFrom<$crate::JSValue> for $cls {
+        impl TryFrom<$crate::JSValue> for $type_name {
             type Error = i32;
 
             fn try_from(v: JSValue) -> Result<Self, Self::Error> {
@@ -192,11 +192,11 @@ macro_rules! def_native_object_with_payload_base {
 }
 
 #[macro_export]
-macro_rules! def_native_object_with_payload {
-    ($name:expr, $cls:ident, $payload:ident, $proto:expr, $ctor:expr) => {
-        $crate::def_native_object_with_payload_base!($cls, $payload);
+macro_rules! def_native_object {
+    ($name:expr, $type_name:ident, $payload:ident, $proto:expr, $ctor:expr) => {
+        $crate::def_native_object_base!($type_name, $payload);
 
-        impl $crate::NativeObjectWithPayload<$payload> for $cls {
+        impl $crate::NativeObjectWithPayload<$payload> for $type_name {
             fn class_name() -> &'static str {
                 $name
             }
