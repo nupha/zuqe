@@ -1,8 +1,6 @@
 use std::ffi::c_void;
 
-use crate::{
-    ClassCtorDef, ClassDef, ClassID, FieldDef, JSValue, Object, RuntimeImpl, ScopedContext,
-};
+use crate::{ClassID, JSValue, Object, RuntimeImpl};
 
 /// Native payload for class instance
 pub trait NativePayload {
@@ -11,162 +9,108 @@ pub trait NativePayload {
     unsafe fn raw_as_ref<'a>(ptr: *mut c_void) -> &'a Self;
 }
 
-pub trait NativeObject: Clone + TryFrom<JSValue> + TryFrom<Object> {
-    fn class_name() -> &'static str;
-
-    /// get class prototype entries
-    fn class_proto_entries() -> &'static [FieldDef];
-    /// get class constructor definition
-    fn class_ctor_def() -> Option<ClassCtorDef>;
-    /// set class id
-    fn set_class_id(class_id: ClassID);
-    /// get registered class id. Should return 0 if class has not been registered.
-    fn class_id() -> ClassID;
-
-    /// called before class will be registered to runtime
-    fn on_register(rt: &mut RuntimeImpl) {}
-    /// called after class has been unregistered from runtime
-    fn on_unregister() {}
-    /// called when a class instance is collected, just before Object::drop()
-    fn on_dispose(rt: &mut RuntimeImpl, obj_id: usize) {}
-
-    fn as_object(&self) -> &Object;
-
-    fn new_instance(ctx: &mut ScopedContext, new_target: JSValue) -> Result<Object, i32> {
-        ctx.create_class_instance(new_target, Self::class_id())
-            .map_err(|_| -1)
+/// the dummy payload
+impl NativePayload for () {
+    #[inline(always)]
+    fn into_raw(self) -> *mut c_void {
+        std::ptr::null_mut()
+    }
+    #[inline(always)]
+    unsafe fn from_raw(_: *mut c_void) -> Self {}
+    #[inline(always)]
+    unsafe fn raw_as_ref<'a>(_: *mut c_void) -> &'a Self {
+        &()
     }
 }
 
 pub trait NativeObjectWithPayload<T: NativePayload>:
     Clone + TryFrom<JSValue> + TryFrom<Object>
 {
-    fn class_name() -> &'static str;
-
-    /// get class prototype entries
-    fn class_proto_entries() -> &'static [FieldDef];
-    /// get class constructor definition
-    fn class_ctor_def() -> Option<ClassCtorDef> {
-        None
-    }
-
-    /// set class id
-    fn set_class_id(class_id: ClassID);
     /// get registered class id. Should return 0 if class has not been registered.
     fn class_id() -> ClassID;
 
     /// called before class will be registered to runtime
+    #[inline(always)]
     fn on_register(rt: &mut RuntimeImpl) {}
     /// called after class has been unregistered from runtime
+    #[inline(always)]
     fn on_unregister() {}
-    /// called when a class instance is collected, just before Object::drop()
-    #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    fn on_dispose(rt: &mut RuntimeImpl, opaque: *mut c_void, obj_id: usize) {
-        if !opaque.is_null() {
-            unsafe {
-                let _ = T::from_raw(opaque);
-            }
-        }
-    }
 
     fn as_object(&self) -> &Object;
+}
 
-    fn payload(&self) -> Option<&T> {
-        debug_assert_eq!(Self::class_id(), self.as_object().class_id());
-
-        if let Some(p) = self.as_object().payload().other() {
-            let ptr = p.opaque();
-            if !ptr.is_null() {
-                Some(unsafe { T::raw_as_ref(ptr) })
-            } else {
-                None
-            }
+impl Object {
+    pub fn as_native_object<P: NativePayload, NOBJ: NativeObjectWithPayload<P>>(
+        &self,
+    ) -> Option<&NOBJ> {
+        if self.class_id() == NOBJ::class_id() {
+            Some(unsafe { std::mem::transmute::<&Object, &NOBJ>(self) })
         } else {
-            unreachable!()
+            None
         }
     }
+}
 
-    /// create an instance of the class with attached payload
-    fn new_instance(
-        ctx: &mut ScopedContext,
-        new_target: JSValue,
-        payload: T,
-    ) -> Result<Object, i32> {
-        let opaque = T::into_raw(payload);
-        debug_assert!(!opaque.is_null());
-
-        ctx.create_class_instance_with_opaque(new_target, Self::class_id(), opaque)
-            .map_err(|_| {
-                unsafe {
-                    let _ = T::from_raw(opaque);
-                }
-                -1
-            })
+impl JSValue {
+    pub fn as_native_object<P: NativePayload, NOBJ: NativeObjectWithPayload<P>>(
+        &self,
+    ) -> Option<&NOBJ> {
+        self.as_object()
+            .and_then(|o| o.as_native_object::<P, NOBJ>())
     }
 }
 
-impl RuntimeImpl {
-    /// register a native class to runtime
-    pub fn register_native_class<C: NativeObject>(&mut self) -> Result<ClassID, i32> {
-        debug_assert_eq!(C::class_id(), 0, "class has been registered");
-
-        C::on_register(self);
-
-        let cd = ClassDef::new(
-            C::class_name(),
-            C::class_proto_entries(),
-            C::class_ctor_def(),
-        )
-        .on_dispose(|rt, _, id| C::on_dispose(rt, id))
-        .on_unregister(C::on_unregister);
-
-        let class_id = self.register_class_def(cd)?;
-        C::set_class_id(class_id);
-
-        Ok(class_id)
-    }
-
-    /// register a native class to runtime
-    pub fn register_native_class_with_payload<T: NativePayload, C: NativeObjectWithPayload<T>>(
-        &mut self,
-    ) -> Result<ClassID, i32> {
-        debug_assert_eq!(C::class_id(), 0, "class has been registered");
-
-        C::on_register(self);
-
-        let cd = ClassDef::new(
-            C::class_name(),
-            C::class_proto_entries(),
-            C::class_ctor_def(),
-        )
-        .on_dispose(C::on_dispose)
-        .on_unregister(C::on_unregister);
-
-        let class_id = self.register_class_def(cd)?;
-        C::set_class_id(class_id);
-
-        Ok(class_id)
-    }
-}
-
+// Helper: generate struct definition, CLASS_ID, and TryFrom impls
 #[macro_export]
-macro_rules! def_native_object_base {
-    ($type_name:ident, $payload:ident) => {
+macro_rules! def_native_object_struct {
+    ($name:expr, $native_ty:ident, $proto:expr, $ctor:expr, $payload_ty:ty $(, $payload_gc:expr)?) => {
+        /// the native object type
         #[repr(transparent)]
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub struct $type_name($crate::Object);
+        pub struct $native_ty($crate::Object);
 
-        impl $type_name {
+        impl $native_ty {
             thread_local! {
                 static CLASS_ID: std::cell::Cell<$crate::ClassID> = const { Cell::new(0) };
             }
+
+            /// register this native class to runtime, returns class id.
+            pub fn register_native_class(rt: &mut $crate::RuntimeImpl) -> Result<$crate::ClassID, i32> {
+                debug_assert_eq!(Self::class_id(), 0, "class has been registered");
+
+                Self::on_register(rt);
+
+                let mut cd = $crate::ClassDef::new($name, $proto, $ctor)
+                    .on_unregister(Self::on_unregister)
+                    .on_dispose(|_, opaque: *mut std::ffi::c_void, _| {
+                        if !opaque.is_null() {
+                            unsafe {
+                                let _ = <$payload_ty as $crate::NativePayload>::from_raw(opaque);
+                            }
+                        }
+                    });
+
+                // gc trace for payload
+                $(
+                    cd = cd.on_gc_trace(|opaque, gcx| {
+                        debug_assert!(!opaque.is_null());
+                        let p = unsafe { <$payload_ty as $crate::NativePayload>::raw_as_ref(opaque) };
+                        $payload_gc(p, gcx);
+                    });
+                )?
+
+                let class_id = rt.register_class_def(cd)?;
+                Self::CLASS_ID.with(|x| x.set(class_id));
+
+                Ok(class_id)
+            }
         }
 
-        impl TryFrom<$crate::Object> for $type_name {
+        impl TryFrom<$crate::Object> for $native_ty {
             type Error = i32;
 
             fn try_from(o: Object) -> Result<Self, Self::Error> {
-                if o.class_id() == <Self as NativeObjectWithPayload<$payload>>::class_id() {
+                if o.class_id() == <Self as NativeObjectWithPayload<$payload_ty>>::class_id() {
                     Ok(Self(o))
                 } else {
                     Err(-1)
@@ -174,7 +118,7 @@ macro_rules! def_native_object_base {
             }
         }
 
-        impl TryFrom<$crate::JSValue> for $type_name {
+        impl TryFrom<$crate::JSValue> for $native_ty {
             type Error = i32;
 
             fn try_from(v: JSValue) -> Result<Self, Self::Error> {
@@ -185,16 +129,75 @@ macro_rules! def_native_object_base {
                 }
             }
         }
+    };
+}
 
-        impl $crate::NativePayload for $payload {
+#[macro_export]
+macro_rules! def_native_object_base {
+    // Without payload -> use DummyPayload
+    ($name:expr, $native_ty:ident, $proto:expr, $ctor:expr) => {
+        $crate::def_native_object_struct!($name, $native_ty, $proto, $ctor, ());
+
+        impl $native_ty {
+            /// create an instance of the class
+            pub fn new_instance(
+                ctx: &mut $crate::ScopedContext,
+                new_target: $crate::JSValue,
+            ) -> Result<Object, i32> {
+                ctx.create_class_instance_with_opaque(new_target, Self::class_id(), std::ptr::null_mut())
+                    .map_err(|_| {
+                        -1
+                    })
+            }
+        }
+    };
+
+    // With payload, optionally with gc trace
+    ($name:expr, $native_ty:ident, $proto:expr, $ctor:expr, payload: $payload_ty:ty $(, payload_gc_trace: $payload_gc:expr)?) => {
+        $crate::def_native_object_struct!($name, $native_ty, $proto, $ctor, $payload_ty $(, $payload_gc)?);
+
+        impl $native_ty {
+            pub fn payload(&self) -> Option<&$payload_ty> {
+                debug_assert_eq!(Self::class_id(), self.as_object().class_id());
+
+                if let Some(p) = self.as_object().payload().other() {
+                    let ptr = p.opaque();
+                    if !ptr.is_null() {
+                        Some(unsafe { <$payload_ty as $crate::NativePayload>::raw_as_ref(ptr) })
+                    } else {
+                        None
+                    }
+                } else {
+                    unreachable!()
+                }
+            }
+
+            /// create an instance of the class with attached payload
+            pub fn new_instance(
+                ctx: &mut $crate::ScopedContext,
+                new_target: $crate::JSValue,
+                payload: $payload_ty,
+            ) -> Result<Object, i32> {
+                let opaque = <$payload_ty as $crate::NativePayload>::into_raw(payload);
+                debug_assert!(!opaque.is_null());
+
+                ctx.create_class_instance_with_opaque(new_target, Self::class_id(), opaque)
+                    .map_err(|_| {
+                        unsafe {
+                            let _ = <$payload_ty as $crate::NativePayload>::from_raw(opaque);
+                        }
+                        -1
+                    })
+            }
+        }
+
+        impl $crate::NativePayload for $payload_ty {
             fn into_raw(self) -> *mut std::ffi::c_void {
                 Box::into_raw(Box::new(self)).cast()
             }
-
             unsafe fn from_raw(ptr: *mut std::ffi::c_void) -> Self {
                 *unsafe { Box::from_raw(ptr.cast::<Self>()) }
             }
-
             unsafe fn raw_as_ref<'a>(ptr: *mut std::ffi::c_void) -> &'a Self {
                 unsafe { &*ptr.cast::<Self>() }
             }
@@ -202,30 +205,13 @@ macro_rules! def_native_object_base {
     };
 }
 
+// Helper: generate NativeObjectWithPayload impl (shared by both def_native_object! arms)
 #[macro_export]
-macro_rules! def_native_object {
-    ($name:expr, $type_name:ident, $payload:ident, $proto:expr, $ctor:expr) => {
-        $crate::def_native_object_base!($type_name, $payload);
-
-        impl $crate::NativeObjectWithPayload<$payload> for $type_name {
-            fn class_name() -> &'static str {
-                $name
-            }
-
-            fn class_proto_entries() -> &'static [FieldDef] {
-                $proto
-            }
-
-            fn class_ctor_def() -> Option<$crate::ClassCtorDef> {
-                $ctor
-            }
-
+macro_rules! impl_native_object_with_payload {
+    ($native_ty:ident, $payload_ty:ty) => {
+        impl $crate::NativeObjectWithPayload<$payload_ty> for $native_ty {
             fn class_id() -> ClassID {
                 Self::CLASS_ID.with(|x| x.get())
-            }
-
-            fn set_class_id(class_id: ClassID) {
-                Self::CLASS_ID.with(|x| x.set(class_id));
             }
 
             #[inline(always)]
@@ -233,5 +219,21 @@ macro_rules! def_native_object {
                 &self.0
             }
         }
+    };
+}
+
+#[macro_export]
+macro_rules! def_native_object {
+    // Without payload -> use DummyPayload
+    ($name:expr, $native_ty:ident, $proto:expr, $ctor:expr) => {
+        $crate::def_native_object_base!($name, $native_ty, $proto, $ctor);
+        $crate::impl_native_object_with_payload!($native_ty, ());
+    };
+
+    // With payload, optionally with gc trace
+    ($name:expr, $native_ty:ident, $proto:expr, $ctor:expr
+        , payload: $payload_ty:ty $(, payload_gc_trace: $payload_gc:expr)?) => {
+        $crate::def_native_object_base!($name, $native_ty, $proto, $ctor, payload: $payload_ty $(, payload_gc_trace: $payload_gc)?);
+        $crate::impl_native_object_with_payload!($native_ty, $payload_ty);
     };
 }

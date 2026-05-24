@@ -28,13 +28,16 @@ impl GcTrace for OtherPayload {
     fn trace(&self, gcx: &mut GcTraceCtx) {
         if !self.opaque.is_null() {
             // Hint: gcx.opaque() holds the *const RuntimeImpl，set when heap was created.
-            debug_assert!(!gcx.opaque().is_null());
+            debug_assert!(
+                !gcx.opaque().is_null(),
+                "GcTraceCtx must have opaque, which is the RuntimeImpl raw pointer"
+            );
             let rt = unsafe { &*(gcx.opaque() as *const RuntimeImpl) };
 
             if let Some(f) = rt
                 .class_registry
                 .get(self.class_id as usize)
-                .and_then(|c| c.on_gc_mark)
+                .and_then(|c| c.on_gc_trace)
             {
                 f(self.opaque, gcx);
             }

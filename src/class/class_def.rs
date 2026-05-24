@@ -105,8 +105,8 @@ pub struct ClassDef {
     pub(crate) on_finalize_opaque: Option<ClassFinalizeOpaqueFn>,
     /// class def unregister handler.
     pub(crate) on_unregister: Option<ClassUnregisterFn>,
-    /// GC mark callback — trace JSValues stored in opaque payload
-    pub(crate) on_gc_mark: Option<ClassGcTraceFn>,
+    /// to trace JSValues stored in an instance's payload (opaque)
+    pub(crate) on_gc_trace: Option<ClassGcTraceFn>,
 }
 
 impl Default for ClassDef {
@@ -124,7 +124,7 @@ impl Default for ClassDef {
             on_finalize: None,
             on_finalize_opaque: None,
             on_unregister: None,
-            on_gc_mark: None,
+            on_gc_trace: None,
         }
     }
 }
@@ -151,7 +151,7 @@ impl ClassDef {
             },
             on_finalize: Some(Self::default_fini_fn),
             on_finalize_opaque: None,
-            on_gc_mark: None,
+            on_gc_trace: None,
         }
     }
 
@@ -168,7 +168,7 @@ impl ClassDef {
             on_initialize: ClassInitType::InitFn(init_fn),
             on_finalize: Some(Self::default_fini_fn),
             on_finalize_opaque: None,
-            on_gc_mark: None,
+            on_gc_trace: None,
         }
     }
 
@@ -190,7 +190,7 @@ impl ClassDef {
             },
             on_finalize: None,
             on_finalize_opaque: None,
-            on_gc_mark: None,
+            on_gc_trace: None,
         }
     }
 
@@ -205,7 +205,7 @@ impl ClassDef {
             on_initialize: ClassInitType::InitFn(init_fn),
             on_finalize: None,
             on_finalize_opaque: None,
-            on_gc_mark: None,
+            on_gc_trace: None,
         }
     }
 
@@ -243,7 +243,7 @@ impl ClassDef {
 
     /// Set GC mark callback for tracing JSValues in opaque payload.
     pub const fn on_gc_trace(mut self, f: ClassGcTraceFn) -> Self {
-        self.on_gc_mark = Some(f);
+        self.on_gc_trace = Some(f);
         self
     }
 

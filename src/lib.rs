@@ -30,9 +30,7 @@ mod value;
 pub use {
     array::Array,
     atom::Atom,
-    class::{
-        ClassCtorDef, ClassDef, ClassID, NativeObject, NativeObjectWithPayload, NativePayload,
-    },
+    class::{ClassCtorDef, ClassDef, ClassID, NativeObjectWithPayload, NativePayload},
     context::{Context, ScopedContext},
     error::{ErrorKind, Exception, ExceptionText, JS_SetUncatchableError, JSResult},
     eval::{EvalFlags, EvalType},
