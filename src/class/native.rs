@@ -23,7 +23,7 @@ impl NativePayload for () {
     }
 }
 
-pub trait NativeObjectWithPayload<T: NativePayload>:
+pub trait NativeObject<T: NativePayload>:
     Clone + TryFrom<JSValue> + TryFrom<Object>
 {
     /// Get registered class id.
@@ -32,7 +32,7 @@ pub trait NativeObjectWithPayload<T: NativePayload>:
 }
 
 impl Object {
-    pub fn as_native_object<P: NativePayload, NOBJ: NativeObjectWithPayload<P>>(
+    pub fn as_native_object<P: NativePayload, NOBJ: NativeObject<P>>(
         &self,
     ) -> Option<&NOBJ> {
         if self.class_id() == NOBJ::class_id() {
@@ -44,7 +44,7 @@ impl Object {
 }
 
 impl JSValue {
-    pub fn as_native_object<P: NativePayload, NOBJ: NativeObjectWithPayload<P>>(
+    pub fn as_native_object<P: NativePayload, NOBJ: NativeObject<P>>(
         &self,
     ) -> Option<&NOBJ> {
         self.as_object()
@@ -54,7 +54,7 @@ impl JSValue {
 
 #[macro_export]
 macro_rules! def_native_object_struct {
-    ($name:expr, $native_ty:ident, $proto:expr, $ctor:expr, $payload_ty:ty
+    ($name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
@@ -111,7 +111,7 @@ macro_rules! def_native_object_struct {
             type Error = i32;
 
             fn try_from(o: Object) -> Result<Self, Self::Error> {
-                if o.class_id() == <Self as NativeObjectWithPayload<$payload_ty>>::class_id() {
+                if o.class_id() == <Self as NativeObject<$payload_ty>>::class_id() {
                     Ok(Self(o))
                 } else {
                     Err(-1)
@@ -135,11 +135,11 @@ macro_rules! def_native_object_struct {
 
 #[macro_export]
 macro_rules! def_native_object_base {
-    // Without payload -> use DummyPayload
+    // Without payload
     ($name:expr, $native_ty:ident, $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?) => {
-        $crate::def_native_object_struct!($name, $native_ty, $proto, $ctor, ()
+        $crate::def_native_object_struct!($name, $native_ty, (), $proto, $ctor
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?);
 
@@ -157,17 +157,18 @@ macro_rules! def_native_object_base {
         }
     };
 
-    // With payload, optionally with gc trace
-    ($name:expr, $native_ty:ident, $proto:expr, $ctor:expr, payload: $payload_ty:ty
+    // With payload
+    ($name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
-        $crate::def_native_object_struct!($name, $native_ty, $proto, $ctor, $payload_ty
+        $crate::def_native_object_struct!($name, $native_ty, $payload_ty, $proto, $ctor
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?
             $(, on_payload_gc: $on_payload_gc)?);
 
         impl $native_ty {
+            /// get payload data
             pub fn payload(&self) -> Option<&$payload_ty> {
                 debug_assert_eq!(Self::class_id(), self.as_object().class_id());
 
@@ -216,11 +217,11 @@ macro_rules! def_native_object_base {
     };
 }
 
-// Helper: generate NativeObjectWithPayload impl (shared by both def_native_object! arms)
+// Helper: generate NativeObject impl (shared by both def_native_object! arms)
 #[macro_export]
-macro_rules! impl_native_object_with_payload {
+macro_rules! impl_native_object {
     ($native_ty:ident, $payload_ty:ty) => {
-        impl $crate::NativeObjectWithPayload<$payload_ty> for $native_ty {
+        impl $crate::NativeObject<$payload_ty> for $native_ty {
             fn class_id() -> ClassID {
                 Self::CLASS_ID.with(|x| x.get())
             }
@@ -231,29 +232,27 @@ macro_rules! impl_native_object_with_payload {
 /// Define a native object class
 #[macro_export]
 macro_rules! def_native_object {
-    // Without payload -> use DummyPayload
-    ($name:expr, $native_ty:ident, $proto:expr, $ctor:expr
+    // Use dummy payload
+    ($name:expr, $native_ty:ident, (), $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?) => {
         $crate::def_native_object_base!($name, $native_ty, $proto, $ctor
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?);
 
-        $crate::impl_native_object_with_payload!($native_ty, ());
+        $crate::impl_native_object!($native_ty, ());
     };
 
     // With payload
-    ($name:expr, $native_ty:ident, $proto:expr, $ctor:expr
-        , payload: $payload_ty:ty
+    ($name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
-        $crate::def_native_object_base!($name, $native_ty, $proto, $ctor
-            , payload: $payload_ty
+        $crate::def_native_object_base!($name, $native_ty, $payload_ty, $proto, $ctor
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?
             $(, on_payload_gc: $on_payload_gc)?);
 
-        $crate::impl_native_object_with_payload!($native_ty, $payload_ty);
+        $crate::impl_native_object!($native_ty, $payload_ty);
     };
 }
