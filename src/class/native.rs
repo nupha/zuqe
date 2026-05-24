@@ -49,6 +49,23 @@ impl JSValue {
     }
 }
 
+/// Internal helper: conditionally add on_dispose handler based on payload type.
+/// `()` payload uses null opaque, so no disposal is needed.
+/// Real types need on_dispose to free the heap-allocated opaque.
+#[macro_export]
+macro_rules! maybe_on_dispose {
+    ((), $cd:ident) => {};
+    ($payload_ty:ty, $cd:ident) => {
+        $cd = $cd.on_dispose(|_, opaque: *mut std::ffi::c_void, _| {
+            if !opaque.is_null() {
+                unsafe {
+                    let _ = <$payload_ty as $crate::NativePayload>::from_raw(opaque);
+                }
+            }
+        });
+    };
+}
+
 #[macro_export]
 macro_rules! def_native_object_struct {
     ($name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr, $ctor:expr
@@ -77,17 +94,12 @@ macro_rules! def_native_object_struct {
                 // call on_register handler
                 $($on_register(rt);)?
 
-                let mut cd = $crate::ClassDef::new($name, $proto, $ctor).on_dispose(|_, opaque: *mut std::ffi::c_void, _| {
-                    if !opaque.is_null() {
-                        unsafe {
-                            let _ = <$payload_ty as $crate::NativePayload>::from_raw(opaque);
-                        }
-                    }
-                });
+                let mut cd = $crate::ClassDef::new($name, $proto, $ctor);
 
+                // optionally add on_dispose if payload is not dummy
+                $crate::maybe_on_dispose!($payload_ty, cd);
                 // set class unregister handler
                 $(cd = cd.on_unregister($on_unregister);)?
-
                 // set payload gc handler
                 $(
                     cd = cd.on_gc_trace(|opaque, gcx| {
@@ -229,7 +241,7 @@ macro_rules! impl_native_object {
 /// Define a native object class
 #[macro_export]
 macro_rules! def_native_object {
-    // Use dummy payload
+    // Dummy payload
     ($name:expr, $native_ty:ident, (), $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?) => {
