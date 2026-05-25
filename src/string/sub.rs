@@ -32,7 +32,7 @@ impl StringData {
     /// make quoted string
     pub fn quote(&self) -> Result<StringBuf, TryReserveError> {
         if self.is_empty() {
-            Ok(StringBuf::Empty)
+            Ok(StringBuf::Ascii(vec![b'"', b'"']))
         } else {
             match self {
                 Self::Ascii(s) => quote_string_internal(Utf8Stream::new(s), s.len()),
@@ -170,7 +170,7 @@ impl StringBuf {
     /// make quoted string from buf
     pub fn quote(&self) -> Result<Self, TryReserveError> {
         if self.is_empty() {
-            Ok(Self::Empty)
+            Ok(Self::Ascii(vec![b'"', b'"']))
         } else {
             match self {
                 Self::Ascii(s) => quote_string_internal(Utf8Stream::new(s), s.len()),
