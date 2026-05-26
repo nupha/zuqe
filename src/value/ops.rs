@@ -16,7 +16,7 @@ impl ObjectImpl {
         ctx: &mut ScopedContext,
         ctor: JSValue,
     ) -> Result<bool, i32> {
-        if !ctor.is_function() {
+        if !ctor.is_callable() {
             return Ok(false);
         }
 
@@ -25,7 +25,7 @@ impl ObjectImpl {
 
         if let ObjectPayload::BOUND_FUNCTION(b) = ctor.payload() {
             // bound function case
-            return self.instance_of(ctx, b.func_obj);
+            return self.instance_of(ctx, b.func_obj.into());
         }
 
         match ctor.get_property(ctx, Atom::CONST_prototype)? {
@@ -88,7 +88,7 @@ impl ObjectImpl {
             }
 
             // no Symbol.hasInstance method: check legacy way
-            return if o.is_function() {
+            return if o.is_callable() {
                 self.ordinary_instance_of(ctx, ctor)
             } else {
                 Ok(false)
@@ -113,7 +113,7 @@ impl JSValue {
             Self::Object(p) => {
                 if p.flags().is_htmldda() {
                     Atom::CONST_undefined
-                } else if self.is_function() {
+                } else if self.is_callable() {
                     Atom::CONST_function
                 } else {
                     Atom::CONST_object
@@ -141,7 +141,7 @@ impl JSValue {
             }
 
             // no Symbol.hasInstance method: check legacy way
-            if o.is_function() {
+            if o.is_callable() {
                 return if let Some(o) = self.as_object() {
                     o.ordinary_instance_of(ctx, ctor)
                 } else {

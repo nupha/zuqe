@@ -46,7 +46,7 @@ impl GcTrace for ProxyPayload {
 impl ProxyPayload {
     pub fn new(target: Object, handler: JSValue) -> Box<Self> {
         Box::new(Self {
-            is_func: target.is_function(),
+            is_func: target.is_callable(),
             target,
             handler,
             is_revoked: Cell::new(false),

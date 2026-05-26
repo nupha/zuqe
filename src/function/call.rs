@@ -359,7 +359,7 @@ impl ObjectImpl {
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
         let f = self.get_property(ctx, method)?;
-        if f.is_function() {
+        if f.is_callable() {
             Ok(Some(f.call(ctx, Object::from_ref(self).into(), args)))
         } else {
             Ok(None)
@@ -454,7 +454,7 @@ impl JSValue {
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
         let m = self.get_property(ctx, method)?;
-        if m.is_function() {
+        if m.is_callable() {
             let r = m.call(ctx, *self, args);
             Ok(Some(r))
         } else {
@@ -466,7 +466,7 @@ impl JSValue {
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
 pub(crate) fn js_function_apply(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this_val = cc.this();
-    this_val.ensure_function(ctx)?;
+    this_val.ensure_callable(ctx)?;
 
     let this_arg = cc.arg(0);
     let array_arg = cc.arg(1);

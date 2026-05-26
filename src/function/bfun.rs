@@ -210,7 +210,7 @@ impl ObjectImpl {
     /// check if `self` is a function or a callable object.
     /// raise exception if not.
     pub fn ensure_function(&self, ctx: &mut ScopedContext) -> Result<&Self, i32> {
-        if self.is_function() {
+        if self.is_callable() {
             Ok(self)
         } else {
             ctx.throw_type_error("not a function");
@@ -218,25 +218,15 @@ impl ObjectImpl {
         }
     }
 
-    /// return realm context of the function object
+    /// get realm context of a function object
     pub(crate) fn realm(&self, mut default: ContextPtr) -> Result<ContextPtr, i32> {
         match self.payload() {
             ObjectPayload::C_FUNCTION(f) => Ok(f.realm),
-
+            ObjectPayload::BOUND_FUNCTION(f) => f.func_obj.realm(default),
             ObjectPayload::BYTECODE_FUNCTION(f)
             | ObjectPayload::GENERATOR_FUNCTION(f)
             | ObjectPayload::ASYNC_FUNCTION(f)
-            | ObjectPayload::ASYNC_GENERATOR_FUNCTION(f) => {
-                Ok(f.bytecode().realm().unwrap_or(default))
-            }
-
-            ObjectPayload::BOUND_FUNCTION(f) => {
-                if let Some(o) = f.func_obj.as_object() {
-                    o.realm(default)
-                } else {
-                    Ok(default)
-                }
-            }
+            | ObjectPayload::ASYNC_GENERATOR_FUNCTION(f) => Ok(f.bytecode().realm()),
 
             #[cfg(feature = "builtin_proxy")]
             ObjectPayload::PROXY(px) => {

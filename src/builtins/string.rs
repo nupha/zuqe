@@ -227,7 +227,7 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let buf_len = cc.len();
 
     let search_for = search.to_string(ctx)?;
-    let (replace_func, replace_str) = if replacement.is_function() {
+    let (replace_func, replace_str) = if replacement.is_callable() {
         (true, None)
     } else {
         (false, Some(replacement.to_string(ctx)?))

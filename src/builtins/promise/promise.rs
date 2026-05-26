@@ -235,7 +235,7 @@ impl Promise {
             let v = data.data(i).unwrap();
 
             #[cfg(debug_assertions)]
-            v.ensure_function(ctx)?;
+            v.ensure_callable(ctx)?;
 
             *f = v;
         }
@@ -600,12 +600,6 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
 }
 
 pub(crate) fn js_promise_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let exec_func = cc
-        .arg(0)
-        .ensure_function(ctx)?
-        .as_object()
-        .copied()
-        .unwrap();
-
+    let exec_func = cc.arg(0).callable(ctx)?;
     Promise::create_with_executor(ctx, exec_func, cc.this()).map(|p| p.into())
 }

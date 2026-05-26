@@ -54,7 +54,7 @@ pub fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
             },
         )?;
 
-        if !adder.is_function() {
+        if !adder.is_callable() {
             ctx.throw_type_error("set/add is not a function");
             return Err(-1);
         }
@@ -183,7 +183,7 @@ fn js_map_forEach(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let is_set = magic & 1 == 1;
 
     let func = cc.arg(0);
-    func.ensure_function(ctx)?;
+    func.ensure_callable(ctx)?;
 
     let this_arg = cc.arg(1);
     let mut this = cc.this();
@@ -346,7 +346,7 @@ fn js_map_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // check must be observed before argv[0] is accessed
 
     let func = cc.arg(1);
-    func.ensure_function(ctx)?;
+    func.ensure_callable(ctx)?;
 
     let this_val = if ctx.rt().is_strict_mode() {
         JSValue::UNDEFINED

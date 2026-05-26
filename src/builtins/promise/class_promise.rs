@@ -71,7 +71,7 @@ fn js_promise_then_finally_func(ctx: &mut ScopedContext, cc: CallContext) -> JSR
 pub fn js_promise_finally(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let on_finally = cc.arg(0);
 
-    let then_args: [JSValue; 2] = if !on_finally.is_function() {
+    let then_args: [JSValue; 2] = if !on_finally.is_callable() {
         [on_finally, on_finally]
     } else {
         let function_proto = ctx.function_proto();
@@ -171,7 +171,7 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     let promise_resolve = if let Ok(x) = cc.this().get_property(ctx, Atom::CONST_resolve) {
-        if unlikely(x.ensure_function(ctx).is_err()) {
+        if unlikely(x.ensure_callable(ctx).is_err()) {
             return fail_reject(ctx);
         } else {
             x
@@ -357,7 +357,7 @@ pub fn js_promise_race(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .get_property(ctx, Atom::CONST_resolve)
         .unwrap_or(JSValue::EXCEPTION);
 
-    if unlikely(promise_resolve.is_exception() || promise_resolve.ensure_function(ctx).is_err()) {
+    if unlikely(promise_resolve.is_exception() || promise_resolve.ensure_callable(ctx).is_err()) {
         fail_reject(ctx)
     } else {
         let obj = cc.arg(0);

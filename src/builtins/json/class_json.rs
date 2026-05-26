@@ -75,7 +75,7 @@ fn js_json_parse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         scope.json_parse(&s.content().encode_utf8_bytes(true), "<input>", 0)
     })?;
 
-    if cc.length() > 1 && cc.arg(1).is_function() {
+    if cc.length() > 1 && cc.arg(1).is_callable() {
         let reviver = cc.arg(1);
         let mut root: JSValue = ctx.create_base_object()?.into();
         root.define_property_value(ctx, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;

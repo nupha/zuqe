@@ -64,7 +64,6 @@ macro_rules! gcref_wrapper {
             #[inline(always)]
             pub fn from_ref(r: &$in_ty) -> Self {
                 r.into()
-                // Self(unsafe { GcRef::<$in_ty>::from_ref_unchecked(r) })
             }
 
             #[inline(always)]

@@ -346,7 +346,7 @@ impl Array {
         cmp: Option<JSValue>,
     ) -> Result<(), i32> {
         if let Some(f) = cmp {
-            f.ensure_function(ctx)?;
+            f.ensure_callable(ctx)?;
         }
 
         let arr_len = obj.get_length_prop(ctx)?;

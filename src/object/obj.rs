@@ -469,7 +469,7 @@ impl ObjectImpl {
     /// - native function
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
-    pub fn is_function(&self) -> bool {
+    pub fn is_callable(&self) -> bool {
         match &self.payload {
             ObjectPayload::BYTECODE_FUNCTION(_) => true,
             #[cfg(feature = "builtin_proxy")]
@@ -483,6 +483,11 @@ impl ObjectImpl {
                     .is_some()
             }
         }
+    }
+
+    #[deprecated(note = "renamed to ::is_callable()")]
+    pub fn is_function(&self) -> bool {
+        self.is_callable()
     }
 
     #[inline(always)]

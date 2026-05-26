@@ -71,8 +71,7 @@ impl Bytecode {
         args: &[JSValue], // actual calling arguments pass in by caller, not padded length
         throwed: bool,    // Indicates if an exception has been thrown
     ) -> JSValue {
-        let realm_ptr = self.realm().unwrap();
-        let mut realm_ctx: Context = realm_ptr.into();
+        let mut realm_ctx = Context::from(self.realm());
 
         realm_ctx.with_new_scope(|mut realm_scope| {
             // caller-scope must be at lower index than realm-scope in gc scope stack
@@ -2534,11 +2533,6 @@ impl Bytecode {
                     // Note: `stack_frame` will be dropped after exit, promote ret_val to upper scope
                     // caller_ctx.set_return_value(ret_val);
                     realm_scope.set_return_value(ret_val);
-
-                    if let Some(n) = ret_val.gc_node_ptr() {
-                        let upper_scope = rt.gc_part_id();
-                        rt.gc_heap_mut().set_xref(upper_scope, n);
-                    }
 
                     stack_frame.handle_exit(
                         realm_scope,

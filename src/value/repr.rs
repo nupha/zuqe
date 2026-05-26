@@ -67,7 +67,7 @@ impl ObjectImpl {
     pub(crate) fn repr(&self, ctx: &mut ScopedContext) -> Result<String, i32> {
         let atom = if self.is_array(ctx)? {
             Atom::CONST_Array
-        } else if self.is_function() {
+        } else if self.is_callable() {
             Atom::CONST_Function
         } else {
             match self.class_id() {

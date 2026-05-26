@@ -6,11 +6,7 @@ use crate::{
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
-    object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
-        JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
-    },
-    utils::unlikely,
+    object::JS_PROP_ENUMERABLE,
     value::JSValue,
 };
 

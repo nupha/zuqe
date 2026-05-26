@@ -4,7 +4,7 @@
 use std::{cell::Cell, ffi::c_void};
 
 use zuqe::{
-    CallContext, ClassCtorDef, ClassDef, ClassID, FieldDef, JSResult, JSValue, Object, Runtime,
+    CallContext, ClassCtorDef, ClassDef, ClassID, FieldDef, JSResult, JSValue, Runtime,
     RuntimeImpl, ScopedContext,
 };
 

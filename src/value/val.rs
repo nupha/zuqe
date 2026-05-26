@@ -326,19 +326,36 @@ impl JSValue {
         }
     }
 
-    /// Test if value `self` can be called, that means value is a:
-    ///
-    /// - Compiled bytecode functions
-    /// - Proxy objects that wrapping a function
-    /// - Objects of native class which has `call` handler
+    /// Test if value `self` is a callable object
     #[inline]
-    pub fn is_function(&self) -> bool {
-        self.as_object().is_some_and(|o| o.is_function())
+    pub fn is_callable(&self) -> bool {
+        self.as_object().is_some_and(|o| o.is_callable())
     }
 
     pub fn is_error(&self) -> bool {
         self.as_object()
             .is_some_and(|o| o.class_id() == JS_CLASS_ERROR)
+    }
+
+    /// Check if value `self` is a callable object. Raise exception if not.
+    pub fn ensure_callable(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+        if self.is_callable() {
+            Ok(())
+        } else {
+            ctx.throw_type_error("not a function");
+            Err(-1)
+        }
+    }
+
+    // Convert value `self` to callable object, raise exception if value is not callable.
+    pub fn callable(self, ctx: &mut ScopedContext) -> Result<Object, i32> {
+        if let Self::Object(o) = self {
+            o.ensure_function(ctx)?;
+            Ok(o)
+        } else {
+            ctx.throw_type_error_not_an_object();
+            Err(-1)
+        }
     }
 
     /// if `self` is an exception, returns Err if yes; Otherwise returns Ok(self)
@@ -348,28 +365,6 @@ impl JSValue {
             Err(-1)
         } else {
             Ok(self)
-        }
-    }
-
-    /// check if value `self` is an object.
-    /// raise exception if not.
-    pub fn ensure_object(self, ctx: &mut ScopedContext) -> Result<Object, i32> {
-        if let Self::Object(o) = self {
-            Ok(o)
-        } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
-        }
-    }
-
-    /// check if value `self` is a function or a callable object.
-    /// raise exception if not.
-    pub fn ensure_function(self, ctx: &mut ScopedContext) -> Result<Self, i32> {
-        if self.is_function() {
-            Ok(self)
-        } else {
-            ctx.throw_type_error("not a function");
-            Err(-1)
         }
     }
 
@@ -646,7 +641,7 @@ mod serde_json_support {
         }
 
         // Functions are not JSON-serializable → null
-        if obj.is_function() {
+        if obj.is_callable() {
             return Ok(serde_json::Value::Null);
         }
 

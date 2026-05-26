@@ -1063,7 +1063,7 @@ fn js_date_toJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     let method = obj.get_property_str(ctx, "toISOString")?;
-    if method.is_function() {
+    if method.is_callable() {
         method.call(ctx, obj.into(), &[])
     } else {
         ctx.throw_type_error("object needs toISOString method");

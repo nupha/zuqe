@@ -166,14 +166,14 @@ fn js_typed_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let items = cc.arg(0);
 
     let mut mapping = false;
-    let mut mapfn = JSValue::UNDEFINED;
+    let mut map_fn = JSValue::UNDEFINED;
     let mut this_arg = JSValue::UNDEFINED;
 
     let argc = cc.length();
     if argc > 1 {
-        mapfn = cc.arg(1);
-        if !mapfn.is_undefined() {
-            mapfn.ensure_function(ctx)?;
+        map_fn = cc.arg(1);
+        if !map_fn.is_undefined() {
+            map_fn.ensure_callable(ctx)?;
             mapping = true;
             if argc > 2 {
                 this_arg = cc.arg(2);
@@ -209,7 +209,7 @@ fn js_typed_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     for i in 0..len {
         let mut el = arr.get_property_i64(ctx, i)?;
         if mapping {
-            el = mapfn.call(ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
+            el = map_fn.call(ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
         }
         res_ta.set_property_i64(ctx, i, el)?;
     }
@@ -615,7 +615,7 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_typed_array_find(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this_val = cc.this();
     let len = js_typed_array_get_length_internal(ctx, this_val)? as i32;
-    let func = cc.arg(0).ensure_function(ctx)?;
+    let func = cc.arg(0).callable(ctx)?;
 
     let this_arg = if cc.length() > 1 {
         cc.arg(1)
@@ -989,7 +989,7 @@ fn call_cmp_fn(
 fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let cmp = cc.arg(0);
     if unlikely(!cmp.is_undefined()) {
-        cmp.ensure_function(ctx)?;
+        cmp.ensure_callable(ctx)?;
     }
 
     let this_val = cc.this();

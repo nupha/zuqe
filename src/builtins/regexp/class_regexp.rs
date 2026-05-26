@@ -460,7 +460,7 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     };
     let str = cc.arg(0).to_string(ctx)?;
     let rep = cc.arg(1);
-    let rep_is_func = rep.is_function();
+    let rep_is_func = rep.is_callable();
     let rep_str: Option<StringData> = if !rep_is_func {
         Some(rep.to_string(ctx)?.content().clone())
     } else {

@@ -152,7 +152,7 @@ pub(crate) fn js_object_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSR
 
     // check must be observed before argv[0] is accessed
     let func = cc.arg(1);
-    func.ensure_function(ctx)?;
+    func.ensure_callable(ctx)?;
 
     let mut groups: JSValue = {
         #[cfg(feature = "builtin_mapset")]

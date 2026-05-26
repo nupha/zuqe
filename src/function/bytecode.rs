@@ -206,8 +206,8 @@ impl BytecodeImpl {
 
     /// get bytecode realm context
     #[inline(always)]
-    pub(crate) const fn realm(&self) -> Option<ContextPtr> {
-        Some(self.realm)
+    pub(crate) const fn realm(&self) -> ContextPtr {
+        self.realm
     }
 
     #[inline(always)]

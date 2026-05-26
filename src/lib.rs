@@ -34,7 +34,7 @@ pub use {
     context::{Context, ScopedContext},
     error::{ErrorKind, Exception, ExceptionText, JS_SetUncatchableError, JSResult},
     eval::{EvalFlags, EvalType},
-    function::{CallContext, Callback, FieldDef},
+    function::{BoundFunction, CallContext, Callback, FieldDef},
     microtask::*,
     module::ModuleDef,
     number::IntOrFloat,

@@ -63,7 +63,7 @@ fn js_reflect_deleteProperty(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 }
 
 fn js_reflect_get(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).ensure_object(ctx)?;
+    let obj = cc.arg(0).callable(ctx)?;
     let prop = cc.arg(1);
     let receiver = if cc.length() > 2 {
         cc.arg(2)

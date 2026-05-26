@@ -269,8 +269,8 @@ impl AGenPayload {
                 .unwrap(),
         ));
         let resolving_funcs = js_async_generator_resolve_function_create(ctx, generator, true)?;
-        debug_assert!(resolving_funcs[0].is_function());
-        debug_assert!(resolving_funcs[1].is_function());
+        debug_assert!(resolving_funcs[0].is_callable());
+        debug_assert!(resolving_funcs[1].is_callable());
 
         promise.reaction(
             ctx,
@@ -291,8 +291,8 @@ impl AGenPayload {
         let resolving_funcs =
             js_async_generator_resolve_function_create(ctx, gen_obj.into(), false)?;
 
-        debug_assert!(resolving_funcs[0].is_function());
-        debug_assert!(resolving_funcs[1].is_function());
+        debug_assert!(resolving_funcs[0].is_callable());
+        debug_assert!(resolving_funcs[1].is_callable());
 
         promise.reaction(
             ctx,

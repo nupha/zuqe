@@ -19,7 +19,7 @@ use crate::{
 /// Async execution state for bytecode running, hold a dedicated stack frame for bytecode running.
 /// Used to save execution state of an async function or generator.
 #[derive(Debug)]
-pub(crate) struct AsyncStateImpl {
+pub struct AsyncStateImpl {
     /// 'this' argument
     pub(crate) this_val: JSValue,
 
@@ -251,7 +251,7 @@ impl AsyncStateImpl {
 /// used to save execution state of an async function or generator.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(transparent)]
-pub(crate) struct AsyncState(GcRef<AsyncStateImpl>);
+pub struct AsyncState(GcRef<AsyncStateImpl>);
 
 gcref_wrapper!(AsyncState, AsyncStateImpl);
 

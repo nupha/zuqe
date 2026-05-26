@@ -331,7 +331,7 @@ pub(crate) fn js_array_every(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     } else {
         JSValue::UNDEFINED
     };
-    func.ensure_function(ctx)?;
+    func.ensure_callable(ctx)?;
 
     let mut ret: JSValue = match special {
         s if s == special_every || s == special_every | special_TA => JSValue::Bool(true),
@@ -441,7 +441,7 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     }
 
     let func = cc.arg(0);
-    func.ensure_function(ctx)?;
+    func.ensure_callable(ctx)?;
 
     let mut acc: JSValue;
     let mut k = 0;
@@ -535,7 +535,7 @@ fn js_array_find(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let len = obj.get_length_prop(ctx)?;
 
     let func = cc.arg(0);
-    func.ensure_function(ctx)?;
+    func.ensure_callable(ctx)?;
 
     let this_val = cc.this();
     let this_arg = if cc.length() > 1 {
@@ -937,7 +937,7 @@ fn js_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let cmpfn = {
         let f = cc.arg(0);
         if !f.is_undefined() {
-            f.ensure_function(ctx)?;
+            f.ensure_callable(ctx)?;
             Some(f)
         } else {
             None
@@ -952,7 +952,7 @@ fn js_array_toSorted(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let cmpfn = {
         let f = cc.arg(0);
         if !f.is_undefined() {
-            f.ensure_function(ctx)?;
+            f.ensure_callable(ctx)?;
             Some(f)
         } else {
             None
@@ -1239,7 +1239,7 @@ pub(crate) fn js_array_flatten(ctx: &mut ScopedContext, cc: CallContext) -> JSRe
         if cc.length() > 1 {
             this_arg = cc.arg(1);
         }
-        mapper_func.ensure_function(ctx)?;
+        mapper_func.ensure_callable(ctx)?;
     } else if cc.length() > 0 && !cc.arg(0).is_undefined() {
         depth = cc.arg(0).to_number(ctx)?.to_i32_saturating();
     }
@@ -1420,13 +1420,13 @@ fn js_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let items = cc.arg(0);
     let mut mapping = false;
-    let mut mapfn = JSValue::UNDEFINED;
+    let mut map_fn = JSValue::UNDEFINED;
     let mut this_arg = JSValue::UNDEFINED;
 
     if cc.length() > 1 {
-        mapfn = cc.arg(1);
-        if !mapfn.is_undefined() {
-            mapfn.ensure_function(ctx)?;
+        map_fn = cc.arg(1);
+        if !map_fn.is_undefined() {
+            map_fn.ensure_callable(ctx)?;
             mapping = true;
             if cc.length() > 2 {
                 this_arg = cc.arg(2);
@@ -1468,7 +1468,7 @@ fn js_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 for el in it {
                     let mut val = el?;
                     if mapping {
-                        val = mapfn.call(ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
+                        val = map_fn.call(ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
                     }
                     arr.create_data_property_u32(ctx, k as _, val, JS_PROP_THROW)?;
                     k += 1;
@@ -1503,7 +1503,7 @@ fn js_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         for i in 0..len {
             let mut el = src.get_property_i64(ctx, i)?;
             if mapping {
-                el = mapfn.call(ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
+                el = map_fn.call(ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
             }
             arr.create_data_property_u32(ctx, i as _, el, JS_PROP_THROW)?;
         }

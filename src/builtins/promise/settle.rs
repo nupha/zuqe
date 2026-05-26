@@ -88,7 +88,7 @@ impl PromiseResolveFunc {
             promise.reject(ctx, err_val);
             return Ok(JSValue::UNDEFINED);
         } else if let Ok(then) = resolution.get_property(ctx, Atom::CONST_then) {
-            if then.is_function() {
+            if then.is_callable() {
                 ctx.queue_job(
                     move |cx| js_promise_resolve_thenable_job(cx, promise, resolution, then),
                     JobGcTrace3 {
@@ -170,7 +170,7 @@ impl Promise {
             resolving_funcs: cap_resolving_funcs,
             handler: {
                 let h = reaction_funcs[0];
-                if h.is_function() {
+                if h.is_callable() {
                     h
                 } else {
                     JSValue::UNDEFINED
@@ -181,7 +181,7 @@ impl Promise {
             resolving_funcs: cap_resolving_funcs,
             handler: {
                 let h = reaction_funcs[1];
-                if h.is_function() {
+                if h.is_callable() {
                     h
                 } else {
                     JSValue::UNDEFINED

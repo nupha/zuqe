@@ -405,12 +405,12 @@ impl ObjectImpl {
                 if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                     // getset property
                     JSProperty::GetSet {
-                        getter: if flags & JS_PROP_HAS_GET != 0 && getter.is_function() {
+                        getter: if flags & JS_PROP_HAS_GET != 0 && getter.is_callable() {
                             getter.as_object().copied()
                         } else {
                             None
                         },
-                        setter: if flags & JS_PROP_HAS_SET != 0 && setter.is_function() {
+                        setter: if flags & JS_PROP_HAS_SET != 0 && setter.is_callable() {
                             setter.as_object().copied()
                         } else {
                             None

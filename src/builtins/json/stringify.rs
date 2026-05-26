@@ -38,7 +38,7 @@ impl<'a> ScopedContext<'a> {
             stack: SmallVec::new(),
         };
 
-        if replacer.is_function() {
+        if replacer.is_callable() {
             jsc.replacer_func = replacer;
         } else if replacer.is_array(self)? {
             let n = replacer.get_length_prop(self)?;
@@ -145,7 +145,7 @@ fn js_json_check(
     // ECMA specifies this is done only for Object and BigInt */
     if val.is_object() {
         let f = val.get_property(ctx, Atom::CONST_toJSON)?;
-        if f.is_function() {
+        if f.is_callable() {
             val = f.call(ctx, val, std::slice::from_ref(&key))?;
         }
     }
@@ -158,7 +158,7 @@ fn js_json_check(
 
     match ret {
         JSValue::Object(o) => {
-            if o.is_function() {
+            if o.is_callable() {
                 Ok(JSValue::UNDEFINED)
             } else {
                 Ok(ret)

@@ -62,7 +62,7 @@ impl ObjectImpl {
             [Atom::CONST_valueOf, Atom::CONST_toString]
         } {
             let method = self.get_property(ctx, prop)?;
-            if method.is_function() {
+            if method.is_callable() {
                 let ret = method.call(ctx, this, &[])?;
                 if !ret.is_object() {
                     return Ok(ret);

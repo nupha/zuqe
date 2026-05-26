@@ -98,7 +98,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     m.insert(PayloadKey::BcFunction, "Box<crate::function::BFuncPayload>");
     m.insert(
         PayloadKey::BoundFunction,
-        "Box<crate::function::BoundFuncObjPayload>",
+        "Box<crate::function::BoundFunctionPayload>",
     );
     #[cfg(feature = "builtin_regexp")]
     m.insert(
