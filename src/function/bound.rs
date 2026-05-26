@@ -97,9 +97,7 @@ impl BoundFunction {
 
         debug_assert_eq!(bound.class_id(), JS_CLASS_BOUND_FUNCTION);
 
-        if func_obj.is_constructor() {
-            bound.set_flag_constructor(true);
-        }
+        bound.set_flag_constructor(func_obj.is_constructor());
 
         // set length property
         // XXX: the spec could be simpler by only using GetOwnProperty

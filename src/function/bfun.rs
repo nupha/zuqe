@@ -207,9 +207,8 @@ impl BCWrapper {
 }
 
 impl ObjectImpl {
-    /// check if `self` is a function or a callable object.
-    /// raise exception if not.
-    pub fn ensure_function(&self, ctx: &mut ScopedContext) -> Result<&Self, i32> {
+    /// Check if `self` is callable object, raise exception if not.
+    pub fn ensure_callable(&self, ctx: &mut ScopedContext) -> Result<&Self, i32> {
         if self.is_callable() {
             Ok(self)
         } else {

@@ -110,7 +110,7 @@ pub(crate) fn js_aggregate_error_constructor(ctx: &mut ScopedContext, errors: JS
 }
 
 pub fn js_error_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this = cc.this().callable(ctx)?;
+    let this = cc.this().into_object(ctx)?;
 
     let name = this.get_property(ctx, Atom::CONST_name)?;
     let name = if name.is_undefined() {

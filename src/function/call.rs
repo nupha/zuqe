@@ -137,6 +137,8 @@ impl ObjectImpl {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
+        debug_assert!(self.is_callable(), "must be callable object");
+
         ctx.poll_interrupts()?;
 
         let is_ctor = flags & JS_CALL_FLAG_CONSTRUCTOR != 0;
@@ -145,8 +147,9 @@ impl ObjectImpl {
             return Err(-1);
         }
 
-        let ret_val = if let Some(mut bfun) = Object::from_ref(self).as_BytecodeFunction().copied()
-        {
+        let self_obj = Object::from_ref(self);
+
+        let ret_val = if let Some(mut bfun) = self_obj.as_BytecodeFunction().copied() {
             // When calling bytecode function, a StackFrame is created for execution,
             // gc nodes self, this_obj, new_target, args are protected by the StackFrame
             let is_legacy_ctor =
@@ -180,7 +183,7 @@ impl ObjectImpl {
             // calling class defined exotic callback (e.g. bound function, native function, async function etc)
             let mut result = cb(
                 ctx,
-                Object::from_ref(self).into(),
+                self_obj.into(),
                 if is_ctor { new_target } else { this_obj },
                 args,
                 flags,
@@ -227,7 +230,7 @@ impl ObjectImpl {
             ];
 
             if is_ctor && !SKIP_PROTO_CHECK.contains(&self.class_id()) {
-                let self_val: JSValue = Object::from_ref(self).into();
+                let self_val = JSValue::Object(self_obj);
 
                 if new_target != self_val   // new_target differs from this constructor → called as super()
                    && let Ok(ref mut val) = result
@@ -278,8 +281,9 @@ impl ObjectImpl {
 
             result
         } else {
-            ctx.throw_type_error("not a function");
-            Err(-1)
+            unreachable!("self is not a callable");
+            // ctx.throw_type_error("not a function");
+            // Err(-1)
         };
 
         #[cfg(debug_assertions)]
@@ -294,7 +298,7 @@ impl ObjectImpl {
 
     #[inline(always)]
     pub fn call(&self, ctx: &mut ScopedContext, this_obj: JSValue, args: &[JSValue]) -> JSResult {
-        self.call_internal(
+        self.ensure_callable(ctx)?.call_internal(
             ctx,
             this_obj,
             JSValue::UNDEFINED,
@@ -311,7 +315,7 @@ impl ObjectImpl {
         new_target: JSValue,
         args: &[JSValue],
     ) -> JSResult {
-        self.call_internal(
+        self.ensure_callable(ctx)?.call_internal(
             ctx,
             JSValue::UNDEFINED,
             new_target,
@@ -378,12 +382,8 @@ impl JSValue {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        if let Some(o) = self.as_object() {
-            o.call_internal(ctx, this_obj, new_target, args, flags)
-        } else {
-            ctx.throw_type_error("not a function");
-            Err(-1)
-        }
+        self.ensure_callable(ctx)?
+            .call_internal(ctx, this_obj, new_target, args, flags)
     }
 
     /// For bytecode function, new scope will be created to execute bytecodes.
@@ -465,20 +465,18 @@ impl JSValue {
 
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
 pub(crate) fn js_function_apply(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this_val = cc.this();
-    this_val.ensure_callable(ctx)?;
-
+    let func_obj = cc.this().into_callable(ctx)?;
     let this_arg = cc.arg(0);
     let array_arg = cc.arg(1);
 
     if array_arg.is_undefined_or_null() && cc.magic() != 2 {
         // magic: 0/1 normal or constructor apply
-        this_val.call(ctx, this_arg, &[])
+        func_obj.call(ctx, this_arg, &[])
     } else {
         let arg_list = build_arg_list(ctx, array_arg)?;
         if cc.magic() & 1 != 0 {
             // magic: 1 constructor apply
-            this_val.call_internal(
+            func_obj.call_internal(
                 ctx,
                 JSValue::UNDEFINED,
                 this_arg,
@@ -487,7 +485,7 @@ pub(crate) fn js_function_apply(ctx: &mut ScopedContext, cc: CallContext) -> JSR
             )
         } else {
             // magic: 0/2 normal or Reflect.apply
-            this_val.call(ctx, this_arg, arg_list.as_ref())
+            func_obj.call(ctx, this_arg, arg_list.as_ref())
         }
     }
 }

@@ -26,7 +26,7 @@ fn js_function_call(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_function_bind(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let func_obj = cc.this().callable(ctx)?;
+    let func_obj = cc.this().into_callable(ctx)?;
     let arg_count = cc.length().saturating_sub(1);
 
     BoundFunction::create(
@@ -35,67 +35,12 @@ fn js_function_bind(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         cc.arg(0), // use argument #0 as `this`,
         if arg_count > 0 {
             // collect arguments starting from #1
-            cc.arguments()[1..].iter().copied().collect()
+            cc.arguments()[1..].to_vec()
         } else {
             Vec::new()
         },
     )
     .map(JSValue::from)
-
-    // let bf = Box::new(BoundFunctionPayload {
-    //     func_obj: this.callable(ctx)?,
-    //     this_val: cc.arg(0), // use argument #0 as `this`
-    //     bind_args: {
-    //         // collect arguments starting from #1
-    //         if arg_count > 0 {
-    //             cc.arguments()[1..].iter().copied().collect()
-    //         } else {
-    //             Vec::new()
-    //         }
-    //     },
-    // });
-
-    // let mut func_obj = {
-    //     let p = ctx.function_proto();
-    //     ctx.create_instance_with_proto_payload(Some(p), ObjectPayload::BOUND_FUNCTION(bf))
-    //         .map_err(|_| -1)?
-    // };
-    // func_obj.set_flag_constructor(this.is_constructor());
-
-    // // XXX: the spec could be simpler by only using GetOwnProperty
-    // let len_val = if this.get_own_property(ctx, Atom::CONST_length)?.is_none() {
-    //     JSValue::Int(0)
-    // } else {
-    //     match this.get_property(ctx, Atom::CONST_length)? {
-    //         JSValue::Int(n) => JSValue::Int(std::cmp::max(0, n - arg_count as i32)),
-    //         JSValue::Float64(mut d) => {
-    //             if d.is_nan() {
-    //                 d = 0.0;
-    //             } else {
-    //                 d = d.trunc();
-    //                 if d <= arg_count as f64 {
-    //                     d = 0.0;
-    //                 } else {
-    //                     d -= arg_count as f64; /* also converts -0 to +0 */
-    //                 }
-    //             }
-    //             JSValue::from(d)
-    //         }
-    //         _ => JSValue::Int(0),
-    //     }
-    // };
-    // func_obj.define_property_value(ctx, Atom::CONST_length, len_val, JS_PROP_CONFIGURABLE)?;
-
-    // // make bound function name.
-    // let name: StringRef = if let JSValue::String(s) = this.get_property(ctx, Atom::CONST_name)? {
-    //     s
-    // } else {
-    //     Atom::CONST_empty_string.force_string(ctx)?
-    // };
-    // let bf_name = JS_ConcatString3(ctx, c"bound ", name.into(), c"")?;
-    // func_obj.define_property_value(ctx, Atom::CONST_name, bf_name.into(), JS_PROP_CONFIGURABLE)?;
-
-    // Ok(func_obj.into())
 }
 
 fn js_function_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

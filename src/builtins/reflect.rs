@@ -63,16 +63,13 @@ fn js_reflect_deleteProperty(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 }
 
 fn js_reflect_get(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).callable(ctx)?;
-    let prop = cc.arg(1);
-    let receiver = if cc.length() > 2 {
-        cc.arg(2)
-    } else {
-        JSValue::from(obj)
-    };
+    let obj_val = cc.arg(0);
+    obj_val.ensure_object(ctx)?;
 
-    let atom = prop.to_atom(ctx)?;
-    obj.get_property_internal(ctx, atom, receiver, false)
+    let atom = cc.arg(1).to_atom(ctx)?;
+    let receiver = if cc.length() > 2 { cc.arg(2) } else { obj_val };
+
+    obj_val.get_property_internal(ctx, atom, receiver, false)
 }
 
 fn js_reflect_has(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

@@ -316,6 +316,16 @@ async fn main() -> ExitCode {
     let run_result = if let Some(js_fut) = promise_future {
         let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
 
+        // // check runtime error first to avoid shadowing promise error
+        // if let Err(exc) = rt_res {
+        //     let etxt = ctx.with_new_scope(|mut cx| exc.to_text(&mut cx));
+        //     colorize_println(etxt.message, RedFg);
+        //     if let Some(tb)=etxt.traceback{
+        //     colorize_println(tb, RedFg);
+        //     }
+        //     exit_code = ExitCode::FAILURE;
+        // }
+
         match promise_res {
             Ok(val) => {
                 colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);

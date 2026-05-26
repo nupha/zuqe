@@ -394,9 +394,9 @@ impl JSValue {
         if is_async
             && let Some(r) = self.invoke_defined(ctx, Atom::CONST_Symbol_asyncIterator, &[])?
         {
-            r.and_then(|v| v.callable(ctx)).map(Some)
+            r.and_then(|v| v.into_object(ctx)).map(Some)
         } else if let Some(r) = self.invoke_defined(ctx, Atom::CONST_Symbol_iterator, &[])? {
-            let sync_it = r.and_then(|v| v.callable(ctx))?;
+            let sync_it = r.and_then(|v| v.into_object(ctx))?;
             if is_async {
                 // method [Symbol.asyncIterator] is not defined:
                 // wrap [Symbol.iterator]() object into an AsyncFromSyncIterator
@@ -590,7 +590,7 @@ impl Array {
     ) -> Result<(Self, usize), i32> {
         let target = method
             .call(ctx, iterable.into(), &[])
-            .and_then(|v| v.callable(ctx))?;
+            .and_then(|v| v.into_object(ctx))?;
 
         let it = ObjectIter::new(ctx, target, Atom::CONST_next)?;
 

@@ -62,6 +62,7 @@ impl ObjectImpl {
             [Atom::CONST_valueOf, Atom::CONST_toString]
         } {
             let method = self.get_property(ctx, prop)?;
+
             if method.is_callable() {
                 let ret = method.call(ctx, this, &[])?;
                 if !ret.is_object() {
@@ -84,11 +85,8 @@ impl ObjectImpl {
 impl JSValue {
     /// Coerce value to primitive value. Primitive is non-object value.
     pub fn to_primitive(&self, ctx: &mut ScopedContext, hint: i32) -> Result<JSValue, i32> {
-        if let Self::Object(o) = self {
-            o.to_primitive(ctx, hint)
-        } else {
-            Ok(*self)
-        }
+        self.as_object()
+            .map_or(Ok(*self), |o| o.to_primitive(ctx, hint))
     }
 
     /// coerce value to bool

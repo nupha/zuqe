@@ -503,10 +503,7 @@ fn js_os_signal(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             );
         }
     } else {
-        if !func.is_function() {
-            ctx.throw_type_error("not a function");
-            return Err(-1);
-        }
+        func.ensure_callable(ctx)?;
         SIG_HANDLERS.with_borrow_mut(|lut| {
             lut.insert(sig_num, func);
         });

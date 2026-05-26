@@ -615,7 +615,9 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_typed_array_find(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this_val = cc.this();
     let len = js_typed_array_get_length_internal(ctx, this_val)? as i32;
-    let func = cc.arg(0).callable(ctx)?;
+
+    let arg0 = cc.arg(0);
+    let func = arg0.ensure_callable(ctx)?;
 
     let this_arg = if cc.length() > 1 {
         cc.arg(1)

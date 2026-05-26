@@ -337,25 +337,48 @@ impl JSValue {
             .is_some_and(|o| o.class_id() == JS_CLASS_ERROR)
     }
 
-    /// Check if value `self` is a callable object. Raise exception if not.
-    pub fn ensure_callable(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
-        if self.is_callable() {
-            Ok(())
-        } else {
-            ctx.throw_type_error("not a function");
-            Err(-1)
-        }
-    }
-
-    // Convert value `self` to callable object, raise exception if value is not callable.
-    pub fn callable(self, ctx: &mut ScopedContext) -> Result<Object, i32> {
-        if let Self::Object(o) = self {
-            o.ensure_function(ctx)?;
+    /// Convert value `self` to object, raise exception if value is not an object.
+    pub fn ensure_object(&self, ctx: &mut ScopedContext) -> Result<&Object, i32> {
+        if let Some(o) = self.as_object() {
             Ok(o)
         } else {
             ctx.throw_type_error_not_an_object();
             Err(-1)
         }
+    }
+
+    /// Convert value `self` to object, raise exception if value is not an object.
+    pub fn into_object(self, ctx: &mut ScopedContext) -> Result<Object, i32> {
+        if let Self::Object(o) = self {
+            Ok(o)
+        } else {
+            ctx.throw_type_error_not_an_object();
+            Err(-1)
+        }
+    }
+
+    // Convert value `self` to callable object, raise exception if value is not a callable object.
+    pub fn ensure_callable(&self, ctx: &mut ScopedContext) -> Result<&Object, i32> {
+        self.ensure_object(ctx).and_then(|o| {
+            if o.is_callable() {
+                Ok(o)
+            } else {
+                ctx.throw_type_error("not a function");
+                Err(-1)
+            }
+        })
+    }
+
+    /// Convert value `self` to object, raise exception if value is not an object.
+    pub fn into_callable(self, ctx: &mut ScopedContext) -> Result<Object, i32> {
+        self.into_object(ctx).and_then(|o| {
+            if o.is_callable() {
+                Ok(o)
+            } else {
+                ctx.throw_type_error("not a function");
+                Err(-1)
+            }
+        })
     }
 
     /// if `self` is an exception, returns Err if yes; Otherwise returns Ok(self)

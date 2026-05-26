@@ -169,7 +169,7 @@ impl Promise {
         executor: Object,
         ctor: JSValue,
     ) -> Result<Self, i32> {
-        executor.ensure_function(ctx)?;
+        executor.ensure_callable(ctx)?;
 
         // create Promise instance
         let isa = Box::new(PromisePayload {
@@ -229,14 +229,11 @@ impl Promise {
 
         // collect resolving functions
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-        let data = executor.payload();
+        let exec_payload = executor.payload();
 
         for (i, f) in resolving_funcs.iter_mut().enumerate() {
-            let v = data.data(i).unwrap();
-
-            #[cfg(debug_assertions)]
-            v.ensure_callable(ctx)?;
-
+            let v = exec_payload.data(i).unwrap();
+            v.ensure_callable(ctx)?; // guard resolving function
             *f = v;
         }
 
@@ -600,6 +597,6 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
 }
 
 pub(crate) fn js_promise_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let exec_func = cc.arg(0).callable(ctx)?;
+    let exec_func = *cc.arg(0).ensure_callable(ctx)?;
     Promise::create_with_executor(ctx, exec_func, cc.this()).map(|p| p.into())
 }
