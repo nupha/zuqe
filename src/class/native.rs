@@ -83,7 +83,7 @@ pub trait NativeObject<T: NativePayload>: Clone + TryFrom<JSValue> + TryFrom<Obj
 impl Object {
     pub fn as_native_object<P: NativePayload, NOBJ: NativeObject<P>>(&self) -> Option<&NOBJ> {
         if self.class_id() == NOBJ::class_id() {
-            Some(unsafe { std::mem::transmute::<&Object, &NOBJ>(self) })
+            Some(unsafe { std::mem::transmute::<&Self, &NOBJ>(self) })
         } else {
             None
         }
@@ -93,7 +93,7 @@ impl Object {
         &mut self,
     ) -> Option<&mut NOBJ> {
         if self.class_id() == NOBJ::class_id() {
-            Some(unsafe { std::mem::transmute::<&mut Object, &mut NOBJ>(self) })
+            Some(unsafe { std::mem::transmute::<&mut Self, &mut NOBJ>(self) })
         } else {
             None
         }
@@ -149,12 +149,12 @@ macro_rules! def_native_object_struct {
             }
 
             #[inline(always)]
-            pub fn as_object(&self) -> &Object {
+            pub fn as_object(&self) -> &$crate::Object {
                 &self.0
             }
 
             #[inline(always)]
-            pub fn as_object_mut(&mut self) -> &mut Object {
+            pub fn as_object_mut(&mut self) -> &mut $crate::Object {
                 &mut self.0
             }
 
@@ -187,10 +187,24 @@ macro_rules! def_native_object_struct {
             }
         }
 
+        impl std::ops::Deref for $native_ty {
+            type Target = $crate::Object;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl std::ops::DerefMut for $native_ty {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.0
+            }
+        }
+
         impl TryFrom<$crate::Object> for $native_ty {
             type Error = i32;
 
-            fn try_from(o: Object) -> Result<Self, Self::Error> {
+            fn try_from(o: $crate::Object) -> Result<Self, Self::Error> {
                 if o.class_id() == <Self as $crate::NativeObject<$payload_ty>>::class_id() {
                     Ok(Self(o))
                 } else {
@@ -208,6 +222,18 @@ macro_rules! def_native_object_struct {
                 } else {
                     Err(-1)
                 }
+            }
+        }
+
+        impl From<$native_ty> for $crate::Object {
+            fn from(v: $native_ty) -> Self {
+                v.0.into()
+            }
+        }
+
+        impl From<$native_ty> for $crate::JSValue {
+            fn from(v: $native_ty) -> Self {
+                v.0.into()
             }
         }
     };
@@ -228,8 +254,9 @@ macro_rules! def_native_object_base {
             pub fn new_instance(
                 ctx: &mut $crate::ScopedContext,
                 new_target: $crate::JSValue,
-            ) -> Result<Object, i32> {
+            ) -> Result<Self, i32> {
                 ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject<()>>::class_id(), std::ptr::null_mut())
+                    .map(Self)
                     .map_err(|_| {
                         -1
                     })
@@ -286,11 +313,12 @@ macro_rules! def_native_object_base {
                 ctx: &mut $crate::ScopedContext,
                 new_target: $crate::JSValue,
                 payload: $payload_ty,
-            ) -> Result<Object, i32> {
+            ) -> Result<Self, i32> {
                 let opaque = <$payload_ty as $crate::NativePayload>::into_raw(payload);
                 debug_assert!(!opaque.is_null());
 
                 ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject<$payload_ty>>::class_id(), opaque)
+                    .map(Self)
                     .map_err(|_| {
                         unsafe {
                             let _ = <$payload_ty as $crate::NativePayload>::from_raw(opaque);
