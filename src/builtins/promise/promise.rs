@@ -154,6 +154,50 @@ impl<D: Send + 'static> Default for PromiseResultSlot<D> {
 unsafe impl<D> Send for PromiseResultSlot<D> {}
 unsafe impl<D> Sync for PromiseResultSlot<D> {}
 
+#[cfg(feature = "async_support")]
+mod async_slot {
+    use super::*;
+
+    pub struct PromiseSlotCommitFut<D: Send + Unpin + 'static> {
+        slot: PromiseResultSlot<D>,
+        data: Option<D>,
+    }
+
+    impl<D: Send + Unpin + 'static> Future for PromiseSlotCommitFut<D> {
+        type Output = ();
+
+        fn poll(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            let this = self.get_mut();
+            let data = this.data.take().unwrap();
+
+            match this.slot.commit(data) {
+                Ok(()) => std::task::Poll::Ready(()),
+                Err(d) => {
+                    this.data.replace(d);
+                    // Re-schedule for re-polling on the next executor tick.
+                    cx.waker().wake_by_ref();
+                    std::task::Poll::Pending
+                }
+            }
+        }
+    }
+
+    impl<D: Send + Unpin + 'static> PromiseResultSlot<D> {
+        pub fn commit_async(&self, data: D) -> PromiseSlotCommitFut<D> {
+            PromiseSlotCommitFut {
+                slot: self.clone(),
+                data: Some(data),
+            }
+        }
+    }
+}
+
+#[cfg(feature = "async_support")]
+pub use async_slot::PromiseSlotCommitFut;
+
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct Promise(GcRef<ObjectImpl>);
