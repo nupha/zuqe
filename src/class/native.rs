@@ -1,27 +1,75 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
+use std::{ffi::c_void, sync::Arc};
 
 use crate::{ClassID, JSValue, Object};
 
 /// Native object payload data
 pub trait NativePayload {
+    type Target: ?Sized;
+
     fn into_raw(self) -> *mut c_void;
     unsafe fn from_raw(ptr: *mut c_void) -> Self;
-    unsafe fn raw_as_ref<'a>(ptr: *mut c_void) -> &'a Self;
+    unsafe fn raw_as_ref<'a>(ptr: *mut c_void) -> &'a Self::Target;
+}
+
+impl<P> NativePayload for Box<P> {
+    type Target = P;
+
+    #[inline(always)]
+    fn into_raw(self) -> *mut c_void {
+        Box::into_raw(self).cast()
+    }
+
+    #[inline(always)]
+    unsafe fn from_raw(ptr: *mut c_void) -> Self {
+        unsafe { Box::from_raw(ptr.cast::<P>()) }
+    }
+
+    #[inline(always)]
+    unsafe fn raw_as_ref<'a>(ptr: *mut c_void) -> &'a Self::Target {
+        debug_assert!(!ptr.is_null());
+        unsafe { &*ptr.cast::<P>() }
+    }
+}
+
+impl<P> NativePayload for Arc<P> {
+    type Target = Arc<P>;
+
+    #[inline(always)]
+    fn into_raw(self) -> *mut c_void {
+        // leak Box<Arc<P>>
+        Box::into_raw(Box::new(self)).cast::<c_void>() as _
+    }
+
+    #[inline(always)]
+    unsafe fn from_raw(ptr: *mut c_void) -> Self {
+        // restore Box<Arc<P>> then deref to Arc<P>
+        unsafe { *Box::from_raw(ptr.cast::<Arc<P>>()) }
+    }
+
+    #[inline(always)]
+    unsafe fn raw_as_ref<'a>(ptr: *mut c_void) -> &'a Self::Target {
+        debug_assert!(!ptr.is_null());
+        unsafe { &*ptr.cast() } // &Arc<P>
+    }
 }
 
 /// the dummy payload
 impl NativePayload for () {
+    type Target = ();
+
     #[inline(always)]
     fn into_raw(self) -> *mut c_void {
         std::ptr::null_mut()
     }
+
     #[inline(always)]
     unsafe fn from_raw(_: *mut c_void) -> Self {}
+
     #[inline(always)]
-    unsafe fn raw_as_ref<'a>(_: *mut c_void) -> &'a Self {
+    unsafe fn raw_as_ref<'a>(_: *mut c_void) -> &'a Self::Target {
         &()
     }
 }
@@ -40,12 +88,29 @@ impl Object {
             None
         }
     }
+
+    pub fn as_native_object_mut<P: NativePayload, NOBJ: NativeObject<P>>(
+        &mut self,
+    ) -> Option<&mut NOBJ> {
+        if self.class_id() == NOBJ::class_id() {
+            Some(unsafe { std::mem::transmute::<&mut Object, &mut NOBJ>(self) })
+        } else {
+            None
+        }
+    }
 }
 
 impl JSValue {
     pub fn as_native_object<P: NativePayload, NOBJ: NativeObject<P>>(&self) -> Option<&NOBJ> {
         self.as_object()
             .and_then(|o| o.as_native_object::<P, NOBJ>())
+    }
+
+    pub fn as_native_object_mut<P: NativePayload, NOBJ: NativeObject<P>>(
+        &mut self,
+    ) -> Option<&mut NOBJ> {
+        self.as_object_mut()
+            .and_then(|o| o.as_native_object_mut::<P, NOBJ>())
     }
 }
 
@@ -55,6 +120,7 @@ impl JSValue {
 #[macro_export]
 macro_rules! maybe_on_dispose {
     ((), $cd:ident) => {};
+
     ($payload_ty:ty, $cd:ident) => {
         $cd = $cd.on_dispose(|_, opaque: *mut std::ffi::c_void, _| {
             if !opaque.is_null() {
@@ -83,8 +149,13 @@ macro_rules! def_native_object_struct {
             }
 
             #[inline(always)]
-            pub fn as_object(&self) -> &Object{
+            pub fn as_object(&self) -> &Object {
                 &self.0
+            }
+
+            #[inline(always)]
+            pub fn as_object_mut(&mut self) -> &mut Object {
+                &mut self.0
             }
 
             /// register this native class to runtime, returns class id.
@@ -178,7 +249,7 @@ macro_rules! def_native_object_base {
 
         impl $native_ty {
             /// get payload data
-            pub fn payload(&self) -> Option<&$payload_ty> {
+            pub fn payload(&self) -> Option<&<$payload_ty as $crate::NativePayload>::Target> {
                 debug_assert_eq!(<Self as $crate::NativeObject<$payload_ty>>::class_id(), self.as_object().class_id());
 
                 if let Some(p) = self.as_object().payload().other() {
@@ -187,6 +258,23 @@ macro_rules! def_native_object_base {
                         Some(unsafe { <$payload_ty as $crate::NativePayload>::raw_as_ref(ptr) })
                     } else {
                         None
+                    }
+                } else {
+                    unreachable!()
+                }
+            }
+
+            pub fn take_payload(&mut self) -> Option<$payload_ty>{
+                debug_assert_eq!(<Self as $crate::NativeObject<$payload_ty>>::class_id(), self.as_object().class_id());
+
+                if let Some(p) = self.as_object_mut().payload_mut().other_mut() {
+                    unsafe {
+                        let ptr = p.replace_opaque(std::ptr::null_mut());
+                        if !ptr.is_null() {
+                            Some(<$payload_ty as $crate::NativePayload>::from_raw(ptr))
+                        } else {
+                            None
+                        }
                     }
                 } else {
                     unreachable!()
@@ -211,18 +299,6 @@ macro_rules! def_native_object_base {
                     })
             }
         }
-
-        impl $crate::NativePayload for $payload_ty {
-            fn into_raw(self) -> *mut std::ffi::c_void {
-                Box::into_raw(Box::new(self)).cast()
-            }
-            unsafe fn from_raw(ptr: *mut std::ffi::c_void) -> Self {
-                *unsafe { Box::from_raw(ptr.cast::<Self>()) }
-            }
-            unsafe fn raw_as_ref<'a>(ptr: *mut std::ffi::c_void) -> &'a Self {
-                unsafe { &*ptr.cast::<Self>() }
-            }
-        }
     };
 }
 
@@ -231,7 +307,7 @@ macro_rules! def_native_object_base {
 macro_rules! impl_native_object {
     ($native_ty:ident, $payload_ty:ty) => {
         impl $crate::NativeObject<$payload_ty> for $native_ty {
-            fn class_id() -> ClassID {
+            fn class_id() -> $crate::ClassID {
                 Self::CLASS_ID.with(|x| x.get())
             }
         }
