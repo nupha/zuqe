@@ -74,7 +74,13 @@ impl NativePayload for () {
     }
 }
 
-pub trait NativeObject: Clone + TryFrom<JSValue> + TryFrom<Object> {
+/// Marker trait for native object types.
+///
+/// # Safety
+/// The type must be a `#[repr(transparent)]` wrapper around `Object`.
+/// Only rely on `def_native_object!` to auto-implement it. Do NOT manually impl this trait.
+#[doc(hidden)]
+pub unsafe trait NativeObject: Clone + TryFrom<JSValue> + TryFrom<Object> {
     /// Get registered class id.
     /// Should return 0 if class has not been registered.
     fn class_id() -> ClassID;
@@ -329,7 +335,7 @@ macro_rules! def_native_object_base {
 #[macro_export]
 macro_rules! impl_native_object {
     ($native_ty:ident) => {
-        impl $crate::NativeObject for $native_ty {
+        unsafe impl $crate::NativeObject for $native_ty {
             fn class_id() -> $crate::ClassID {
                 Self::CLASS_ID.with(|x| x.get())
             }
