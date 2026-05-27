@@ -219,7 +219,7 @@ impl ClassDef {
         self
     }
 
-    /// Set class finalize callback of builtin class def. Callbed before Object::drop().
+    /// Set class finalize callback of builtin class def. Called from `ObjectImpl::drop()`.
     ///
     /// This method is for builtin class def only. User class def should use on_dispose (which is a public api) instead.
     pub(crate) const fn on_finalize(mut self, f: ClassFinalizeFn) -> Self {

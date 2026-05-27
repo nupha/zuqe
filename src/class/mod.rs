@@ -3,14 +3,14 @@
 
 mod class_def;
 mod native;
-mod r#use;
+mod using;
 
 pub use {
     class_def::{ClassCtorDef, ClassDef},
     native::*,
 };
 
-pub(crate) use {class_def::*, r#use::*};
+pub(crate) use {class_def::*, using::*};
 
 use std::ffi::c_void;
 
@@ -25,6 +25,24 @@ use crate::{
 
 pub type ClassID = u16;
 
+/// Class instance finalize callback, called from `ObjectImpl::drop()` when a class instance is garbage collected.
+pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
+/// free user class instance handler
+pub(crate) type ClassFinalizeOpaqueFn = fn(rt: &mut RuntimeImpl, opaque: *mut c_void, id: usize);
+/// class unregister handler.
+///
+/// # Note
+/// When this callback is invoked, the runtime's `class_registry` has already been cleared,
+/// so implementations **must not** index into `rt.class_registry` to reference other classes.
+pub type ClassUnregisterFn = fn(rt: &mut RuntimeImpl);
+/// GC mark callback for user class opaque payload.
+/// Called during GC mark phase to trace JSValues held inside opaque.
+pub type ClassGcTraceFn = fn(opaque: *mut c_void, tr: &mut gc_lite::GcTraceCtx);
+/// Initialize a class to context `ctx`, including setup proto, constructor.
+pub type ClassInitializeFn = fn(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32>;
+/// Callback when a class instance is invoked as a function (`myInstance(args)`) or
+/// as a constructor (`new myInstance(args)`). The `flags` parameter carries
+/// `JS_CALL_FLAG_CONSTRUCTOR` to distinguish the latter case.
 pub type ClassCallFn = fn(
     ctx: &mut ScopedContext,
     func_obj: JSValue,
@@ -32,18 +50,6 @@ pub type ClassCallFn = fn(
     args: &[JSValue],
     flags: i32,
 ) -> JSResult;
-
-/// Initialize class proto, constructor to context.
-pub type ClassInitializeFn = fn(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32>;
-/// class instance finalize callback.
-pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
-/// free user class instance handler
-pub type ClassFinalizeOpaqueFn = fn(rt: &mut RuntimeImpl, opaque: *mut c_void, id: usize);
-/// class unregister handler.
-pub type ClassUnregisterFn = fn();
-/// GC mark callback for user class opaque payload.
-/// Called during GC mark phase to trace JSValues held inside opaque.
-pub type ClassGcTraceFn = fn(opaque: *mut c_void, tr: &mut gc_lite::GcTraceCtx);
 
 pub type DefineOwnPropertyFn = fn(
     ctx: &mut ScopedContext,

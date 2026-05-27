@@ -182,8 +182,6 @@ impl RuntimeImpl {
     }
 }
 
-impl ContextImpl {}
-
 impl<'c> ScopedContext<'c> {
     pub(crate) fn init_class_proto_internal(
         &mut self,

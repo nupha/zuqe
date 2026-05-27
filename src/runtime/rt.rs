@@ -308,9 +308,10 @@ impl RuntimeImpl {
         // );
 
         // class unregister callbacks
-        for c in &self.class_registry {
+        let class_registry = std::mem::take(&mut self.class_registry);
+        for c in class_registry {
             if let Some(f) = c.on_unregister {
-                f();
+                f(self); // Note: class_registry is already cleared; do NOT reference other ClassDef entries.
             }
         }
     }
