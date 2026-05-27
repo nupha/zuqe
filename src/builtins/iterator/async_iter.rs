@@ -96,7 +96,7 @@ struct ChannelFetcher<D> {
     convert: Box<dyn Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + Send>,
 }
 
-impl<D: Send + 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
+impl<D: 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
     fn try_fetch(&self, cx: &mut ScopedContext) -> Result<IterFetchStatus, i32> {
         let mut guard = self.rx.borrow_mut();
 
@@ -133,12 +133,13 @@ impl<D: Send + 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
 ///
 /// The `done_value` is a special sentinel: when the slot contains this value,
 /// the fetcher returns [`IterFetchStatus::Done`] instead of yielding it.
-struct SlotFetcher<D: Send + 'static> {
+struct SlotFetcher<D: 'static> {
     slot: PromiseResultSlot<D>,
-    convert: Box<dyn Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + Send>,
+    /// convert D to JSValue, running in js thread. None to stop
+    convert: Box<dyn Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32>>,
 }
 
-impl<D: Send + 'static> AsyncIteratorFetcher for SlotFetcher<D> {
+impl<D: 'static> AsyncIteratorFetcher for SlotFetcher<D> {
     fn try_fetch(&self, cx: &mut ScopedContext) -> Result<IterFetchStatus, i32> {
         match self.slot.try_take() {
             Some(data) => match (self.convert)(cx, data) {
@@ -254,10 +255,12 @@ impl AsyncIterableIterator {
     /// - `Ok(Some(v))` — yield `v`, iteration continues.
     /// - `Ok(None)`    — iteration ended.
     /// - `Err(_)`      — error, reject the promise.
-    pub fn create_with_result_slot<D: Send + 'static>(
+    ///
+    /// Note: the `convert` closure is running in js thread
+    pub fn create_with_result_slot<D: 'static>(
         ctx: &mut ScopedContext,
         data_slot: PromiseResultSlot<D>,
-        convert: impl Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + Send + 'static,
+        convert: impl Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + 'static,
     ) -> Result<Self, i32> {
         Self::create(
             ctx,

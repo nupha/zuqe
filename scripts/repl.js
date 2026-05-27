@@ -540,7 +540,7 @@ import * as os from "os";
   function control_c() {
     if (last_fun === control_c) {
       std.puts("\n");
-      std.exit(0);
+      return -3;
     } else {
       std.puts("\n(Press Ctrl-C again to quit)\n");
       readline_print_prompt();
@@ -1071,7 +1071,7 @@ import * as os from "os";
             Math.floor(prec / log2_10) +
             " digits), exponent size=" +
             expBits +
-            " bits\n"
+            " bits\n",
         );
       } else if (param[0] === "f16") {
         prec = 11;
@@ -1159,7 +1159,7 @@ import * as os from "os";
         "\\t         " +
         sel(show_time) +
         "toggle timing display\n" +
-        "\\clear      clear the terminal\n"
+        "\\clear      clear the terminal\n",
     );
     if (has_jscalc) {
       std.puts(
@@ -1168,19 +1168,19 @@ import * as os from "os";
           "algebraic mode\n" +
           "\\n         " +
           sel(!algebraicMode) +
-          "numeric mode\n"
+          "numeric mode\n",
       );
     }
     if (has_bignum) {
       std.puts(
         "\\p [m [e]]  set the BigFloat precision to 'm' bits\n" +
-          "\\digits n   set the BigFloat precision to 'ceil(n*log2(10))' bits\n"
+          "\\digits n   set the BigFloat precision to 'ceil(n*log2(10))' bits\n",
       );
       if (!has_jscalc) {
         std.puts(
           "\\mode [std|math] change the running mode (current = " +
             eval_mode +
-            ")\n"
+            ")\n",
         );
       }
     }
@@ -1250,7 +1250,7 @@ import * as os from "os";
       BigFloatEnv.setPrec(
         eval_and_print_start.bind(null, expr, false),
         prec,
-        expBits
+        expBits,
       );
     } else {
       eval_and_print_start(expr, true);

@@ -192,8 +192,8 @@ fn run_zjs_prepare<'a>() -> (Runtime, Context<'a>, Args, String, bool) {
         (rt, is_module)
     };
 
-    let class_id_file = JSFile::register(rt.clone()).unwrap();
-    let class_id_emitter = JSEmitter::register(rt.clone()).unwrap();
+    let class_id_file = JSFile::register(&mut rt).unwrap();
+    let class_id_emitter = JSEmitter::register(&mut rt).unwrap();
 
     let ctx = rt
         .create_context(|cx| {

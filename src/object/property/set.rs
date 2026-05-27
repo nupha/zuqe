@@ -238,7 +238,7 @@ impl ObjectImpl {
         }
 
         //
-        // add the property
+        // property is not defined, add the property
         //
 
         if unlikely(flags & JS_PROP_NO_ADD != 0) {

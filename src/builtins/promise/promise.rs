@@ -118,7 +118,7 @@ impl<D> Clone for PromiseResultSlot<D> {
     }
 }
 
-impl<D: Send + 'static> PromiseResultSlot<D> {
+impl<D: 'static> PromiseResultSlot<D> {
     pub fn new() -> Self {
         Self {
             data: Arc::new(Mutex::new(None)),
@@ -145,14 +145,14 @@ impl<D: Send + 'static> PromiseResultSlot<D> {
     }
 }
 
-impl<D: Send + 'static> Default for PromiseResultSlot<D> {
+impl<D: 'static> Default for PromiseResultSlot<D> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-unsafe impl<D> Send for PromiseResultSlot<D> {}
-unsafe impl<D> Sync for PromiseResultSlot<D> {}
+unsafe impl<D: Send> Send for PromiseResultSlot<D> {}
+unsafe impl<D: Sync> Sync for PromiseResultSlot<D> {}
 
 #[cfg(feature = "async_support")]
 mod async_slot {
@@ -401,7 +401,7 @@ impl Promise {
     /// typically from another thread, to submit a single value of type `D`
     /// via [`PromiseResultSlot::commit`]. When the value is taken, `convert` is called
     /// inside a JS context to turn it into a `JSValue` and resolve the Promise.
-    pub fn create_with_result_slot<D: Send + 'static>(
+    pub fn create_with_result_slot<D: 'static>(
         ctx: &mut ScopedContext,
         data_slot: PromiseResultSlot<D>,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,

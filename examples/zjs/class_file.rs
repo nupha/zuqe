@@ -2,8 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use std::{
-    cell::Cell,
-    ffi::c_void,
+    cell::{Cell, RefCell},
     io::{Read, Write},
 };
 
@@ -12,10 +11,7 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-use zuqe::{
-    CallContext, ClassDef, ClassID, FieldDef, JSResult, JSValue, Object, Runtime, RuntimeImpl,
-    ScopedContext,
-};
+use zuqe::{CallContext, FieldDef, JSResult, JSValue, Object, ScopedContext, def_native_object};
 
 #[derive(Debug)]
 #[repr(u8)]
@@ -46,31 +42,28 @@ impl FileDesc {
     }
 }
 
-fn js_file_get_desc_mut<'a>(
+fn get_file_fd<'a>(
     ctx: &mut ScopedContext,
-    obj: JSValue,
-) -> Result<&'a mut FileDesc, i32> {
-    let opaque = obj
-        .retrive_object_payload(ctx, JSFile::class_id())?
-        .other()
-        .unwrap()
-        .opaque();
-
-    if !opaque.is_null() {
-        Ok(unsafe { &mut *opaque.cast::<FileDesc>() })
-    } else {
-        ctx.throw_type_error("file was closed");
-        Err(-1)
-    }
+    val: &'a JSValue,
+) -> Result<&'a RefCell<FileDesc>, i32> {
+    val.as_native_object::<JSFile>()
+        .and_then(|o| o.payload())
+        .ok_or_else(|| {
+            ctx.throw_type_error("not a File instance");
+            -1
+        })
 }
 
 fn js_file_fileno(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let fh = js_file_get_desc_mut(ctx, cc.this())?;
-    Ok(JSValue::Int(fh.as_raw_fd()))
+    let this = cc.this();
+    let fd = get_file_fd(ctx, &this)?;
+    Ok(JSValue::Int(fd.borrow().as_raw_fd()))
 }
 
 fn js_file_readAsString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let fh = js_file_get_desc_mut(ctx, cc.this())?;
+    let this = cc.this();
+    let fd = get_file_fd(ctx, &this)?;
+    let mut fdesc = fd.borrow_mut();
 
     let max_size_val = cc.arg(0);
     let max_size = if !max_size_val.is_undefined() {
@@ -91,7 +84,7 @@ fn js_file_readAsString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         buf.fill(0);
     }
 
-    match fh {
+    match &mut *fdesc {
         FileDesc::File(fh) => {
             if max_size.is_some() {
                 let n = fh.read(&mut buf).map_err(|e| {
@@ -130,36 +123,44 @@ fn js_file_readAsString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 pub(super) fn js_file_puts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
 
-    let fh = if magic == 1 {
-        js_file_get_desc_mut(ctx, cc.this())?
+    if magic == 1 {
+        let this = cc.this();
+        let fd = get_file_fd(ctx, &this)?;
+        let mut fdesc = fd.borrow_mut();
+        for arg in cc.arguments() {
+            let s = arg.to_string(ctx)?;
+            let s = s.content().encode_utf8(false);
+
+            match &mut *fdesc {
+                FileDesc::File(f) => {
+                    f.write_all(s.as_bytes()).map_err(|e| {
+                        ctx.throw_internal_error(&e.to_string());
+                        -1
+                    })?;
+                }
+                FileDesc::Stdout => {
+                    std::io::stdout().write_all(s.as_bytes()).map_err(|e| {
+                        ctx.throw_internal_error(&e.to_string());
+                        -1
+                    })?;
+                }
+                FileDesc::Stderr => {
+                    std::io::stderr().write_all(s.as_bytes()).map_err(|e| {
+                        ctx.throw_internal_error(&e.to_string());
+                        -1
+                    })?;
+                }
+                FileDesc::Stdin => {}
+            }
+        }
     } else {
-        &mut FileDesc::Stdout
-    };
-
-    for arg in cc.arguments() {
-        let s = arg.to_string(ctx)?;
-        let s = s.content().encode_utf8(false);
-
-        match fh {
-            FileDesc::File(f) => {
-                f.write_all(s.as_bytes()).map_err(|e| {
-                    ctx.throw_internal_error(&e.to_string());
-                    -1
-                })?;
-            }
-            FileDesc::Stdout => {
-                std::io::stdout().write_all(s.as_bytes()).map_err(|e| {
-                    ctx.throw_internal_error(&e.to_string());
-                    -1
-                })?;
-            }
-            FileDesc::Stderr => {
-                std::io::stderr().write_all(s.as_bytes()).map_err(|e| {
-                    ctx.throw_internal_error(&e.to_string());
-                    -1
-                })?;
-            }
-            FileDesc::Stdin => {}
+        for arg in cc.arguments() {
+            let s = arg.to_string(ctx)?;
+            let s = s.content().encode_utf8(false);
+            std::io::stdout().write_all(s.as_bytes()).map_err(|e| {
+                ctx.throw_internal_error(&e.to_string());
+                -1
+            })?;
         }
     }
 
@@ -167,7 +168,10 @@ pub(super) fn js_file_puts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 }
 
 fn js_file_flush(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    match js_file_get_desc_mut(ctx, cc.this())? {
+    let this = cc.this();
+    let fd = get_file_fd(ctx, &this)?;
+    let mut fdesc = fd.borrow_mut();
+    match &mut *fdesc {
         FileDesc::File(f) => {
             let _ = f.flush().inspect_err(|e| {
                 eprintln!("flush file error: {}", e);
@@ -191,18 +195,11 @@ fn js_file_flush(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_file_close(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut this = cc.this();
-    let u = this
-        .retrive_object_payload_mut(ctx, JSFile::class_id())?
-        .other_mut()
-        .unwrap();
-
-    if !u.opaque().is_null() {
-        unsafe {
-            let p = u.replace_opaque(std::ptr::null_mut());
-            drop(Box::from_raw(p.cast::<std::fs::File>()));
-        }
-    }
-
+    let jsfile = this.as_native_object_mut::<JSFile>().ok_or_else(|| {
+        ctx.throw_type_error("not a File instance");
+        -1
+    })?;
+    let _ = jsfile.take_payload();
     Ok(JSValue::UNDEFINED)
 }
 
@@ -214,61 +211,43 @@ const CLASS_FILE_PROTO: &[FieldDef] = &[
     FieldDef::FUNC("close", 0, js_file_close, 0),
 ];
 
-pub struct JSFile;
+def_native_object!("File", JSFile, Box<RefCell<FileDesc>>, CLASS_FILE_PROTO);
 
 impl JSFile {
-    fn handle_dispose(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
-        if !opaque.is_null() {
-            let p = unsafe { Box::from_raw(opaque.cast::<FileDesc>()) };
-            drop(p);
-        }
+    /// Create a File instance from a std::fs::File handle.
+    pub fn create_file_instance(ctx: &mut ScopedContext, fh: std::fs::File) -> Result<Object, i32> {
+        Self::new_instance(
+            ctx,
+            JSValue::UNDEFINED,
+            Box::new(RefCell::new(FileDesc::File(fh))),
+        )
+        .map(Into::into)
     }
-
-    thread_local! {
-        static CLASS_ID: Cell<ClassID> = const { Cell::new(0) };
+    /// Create a File instance wrapping stdin.
+    pub fn create_stdin_instance(ctx: &mut ScopedContext) -> Result<Object, i32> {
+        Self::new_instance(
+            ctx,
+            JSValue::UNDEFINED,
+            Box::new(RefCell::new(FileDesc::Stdin)),
+        )
+        .map(Into::into)
     }
-
-    /// register class
-    pub fn register(mut rt: Runtime) -> Result<ClassID, i32> {
-        let class_id = rt
-            .register_class(
-                ClassDef::new("File", CLASS_FILE_PROTO, None).on_dispose(Self::handle_dispose),
-            )
-            .expect("register class File failed");
-
-        // save assigned class_id
-        Self::CLASS_ID.with(|s| s.set(class_id));
-        Ok(class_id)
+    /// Create a File instance wrapping stdout.
+    pub fn create_stdout_instance(ctx: &mut ScopedContext) -> Result<Object, i32> {
+        Self::new_instance(
+            ctx,
+            JSValue::UNDEFINED,
+            Box::new(RefCell::new(FileDesc::Stdout)),
+        )
+        .map(Into::into)
     }
-
-    /// get class id
-    #[inline(always)]
-    pub fn class_id() -> ClassID {
-        Self::CLASS_ID.with(|x| x.get())
-    }
-
-    fn new_instance_internal(ctx: &mut ScopedContext, fd: FileDesc) -> Result<Object, i32> {
-        let class_id = Self::class_id();
-        let opaque = Box::into_raw(Box::new(fd)).cast::<c_void>();
-        // Not a constructor callback — pass undefined as new_target,
-        // which causes the class's default prototype to be used.
-        ctx.create_class_instance_with_opaque(JSValue::UNDEFINED, class_id, opaque)
-            .map_err(|e| {
-                let p = e.other().unwrap();
-                let _ = unsafe { Box::from_raw(p.opaque().cast::<FileDesc>()) };
-                -1
-            })
-    }
-    pub fn new_instance(ctx: &mut ScopedContext, fh: std::fs::File) -> Result<Object, i32> {
-        Self::new_instance_internal(ctx, FileDesc::File(fh))
-    }
-    pub fn new_instance_stdin(ctx: &mut ScopedContext) -> Result<Object, i32> {
-        Self::new_instance_internal(ctx, FileDesc::Stdin)
-    }
-    pub fn new_instance_stdout(ctx: &mut ScopedContext) -> Result<Object, i32> {
-        Self::new_instance_internal(ctx, FileDesc::Stdout)
-    }
-    pub fn new_instance_stderr(ctx: &mut ScopedContext) -> Result<Object, i32> {
-        Self::new_instance_internal(ctx, FileDesc::Stderr)
+    /// Create a File instance wrapping stderr.
+    pub fn create_stderr_instance(ctx: &mut ScopedContext) -> Result<Object, i32> {
+        Self::new_instance(
+            ctx,
+            JSValue::UNDEFINED,
+            Box::new(RefCell::new(FileDesc::Stderr)),
+        )
+        .map(Into::into)
     }
 }
