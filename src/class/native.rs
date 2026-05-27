@@ -74,26 +74,24 @@ impl NativePayload for () {
     }
 }
 
-pub trait NativeObject<T: NativePayload>: Clone + TryFrom<JSValue> + TryFrom<Object> {
+pub trait NativeObject: Clone + TryFrom<JSValue> + TryFrom<Object> {
     /// Get registered class id.
     /// Should return 0 if class has not been registered.
     fn class_id() -> ClassID;
 }
 
 impl Object {
-    pub fn as_native_object<P: NativePayload, NOBJ: NativeObject<P>>(&self) -> Option<&NOBJ> {
-        if self.class_id() == NOBJ::class_id() {
-            Some(unsafe { std::mem::transmute::<&Self, &NOBJ>(self) })
+    pub fn as_native_object<O: NativeObject>(&self) -> Option<&O> {
+        if self.class_id() == O::class_id() {
+            Some(unsafe { std::mem::transmute::<&Self, &O>(self) })
         } else {
             None
         }
     }
 
-    pub fn as_native_object_mut<P: NativePayload, NOBJ: NativeObject<P>>(
-        &mut self,
-    ) -> Option<&mut NOBJ> {
-        if self.class_id() == NOBJ::class_id() {
-            Some(unsafe { std::mem::transmute::<&mut Self, &mut NOBJ>(self) })
+    pub fn as_native_object_mut<O: NativeObject>(&mut self) -> Option<&mut O> {
+        if self.class_id() == O::class_id() {
+            Some(unsafe { std::mem::transmute::<&mut Self, &mut O>(self) })
         } else {
             None
         }
@@ -101,16 +99,13 @@ impl Object {
 }
 
 impl JSValue {
-    pub fn as_native_object<P: NativePayload, NOBJ: NativeObject<P>>(&self) -> Option<&NOBJ> {
-        self.as_object()
-            .and_then(|o| o.as_native_object::<P, NOBJ>())
+    pub fn as_native_object<O: NativeObject>(&self) -> Option<&O> {
+        self.as_object().and_then(|o| o.as_native_object::<O>())
     }
 
-    pub fn as_native_object_mut<P: NativePayload, NOBJ: NativeObject<P>>(
-        &mut self,
-    ) -> Option<&mut NOBJ> {
+    pub fn as_native_object_mut<O: NativeObject>(&mut self) -> Option<&mut O> {
         self.as_object_mut()
-            .and_then(|o| o.as_native_object_mut::<P, NOBJ>())
+            .and_then(|o| o.as_native_object_mut::<O>())
     }
 }
 
@@ -160,7 +155,7 @@ macro_rules! def_native_object_struct {
 
             /// register this native class to runtime, returns class id.
             pub fn register(rt: &mut $crate::RuntimeImpl) -> Result<$crate::ClassID, i32> {
-                debug_assert_eq!(<Self as $crate::NativeObject<$payload_ty>>::class_id(), 0, "class has been registered");
+                debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), 0, "class has been registered");
 
                 // call on_register handler
                 $($on_register(rt);)?
@@ -205,7 +200,7 @@ macro_rules! def_native_object_struct {
             type Error = i32;
 
             fn try_from(o: $crate::Object) -> Result<Self, Self::Error> {
-                if o.class_id() == <Self as $crate::NativeObject<$payload_ty>>::class_id() {
+                if o.class_id() == <Self as $crate::NativeObject>::class_id() {
                     Ok(Self(o))
                 } else {
                     Err(-1)
@@ -255,7 +250,7 @@ macro_rules! def_native_object_base {
                 ctx: &mut $crate::ScopedContext,
                 new_target: $crate::JSValue,
             ) -> Result<Self, i32> {
-                ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject<()>>::class_id(), std::ptr::null_mut())
+                ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject>::class_id(), std::ptr::null_mut())
                     .map(Self)
                     .map_err(|_| {
                         -1
@@ -277,7 +272,7 @@ macro_rules! def_native_object_base {
         impl $native_ty {
             /// get payload data
             pub fn payload(&self) -> Option<&<$payload_ty as $crate::NativePayload>::Target> {
-                debug_assert_eq!(<Self as $crate::NativeObject<$payload_ty>>::class_id(), self.as_object().class_id());
+                debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
 
                 if let Some(p) = self.as_object().payload().other() {
                     let ptr = p.opaque();
@@ -292,7 +287,7 @@ macro_rules! def_native_object_base {
             }
 
             pub fn take_payload(&mut self) -> Option<$payload_ty>{
-                debug_assert_eq!(<Self as $crate::NativeObject<$payload_ty>>::class_id(), self.as_object().class_id());
+                debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
 
                 if let Some(p) = self.as_object_mut().payload_mut().other_mut() {
                     unsafe {
@@ -317,7 +312,7 @@ macro_rules! def_native_object_base {
                 let opaque = <$payload_ty as $crate::NativePayload>::into_raw(payload);
                 debug_assert!(!opaque.is_null());
 
-                ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject<$payload_ty>>::class_id(), opaque)
+                ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject>::class_id(), opaque)
                     .map(Self)
                     .map_err(|_| {
                         unsafe {
@@ -333,8 +328,8 @@ macro_rules! def_native_object_base {
 // Helper: generate NativeObject impl (shared by both def_native_object! arms)
 #[macro_export]
 macro_rules! impl_native_object {
-    ($native_ty:ident, $payload_ty:ty) => {
-        impl $crate::NativeObject<$payload_ty> for $native_ty {
+    ($native_ty:ident) => {
+        impl $crate::NativeObject for $native_ty {
             fn class_id() -> $crate::ClassID {
                 Self::CLASS_ID.with(|x| x.get())
             }
@@ -353,7 +348,7 @@ macro_rules! def_native_object {
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?);
 
-        $crate::impl_native_object!($native_ty, ());
+        $crate::impl_native_object!($native_ty);
     };
 
     // Dummy payload, with constructor
@@ -365,7 +360,7 @@ macro_rules! def_native_object {
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?);
 
-        $crate::impl_native_object!($native_ty, ());
+        $crate::impl_native_object!($native_ty);
     };
 
     // With payload, no constructor
@@ -378,7 +373,7 @@ macro_rules! def_native_object {
             $(, on_class_unregister: $on_unregister)?
             $(, on_payload_gc: $on_payload_gc)?);
 
-        $crate::impl_native_object!($native_ty, $payload_ty);
+        $crate::impl_native_object!($native_ty);
     };
 
     // With payload, with constructor
@@ -392,6 +387,6 @@ macro_rules! def_native_object {
             $(, on_class_unregister: $on_unregister)?
             $(, on_payload_gc: $on_payload_gc)?);
 
-        $crate::impl_native_object!($native_ty, $payload_ty);
+        $crate::impl_native_object!($native_ty);
     };
 }
