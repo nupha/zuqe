@@ -171,7 +171,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
     FieldDef::FUNC("evalScript", 1, js_evalScript, 0),
     FieldDef::FUNC("gc", 0, js_gc, 0),
     FieldDef::FUNC("exit", 1, std_exit, 0),
-    FieldDef::VALUE(
+    FieldDef::LAZY_VALUE(
         "in",
         |cx| {
             let obj = JSFile::create_stdin_instance(cx)?;
@@ -179,7 +179,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
         },
         JS_PROP_ENUMERABLE,
     ),
-    FieldDef::VALUE(
+    FieldDef::LAZY_VALUE(
         "out",
         |cx| {
             let obj = JSFile::create_stdout_instance(cx)?;
@@ -187,7 +187,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
         },
         JS_PROP_ENUMERABLE,
     ),
-    FieldDef::VALUE(
+    FieldDef::LAZY_VALUE(
         "err",
         |cx| {
             let obj = JSFile::create_stderr_instance(cx)?;

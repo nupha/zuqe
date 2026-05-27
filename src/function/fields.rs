@@ -53,25 +53,6 @@ pub struct FieldDef {
 }
 
 impl FieldDef {
-    /// Define a lazy initialized function backed by a native handler.
-    pub const fn FUNC(name: &'static str, length: u8, callback: CallbackFn, magic: i16) -> Self {
-        Self {
-            name,
-            detail: FieldDetail::LazyFunc {
-                callback: Callback::Func(callback),
-                length,
-                magic,
-            },
-            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
-        }
-    }
-
-    /// Define a lazy initialized function backed by a native handler.
-    #[deprecated(note = "use ::FUNC instead")]
-    pub const fn CALL(name: &'static str, length: u8, callback: CallbackFn, magic: i16) -> Self {
-        Self::FUNC(name, length, callback, magic)
-    }
-
     /// Define a getter, setter field
     pub const fn GETSET(
         name: &'static str,
@@ -98,25 +79,7 @@ impl FieldDef {
         }
     }
 
-    /// Define a lazy initialized iterator next function field backed by a native callback handler.
-    pub const fn ITERATOR_NEXT(
-        name: &'static str,
-        length: u8,
-        callback: IteratorFn,
-        magic: i16,
-    ) -> Self {
-        Self {
-            name,
-            detail: FieldDetail::LazyFunc {
-                callback: Callback::IteratorNext(callback),
-                length,
-                magic,
-            },
-            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
-        }
-    }
-
-    /// Define a lazy initialized base object with field definations.
+    /// Define a lazy initialized base object with field defination entries.
     pub const fn OBJECT(name: &'static str, entries: &'static [Self], prop_flags: u32) -> Self {
         Self {
             name,
@@ -139,6 +102,50 @@ impl FieldDef {
         Self {
             name,
             detail: FieldDetail::LazyClass(f),
+            prop_flags: prop_flags as u8,
+        }
+    }
+
+    /// Define a lazy initialized function backed by a native handler.
+    pub const fn FUNC(name: &'static str, length: u8, callback: CallbackFn, magic: i16) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::LazyFunc {
+                callback: Callback::Func(callback),
+                length,
+                magic,
+            },
+            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
+        }
+    }
+
+    /// Define a lazy initialized iterator next function field backed by a native callback.
+    pub const fn ITERATOR_NEXT(
+        name: &'static str,
+        length: u8,
+        callback: IteratorFn,
+        magic: i16,
+    ) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::LazyFunc {
+                callback: Callback::IteratorNext(callback),
+                length,
+                magic,
+            },
+            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
+        }
+    }
+
+    /// Define a lazy initialized value field with build function
+    pub const fn LAZY_VALUE(
+        name: &'static str,
+        f: fn(&mut ScopedContext) -> Result<JSValue, i32>,
+        prop_flags: u32,
+    ) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::LazyValueFn(f),
             prop_flags: prop_flags as u8,
         }
     }
@@ -166,19 +173,6 @@ impl FieldDef {
         Self {
             name,
             detail: FieldDetail::Undefined,
-            prop_flags: prop_flags as u8,
-        }
-    }
-
-    /// Define a lazy initialized value field with build function
-    pub const fn VALUE(
-        name: &'static str,
-        f: fn(&mut ScopedContext) -> Result<JSValue, i32>,
-        prop_flags: u32,
-    ) -> Self {
-        Self {
-            name,
-            detail: FieldDetail::LazyValueFn(f),
             prop_flags: prop_flags as u8,
         }
     }
