@@ -10,7 +10,7 @@ use crate::{
     atom::Atom,
     builtins::iterator::{js_async_iterator_proto_funcs, js_iterator_proto_funcs},
     class::{ClassDef, ClassID},
-    context::{ContextImpl, ProtoCtorPair, ScopedContext},
+    context::{ProtoCtorPair, ScopedContext},
     error::Exception,
     function::{Callback, CallbackFn, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
