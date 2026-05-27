@@ -5,6 +5,8 @@ mod class_def;
 mod native;
 mod using;
 
+use gc_lite::GcTraceCtx;
+
 pub use {
     class_def::{ClassCtorDef, ClassDef},
     native::*,
@@ -35,9 +37,6 @@ pub(crate) type ClassFinalizeOpaqueFn = fn(rt: &mut RuntimeImpl, opaque: *mut c_
 /// When this callback is invoked, the runtime's `class_registry` has already been cleared,
 /// so implementations **must not** index into `rt.class_registry` to reference other classes.
 pub type ClassUnregisterFn = fn(rt: &mut RuntimeImpl);
-/// GC mark callback for user class opaque payload.
-/// Called during GC mark phase to trace JSValues held inside opaque.
-pub type ClassGcTraceFn = fn(opaque: *mut c_void, tr: &mut gc_lite::GcTraceCtx);
 /// Initialize a class to context `ctx`, including setup proto, constructor.
 pub type ClassInitializeFn = fn(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32>;
 /// Callback when a class instance is invoked as a function (`myInstance(args)`) or
@@ -50,6 +49,9 @@ pub type ClassCallFn = fn(
     args: &[JSValue],
     flags: i32,
 ) -> JSResult;
+/// GC marker for non-builtin class instance's opaque payload.
+/// Called during GC mark phase to trace gc-nodes held inside opaque.
+pub(crate) type ClassGcTraceFn = fn(opaque: *mut c_void, gcx: &mut GcTraceCtx);
 
 pub type DefineOwnPropertyFn = fn(
     ctx: &mut ScopedContext,
