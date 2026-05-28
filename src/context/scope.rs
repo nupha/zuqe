@@ -305,60 +305,85 @@ impl ContextPtr {
     }
 }
 
-/// A psydo scoped-context that represents a top-level GC scope.
+/// A context that always has a top-level GC scope.
 ///
-/// Created by `RuntimeImpl::create_context`. Every `TopLevelContext` holds a
-/// top-level `ScopedContext` that protects locally-allocated GC nodes. When
-/// `with_new_scope` is called on this type, the return value is automatically
-/// promoted to the top-level scope — no `unsafe` needed.
+/// Created by `RuntimeImpl::create_context`. Unlike `ScopedContext`, this type
+/// is `Copy` and does **not** own a GC scope — the top-level scope is managed
+/// by `RuntimeImpl`. Use `as_scoped()` or `with_new_scope()` to obtain a
+/// `ScopedContext` for operations that require a scope.
 ///
-/// `TopLevelContext` derefs to `ScopedContext`, which in turn derefs to
-/// `ContextImpl`, so all context methods are available directly.
-#[repr(transparent)]
-pub struct TopLevelContext<'c>(pub(crate) ScopedContext<'c>);
+/// `TopLevelContext` derefs to `ContextImpl`, so all context methods that
+/// don't need a scope are available directly.
+#[derive(Clone, Copy)]
+pub struct TopLevelContext<'c> {
+    pub(crate) ctx_ptr: ContextPtr,
+    pub(crate) _marker: std::marker::PhantomData<&'c ()>,
+}
 
 impl<'c> Deref for TopLevelContext<'c> {
-    type Target = ScopedContext<'c>;
+    type Target = ContextImpl;
 
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.ctx_ptr.deref()
     }
 }
 
 impl<'c> DerefMut for TopLevelContext<'c> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        self.ctx_ptr.deref_mut()
     }
 }
 
 impl<'c> From<TopLevelContext<'c>> for ContextPtr {
     #[inline(always)]
     fn from(value: TopLevelContext<'c>) -> Self {
-        value.0.ctx_ptr
+        value.ctx_ptr
     }
 }
 
 impl<'c> From<&TopLevelContext<'c>> for ContextPtr {
     #[inline(always)]
     fn from(value: &TopLevelContext<'c>) -> Self {
-        value.0.ctx_ptr
+        value.ctx_ptr
     }
 }
 
 impl<'c> From<&mut TopLevelContext<'c>> for ContextPtr {
     #[inline(always)]
     fn from(value: &mut TopLevelContext<'c>) -> Self {
-        value.0.ctx_ptr
+        value.ctx_ptr
     }
 }
 
 impl<'c> TopLevelContext<'c> {
+    /// Obtain a `ScopedContext` referencing the top-level GC scope.
+    ///
+    /// The top-level scope always exists (it is created by `create_context`
+    /// and managed by `RuntimeImpl`), so this never returns `None`.
+    pub fn as_scoped(&self) -> ScopedContext<'_> {
+        let scope = self
+            .ctx_ptr
+            .gc_heap()
+            .scope(1)
+            .expect("top-level scope must exist");
+        ScopedContext {
+            ctx_ptr: self.ctx_ptr,
+            gc_scope: GcScopeType::Ref(scope),
+        }
+    }
+
     /// Create a new downstream scope, run closure in it, then promote the
     /// return value to the top-level scope.
     #[inline]
     pub fn with_new_scope<R: ScopeResult>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
-        self.0.with_new_scope(f)
+        let mut ptr = self.ctx_ptr;
+        // SAFETY: The return value is promoted to the top-level scope
+        // by `ScopeResult::promote` inside `with_new_scope_internal`.
+        let ret = unsafe { ptr.with_new_scope_internal(f) };
+        // Promote to top-level scope
+        let mut top = self.as_scoped();
+        ret.promote(&mut top)
     }
 }

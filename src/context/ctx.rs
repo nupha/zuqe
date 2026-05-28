@@ -440,8 +440,22 @@ impl std::fmt::Debug for ContextPtr {
 }
 
 impl RuntimeImpl {
-    /// Create a context with top-level GC scope.
-    pub fn create_context<'a>(
+    /// Create a context with a top-level GC scope.
+    ///
+    /// # Safety
+    ///
+    /// The returned `TopLevelContext` references a GC scope stored in
+    /// `RuntimeImpl`. The caller must ensure the `RuntimeImpl` outlives the
+    /// `TopLevelContext`.
+    pub unsafe fn create_context<'a>(
+        &mut self,
+        setup: impl FnOnce(&mut ScopedContext) -> Result<(), i32>,
+    ) -> Result<TopLevelContext<'a>, i32> {
+        self.create_context_internal(setup)
+    }
+
+    /// Internal: create context with a top-level GC scope.
+    pub(crate) fn create_context_internal<'a>(
         &mut self,
         setup: impl FnOnce(&mut ScopedContext) -> Result<(), i32>,
     ) -> Result<TopLevelContext<'a>, i32> {
@@ -452,25 +466,26 @@ impl RuntimeImpl {
         let gc_ref = gc_scope.alloc_local(inner).map_err(|_| -1)?;
         let ctx_ptr = ContextPtr::from(gc_ref);
 
-        // SAFETY: The GcScope is valid as long as the RuntimeImpl (which owns
-        // the GcHeap) is alive. We extend the lifetime to 'a so that
-        // TopLevelContext can be used without borrowing RuntimeImpl.
-        // The caller must ensure RuntimeImpl outlives TopLevelContext.
-        let gc_scope = unsafe { std::mem::transmute::<GcScope<'_>, GcScope<'a>>(gc_scope) };
+        // Store the top-level GcScope in RuntimeImpl so it lives as long as
+        // the RuntimeImpl. TopLevelContext only holds a ContextPtr.
+        // SAFETY: GcScope is dropped in RuntimeImpl::finalize() before GcHeap,
+        // so the 'static lifetime is safe.
+        let gc_scope = unsafe { std::mem::transmute::<GcScope<'_>, GcScope<'static>>(gc_scope) };
+        self.top_scope = Some(gc_scope);
 
-        let mut top = TopLevelContext(ScopedContext {
+        // Register in context list.
+        self.context_list.push(ctx_ptr);
+
+        let mut top = TopLevelContext {
             ctx_ptr,
-            gc_scope: GcScopeType::Owned(gc_scope),
-        });
-
-        // Register in context list via RuntimePtr.
-        top.rt_mut().context_list.push(ctx_ptr);
+            _marker: std::marker::PhantomData,
+        };
 
         // Initialize in a sub-scope. Allocations are protected by LOCAL in the
         // sub-scope during setup. When the sub-scope drops, LOCAL is removed,
         // but the objects remain reachable through ContextImpl fields
         // (global_obj, global_var_obj, etc.) which are roots via context_list.
-        top.0.with_new_scope(|mut sub| {
+        top.with_new_scope(|mut sub| {
             // DON'T CHANGE FOLLOWING ORDER
 
             // base object must be initialized before creating global
