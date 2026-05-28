@@ -224,10 +224,10 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
-    /// Generic eval entry for either global or module mode.
-    ///
     /// Compile source and run to get result.
-    pub(crate) fn eval_internal(
+    ///
+    /// Generic eval entry for either global or module mode.
+    pub fn eval(
         &mut self,
         source: &[u8],
         filename: &str,
@@ -243,23 +243,6 @@ impl<'c> ScopedContext<'c> {
             let global = self.global_obj();
             self.compile_then_run(global.into(), source, filename, EvalType::Global, flags, -1)
         }
-    }
-
-    /// Eval source.
-    ///
-    /// Compile source then run. Return value will be promoted to upper scope.
-    pub fn eval(
-        &mut self,
-        source: &[u8],
-        filename: &str,
-        eval_type: EvalType,
-        flags: EvalFlags,
-    ) -> JSResult {
-        let ret = self.eval_internal(source, filename, eval_type, flags);
-        if let Ok(r) = ret {
-            self.set_return_value(r);
-        }
-        ret
     }
 
     /// Eval `source` script in `self` scope, wait till all pending jobs are finished.
@@ -336,10 +319,6 @@ impl<'c> ScopedContext<'c> {
             }
         }
 
-        // promote result value and return
-        if let Ok(v) = result {
-            self.set_return_value(v);
-        }
         result
     }
 }

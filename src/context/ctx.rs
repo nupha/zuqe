@@ -527,7 +527,7 @@ impl RuntimeImpl {
                 // setup context.
                 // Note: in case of exception, ContextImpl node will be purged in mark-sweep.
                 {
-                    let mut ctx = Context::from(gc_ref);
+                    let mut ctx = ContextPtr::from(gc_ref);
 
                     ctx.with_new_scope(|mut scope| -> Result<(), i32> {
                         // DON'T CHANGE FOLLOWING ORDER

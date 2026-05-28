@@ -8,9 +8,74 @@ use std::{
 
 use gc_lite::{GcError, GcHead, GcNode, GcRef, GcScope, GcScopeState};
 
-use crate::{Context, JSValue, context::ContextPtr};
+use crate::{Context, ExceptionText, JSValue, context::ContextPtr};
 
 use super::ContextImpl;
+
+/// Trait for types that can be safely returned from `with_new_scope`.
+pub trait ScopeResult: Sized {
+    /// `promote` is called with the **upstream scope** (the scope that called `with_new_scope`).
+    /// It registers the returned GC node as a promote node in the upstream scope via
+    /// `set_return_value`. When the upstream scope is later destroyed, `flush()` will
+    /// move the node to its own upstream scope's cache, keeping it alive.
+    ///
+    /// This works because:
+    /// - The downstream scope (created by `with_new_scope`) is about to be destroyed,
+    ///   so its LOCAL protection is lost
+    /// - The upstream scope is still alive, so registering the node there keeps it safe
+    /// - When the upstream scope is eventually destroyed, the node is promoted further up
+    ///
+    /// Types containing `JSValue` automatically promote. Other types (like `()`, `i32`)
+    /// are returned as-is since they have no GC nodes to protect.
+    fn promote(self, upstream: &mut ScopedContext<'_>) -> Self;
+}
+
+impl<T: ScopeResult, E: ScopeResult> ScopeResult for Result<T, E> {
+    fn promote(self, upstream: &mut ScopedContext<'_>) -> Self {
+        match self {
+            Ok(t) => Ok(t.promote(upstream)),
+            Err(e) => Err(e.promote(upstream)),
+        }
+    }
+}
+
+impl<T: ScopeResult> ScopeResult for Option<T> {
+    fn promote(self, upstream: &mut ScopedContext<'_>) -> Self {
+        self.map(|t| t.promote(upstream))
+    }
+}
+
+impl ScopeResult for JSValue {
+    fn promote(self, upstream: &mut ScopedContext<'_>) -> Self {
+        if self.gc_node_ptr().is_some() {
+            upstream.set_return_value(self);
+        }
+        self
+    }
+}
+
+macro_rules! impl_scope_result_noop {
+    ($($t:ty),+ $(,)?) => {
+        $(
+            impl ScopeResult for $t {
+                fn promote(self, _: &mut ScopedContext<'_>) -> Self { self }
+            }
+        )+
+    };
+}
+
+impl_scope_result_noop!(
+    (),
+    i32,
+    u32,
+    usize,
+    u8,
+    bool,
+    f64,
+    &str,
+    String,
+    ExceptionText
+);
 
 #[repr(u8)]
 #[derive(Debug)]
@@ -126,8 +191,9 @@ impl<'a> ScopedContext<'a> {
         self.gc().depth()
     }
 
-    /// Set promote value
-    pub fn set_return_value(&mut self, val: JSValue) {
+    /// Promote `val` to upstream scope.
+    /// Prefer using `ScopeResult` trait via `with_new_scope` instead of calling this directly.
+    pub(crate) fn set_return_value(&mut self, val: JSValue) {
         let s = self.gc();
         debug_assert!(
             s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth(),
@@ -135,6 +201,7 @@ impl<'a> ScopedContext<'a> {
             s.depth(),
             self.ctx_ptr.gc_heap().scope_max_depth(),
         );
+
         s.set_promote(val.gc_node_ptr());
     }
 
@@ -157,22 +224,26 @@ impl<'a> ScopedContext<'a> {
         }
     }
 
-    /// run closure in a new sub scope.
+    /// run closure in a new downstream scope.
+    /// The return value is automatically promoted to the upstream scope
+    /// via `ScopeResult::promote` before the downstream scope is destroyed.
     #[inline]
-    pub fn with_new_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
+    pub fn with_new_scope<R: ScopeResult>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
         #[cfg(debug_assertions)]
         {
             let _d1 = self.depth();
             let s = self.new_scope();
             let _d2 = s.depth();
             let r = f(s);
+            let r = r.promote(self);
             debug_assert_eq!(_d1, self.depth(), "{self:p}: {self:?}");
             r
         }
         #[cfg(not(debug_assertions))]
         {
             let s = self.new_scope();
-            f(s)
+            let r = f(s);
+            r.promote(self)
         }
     }
 
@@ -216,14 +287,17 @@ impl ContextPtr {
         }
     }
 
-    pub fn with_new_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
+    pub(crate) fn with_new_scope<R: ScopeResult>(
+        &mut self,
+        f: impl FnOnce(ScopedContext<'_>) -> R,
+    ) -> R {
         let s = self.new_scope();
         f(s)
     }
 }
 
 impl<'c> Context<'c> {
-    pub fn new_scope(&mut self) -> ScopedContext<'_> {
+    fn new_scope(&mut self) -> ScopedContext<'_> {
         let pid = self.rt().gc_part_id();
         let ctx = ContextPtr::from(self.gc_ref());
         let gc_scope = self.gc_heap_mut().new_scope(pid);
@@ -234,7 +308,7 @@ impl<'c> Context<'c> {
         }
     }
 
-    pub fn with_new_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
+    pub fn with_new_scope<R: ScopeResult>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
         let s = self.new_scope();
         f(s)
     }

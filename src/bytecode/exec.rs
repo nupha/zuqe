@@ -26,7 +26,7 @@ use crate::{
         OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
         OP_DEFINE_METHOD_SETTER,
     },
-    context::{Context, ScopedContext},
+    context::ScopedContext,
     error::{
         JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
@@ -71,7 +71,7 @@ impl Bytecode {
         args: &[JSValue], // actual calling arguments pass in by caller, not padded length
         throwed: bool,    // Indicates if an exception has been thrown
     ) -> JSValue {
-        let mut realm_ctx = Context::from(self.realm());
+        let mut realm_ctx = self.realm();
 
         realm_ctx.with_new_scope(|mut realm_scope| {
             // caller-scope must be at lower index than realm-scope in gc scope stack
