@@ -194,7 +194,7 @@ impl ModuleDef {
                     // name space import
                     let val = reqm.ns(ctx)?;
                     md_func.payload_mut().closure_var_refs_mut()[import_var_idx as usize]
-                        .set_value(val.into());
+                        .set_value(&mut ctx.rt_ptr(), val.into());
                 } else {
                     match reqm.resolve_export(ctx, imp.import_name, None)? {
                         ResolveExport::Found {
@@ -214,7 +214,7 @@ impl ModuleDef {
                                         let val = m2.ns(ctx)?;
                                         let vref = {
                                             let mut vr = js_create_module_var(ctx, true)?;
-                                            vr.set_value(val.into());
+                                            vr.set_value(&mut ctx.rt_ptr(), val.into());
                                             vr
                                         };
                                         md_func.payload_mut().closure_var_refs_mut()

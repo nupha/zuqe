@@ -6,6 +6,7 @@ use std::ptr::NonNull;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
+    RuntimeImpl,
     context::ScopedContext,
     gcref_wrapper,
     stack_frame::{ExecMode, StackFrame},
@@ -65,7 +66,7 @@ impl VarRefImpl {
     }
 
     /// update variable value
-    pub(crate) const fn set_value(&mut self, new_value: JSValue) {
+    const fn set_value_internal(&mut self, new_value: JSValue) {
         match self {
             Self::Bind { pvalue, .. } => unsafe {
                 *pvalue.as_mut() = new_value;
@@ -74,10 +75,6 @@ impl VarRefImpl {
                 *value = new_value;
             }
         }
-
-        // if let Some(n) = new_value.gc_node_ptr() {
-        //     rt.gc_heap_mut().bind(self.gc_head_ptr(), n);
-        // }
     }
 
     /// detach bind var ref as detached var ref, duplicate var value as detached value.
@@ -112,6 +109,15 @@ pub struct VarRef(GcRef<VarRefImpl>);
 gcref_wrapper!(VarRef, VarRefImpl);
 
 impl VarRef {
+    /// update variable value
+    pub(crate) fn set_value(&mut self, rt: &mut RuntimeImpl, new_value: JSValue) {
+        self.0.set_value_internal(new_value);
+
+        if let Some(n) = new_value.gc_node_ptr() {
+            rt.gc_heap_mut().bind(self.gc_node_ptr(), n);
+        }
+    }
+
     /// create a detached var ref
     pub(crate) fn create(ctx: &mut ScopedContext, value: JSValue) -> Result<Self, i32> {
         ctx.alloc_local(VarRefImpl::Detached(value))

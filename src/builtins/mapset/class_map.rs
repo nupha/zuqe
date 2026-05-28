@@ -106,15 +106,13 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    if s.upsert(
-        ctx,
-        key,
-        if magic & 1 == 1 {
-            JSValue::UNDEFINED // set or weakset
-        } else {
-            val // map or weakmap
-        },
-    )? {
+    let map_val = if magic & 1 == 1 {
+        JSValue::UNDEFINED // set or weakset
+    } else {
+        val // map or weakmap
+    };
+
+    if s.upsert(ctx, key, map_val)? {
         // inserted pair
         // make back ref for key object if is weak
         if s.is_weak() {
@@ -122,6 +120,16 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 .unwrap()
                 .add_back_ref(cc.this().as_object().unwrap().downgrade());
         }
+    }
+
+    // bind reference relation for gc values
+    let this_obj = *cc.this().as_object().unwrap();
+    let self_node = this_obj.gc_node_ptr();
+    if let Some(n) = key.gc_node_ptr() {
+        this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
+    }
+    if let Some(n) = map_val.gc_node_ptr() {
+        this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
     }
 
     Ok(this)

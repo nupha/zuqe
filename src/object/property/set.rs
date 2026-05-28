@@ -97,7 +97,7 @@ impl ObjectImpl {
                         if unlikely(cur_obj.class_id() == JS_CLASS_MODULE_NS) {
                             fail_read_only!(prop)
                         } else if let JSProperty::VarRef(vref) = cur_obj.prop_slot_mut(idx) {
-                            vref.set_value(val);
+                            vref.set_value(&mut ctx.rt_ptr(), val);
                             return Ok(true);
                         } else {
                             unreachable!()
@@ -343,6 +343,11 @@ impl ObjectImpl {
                             std::cmp::Ordering::Less => {
                                 // update existing
                                 arr_data.set_nth(index, val);
+                                // bind reference relation
+                                if let Some(n) = val.gc_node_ptr() {
+                                    let self_node = self.gc_head_ptr();
+                                    self.rt_ptr().gc_heap_mut().bind(self_node, n);
+                                }
                                 Some(Ok(true)) // fast array exit
                             }
                             std::cmp::Ordering::Equal => {
@@ -396,6 +401,11 @@ impl ObjectImpl {
                 {
                     if index < arr_data.len() {
                         arr_data.set_nth(index, val);
+                        // bind reference relation
+                        if let Some(n) = val.gc_node_ptr() {
+                            let self_node = self.gc_head_ptr();
+                            self.rt_ptr().gc_heap_mut().bind(self_node, n);
+                        }
                         Some(Ok(true))
                     } else {
                         None

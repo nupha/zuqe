@@ -199,11 +199,11 @@ impl AsyncStateImpl {
     /// Resume executing async function in given scope
     fn resume_call(
         &mut self,
-        mut scope: ScopedContext,
+        mut ctx: ScopedContext,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> JSResult {
-        scope.poll_interrupts()?;
+        ctx.poll_interrupts()?;
 
         // state has a dedicated stack frame for async function
         let mut func = *self.stack_frame.func_obj.as_BCWrapper().unwrap();
@@ -211,11 +211,13 @@ impl AsyncStateImpl {
         let sp_offset = self.stack_frame.cur_sp_offset;
         debug_assert!(sp_offset >= 0);
 
+        let func_node_ptr = func.gc_node_ptr().as_ptr();
+
         let bf = func.payload_mut();
         let bc = bf.bytecode();
 
         let ret_val = bc.execute(
-            &mut scope,
+            &mut ctx,
             bf.home_object(),
             unsafe {
                 self.stack_frame.as_mut().get_unchecked_mut() // dedicated stack frame for async state
@@ -229,18 +231,19 @@ impl AsyncStateImpl {
             self.throw_flag,
         );
 
-        // // Note: closure values could be allocated in stack-frame's gc scope during execution,
-        // // before stack-frame is dropping, promote closure values up to func's gc scope.
-        // let mut rt = scope.rt_ptr();
-        // for vr in bf.closure_var_refs() {
-        //     if let Some(n) = vr.value().gc_node_ptr() {
-        //         rt.gc_heap_mut().bind(func_node, n);
-        //     }
-        // }
+        // Note: closure values could be allocated in stack-frame's gc scope during execution,
+        // before stack-frame is dropping, promote closure values up to func's gc scope.
+        let func_node = unsafe { std::ptr::NonNull::new_unchecked(func_node_ptr) };
+        let mut rt = ctx.rt_ptr();
+        for vr in bf.closure_var_refs() {
+            if let Some(n) = vr.value().gc_node_ptr() {
+                rt.gc_heap_mut().bind(func_node, n);
+            }
+        }
 
         let res = ret_val.err();
         if let Ok(v) = res {
-            scope.set_return_value(v);
+            ctx.set_return_value(v);
         }
 
         res

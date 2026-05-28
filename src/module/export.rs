@@ -253,7 +253,7 @@ impl ModuleDefImpl {
             };
 
             if !val.is_undefined() {
-                self.set_export_value(atom, val)?;
+                self.set_export_value(ctx, atom, val)?;
             }
         }
 
@@ -261,14 +261,19 @@ impl ModuleDefImpl {
     }
 
     /// update a module export entry
-    fn set_export_value(&self, atom: Atom, value: JSValue) -> Result<(), i32> {
+    fn set_export_value(
+        &self,
+        ctx: &mut ScopedContext,
+        atom: Atom,
+        value: JSValue,
+    ) -> Result<(), i32> {
         if let Some(me) = self.find_export(atom) {
             if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
                 debug_assert!(
                     var_ref.is_some(),
                     "exported local entry must have been linked"
                 );
-                var_ref.unwrap().set_value(value);
+                var_ref.unwrap().set_value(&mut ctx.rt_ptr(), value);
                 Ok(())
             } else {
                 unreachable!("not a local export")

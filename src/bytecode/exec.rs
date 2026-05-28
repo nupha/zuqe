@@ -1229,14 +1229,14 @@ impl Bytecode {
                         // [value, ^] -> [^]
                         // consume and store stack top value to var_ref
                         let idx = PC_FETCH!(u16);
-                        captured_vars[idx as usize].set_value(SP_VAL!(-1));
+                        captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                         SP_GO!(-1);
                     }
                     OpCode::SET_VAR_REF => {
                         // [value, ^] -> [value, ^]
                         // store stack top value to var_ref
                         let idx = PC_FETCH!(u16);
-                        captured_vars[idx as usize].set_value(SP_VAL!(-1));
+                        captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                     }
 
                     OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
@@ -1250,7 +1250,7 @@ impl Bytecode {
                             SP_PUT!(0, val);
                             SP_GO!(1);
                         } else {
-                            captured_vars[idx as usize].set_value(SP_VAL!(-1));
+                            captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                             SP_GO!(-1);
                         }
                     }
@@ -1260,7 +1260,7 @@ impl Bytecode {
                             JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, true);
                             break State::Exception;
                         } else {
-                            captured_vars[idx as usize].set_value(SP_VAL!(-1));
+                            captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                             SP_GO!(-1);
                         }
                     }

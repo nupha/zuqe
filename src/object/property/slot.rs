@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ptr::NonNull;
+
+use gc_lite::{GcHead, GcNode};
+
 use crate::{
     JS_CLASS_MODULE_NS,
     atom::Atom,
     context::ScopedContext,
-    object::{Object, ObjectImpl},
+    object::{LazyInit, Object, ObjectImpl},
     utils::unlikely,
     value::JSValue,
 };
@@ -57,44 +61,65 @@ impl ObjectImpl {
     /// set property at slot `idx`, returns the old one
     pub(crate) fn replace_prop_slot(&mut self, idx: usize, p: JSProperty) -> JSProperty {
         debug_assert!(idx < self.prop_values.len());
-        unsafe { std::ptr::replace(self.prop_values.get_unchecked_mut(idx), p) }
+
+        let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
+            JSProperty::Normal(val) => [val.gc_node_ptr(), None],
+            JSProperty::GetSet { getter, setter } => [
+                getter.map(|o| o.gc_node_ptr()),
+                setter.map(|o| o.gc_node_ptr()),
+            ],
+            JSProperty::VarRef(vr) => [Some(vr.gc_node_ptr()), None],
+            JSProperty::LazyInit {
+                init: LazyInit::ModuleNS(m),
+                ..
+            } => [Some(m.gc_node_ptr()), None],
+            _ => [None, None],
+        };
+
+        let old = unsafe { std::ptr::replace(self.prop_values.get_unchecked_mut(idx), p) };
+
+        if gc_node[0].is_some() || gc_node[1].is_some() {
+            let self_node = self.gc_head_ptr();
+            let mut rt = self.rt_ptr();
+
+            for node in gc_node.into_iter().flatten() {
+                rt.gc_heap_mut().bind(self_node, node);
+            }
+        }
+
+        old
     }
 
     /// set property at slot `idx`
     pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
         debug_assert!(idx < self.prop_values.len());
 
-        // let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
-        //     JSProperty::Normal(val) => [val.gc_node_ptr(), None],
-        //     JSProperty::GetSet { getter, setter } => [
-        //         getter.map(|o| o.gc_node_ptr()),
-        //         setter.map(|o| o.gc_node_ptr()),
-        //     ],
-        //     JSProperty::VarRef(vr) => [Some(vr.gc_node_ptr()), None],
-        //     JSProperty::LazyInit {
-        //         init_type: LazyInit::ModuleNS(m),
-        //         ..
-        //     } => [Some(m.gc_node_ptr()), None],
-        //     _ => [None, None],
-        // };
+        let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
+            JSProperty::Normal(val) => [val.gc_node_ptr(), None],
+            JSProperty::GetSet { getter, setter } => [
+                getter.map(|o| o.gc_node_ptr()),
+                setter.map(|o| o.gc_node_ptr()),
+            ],
+            JSProperty::VarRef(vr) => [Some(vr.gc_node_ptr()), None],
+            JSProperty::LazyInit {
+                init: LazyInit::ModuleNS(m),
+                ..
+            } => [Some(m.gc_node_ptr()), None],
+            _ => [None, None],
+        };
 
         unsafe {
             *self.prop_values.get_unchecked_mut(idx) = p;
         }
 
-        // if gc_node[0].is_some() || gc_node[1].is_some() {
-        //     let self_node = self.gc_head_ptr();
-        //     let mut rt = self.rt();
+        if gc_node[0].is_some() || gc_node[1].is_some() {
+            let self_node = self.gc_head_ptr();
+            let mut rt = self.rt_ptr();
 
-        //     for node in gc_node.into_iter().flatten() {
-        //         unsafe {
-        //             #[cfg(debug_assertions)]
-        //             node.as_ref().debug_assert_node_valid(rt.gc_heap_mut());
-
-        //             rt.gc_heap_mut().bind(self_node, node);
-        //         }
-        //     }
-        // }
+            for node in gc_node.into_iter().flatten() {
+                rt.gc_heap_mut().bind(self_node, node);
+            }
+        }
     }
 
     /// extend property slot
@@ -178,9 +203,8 @@ impl ObjectImpl {
             if let JSProperty::VarRef(mut vref) = self.prop_values[idx] {
                 if flags & JS_PROP_HAS_VALUE != 0 {
                     if unlikely(class_id == JS_CLASS_MODULE_NS) {
-                        /* JS_PROP_WRITABLE is always true for variable
-                        references, but they are write protected in module name
-                        spaces. */
+                        // JS_PROP_WRITABLE is always true for variable references,
+                        // but they are write protected in module name spaces.
                         if !val.is_same(vref.value()) {
                             return if ctx.rt().can_throw(flags) {
                                 ctx.throw_type_error("property is not configurable");
@@ -190,7 +214,7 @@ impl ObjectImpl {
                             };
                         }
                     } else {
-                        vref.set_value(val);
+                        vref.set_value(&mut ctx.rt_ptr(), val);
                     }
                 }
 

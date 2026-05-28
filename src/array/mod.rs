@@ -4,7 +4,7 @@
 use std::collections::TryReserveError;
 
 use fallible_collections::{FallibleVec, TryCollect};
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
@@ -271,6 +271,16 @@ impl Array {
         }
 
         let len = values.len();
+
+        // bind reference relation for all gc values
+        let self_node = self.gc_node_ptr();
+        let mut rt= self.rt_ptr();
+        for v in values.iter() {
+            if let Some(n) = v.gc_node_ptr() {
+                rt.gc_heap_mut().bind(self_node, n);
+            }
+        }
+
         self.payload_mut().replace_values(values);
         self.set_flag_fast_array(true);
 
@@ -654,11 +664,11 @@ impl ObjectImpl {
                 -1
             })?;
 
-        // // bind reference relation
-        // if let Some(n) = value.gc_node_ptr() {
-        //     let self_node = self.gc_node_ptr();
-        //     ctx.rt_ptr().gc_heap_mut().bind(self_node, n);
-        // }
+        // bind reference relation
+        if let Some(n) = value.gc_node_ptr() {
+            let self_node = self.gc_head_ptr();
+            ctx.rt_ptr().gc_heap_mut().bind(self_node, n);
+        }
 
         Ok(true)
     }
