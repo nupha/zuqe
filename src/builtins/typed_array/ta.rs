@@ -247,7 +247,7 @@ impl TypedArray {
 
             let mut ta_proto = ctx.create_base_object_with_proto(Some(proto))?;
             ta_proto.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
-            ctx.class_slots[cid as usize].proto = Some(ta_proto);
+            ctx.set_class_proto(cid, ta_proto);
 
             let mut ta_ctor: Object = NativeFunction::create(
                 ctx,

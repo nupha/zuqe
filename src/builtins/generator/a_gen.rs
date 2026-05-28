@@ -349,7 +349,7 @@ impl AsyncGeneratorFunction {
                 let mut agen_func_proto =
                     ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
                 agen_func_proto.install_fields(ctx, js_async_generator_function_proto_funcs)?;
-                ctx.class_slots[class_id as usize].proto = Some(agen_func_proto);
+                ctx.set_class_proto(class_id, agen_func_proto);
 
                 let agen_proto = if let Some(o) = ctx.class_proto(JS_CLASS_ASYNC_GENERATOR) {
                     o

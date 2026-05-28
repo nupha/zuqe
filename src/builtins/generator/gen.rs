@@ -104,7 +104,7 @@ impl GeneratorFunction {
                 let mut gen_func_proto =
                     ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
                 gen_func_proto.install_fields(ctx, js_generator_function_proto_funcs)?;
-                ctx.class_slots[class_id as usize].proto = Some(gen_func_proto);
+                ctx.set_class_proto(class_id, gen_func_proto);
 
                 let gen_proto = if let Some(o) = ctx.class_proto(JS_CLASS_GENERATOR) {
                     o

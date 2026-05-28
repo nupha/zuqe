@@ -195,7 +195,7 @@ impl<'c> ScopedContext<'c> {
             "class proto has been created"
         );
         proto.install_fields(self, entries)?;
-        self.class_slots[class_id as usize].proto = Some(proto);
+        self.set_class_proto(class_id, proto);
         Ok(())
     }
 

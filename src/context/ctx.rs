@@ -10,7 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcHeap, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcHeap, GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
@@ -175,6 +175,17 @@ impl ContextImpl {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
+    }
+
+    /// Set class prototype with GC write barrier.
+    /// `ContextImpl` is a GC node, and `proto` is a GC reference (Object).
+    /// Without the barrier, if `self` is BLACK and `proto` is WHITE,
+    /// the proto could be prematurely collected.
+    pub(crate) fn set_class_proto(&mut self, class_id: ClassID, proto: Object) {
+        let self_node = self.gc_head_ptr();
+        self.rt.gc_heap_mut().bind(self_node, proto.gc_node_ptr());
+
+        self.class_slots[class_id as usize].proto = Some(proto);
     }
 
     /// get runtime ptr
