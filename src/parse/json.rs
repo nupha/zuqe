@@ -439,7 +439,6 @@ impl<'c> ScopedContext<'c> {
             parser.throw_syntax_error("unexpected data at the end");
             Err(-1)
         } else {
-            parser.ctx().set_return_value(val);
             Ok(val)
         }
     }

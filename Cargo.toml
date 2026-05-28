@@ -39,6 +39,8 @@ default = [
     "builtin_json",
     "builtin_date",
     "builtin_math",
+
+    "debug_gc",
 ]
 
 [profile.release]

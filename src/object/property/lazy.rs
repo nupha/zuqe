@@ -125,7 +125,6 @@ impl JSProperty {
             realm
                 .with_current_scope(|mut cx| {
                     let ret_val = init.instantiate(&mut cx, prop, this_obj)?;
-                    cx.set_return_value(ret_val);
                     Ok(ret_val)
                 })
                 .unwrap()

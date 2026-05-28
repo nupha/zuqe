@@ -120,14 +120,9 @@ impl<'a> ScopedContext<'a> {
         }
 
         js_json_to_str(self, &mut jsc, val, &StringBuf::Empty)?;
+
         jsc.buf.shrink_to_fit();
-        let res_str = self.create_string_with_buf(jsc.buf).map(JSValue::from);
-
-        if let Ok(s) = res_str {
-            self.set_return_value(s);
-        }
-
-        res_str
+        self.create_string_with_buf(jsc.buf).map(JSValue::from)
     }
 }
 

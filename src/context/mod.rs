@@ -9,8 +9,8 @@ mod intrinsic;
 mod scope;
 
 pub use {
-    ctx::{Context, ContextImpl},
-    scope::{ScopeResult, ScopedContext},
+    ctx::ContextImpl,
+    scope::{ScopeResult, ScopedContext, TopLevelContext},
 };
 
 pub(crate) use ctx::{ContextPtr, ProtoCtorPair};

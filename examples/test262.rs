@@ -16,8 +16,8 @@ use std::{
 use clap::Parser;
 use serde::Deserialize;
 use zuqe::{
-    CallContext, Callback, Context, EvalFlags, EvalType, ExceptionText, JS_PROP_C_W_E, JSResult,
-    JSValue, ModuleDef, Runtime, ScopedContext,
+    CallContext, Callback, ContextImpl, EvalFlags, EvalType, ExceptionText, JS_PROP_C_W_E,
+    JSResult, JSValue, ModuleDef, Runtime, ScopedContext, TopLevelContext,
 };
 
 /// counter of "Test262:AsyncTestComplete" messages
@@ -140,7 +140,11 @@ fn js_string_codePointRange(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
 }
 
 fn js_createRealm(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
-    let mut ctx2 = ctx.rt_mut().create_context(Context::ECMA_CONTEXT_SETUP)?;
+    // SAFETY: ctx2 is used immediately and dropped before rt.
+    let mut ctx2 = unsafe {
+        ctx.rt_mut()
+            .create_context(ContextImpl::ECMA_CONTEXT_SETUP)?
+    };
     ctx2.with_new_scope(|mut scope| setup_ctx_test262_helpers(&mut scope))
 }
 
@@ -301,7 +305,7 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ExceptionText> {
+fn run_harness(ctx: &mut TopLevelContext, harness_files: &[PathBuf]) -> Result<(), ExceptionText> {
     for file in harness_files {
         let src = std::fs::read_to_string(file)
             .inspect_err(|_| {
@@ -329,7 +333,7 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), Except
 
 #[cfg(not(feature = "async_support"))]
 fn run_test_script(
-    mut ctx: Context<'_>,
+    ctx: &mut TopLevelContext<'_>,
     script: &str,
     filename: &Path,
     is_module: bool,
@@ -373,7 +377,7 @@ fn run_test_script(
 #[cfg(feature = "async_support")]
 async fn run_test_script(
     rt: &mut Runtime,
-    mut ctx: Context<'_>,
+    ctx: &mut TopLevelContext<'_>,
     script: &str,
     filename: &Path,
     is_module: bool,
@@ -499,27 +503,26 @@ fn run_test_file(
 
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
-    let ctx = rt
-        .create_context(|ctx| {
-            Context::ECMA_CONTEXT_SETUP(ctx)?;
+    // SAFETY: ctx is used within this function and dropped before rt.
+    let mut ctx = unsafe {
+        rt.create_context(|ctx| {
+            ContextImpl::ECMA_CONTEXT_SETUP(ctx)?;
             setup_ctx_test262_helpers(ctx)?;
             Ok(())
         })
-        .unwrap();
+    }
+    .unwrap();
 
     let mut has_err = false;
 
     if !harness_files.is_empty() {
-        // eval included harness files
         #[cfg(debug_assertions)]
-        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
 
-        if let Err(exc) = run_harness(ctx, &harness_files) {
-            // write to outf
+        if let Err(exc) = run_harness(&mut ctx, &harness_files) {
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&exc, false, false, false, outf);
 
-            // write to err
             writeln!(errf, "{}", filename.display()).unwrap();
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&exc, false, false, false, errf);
@@ -528,11 +531,10 @@ fn run_test_file(
         }
 
         #[cfg(debug_assertions)]
-        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
     }
 
     if !has_err {
-        // flags
         let mut use_strict = false;
         let mut use_nostrict = true;
         let mut is_async = false;
@@ -554,7 +556,6 @@ fn run_test_file(
 
         let negative = config.negative;
 
-        // eval in nostrict, strict mode
         for strict in [
             if use_nostrict { Some(false) } else { None },
             if use_strict { Some(true) } else { None },
@@ -563,27 +564,21 @@ fn run_test_file(
         .flatten()
         {
             #[cfg(debug_assertions)]
-            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
 
-            let res = run_test_script(ctx, content.as_str(), filename, is_module, is_async, strict);
-
-            // let res = ctx.with_new_scope(|scope| {
-            //     run_test_script(
-            //         scope,
-            //         content.as_str(),
-            //         filename,
-            //         is_module,
-            //         is_async,
-            //         strict,
-            //     )
-            // });
+            let res = run_test_script(
+                &mut ctx,
+                content.as_str(),
+                filename,
+                is_module,
+                is_async,
+                strict,
+            );
 
             #[cfg(debug_assertions)]
-            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
 
             if let Err(exc) = res {
-                // eprintln!("TEST262 EXCEPTION: {:?}", exc.message);
-
                 if let Some(neg) = &negative {
                     if let Some(ty) = neg.type_.as_ref() {
                         let err_class = exc.message.split(":").next().unwrap();
@@ -598,7 +593,6 @@ fn run_test_file(
                             .unwrap();
                             dump_error(&exc, strict, is_module, is_async, outf);
 
-                            // write to err file
                             writeln!(errf, "{}", filename.display()).unwrap();
                             writeln!(
                                 outf,
@@ -625,7 +619,6 @@ fn run_test_file(
                     neg.type_.as_ref().map_or("", |s| s.as_str())
                 )
                 .unwrap();
-
                 writeln!(errf, "{}", filename.display()).unwrap();
                 writeln!(
                     errf,
@@ -692,21 +685,23 @@ async fn run_test_file(
 
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
-    let ctx = rt
-        .create_context(|ctx| {
-            Context::ECMA_CONTEXT_SETUP(ctx)?;
+    // SAFETY: ctx is used within this function and dropped before rt.
+    let mut ctx = unsafe {
+        rt.create_context(|ctx| {
+            ContextImpl::ECMA_CONTEXT_SETUP(ctx)?;
             setup_ctx_test262_helpers(ctx)?;
             Ok(())
         })
-        .unwrap();
+    }
+    .unwrap();
 
     let mut has_err = false;
 
     if !harness_files.is_empty() {
         #[cfg(debug_assertions)]
-        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
 
-        if let Err(exc) = run_harness(ctx, &harness_files) {
+        if let Err(exc) = run_harness(&mut ctx, &harness_files) {
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&exc, false, false, false, outf);
 
@@ -718,7 +713,7 @@ async fn run_test_file(
         }
 
         #[cfg(debug_assertions)]
-        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
     }
 
     if !has_err {
@@ -751,11 +746,11 @@ async fn run_test_file(
         .flatten()
         {
             #[cfg(debug_assertions)]
-            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
 
             let res = run_test_script(
                 &mut rt,
-                ctx,
+                &mut ctx,
                 content.as_str(),
                 filename,
                 is_module,
@@ -765,7 +760,7 @@ async fn run_test_file(
             .await;
 
             #[cfg(debug_assertions)]
-            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
 
             if let Err(exc) = res {
                 if let Some(neg) = &negative {

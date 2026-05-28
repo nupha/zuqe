@@ -15,7 +15,7 @@ use crate::{
     JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     atom::Atom,
     class::ClassID,
-    context::{Context, ContextImpl},
+    context::{ContextImpl, TopLevelContext},
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
     string::{CharCode, StringData, StringRef, Utf8Stream, map_utf8_to_utf16_range},
@@ -339,12 +339,11 @@ impl RegExp {
         RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, Box::new(re)))
     }
 
-    pub fn class_init(mut ctx: Context, class_id: ClassID) -> Result<Option<Object>, i32> {
+    pub fn class_init(mut ctx: TopLevelContext, class_id: ClassID) -> Result<Option<Object>, i32> {
         match class_id {
             JS_CLASS_REGEXP => {
                 let mut obj = ctx.create_base_object()?;
-                obj.install_field_defs(ctx, &js_regexp_proto_funcs)
-                    .unwrap();
+                obj.install_field_defs(ctx, &js_regexp_proto_funcs).unwrap();
 
                 let mut ctor = ctx.create_global_constructor_or_func(
                     "RegExp",

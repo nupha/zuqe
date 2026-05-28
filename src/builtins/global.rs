@@ -16,17 +16,14 @@ pub(crate) fn js_global_eval(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let global = ctx.global_obj();
     let val = cc.arg(0);
 
-    ctx.with_new_scope(|mut scope| -> JSResult {
-        let r = val.eval_object(
+    ctx.with_new_scope(|mut scope| {
+        val.eval_object(
             &mut scope,
             global.into(),
             EvalType::Indirect,
             EvalFlags::empty(),
             -1,
-        )?;
-
-        scope.set_return_value(r);
-        Ok(r)
+        )
     })
 }
 

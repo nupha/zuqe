@@ -8,7 +8,7 @@ use std::{
 
 use gc_lite::{GcError, GcHead, GcNode, GcRef, GcScope, GcScopeState};
 
-use crate::{Context, ExceptionText, JSValue, context::ContextPtr};
+use crate::{ExceptionText, JSValue, context::ContextPtr};
 
 use super::ContextImpl;
 
@@ -79,7 +79,7 @@ impl_scope_result_noop!(
 
 #[repr(u8)]
 #[derive(Debug)]
-enum GcScopeType<'a> {
+pub(crate) enum GcScopeType<'a> {
     Owned(GcScope<'a>),
     Ref(&'a GcScopeState<'a>),
 }
@@ -87,7 +87,7 @@ enum GcScopeType<'a> {
 #[derive(Debug)]
 pub struct ScopedContext<'a> {
     pub(crate) ctx_ptr: ContextPtr,
-    gc_scope: GcScopeType<'a>,
+    pub(crate) gc_scope: GcScopeType<'a>,
 }
 
 #[cfg(debug_assertions)]
@@ -133,27 +133,6 @@ impl<'a> From<&mut ScopedContext<'a>> for ContextPtr {
     #[inline(always)]
     fn from(value: &mut ScopedContext<'a>) -> Self {
         value.ctx_ptr
-    }
-}
-
-impl<'a> From<ScopedContext<'a>> for Context<'a> {
-    #[inline(always)]
-    fn from(value: ScopedContext<'a>) -> Self {
-        value.ctx_ptr.into()
-    }
-}
-
-impl<'a> From<&ScopedContext<'a>> for Context<'a> {
-    #[inline(always)]
-    fn from(value: &ScopedContext<'a>) -> Self {
-        value.ctx_ptr.into()
-    }
-}
-
-impl<'a> From<&mut ScopedContext<'a>> for Context<'a> {
-    #[inline(always)]
-    fn from(value: &mut ScopedContext<'a>) -> Self {
-        value.ctx_ptr.into()
     }
 }
 
@@ -224,26 +203,26 @@ impl<'a> ScopedContext<'a> {
         }
     }
 
-    /// run closure in a new downstream scope.
+    /// run closure in a new child scope.
     /// The return value is automatically promoted to the upstream scope
-    /// via `ScopeResult::promote` before the downstream scope is destroyed.
-    #[inline]
+    /// via `ScopeResult::promote` before the child scope is destroyed.
     pub fn with_new_scope<R: ScopeResult>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
         #[cfg(debug_assertions)]
         {
             let _d1 = self.depth();
             let s = self.new_scope();
             let _d2 = s.depth();
-            let r = f(s);
-            let r = r.promote(self);
+
+            let ret_val = f(s);
             debug_assert_eq!(_d1, self.depth(), "{self:p}: {self:?}");
-            r
+            ret_val.promote(self)
         }
+
         #[cfg(not(debug_assertions))]
         {
             let s = self.new_scope();
-            let r = f(s);
-            r.promote(self)
+            let ret_val = f(s);
+            ret_val.promote(self)
         }
     }
 
@@ -258,7 +237,8 @@ impl<'a> ScopedContext<'a> {
 
 impl ContextImpl {
     /// get current (the inner-most) scope
-    pub fn current_scope(&self) -> Option<ScopedContext<'_>> {
+    /// there always exists a top-level scope, so this method never returns `None`.
+    fn current_scope(&self) -> Option<ScopedContext<'_>> {
         if let Some(s) = self.gc_heap().current_scope() {
             let sc = ScopedContext {
                 ctx_ptr: self.gc_ref().into(),
@@ -270,46 +250,115 @@ impl ContextImpl {
         }
     }
 
-    pub fn with_current_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> Option<R> {
+    /// run closure with current (the inner-most) scope.
+    /// there always exists a top-level scope, so this method never returns `None`.
+    pub(crate) fn with_current_scope<R>(
+        &mut self,
+        f: impl FnOnce(ScopedContext<'_>) -> R,
+    ) -> Option<R> {
         self.current_scope().map(f)
     }
 }
 
 impl ContextPtr {
-    pub(crate) fn new_scope(&mut self) -> ScopedContext<'_> {
-        let pid = self.rt().gc_part_id();
-        let ctx = ContextPtr::from(self.gc_ref());
-        let gc_scope = self.gc_heap_mut().new_scope(pid);
-
-        ScopedContext {
-            ctx_ptr: ctx,
-            gc_scope: GcScopeType::Owned(gc_scope),
-        }
-    }
-
-    pub(crate) fn with_new_scope<R: ScopeResult>(
+    /// Create a new scope, run closure in it, then destroy the scope.
+    ///
+    /// # Safety
+    ///
+    /// The return value may contain GC nodes that were allocated in the
+    /// destroyed scope. After this call, those nodes lose LOCAL protection.
+    /// The caller must ensure they are either:
+    /// - Promoted to an upstream scope via `set_return_value` / `ScopeResult`
+    /// - Used immediately before any GC cycle
+    /// - Registered as GC roots
+    ///
+    /// When the new scope has a parent (i.e. this is not the root scope),
+    /// the return value is automatically promoted to the parent scope via
+    /// `ScopeResult::promote`. When there is no parent scope, the return
+    /// value is returned as-is without promotion.
+    pub(crate) unsafe fn with_new_scope_internal<R: ScopeResult>(
         &mut self,
         f: impl FnOnce(ScopedContext<'_>) -> R,
     ) -> R {
-        let s = self.new_scope();
-        f(s)
-    }
-}
-
-impl<'c> Context<'c> {
-    fn new_scope(&mut self) -> ScopedContext<'_> {
         let pid = self.rt().gc_part_id();
         let ctx = ContextPtr::from(self.gc_ref());
         let gc_scope = self.gc_heap_mut().new_scope(pid);
 
-        ScopedContext {
+        let has_parent = gc_scope.parent().is_some();
+
+        let s = ScopedContext {
             ctx_ptr: ctx,
             gc_scope: GcScopeType::Owned(gc_scope),
+        };
+
+        let ret = f(s);
+
+        if has_parent {
+            if let Some(mut upstream) = self.current_scope() {
+                ret.promote(&mut upstream)
+            } else {
+                ret
+            }
+        } else {
+            ret
         }
     }
+}
 
+/// A psydo scoped-context that represents a top-level GC scope.
+///
+/// Created by `RuntimeImpl::create_context`. Every `TopLevelContext` holds a
+/// top-level `ScopedContext` that protects locally-allocated GC nodes. When
+/// `with_new_scope` is called on this type, the return value is automatically
+/// promoted to the top-level scope — no `unsafe` needed.
+///
+/// `TopLevelContext` derefs to `ScopedContext`, which in turn derefs to
+/// `ContextImpl`, so all context methods are available directly.
+#[repr(transparent)]
+pub struct TopLevelContext<'c>(pub(crate) ScopedContext<'c>);
+
+impl<'c> Deref for TopLevelContext<'c> {
+    type Target = ScopedContext<'c>;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'c> DerefMut for TopLevelContext<'c> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'c> From<TopLevelContext<'c>> for ContextPtr {
+    #[inline(always)]
+    fn from(value: TopLevelContext<'c>) -> Self {
+        value.0.ctx_ptr
+    }
+}
+
+impl<'c> From<&TopLevelContext<'c>> for ContextPtr {
+    #[inline(always)]
+    fn from(value: &TopLevelContext<'c>) -> Self {
+        value.0.ctx_ptr
+    }
+}
+
+impl<'c> From<&mut TopLevelContext<'c>> for ContextPtr {
+    #[inline(always)]
+    fn from(value: &mut TopLevelContext<'c>) -> Self {
+        value.0.ctx_ptr
+    }
+}
+
+impl<'c> TopLevelContext<'c> {
+    /// Create a new downstream scope, run closure in it, then promote the
+    /// return value to the top-level scope.
+    #[inline]
     pub fn with_new_scope<R: ScopeResult>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
-        let s = self.new_scope();
-        f(s)
+        self.0.with_new_scope(f)
     }
 }

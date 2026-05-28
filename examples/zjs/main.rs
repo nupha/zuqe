@@ -15,8 +15,8 @@ use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use libloading::Library;
 use zuqe::{
-    Context, EvalFlags, EvalType, Exception, ModuleDef, Runtime, ScopedContext,
-    builtins::promise::Promise,
+    ContextImpl, EvalFlags, EvalType, Exception, ModuleDef, Runtime, ScopedContext,
+    TopLevelContext, builtins::promise::Promise,
 };
 
 use crate::{
@@ -126,7 +126,7 @@ fn parse_byte_size(ss: &str) -> Option<usize> {
     }
 }
 
-fn run_zjs_prepare<'a>() -> (Runtime, Context<'a>, Args, String, bool) {
+fn run_zjs_prepare() -> (Runtime, TopLevelContext<'static>, Args, String, bool) {
     #[cfg(debug_assertions)]
     {
         let log_file = std::fs::OpenOptions::new()
@@ -195,9 +195,10 @@ fn run_zjs_prepare<'a>() -> (Runtime, Context<'a>, Args, String, bool) {
     let class_id_file = JSFile::register(&mut rt).unwrap();
     let class_id_emitter = JSEmitter::register(&mut rt).unwrap();
 
-    let ctx = rt
-        .create_context(|cx| {
-            Context::ECMA_CONTEXT_SETUP(cx)?;
+    // SAFETY: ctx is used within run_zjs_prepare's caller and dropped before rt.
+    let ctx = unsafe {
+        rt.create_context(|cx| {
+            ContextImpl::ECMA_CONTEXT_SETUP(cx)?;
 
             cx.use_class(class_id_file).unwrap();
             cx.use_class(class_id_emitter).unwrap();
@@ -207,10 +208,11 @@ fn run_zjs_prepare<'a>() -> (Runtime, Context<'a>, Args, String, bool) {
 
             setup_globals(cx, &args.script_args)
         })
-        .unwrap();
+    }
+    .unwrap();
 
     #[cfg(debug_assertions)]
-    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0, "no scope now");
+    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1, "top-level scope exists");
 
     (rt, ctx, args, script, is_module)
 }
@@ -248,7 +250,7 @@ fn main() -> ExitCode {
     });
 
     #[cfg(debug_assertions)]
-    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
 
     exit_code
 }
@@ -285,7 +287,7 @@ async fn main() -> ExitCode {
                         Err(_) => Err(scope.take_exception().to_text(&mut scope)),
                     }
                 } else {
-                    colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);
+                    colorize_println(val.inspect(scope.rt_mut()).unwrap(), GreenFg);
                     Ok(())
                 }
             }
@@ -294,10 +296,9 @@ async fn main() -> ExitCode {
     });
 
     #[cfg(debug_assertions)]
-    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 0);
+    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1, "top-level scope exists");
 
     if let Err(e) = res {
-        // eval has error
         let mut err_msg = e.message;
         if let Some(tb) = e.traceback {
             err_msg = format!("{err_msg}\n{tb}");
@@ -306,7 +307,6 @@ async fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    // await tick background done
     let run_result = if let Some(js_fut) = promise_future {
         let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
 
@@ -315,7 +315,6 @@ async fn main() -> ExitCode {
                 colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);
             }
             Err(reason) => {
-                // reject
                 let err_msg = ctx.with_new_scope(|mut cx| {
                     let s = reason.to_string(&mut cx).unwrap();
                     s.encode_utf8(false).to_string()

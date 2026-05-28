@@ -73,31 +73,30 @@ impl Bytecode {
     ) -> JSValue {
         let mut realm_ctx = self.realm();
 
-        realm_ctx.with_new_scope(|mut realm_scope| {
-            // caller-scope must be at lower index than realm-scope in gc scope stack
-            #[cfg(debug_assertions)]
-            debug_assert!(realm_scope.depth() > caller_scope.depth());
+        // SAFETY: The return value (JSValue) is used immediately by the caller.
+        // It is stored on the VM stack which is traced by GC marker.
+        let ret_val = unsafe {
+            realm_ctx.with_new_scope_internal(|mut realm_scope| {
+                // caller-scope must be at lower index than realm-scope in gc scope stack
+                #[cfg(debug_assertions)]
+                debug_assert!(realm_scope.depth() > caller_scope.depth());
 
-            let ret_val = self.execute_with_realm_scope(
-                caller_scope,
-                &mut realm_scope,
-                func_home_obj,
-                stack_frame,
-                this_obj,
-                new_target,
-                pc_offset,
-                sp_offset,
-                captured_vars,
-                args,
-                throwed,
-            );
-
-            // protect return value before realm scope is dropped
-            // use promote to propagate node from realm scope to caller's scope
-            realm_scope.set_return_value(ret_val);
-
-            ret_val
-        })
+                self.execute_with_realm_scope(
+                    caller_scope,
+                    &mut realm_scope,
+                    func_home_obj,
+                    stack_frame,
+                    this_obj,
+                    new_target,
+                    pc_offset,
+                    sp_offset,
+                    captured_vars,
+                    args,
+                    throwed,
+                )
+            })
+        };
+        ret_val
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2530,10 +2529,6 @@ impl Bytecode {
 
             match state {
                 State::Done(ret_val, is_generator) => {
-                    // Note: `stack_frame` will be dropped after exit, promote ret_val to upper scope
-                    // caller_ctx.set_return_value(ret_val);
-                    realm_scope.set_return_value(ret_val);
-
                     stack_frame.handle_exit(
                         realm_scope,
                         unsafe { pc.offset_from(pc_base) as usize },

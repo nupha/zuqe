@@ -5,12 +5,10 @@ use std::{
     cell::Cell,
     collections::VecDeque,
     ffi::c_void,
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcHeap, GcNode, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcHeap, GcNode, GcRef, GcScope, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
@@ -20,7 +18,7 @@ use crate::{
     atom::Atom,
     builtins::global::js_global_props,
     class::ClassID,
-    context::ScopedContext,
+    context::{ScopedContext, TopLevelContext, scope::GcScopeType},
     error::STD_ERROR_COUNT,
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
@@ -305,61 +303,9 @@ impl ContextImpl {
     }
 }
 
-/// Handle to context with lifetime
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct Context<'a> {
-    gc_ref: GcRef<ContextImpl>,
-    _mark: PhantomData<&'a ()>,
-}
-
-impl<'a> Deref for Context<'a> {
-    type Target = ContextImpl;
-
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        self.gc_ref.deref()
-    }
-}
-
-impl<'a> DerefMut for Context<'a> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.gc_ref.deref_mut()
-    }
-}
-
-impl<'a> From<&ContextImpl> for Context<'a> {
-    #[inline(always)]
-    fn from(c: &ContextImpl) -> Self {
-        Self {
-            gc_ref: unsafe { gc_lite::GcRef::from_ref_unchecked(c) },
-            _mark: PhantomData,
-        }
-    }
-}
-
-impl<'a> From<&mut ContextImpl> for Context<'a> {
-    #[inline(always)]
-    fn from(c: &mut ContextImpl) -> Self {
-        Self {
-            gc_ref: unsafe { gc_lite::GcRef::from_ref_unchecked(c) },
-            _mark: PhantomData,
-        }
-    }
-}
-
-impl<'a> From<GcRef<ContextImpl>> for Context<'a> {
-    #[inline(always)]
-    fn from(gc_ref: GcRef<ContextImpl>) -> Self {
-        Self {
-            gc_ref,
-            _mark: PhantomData,
-        }
-    }
-}
-
-impl<'a> Context<'a> {
+impl ContextImpl {
+    /// Standard ECMAScript context setup function.
+    /// Can be passed to `RuntimeImpl::create_context`.
     pub const ECMA_CONTEXT_SETUP: fn(&mut ScopedContext) -> Result<(), i32> =
         |ctx: &mut ScopedContext| -> Result<(), i32> {
             // setup global namespace
@@ -487,23 +433,6 @@ impl PartialEq for ContextPtr {
     }
 }
 
-impl From<Context<'_>> for ContextPtr {
-    #[inline(always)]
-    fn from(h: Context<'_>) -> Self {
-        Self(h.gc_ref)
-    }
-}
-
-impl<'a> From<ContextPtr> for Context<'a> {
-    #[inline(always)]
-    fn from(p: ContextPtr) -> Self {
-        Self {
-            gc_ref: p.gc_ref(),
-            _mark: PhantomData,
-        }
-    }
-}
-
 impl std::fmt::Debug for ContextPtr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<ContextPtr {:p}>", self.id() as *const c_void)
@@ -511,49 +440,49 @@ impl std::fmt::Debug for ContextPtr {
 }
 
 impl RuntimeImpl {
-    /// Create context with setup.
+    /// Create a context with top-level GC scope.
     pub fn create_context<'a>(
         &mut self,
         setup: impl FnOnce(&mut ScopedContext) -> Result<(), i32>,
-    ) -> Result<Context<'a>, i32> {
+    ) -> Result<TopLevelContext<'a>, i32> {
         let inner = ContextImpl::new(self)?;
 
         let pid = self.gc_part_id();
-        let ctx = self
-            .gc_heap_mut()
-            .with_new_scope(pid, |gc| -> Result<Context<'a>, i32> {
-                let gc_ref = gc.alloc_local(inner).map_err(|_| -1)?;
+        let gc_scope = self.gc_heap_mut().new_scope(pid);
+        let gc_ref = gc_scope.alloc_local(inner).map_err(|_| -1)?;
+        let ctx_ptr = ContextPtr::from(gc_ref);
 
-                // setup context.
-                // Note: in case of exception, ContextImpl node will be purged in mark-sweep.
-                {
-                    let mut ctx = ContextPtr::from(gc_ref);
+        // SAFETY: The GcScope is valid as long as the RuntimeImpl (which owns
+        // the GcHeap) is alive. We extend the lifetime to 'a so that
+        // TopLevelContext can be used without borrowing RuntimeImpl.
+        // The caller must ensure RuntimeImpl outlives TopLevelContext.
+        let gc_scope = unsafe { std::mem::transmute::<GcScope<'_>, GcScope<'a>>(gc_scope) };
 
-                    ctx.with_new_scope(|mut scope| -> Result<(), i32> {
-                        // DON'T CHANGE FOLLOWING ORDER
+        let mut top = TopLevelContext(ScopedContext {
+            ctx_ptr,
+            gc_scope: GcScopeType::Owned(gc_scope),
+        });
 
-                        // base object must be initialized before creating global
-                        scope.init_core_objects()?;
-                        // make global namespace
-                        scope.global_obj = Some(scope.create_base_object()?);
-                        // make global var object
-                        scope.global_var_obj = Some(scope.create_base_object_with_proto(None)?);
+        // Register in context list via RuntimePtr.
+        top.rt_mut().context_list.push(ctx_ptr);
 
-                        // user initialization
-                        setup(&mut scope)?;
+        // Initialize in a sub-scope. Allocations are protected by LOCAL in the
+        // sub-scope during setup. When the sub-scope drops, LOCAL is removed,
+        // but the objects remain reachable through ContextImpl fields
+        // (global_obj, global_var_obj, etc.) which are roots via context_list.
+        top.0.with_new_scope(|mut sub| {
+            // DON'T CHANGE FOLLOWING ORDER
 
-                        Ok(())
-                    })?;
-                }
+            // base object must be initialized before creating global
+            sub.init_core_objects()?;
+            // make global namespace
+            sub.global_obj = Some(sub.create_base_object()?);
+            // make global var object
+            sub.global_var_obj = Some(sub.create_base_object_with_proto(None)?);
+            // user initialization
+            setup(&mut sub)
+        })?;
 
-                Ok(Context {
-                    gc_ref,
-                    _mark: PhantomData,
-                })
-            })
-            .map_err(|_| -1)?;
-
-        self.context_list.push(ctx.into());
-        Ok(ctx)
+        Ok(top)
     }
 }
