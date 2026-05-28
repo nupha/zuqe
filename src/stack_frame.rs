@@ -276,8 +276,8 @@ impl StackFrame {
                             let _ = ObjectIter::close_iter_internal(ctx, o);
                         }
                     } else {
-                        let exc = ctx.rt_mut().take_exception();
-                        let err_val = exc.to_error_value(ctx);
+                        let exc = ctx.take_exception();
+                        let err_val = exc.to_value(ctx);
                         unsafe {
                             std::ptr::replace(sp_base.add(sp), err_val);
                         }

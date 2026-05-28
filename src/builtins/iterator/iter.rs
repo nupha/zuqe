@@ -327,19 +327,19 @@ impl<'a> ObjectIter<'a> {
     pub(crate) fn close_iter_internal(ctx: &mut ScopedContext, obj: Object) -> Result<(), i32> {
         debug_assert!(ctx.gc_heap().scope_max_depth() > 0);
 
-        let pending_exc = ctx.rt_mut().take_exception();
-        let has_exception = pending_exc != Exception::No;
+        let pending_exc = ctx.take_exception();
 
-        // prevent pending_exc value from being collected:
-        // add the error value to current scope to protect it.
-        if let Exception::Error(err) = pending_exc
-            && let Some(n) = err.gc_node_ptr()
-            && unsafe { !n.as_ref().is_root_or_local() }
-        {
-            ctx.gc_heap_mut().with_current_scope(|s| {
-                s.add_non_local(n);
-            });
+        // `ScopedContext::take_exception()` already added the error value
+        // to current scope for GC protection. Assert it is indeed local.
+        #[cfg(debug_assertions)]
+        if let Exception::Error(v) = &pending_exc {
+            debug_assert!(
+                v.gc_node_ptr()
+                    .is_none_or(|n| unsafe { n.as_ref().is_root_or_local() })
+            );
         }
+
+        let has_exception = pending_exc != Exception::No;
 
         if let Ok(method) = obj.get_property(ctx, Atom::CONST_return) {
             if !method.is_undefined_or_null() {
@@ -354,7 +354,7 @@ impl<'a> ObjectIter<'a> {
         }
 
         if has_exception {
-            ctx.rt_mut().set_exception(pending_exc);
+            ctx.throw(pending_exc);
             Err(-1)
         } else {
             Ok(())

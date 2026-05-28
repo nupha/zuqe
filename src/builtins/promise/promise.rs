@@ -231,8 +231,7 @@ impl Promise {
         // call executor function with (resolve, reject) arguments
         let rr = promise.create_resolving_functions(ctx)?;
         if executor.call(ctx, JSValue::UNDEFINED, &rr).is_err() {
-            let exc = ctx.rt_mut().take_exception();
-            let err_val = exc.to_error_value(ctx);
+            let err_val = ctx.take_exception().to_value(ctx);
             rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
         }
 
@@ -327,8 +326,7 @@ impl Promise {
                     }
                     Ok(None) => Ok(JobState::Again),
                     Err(_) => {
-                        let exc = cx.rt_mut().take_exception();
-                        let err_val = exc.to_error_value(cx);
+                        let err_val = cx.take_exception().to_value(cx);
                         rr[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
                         Ok(JobState::Done)
                     }

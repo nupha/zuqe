@@ -231,7 +231,7 @@ impl StringImpl {
                     num
                 }
             } else {
-                ctx.rt_mut().take_exception();
+                ctx.clear_exception();
                 IntOrFloat::Float64(f64::NAN)
             }
         }

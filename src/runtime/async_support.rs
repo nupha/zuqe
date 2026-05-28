@@ -32,7 +32,7 @@ impl<'rt> std::future::Future for RunFuture<'rt> {
                 Poll::Pending
             }
             Ok(TickStatus::Stop) => Poll::Ready(Ok(())),
-            Err(_) => Poll::Ready(Err(this.rt.take_exception())),
+            Err(_) => Poll::Ready(Err(this.rt.exception())),
         }
     }
 }

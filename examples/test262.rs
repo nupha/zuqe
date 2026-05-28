@@ -318,7 +318,7 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), Except
                     EvalFlags::empty(),
                 )
                 .map_err(|_| {
-                    let exc = scope.rt_mut().take_exception();
+                    let exc = scope.take_exception();
                     exc.to_text(&mut scope)
                 })
         })?;
@@ -401,7 +401,7 @@ async fn run_test_script(
                 },
             )
             .map_err(|_| {
-                let exc = scope.rt_mut().take_exception();
+                let exc = scope.take_exception();
                 exc.to_text(&mut scope)
             })
     })?;

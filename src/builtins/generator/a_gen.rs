@@ -76,9 +76,9 @@ pub struct AGenPayload {
 }
 
 impl GcTrace for AGenPayload {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.async_state.trace(tr);
-        self.queue.iter().for_each(|x| x.trace(tr));
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        self.async_state.trace(gcx);
+        self.queue.iter().for_each(|x| x.trace(gcx));
     }
 }
 
@@ -136,7 +136,7 @@ impl AGenPayload {
                     if self.state() == AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD
                         && completion_type == GEN_MAGIC_THROW
                     {
-                        ctx.throw(result);
+                        ctx.throw_value(result);
                         self.async_state.set_throw_flag(true);
                     } else {
                         // 'yield' returns a value. 'yield *' also returns a value
@@ -179,8 +179,7 @@ impl AGenPayload {
                                 self.resolve(ctx, val, true);
                             }
                             Err(_) => {
-                                let exc = ctx.rt_mut().take_exception();
-                                let err_val = exc.to_error_value(ctx);
+                                let err_val = ctx.take_exception().to_value(ctx);
                                 self.complete();
                                 self.reject(ctx, err_val);
                             }
@@ -247,8 +246,7 @@ impl AGenPayload {
                 // Fail looking up JS_ATOM_constructor when is_reject==0.
                 // A poisoned .constructor property is observable and the resulting
                 // exception should be delivered to the catch handler.
-                let exc = ctx.rt_mut().take_exception();
-                let err_val = exc.to_error_value(ctx);
+                let err_val = ctx.take_exception().to_value(ctx);
                 js_promise_resolve(
                     ctx,
                     CallContext::new(
@@ -493,7 +491,7 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
             debug_assert_eq!(s.state(), AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
 
             if unlikely(is_reject) {
-                ctx.throw(arg);
+                ctx.throw_value(arg);
                 s.async_state.set_throw_flag(true);
             } else {
                 s.async_state.set_throw_flag(false);
@@ -540,8 +538,7 @@ fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
             s.resume_next(ctx);
         }
     } else {
-        let exc = ctx.rt_mut().take_exception();
-        let err_val = exc.to_error_value(ctx);
+        let err_val = ctx.take_exception().to_value(ctx);
         resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
     }
 

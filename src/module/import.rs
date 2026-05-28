@@ -28,8 +28,8 @@ pub struct ImportEntry {
 
 impl GcTrace for ImportEntry {
     #[inline(always)]
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.import_name.trace(tr);
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        self.import_name.trace(gcx);
     }
 }
 
@@ -83,8 +83,7 @@ fn js_dynamic_import_job(
 
     if r.is_err() {
         // call reject func if has error
-        let exc = ctx.rt_mut().take_exception();
-        let err_val = exc.to_error_value(ctx);
+        let err_val = ctx.take_exception().to_value(ctx);
         let _ = resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
     }
 }
@@ -99,8 +98,7 @@ fn js_load_module_internal(
         Ok(mut md) => {
             if ctx.resolve_module(md).is_err() {
                 js_free_modules(ctx, JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED);
-                let exc = ctx.rt_mut().take_exception();
-                let err_val = exc.to_error_value(ctx);
+                let err_val = ctx.take_exception().to_value(ctx);
                 let _ = resolving_funcs[1].call(
                     ctx,
                     JSValue::UNDEFINED,
@@ -141,8 +139,7 @@ fn js_load_module_internal(
                     );
                 }
                 Err(_) => {
-                    let exc = ctx.rt_mut().take_exception();
-                    let err_val = exc.to_error_value(ctx);
+                    let err_val = ctx.take_exception().to_value(ctx);
                     let _ = resolving_funcs[1].call(
                         ctx,
                         JSValue::UNDEFINED,
@@ -152,8 +149,7 @@ fn js_load_module_internal(
             }
         }
         Err(_) => {
-            let exc = ctx.rt_mut().take_exception();
-            let err_val = exc.to_error_value(ctx);
+            let err_val = ctx.take_exception().to_value(ctx);
             let _ =
                 resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
         }
@@ -182,8 +178,7 @@ fn js_load_module_fulfilled(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         let _ = cc.data(0).call(ctx, JSValue::UNDEFINED, &[ns.into()]);
     } else {
         // reject() with error
-        let exc = ctx.rt_ptr().take_exception();
-        let err_val = exc.to_error_value(ctx);
+        let err_val = ctx.take_exception().to_value(ctx);
         let _ = cc
             .data(1)
             .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));

@@ -930,7 +930,7 @@ impl Bytecode {
                     }
                     OpCode::THROW => {
                         SP_GO!(-1);
-                        realm_scope.throw(SP_VAL!(0));
+                        realm_scope.throw_value(SP_VAL!(0));
                         break State::Exception;
                     }
                     OpCode::THROW_ERROR => {

@@ -51,7 +51,7 @@ fn js_promise_then_finally_func(ctx: &mut ScopedContext, cc: CallContext) -> JSR
             if cc.magic() == 0 {
                 val.err() // resolve
             } else {
-                cx.throw(val); // reject
+                cx.throw_value(val); // reject
                 Err(-1)
             }
         }),
@@ -162,8 +162,7 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // }
 
     let fail_reject = |cx: &mut ScopedContext| -> JSResult {
-        let exc = cx.rt_mut().take_exception();
-        let err_val = exc.to_error_value(cx);
+        let err_val = cx.take_exception().to_value(cx);
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
 
         debug_assert!(result_promise.gc_node().is_local());
@@ -347,8 +346,7 @@ pub fn js_promise_race(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // }
 
     let fail_reject = |cx: &mut ScopedContext| -> JSResult {
-        let exc = cx.rt_mut().take_exception();
-        let err_val = exc.to_error_value(cx);
+        let err_val = cx.take_exception().to_value(cx);
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
         Ok(promise.into())
     };

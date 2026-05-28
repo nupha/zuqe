@@ -6,15 +6,15 @@ use super::{Promise, PromiseReaction, PromiseResolveFunc};
 
 impl JobGcTrace for PromiseReaction {
     #[inline(always)]
-    fn trace_values(&self, tr: &mut GcTraceCtx) {
-        self.trace(tr);
+    fn trace_values(&self, gcx: &mut GcTraceCtx) {
+        self.trace(gcx);
     }
 }
 
 impl JobGcTrace for PromiseResolveFunc {
     #[inline(always)]
-    fn trace_values(&self, tr: &mut GcTraceCtx) {
-        self.trace(tr);
+    fn trace_values(&self, gcx: &mut GcTraceCtx) {
+        self.trace(gcx);
     }
 }
 
@@ -93,7 +93,7 @@ pub(super) fn js_promise_reaction_job(
 ) -> Result<JobState, i32> {
     let mut result = if action.handler.is_undefined() {
         if is_reject {
-            ctx.throw(arg);
+            ctx.throw_value(arg);
             JSValue::EXCEPTION
         } else {
             arg
@@ -105,9 +105,8 @@ pub(super) fn js_promise_reaction_job(
             .unwrap_or(JSValue::EXCEPTION)
     };
 
-    let is_reject = if result.is_exception() {
-        let exc = ctx.rt_mut().take_exception();
-        result = exc.to_error_value(ctx);
+    let is_reject: bool = if result.is_exception() {
+        result = ctx.take_exception().to_value(ctx);
         true
     } else {
         false
@@ -132,8 +131,7 @@ pub(super) fn js_promise_resolve_thenable_job(
 ) -> Result<JobState, i32> {
     let rr = promise.create_resolving_functions(ctx)?;
     if then_func.call(ctx, thenable, &rr).is_err() {
-        let exc = ctx.rt_mut().take_exception();
-        let err_val = exc.to_error_value(ctx);
+        let err_val = ctx.take_exception().to_value(ctx);
         rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
     }
 

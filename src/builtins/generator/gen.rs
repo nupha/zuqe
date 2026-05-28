@@ -211,7 +211,7 @@ fn js_generator_next(
                 if magic == GEN_MAGIC_THROW
                     && g.state() == GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD
                 {
-                    ctx.throw(val);
+                    ctx.throw_value(val);
                     g.async_state.set_throw_flag(true);
                 } else {
                     g.with_stack_frame_mut(|sf| unsafe {
@@ -275,7 +275,7 @@ fn js_generator_next(
                     GEN_MAGIC_NEXT => Ok(JSValue::UNDEFINED),
                     GEN_MAGIC_RETURN => Ok(cc.arg(0)),
                     GEN_MAGIC_THROW => {
-                        ctx.throw(cc.arg(0));
+                        ctx.throw_value(cc.arg(0));
                         Err(-1)
                     }
                     _ => {

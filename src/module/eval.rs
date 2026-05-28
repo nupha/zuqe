@@ -4,7 +4,7 @@
 use gc_lite::GcNode;
 
 use crate::{
-    Atom, Callback, JS_CLASS_BYTECODE_FUNCTION,
+    Atom, Callback, ErrorKind, Exception, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
     context::ScopedContext,
     error::JSResult,
@@ -158,8 +158,13 @@ impl ModuleDef {
         stack_top: &mut Option<ModuleDef>,
     ) -> Result<i32, JSValue> {
         if js_check_stack_overflow(ctx.rt(), 0) {
-            ctx.throw_stack_overflow();
-            return Err(ctx.rt_mut().take_exception().to_error_value(ctx));
+            return Err(ctx
+                .create_error_object(
+                    ErrorKind::Internal,
+                    "stack overflow",
+                    ctx.throw_need_backtrace(),
+                )
+                .map_or_else(|| Exception::OutOfMemory.to_value(ctx), JSValue::from));
         }
 
         match self.status() {
@@ -226,8 +231,13 @@ impl ModuleDef {
                 if m1.async_parent_modules.len() == m1.async_parent_modules.capacity()
                     && m1.async_parent_modules.try_reserve(1).is_err()
                 {
-                    ctx.throw_out_of_memory();
-                    return Err(ctx.rt_mut().take_exception().to_error_value(ctx));
+                    return Err(ctx
+                        .create_error_object(
+                            ErrorKind::Internal,
+                            "stack overflow",
+                            ctx.throw_need_backtrace(),
+                        )
+                        .map_or_else(|| Exception::OutOfMemory.to_value(ctx), JSValue::from));
                 }
 
                 m1.async_parent_modules.push(*self);
@@ -424,7 +434,7 @@ impl ModuleDef {
         if let Some(f) = self.init_func.as_ref() {
             // is native module: no asynchronous execution
             if unlikely(f(ctx, self).is_err()) {
-                Err(ctx.rt_mut().take_exception().to_error_value(ctx))
+                Err(ctx.take_exception().to_value(ctx))
             } else {
                 Ok(())
             }
@@ -436,15 +446,18 @@ impl ModuleDef {
             // eval bytecode function
             let promise = bc
                 .call_async(ctx, JSValue::UNDEFINED, &[], 0)
-                .map_err(|_| ctx.rt_mut().take_exception().to_error_value(ctx))?;
+                .map_err(|_| ctx.take_exception().to_value(ctx))?;
 
             match promise.state() {
                 PromiseState::Fulfilled => Ok(()),
                 PromiseState::Rejected => Err(promise.result()),
-                PromiseState::Pending => {
-                    ctx.throw_type_error("promise is pending");
-                    Err(ctx.rt_mut().take_exception().to_error_value(ctx))
-                }
+                PromiseState::Pending => Err(ctx
+                    .create_error_object(
+                        ErrorKind::Type,
+                        "promise is pending",
+                        ctx.throw_need_backtrace(),
+                    )
+                    .map_or_else(|| Exception::OutOfMemory.to_value(ctx), JSValue::from)),
             }
         }
     }

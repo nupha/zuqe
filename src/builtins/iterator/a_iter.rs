@@ -131,8 +131,7 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
                     func_val
                 }
                 Err(_) => {
-                    let exc = ctx.rt_mut().take_exception();
-                    let err_val = exc.to_error_value(ctx);
+                    let err_val = ctx.take_exception().to_value(ctx);
                     return Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise));
                 }
             }
@@ -155,8 +154,7 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
                     let mut _done = false;
                     value = JS_IteratorGetCompleteValue(ctx, value, &mut _done);
                     if value.is_exception() {
-                        let exc = ctx.rt_mut().take_exception();
-                        let err_val = exc.to_error_value(ctx);
+                        let err_val = ctx.take_exception().to_value(ctx);
                         return Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise));
                     }
                     _done
@@ -173,8 +171,7 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
                 ) {
                     r.try_into()?
                 } else {
-                    let exc = ctx.rt_mut().take_exception();
-                    let err_val = exc.to_error_value(ctx);
+                    let err_val = ctx.take_exception().to_value(ctx);
                     return Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise));
                 }
             };
@@ -186,14 +183,12 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
             value_wrapper_promise.reaction(ctx, resolve_reject, resolving_funcs)?;
             Ok(promise.into())
         } else {
-            let exc = ctx.rt_mut().take_exception();
-            let err_val = exc.to_error_value(ctx);
+            let err_val = ctx.take_exception().to_value(ctx);
             Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise))
         }
     } else {
         ctx.throw_type_error("not an Async-from-Sync Iterator");
-        let exc = ctx.rt_mut().take_exception();
-        let err_val = exc.to_error_value(ctx);
+        let err_val = ctx.take_exception().to_value(ctx);
         Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise))
     }
 }

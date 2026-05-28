@@ -74,7 +74,7 @@ pub(super) fn js_parseInt(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
             .map_or_else(
                 |_| {
                     // fail to parse number, returns NaN
-                    ctx.rt_mut().take_exception();
+                    ctx.clear_exception();
                     JSValue::Float64(f64::NAN)
                 },
                 |(n, _)| JSValue::from(n),
@@ -96,7 +96,7 @@ pub(super) fn js_parseFloat(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         let val = js_aton(ctx, str.as_bytes(), 10, 0).map_or_else(
             |_| {
                 // fail to parse number, returns NaN
-                ctx.rt_mut().take_exception();
+                ctx.clear_exception();
                 JSValue::Float64(f64::NAN)
             },
             |(n, _)| JSValue::from(n),

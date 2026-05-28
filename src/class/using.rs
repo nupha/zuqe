@@ -160,7 +160,6 @@ impl RuntimeImpl {
 
         if class_id == u16::MAX {
             self.set_exception(Exception::TooManyClasses);
-            eprintln!("runtime error: too many classes registered");
             return Err(-1);
         }
 

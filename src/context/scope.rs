@@ -114,7 +114,7 @@ impl<'a> ScopedContext<'a> {
 
     /// get gc scope state
     #[inline]
-    fn gc(&self) -> &GcScopeState<'_> {
+    pub(crate) fn gc(&self) -> &GcScopeState<'_> {
         match &self.gc_scope {
             GcScopeType::Owned(s) => s.deref(),
             GcScopeType::Ref(s) => s,

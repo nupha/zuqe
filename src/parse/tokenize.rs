@@ -809,9 +809,9 @@ impl<'s> JSParseState<'s> {
         )
         .inspect_err(|_| {
             // re-throw error as parser syntax error
-            let exc = self.ctx().rt_mut().take_exception();
-            let err_val = exc.to_error_value(self.ctx());
-            self.throw(err_val);
+            let ctx = self.ctx();
+            let err_val = ctx.take_exception().to_value(ctx);
+            self.throw_parse_error(err_val);
         })?;
 
         debug_assert!(self.input_end >= unsafe { bytes.as_ptr().add(consumed) });

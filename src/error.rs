@@ -85,7 +85,7 @@ impl Exception {
     }
 
     /// align exception to jsvalue
-    pub(crate) fn to_error_value(self, ctx: &mut ScopedContext) -> JSValue {
+    pub(crate) fn to_value(self, ctx: &mut ScopedContext) -> JSValue {
         match self {
             Self::No => JSValue::UNDEFINED,
             Self::OutOfMemory => ctx
@@ -143,10 +143,9 @@ pub const JS_THROW_ERROR_DELETE_SUPER: u8 = 3;
 pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
 impl ContextImpl {
-    /// put error value to current_exception.
-    #[cold]
-    pub(crate) fn throw(&mut self, val: JSValue) {
-        self.rt_mut().set_exception(Exception::Error(val));
+    #[inline(always)]
+    pub fn clear_exception(&mut self) {
+        self.rt_mut().clear_exception();
     }
 }
 
@@ -182,6 +181,49 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
+    /// Throw an exception.
+    ///
+    /// For value exception: the value is removed from current scope (its LOCAL flag is cleared)
+    /// and stored in Runtime's cur_exception.
+    ///
+    /// The old exception (if any) is simply replaced — it needs no protection:
+    /// if other GC references exist, GC will trace it; otherwise it should be collected.
+    pub fn throw(&mut self, exc: Exception) {
+        if let Exception::Error(val) = &exc
+            && let Some(n) = val.gc_node_ptr()
+        {
+            // If the node is LOCAL, it must be in some scope's cache.
+            // Search from current scope upward through ancestors.
+            if unsafe { n.as_ref().is_local() } {
+                #[cfg(debug_assertions)]
+                let mut _found = false;
+
+                let mut scope = Some(self.gc()); // start from self.gc() - the most-inner scope.
+                while let Some(s) = scope {
+                    if s.remove_node(n) {
+                        #[cfg(debug_assertions)]
+                        {
+                            _found = true;
+                        }
+                        break;
+                    }
+                    scope = s.parent().map(|(p, _)| p);
+                }
+
+                #[cfg(debug_assertions)]
+                debug_assert!(_found, "LOCAL node not found in any scope cache");
+            }
+        }
+
+        self.rt_mut().set_exception(exc);
+    }
+
+    /// Throw a JS value as exception.
+    #[inline(always)]
+    pub(crate) fn throw_value(&mut self, val: JSValue) {
+        self.throw(Exception::Error(val));
+    }
+
     /// make error object and throw it as current exception.
     #[inline(never)]
     #[cold]
@@ -192,27 +234,26 @@ impl<'c> ScopedContext<'c> {
         add_backtrace: bool,
     ) {
         if let Some(err_obj) = self.create_error_object(kind, message, add_backtrace) {
-            self.throw(err_obj.into());
+            self.throw_value(err_obj.into());
         } else {
             // out of memory: set exception directly to avoid recursing
             self.rt_mut().set_exception(Exception::OutOfMemory);
         }
     }
 
-    /// make error object and throw it as current exception.
-    /// old exception will be freed.
-    #[inline(never)]
-    #[cold]
-    pub fn throw_error(&mut self, kind: ErrorKind, message: &str) {
+    /// test if throw error should add backtrace
+    pub(crate) fn throw_need_backtrace(&self) -> bool {
         let rt = self.rt();
-
-        // add backtrace if called from a bytecode function
-        let add_backtrace = rt.exception() != Exception::OutOfMemory
+        rt.exception() != Exception::OutOfMemory
             && rt
                 .current_stack_frame()
-                .is_none_or(|sf| sf.func_obj.as_BCWrapper().is_some());
+                .is_none_or(|sf| sf.func_obj.as_BCWrapper().is_some()) // add backtrace if called from a bytecode function
+    }
 
-        self.throw_error_internal(kind, message, add_backtrace);
+    /// make error object and throw it as current exception.
+    /// old exception will be freed.
+    pub fn throw_error(&mut self, kind: ErrorKind, message: &str) {
+        self.throw_error_internal(kind, message, self.throw_need_backtrace());
     }
 
     #[inline(always)]

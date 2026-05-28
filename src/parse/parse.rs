@@ -434,7 +434,7 @@ impl<'s> JSParseState<'s> {
                             };
 
                             if self.parse_regexp().is_err() {
-                                self.ctx().rt_mut().take_exception(); //clear the exception
+                                self.ctx().rt_mut().clear_exception();
                                 break;
                             }
                         }

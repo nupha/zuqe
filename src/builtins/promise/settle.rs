@@ -6,7 +6,7 @@ use std::{cell::Cell, rc::Rc};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
+    ErrorKind, Exception, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     atom::Atom,
     context::{ContextImpl, ScopedContext},
     error::JSResult,
@@ -80,11 +80,13 @@ impl PromiseResolveFunc {
             promise.settle(ctx, resolution, is_reject);
             return Ok(JSValue::UNDEFINED);
         } else if unlikely(resolution.is_same(promise.into())) {
-            let exc = {
-                ctx.throw_type_error("promise self resolution");
-                ctx.rt_mut().take_exception()
-            };
-            let err_val = exc.to_error_value(ctx);
+            let err_val = ctx
+                .create_error_object(
+                    ErrorKind::Type,
+                    "promise self resolution",
+                    ctx.throw_need_backtrace(),
+                )
+                .map_or(Exception::OutOfMemory.to_value(ctx), JSValue::from);
             promise.reject(ctx, err_val);
             return Ok(JSValue::UNDEFINED);
         } else if let Ok(then) = resolution.get_property(ctx, Atom::CONST_then) {
@@ -101,8 +103,7 @@ impl PromiseResolveFunc {
                 promise.settle(ctx, resolution, is_reject);
             }
         } else {
-            let exc = ctx.rt_mut().take_exception();
-            let err_val = exc.to_error_value(ctx);
+            let err_val = ctx.take_exception().to_value(ctx);
             promise.reject(ctx, err_val);
         }
 
@@ -198,7 +199,7 @@ impl Promise {
             PromiseState::Pending => {
                 // bind reference relation for reaction values
                 let self_node = self.gc_ref().node_ptr();
-                let mut rt= ctx.rt_ptr();
+                let mut rt = ctx.rt_ptr();
                 for v in [
                     success.resolving_funcs[0],
                     success.resolving_funcs[1],
@@ -210,7 +211,7 @@ impl Promise {
                 .iter()
                 {
                     if let Some(n) = v.gc_node_ptr() {
-                       rt.gc_heap_mut().bind(self_node, n);
+                        rt.gc_heap_mut().bind(self_node, n);
                     }
                 }
                 self.payload_mut().add_reaction(success, fail);

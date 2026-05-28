@@ -6,7 +6,7 @@ use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
 use gc_lite::{GcHeap, GcPartitionId, GcTraceCtx, GcWeak};
 
 use crate::{
-    BUILTIN_CLASS_DEFS, JS_CLASS_OBJECT, USER_CLASS_ID_START,
+    BUILTIN_CLASS_DEFS, JS_CLASS_OBJECT, ScopedContext, USER_CLASS_ID_START,
     atom::AtomRegistry,
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions, promise::JSHostPromiseRejectionTracker,
@@ -180,24 +180,31 @@ impl RuntimeImpl {
         self.cur_exception
     }
 
-    /// Take current exception, clear cur_exception.
-    pub fn take_exception(&mut self) -> Exception {
-        std::mem::take(&mut self.cur_exception)
+    #[inline(always)]
+    pub fn clear_exception(&mut self) {
+        std::mem::take(&mut self.cur_exception);
     }
 
-    /// put a new exception to cur_exception. Returns the old one
+    /// put a new exception to cur_exception. The old exception is discarded.
+    /// The new value must have been removed from scope protection by the caller
+    /// (e.g., via `ScopedContext::throw` which calls `remove_node`).
     #[cold]
-    pub(crate) fn set_exception(&mut self, exc: Exception) -> Exception {
+    pub(crate) fn set_exception(&mut self, exc: Exception) {
         #[cfg(debug_assertions)]
-        if let Exception::Error(val) = exc
+        if let Exception::Error(val) = &exc
             && let Some(n) = val.gc_node_ptr()
         {
             unsafe {
+                debug_assert!(
+                    !n.as_ref().is_local(),
+                    "exception value must not be LOCAL when stored in cur_exception"
+                );
+
                 n.as_ref().debug_assert_node_valid_simple();
             }
         }
 
-        std::mem::replace(&mut self.cur_exception, exc)
+        self.cur_exception = exc;
     }
 
     /// get stack frame for current running function
@@ -314,6 +321,22 @@ impl RuntimeImpl {
                 f(self); // Note: class_registry is already cleared; do NOT reference other ClassDef entries.
             }
         }
+    }
+}
+
+impl<'c> ScopedContext<'c> {
+    /// Take the current exception and add it to current scope for protection.
+    ///
+    /// After this call, the exception value (if any) becomes a LOCAL node
+    /// in the current scope and will be protected from GC until the scope ends.
+    pub fn take_exception(&mut self) -> Exception {
+        let exc = std::mem::take(&mut self.rt_mut().cur_exception);
+        if let Exception::Error(val) = &exc
+            && let Some(n) = val.gc_node_ptr()
+        {
+            self.gc().add_non_local(n);
+        }
+        exc
     }
 }
 

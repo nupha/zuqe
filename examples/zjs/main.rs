@@ -282,20 +282,14 @@ async fn main() -> ExitCode {
                             promise_future = Some(fut);
                             Ok(())
                         }
-                        Err(_) => {
-                            let exc = scope.rt_mut().take_exception();
-                            Err(exc.to_text(&mut scope))
-                        }
+                        Err(_) => Err(scope.take_exception().to_text(&mut scope)),
                     }
                 } else {
                     colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);
                     Ok(())
                 }
             }
-            Err(_) => {
-                let exc = scope.rt_mut().take_exception();
-                Err(exc.to_text(&mut scope))
-            }
+            Err(_) => Err(scope.take_exception().to_text(&mut scope)),
         }
     });
 

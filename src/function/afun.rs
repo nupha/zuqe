@@ -116,7 +116,7 @@ impl AsyncState {
         let a_state = o.payload_mut().async_function_resolving_mut().unwrap();
 
         if is_reject {
-            ctx.throw(if args.is_empty() {
+            ctx.throw_value(if args.is_empty() {
                 JSValue::UNDEFINED
             } else {
                 args[0]
@@ -153,8 +153,7 @@ impl AsyncState {
                     );
                 }
                 Err(_) => {
-                    let exc = ctx.rt_mut().take_exception();
-                    let err_val = exc.to_error_value(ctx);
+                    let err_val = ctx.take_exception().to_value(ctx);
                     let _ = self.resolving_funcs[1].call(
                         ctx,
                         JSValue::UNDEFINED,
@@ -178,8 +177,7 @@ impl AsyncState {
             ) {
                 Promise::try_from(v).unwrap()
             } else {
-                let exc = ctx.rt_mut().take_exception();
-                let err_val = exc.to_error_value(ctx);
+                let err_val = ctx.take_exception().to_value(ctx);
                 let _ = self.resolving_funcs[1].call(
                     ctx,
                     JSValue::UNDEFINED,
@@ -191,8 +189,7 @@ impl AsyncState {
             let resolving_funcs = if let Ok(rr) = self.async_function_resolve_create(ctx) {
                 rr
             } else {
-                let exc = ctx.rt_mut().take_exception();
-                let err_val = exc.to_error_value(ctx);
+                let err_val = ctx.take_exception().to_value(ctx);
                 let _ = self.resolving_funcs[1].call(
                     ctx,
                     JSValue::UNDEFINED,
@@ -209,8 +206,7 @@ impl AsyncState {
             );
 
             if res.is_err() {
-                let exc = ctx.rt_mut().take_exception();
-                let err_val = exc.to_error_value(ctx);
+                let err_val = ctx.take_exception().to_value(ctx);
                 let _ = self.resolving_funcs[1].call(
                     ctx,
                     JSValue::UNDEFINED,
