@@ -274,7 +274,7 @@ impl Array {
 
         // bind reference relation for all gc values
         let self_node = self.gc_node_ptr();
-        let mut rt= self.rt_ptr();
+        let mut rt = self.rt_ptr();
         for v in values.iter() {
             if let Some(n) = v.gc_node_ptr() {
                 rt.gc_heap_mut().bind(self_node, n);
@@ -371,6 +371,22 @@ impl Array {
             let length = arr_data.len();
             debug_assert!(length <= arr_len as usize);
 
+            /// Rebuild internal storage with sorted elements, padding with `JSValue::UNDEFINED` to `length`.
+            /// No write barrier needed: all elements come from the array itself,
+            /// their reference relations were already established on initial insertion.
+            fn rebuild(
+                lst: &mut Vec<JSValue>,
+                sorted: impl Iterator<Item = JSValue>,
+                length: usize,
+            ) {
+                lst.clear();
+                lst.extend(
+                    sorted
+                        .chain(std::iter::repeat(JSValue::UNDEFINED))
+                        .take(length),
+                );
+            }
+
             if let Some(cmp) = cmp {
                 let mut slots = arr_data
                     .values()
@@ -384,14 +400,7 @@ impl Array {
                     })?;
 
                 sort_values_by(ctx, &mut slots, cmp)?;
-
-                arr_data.values.clear();
-                arr_data.values.extend(
-                    slots
-                        .into_iter()
-                        .chain(std::iter::repeat(JSValue::UNDEFINED))
-                        .take(length),
-                );
+                rebuild(&mut arr_data.values, slots.into_iter(), length);
             } else {
                 let mut slots = Vec::<(JSValue, StringData)>::new();
                 slots.try_reserve_exact(length).map_err(|_| {
@@ -404,14 +413,10 @@ impl Array {
                 }
 
                 sort_values_default(&mut slots);
-
-                arr_data.values.clear();
-                arr_data.values.extend(
-                    slots
-                        .into_iter()
-                        .map(|(v, _)| v)
-                        .chain(std::iter::repeat(JSValue::UNDEFINED))
-                        .take(length),
+                rebuild(
+                    &mut arr_data.values,
+                    slots.into_iter().map(|(v, _)| v),
+                    length,
                 );
             }
 
