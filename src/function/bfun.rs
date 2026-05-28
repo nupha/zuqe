@@ -484,7 +484,7 @@ impl BytecodeFunction {
 
         let bf = self.payload_mut();
 
-        // Note: ret_val is protected in scope.
+        // `ret_val` Ok(value) is protected by the current GC scope (allocated inside `execute()`).
         let ret_val = bc
             .execute(
                 ctx,
@@ -500,14 +500,13 @@ impl BytecodeFunction {
             )
             .err();
 
-        // // Note: closure values could be allocated in stack-frame's gc scope during execution,
-        // // before stack-frame is dropping, promote closure values up to at leat self Function's gc scope.
-        // let heap = rt.gc_heap_mut();
-        // for vr in bf.closure_var_refs() {
-        //     if let Some(n) = vr.value().gc_node_ptr() {
-        //         heap.bind(self_node, n);
-        //     }
-        // }
+        // Hint: NO write barrier needed here for `bf.closure_var_refs()`.
+        // Each `VarRef` in the closure list is a GC node; its value is already
+        // protected by `VarRef::set_value()` which calls `GcHeap::bind()` on every
+        // update via PUT_VAR_REF / SET_VAR_REF opcodes during bytecode execution.
+        // Unlike async functions (see astate.rs), this stack frame is ephemeral and
+        // destroyed immediately after `execute()` returns, so no cross-scope promotion
+        // is required.
 
         ret_val
     }
