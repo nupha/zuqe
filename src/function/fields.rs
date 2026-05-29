@@ -396,5 +396,5 @@ pub(crate) fn prop_str_to_atom(ctx: &mut ScopedContext, str: &str) -> Result<Ato
         return Err(-1);
     }
 
-    Atom::from_str(ctx.rt_ptr(), str)
+    Atom::from_str(ctx, str)
 }

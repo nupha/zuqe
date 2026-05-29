@@ -79,7 +79,15 @@ impl Bytecode {
             realm_ctx.with_new_scope_internal(|mut realm_scope| {
                 // caller-scope must be at lower index than realm-scope in gc scope stack
                 #[cfg(debug_assertions)]
-                debug_assert!(realm_scope.depth() > caller_scope.depth());
+                if realm_scope.scope_stack_id() == caller_scope.scope_stack_id() {
+                    debug_assert!(
+                        realm_scope.depth() > caller_scope.depth(),
+                        "stack_id={:?}, {}, {}",
+                        realm_scope.scope_stack_id(),
+                        realm_scope.depth(),
+                        caller_scope.depth()
+                    );
+                }
 
                 self.execute_with_realm_scope(
                     caller_scope,

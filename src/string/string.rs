@@ -10,7 +10,7 @@ use std::{
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_STRING, RuntimeImpl,
+    JS_CLASS_STRING,
     atom::{Atom, AtomInfo, AtomKind},
     class::ClassExoticMethods,
     context::ScopedContext,
@@ -33,7 +33,6 @@ pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 
 /// String data + atom info
 pub struct StringImpl {
-    /// for empty string, ident string or const string, this should be None.
     rt: RuntimePtr,
     /// string content
     content: StringData,
@@ -143,9 +142,8 @@ impl StringImpl {
         self as *const Self as usize
     }
 
-    /// None means this is a const atom description
     #[inline(always)]
-    pub(crate) const fn rt(&self) -> RuntimePtr {
+    const fn rt(&self) -> RuntimePtr {
         self.rt
     }
 
@@ -204,16 +202,6 @@ impl StringImpl {
         self.content().get(nth)
     }
 
-    /// copy content to make a new string, with given rt.
-    pub(crate) fn copy_to_new(&self, rt: RuntimePtr) -> Result<StringRef, i32> {
-        match self.content() {
-            StringData::Empty => StringRef::create_internal(rt, StringData::Empty, None),
-            StringData::Ident => StringRef::create_internal(rt, StringData::Ident, None),
-            StringData::AsciiStatic(s) => StringRef::create_static(rt, s, None),
-            _ => StringRef::create(self.rt(), self.content().clone()),
-        }
-    }
-
     /// coerce string to number. if can't convert string to number, returns NAN.
     pub fn to_number(&self, ctx: &mut ScopedContext) -> IntOrFloat {
         let str = self.content().encode_utf8(false);
@@ -268,7 +256,7 @@ impl StringImpl {
                 -1
             })?;
 
-        StringRef::create(ctx.rt_ptr(), StringData::from_buf(buf))
+        StringRef::create(ctx, StringData::from_buf(buf))
     }
 
     /// make sub string with content of given range.
@@ -306,8 +294,8 @@ pub struct StringRef(GcRef<StringImpl>);
 
 impl GcTrace for StringRef {
     #[inline(always)]
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        tr.add(self.0);
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        gcx.add(self.0);
     }
 }
 
@@ -383,33 +371,48 @@ impl TryFrom<JSValue> for StringRef {
 }
 
 impl StringRef {
-    /// create String with string data, and optional atom info.
-    fn create_internal(
+    /// create String with string data, and optional atom info (root gc node).
+    pub(crate) fn create_root(
         mut rt: RuntimePtr,
         content: StringData,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
         let s = StringImpl::new(rt, content, atom_info);
-        rt.gc_alloc(s).map(Self).map_err(|_| {
+        rt.gc_alloc_root(s).map(Self).map_err(|_| {
             eprintln!("[O.o] alloc error");
             -1
         })
     }
 
+    /// create String with string data, and optional atom info (in gc scope).
+    pub(crate) fn create_internal(
+        ctx: &mut ScopedContext,
+        content: StringData,
+        atom_info: Option<AtomInfo>,
+    ) -> Result<Self, i32> {
+        ctx.alloc_local(StringImpl::new(ctx.rt_ptr(), content, atom_info))
+            .map(Self)
+            .map_err(|_| {
+                ctx.rt_mut().set_exception(Exception::OutOfMemory);
+                eprintln!("[O.o] alloc error");
+                -1
+            })
+    }
+
     #[inline(always)]
-    pub(crate) fn create(rt: RuntimePtr, content: StringData) -> Result<Self, i32> {
-        Self::create_internal(rt, content, None)
+    pub(crate) fn create(ctx: &mut ScopedContext, content: StringData) -> Result<Self, i32> {
+        Self::create_internal(ctx, content, None)
     }
 
     /// Create StringRef from &str
-    pub(crate) fn create_str(rt: RuntimePtr, s: &str) -> Result<Self, i32> {
-        Self::create_internal(rt, StringData::from_buf(StringBuf::from_str(s)?), None)
+    pub(crate) fn create_str(ctx: &mut ScopedContext, s: &str) -> Result<Self, i32> {
+        Self::create_internal(ctx, StringData::from_buf(StringBuf::from_str(s)?), None)
     }
 
     /// Create StringRef from utf8 encoded bytes
-    pub(crate) fn create_utf8(rt: RuntimePtr, utf8_bytes: Vec<u8>) -> Result<Self, i32> {
+    pub(crate) fn create_utf8(ctx: &mut ScopedContext, utf8_bytes: Vec<u8>) -> Result<Self, i32> {
         Self::create(
-            rt,
+            ctx,
             StringData::from_buf(StringBuf::from_utf8(utf8_bytes).map_err(|_| -1)?),
         )
     }
@@ -417,11 +420,11 @@ impl StringRef {
     /// static str `s` must be ascii str.
     #[inline(always)]
     pub(crate) fn create_static(
-        rt: RuntimePtr,
+        ctx: &mut ScopedContext,
         s: &'static str,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
-        Self::create_internal(rt, StringData::from_static(s), atom_info)
+        Self::create_internal(ctx, StringData::from_static(s), atom_info)
     }
 
     #[inline(always)]
@@ -437,7 +440,7 @@ impl<'c> ScopedContext<'c> {
             Atom::CONST_empty_string.force_string(self)
         } else {
             let data = StringData::from_buf(sbuf);
-            StringRef::create(self.rt_ptr(), data).map_err(|_| {
+            StringRef::create(self, data).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })
@@ -452,7 +455,7 @@ impl<'c> ScopedContext<'c> {
         if content.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
-            StringRef::create(self.rt_ptr(), content).map_err(|_| {
+            StringRef::create(self, content).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })
@@ -467,7 +470,7 @@ impl<'c> ScopedContext<'c> {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::create_utf8(self.rt_ptr(), utf8_bytes).inspect_err(|_| {
+            StringRef::create_utf8(self, utf8_bytes).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
         }
@@ -481,7 +484,7 @@ impl<'c> ScopedContext<'c> {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::create_str(self.rt_ptr(), str).inspect_err(|_| {
+            StringRef::create_str(self, str).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
         }
@@ -492,7 +495,7 @@ impl<'c> ScopedContext<'c> {
         if unlikely(str.is_empty()) {
             Atom::CONST_empty_string.force_string(self)
         } else {
-            StringRef::create_static(self.rt_ptr(), str, None).inspect_err(|_| {
+            StringRef::create_static(self, str, None).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
         }
@@ -505,24 +508,6 @@ impl<'c> ScopedContext<'c> {
             bb => StringBuf::Utf16(bb.to_vec()),
         };
         self.create_string_with_buf(sbuf)
-    }
-}
-
-impl RuntimeImpl {
-    /// create string from utf8 encoded data.
-    pub(crate) fn create_string_from_utf8(
-        &mut self,
-        utf8_bytes: Vec<u8>,
-    ) -> Result<StringRef, i32> {
-        debug_assert!(utf8_bytes.len() <= JS_STRING_LEN_MAX);
-
-        if utf8_bytes.is_empty() {
-            Atom::CONST_empty_string.force_string_rt(self)
-        } else {
-            StringRef::create_utf8(RuntimePtr::from(&*self), utf8_bytes).inspect_err(|_| {
-                self.set_exception(Exception::OutOfMemory);
-            })
-        }
     }
 }
 

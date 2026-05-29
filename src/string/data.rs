@@ -750,4 +750,12 @@ impl StringData {
             Self::AsciiStatic(s)
         }
     }
+
+    pub fn from_str(str: &str) -> Result<Self, i32> {
+        if str.is_empty() {
+            Ok(Self::Empty)
+        } else {
+            Ok(Self::from_buf(StringBuf::from_str(str)?))
+        }
+    }
 }

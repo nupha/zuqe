@@ -80,7 +80,7 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             print!(" ");
         }
         let arg = cc.arg(i);
-        let repr = arg.inspect(ctx.rt_mut())?;
+        let repr = arg.inspect(ctx)?;
 
         // print!("{}", repr);
 
@@ -104,7 +104,7 @@ fn js_detachArrayBuffer(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let source = cc.arg(0).inspect(ctx.rt_mut())?;
+    let source = cc.arg(0).inspect(ctx)?;
     ctx.with_new_scope(|mut scope| {
         scope.eval(
             source.as_bytes(),
@@ -686,20 +686,19 @@ async fn run_test_file(
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
     // SAFETY: ctx is used within this function and dropped before rt.
-    let mut ctx = unsafe {
-        rt.create_context(|ctx| {
+    let mut ctx = rt
+        .create_context(|ctx| {
             ContextImpl::ECMA_CONTEXT_SETUP(ctx)?;
             setup_ctx_test262_helpers(ctx)?;
             Ok(())
         })
-    }
-    .unwrap();
+        .unwrap();
 
     let mut has_err = false;
 
     if !harness_files.is_empty() {
         #[cfg(debug_assertions)]
-        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()), 1);
 
         if let Err(exc) = run_harness(&mut ctx, &harness_files) {
             writeln!(outf, "FAIL: can't eval harness").unwrap();
@@ -713,7 +712,7 @@ async fn run_test_file(
         }
 
         #[cfg(debug_assertions)]
-        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
+        debug_assert_eq!(ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()), 1);
     }
 
     if !has_err {
@@ -746,7 +745,7 @@ async fn run_test_file(
         .flatten()
         {
             #[cfg(debug_assertions)]
-            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
+            debug_assert_eq!(ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()), 1);
 
             let res = run_test_script(
                 &mut rt,
@@ -760,7 +759,7 @@ async fn run_test_file(
             .await;
 
             #[cfg(debug_assertions)]
-            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
+            debug_assert_eq!(ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()), 1);
 
             if let Err(exc) = res {
                 if let Some(neg) = &negative {

@@ -83,21 +83,15 @@ impl<'c> ScopedContext<'c> {
             }
             if eval_type == EvalType::Module {
                 mode |= ExecMode::STRICT;
-                (
-                    None,
-                    Some(ModuleDef::new(
-                        self,
-                        Atom::from_str(self.rt_ptr(), filename)?,
-                    )?),
-                    mode,
-                )
+                let atom = Atom::from_str(self, filename)?;
+                (None, Some(ModuleDef::new(self, atom)?), mode)
             } else {
                 (None, None, mode)
             }
         };
 
         // create root function def.
-        let mut fd = FunctionDef::new(self.into(), None, true, false, filename, 1)?;
+        let mut fd = FunctionDef::new(self, std::ptr::null_mut(), true, false, filename, 1)?;
 
         fd.eval_type = eval_type;
         fd.func_name = Atom::CONST__eval_;
@@ -159,7 +153,7 @@ impl<'c> ScopedContext<'c> {
         #[cfg(debug_assertions)]
         debug_assert!(
             self.gc_heap()
-                .current_scope()
+                .current_scope(self.scope_stack_id())
                 .unwrap()
                 .contains(bc.gc_node_ptr()),
             "{:?}",
@@ -191,8 +185,6 @@ impl<'c> ScopedContext<'c> {
         eval_flags: EvalFlags,
         var_scope_idx: i32,
     ) -> JSResult {
-        debug_assert!(self.gc_heap().scope_max_depth() > 0);
-
         if self.allow_eval {
             match self.compile(source, filename, eval_type, eval_flags, var_scope_idx)? {
                 Compiled::GlobalOrIndirect(bc) => bc.run_as_function(self, this_obj, &[], None),

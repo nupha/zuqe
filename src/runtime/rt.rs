@@ -3,7 +3,7 @@
 
 use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHeap, GcPartitionId, GcScope, GcTraceCtx, GcWeak};
+use gc_lite::{GcHeap, GcPartitionId, GcTraceCtx, GcWeak};
 
 use crate::{
     BUILTIN_CLASS_DEFS, JS_CLASS_OBJECT, ScopedContext, USER_CLASS_ID_START,
@@ -85,10 +85,6 @@ pub struct RuntimeImpl {
 
     pub(crate) interrupt_handler: Option<Box<dyn InterruptFn>>,
 
-    /// Top-level GC scope for each context.
-    /// Created by `create_context`, dropped in `finalize`.
-    pub(crate) top_scope: Option<GcScope<'static>>,
-
     #[deprecated]
     pub(crate) host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
     #[deprecated]
@@ -146,8 +142,6 @@ impl RuntimeImpl {
             gc_req: false,
 
             interrupt_handler: None,
-
-            top_scope: None,
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,
@@ -300,15 +294,6 @@ impl RuntimeImpl {
 
         debug_assert!(self.cur_stack_frame.is_null());
 
-        // Drop top-level scopes before checking scope_max_depth.
-        self.top_scope.take();
-
-        debug_assert_eq!(
-            self.gc_heap().scope_max_depth(),
-            0,
-            "all gc scope must be cleared"
-        );
-
         self.cur_exception = Exception::default();
         self.context_list.clear();
         self.shape_registry.clear();
@@ -317,6 +302,9 @@ impl RuntimeImpl {
         let pid = self.gc_part_id();
         self.gc_heap_mut()
             .remove_partition(pid, GcHeap::DUMMY_DISPOSE_CALLBACK);
+
+        // All scope stacks should have been released by ContextImpl::drop.
+        // GcHeap::drop will clean up any remaining scopes as a safety net.
 
         // debug_assert_eq!(
         //     self.gc_heap().nodes_iter(root_scope_id).count(),

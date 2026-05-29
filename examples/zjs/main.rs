@@ -195,9 +195,8 @@ fn run_zjs_prepare() -> (Runtime, TopLevelContext<'static>, Args, String, bool) 
     let class_id_file = JSFile::register(&mut rt).unwrap();
     let class_id_emitter = JSEmitter::register(&mut rt).unwrap();
 
-    // SAFETY: ctx is used within run_zjs_prepare's caller and dropped before rt.
-    let ctx = unsafe {
-        rt.create_context(|cx| {
+    let ctx = rt
+        .create_context(|cx| {
             ContextImpl::ECMA_CONTEXT_SETUP(cx)?;
 
             cx.use_class(class_id_file).unwrap();
@@ -208,11 +207,14 @@ fn run_zjs_prepare() -> (Runtime, TopLevelContext<'static>, Args, String, bool) 
 
             setup_globals(cx, &args.script_args)
         })
-    }
-    .unwrap();
+        .unwrap();
 
     #[cfg(debug_assertions)]
-    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1, "top-level scope exists");
+    debug_assert_eq!(
+        ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()),
+        1,
+        "top-level scope exists"
+    );
 
     (rt, ctx, args, script, is_module)
 }
@@ -287,7 +289,7 @@ async fn main() -> ExitCode {
                         Err(_) => Err(scope.take_exception().to_text(&mut scope)),
                     }
                 } else {
-                    colorize_println(val.inspect(scope.rt_mut()).unwrap(), GreenFg);
+                    colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
                     Ok(())
                 }
             }
@@ -296,7 +298,11 @@ async fn main() -> ExitCode {
     });
 
     #[cfg(debug_assertions)]
-    debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1, "top-level scope exists");
+    debug_assert_eq!(
+        ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()),
+        1,
+        "top-level scope exists"
+    );
 
     if let Err(e) = res {
         let mut err_msg = e.message;
@@ -312,7 +318,7 @@ async fn main() -> ExitCode {
 
         match promise_res {
             Ok(val) => {
-                colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);
+                colorize_println(val.inspect(&mut ctx.as_scoped()).unwrap(), GreenFg);
             }
             Err(reason) => {
                 let err_msg = ctx.with_new_scope(|mut cx| {

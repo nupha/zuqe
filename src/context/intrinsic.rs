@@ -160,10 +160,11 @@ impl<'c> ScopedContext<'c> {
 
         // standard error constructors
         for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
+            let atom = Atom::from_static(self, name).unwrap();
             let func_obj = NativeFunction::create(
                 self,
                 Callback::ConstructorOrFunc(js_error_constructor),
-                Atom::new_static_str(self.rt(), name).unwrap(),
+                atom,
                 if i == ErrorKind::Aggregate as usize {
                     2
                 } else {

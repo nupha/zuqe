@@ -181,17 +181,13 @@ impl<'a> Iterator for ObjectIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
             None
-        } else if let Ok((value, done)) = self
-            .ctx
-            .with_current_scope(|mut scope| {
-                let ret = Self::fetch_next(&mut scope, self.target, self.next_method, &[]);
-                if let Ok((v, _)) = ret {
-                    scope.set_return_value(v);
-                }
-                ret
-            })
-            .unwrap()
-        {
+        } else if let Ok((value, done)) = self.ctx.with_current_scope(|mut scope| {
+            let ret = Self::fetch_next(&mut scope, self.target, self.next_method, &[]);
+            if let Ok((v, _)) = ret {
+                scope.set_return_value(v);
+            }
+            ret
+        }) {
             self.done = done;
             if done { None } else { Some(Ok(value)) }
         } else {
@@ -224,8 +220,6 @@ impl<'a> ObjectIter<'a> {
 
         // protect target, next_method to avoid being collected while iterating
         {
-            debug_assert!(ctx.gc_heap().scope_max_depth() > 0);
-
             let mut cnt = 0;
             let mut protects: [*mut GcHead; 2] = [std::ptr::null_mut(), std::ptr::null_mut()];
 
@@ -245,7 +239,8 @@ impl<'a> ObjectIter<'a> {
             }
 
             if cnt > 0 {
-                ctx.gc_heap_mut().with_current_scope(|s| {
+                let scope_stack_id = ctx.scope_stack_id();
+                ctx.gc_heap_mut().with_current_scope(scope_stack_id, |s| {
                     for n in protects.into_iter().take(cnt) {
                         s.add_non_local(unsafe { NonNull::new_unchecked(n) });
                     }
@@ -325,7 +320,7 @@ impl<'a> ObjectIter<'a> {
 
     /// pre-close before iterate is done, calling `return` method if available.
     pub(crate) fn close_iter_internal(ctx: &mut ScopedContext, obj: Object) -> Result<(), i32> {
-        debug_assert!(ctx.gc_heap().scope_max_depth() > 0);
+        debug_assert!(ctx.gc_heap().scope_max_depth(ctx.ctx_ptr.scope_stack_id()) > 0);
 
         let pending_exc = ctx.take_exception();
 
@@ -368,7 +363,6 @@ impl<'a> ObjectIter<'a> {
             self.next_method = JSValue::UNDEFINED;
             self.ctx
                 .with_current_scope(|mut scope| Self::close_iter_internal(&mut scope, self.target))
-                .unwrap()
         } else if self.ctx.rt().exception() != Exception::No {
             Err(-1)
         } else {

@@ -198,11 +198,10 @@ impl<'s> JSParseState<'s> {
                 TokenKind::STRING => {
                     let sbuf = self.token.data.take_string().unwrap();
                     {
-                        let rt = self.ctx().rt_ptr();
+                        let ctx = self.ctx();
                         name.replace(
-                            self.ctx()
-                                .create_string_with_buf(sbuf)
-                                .and_then(|s| s.to_atom(rt, AtomKind::String))?,
+                            ctx.create_string_with_buf(sbuf)
+                                .and_then(|s| s.to_atom(ctx, AtomKind::String))?,
                         );
                     }
                     self.next_token()?;

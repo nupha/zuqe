@@ -524,8 +524,9 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     }
 
     // protect match results
+    let scope_stack_id = ctx.scope_stack_id();
     ctx.gc_heap_mut()
-        .protect_nodes_iter(matche_list.iter().map(|m| m.gc_node_ptr()));
+        .protect_nodes_iter(scope_stack_id, matche_list.iter().map(|m| m.gc_node_ptr()));
 
     let mut pos = 0;
 
@@ -586,11 +587,9 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
                 |n| {
                     let v = captures.get(n).unwrap();
                     if !v.is_undefined() {
-                        ctx_p
-                            .with_current_scope(|mut s| {
-                                Ok(Some(v.to_string(&mut s)?.content().clone()))
-                            })
-                            .unwrap()
+                        ctx_p.with_current_scope(|mut s| {
+                            Ok(Some(v.to_string(&mut s)?.content().clone()))
+                        })
                     } else {
                         Ok(None)
                     }
@@ -600,11 +599,9 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
                 |name| {
                     let val = named_dict.as_ref().unwrap().get_property_str(ctx, name)?;
                     if !val.is_undefined() {
-                        ctx_p2
-                            .with_current_scope(|mut s| {
-                                Ok(Some(val.to_string(&mut s)?.content().clone()))
-                            })
-                            .unwrap()
+                        ctx_p2.with_current_scope(|mut s| {
+                            Ok(Some(val.to_string(&mut s)?.content().clone()))
+                        })
                     } else {
                         Ok(None)
                     }

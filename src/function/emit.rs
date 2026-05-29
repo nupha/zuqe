@@ -203,7 +203,10 @@ impl FunctionDef {
     ) -> Result<(), i32> {
         if let JSValue::String(ss) = val
             && as_atom
-            && let Ok(atom) = Atom::from_string(self.ctx.rt_ptr(), ss, AtomKind::String)
+            && let Ok(atom) = {
+                let mut cx = self.ctx.current_scope();
+                Atom::from_string(&mut cx, ss, AtomKind::String)
+            }
             && !atom.is_small_int()
         {
             self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);

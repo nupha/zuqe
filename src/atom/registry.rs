@@ -10,7 +10,7 @@ use std::{
 use gc_lite::GcNode;
 
 use crate::{
-    RuntimeImpl,
+    RuntimeImpl, ScopedContext,
     atom::{is_const_atom, is_small_int_atom},
     number::parse_u32,
     runtime::RuntimePtr,
@@ -54,6 +54,183 @@ enum RegisterStringResult {
     Descriptor(StringRef, u32),
 }
 
+/// register a atoms with string and kind - common logic
+fn register_atom_common(
+    mut rt: RuntimePtr,
+    ctx: Option<&mut ScopedContext>,
+    str: StringRef,
+    atom_kind: AtomKind,
+) -> Result<RegisterStringResult, i32> {
+    debug_assert!(!str.content().is_ident());
+
+    let ss = if let Some(a) = str.atom_info() {
+        // already registerd
+        if a.kind() == atom_kind {
+            return Ok(RegisterStringResult::Existing(a.id()));
+        }
+
+        // dup string content without atom info
+        if let Some(cx) = ctx {
+            StringRef::create(cx, str.content().clone())?
+        } else {
+            StringRef::create_root(rt, str.content().clone(), None)?
+        }
+    } else {
+        str
+    };
+
+    let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
+    let a_reg = &mut rt.atom_registry;
+
+    // check for reuse: match registered atoms for (hash, atom_type, string_content)
+    if let Some(kv) = a_reg.hash_lut.get(&hash) {
+        for &id in kv {
+            let atom_id = id as u32;
+            if is_const_atom(atom_id) {
+                if a_reg.const_atoms[atom_id as usize - 1]
+                    .atom_info()
+                    .unwrap()
+                    .kind()
+                    == atom_kind
+                {
+                    return Ok(RegisterStringResult::Existing(atom_id));
+                }
+            } else {
+                let ds = a_reg.user_atoms[atom_id as usize - ATOM_USER_BASE_ID as usize]
+                    .as_ref()
+                    .unwrap();
+                let at = ds.atom_info().unwrap();
+                if at.kind() == atom_kind && ss.eq(ds) {
+                    return Ok(RegisterStringResult::Existing(at.id()));
+                }
+            }
+        }
+    }
+
+    Ok(RegisterStringResult::Descriptor(ss, hash))
+}
+
+/// Register user atom with `str` desciptor
+/// (in case of creating an anonymous symbol, str desc should be ident-type-string).
+/// Check for atom reuse in prior to perform real registering.
+fn register_atom(
+    mut rt: RuntimePtr,
+    ctx: Option<&mut ScopedContext>,
+    str: StringRef,
+    mut atom_kind: AtomKind,
+) -> Result<Atom, i32> {
+    // match for existing atoms, don't register twice for same content.
+    let (mut desc_str, hash): (StringRef, u32) = match atom_kind {
+        #[cfg(feature = "builtin_symbol")]
+        AtomKind::String | AtomKind::GlobalSymbol => {
+            match register_atom_common(rt, ctx, str, atom_kind)? {
+                RegisterStringResult::Existing(atom_id) => {
+                    return Ok(Atom(atom_id));
+                }
+                RegisterStringResult::Descriptor(ss, hash) => (ss, hash),
+            }
+        }
+        #[cfg(not(feature = "builtin_symbol"))]
+        AtomKind::String => match register_atom_common(rt, ctx, str, atom_kind)? {
+            RegisterStringResult::Existing(atom_id) => return Ok(Atom(atom_id)),
+            RegisterStringResult::Descriptor(ss, hash) => (ss, hash),
+        },
+
+        #[cfg(feature = "builtin_symbol")]
+        AtomKind::Symbol | AtomKind::Private => {
+            // these atom types are distinct, even they have same string content.
+            let ss: StringRef = if str.content().is_ident() {
+                debug_assert_eq!(
+                    atom_kind,
+                    AtomKind::Symbol,
+                    "ident string type is only for anonymous symbol"
+                );
+                str
+            } else if str.atom_info().is_some() {
+                // dup string content without atom info
+                if let Some(cx) = ctx {
+                    StringRef::create(cx, str.content().clone())?
+                } else {
+                    StringRef::create_root(rt, str.content().clone(), None)?
+                }
+            } else {
+                str
+            };
+
+            let hash = if atom_kind == AtomKind::Symbol {
+                JS_ATOM_HASH_SYMBOL
+            } else {
+                atom_kind = AtomKind::Symbol;
+                JS_ATOM_HASH_PRIVATE
+            };
+
+            (ss, hash)
+        }
+    };
+
+    debug_assert!(desc_str.atom_info().is_none());
+
+    if rt.atom_registry.hash_lut.len() == rt.atom_registry.hash_lut.capacity() {
+        rt.atom_registry.hash_lut.try_reserve(16).map_err(|_| -1)?;
+    }
+
+    // find a free slot
+    let (idx, atom_id) =
+        if let Some(i) = rt.atom_registry.user_atoms.iter().position(|p| p.is_none()) {
+            (Some(i), i as u16 + ATOM_USER_BASE_ID as u16)
+        } else {
+            if rt.atom_registry.user_atoms.len() == rt.atom_registry.user_atoms.capacity() {
+                rt.atom_registry
+                    .user_atoms
+                    .try_reserve(16)
+                    .map_err(|_| -1)?;
+            }
+            (
+                None,
+                rt.atom_registry.user_atoms.len() as u16 + ATOM_USER_BASE_ID as u16,
+            )
+        };
+
+    match rt.atom_registry.hash_lut.entry(hash) {
+        Entry::Occupied(kv) => {
+            kv.into_mut().push(atom_id);
+        }
+        Entry::Vacant(kv) => {
+            kv.insert(vec![atom_id]);
+        }
+    }
+
+    desc_str.set_atom_info(AtomInfo::new(
+        unsafe { NonZeroU16::new_unchecked(atom_id) },
+        atom_kind,
+        hash,
+    ));
+
+    if let Some(i) = idx {
+        debug_assert_eq!(i, atom_id as usize - ATOM_CONST_COUNT as usize - 1);
+        debug_assert!(
+            rt.atom_registry.user_atoms[i].is_none(),
+            "atom slot {i} is in use"
+        );
+        rt.atom_registry.user_atoms[i].replace(desc_str);
+    } else {
+        rt.atom_registry.user_atoms.push(Some(desc_str));
+
+        debug_assert_eq!(
+            rt.atom_registry.user_atoms.len(),
+            atom_id as usize - ATOM_CONST_COUNT as usize
+        );
+    }
+
+    log::debug!(
+        "[register_atom] {atom_id}: {:?}, {:?}",
+        atom_kind,
+        desc_str.gc_head()
+    );
+
+    Ok(Atom(atom_id as u32))
+}
+
 impl RuntimeImpl {
     /// init atom regisry: load const atoms
     pub(crate) fn init_const_atoms(&mut self) {
@@ -63,7 +240,6 @@ impl RuntimeImpl {
         );
 
         let mut rt_ptr = unsafe { RuntimePtr::from_raw(self) };
-        let root_scope = self.gc_part_hot;
 
         self.atom_registry
             .const_atoms
@@ -131,11 +307,7 @@ impl RuntimeImpl {
                 );
 
                 // const atom string is root gc node.
-                // TODO: alloc const atom string in a dedicated top-level scope.
-                let s = rt_ptr
-                    .gc_heap_mut()
-                    .with_new_scope(root_scope, |gc| gc.alloc_root(ss).unwrap());
-
+                let s = rt_ptr.gc_alloc_root(ss).unwrap();
                 StringRef::from(s)
             };
             lst.push(str);
@@ -151,172 +323,6 @@ impl RuntimeImpl {
 
             text = unsafe { text.add(cstr.count_bytes() + 1) };
         }
-    }
-
-    /// Common logic for registering String atoms (both with and without builtin_symbol feature)
-    fn register_string_atom_common(
-        &mut self,
-        str: StringRef,
-        atom_kind: AtomKind,
-    ) -> Result<RegisterStringResult, i32> {
-        debug_assert!(!str.content().is_ident());
-
-        let ss = if let Some(a) = str.atom_info() {
-            // already registerd as atom
-            if a.kind() == atom_kind {
-                return Ok(RegisterStringResult::Existing(a.id()));
-            }
-            // make new string with same content under given runtime, without atom info
-            str.copy_to_new(self.into())?
-        } else {
-            str
-        };
-
-        let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
-        let a_reg = &mut self.atom_registry;
-
-        // check for reuse: match registered atoms for (hash, atom_type, string_content)
-        if let Some(kv) = a_reg.hash_lut.get(&hash) {
-            for &id in kv {
-                let atom_id = id as u32;
-                if is_const_atom(atom_id) {
-                    if a_reg.const_atoms[atom_id as usize - 1]
-                        .atom_info()
-                        .unwrap()
-                        .kind()
-                        == atom_kind
-                    {
-                        return Ok(RegisterStringResult::Existing(atom_id));
-                    }
-                } else {
-                    let ds = a_reg.user_atoms[atom_id as usize - ATOM_USER_BASE_ID as usize]
-                        .as_ref()
-                        .unwrap();
-                    let at = ds.atom_info().unwrap();
-                    if at.kind() == atom_kind && ss.eq(ds) {
-                        return Ok(RegisterStringResult::Existing(at.id()));
-                    }
-                }
-            }
-        }
-
-        Ok(RegisterStringResult::Descriptor(ss, hash))
-    }
-
-    /// Register user atom with `str` desciptor
-    /// (in case of creating an anonymous symbol, str desc should be ident-type-string).
-    /// Check for atom reuse in prior to perform real registering.
-    fn register_atom(&mut self, str: StringRef, mut atom_kind: AtomKind) -> Result<Atom, i32> {
-        // match for existing atoms, don't register twice for same content.
-        let (mut desc_str, hash): (StringRef, u32) = match atom_kind {
-            #[cfg(feature = "builtin_symbol")]
-            AtomKind::String | AtomKind::GlobalSymbol => {
-                match self.register_string_atom_common(str, atom_kind)? {
-                    RegisterStringResult::Existing(atom_id) => return Ok(Atom(atom_id)),
-                    RegisterStringResult::Descriptor(ss, hash) => (ss, hash),
-                }
-            }
-            #[cfg(not(feature = "builtin_symbol"))]
-            AtomKind::String => match self.register_string_atom_common(str, atom_kind)? {
-                RegisterStringResult::Existing(atom_id) => return Ok(Atom(atom_id)),
-                RegisterStringResult::Descriptor(ss, hash) => (ss, hash),
-            },
-
-            #[cfg(feature = "builtin_symbol")]
-            AtomKind::Symbol | AtomKind::Private => {
-                // these atom types are distinct, even they have same string content.
-                let ss: StringRef = if str.content().is_ident() {
-                    debug_assert_eq!(
-                        atom_kind,
-                        AtomKind::Symbol,
-                        "ident string type is only for anonymous symbol"
-                    );
-                    str
-                } else if str.atom_info().is_some() {
-                    str.copy_to_new(self.into())? // clone content as a new jsstring
-                } else {
-                    str
-                };
-
-                let hash = if atom_kind == AtomKind::Symbol {
-                    JS_ATOM_HASH_SYMBOL
-                } else {
-                    atom_kind = AtomKind::Symbol;
-                    JS_ATOM_HASH_PRIVATE
-                };
-
-                (ss, hash)
-            }
-        };
-
-        debug_assert!(desc_str.atom_info().is_none());
-
-        if self.atom_registry.hash_lut.len() == self.atom_registry.hash_lut.capacity() {
-            self.atom_registry
-                .hash_lut
-                .try_reserve(16)
-                .map_err(|_| -1)?;
-        }
-
-        // find a free slot
-        let (idx, atom_id) = if let Some(i) = self
-            .atom_registry
-            .user_atoms
-            .iter()
-            .position(|p| p.is_none())
-        {
-            (Some(i), i as u16 + ATOM_USER_BASE_ID as u16)
-        } else {
-            if self.atom_registry.user_atoms.len() == self.atom_registry.user_atoms.capacity() {
-                self.atom_registry
-                    .user_atoms
-                    .try_reserve(16)
-                    .map_err(|_| -1)?;
-            }
-            (
-                None,
-                self.atom_registry.user_atoms.len() as u16 + ATOM_USER_BASE_ID as u16,
-            )
-        };
-
-        match self.atom_registry.hash_lut.entry(hash) {
-            Entry::Occupied(kv) => {
-                kv.into_mut().push(atom_id);
-            }
-            Entry::Vacant(kv) => {
-                kv.insert(vec![atom_id]);
-            }
-        }
-
-        desc_str.set_atom_info(AtomInfo::new(
-            unsafe { NonZeroU16::new_unchecked(atom_id) },
-            atom_kind,
-            hash,
-        ));
-
-        if let Some(i) = idx {
-            debug_assert_eq!(i, atom_id as usize - ATOM_CONST_COUNT as usize - 1);
-            debug_assert!(
-                self.atom_registry.user_atoms[i].is_none(),
-                "atom slot {i} is in use"
-            );
-            self.atom_registry.user_atoms[i].replace(desc_str);
-        } else {
-            self.atom_registry.user_atoms.push(Some(desc_str));
-
-            debug_assert_eq!(
-                self.atom_registry.user_atoms.len(),
-                atom_id as usize - ATOM_CONST_COUNT as usize
-            );
-        }
-
-        log::debug!(
-            "[register_atom] {atom_id}: {:?}, {:?}",
-            atom_kind,
-            desc_str.gc_head()
-        );
-
-        Ok(Atom(atom_id as u32))
     }
 
     /// remove atom from registry.
@@ -389,17 +395,9 @@ impl RuntimeImpl {
 }
 
 impl Atom {
-    #[inline(always)]
-    pub(crate) fn from_string_as_is(
-        mut rt: RuntimePtr,
-        str: StringRef,
-        kind: AtomKind,
-    ) -> Result<Self, i32> {
-        rt.register_atom(str, kind)
-    }
-
-    pub(crate) fn from_string(
-        mut rt: RuntimePtr,
+    /// Make atom from string descriptor (root gc)
+    pub(crate) fn root_string(
+        rt: &mut RuntimeImpl,
         str: StringRef,
         kind: AtomKind,
     ) -> Result<Self, i32> {
@@ -410,12 +408,12 @@ impl Atom {
         {
             Ok(Self::new_small_int(i))
         } else {
-            rt.register_atom(str, kind)
+            register_atom(rt.into(), None, str, kind)
         }
     }
 
     /// make atom from `str`. if `str` is a safe-integer representation, create int-atom instead.
-    pub(crate) fn from_str(rt: RuntimePtr, str: &str) -> Result<Self, i32> {
+    pub(crate) fn root_str(rt: &mut RuntimeImpl, str: &str) -> Result<Self, i32> {
         if str.is_empty() {
             Ok(Atom::CONST_empty_string)
         } else if let Some(i) = parse_u32(str)
@@ -423,28 +421,61 @@ impl Atom {
         {
             Ok(Self::new_small_int(i))
         } else {
-            let s = StringRef::create_str(rt, str)?;
-            Self::from_string(rt, s, AtomKind::String)
+            let s = StringRef::create_root(rt.into(), StringData::from_str(str)?, None)?;
+            Self::root_string(rt, s, AtomKind::String)
         }
     }
 
-    pub(crate) fn from_i64(rt: RuntimePtr, n: i64) -> Result<Self, i32> {
+    #[inline(always)]
+    pub(crate) fn from_string_as_is(
+        ctx: &mut ScopedContext,
+        str: StringRef,
+        kind: AtomKind,
+    ) -> Result<Self, i32> {
+        register_atom(ctx.rt_ptr(), Some(ctx), str, kind)
+    }
+
+    pub(crate) fn from_string(
+        ctx: &mut ScopedContext,
+        str: StringRef,
+        kind: AtomKind,
+    ) -> Result<Self, i32> {
+        if str.is_empty() {
+            Ok(Atom::CONST_empty_string)
+        } else if let Some(i) = str.parse_u32()
+            && i <= JS_ATOM_MAX_INT
+        {
+            Ok(Self::new_small_int(i))
+        } else {
+            register_atom(ctx.rt_ptr(), Some(ctx), str, kind)
+        }
+    }
+
+    /// make atom from `str`. if `str` is a safe-integer representation, create int-atom instead.
+    pub(crate) fn from_str(ctx: &mut ScopedContext, str: &str) -> Result<Self, i32> {
+        if str.is_empty() {
+            Ok(Atom::CONST_empty_string)
+        } else if let Some(i) = parse_u32(str)
+            && i <= JS_ATOM_MAX_INT
+        {
+            Ok(Self::new_small_int(i))
+        } else {
+            let s = StringRef::create_str(ctx, str)?;
+            Self::from_string(ctx, s, AtomKind::String)
+        }
+    }
+
+    pub(crate) fn from_i64(ctx: &mut ScopedContext, n: i64) -> Result<Self, i32> {
         if (0..JS_ATOM_MAX_INT as i64).contains(&n) {
             Ok(Self::new_small_int(n as u32))
         } else {
-            let s = StringRef::create_utf8(rt, format!("{n}").into_bytes())?;
-            Self::from_string(rt, s, AtomKind::String)
+            let s = StringRef::create_utf8(ctx, format!("{n}").into())?;
+            Self::from_string(ctx, s, AtomKind::String)
         }
     }
 
-    /// create new or reuse existing atom for `str`.
-    #[inline(always)]
-    pub fn new(rt: &RuntimeImpl, str: &str) -> Result<Self, i32> {
-        Self::from_str(rt.into(), str)
-    }
-
     /// create atom from static &str
-    pub fn new_static_str(rt: &RuntimeImpl, str: &'static str) -> Result<Self, i32> {
+    pub fn from_static(ctx: &mut ScopedContext, str: &'static str) -> Result<Self, i32> {
         if str.is_empty() {
             Ok(Atom::CONST_empty_string)
         } else if let Some(i) = parse_u32(str)
@@ -452,9 +483,8 @@ impl Atom {
         {
             Ok(Self::new_small_int(i))
         } else {
-            let rt = RuntimePtr::from(rt);
-            let s = StringRef::create_static(rt, str, None)?;
-            Self::from_string(rt, s, AtomKind::String)
+            let s = StringRef::create_static(ctx, str, None)?;
+            Self::from_string(ctx, s, AtomKind::String)
         }
     }
 

@@ -122,12 +122,7 @@ impl JSProperty {
             mut init,
         } = self
         {
-            realm
-                .with_current_scope(|mut cx| {
-                    let ret_val = init.instantiate(&mut cx, prop, this_obj)?;
-                    Ok(ret_val)
-                })
-                .unwrap()
+            realm.with_current_scope(|mut cx| init.instantiate(&mut cx, prop, this_obj))
         } else {
             unreachable!();
         }

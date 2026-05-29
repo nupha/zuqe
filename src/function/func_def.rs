@@ -4,6 +4,7 @@
 use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 
 use crate::{
+    ScopedContext,
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::ContextPtr,
@@ -187,14 +188,16 @@ impl Drop for FunctionDef {
 impl FunctionDef {
     /// alloc a function def, and initialize it.
     fn new_internal(
-        ctx: ContextPtr,
+        ctx: &mut ScopedContext,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
         line_num: i32,
     ) -> Result<Box<Self>, i32> {
+        let filename = Atom::from_str(ctx, filename)?;
+
         let o = Self {
-            ctx,
+            ctx: ctx.ctx_ptr,
             parent: std::ptr::null_mut(),
             parent_cpool_idx: -1,
             parent_scope_level: 0,
@@ -265,7 +268,7 @@ impl FunctionDef {
             line_number_last: 0,
             line_number_last_pc: 0,
 
-            filename: Atom::from_str(ctx.rt_ptr(), filename)?,
+            filename,
             line_num,
             pc2line: None,
             source: None,
@@ -282,8 +285,8 @@ impl FunctionDef {
 
     /// create function def and attach to parent-child chain
     pub(crate) fn new(
-        mut ctx: ContextPtr,
-        parent: Option<&mut FunctionDef>,
+        ctx: &mut ScopedContext,
+        parent: *mut FunctionDef,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
@@ -293,20 +296,21 @@ impl FunctionDef {
 
         let mut fd = Self::new_internal(ctx, is_eval, is_func_expr, filename, line_num)?;
 
-        if let Some(parent) = parent {
-            fd.parent = parent;
-            fd.parent_scope_level = parent.scope_level;
-            fd.attrs.exec_mode = parent.attrs.exec_mode;
+        if !parent.is_null() {
+            let up = unsafe { &mut *parent };
 
-            if parent.children.len() == parent.children.capacity() {
-                parent.children.try_reserve(8).map_err(|_| {
-                    ctx.with_current_scope(|mut s| s.throw_out_of_memory())
-                        .unwrap();
+            fd.parent = parent;
+            fd.parent_scope_level = up.scope_level;
+            fd.attrs.exec_mode = up.attrs.exec_mode;
+
+            if up.children.len() == up.children.capacity() {
+                up.children.try_reserve(8).map_err(|_| {
+                    ctx.with_current_scope(|mut s| s.throw_out_of_memory());
                     -1
                 })?;
             }
 
-            parent.children.push(NonNull::from(fd.deref_mut()));
+            up.children.push(NonNull::from(fd.deref_mut()));
         }
 
         Ok(fd)

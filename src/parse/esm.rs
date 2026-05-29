@@ -7,7 +7,7 @@ use crate::{
     error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
     function::{FunctionKind, JSVarDefEnum, JSVarKindEnum},
     module::{ExportType, ImportEntry, ModuleDef},
-    string::Utf8Stream,
+    string::{StringRef, Utf8Stream},
 };
 
 use super::{
@@ -39,10 +39,9 @@ impl<'s> JSParseState<'s> {
 
         let module_name = {
             let sbuf = self.token.data.take_string().unwrap();
-            let rt = self.ctx().rt_ptr();
-            self.ctx()
-                .create_string_with_buf(sbuf)
-                .and_then(|s| s.to_atom(rt, AtomKind::String))?
+            let ctx = self.ctx();
+            ctx.create_string_with_buf(sbuf)
+                .and_then(|s| s.to_atom(ctx, AtomKind::String))?
         };
 
         self.next_token()?;
@@ -62,8 +61,10 @@ impl<'s> JSParseState<'s> {
 
         if self.token.kind == TokenKind::STRING {
             // import "module-name"
-            let rt = self.ctx().rt_ptr();
-            module_name = Atom::from_str(rt, &self.token.data.string().unwrap().to_utf8())?;
+            let t = self.token.data.string().unwrap().to_utf8().to_string();
+            let ctx = self.ctx();
+            let s = StringRef::create_utf8(ctx, t.into())?;
+            module_name = Atom::from_string(ctx, s, AtomKind::String)?;
 
             self.next_token()?;
         } else {
@@ -120,10 +121,11 @@ impl<'s> JSParseState<'s> {
                         while self.token.kind != TokenKind::Char('}') {
                             let import_name = match self.token.kind {
                                 TokenKind::IDENT => self.token.atom().unwrap(),
-                                TokenKind::STRING => Atom::from_str(
-                                    self.ctx().rt_ptr(),
-                                    &self.token.data.string().unwrap().to_utf8(),
-                                )?,
+                                TokenKind::STRING => {
+                                    let t = self.token.data.string().unwrap().to_utf8().to_string();
+                                    let s = StringRef::create_utf8(self.ctx(), t.into())?;
+                                    Atom::from_string(self.ctx(), s, AtomKind::String)?
+                                }
                                 t if t.is_keyword() => t.keyword_atom().unwrap(),
                                 _ => {
                                     self.throw_syntax_error("identifier or string expected");
@@ -229,9 +231,9 @@ impl<'s> JSParseState<'s> {
                     let local_name = match self.token.kind {
                         TokenKind::IDENT => self.token.atom().unwrap(),
                         TokenKind::STRING => {
-                            let rt = self.ctx().rt_ptr();
-                            let s = self.token.data.string().unwrap();
-                            Atom::from_str(rt, &s.to_utf8())?
+                            let t = self.token.data.string().unwrap().to_utf8().to_string();
+                            let s = StringRef::create_utf8(self.ctx(), t.into())?;
+                            Atom::from_string(self.ctx(), s, AtomKind::String)?
                         }
                         t if t.is_keyword() => t.keyword_atom().unwrap(),
                         _ => {
@@ -249,9 +251,9 @@ impl<'s> JSParseState<'s> {
                         let n = match self.token.kind {
                             TokenKind::IDENT => self.token.atom().unwrap(),
                             TokenKind::STRING => {
-                                let rt = self.ctx().rt_ptr();
-                                let s = self.token.data.string().unwrap();
-                                Atom::from_str(rt, &s.to_utf8())?
+                                let t = self.token.data.string().unwrap().to_utf8().to_string();
+                                let s = StringRef::create_utf8(self.ctx(), t.into())?;
+                                Atom::from_string(self.ctx(), s, AtomKind::String)?
                             }
                             t if t.is_keyword() => t.keyword_atom().unwrap(),
                             _ => {
@@ -308,9 +310,9 @@ impl<'s> JSParseState<'s> {
                             self.token.atom().unwrap()
                         }
                         TokenKind::STRING => {
-                            let rt = self.ctx().rt_ptr();
-                            let s = self.token.data.string().unwrap();
-                            Atom::from_str(rt, &s.to_utf8())?
+                            let t = self.token.data.string().unwrap().to_utf8().to_string();
+                            let s = StringRef::create_utf8(self.ctx(), t.into())?;
+                            Atom::from_string(self.ctx(), s, AtomKind::String)?
                         }
                         t if t.is_keyword() => t.keyword_atom().unwrap(),
                         _ => {

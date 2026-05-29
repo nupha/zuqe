@@ -50,15 +50,18 @@ impl<'s> JSParseState<'s> {
         function_line_num: i32,
         is_expr: bool,
     ) -> Result<Box<FunctionDef>, i32> {
-        // save original cur_func
+        let filename_ptr = self.filename.as_ptr();
+        let filename_len = self.filename.len();
         let parent_fd = self.cur_func_def;
 
         let mut sub_fd = FunctionDef::new(
-            self.ctx().ctx_ptr,
-            unsafe { parent_fd.as_mut() },
+            self.ctx(),
+            parent_fd,
             false,
             is_expr,
-            self.filename,
+            unsafe {
+                std::str::from_utf8(std::slice::from_raw_parts(filename_ptr, filename_len)).unwrap()
+            },
             function_line_num,
         )?;
 

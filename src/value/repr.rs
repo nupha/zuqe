@@ -3,7 +3,7 @@
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BOOLEAN, JS_CLASS_ERROR,
-    JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_STRING, RuntimeImpl, atom::Atom,
+    JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom,
     context::ScopedContext, number::f64_stringify, object::ObjectImpl, string::StringRef,
 };
 
@@ -14,8 +14,8 @@ impl JSValue {
     /// `inspect()` string is only used for interactive prompting,
     /// use `to_string()` for other cases.
     #[inline(always)]
-    pub fn inspect(&self, rt: &mut RuntimeImpl) -> Result<String, i32> {
-        self.inspect_internal(rt, false)
+    pub fn inspect(&self, ctx: &mut ScopedContext) -> Result<String, i32> {
+        self.inspect_internal(ctx, false)
     }
 
     /// Get inspect representation string of `self` value.
@@ -23,7 +23,7 @@ impl JSValue {
     /// use `to_string()` for other cases.
     pub(crate) fn inspect_internal(
         &self,
-        rt: &mut RuntimeImpl,
+        ctx: &mut ScopedContext,
         quoted: bool,
     ) -> Result<String, i32> {
         match self {
@@ -47,8 +47,8 @@ impl JSValue {
             }
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => Ok(format!("Symbol({})", s.content().encode_utf8(false))),
-            Self::Object(o) => o.inspect(rt),
-            Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.func_name.to_utf8(rt))),
+            Self::Object(o) => o.inspect(ctx),
+            Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.func_name.to_utf8(ctx.rt()))),
 
             Self::NULL => Ok("null".into()),
             Self::UNDEFINED => Ok("undefined".into()),
@@ -109,12 +109,12 @@ impl ObjectImpl {
     ///
     /// Now simply output "Array(n)" or "ClassName { }" format.
     /// TODO: should show detailed info inside later.
-    pub fn inspect(&self, rt: &mut RuntimeImpl) -> Result<String, i32> {
+    pub fn inspect(&self, ctx: &mut ScopedContext) -> Result<String, i32> {
         match self.class_id() {
             JS_CLASS_ARRAY => Ok(format!("Array({})", self.payload().array().unwrap().len())),
             class_id => {
-                let atom = rt.class_registry[class_id as usize].name_atom;
-                let name = atom.force_string_rt(rt)?;
+                let atom = ctx.rt().class_registry[class_id as usize].name_atom;
+                let name = atom.force_string(ctx)?;
 
                 if let Some(ta) = self.payload().typed_array() {
                     Ok(format!("{}({})", name.encode_utf8(false), ta.count()))

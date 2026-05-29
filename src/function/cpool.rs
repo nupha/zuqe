@@ -11,9 +11,7 @@ impl FunctionDef {
     pub fn cpool_add(&mut self, val: JSValue) -> Result<u16, i32> {
         if self.cpool.len() == self.cpool.capacity() {
             self.cpool.try_reserve_exact(8).map_err(|_| {
-                self.ctx
-                    .with_current_scope(|mut s| s.throw_out_of_memory())
-                    .unwrap();
+                self.ctx.with_current_scope(|mut s| s.throw_out_of_memory());
                 -1
             })?;
         }

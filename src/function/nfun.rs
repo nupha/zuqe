@@ -142,13 +142,13 @@ impl NFuncPayload {
                         //debug_assert!(data.is_none(), "binding data not allowed");
                         cc.arg(0)
                             .to_number(realm_scope)
-                            .map(|n| JSValue::from(unsafe { f(n.to_f64()) }))
+                            .map(|n| JSValue::from(f(n.to_f64())))
                     }
                     Callback::FFF(f) => {
                         //debug_assert!(data.is_none(), "binding data not allowed");
                         let d1 = cc.arg(0).to_number(realm_scope).map(|n| n.to_f64())?;
                         let d2 = cc.arg(1).to_number(realm_scope).map(|n| n.to_f64())?;
-                        Ok(JSValue::from(unsafe { f(d1, d2) }))
+                        Ok(JSValue::from(f(d1, d2)))
                     }
                 };
 
@@ -221,10 +221,9 @@ impl NativeFunction {
                     if realm == ctx.ctx_ptr {
                         ctx.throw_out_of_memory();
                     } else {
-                        // SAFETY: The return value is () which has no GC nodes.
                         unsafe {
-                            realm.with_new_scope_internal(|mut scope| {
-                                scope.throw_out_of_memory();
+                            realm.with_new_scope_internal(|mut cx| {
+                                cx.throw_out_of_memory();
                             });
                         }
                     }
@@ -360,10 +359,11 @@ impl<'c> ScopedContext<'c> {
         length: u8,
         magic: i16,
     ) -> Result<NativeFunction, i32> {
+        let atom = Atom::from_str(self, name)?;
         NativeFunction::create(
             self,
             callback,
-            Atom::from_str(self.rt_ptr(), name)?,
+            atom,
             length,
             magic,
             self.function_proto(),

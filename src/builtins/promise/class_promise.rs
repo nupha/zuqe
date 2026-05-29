@@ -289,7 +289,15 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             // conformance: should close the iterator if error on 'done' access, but not on 'value' access.
             // so we set field .done to true by hand to avoid closing the iterator in ObjectIter::drop();
             it.done = true;
-            return fail_reject(ctx);
+            // return fail_reject(ctx);
+
+            debug_assert!(result_promise.gc_node().is_local());
+
+            let err_val = ctx.take_exception().to_value(ctx);
+            resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
+
+            debug_assert!(result_promise.gc_node().is_local());
+            return Ok(JSValue::Object(result_promise));
         }
     }
 

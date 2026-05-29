@@ -72,7 +72,7 @@ impl Exception {
                 match e.get_property(ctx, Atom::CONST_stack) {
                     Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
                     Ok(s) => {
-                        if let Ok(ss) = s.inspect(ctx.rt_mut()) {
+                        if let Ok(ss) = s.inspect(ctx) {
                             t.traceback.replace(ss);
                         }
                     }

@@ -4,13 +4,13 @@
 use smallvec::SmallVec;
 
 use crate::{
-    atom::Atom,
+    atom::{Atom, AtomKind},
     context::ScopedContext,
     error::JSResult,
     number::{ATOD_ACCEPT_BIN_OCT, js_aton},
     object::JS_PROP_C_W_E,
     runtime::js_check_stack_overflow,
-    string::{CharCodeDecoder, Utf8Stream, escape_str},
+    string::{CharCodeDecoder, StringRef, Utf8Stream, escape_str},
     utils::unlikely,
     value::JSValue,
 };
@@ -283,10 +283,7 @@ impl<'s> JSParseState<'s> {
             inp.seek_relative(1);
         }
 
-        Atom::from_str(
-            self.ctx().rt_ptr(),
-            std::str::from_utf8(&buf).map_err(|_| -1)?,
-        )
+        Atom::from_str(self.ctx(), std::str::from_utf8(&buf).map_err(|_| -1)?)
     }
 
     fn json_parse_value(&mut self) -> JSResult {
@@ -300,10 +297,11 @@ impl<'s> JSParseState<'s> {
                 if self.token.kind != TokenKind::Char('}') {
                     loop {
                         let prop_name = if self.token.kind == TokenKind::STRING {
-                            Atom::from_str(
-                                self.ctx().rt_ptr(),
-                                &escape_str(&self.token.data.string().unwrap().to_utf8()),
-                            )?
+                            let t = escape_str(&self.token.data.string().unwrap().to_utf8())
+                                .to_string();
+                            let ctx = self.ctx();
+                            let s = StringRef::create_utf8(ctx, t.into_bytes())?;
+                            Atom::from_string(ctx, s, AtomKind::String)?
                         } else if self.ext_json && self.token.kind == TokenKind::IDENT {
                             self.token.data.ident_atom().unwrap()
                         } else {

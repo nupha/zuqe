@@ -44,31 +44,14 @@ impl RuntimeImpl {
         self.gc_part_hot
     }
 
-    /// alloc data in current scope, in given gc partition_id
-    pub(crate) fn gc_alloc_in<T: GcNode>(
-        &mut self,
-        partition_id: GcPartitionId,
-        data: T,
-    ) -> Result<GcRef<T>, (GcError, T)> {
-        let r = if let Some(scope) = self.gc_heap().current_scope() {
-            // alloc local in scope
-            debug_assert_eq!(scope.partition_id(), partition_id);
-            scope.alloc_local(data)
-        } else {
-            // alloc raw
-            unsafe { self.gc_heap_mut().alloc_raw(partition_id, data) }
-        };
-
+    /// alloc gc root node
+    pub(crate) fn gc_alloc_root<T: GcNode>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
+        let par = self.gc_part_id();
+        let r = unsafe { self.gc_heap_mut().alloc_root_raw(par, data) };
         if self.gc_heap().should_gc() {
             self.gc_req = true;
         }
-
         r
-    }
-
-    #[inline(always)]
-    pub(crate) fn gc_alloc<T: GcNode>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
-        self.gc_alloc_in(self.gc_part_id(), data)
     }
 
     /// collect garbage

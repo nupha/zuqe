@@ -57,7 +57,10 @@ impl ObjectImpl {
                             } = cur_obj.prop_slot(idx)
                             {
                                 // protect `self` before calling getter
-                                ctx.gc_heap_mut().protect_node(self.gc_head_ptr());
+                                let scope_stack_id = ctx.scope_stack_id();
+                                ctx.gc_heap_mut()
+                                    .protect_node(scope_stack_id, self.gc_head_ptr());
+
                                 fun.call(ctx, this_obj, &[])
                             } else {
                                 Ok(JSValue::UNDEFINED)
@@ -277,7 +280,7 @@ impl ObjectImpl {
         if (0..u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
-            let atom = Atom::from_i64(ctx.rt_ptr(), idx)?;
+            let atom = Atom::from_i64(ctx, idx)?;
             self.get_property(ctx, atom)
         }
     }
@@ -306,7 +309,7 @@ impl ObjectImpl {
                 Ok(None)
             }
         } else {
-            let atom = Atom::from_i64(ctx.rt_ptr(), idx)?;
+            let atom = Atom::from_i64(ctx, idx)?;
             self.has_property(ctx, atom).and_then(|found| {
                 Ok(if found {
                     Some(self.get_property(ctx, atom)?)
@@ -409,7 +412,7 @@ impl JSValue {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
-            let atom = Atom::from_i64(ctx.rt_ptr(), idx)?;
+            let atom = Atom::from_i64(ctx, idx)?;
             self.get_property(ctx, atom)
         }
     }
@@ -432,7 +435,7 @@ impl JSValue {
                 Ok(None)
             }
         } else {
-            let atom = Atom::from_i64(ctx.rt_ptr(), idx)?;
+            let atom = Atom::from_i64(ctx, idx)?;
             self.has_property(ctx, atom).and_then(|found| {
                 if found {
                     Ok(Some(self.get_property(ctx, atom)?))

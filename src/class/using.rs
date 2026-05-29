@@ -148,7 +148,7 @@ impl RuntimeImpl {
         debug_assert!(class_def.on_finalize.is_some());
 
         class_def.name_atom = {
-            let a = Atom::from_str(self.into(), class_def.name)?;
+            let a = Atom::root_str(self, class_def.name)?;
             let s = a.descriptor(self).gc_head_ptr();
             self.gc_heap_mut().set_root_node(s); // class name atom is root gc node
             a
@@ -448,7 +448,7 @@ impl<'c> ScopedContext<'c> {
     }
 
     pub fn use_class_name(&mut self, name: &str) -> Result<(), i32> {
-        let atom_name = Atom::from_str(self.rt_ptr(), name)?;
+        let atom_name = Atom::from_str(self, name)?;
 
         if let Some(id) = self
             .rt_ptr()

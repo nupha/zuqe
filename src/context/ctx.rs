@@ -8,7 +8,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcHeap, GcNode, GcRef, GcScope, GcTrace, GcTraceCtx};
+use gc_lite::{GcHeap, GcNode, GcRef, GcScope, GcScopeStackId, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
@@ -18,7 +18,7 @@ use crate::{
     atom::Atom,
     builtins::global::js_global_props,
     class::ClassID,
-    context::{ScopedContext, TopLevelContext, scope::GcScopeType},
+    context::{ScopedContext, TopLevelContext},
     error::STD_ERROR_COUNT,
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
@@ -77,6 +77,11 @@ pub struct ContextImpl {
     pub(crate) job_list: VecDeque<Job>,
     /// user defined tick handlers
     pub(crate) tick_handlers: Vec<fn(&mut ScopedContext) -> bool>,
+
+    /// The top-level GC scope for this context.
+    /// Its stack_id identifies which scope stack this context uses.
+    /// Dropped in ContextImpl::drop before releasing the scope stack.
+    pub(crate) gc_top_scope: Option<gc_lite::GcScope<'static>>,
 }
 
 impl GcTrace for ContextImpl {
@@ -126,6 +131,16 @@ impl Drop for ContextImpl {
             log::trace!("[ContextImpl::drop] {:?}", r.node_info());
         }
 
+        // Drop the top-level scope first (pops it from the scope stack),
+        // then release the scope stack.
+        // All child scopes should have been destroyed by RAII (GcScope lives
+        // on the stack, shorter than ContextImpl which lives in the GC heap).
+        if let Some(scope) = self.gc_top_scope.take() {
+            let stack_id = scope.stack_id();
+            drop(scope);
+            self.rt_mut().gc_heap_mut().release_scope_stack(stack_id);
+        }
+
         self.finalize();
     }
 }
@@ -165,6 +180,8 @@ impl ContextImpl {
 
             job_list: VecDeque::new(),
             tick_handlers: Vec::new(),
+
+            gc_top_scope: None,
         };
 
         Ok(c)
@@ -173,6 +190,15 @@ impl ContextImpl {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
+    }
+
+    /// Get the scope stack ID for this context.
+    #[inline(always)]
+    pub fn scope_stack_id(&self) -> GcScopeStackId {
+        self.gc_top_scope
+            .as_ref()
+            .expect("top_level_scope must be set")
+            .stack_id()
     }
 
     /// Set class prototype with GC write barrier.
@@ -447,33 +473,34 @@ impl RuntimeImpl {
     /// The returned `TopLevelContext` references a GC scope stored in
     /// `RuntimeImpl`. The caller must ensure the `RuntimeImpl` outlives the
     /// `TopLevelContext`.
-    pub unsafe fn create_context<'a>(
-        &mut self,
-        setup: impl FnOnce(&mut ScopedContext) -> Result<(), i32>,
-    ) -> Result<TopLevelContext<'a>, i32> {
-        self.create_context_internal(setup)
-    }
-
-    /// Internal: create context with a top-level GC scope.
-    pub(crate) fn create_context_internal<'a>(
+    pub fn create_context<'a>(
         &mut self,
         setup: impl FnOnce(&mut ScopedContext) -> Result<(), i32>,
     ) -> Result<TopLevelContext<'a>, i32> {
         let inner = ContextImpl::new(self)?;
 
-        let pid = self.gc_part_id();
-        let gc_scope = self.gc_heap_mut().new_scope(pid);
-        let gc_ref = gc_scope.alloc_local(inner).map_err(|_| -1)?;
-        let ctx_ptr = ContextPtr::from(gc_ref);
+        let ctx_ptr = {
+            let par = self.gc_part_id();
+            let heap = self.gc_heap_mut();
 
-        // Store the top-level GcScope in RuntimeImpl so it lives as long as
-        // the RuntimeImpl. TopLevelContext only holds a ContextPtr.
-        // SAFETY: GcScope is dropped in RuntimeImpl::finalize() before GcHeap,
-        // so the 'static lifetime is safe.
-        let gc_scope = unsafe { std::mem::transmute::<GcScope<'_>, GcScope<'static>>(gc_scope) };
-        self.top_scope = Some(gc_scope);
+            let stack_id = heap.acquire_scope_stack(par);
+            let gc_top_scope = heap.new_scope(stack_id);
 
-        // Register in context list.
+            let mut ctx = ContextPtr::from(gc_top_scope.alloc_local(inner).map_err(|_| -1)?);
+            ctx.gc_top_scope = Some(unsafe {
+                // Store the top-level scope in ContextImpl so it lives as long
+                // as the context. It will be dropped in ContextImpl::drop.
+                // SAFETY: GcScope lives in ContextImpl which is a GC node on the
+                // heap, while GcScope borrows GcHeap which outlives all GC nodes.
+                // The lifetime transmute is safe because GcScope only uses the
+                // lifetime for borrow checking; internally it uses NonNull.
+                std::mem::transmute::<GcScope<'_>, GcScope<'static>>(gc_top_scope)
+            });
+
+            ctx
+        };
+
+        // Register to context list.
         self.context_list.push(ctx_ptr);
 
         let mut top = TopLevelContext {
@@ -485,17 +512,17 @@ impl RuntimeImpl {
         // sub-scope during setup. When the sub-scope drops, LOCAL is removed,
         // but the objects remain reachable through ContextImpl fields
         // (global_obj, global_var_obj, etc.) which are roots via context_list.
-        top.with_new_scope(|mut sub| {
+        top.with_new_scope(|mut cx| {
             // DON'T CHANGE FOLLOWING ORDER
 
             // base object must be initialized before creating global
-            sub.init_core_objects()?;
+            cx.init_core_objects()?;
             // make global namespace
-            sub.global_obj = Some(sub.create_base_object()?);
+            cx.global_obj = Some(cx.create_base_object()?);
             // make global var object
-            sub.global_var_obj = Some(sub.create_base_object_with_proto(None)?);
+            cx.global_var_obj = Some(cx.create_base_object_with_proto(None)?);
             // user initialization
-            setup(&mut sub)
+            setup(&mut cx)
         })?;
 
         Ok(top)

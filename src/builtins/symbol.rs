@@ -24,14 +24,14 @@ impl<'c> ScopedContext<'c> {
         );
 
         let atom = if let Some(s) = str {
-            Atom::from_string_as_is(self.rt_ptr(), s, atom_kind)?
+            Atom::from_string_as_is(self, s, atom_kind)?
         } else {
             debug_assert_eq!(atom_kind, AtomKind::Symbol);
-            let s = StringRef::create(self.rt_ptr(), StringData::Ident).map_err(|_| {
+            let s = StringRef::create(self, StringData::Ident).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })?;
-            Atom::from_string_as_is(self.rt_ptr(), s, atom_kind)?
+            Atom::from_string_as_is(self, s, atom_kind)?
         };
 
         let sym = JSValue::Symbol(atom.descriptor(self.rt()));
@@ -90,7 +90,7 @@ pub fn js_thisSymbolValue(ctx: &mut ScopedContext, val: JSValue) -> JSResult {
 fn js_symbol_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let val = js_thisSymbolValue(ctx, cc.this())?;
     // formatted as 'Symbol(XXX)'
-    let repr = val.inspect(ctx.rt_mut())?.into_bytes();
+    let repr = val.inspect(ctx)?.into_bytes();
     ctx.create_string_from_utf8(repr).map(JSValue::from)
 }
 

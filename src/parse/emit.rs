@@ -177,12 +177,19 @@ impl<'s> JSParseState<'s> {
 
     /// create a function def for class fields initialization
     fn make_class_fields_init_fd(&mut self) -> Result<Box<FunctionDef>, i32> {
+        let filename_ptr = self.filename.as_ptr();
+        let filename_len = self.filename.len();
+        let parent_fd = self.cur_func_def;
+        debug_assert!(!parent_fd.is_null());
+
         let mut fd = FunctionDef::new(
-            self.ctx().ctx_ptr,
-            Some(self.cur_func_mut()),
+            self.ctx(),
+            parent_fd,
             false,
             false,
-            self.filename,
+            unsafe {
+                std::str::from_utf8(std::slice::from_raw_parts(filename_ptr, filename_len)).unwrap()
+            },
             0,
         )?;
 

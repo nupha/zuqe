@@ -94,8 +94,16 @@ pub struct ScopedContext<'a> {
 impl<'a> Drop for ScopedContext<'a> {
     fn drop(&mut self) {
         if let GcScopeType::Owned(s) = &self.gc_scope {
-            debug_assert_eq!(s.depth(), self.ctx_ptr.gc_heap().scope_max_depth());
+            let stack_id = self.ctx_ptr.scope_stack_id();
+            debug_assert_eq!(s.depth(), self.ctx_ptr.gc_heap().scope_max_depth(stack_id));
         }
+    }
+}
+
+impl PartialEq for ScopedContext<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        let gc = self.gc();
+        self.ctx_ptr == other.ctx_ptr && gc.depth() == gc.depth() && gc.stack_id() == gc.stack_id()
     }
 }
 
@@ -137,25 +145,6 @@ impl<'a> From<&mut ScopedContext<'a>> for ContextPtr {
 }
 
 impl<'a> ScopedContext<'a> {
-    /// Allocate a node, and put it to scope cache to protect it.
-    pub fn alloc_local<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
-        let r = self.gc().alloc_local(payload);
-
-        if self.gc_heap().should_gc() {
-            self.rt_mut().gc_req = true;
-        }
-        r
-    }
-
-    pub fn alloc_root<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
-        let r = self.gc().alloc_root(payload);
-
-        if self.gc_heap().should_gc() {
-            self.rt_mut().gc_req = true;
-        }
-        r
-    }
-
     /// get gc scope state
     #[inline]
     pub(crate) fn gc(&self) -> &GcScopeState<'_> {
@@ -170,15 +159,26 @@ impl<'a> ScopedContext<'a> {
         self.gc().depth()
     }
 
+    /// Allocate a local gc node in scope to protect it within scope lifetime.
+    #[inline]
+    pub fn alloc_local<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
+        let r = self.gc().alloc_local(payload);
+        if self.gc_heap().should_gc() {
+            self.rt_mut().gc_req = true;
+        }
+        r
+    }
+
     /// Promote `val` to upstream scope.
     /// Prefer using `ScopeResult` trait via `with_new_scope` instead of calling this directly.
     pub(crate) fn set_return_value(&mut self, val: JSValue) {
         let s = self.gc();
+        let stack_id = self.ctx_ptr.scope_stack_id();
         debug_assert!(
-            s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth(),
+            s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth(stack_id),
             "depth: {}, max_depth: {}",
             s.depth(),
-            self.ctx_ptr.gc_heap().scope_max_depth(),
+            self.ctx_ptr.gc_heap().scope_max_depth(stack_id),
         );
 
         s.set_promote(val.gc_node_ptr());
@@ -187,20 +187,9 @@ impl<'a> ScopedContext<'a> {
     /// flush protected nodes inside.
     pub fn flush(&self) {
         let s = self.gc();
-        debug_assert!(s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth());
+        let stack_id = self.ctx_ptr.scope_stack_id();
+        debug_assert!(s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth(stack_id));
         s.flush();
-    }
-
-    /// create new scope over current scope
-    fn new_scope(&mut self) -> ScopedContext<'_> {
-        let pid = self.rt().gc_part_id();
-        let ctx = ContextPtr::from(self.gc_ref());
-        let gc_scope = self.gc_heap_mut().new_scope(pid);
-
-        ScopedContext {
-            ctx_ptr: ctx,
-            gc_scope: GcScopeType::Owned(gc_scope),
-        }
     }
 
     /// run closure in a new child scope.
@@ -210,8 +199,7 @@ impl<'a> ScopedContext<'a> {
         #[cfg(debug_assertions)]
         {
             let _d1 = self.depth();
-            let s = self.new_scope();
-            let _d2 = s.depth();
+            let s = self.ctx_ptr.new_scope();
 
             let ret_val = f(s);
             debug_assert_eq!(_d1, self.depth(), "{self:p}: {self:?}");
@@ -220,7 +208,7 @@ impl<'a> ScopedContext<'a> {
 
         #[cfg(not(debug_assertions))]
         {
-            let s = self.new_scope();
+            let s = self.ctx_ptr.new_scope();
             let ret_val = f(s);
             ret_val.promote(self)
         }
@@ -229,38 +217,26 @@ impl<'a> ScopedContext<'a> {
     /// test if given node contains in `self` scope
     #[cfg(debug_assertions)]
     pub fn contains(&self, node: NonNull<GcHead>) -> bool {
+        let stack_id = self.ctx_ptr.scope_stack_id();
         self.gc_heap()
-            .scope(self.depth() as _)
+            .scope(stack_id, self.depth())
             .is_some_and(|s| s.contains(node))
     }
 }
 
-impl ContextImpl {
-    /// get current (the inner-most) scope
-    /// there always exists a top-level scope, so this method never returns `None`.
-    fn current_scope(&self) -> Option<ScopedContext<'_>> {
-        if let Some(s) = self.gc_heap().current_scope() {
-            let sc = ScopedContext {
-                ctx_ptr: self.gc_ref().into(),
-                gc_scope: GcScopeType::Ref(s),
-            };
-            Some(sc)
-        } else {
-            None
+impl ContextPtr {
+    /// push a new scope above current scope
+    fn new_scope(&mut self) -> ScopedContext<'_> {
+        let ctx_ptr = *self;
+        let stack_id = self.scope_stack_id();
+        let gc_scope = self.gc_heap_mut().new_scope(stack_id);
+
+        ScopedContext {
+            ctx_ptr,
+            gc_scope: GcScopeType::Owned(gc_scope),
         }
     }
 
-    /// run closure with current (the inner-most) scope.
-    /// there always exists a top-level scope, so this method never returns `None`.
-    pub(crate) fn with_current_scope<R>(
-        &mut self,
-        f: impl FnOnce(ScopedContext<'_>) -> R,
-    ) -> Option<R> {
-        self.current_scope().map(f)
-    }
-}
-
-impl ContextPtr {
     /// Create a new scope, run closure in it, then destroy the scope.
     ///
     /// # Safety
@@ -280,28 +256,49 @@ impl ContextPtr {
         &mut self,
         f: impl FnOnce(ScopedContext<'_>) -> R,
     ) -> R {
-        let pid = self.rt().gc_part_id();
-        let ctx = ContextPtr::from(self.gc_ref());
-        let gc_scope = self.gc_heap_mut().new_scope(pid);
+        #[cfg(debug_assertions)]
+        let _d1 = self.current_scope().gc().depth();
 
-        let has_parent = gc_scope.parent().is_some();
+        let s = self.new_scope();
+        debug_assert!(
+            s.gc().depth() > 1,
+            "top level scope must exist, thus new scope must be greater than 1"
+        );
 
-        let s = ScopedContext {
-            ctx_ptr: ctx,
-            gc_scope: GcScopeType::Owned(gc_scope),
-        };
+        #[cfg(debug_assertions)]
+        let _d2 = s.gc().depth();
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(_d1, _d2 - 1);
 
         let ret = f(s);
 
-        if has_parent {
-            if let Some(mut upstream) = self.current_scope() {
-                ret.promote(&mut upstream)
-            } else {
-                ret
+        let mut curr = self.current_scope();
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(_d1, curr.gc().depth());
+
+        ret.promote(&mut curr)
+    }
+}
+
+impl ContextImpl {
+    /// get current (the inner-most) scope
+    /// there always exists a top-level scope, so this method never returns `None`.
+    pub(crate) fn current_scope(&self) -> ScopedContext<'_> {
+        let stack_id = self.scope_stack_id();
+        if let Some(s) = self.gc_heap().current_scope(stack_id) {
+            ScopedContext {
+                ctx_ptr: self.gc_ref().into(),
+                gc_scope: GcScopeType::Ref(s),
             }
         } else {
-            ret
+            unreachable!()
         }
+    }
+
+    /// run closure with current (the inner-most) scope.
+    /// there always exists a top-level scope, so this method never returns `None`.
+    pub(crate) fn with_current_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
+        f(self.current_scope())
     }
 }
 
@@ -316,8 +313,8 @@ impl ContextPtr {
 /// don't need a scope are available directly.
 #[derive(Clone, Copy)]
 pub struct TopLevelContext<'c> {
-    pub(crate) ctx_ptr: ContextPtr,
-    pub(crate) _marker: std::marker::PhantomData<&'c ()>,
+    pub(super) ctx_ptr: ContextPtr,
+    pub(super) _marker: std::marker::PhantomData<&'c ()>,
 }
 
 impl<'c> Deref for TopLevelContext<'c> {
@@ -363,10 +360,11 @@ impl<'c> TopLevelContext<'c> {
     /// The top-level scope always exists (it is created by `create_context`
     /// and managed by `RuntimeImpl`), so this never returns `None`.
     pub fn as_scoped(&self) -> ScopedContext<'_> {
+        let stack_id = self.ctx_ptr.scope_stack_id();
         let scope = self
             .ctx_ptr
             .gc_heap()
-            .scope(1)
+            .scope(stack_id, 1)
             .expect("top-level scope must exist");
         ScopedContext {
             ctx_ptr: self.ctx_ptr,
@@ -374,16 +372,10 @@ impl<'c> TopLevelContext<'c> {
         }
     }
 
-    /// Create a new downstream scope, run closure in it, then promote the
-    /// return value to the top-level scope.
-    #[inline]
+    /// Create a new child scope, run closure in it.
+    ///
+    /// Return value will be promoted to the top-level scope.
     pub fn with_new_scope<R: ScopeResult>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
-        let mut ptr = self.ctx_ptr;
-        // SAFETY: The return value is promoted to the top-level scope
-        // by `ScopeResult::promote` inside `with_new_scope_internal`.
-        let ret = unsafe { ptr.with_new_scope_internal(f) };
-        // Promote to top-level scope
-        let mut top = self.as_scoped();
-        ret.promote(&mut top)
+        self.as_scoped().with_current_scope(f)
     }
 }
