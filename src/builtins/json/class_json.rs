@@ -19,9 +19,9 @@ fn js_json_stringify(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let replacer = cc.arg(1);
     let space = cc.arg(2);
 
-    ctx.with_new_scope(|mut scope| {
-        let res = scope.json_stringify(obj, replacer, space);
-        scope.return_value(res)
+    ctx.with_new_scope(|mut cx| {
+        let res = cx.json_stringify(obj, replacer, space);
+        cx.return_value(res)
     })
 }
 
@@ -74,9 +74,8 @@ fn internalize_json_property(
 fn js_json_parse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(ctx)?;
 
-    let mut obj = ctx.with_new_scope(|scope| {
-        scope.json_parse(&s.content().encode_utf8_bytes(true), "<input>", 0)
-    })?;
+    let mut obj =
+        ctx.with_new_scope(|cx| cx.json_parse(&s.content().encode_utf8_bytes(true), "<input>", 0))?;
 
     if cc.length() > 1 && cc.arg(1).is_callable() {
         let reviver = cc.arg(1);
