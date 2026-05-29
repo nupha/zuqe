@@ -5,7 +5,6 @@ use smallvec::SmallVec;
 
 use crate::{
     atom::{Atom, AtomKind},
-    context::{ScopeReturn, ScopedContext},
     error::JSResult,
     number::{ATOD_ACCEPT_BIN_OCT, js_aton},
     object::JS_PROP_C_W_E,
@@ -411,6 +410,18 @@ impl<'s> JSParseState<'s> {
 
         Ok(val)
     }
+
+    pub fn json_parse(&mut self) -> JSResult {
+        self.json_next_token()?;
+        let val = self.json_parse_value()?;
+
+        if unlikely(self.token.kind != TokenKind::EOF) {
+            self.throw_syntax_error("unexpected data at the end");
+            Err(-1)
+        } else {
+            Ok(val)
+        }
+    }
 }
 
 fn json_parse_expect(s: &mut JSParseState, ch: u8) -> Result<(), i32> {
@@ -419,30 +430,5 @@ fn json_parse_expect(s: &mut JSParseState, ch: u8) -> Result<(), i32> {
         Err(-1)
     } else {
         s.json_next_token()
-    }
-}
-
-impl<'c> ScopedContext<'c> {
-    pub fn json_parse(self, source: &[u8], filename: &str, flags: i32) -> ScopeReturn<JSResult> {
-        // Note: parser will be dropped within this function.
-        // so, 'source' and 'filename' are safe w/o lifetime annotation
-
-        let mut parser = JSParseState::new_for_json(self, source, filename);
-        parser.ext_json = flags & JS_PARSE_JSON_EXT != 0;
-
-        let result = (|| -> JSResult {
-            parser.json_next_token()?;
-            let val = parser.json_parse_value()?;
-
-            if unlikely(parser.token.kind != TokenKind::EOF) {
-                parser.throw_syntax_error("unexpected data at the end");
-                Err(-1)
-            } else {
-                Ok(val)
-            }
-        })();
-
-        let (scope, _) = parser.finish(());
-        scope.return_value(result)
     }
 }

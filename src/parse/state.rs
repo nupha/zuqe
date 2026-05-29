@@ -67,7 +67,7 @@ pub struct JSParseState<'s> {
 
     /// Enables parsing of JSON superset syntax
     #[cfg(feature = "builtin_json")]
-    pub(super) ext_json: bool,
+    pub(crate) ext_json: bool,
 }
 
 impl Drop for JSParseState<'_> {

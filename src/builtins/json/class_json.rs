@@ -10,6 +10,7 @@ use crate::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
         PropertyKey,
     },
+    parse::JSParseState,
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
@@ -74,8 +75,16 @@ fn internalize_json_property(
 fn js_json_parse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(ctx)?;
 
-    let mut obj =
-        ctx.with_new_scope(|cx| cx.json_parse(&s.content().encode_utf8_bytes(true), "<input>", 0))?;
+    let mut obj = ctx.with_new_scope(|cx| {
+        let source = s.content().encode_utf8_bytes(true);
+
+        let mut parser = JSParseState::new_for_json(cx, &source, "<input>");
+        parser.ext_json = false; // flags & JS_PARSE_JSON_EXT != 0;
+
+        let res = parser.json_parse();
+        let (cx, _) = parser.finish(());
+        cx.return_value(res)
+    })?;
 
     if cc.length() > 1 && cc.arg(1).is_callable() {
         let reviver = cc.arg(1);
