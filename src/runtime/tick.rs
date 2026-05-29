@@ -36,9 +36,8 @@ impl RuntimeImpl {
         let mut more_ticks = false;
 
         for mut ctx in self.context_list.iter().copied() {
-            // SAFETY: The return value is Result<(), i32> which has no GC nodes.
             unsafe {
-                ctx.with_new_scope_internal(|mut scope| -> Result<(), i32> {
+                ctx.with_new_scope_internal(|mut scope| {
                     // 1. run pending jobs (not for new added jobs)
 
                     while let Some(job) = scope.job_list.pop_front() {
@@ -46,7 +45,11 @@ impl RuntimeImpl {
                         self.gc_jobs.push(job);
 
                         let job = self.gc_jobs.last().unwrap();
-                        if job.run(&mut scope)? == JobState::Again {
+                        let again = match job.run(&mut scope) {
+                            Ok(s) => s == JobState::Again,
+                            Err(e) => return scope.return_value(Err(e)),
+                        };
+                        if again {
                             // multi-run task: leave in gc_jobs, run again in next tick
                         } else {
                             self.gc_jobs.pop();
@@ -67,7 +70,7 @@ impl RuntimeImpl {
                         }
                     }
 
-                    Ok(())
+                    scope.return_value(Ok(()))
                 })?
             };
         }

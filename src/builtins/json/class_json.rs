@@ -19,7 +19,10 @@ fn js_json_stringify(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let replacer = cc.arg(1);
     let space = cc.arg(2);
 
-    ctx.with_new_scope(|mut scope| scope.json_stringify(obj, replacer, space))
+    ctx.with_new_scope(|mut scope| {
+        let result = scope.json_stringify(obj, replacer, space);
+        scope.return_value(result)
+    })
 }
 
 fn internalize_json_property(
@@ -71,7 +74,7 @@ fn internalize_json_property(
 fn js_json_parse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(ctx)?;
 
-    let mut obj = ctx.with_new_scope(|scope| -> JSResult {
+    let mut obj = ctx.with_new_scope(|scope| {
         scope.json_parse(&s.content().encode_utf8_bytes(true), "<input>", 0)
     })?;
 

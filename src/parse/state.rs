@@ -142,6 +142,16 @@ impl<'s> JSParseState<'s> {
         &mut self.ctx
     }
 
+    /// Consume the parser and return the inner scope, along with a value.
+    ///
+    /// This allows returning a value from `with_new_scope` after the parser
+    /// has consumed the `ScopedContext`.
+    pub fn finish<T>(self, value: T) -> (ScopedContext<'s>, T) {
+        let this = std::mem::ManuallyDrop::new(self);
+        let ctx = unsafe { std::ptr::read(&this.ctx) };
+        (ctx, value)
+    }
+
     /// free atom if any.
     #[inline(always)]
     pub(super) fn clear_token_data(&mut self) {

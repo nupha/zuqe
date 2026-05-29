@@ -223,7 +223,7 @@ fn run_zjs_prepare() -> (Runtime, TopLevelContext<'static>, Args, String, bool) 
 fn main() -> ExitCode {
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
-    let exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
+    let exit_code = ctx.with_new_scope(|mut scope| {
         let result = scope.eval_wait(
             script.as_bytes(),
             &args.filename,
@@ -235,7 +235,7 @@ fn main() -> ExitCode {
             EvalFlags::empty(),
         );
 
-        match result {
+        let code = match result {
             Ok(val) => {
                 colorize_println(val.inspect(scope.rt_mut()).unwrap(), GreenFg);
                 ExitCode::SUCCESS
@@ -248,7 +248,8 @@ fn main() -> ExitCode {
                 colorize_println(err_msg, RedFg);
                 ExitCode::FAILURE
             }
-        }
+        };
+        scope.return_value(code)
     });
 
     #[cfg(debug_assertions)]
@@ -266,7 +267,7 @@ async fn main() -> ExitCode {
 
     let mut promise_future = None;
 
-    let res = ctx.with_new_scope(|mut scope| -> Result<(), ExceptionText> {
+    let res = ctx.with_new_scope(|mut scope| {
         let result = scope.eval(
             script.as_bytes(),
             &args.filename,
@@ -278,7 +279,7 @@ async fn main() -> ExitCode {
             EvalFlags::empty(),
         );
 
-        match result {
+        let r = match result {
             Ok(val) => {
                 if let Ok(promise) = Promise::try_from(val) {
                     match promise.into_future(&mut scope) {
@@ -294,7 +295,8 @@ async fn main() -> ExitCode {
                 }
             }
             Err(_) => Err(scope.take_exception().to_text(&mut scope)),
-        }
+        };
+        scope.return_value(r)
     });
 
     #[cfg(debug_assertions)]
@@ -323,7 +325,7 @@ async fn main() -> ExitCode {
             Err(reason) => {
                 let err_msg = ctx.with_new_scope(|mut cx| {
                     let s = reason.to_string(&mut cx).unwrap();
-                    s.encode_utf8(false).to_string()
+                    cx.return_value(s.encode_utf8(false).to_string())
                 });
                 colorize_println(err_msg, RedFg);
             }
@@ -344,6 +346,7 @@ async fn main() -> ExitCode {
         Err(Exception::Error(err)) => {
             ctx.with_new_scope(|mut cx| {
                 colorize_println(err.to_string(&mut cx).unwrap().encode_utf8(false), RedFg);
+                cx.return_value(())
             });
             ExitCode::FAILURE
         }

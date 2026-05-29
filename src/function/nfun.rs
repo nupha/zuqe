@@ -94,29 +94,26 @@ impl NFuncPayload {
     fn call(&mut self, this_value: JSValue, args: &[JSValue], flags: i32) -> JSResult {
         let mut cc = CallContext::new(this_value, args, self.magic as _, self.data.as_deref_mut());
 
-        // SAFETY: The return value (JSResult) is automatically promoted
-        // to the parent scope by with_new_scope_internal when a parent exists.
         let ret_val = unsafe {
             self.realm.with_new_scope_internal(|mut realm_scope| {
-                let realm_scope = &mut realm_scope;
                 let ret_val: JSResult = match self.callback {
-                    Callback::Func(f) => f(realm_scope, cc),
+                    Callback::Func(f) => f(&mut realm_scope, cc),
                     Callback::Getter(f) => {
                         debug_assert_eq!(cc.length(), 0);
-                        f(realm_scope, cc)
+                        f(&mut realm_scope, cc)
                     }
                     Callback::Setter(f) => {
                         debug_assert_eq!(cc.length(), 1);
-                        f(realm_scope, cc)
+                        f(&mut realm_scope, cc)
                     }
                     Callback::IteratorNext(f) => {
                         let mut iter_state = IteratorState::NotDone;
-                        let r = f(realm_scope, cc, &mut iter_state);
+                        let r = f(&mut realm_scope, cc, &mut iter_state);
                         if let Ok(v) = r
                             && iter_state != IteratorState::NotParsed
                         {
                             make_iterator_next_result(
-                                realm_scope,
+                                &mut realm_scope,
                                 v,
                                 iter_state == IteratorState::Done,
                             )
@@ -127,32 +124,41 @@ impl NFuncPayload {
                     Callback::Constructor(f) => {
                         if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                             realm_scope.throw_type_error("must be called with new");
-                            return Err(-1);
+                            Err(-1)
+                        } else {
+                            f(&mut realm_scope, cc)
                         }
-                        f(realm_scope, cc)
                     }
                     Callback::ConstructorOrFunc(f) => {
                         if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                             cc.set_this(JSValue::UNDEFINED); // set this_value to undefined
                         }
-                        f(realm_scope, cc)
+                        f(&mut realm_scope, cc)
                     }
 
                     Callback::FF(f) => {
                         //debug_assert!(data.is_none(), "binding data not allowed");
                         cc.arg(0)
-                            .to_number(realm_scope)
+                            .to_number(&mut realm_scope)
                             .map(|n| JSValue::from(f(n.to_f64())))
                     }
                     Callback::FFF(f) => {
                         //debug_assert!(data.is_none(), "binding data not allowed");
-                        let d1 = cc.arg(0).to_number(realm_scope).map(|n| n.to_f64())?;
-                        let d2 = cc.arg(1).to_number(realm_scope).map(|n| n.to_f64())?;
+                        let d1 = cc.arg(0).to_number(&mut realm_scope).map(|n| n.to_f64());
+                        let d1 = match d1 {
+                            Ok(v) => v,
+                            Err(e) => return realm_scope.return_value(Err(e)),
+                        };
+                        let d2 = cc.arg(1).to_number(&mut realm_scope).map(|n| n.to_f64());
+                        let d2 = match d2 {
+                            Ok(v) => v,
+                            Err(e) => return realm_scope.return_value(Err(e)),
+                        };
                         Ok(JSValue::from(f(d1, d2)))
                     }
                 };
 
-                ret_val
+                realm_scope.return_value(ret_val)
             })
         };
         ret_val
@@ -224,6 +230,7 @@ impl NativeFunction {
                         unsafe {
                             realm.with_new_scope_internal(|mut cx| {
                                 cx.throw_out_of_memory();
+                                cx.return_value(())
                             });
                         }
                     }

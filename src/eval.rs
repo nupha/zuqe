@@ -141,7 +141,9 @@ impl<'c> ScopedContext<'c> {
             parser.allow_html_comments = frame_module.is_none();
 
             parser.skip_shebang();
-            parser.parse_program()
+            let result = parser.parse_program();
+            let (scope, _) = parser.finish(());
+            scope.return_value(result)
         })?;
 
         // has top-level await?

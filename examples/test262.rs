@@ -106,12 +106,13 @@ fn js_detachArrayBuffer(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let source = cc.arg(0).inspect(ctx)?;
     ctx.with_new_scope(|mut scope| {
-        scope.eval(
+        let result = scope.eval(
             source.as_bytes(),
             "<eval>",
             EvalType::Global,
             EvalFlags::empty(),
-        )
+        );
+        scope.return_value(result)
     })
 }
 
@@ -145,7 +146,10 @@ fn js_createRealm(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
         ctx.rt_mut()
             .create_context(ContextImpl::ECMA_CONTEXT_SETUP)?
     };
-    ctx2.with_new_scope(|mut scope| setup_ctx_test262_helpers(&mut scope))
+    ctx2.with_new_scope(|mut scope| {
+        let result = setup_ctx_test262_helpers(&mut scope);
+        scope.return_value(result)
+    })
 }
 
 fn setup_ctx_test262_helpers(ctx: &mut ScopedContext) -> Result<JSValue, i32> {
@@ -314,7 +318,7 @@ fn run_harness(ctx: &mut TopLevelContext, harness_files: &[PathBuf]) -> Result<(
             .unwrap();
 
         ctx.with_new_scope(|mut scope| {
-            scope
+            let result = scope
                 .eval(
                     src.as_bytes(),
                     file.as_os_str().to_string_lossy().as_ref(),
@@ -324,7 +328,8 @@ fn run_harness(ctx: &mut TopLevelContext, harness_files: &[PathBuf]) -> Result<(
                 .map_err(|_| {
                     let exc = scope.take_exception();
                     exc.to_text(&mut scope)
-                })
+                });
+            scope.return_value(result)
         })?;
     }
 
@@ -345,7 +350,7 @@ fn run_test_script(
     }
 
     ctx.with_new_scope(|mut scope| {
-        scope.eval_wait(
+        let result = scope.eval_wait(
             script.as_bytes(),
             filename.as_os_str().to_str().unwrap(),
             if is_module {
@@ -358,7 +363,8 @@ fn run_test_script(
             } else {
                 EvalFlags::empty()
             },
-        )
+        );
+        scope.return_value(result)
     })?;
 
     if is_async {
@@ -389,7 +395,7 @@ async fn run_test_script(
     }
 
     ctx.with_new_scope(|mut scope| {
-        scope
+        let result = scope
             .eval(
                 script.as_bytes(),
                 filename.as_os_str().to_str().unwrap(),
@@ -407,7 +413,8 @@ async fn run_test_script(
             .map_err(|_| {
                 let exc = scope.take_exception();
                 exc.to_text(&mut scope)
-            })
+            });
+        scope.return_value(result)
     })?;
 
     let _ = rt.run_async().await;

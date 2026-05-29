@@ -6,7 +6,7 @@ use std::{pin::Pin, ptr::NonNull};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    ScopedContext,
+    ScopeReturn, ScopedContext,
     context::ContextPtr,
     error::JSResult,
     function::BCWrapper,
@@ -202,8 +202,10 @@ impl AsyncStateImpl {
         mut ctx: ScopedContext,
         this_obj: JSValue,
         args: &[JSValue],
-    ) -> JSResult {
-        ctx.poll_interrupts()?;
+    ) -> ScopeReturn<JSResult> {
+        if let Err(e) = ctx.poll_interrupts() {
+            return ctx.return_value(Err(e));
+        }
 
         // state has a dedicated stack frame for async function
         let mut func = *self.stack_frame.func_obj.as_BCWrapper().unwrap();
@@ -246,7 +248,7 @@ impl AsyncStateImpl {
             ctx.set_return_value(v);
         }
 
-        res
+        ctx.return_value(res)
     }
 }
 

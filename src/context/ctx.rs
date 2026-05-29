@@ -516,13 +516,25 @@ impl RuntimeImpl {
             // DON'T CHANGE FOLLOWING ORDER
 
             // base object must be initialized before creating global
-            cx.init_core_objects()?;
+            let r1 = cx.init_core_objects();
+            if r1.is_err() {
+                return cx.return_value(r1);
+            }
             // make global namespace
-            cx.global_obj = Some(cx.create_base_object()?);
+            let r2 = cx.create_base_object();
+            if let Err(e) = r2 {
+                return cx.return_value(Err(e));
+            }
+            cx.global_obj = Some(r2.unwrap());
             // make global var object
-            cx.global_var_obj = Some(cx.create_base_object_with_proto(None)?);
+            let r3 = cx.create_base_object_with_proto(None);
+            if let Err(e) = r3 {
+                return cx.return_value(Err(e));
+            }
+            cx.global_var_obj = Some(r3.unwrap());
             // user initialization
-            setup(&mut cx)
+            let result = setup(&mut cx);
+            cx.return_value(result)
         })?;
 
         Ok(top)
