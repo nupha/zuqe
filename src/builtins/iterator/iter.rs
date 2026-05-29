@@ -182,11 +182,7 @@ impl<'a> Iterator for ObjectIter<'a> {
         if self.done {
             None
         } else if let Ok((value, done)) = self.ctx.with_current_scope(|mut scope| {
-            let ret = Self::fetch_next(&mut scope, self.target, self.next_method, &[]);
-            if let Ok((v, _)) = ret {
-                scope.set_return_value(v);
-            }
-            ret
+            Self::fetch_next(&mut scope, self.target, self.next_method, &[])
         }) {
             self.done = done;
             if done { None } else { Some(Ok(value)) }

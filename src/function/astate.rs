@@ -244,10 +244,6 @@ impl AsyncStateImpl {
         }
 
         let res = ret_val.err();
-        if let Ok(v) = res {
-            ctx.set_return_value(v);
-        }
-
         ctx.return_value(res)
     }
 }

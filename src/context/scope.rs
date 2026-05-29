@@ -66,7 +66,7 @@ impl ScopeResult for JSValue {
         if let Some(node) = self.gc_node_ptr()
             && let Some((parent, _)) = scope.gc().parent()
         {
-            scope.gc().move_node_to(node, parent);
+            scope.gc().promote_node_to(node, parent);
         }
         self
     }
@@ -201,31 +201,12 @@ impl<'a> ScopedContext<'a> {
         ScopeReturn::new(result)
     }
 
-    /// Set a GC node as the promote target of this scope.
-    ///
-    /// When this scope is flushed/dropped, the promote node will be moved
-    /// to the parent scope's cache instead of losing LOCAL protection.
-    ///
-    /// Prefer using `return_value` with `with_new_scope` instead.
-    #[deprecated]
-    pub(crate) fn set_return_value(&mut self, val: JSValue) {
-        let s = self.gc();
-        let stack_id = self.ctx_ptr.scope_stack_id();
-        debug_assert!(
-            s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth(stack_id),
-            "depth: {}, max_depth: {}",
-            s.depth(),
-            self.ctx_ptr.gc_heap().scope_max_depth(stack_id),
-        );
-        s.set_promote(val.gc_node_ptr());
-    }
-
     /// flush protected nodes inside.
     pub fn flush(&self) {
         let s = self.gc();
         let stack_id = self.ctx_ptr.scope_stack_id();
         debug_assert!(s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth(stack_id));
-        s.flush();
+        s.clear();
     }
 
     /// run closure in a new child scope.
