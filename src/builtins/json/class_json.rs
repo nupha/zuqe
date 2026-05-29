@@ -20,8 +20,8 @@ fn js_json_stringify(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let space = cc.arg(2);
 
     ctx.with_new_scope(|mut scope| {
-        let result = scope.json_stringify(obj, replacer, space);
-        scope.return_value(result)
+        let res = scope.json_stringify(obj, replacer, space);
+        scope.return_value(res)
     })
 }
 

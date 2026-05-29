@@ -94,74 +94,67 @@ impl NFuncPayload {
     fn call(&mut self, this_value: JSValue, args: &[JSValue], flags: i32) -> JSResult {
         let mut cc = CallContext::new(this_value, args, self.magic as _, self.data.as_deref_mut());
 
-        let ret_val = unsafe {
-            self.realm.with_new_scope_internal(|mut realm_scope| {
-                let ret_val: JSResult = match self.callback {
-                    Callback::Func(f) => f(&mut realm_scope, cc),
-                    Callback::Getter(f) => {
-                        debug_assert_eq!(cc.length(), 0);
-                        f(&mut realm_scope, cc)
+        self.realm.with_new_scope_internal(|mut cx| {
+            let ret_val: JSResult = match self.callback {
+                Callback::Func(f) => f(&mut cx, cc),
+                Callback::Getter(f) => {
+                    debug_assert_eq!(cc.length(), 0);
+                    f(&mut cx, cc)
+                }
+                Callback::Setter(f) => {
+                    debug_assert_eq!(cc.length(), 1);
+                    f(&mut cx, cc)
+                }
+                Callback::IteratorNext(f) => {
+                    let mut iter_state = IteratorState::NotDone;
+                    let r = f(&mut cx, cc, &mut iter_state);
+                    if let Ok(v) = r
+                        && iter_state != IteratorState::NotParsed
+                    {
+                        make_iterator_next_result(&mut cx, v, iter_state == IteratorState::Done)
+                    } else {
+                        r
                     }
-                    Callback::Setter(f) => {
-                        debug_assert_eq!(cc.length(), 1);
-                        f(&mut realm_scope, cc)
+                }
+                Callback::Constructor(f) => {
+                    if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                        cx.throw_type_error("must be called with new");
+                        Err(-1)
+                    } else {
+                        f(&mut cx, cc)
                     }
-                    Callback::IteratorNext(f) => {
-                        let mut iter_state = IteratorState::NotDone;
-                        let r = f(&mut realm_scope, cc, &mut iter_state);
-                        if let Ok(v) = r
-                            && iter_state != IteratorState::NotParsed
-                        {
-                            make_iterator_next_result(
-                                &mut realm_scope,
-                                v,
-                                iter_state == IteratorState::Done,
-                            )
-                        } else {
-                            r
-                        }
+                }
+                Callback::ConstructorOrFunc(f) => {
+                    if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                        cc.set_this(JSValue::UNDEFINED); // set this_value to undefined
                     }
-                    Callback::Constructor(f) => {
-                        if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                            realm_scope.throw_type_error("must be called with new");
-                            Err(-1)
-                        } else {
-                            f(&mut realm_scope, cc)
-                        }
-                    }
-                    Callback::ConstructorOrFunc(f) => {
-                        if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                            cc.set_this(JSValue::UNDEFINED); // set this_value to undefined
-                        }
-                        f(&mut realm_scope, cc)
-                    }
+                    f(&mut cx, cc)
+                }
 
-                    Callback::FF(f) => {
-                        //debug_assert!(data.is_none(), "binding data not allowed");
-                        cc.arg(0)
-                            .to_number(&mut realm_scope)
-                            .map(|n| JSValue::from(f(n.to_f64())))
-                    }
-                    Callback::FFF(f) => {
-                        //debug_assert!(data.is_none(), "binding data not allowed");
-                        let d1 = cc.arg(0).to_number(&mut realm_scope).map(|n| n.to_f64());
-                        let d1 = match d1 {
-                            Ok(v) => v,
-                            Err(e) => return realm_scope.return_value(Err(e)),
-                        };
-                        let d2 = cc.arg(1).to_number(&mut realm_scope).map(|n| n.to_f64());
-                        let d2 = match d2 {
-                            Ok(v) => v,
-                            Err(e) => return realm_scope.return_value(Err(e)),
-                        };
-                        Ok(JSValue::from(f(d1, d2)))
-                    }
-                };
+                Callback::FF(f) => {
+                    //debug_assert!(data.is_none(), "binding data not allowed");
+                    cc.arg(0)
+                        .to_number(&mut cx)
+                        .map(|n| JSValue::from(unsafe { f(n.to_f64()) }))
+                }
+                Callback::FFF(f) => {
+                    //debug_assert!(data.is_none(), "binding data not allowed");
+                    let d1 = cc.arg(0).to_number(&mut cx).map(|n| n.to_f64());
+                    let d1 = match d1 {
+                        Ok(v) => v,
+                        Err(e) => return cx.return_value(Err(e)),
+                    };
+                    let d2 = cc.arg(1).to_number(&mut cx).map(|n| n.to_f64());
+                    let d2 = match d2 {
+                        Ok(v) => v,
+                        Err(e) => return cx.return_value(Err(e)),
+                    };
+                    Ok(JSValue::from(unsafe { f(d1, d2) }))
+                }
+            };
 
-                realm_scope.return_value(ret_val)
-            })
-        };
-        ret_val
+            cx.return_value(ret_val)
+        })
     }
 }
 
@@ -227,12 +220,10 @@ impl NativeFunction {
                     if realm == ctx.ctx_ptr {
                         ctx.throw_out_of_memory();
                     } else {
-                        unsafe {
-                            realm.with_new_scope_internal(|mut cx| {
-                                cx.throw_out_of_memory();
-                                cx.return_value(())
-                            });
-                        }
+                        realm.with_new_scope_internal(|mut cx| {
+                            cx.throw_out_of_memory();
+                            cx.return_value(())
+                        });
                     }
                     -1
                 })?;

@@ -36,43 +36,40 @@ impl RuntimeImpl {
         let mut more_ticks = false;
 
         for mut ctx in self.context_list.iter().copied() {
-            unsafe {
-                ctx.with_new_scope_internal(|mut scope| {
-                    // 1. run pending jobs (not for new added jobs)
+            ctx.with_new_scope_internal(|mut cx| {
+                // 1. run pending jobs (not for new added jobs)
+                while let Some(job) = cx.job_list.pop_front() {
+                    // put job into gc-visible collection first, so GC can trace it during run()
+                    self.gc_jobs.push(job);
 
-                    while let Some(job) = scope.job_list.pop_front() {
-                        // put job into gc-visible collection first, so GC can trace it during run()
-                        self.gc_jobs.push(job);
-
-                        let job = self.gc_jobs.last().unwrap();
-                        let again = match job.run(&mut scope) {
-                            Ok(s) => s == JobState::Again,
-                            Err(e) => return scope.return_value(Err(e)),
-                        };
-                        if again {
-                            // multi-run task: leave in gc_jobs, run again in next tick
-                        } else {
-                            self.gc_jobs.pop();
-                        }
+                    let job = self.gc_jobs.last().unwrap();
+                    let again = match job.run(&mut cx) {
+                        Ok(s) => s == JobState::Again,
+                        Err(e) => return cx.return_value(Err(e)),
+                    };
+                    if again {
+                        // multi-run task: leave in gc_jobs, run again in next tick
+                    } else {
+                        self.gc_jobs.pop();
                     }
+                }
 
-                    // re-enqueue pending (Again) jobs to gc_jobs for next round
-                    if !self.gc_jobs.is_empty() {
-                        scope.job_list.extend(self.gc_jobs.drain(..));
+                // re-enqueue pending (Again) jobs to gc_jobs for next round
+                if !self.gc_jobs.is_empty() {
+                    cx.job_list.extend(self.gc_jobs.drain(..));
+                    more_ticks = true;
+                }
+
+                // 2. run tick handlers
+                let ctx_ptr = ContextPtr::from(cx.gc_ref());
+                for f in ctx_ptr.tick_handlers.iter() {
+                    if f(&mut cx) {
                         more_ticks = true;
                     }
+                }
 
-                    // 2. run tick handlers
-                    let ctx_ptr = ContextPtr::from(scope.gc_ref());
-                    for f in ctx_ptr.tick_handlers.iter() {
-                        if f(&mut scope) {
-                            more_ticks = true;
-                        }
-                    }
-
-                    scope.return_value(Ok(()))
-                })?
-            };
+                cx.return_value(Ok(()))
+            })?;
         }
 
         if self.gc_req || self.gc_heap().should_gc() {

@@ -277,7 +277,7 @@ impl ContextPtr {
     ///
     /// The caller must ensure the context is in a valid state for creating
     /// a new scope (i.e., there is a current scope to serve as parent).
-    pub(crate) unsafe fn with_new_scope_internal<R: ScopeResult>(
+    pub(crate) fn with_new_scope_internal<R: ScopeResult>(
         &mut self,
         f: impl FnOnce(ScopedContext<'_>) -> ScopeReturn<R>,
     ) -> R {
