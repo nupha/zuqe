@@ -196,13 +196,14 @@ impl<'a> ScopedContext<'a> {
     ///
     /// The returned `MustReturn<R>` wrapper (with `#[must_use]`) ensures
     /// the value is properly propagated through `with_new_scope`.
+    #[inline]
     pub fn return_value<R: ScopeResult>(self, value: R) -> ScopeReturn<R> {
-        let result = value.promote(&self);
-        ScopeReturn::new(result)
+        let res = value.promote(&self);
+        ScopeReturn::new(res)
     }
 
-    /// flush protected nodes inside.
-    pub fn flush(&self) {
+    /// clear protected nodes inside.
+    pub(crate) fn clear(&self) {
         let s = self.gc();
         let stack_id = self.ctx_ptr.scope_stack_id();
         debug_assert!(s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth(stack_id));

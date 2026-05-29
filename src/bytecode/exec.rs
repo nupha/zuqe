@@ -2524,13 +2524,13 @@ impl Bytecode {
                 #[cfg(all(debug_assertions, feature = "debug_gc"))]
                 {
                     // flush nodes in exec scope after each instruction
-                    realm_scope.flush();
+                    realm_scope.clear();
                     // perform garbage collect after each opcode execution to strictly ensure gc is correct.
                     rt.gc_collect();
                 }
                 #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
                 if rt.gc_req {
-                    realm_scope.flush(); // flush nodes in exec scope
+                    realm_scope.clear(); // clear nodes in exec scope
                     rt.gc_collect();
                 }
             }; // opcodes loop
