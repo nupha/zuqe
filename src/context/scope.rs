@@ -199,6 +199,13 @@ impl<'a> ScopedContext<'a> {
         #[cfg(debug_assertions)]
         {
             let _d1 = self.depth();
+            debug_assert_eq!(
+                _d1,
+                self.gc_heap().scope_max_depth(self.scope_stack_id()),
+                "with_new_scope: self (depth={}) must be the innermost scope (max_depth={})",
+                _d1,
+                self.gc_heap().scope_max_depth(self.scope_stack_id()),
+            );
             let s = self.ctx_ptr.new_scope();
 
             let ret_val = f(s);
@@ -258,6 +265,14 @@ impl ContextPtr {
     ) -> R {
         #[cfg(debug_assertions)]
         let _d1 = self.current_scope().gc().depth();
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            _d1,
+            self.gc_heap().scope_max_depth(self.scope_stack_id()),
+            "with_new_scope_internal: current scope (depth={}) must be innermost (max_depth={})",
+            _d1,
+            self.gc_heap().scope_max_depth(self.scope_stack_id()),
+        );
 
         let s = self.new_scope();
         debug_assert!(
