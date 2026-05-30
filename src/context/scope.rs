@@ -99,6 +99,15 @@ impl_scope_result_noop!(
 #[derive(Debug)]
 pub(crate) enum GcScopeType<'a> {
     Owned(GcScope<'a>),
+
+    // Note: Do NOT store `&'a GcScopeState<'a>` here. A direct reference
+    // into the scope Vec would become dangling if the Vec is reallocated
+    // (via `ContextPtr::new_scope` -> `GcHeap::new_scope`). This is not
+    // caught by Rust's borrow checker because `ContextPtr` is `Copy` and
+    // the scope access goes through `unsafe` code. Store `(stack_id, depth)`
+    // instead and resolve the reference dynamically via `ctx_ptr.gc_heap()`.
+    //
+    // Use depth primitive is safer.
     Ref { stack_id: GcScopeStackId, depth: u8 },
 }
 
