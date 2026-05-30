@@ -197,10 +197,8 @@ impl Promise {
 
         match state {
             PromiseState::Pending => {
-                // bind reference relation for reaction values
-                let self_node = self.gc_ref().node_ptr();
-                let mut rt = ctx.rt_ptr();
-                for v in [
+                // bind write barrier
+                [
                     success.resolving_funcs[0],
                     success.resolving_funcs[1],
                     success.handler,
@@ -209,11 +207,11 @@ impl Promise {
                     fail.handler,
                 ]
                 .iter()
-                {
-                    if let Some(n) = v.gc_node_ptr() {
-                        rt.gc_heap_mut().bind(self_node, n);
-                    }
-                }
+                .filter_map(|v| v.gc_node_ptr())
+                .for_each(|n| {
+                    ctx.gc_heap_mut().bind(self.gc_node_ptr(), n);
+                });
+
                 self.payload_mut().add_reaction(success, fail);
             }
             _ => {
@@ -267,10 +265,8 @@ impl Promise {
     /// Save result `value` and update promise status to 'fulfilled' or 'rejected'.
     /// Call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     fn settle(&mut self, ctx: &mut ScopedContext, value: JSValue, is_reject: bool) {
-        // bind reference relation before settling
         if let Some(n) = value.gc_node_ptr() {
-            let self_node = self.gc_ref().node_ptr();
-            ctx.rt_ptr().gc_heap_mut().bind(self_node, n);
+            ctx.gc_heap_mut().bind(self.gc_node_ptr(), n); // write barrier
         }
 
         let (state, is_handled) = {
@@ -283,7 +279,7 @@ impl Promise {
                 PromiseState::Fulfilled
             };
             p.set_state(s);
-            p.set_result(value); // value will be traced by Promise itself
+            p.set_result(value);
 
             (s, p.is_handled())
         };
