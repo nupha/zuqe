@@ -146,7 +146,7 @@ impl Drop for ContextImpl {
 }
 
 impl ContextImpl {
-    pub fn new(rt: &mut RuntimeImpl) -> Result<Self, i32> {
+    fn new(rt: &mut RuntimeImpl) -> Result<Self, i32> {
         let class_proto = {
             let n = rt.class_registry.len();
             let mut lst = Vec::<ProtoCtorPair>::new();
@@ -329,7 +329,7 @@ impl ContextImpl {
     }
 }
 
-impl ContextImpl {
+impl<'c> ScopedContext<'c> {
     /// Standard ECMAScript context setup function.
     /// Can be passed to `RuntimeImpl::create_context`.
     pub const ECMA_CONTEXT_SETUP: fn(&mut ScopedContext) -> Result<(), i32> =
@@ -532,9 +532,10 @@ impl RuntimeImpl {
                 return cx.return_value(Err(e));
             }
             cx.global_var_obj = Some(r3.unwrap());
+
             // user initialization
-            let result = setup(&mut cx);
-            cx.return_value(result)
+            let res = setup(&mut cx);
+            cx.return_value(res)
         })?;
 
         Ok(top)
