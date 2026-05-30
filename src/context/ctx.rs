@@ -85,41 +85,41 @@ pub struct ContextImpl {
 }
 
 impl GcTrace for ContextImpl {
-    fn trace(&self, tr: &mut GcTraceCtx) {
+    fn trace(&self, gcx: &mut GcTraceCtx) {
         self.class_slots.iter().for_each(|x| {
             if let Some(o) = x.proto.as_ref() {
-                o.trace(tr);
+                o.trace(gcx);
             }
             if let Some(o) = x.ctor.as_ref() {
-                o.trace(tr);
+                o.trace(gcx);
             }
         });
-        self.error_protos.iter().for_each(|x| x.trace(tr));
+        self.error_protos.iter().for_each(|x| x.trace(gcx));
 
         if let Some(x) = self.array_shape.as_ref() {
-            x.trace(tr)
+            x.trace(gcx)
         }
         if let Some(x) = self.iterator_proto {
-            x.trace(tr)
+            x.trace(gcx)
         }
         if let Some(x) = self.async_iterator_proto {
-            x.trace(tr)
+            x.trace(gcx)
         }
-        self.array_proto_values.trace(tr);
+        self.array_proto_values.trace(gcx);
 
-        self.throw_type_error.trace(tr);
-        self.eval_func.trace(tr);
-        self.loaded_modules.iter().for_each(|x| x.trace(tr));
+        self.throw_type_error.trace(gcx);
+        self.eval_func.trace(gcx);
+        self.loaded_modules.iter().for_each(|x| x.trace(gcx));
 
         if let Some(o) = self.global_obj.as_ref() {
-            o.trace(tr)
+            o.trace(gcx)
         };
         if let Some(o) = self.global_var_obj.as_ref() {
-            o.trace(tr)
+            o.trace(gcx)
         };
 
         // pending jobs
-        self.job_list.iter().for_each(|x| x.trace(tr));
+        self.job_list.iter().for_each(|x| x.trace(gcx));
     }
 }
 

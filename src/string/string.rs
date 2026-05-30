@@ -4,7 +4,7 @@
 use std::{
     cmp::Ordering,
     ffi::CStr,
-    ops::{Deref, DerefMut, Range},
+    ops::{Deref, Range},
 };
 
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
