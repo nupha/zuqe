@@ -412,59 +412,50 @@ impl<'s> JSParseState<'s> {
                         break;
                     }
                 }
-                TokenKind::Char(';') => {
-                    if level == 2 {
-                        bits |= SKIP_HAS_SEMI;
-                    }
+                TokenKind::Char(';') if level == 2 => {
+                    bits |= SKIP_HAS_SEMI;
                 }
                 TokenKind::Char('=') => {
                     bits |= SKIP_HAS_ASSIGNMENT;
                 }
-                TokenKind::DIV_ASSIGN | TokenKind::Char('/') => {
-                    if is_regexp_syntax(last_tok) {
-                        #[cfg(feature = "builtin_regexp")]
-                        {
-                            self.buf_ptr = unsafe {
-                                self.buf_ptr
-                                    .offset(if self.token.kind == TokenKind::DIV_ASSIGN {
-                                        -2
-                                    } else {
-                                        -1
-                                    })
-                            };
+                TokenKind::DIV_ASSIGN | TokenKind::Char('/') if is_regexp_syntax(last_tok) => {
+                    #[cfg(feature = "builtin_regexp")]
+                    {
+                        self.buf_ptr = unsafe {
+                            self.buf_ptr
+                                .offset(if self.token.kind == TokenKind::DIV_ASSIGN {
+                                    -2
+                                } else {
+                                    -1
+                                })
+                        };
 
-                            if self.parse_regexp().is_err() {
-                                self.ctx().rt_mut().clear_exception();
-                                break;
-                            }
-                        }
-
-                        #[cfg(not(feature = "builtin_regexp"))]
-                        {
-                            self.throw_syntax_error("regex not supported");
-                            return Err(-1);
-                        }
-                    }
-                }
-                TokenKind::TEMPLATE => {
-                    // handle_template:
-                    if self.token.data.string_sep().unwrap() != '`' as i32 {
-                        // '${' inside the template : closing '}' and continue
-                        // parsing the template
-                        if level >= 256 {
+                        if self.parse_regexp().is_err() {
+                            self.ctx().rt_mut().clear_exception();
                             break;
                         }
-                        state[level] = b'`';
-                        level += 1;
                     }
+
+                    #[cfg(not(feature = "builtin_regexp"))]
+                    {
+                        self.throw_syntax_error("regex not supported");
+                        return Err(-1);
+                    }
+                }
+                TokenKind::TEMPLATE if self.token.data.string_sep().unwrap() != '`' as i32 => {
+                    // '${' inside the template : closing '}' and continue
+                    // parsing the template
+                    if level >= 256 {
+                        break;
+                    }
+                    state[level] = b'`';
+                    level += 1;
                 }
                 TokenKind::EOF => {
                     break;
                 }
-                TokenKind::ELLIPSIS => {
-                    if level == 2 {
-                        bits |= SKIP_HAS_ELLIPSIS;
-                    }
+                TokenKind::ELLIPSIS if level == 2 => {
+                    bits |= SKIP_HAS_ELLIPSIS;
                 }
 
                 _ => {}
