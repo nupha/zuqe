@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cell::UnsafeCell;
+use std::{cell::UnsafeCell, ops::DerefMut};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
@@ -536,7 +536,7 @@ impl TypedArray {
 
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut TypedArrayPayload {
-        self.0.payload_mut().typed_array_mut().unwrap()
+        self.deref_mut().payload_mut().typed_array_mut().unwrap()
     }
 
     /// check if the TypedArray is detached.

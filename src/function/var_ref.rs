@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ptr::NonNull;
+use std::{ops::DerefMut, ptr::NonNull};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
@@ -111,7 +111,7 @@ gcref_wrapper!(VarRef, VarRefImpl);
 impl VarRef {
     /// update variable value
     pub(crate) fn set_value(&mut self, rt: &mut RuntimeImpl, new_value: JSValue) {
-        self.0.set_value_internal(new_value);
+        self.deref_mut().set_value_internal(new_value);
 
         if let Some(n) = new_value.gc_node_ptr() {
             rt.gc_heap_mut().bind(self.gc_node_ptr(), n);

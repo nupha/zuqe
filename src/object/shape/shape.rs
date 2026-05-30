@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 use hash_link::HashList;
@@ -171,7 +171,11 @@ impl Drop for Shape {
 
 impl Clone for Shape {
     fn clone(&self) -> Self {
-        self.gc_ref().use_count += 1;
+        // SAFETY: use_count is a non-GC field, no write barrier needed.
+        unsafe {
+            let ptr: *mut ShapeImpl = self.0.as_ptr().as_ptr();
+            (*ptr).use_count += 1;
+        }
         Self(self.gc_ref())
     }
 }
@@ -185,10 +189,12 @@ impl Deref for Shape {
     }
 }
 
-impl DerefMut for Shape {
+// SAFETY: ShapeImpl only contains non-GC fields (use_count, prop_defs, etc.),
+// no child GC nodes, so using DerefMut has no write barrier issue.
+impl std::ops::DerefMut for Shape {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0.deref_mut()
+        unsafe { &mut *self.0.as_ptr().as_ptr() }
     }
 }
 

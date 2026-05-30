@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
-};
+use std::{ops::Deref, ptr::NonNull};
 
-use gc_lite::{GcError, GcHead, GcNode, GcRef, GcScope, GcScopeStackId, GcScopeState};
+use gc_lite::{GcError, GcHead, GcHeap, GcNode, GcRef, GcScope, GcScopeStackId, GcScopeState};
 
 use crate::{ExceptionText, JSValue, context::ContextPtr};
 
@@ -143,10 +140,23 @@ impl<'a> Deref for ScopedContext<'a> {
     }
 }
 
-impl<'a> DerefMut for ScopedContext<'a> {
+// TODO: remove this.
+// SAFETY: ScopedContext has child GC nodes (via ContextPtr).
+// DerefMut is provided for convenience, but callers should prefer
+// with_mut() which applies the write barrier automatically.
+// When using DerefMut directly, callers must ensure write barrier correctness.
+impl<'a> std::ops::DerefMut for ScopedContext<'a> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ctx_ptr.deref_mut()
+        unsafe { &mut *self.ctx_ptr.gc_ref().as_ptr().as_ptr() }
+    }
+}
+
+impl<'a> ScopedContext<'a> {
+    /// Mutate the inner ContextImpl with a GC write barrier.
+    #[inline(always)]
+    pub fn with_mut<R>(&mut self, heap: &mut GcHeap, f: impl FnOnce(&mut ContextImpl) -> R) -> R {
+        self.ctx_ptr.with_mut(heap, f)
     }
 }
 
@@ -373,10 +383,23 @@ impl<'c> Deref for TopLevelContext<'c> {
     }
 }
 
-impl<'c> DerefMut for TopLevelContext<'c> {
+// TODO: remove this.
+// SAFETY: TopLevelContext has child GC nodes (via ContextPtr).
+// DerefMut is provided for convenience, but callers should prefer
+// with_mut() which applies the write barrier automatically.
+// When using DerefMut directly, callers must ensure write barrier correctness.
+impl<'c> std::ops::DerefMut for TopLevelContext<'c> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ctx_ptr.deref_mut()
+        unsafe { &mut *self.ctx_ptr.gc_ref().as_ptr().as_ptr() }
+    }
+}
+
+impl<'c> TopLevelContext<'c> {
+    /// Mutate the inner ContextImpl with a GC write barrier.
+    #[inline(always)]
+    pub fn with_mut<R>(&mut self, heap: &mut GcHeap, f: impl FnOnce(&mut ContextImpl) -> R) -> R {
+        self.ctx_ptr.with_mut(heap, f)
     }
 }
 

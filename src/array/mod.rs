@@ -115,7 +115,8 @@ impl Array {
 
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut ArrayPayload {
-        self.0.payload_mut().array_mut().unwrap()
+        let obj: &mut Object = self;
+        obj.payload_mut().array_mut().unwrap()
     }
 
     /// get `length` property value

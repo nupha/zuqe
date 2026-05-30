@@ -97,9 +97,10 @@ impl RuntimeImpl {
             lst.iter()
                 .filter_map(|w| w.upgrade(heap))
                 .find(|sh| sh.proto == proto && sh.prop_defs.count() == 0)
-                .map(|mut s| {
-                    s.use_count += 1;
-                    Shape::from(s)
+                .map(|s| {
+                    let mut sh = Shape::from(s);
+                    sh.use_count += 1;
+                    sh
                 })
         })
     }
@@ -122,7 +123,7 @@ impl RuntimeImpl {
 
         let heap = self.gc_heap();
 
-        if let Some(mut found) = self.shape_registry.get(&hash).and_then(|lst| {
+        if let Some(found) = self.shape_registry.get(&hash).and_then(|lst| {
             lst.iter()
                 .filter_map(|w| w.upgrade(heap))
                 .find(|sh| sh.proto == base_shape.proto && sh.prop_defs.len() == ttl_len)
@@ -138,8 +139,9 @@ impl RuntimeImpl {
                 .last()
                 .is_some_and(|pr| pr.atom == prop && pr.flags() == prop_flags)
             {
-                found.use_count += 1;
-                return Some(Shape::from(found));
+                let mut sh = Shape::from(found);
+                sh.use_count += 1;
+                return Some(sh);
             }
         }
 

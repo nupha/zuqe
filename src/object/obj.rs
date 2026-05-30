@@ -558,7 +558,8 @@ impl ObjectImpl {
             let heap = rt.gc_heap();
             let this = Object::from(self.gc_ref());
 
-            for mut o in self.weak_refs.drain(..).filter_map(|w| w.upgrade(heap)) {
+            for o in self.weak_refs.drain(..).filter_map(|w| w.upgrade(heap)) {
+                let mut o = Object::from(o);
                 if let Some(ms) = o.payload_mut().mapset_mut() {
                     ms.remove_weak_obj(this);
                 }

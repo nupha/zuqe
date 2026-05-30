@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, ops::DerefMut, rc::Rc};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
@@ -287,11 +287,14 @@ impl AsyncIterableIterator {
     pub fn payload_mut(&mut self) -> &mut AsyncIterPayload {
         #[cfg(debug_assertions)]
         {
-            self.0.payload_mut().async_iterator_mut().unwrap()
+            self.deref_mut().payload_mut().async_iterator_mut().unwrap()
         }
         #[cfg(not(debug_assertions))]
         unsafe {
-            self.0.payload_mut().async_iterator_mut().unwrap_unchecked()
+            self.deref_mut()
+                .payload_mut()
+                .async_iterator_mut()
+                .unwrap_unchecked()
         }
     }
 

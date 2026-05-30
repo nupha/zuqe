@@ -3,6 +3,7 @@
 
 use std::{
     ffi::c_void,
+    ops::DerefMut,
     ptr::NonNull,
     sync::{Arc, RwLock},
 };
@@ -346,7 +347,7 @@ impl ArrayBuffer {
     /// get array buffer payload
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut ArrayBufferPayload {
-        self.0.payload_mut().array_buffer_mut().unwrap()
+        self.deref_mut().payload_mut().array_buffer_mut().unwrap()
     }
 
     pub fn is_detached(&self) -> bool {
@@ -369,11 +370,12 @@ impl ArrayBuffer {
             let rt = ctx.rt_ptr();
             let heap = rt.gc_heap();
 
-            for mut o in abuf
+            for o in abuf
                 .typed_array_list
                 .drain(..)
                 .filter_map(|w| w.upgrade(heap))
             {
+                let mut o = Object::from(o);
                 // the typed array length and offset fields are not modified, only set count to 0
                 debug_assert!(
                     o.payload_mut().typed_array_mut().is_some(),

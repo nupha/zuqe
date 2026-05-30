@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cell::Cell;
+use std::{cell::Cell, ops::DerefMut};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
@@ -276,7 +276,7 @@ impl Proxy {
     /// get proxy payload reference
     #[inline(always)]
     pub(super) fn payload_mut(&mut self) -> &mut ProxyPayload {
-        if let ObjectPayload::PROXY(s) = self.0.payload_mut() {
+        if let ObjectPayload::PROXY(s) = self.deref_mut().payload_mut() {
             s.as_mut()
         } else {
             #[cfg(debug_assertions)]

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ops::DerefMut;
+
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
@@ -195,7 +197,7 @@ impl BCWrapper {
     /// get bcfunction payload
     #[inline]
     pub fn payload_mut(&mut self) -> &mut BFuncPayload {
-        self.0.payload_mut().bc_function_mut().unwrap()
+        self.deref_mut().payload_mut().bc_function_mut().unwrap()
     }
 
     pub(crate) fn method_set_home_object(&mut self, home_obj: Option<Object>) {
@@ -387,7 +389,7 @@ impl BytecodeFunction {
 
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut BFuncPayload {
-        self.0.payload_mut().bc_function_mut().unwrap()
+        self.deref_mut().payload_mut().bc_function_mut().unwrap()
     }
 
     /// Run Bytecode Function in given scope.

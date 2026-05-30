@@ -3,6 +3,7 @@
 
 use std::{
     cell::{Cell, RefCell},
+    ops::DerefMut,
     rc::Rc,
     sync::{Arc, Mutex},
 };
@@ -488,11 +489,14 @@ impl Promise {
     pub fn payload_mut(&mut self) -> &mut PromisePayload {
         #[cfg(debug_assertions)]
         {
-            self.0.payload_mut().promise_mut().unwrap()
+            self.deref_mut().payload_mut().promise_mut().unwrap()
         }
         #[cfg(not(debug_assertions))]
         unsafe {
-            self.0.payload_mut().promise_mut().unwrap_unchecked()
+            self.deref_mut()
+                .payload_mut()
+                .promise_mut()
+                .unwrap_unchecked()
         }
     }
 

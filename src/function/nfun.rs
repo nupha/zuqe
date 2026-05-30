@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ptr::NonNull;
+use std::{ops::DerefMut, ptr::NonNull};
 
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
@@ -321,7 +321,7 @@ impl NativeFunction {
 
     #[inline(always)]
     pub(crate) fn payload_mut(&mut self) -> &mut NFuncPayload {
-        self.0.payload_mut().native_func_mut().unwrap()
+        self.deref_mut().payload_mut().native_func_mut().unwrap()
     }
 }
 

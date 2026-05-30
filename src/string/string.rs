@@ -308,10 +308,12 @@ impl Deref for StringRef {
     }
 }
 
-impl DerefMut for StringRef {
+// SAFETY: StringImpl only contains string content data,
+// no child GC nodes, so using DerefMut has no write barrier issue.
+impl std::ops::DerefMut for StringRef {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0.deref_mut()
+        unsafe { &mut *self.0.as_ptr().as_ptr() }
     }
 }
 

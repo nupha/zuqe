@@ -6,7 +6,7 @@ use std::{pin::Pin, ptr::NonNull};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    ScopeReturn, ScopedContext,
+    ScopedContext,
     context::ContextPtr,
     error::JSResult,
     function::BCWrapper,
@@ -263,17 +263,20 @@ impl AsyncState {
         args: &[JSValue],
     ) -> Result<Self, i32> {
         let inner = AsyncStateImpl::new(ctx.into(), resolvings, bytecode_func, this_obj, args)?;
-        let mut a_state = ctx.alloc_local(inner).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        let mut a_state: AsyncState = ctx
+            .alloc_local(inner)
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?
+            .into();
 
         // setup backref link: StackFrame::async_state => GcWeak<AsyncStateImpl>
         unsafe {
-            let w = a_state.downgrade(ctx.gc_heap_mut());
+            let w = a_state.gc_ref().downgrade(ctx.gc_heap_mut());
             a_state.stack_frame.as_mut().get_unchecked_mut().async_state = w;
         }
 
-        Ok(Self(a_state))
+        Ok(a_state)
     }
 }

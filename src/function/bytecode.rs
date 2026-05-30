@@ -459,7 +459,7 @@ impl BytecodeImpl {
 #[derive(Clone, Copy, PartialEq)]
 pub struct Bytecode(GcRef<BytecodeImpl>);
 
-gcref_wrapper!(Bytecode, BytecodeImpl);
+gcref_wrapper!(Bytecode, BytecodeImpl, deref_mut);
 
 impl From<Bytecode> for JSValue {
     #[inline(always)]
