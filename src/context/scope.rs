@@ -232,7 +232,24 @@ impl<'a> ScopedContext<'a> {
             let s = self.ctx_ptr.new_scope();
 
             let ret_val = f(s);
-            debug_assert_eq!(_d1, self.depth(), "{self:p}: {self:?}");
+
+            #[cfg(debug_assertions)]
+            {
+                // NOTE: After `f(s)` returns, `s` has been dropped and the child scope
+                // has been popped from the stack. However, if `self.gc_scope` is
+                // `GcScopeType::Ref`, the reference may have been invalidated by Vec
+                // reallocation during `new_scope()`. Use `ctx_ptr` to safely query
+                // the heap for the current scope depth instead of `self.depth()`.
+                let stack_id = self.ctx_ptr.scope_stack_id();
+                debug_assert_eq!(
+                    _d1,
+                    self.ctx_ptr.gc_heap().scope_max_depth(stack_id),
+                    "{:p}: {:?}",
+                    self.ctx_ptr.id() as *const std::ffi::c_void,
+                    self.ctx_ptr,
+                );
+            }
+
             ret_val.into_inner()
         }
 
