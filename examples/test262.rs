@@ -16,8 +16,8 @@ use std::{
 use clap::Parser;
 use serde::Deserialize;
 use zuqe::{
-    CallContext, Callback, ContextImpl, EvalFlags, EvalType, ExceptionText, JS_PROP_C_W_E,
-    JSResult, JSValue, ModuleDef, Runtime, ScopedContext, TopLevelContext,
+    CallContext, Callback, EvalFlags, EvalType, ExceptionText, JS_PROP_C_W_E, JSResult, JSValue,
+    ModuleDef, Runtime, ScopedContext, TopLevelContext,
 };
 
 /// counter of "Test262:AsyncTestComplete" messages
@@ -142,10 +142,9 @@ fn js_string_codePointRange(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
 
 fn js_createRealm(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     // SAFETY: ctx2 is used immediately and dropped before rt.
-    let mut ctx2 = unsafe {
-        ctx.rt_mut()
-            .create_context(ContextImpl::ECMA_CONTEXT_SETUP)?
-    };
+    let mut ctx2 = ctx
+        .rt_mut()
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
     ctx2.with_new_scope(|mut scope| {
         let result = setup_ctx_test262_helpers(&mut scope);
         scope.return_value(result)
@@ -695,7 +694,7 @@ async fn run_test_file(
     // SAFETY: ctx is used within this function and dropped before rt.
     let mut ctx = rt
         .create_context(|ctx| {
-            ContextImpl::ECMA_CONTEXT_SETUP(ctx)?;
+            ScopedContext::ECMA_CONTEXT_SETUP(ctx)?;
             setup_ctx_test262_helpers(ctx)?;
             Ok(())
         })

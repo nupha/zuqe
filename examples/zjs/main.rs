@@ -15,8 +15,8 @@ use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use libloading::Library;
 use zuqe::{
-    ContextImpl, EvalFlags, EvalType, Exception, ModuleDef, Runtime, ScopedContext,
-    TopLevelContext, builtins::promise::Promise,
+    EvalFlags, EvalType, Exception, ModuleDef, Runtime, ScopedContext, TopLevelContext,
+    builtins::promise::Promise,
 };
 
 use crate::{
@@ -197,7 +197,7 @@ fn run_zjs_prepare() -> (Runtime, TopLevelContext<'static>, Args, String, bool) 
 
     let ctx = rt
         .create_context(|cx| {
-            ContextImpl::ECMA_CONTEXT_SETUP(cx)?;
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
 
             cx.use_class(class_id_file).unwrap();
             cx.use_class(class_id_emitter).unwrap();
