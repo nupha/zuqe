@@ -189,8 +189,6 @@ impl Deref for Shape {
     }
 }
 
-// SAFETY: ShapeImpl only contains non-GC fields (use_count, prop_defs, etc.),
-// no child GC nodes, so using DerefMut has no write barrier issue.
 impl std::ops::DerefMut for Shape {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {

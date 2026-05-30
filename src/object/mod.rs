@@ -15,44 +15,13 @@ pub use {obj::*, payload::*, property::*, shape::*};
 
 #[macro_export]
 macro_rules! gcref_wrapper {
-    // With DerefMut (for types without GC child nodes, e.g. Bytecode)
-    // SAFETY: This Gc node does not involve adding child GC nodes,
-    // so using DerefMut has no write barrier issue.
-    ($ty:ident, $in_ty:ident, deref_mut) => {
+     ($ty:ident, $in_ty:ident) => {
         $crate::gcref_wrapper!(@base $ty, $in_ty);
 
         impl std::ops::DerefMut for $ty {
             #[inline(always)]
             fn deref_mut(&mut self) -> &mut Self::Target {
                 unsafe { &mut *self.0.as_ptr().as_ptr() }
-            }
-        }
-    };
-
-    // Without DerefMut (for types with GC child nodes, must use with_mut)
-    // SAFETY: This Gc node has child GC nodes, so callers should prefer
-    // with_mut() which applies the write barrier automatically.
-    // DerefMut is provided for convenience, but when using it directly,
-    // callers must ensure write barrier correctness.
-    ($ty:ident, $in_ty:ident) => {
-        $crate::gcref_wrapper!(@base $ty, $in_ty);
-
-        impl std::ops::DerefMut for $ty {
-            #[inline(always)]
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                unsafe { &mut *self.0.as_ptr().as_ptr() }
-            }
-        }
-
-        impl $ty {
-            /// Mutate the inner payload with a GC write barrier.
-            #[inline(always)]
-            pub fn with_mut<R>(
-                &mut self,
-                heap: &mut gc_lite::GcHeap,
-                f: impl FnOnce(&mut $in_ty) -> R,
-            ) -> R {
-                self.0.with_mut(heap, f)
             }
         }
     };

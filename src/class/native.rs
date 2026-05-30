@@ -191,12 +191,14 @@ macro_rules! def_native_object_struct {
         impl std::ops::Deref for $native_ty {
             type Target = $crate::Object;
 
+            #[inline(always)]
             fn deref(&self) -> &Self::Target {
                 &self.0
             }
         }
 
         impl std::ops::DerefMut for $native_ty {
+            #[inline(always)]
             fn deref_mut(&mut self) -> &mut Self::Target {
                 &mut self.0
             }
@@ -227,12 +229,14 @@ macro_rules! def_native_object_struct {
         }
 
         impl From<$native_ty> for $crate::Object {
+            #[inline(always)]
             fn from(v: $native_ty) -> Self {
                 v.0.into()
             }
         }
 
         impl From<$native_ty> for $crate::JSValue {
+            #[inline(always)]
             fn from(v: $native_ty) -> Self {
                 v.0.into()
             }
