@@ -6,7 +6,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{GcError, GcHead, GcNode, GcRef, GcScope, GcScopeState};
+use gc_lite::{GcError, GcHead, GcNode, GcRef, GcScope, GcScopeStackId, GcScopeState};
 
 use crate::{ExceptionText, JSValue, context::ContextPtr};
 
@@ -99,7 +99,7 @@ impl_scope_result_noop!(
 #[derive(Debug)]
 pub(crate) enum GcScopeType<'a> {
     Owned(GcScope<'a>),
-    Ref(&'a GcScopeState<'a>),
+    Ref { stack_id: GcScopeStackId, depth: u8 },
 }
 
 #[derive(Debug)]
@@ -168,7 +168,13 @@ impl<'a> ScopedContext<'a> {
     pub(crate) fn gc(&self) -> &GcScopeState<'_> {
         match &self.gc_scope {
             GcScopeType::Owned(s) => s.deref(),
-            GcScopeType::Ref(s) => s,
+            GcScopeType::Ref {
+                stack_id, depth, ..
+            } => self
+                .ctx_ptr
+                .gc_heap()
+                .scope(*stack_id, *depth)
+                .expect("Ref scope must exist"),
         }
     }
 
@@ -232,24 +238,7 @@ impl<'a> ScopedContext<'a> {
             let s = self.ctx_ptr.new_scope();
 
             let ret_val = f(s);
-
-            #[cfg(debug_assertions)]
-            {
-                // NOTE: After `f(s)` returns, `s` has been dropped and the child scope
-                // has been popped from the stack. However, if `self.gc_scope` is
-                // `GcScopeType::Ref`, the reference may have been invalidated by Vec
-                // reallocation during `new_scope()`. Use `ctx_ptr` to safely query
-                // the heap for the current scope depth instead of `self.depth()`.
-                let stack_id = self.ctx_ptr.scope_stack_id();
-                debug_assert_eq!(
-                    _d1,
-                    self.ctx_ptr.gc_heap().scope_max_depth(stack_id),
-                    "{:p}: {:?}",
-                    self.ctx_ptr.id() as *const std::ffi::c_void,
-                    self.ctx_ptr,
-                );
-            }
-
+            debug_assert_eq!(_d1, self.depth(), "{self:p}: {self:?}");
             ret_val.into_inner()
         }
 
@@ -334,7 +323,10 @@ impl ContextImpl {
         if let Some(s) = self.gc_heap().current_scope(stack_id) {
             ScopedContext {
                 ctx_ptr: self.gc_ref().into(),
-                gc_scope: GcScopeType::Ref(s),
+                gc_scope: GcScopeType::Ref {
+                    stack_id,
+                    depth: s.depth(),
+                },
             }
         } else {
             unreachable!()
@@ -407,14 +399,9 @@ impl<'c> TopLevelContext<'c> {
     /// and managed by `RuntimeImpl`), so this never returns `None`.
     pub fn as_scoped(&self) -> ScopedContext<'_> {
         let stack_id = self.ctx_ptr.scope_stack_id();
-        let scope = self
-            .ctx_ptr
-            .gc_heap()
-            .scope(stack_id, 1)
-            .expect("top-level scope must exist");
         ScopedContext {
             ctx_ptr: self.ctx_ptr,
-            gc_scope: GcScopeType::Ref(scope),
+            gc_scope: GcScopeType::Ref { stack_id, depth: 1 },
         }
     }
 
