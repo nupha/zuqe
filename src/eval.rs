@@ -221,7 +221,7 @@ impl<'c> ScopedContext<'c> {
 
     /// Compile source and run to get result.
     ///
-    /// Generic eval entry for either global or module mode.
+    /// Eval in either global or module mode, eval in `self` scope.
     pub fn eval(
         &mut self,
         source: &[u8],

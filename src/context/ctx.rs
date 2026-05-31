@@ -513,6 +513,11 @@ impl<'c> Context<'c> {
         }
     }
 
+    /// Run closure in root scope.
+    pub fn with_root_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
+        self.with_current_scope(f)
+    }
+
     /// Create a child scope, run closure in it.
     pub fn with_new_scope<R: ScopeResult>(
         &mut self,
