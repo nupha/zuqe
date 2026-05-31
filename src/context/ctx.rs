@@ -14,11 +14,12 @@ use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_ASYNC_ITERABLE_ITERATOR,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
-    JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, Job,
+    JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, Job, ScopeResult,
+    ScopeReturn,
     atom::Atom,
     builtins::global::js_global_props,
     class::ClassID,
-    context::{Context, ScopedContext},
+    context::{ScopedContext, scope::GcScopeType},
     error::STD_ERROR_COUNT,
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
@@ -440,7 +441,88 @@ impl<'c> ScopedContext<'c> {
         };
 }
 
-/// A light-weight context pointer, efficent to copy, like a raw pointer.
+/// A context that represents top-level GC scope.
+///
+/// Created by `RuntimeImpl::create_context`. Unlike `ScopedContext`, this type
+/// is `Copy` and does **not** own a GC scope — the top-level scope is managed
+/// by `RuntimeImpl`. Use `as_scoped()` or `with_new_scope()` to obtain a
+/// `ScopedContext` for operations that require a scope.
+///
+/// `TopLevelContext` derefs to `ContextImpl`, so all context methods that
+/// don't need a scope are available directly.
+pub struct Context<'c> {
+    pub(super) ctx_ptr: ContextPtr,
+    pub(super) _marker: std::marker::PhantomData<&'c ()>,
+}
+
+impl<'c> std::ops::Deref for Context<'c> {
+    type Target = ContextImpl;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        self.ctx_ptr.deref()
+    }
+}
+
+// SAFETY: ContextImpl is a LOCAL GC node (allocated via alloc_local).
+// LOCAL nodes are reset to GRAY at the start of every GC cycle (mark_prepare),
+// so they are never BLACK. Write barrier (bind/with_mut) is only needed when
+// a BLACK master references a WHITE slave — since ContextImpl is never BLACK,
+// it has no write barrier requirement. DerefMut is safe to use directly.
+impl<'c> std::ops::DerefMut for Context<'c> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.ctx_ptr.gc_ref().as_ptr().as_ptr() }
+    }
+}
+
+impl<'c> From<Context<'c>> for ContextPtr {
+    #[inline(always)]
+    fn from(value: Context<'c>) -> Self {
+        value.ctx_ptr
+    }
+}
+
+impl<'c> From<&Context<'c>> for ContextPtr {
+    #[inline(always)]
+    fn from(value: &Context<'c>) -> Self {
+        value.ctx_ptr
+    }
+}
+
+impl<'c> From<&mut Context<'c>> for ContextPtr {
+    #[inline(always)]
+    fn from(value: &mut Context<'c>) -> Self {
+        value.ctx_ptr
+    }
+}
+
+impl std::fmt::Debug for Context<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<Context {:p}>", self.id() as *const c_void)
+    }
+}
+
+impl<'c> Context<'c> {
+    /// Obtain a `ScopedContext` representing the top-level GC scope.
+    pub fn root_scope(&self) -> ScopedContext<'_> {
+        let stack_id = self.ctx_ptr.scope_stack_id();
+        ScopedContext {
+            ctx_ptr: self.ctx_ptr,
+            gc_scope: GcScopeType::Ref { stack_id, depth: 1 },
+        }
+    }
+
+    /// Create a child scope, run closure in it.
+    pub fn with_new_scope<R: ScopeResult>(
+        &mut self,
+        f: impl FnOnce(ScopedContext<'_>) -> ScopeReturn<R>,
+    ) -> R {
+        self.root_scope().with_new_scope(f)
+    }
+}
+
+/// A light-weight context raw pointer, efficent to copy, like a raw pointer.
 /// It can be dereferenced to ref or mut ref automatically.
 /// Safety: you are responsible to take more care to use it safe, keep in mind pointer could be dangling.
 ///

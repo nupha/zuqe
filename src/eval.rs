@@ -4,6 +4,7 @@
 use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
+    Context, ExceptionText,
     atom::Atom,
     context::ScopedContext,
     error::JSResult,
