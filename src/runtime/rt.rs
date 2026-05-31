@@ -6,7 +6,7 @@ use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
 use gc_lite::{GcHeap, GcPartitionId, GcTraceCtx, GcWeak};
 
 use crate::{
-    BUILTIN_CLASS_DEFS, JS_CLASS_OBJECT, ScopedContext, USER_CLASS_ID_START,
+    BUILTIN_CLASS_DEFS, Context, JS_CLASS_OBJECT, ScopedContext, USER_CLASS_ID_START,
     atom::AtomRegistry,
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions, promise::JSHostPromiseRejectionTracker,
@@ -323,10 +323,10 @@ impl RuntimeImpl {
 }
 
 impl<'c> ScopedContext<'c> {
-    /// Take the current exception and add it to current scope for protection.
+    /// Take the current exception and add it to `self` scope for protection.
     ///
     /// After this call, the exception value (if any) becomes a LOCAL node
-    /// in the current scope and will be protected from GC until the scope ends.
+    /// in the `self` scope and will be protected from GC until the scope ends.
     pub fn take_exception(&mut self) -> Exception {
         let exc = std::mem::take(&mut self.rt_mut().cur_exception);
         if let Exception::Error(val) = &exc
@@ -335,6 +335,16 @@ impl<'c> ScopedContext<'c> {
             self.gc().add_non_local(n);
         }
         exc
+    }
+}
+
+impl<'c> Context<'c> {
+    /// Take the current exception and add it to root scope for protection.
+    ///
+    /// After this call, the exception value (if any) becomes a LOCAL node
+    /// in the root scope and will be protected from GC until the scope ends.
+    pub fn take_exception(&mut self) -> Exception {
+        self.root_scope().take_exception()
     }
 }
 
