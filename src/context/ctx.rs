@@ -505,7 +505,7 @@ impl std::fmt::Debug for Context<'_> {
 
 impl<'c> Context<'c> {
     /// Obtain a `ScopedContext` representing the top-level GC scope.
-    pub fn root_scope(&self) -> ScopedContext<'_> {
+    pub(crate) fn root_scope(&self) -> ScopedContext<'_> {
         let stack_id = self.ctx_ptr.scope_stack_id();
         ScopedContext {
             ctx_ptr: self.ctx_ptr,
@@ -515,7 +515,7 @@ impl<'c> Context<'c> {
 
     /// Run closure in root scope.
     pub fn with_root_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R {
-        self.with_current_scope(f)
+        f(self.root_scope())
     }
 
     /// Create a child scope, run closure in it.

@@ -316,20 +316,20 @@ async fn main() -> ExitCode {
     let run_result = if let Some(js_fut) = promise_future {
         let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
 
-        let mut ctx_root_scope = ctx.root_scope();
-        match promise_res {
+        // print result or error
+        ctx.with_root_scope(|mut cx| match promise_res {
             Ok(val) => {
-                colorize_println(val.inspect(&mut ctx_root_scope).unwrap(), GreenFg);
+                colorize_println(val.inspect(&mut cx).unwrap(), GreenFg);
             }
             Err(reason) => {
                 let err_msg = reason
-                    .to_string(&mut ctx_root_scope)
+                    .to_string(&mut cx)
                     .unwrap()
                     .encode_utf8(false)
                     .to_string();
                 colorize_println(err_msg, RedFg);
             }
-        }
+        });
 
         rt_res
     } else {
@@ -344,12 +344,9 @@ async fn main() -> ExitCode {
         }
         Err(Exception::Interrupted(code)) => code,
         Err(Exception::Error(err)) => {
-            colorize_println(
-                err.to_string(&mut ctx.root_scope())
-                    .unwrap()
-                    .encode_utf8(false),
-                RedFg,
-            );
+            ctx.with_root_scope(|mut cx| {
+                colorize_println(err.to_string(&mut cx).unwrap().encode_utf8(false), RedFg);
+            });
             ExitCode::FAILURE
         }
         Err(Exception::No | Exception::TooManyClasses) => {
