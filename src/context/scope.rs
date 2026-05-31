@@ -3,7 +3,7 @@
 
 use std::{ops::Deref, ptr::NonNull};
 
-use gc_lite::{GcError, GcHead, GcHeap, GcNode, GcRef, GcScope, GcScopeStackId, GcScopeState};
+use gc_lite::{GcError, GcHead, GcNode, GcRef, GcScope, GcScopeStackId, GcScopeState};
 
 use crate::{ExceptionText, JSValue, context::ContextPtr};
 
@@ -351,7 +351,7 @@ impl ContextImpl {
     }
 }
 
-/// A context that always has a top-level GC scope.
+/// A context that represents top-level GC scope.
 ///
 /// Created by `RuntimeImpl::create_context`. Unlike `ScopedContext`, this type
 /// is `Copy` and does **not** own a GC scope — the top-level scope is managed
@@ -360,13 +360,12 @@ impl ContextImpl {
 ///
 /// `TopLevelContext` derefs to `ContextImpl`, so all context methods that
 /// don't need a scope are available directly.
-#[derive(Clone, Copy)]
-pub struct TopLevelContext<'c> {
+pub struct Context<'c> {
     pub(super) ctx_ptr: ContextPtr,
     pub(super) _marker: std::marker::PhantomData<&'c ()>,
 }
 
-impl<'c> Deref for TopLevelContext<'c> {
+impl<'c> Deref for Context<'c> {
     type Target = ContextImpl;
 
     #[inline(always)]
@@ -380,40 +379,37 @@ impl<'c> Deref for TopLevelContext<'c> {
 // so they are never BLACK. Write barrier (bind/with_mut) is only needed when
 // a BLACK master references a WHITE slave — since ContextImpl is never BLACK,
 // it has no write barrier requirement. DerefMut is safe to use directly.
-impl<'c> std::ops::DerefMut for TopLevelContext<'c> {
+impl<'c> std::ops::DerefMut for Context<'c> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.ctx_ptr.gc_ref().as_ptr().as_ptr() }
     }
 }
 
-impl<'c> From<TopLevelContext<'c>> for ContextPtr {
+impl<'c> From<Context<'c>> for ContextPtr {
     #[inline(always)]
-    fn from(value: TopLevelContext<'c>) -> Self {
+    fn from(value: Context<'c>) -> Self {
         value.ctx_ptr
     }
 }
 
-impl<'c> From<&TopLevelContext<'c>> for ContextPtr {
+impl<'c> From<&Context<'c>> for ContextPtr {
     #[inline(always)]
-    fn from(value: &TopLevelContext<'c>) -> Self {
+    fn from(value: &Context<'c>) -> Self {
         value.ctx_ptr
     }
 }
 
-impl<'c> From<&mut TopLevelContext<'c>> for ContextPtr {
+impl<'c> From<&mut Context<'c>> for ContextPtr {
     #[inline(always)]
-    fn from(value: &mut TopLevelContext<'c>) -> Self {
+    fn from(value: &mut Context<'c>) -> Self {
         value.ctx_ptr
     }
 }
 
-impl<'c> TopLevelContext<'c> {
-    /// Obtain a `ScopedContext` referencing the top-level GC scope.
-    ///
-    /// The top-level scope always exists (it is created by `create_context`
-    /// and managed by `RuntimeImpl`), so this never returns `None`.
-    pub fn as_scoped(&self) -> ScopedContext<'_> {
+impl<'c> Context<'c> {
+    /// Obtain a `ScopedContext` representing the top-level GC scope.
+    pub fn root_scope(&self) -> ScopedContext<'_> {
         let stack_id = self.ctx_ptr.scope_stack_id();
         ScopedContext {
             ctx_ptr: self.ctx_ptr,
@@ -421,14 +417,11 @@ impl<'c> TopLevelContext<'c> {
         }
     }
 
-    /// Create a new child scope, run closure in it.
-    ///
-    /// The closure receives a `ScopedContext` and must return its value
-    /// via `scope.return_value(val)`.
+    /// Create a child scope, run closure in it.
     pub fn with_new_scope<R: ScopeResult>(
         &mut self,
         f: impl FnOnce(ScopedContext<'_>) -> ScopeReturn<R>,
     ) -> R {
-        self.as_scoped().with_new_scope(f)
+        self.root_scope().with_new_scope(f)
     }
 }

@@ -15,7 +15,7 @@ use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use libloading::Library;
 use zuqe::{
-    EvalFlags, EvalType, Exception, ModuleDef, Runtime, ScopedContext, TopLevelContext,
+    Context, EvalFlags, EvalType, Exception, ModuleDef, Runtime, ScopedContext,
     builtins::promise::Promise,
 };
 
@@ -126,7 +126,7 @@ fn parse_byte_size(ss: &str) -> Option<usize> {
     }
 }
 
-fn run_zjs_prepare() -> (Runtime, TopLevelContext<'static>, Args, String, bool) {
+fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
     #[cfg(debug_assertions)]
     {
         let log_file = std::fs::OpenOptions::new()
@@ -261,8 +261,6 @@ fn main() -> ExitCode {
 #[cfg(feature = "async_support")]
 #[tokio::main]
 async fn main() -> ExitCode {
-    use zuqe::ExceptionText;
-
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
     let mut promise_future = None;
@@ -318,15 +316,17 @@ async fn main() -> ExitCode {
     let run_result = if let Some(js_fut) = promise_future {
         let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
 
+        let mut ctx_root_scope = ctx.root_scope();
         match promise_res {
             Ok(val) => {
-                colorize_println(val.inspect(&mut ctx.as_scoped()).unwrap(), GreenFg);
+                colorize_println(val.inspect(&mut ctx_root_scope).unwrap(), GreenFg);
             }
             Err(reason) => {
-                let err_msg = ctx.with_new_scope(|mut cx| {
-                    let s = reason.to_string(&mut cx).unwrap();
-                    cx.return_value(s.encode_utf8(false).to_string())
-                });
+                let err_msg = reason
+                    .to_string(&mut ctx_root_scope)
+                    .unwrap()
+                    .encode_utf8(false)
+                    .to_string();
                 colorize_println(err_msg, RedFg);
             }
         }
@@ -344,10 +344,12 @@ async fn main() -> ExitCode {
         }
         Err(Exception::Interrupted(code)) => code,
         Err(Exception::Error(err)) => {
-            ctx.with_new_scope(|mut cx| {
-                colorize_println(err.to_string(&mut cx).unwrap().encode_utf8(false), RedFg);
-                cx.return_value(())
-            });
+            colorize_println(
+                err.to_string(&mut ctx.root_scope())
+                    .unwrap()
+                    .encode_utf8(false),
+                RedFg,
+            );
             ExitCode::FAILURE
         }
         Err(Exception::No | Exception::TooManyClasses) => {

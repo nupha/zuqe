@@ -10,7 +10,7 @@ mod scope;
 
 pub use {
     ctx::ContextImpl,
-    scope::{ScopeResult, ScopeReturn, ScopedContext, TopLevelContext},
+    scope::{Context, ScopeResult, ScopeReturn, ScopedContext},
 };
 
 pub(crate) use ctx::{ContextPtr, ProtoCtorPair};

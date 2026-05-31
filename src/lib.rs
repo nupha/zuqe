@@ -31,7 +31,7 @@ pub use {
     array::Array,
     atom::Atom,
     class::{ClassCtorDef, ClassDef, ClassID, NativeObject, NativePayload},
-    context::{ContextImpl, ScopeResult, ScopeReturn, ScopedContext, TopLevelContext},
+    context::{ContextImpl, ScopeResult, ScopeReturn, ScopedContext, Context},
     error::{ErrorKind, Exception, ExceptionText, JS_SetUncatchableError, JSResult},
     eval::{EvalFlags, EvalType},
     function::{BoundFunction, CallContext, Callback, FieldDef},

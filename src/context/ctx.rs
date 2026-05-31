@@ -18,7 +18,7 @@ use crate::{
     atom::Atom,
     builtins::global::js_global_props,
     class::ClassID,
-    context::{ScopedContext, TopLevelContext},
+    context::{Context, ScopedContext},
     error::STD_ERROR_COUNT,
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
@@ -476,7 +476,7 @@ impl RuntimeImpl {
     pub fn create_context<'a>(
         &mut self,
         setup: impl FnOnce(&mut ScopedContext) -> Result<(), i32>,
-    ) -> Result<TopLevelContext<'a>, i32> {
+    ) -> Result<Context<'a>, i32> {
         let inner = ContextImpl::new(self)?;
 
         let ctx_ptr = {
@@ -503,7 +503,7 @@ impl RuntimeImpl {
         // Register to context list.
         self.context_list.push(ctx_ptr);
 
-        let mut top = TopLevelContext {
+        let ctx = Context {
             ctx_ptr,
             _marker: std::marker::PhantomData,
         };
@@ -512,7 +512,7 @@ impl RuntimeImpl {
         // sub-scope during setup. When the sub-scope drops, LOCAL is removed,
         // but the objects remain reachable through ContextImpl fields
         // (global_obj, global_var_obj, etc.) which are roots via context_list.
-        top.with_new_scope(|mut cx| {
+        ctx.root_scope().with_new_scope(|mut cx| {
             // DON'T CHANGE FOLLOWING ORDER
 
             // base object must be initialized before creating global
@@ -538,6 +538,6 @@ impl RuntimeImpl {
             cx.return_value(res)
         })?;
 
-        Ok(top)
+        Ok(ctx)
     }
 }
