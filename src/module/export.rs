@@ -240,6 +240,7 @@ impl ModuleDefImpl {
                         })?
                 }
 
+                FieldDetail::Bool(b) => JSValue::Bool(b),
                 FieldDetail::Int32(i) => JSValue::Int(i),
                 FieldDetail::Float64(d) => JSValue::from(d),
 

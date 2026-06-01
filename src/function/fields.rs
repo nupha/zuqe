@@ -36,9 +36,11 @@ pub(crate) enum FieldDetail {
     /// build class constructor from class id
     LazyClass(fn() -> ClassID),
 
+    Bool(bool),
     Int32(i32),
     Float64(f64),
     Undefined,
+
     Alias {
         name: &'static str,
         base: i32,
@@ -76,24 +78,6 @@ impl FieldDef {
                 magic,
             },
             prop_flags: JS_PROP_CONFIGURABLE as u8,
-        }
-    }
-
-    /// Define a lazy initialized base object with field defination entries.
-    pub const fn OBJECT(name: &'static str, entries: &'static [Self], prop_flags: u32) -> Self {
-        Self {
-            name,
-            detail: FieldDetail::LazyObject(entries),
-            prop_flags: prop_flags as _,
-        }
-    }
-
-    /// Define a lazy initialized string field
-    pub const fn STR(name: &'static str, val: &'static str, prop_flags: u32) -> Self {
-        Self {
-            name,
-            detail: FieldDetail::LazyStr(val),
-            prop_flags: prop_flags as u8,
         }
     }
 
@@ -137,6 +121,24 @@ impl FieldDef {
         }
     }
 
+    /// Define a lazy initialized base object with field defination entries.
+    pub const fn OBJECT(name: &'static str, entries: &'static [Self], prop_flags: u32) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::LazyObject(entries),
+            prop_flags: prop_flags as _,
+        }
+    }
+
+    /// Define a lazy initialized string field
+    pub const fn STR(name: &'static str, val: &'static str, prop_flags: u32) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::LazyStr(val),
+            prop_flags: prop_flags as u8,
+        }
+    }
+
     /// Define a lazy initialized value field with build function
     pub const fn LAZY_VALUE(
         name: &'static str,
@@ -150,6 +152,14 @@ impl FieldDef {
         }
     }
 
+    /// Define a bool field
+    pub const fn BOOL(name: &'static str, val: bool, prop_flags: u32) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Bool(val),
+            prop_flags: prop_flags as u8,
+        }
+    }
     /// Define an i32 field
     pub const fn INT32(name: &'static str, val: i32, prop_flags: u32) -> Self {
         Self {
@@ -158,7 +168,6 @@ impl FieldDef {
             prop_flags: prop_flags as u8,
         }
     }
-
     /// Define a f64 field
     pub const fn FLOAT64(name: &'static str, val: f64, prop_flags: u32) -> Self {
         Self {
@@ -167,7 +176,6 @@ impl FieldDef {
             prop_flags: prop_flags as u8,
         }
     }
-
     /// Define a undefined value field
     pub const fn UNDEFINED(name: &'static str, prop_flags: u32) -> Self {
         Self {
@@ -317,6 +325,9 @@ impl ObjectImpl {
                 return Ok(());
             }
 
+            FieldDetail::Bool(b) => {
+                val = JSValue::Bool(b);
+            }
             FieldDetail::Int32(i) => {
                 val = JSValue::Int(i);
             }
