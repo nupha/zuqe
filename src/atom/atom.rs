@@ -10,8 +10,7 @@ use crate::{
     atom::{ATOM_CONST_COUNT, AtomDescKind, AtomKind},
     context::ScopedContext,
     number::IntOrFloat,
-    runtime::RuntimePtr,
-    string::{CharCode, StringData, StringImpl, StringRef},
+    string::{CharCode, StringImpl, StringRef},
     value::JSValue,
 };
 

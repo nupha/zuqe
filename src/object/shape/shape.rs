@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ops::Deref;
-
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 use hash_link::HashList;
 
@@ -11,7 +9,7 @@ use crate::{ScopedContext, atom::Atom, context::ContextImpl, object::ShapeProper
 use super::super::{obj::Object, property::JS_PROP_LENGTH};
 
 #[derive(Debug)]
-pub struct ShapeImpl {
+pub(crate) struct ShapeImpl {
     pub(crate) use_count: u16,
     /// cached shape hash value
     pub(crate) hash: u32,
@@ -55,11 +53,6 @@ impl ShapeImpl {
     #[inline(always)]
     pub const fn len(&self) -> usize {
         self.prop_defs.len()
-    }
-
-    #[inline(always)]
-    pub const fn is_empty(&self) -> bool {
-        self.prop_defs.len() == 0
     }
 
     /// shape proto object
@@ -148,7 +141,7 @@ impl ShapeImpl {
 
 #[repr(transparent)]
 #[derive(PartialEq)]
-pub struct Shape(GcRef<ShapeImpl>);
+pub(crate) struct Shape(GcRef<ShapeImpl>);
 
 impl GcTrace for Shape {
     fn trace(&self, tr: &mut GcTraceCtx) {
@@ -157,15 +150,10 @@ impl GcTrace for Shape {
 }
 
 impl Drop for Shape {
+    #[inline(always)]
     fn drop(&mut self) {
         debug_assert!(self.use_count > 0);
         self.use_count -= 1;
-
-        // if self.use_count == 0 {
-        //     unsafe {
-        //         self.gc_ref().node_ptr().as_mut().unset_xref();
-        //     }
-        // }
     }
 }
 
@@ -180,7 +168,7 @@ impl Clone for Shape {
     }
 }
 
-impl Deref for Shape {
+impl std::ops::Deref for Shape {
     type Target = ShapeImpl;
 
     #[inline(always)]

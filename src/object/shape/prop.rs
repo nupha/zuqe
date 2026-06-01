@@ -11,7 +11,7 @@ use crate::{
 
 /// Property defination in shape
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ShapeProperty {
+pub(crate) struct ShapeProperty {
     pub(crate) atom: Atom,
     pub(super) flags: u32,
 }

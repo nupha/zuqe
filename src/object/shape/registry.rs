@@ -76,7 +76,7 @@ impl RuntimeImpl {
         }
     }
 
-    pub fn is_shape_registered(&self, shape: &Shape) -> bool {
+    pub(crate) fn is_shape_registered(&self, shape: &Shape) -> bool {
         let shape_hash = shape.hash();
         let shape = shape.gc_ref();
 
@@ -89,7 +89,7 @@ impl RuntimeImpl {
     /// find shape that matching `proto` and have not props.
     /// Returned shape increase use count by 1.
     /// Return None if not found.
-    pub fn find_shape_by_proto(&self, proto: Option<Object>) -> Option<Shape> {
+    pub(crate) fn find_shape_by_proto(&self, proto: Option<Object>) -> Option<Shape> {
         let hash = shape_initial_hash(proto.map_or(0, |o| o.id()));
         let heap = self.gc_heap();
 

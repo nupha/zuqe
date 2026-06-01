@@ -11,7 +11,8 @@ mod shape;
 #[cfg(feature = "builtin_symbol")]
 mod private;
 
-pub use {obj::*, payload::*, property::*, shape::*};
+pub(crate) use shape::*;
+pub use {obj::*, payload::*, property::*};
 
 #[macro_export]
 macro_rules! gcref_wrapper {
