@@ -33,9 +33,10 @@ impl<'a> Iterator for ObjectShapeProtoIter<'a> {
 }
 
 impl ObjectImpl {
-    /// get shape proto of `self`
-    #[inline(always)]
-    pub fn shape_proto(&self) -> Option<Object> {
+    /// Get the prototype cached in this shape. Fast, no context needed.
+    /// Only works for normal objects; does NOT handle Proxy or other exotic objects.
+    /// Used internally for shape-based operations where exotic objects are not expected.
+    pub(crate) fn shape_proto(&self) -> Option<Object> {
         self.shape().and_then(|s| s.proto())
     }
 
@@ -43,7 +44,7 @@ impl ObjectImpl {
     ///
     /// **Note: this iterator only concerns the Shape `proto` field, no proxy case is considered.**
     #[inline]
-    pub fn shape_proto_iter<'a>(&self, include_self: bool) -> ObjectShapeProtoIter<'a> {
+    pub(crate) fn shape_proto_iter<'a>(&self, include_self: bool) -> ObjectShapeProtoIter<'a> {
         ObjectShapeProtoIter {
             obj: if include_self {
                 Some(Object::from(self.gc_ref()))
@@ -56,10 +57,16 @@ impl ObjectImpl {
 
     /// Get prototype object of `self`, both shape and proxy are considered.
     ///
-    /// Returns:
-    /// - Some(object) if object has prototype
-    /// - None if object has no prototype.
-    /// - Err(_) in case Proxy object calling getPrototypeOf() failed.
+    /// # Description
+    ///
+    /// This method returns the actual prototype of the object, equivelent to `Object.getPrototypeOf()`.
+    /// Handles all object types:
+    ///
+    /// - normal objects (via shape cache) and
+    /// - exotic objects like Proxy (via class registry callback).
+    /// - Returns Err if the exotic handler fails.
+    ///
+    /// This is the correct API for general-purpose prototype lookup.
     pub fn prototype(&self, ctx: &mut ScopedContext) -> Result<Option<Object>, i32> {
         if self.flags().is_exotic()
             && let Some(f) = ctx
@@ -176,9 +183,10 @@ impl ObjectImpl {
 }
 
 impl JSValue {
-    /// Get prototype of value.
-    /// Returns an object value if it has prototype, NULL for no prototype.
-    /// Returns Err in case of Proxy object.
+    /// Get the actual prototype of the object, same as Object.getPrototypeOf().
+    ///
+    /// This is the correct API for general-purpose prototype lookup.
+    /// Err case only happens for exotic objects like Proxy.
     pub fn prototype(&self, ctx: &mut ScopedContext) -> JSResult {
         if let Self::Object(o) = self {
             Ok(o.prototype(ctx)?.map_or(JSValue::NULL, JSValue::Object))

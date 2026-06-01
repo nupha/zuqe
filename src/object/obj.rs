@@ -491,16 +491,16 @@ impl ObjectImpl {
     }
 
     #[inline(always)]
-    pub const fn shape(&self) -> Option<&Shape> {
+    pub(crate) const fn shape(&self) -> Option<&Shape> {
         self.shape.as_ref()
     }
 
     #[inline(always)]
-    pub const fn take_shape(&mut self) -> Option<Shape> {
+    pub(crate) const fn take_shape(&mut self) -> Option<Shape> {
         self.shape.take()
     }
 
-    pub fn set_shape(&mut self, shape: Shape) {
+    pub(crate) fn set_shape(&mut self, shape: Shape) {
         #[cfg(debug_assertions)]
         {
             debug_assert!(self.rt_ptr().is_shape_registered(&shape));
