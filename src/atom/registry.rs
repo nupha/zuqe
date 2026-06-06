@@ -222,7 +222,7 @@ fn register_atom(
         );
     }
 
-    log::debug!(
+    log::trace!(
         "[register_atom] {atom_id}: {:?}, {:?}",
         atom_kind,
         desc_str.gc_head()
