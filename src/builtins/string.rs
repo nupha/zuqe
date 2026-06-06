@@ -1056,15 +1056,13 @@ pub const js_string_iterator_proto_funcs: &[FieldDef] = &[
 
 fn js_string_fromCharCode(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut sbuf = StringBuf::Empty;
-
     for a in cc.arguments() {
-        let cp = a.to_number(ctx)?.to_i32();
-        sbuf.push_u32(cp as u32 & 0xffff).map_err(|_| {
+        let cp = a.to_number(ctx)?.to_u16();
+        sbuf.push_u16(cp).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
     }
-
     ctx.create_string_with_buf(sbuf).map(JSValue::from)
 }
 

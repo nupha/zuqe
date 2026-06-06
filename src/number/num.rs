@@ -196,6 +196,18 @@ impl IntOrFloat {
         res
     }
 
+    /// ECMAScript ToUint16 (https://tc39.es/ecma262/#sec-touint16)
+    pub fn to_u16(&self) -> u16 {
+        let d = self.to_f64();
+        if !d.is_finite() {
+            0 // NaN, ±∞ → +0
+        } else {
+            // integral part toward zero, then mod 2^16
+            let int = if d >= 0.0 { d.floor() } else { d.ceil() };
+            (js_f64_to_i32(int) as u32 & 0xffff) as u16
+        }
+    }
+
     pub fn to_i64_saturating(&self) -> i64 {
         match self {
             IntOrFloat::Int64(i) => *i,
