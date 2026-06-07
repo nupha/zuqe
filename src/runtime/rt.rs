@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{collections::HashMap, ffi::c_void, pin::Pin, ptr::NonNull};
+use std::{ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHeap, GcPartitionId, GcTraceCtx, GcWeak};
+use gc_lite::{GcHeap, GcPartitionId, GcTraceCtx};
 
 use crate::{
     BUILTIN_CLASS_DEFS, Context, JS_CLASS_OBJECT, ScopedContext, USER_CLASS_ID_START,
@@ -17,7 +17,7 @@ use crate::{
     gc::gc::GC_TYPE_REGISTRY,
     microtask::Job,
     module::{ModuleLoadFn, ModuleNormalizeFn},
-    object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeImpl},
+    object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
     stack_frame::{ExecMode, StackFrame},
     utils::js_get_stack_pointer,
     value::JSValue,
@@ -36,7 +36,7 @@ pub struct RuntimeImpl {
     pub(crate) class_registry: Vec<ClassDef>,
     pub(crate) user_class_id_serial: ClassID,
     /// shape registry
-    pub(crate) shape_registry: HashMap<u32, Vec<GcWeak<ShapeImpl>>>,
+    pub(crate) shape_registry: ShapeRegistry,
 
     //
     // execution stack
@@ -111,7 +111,7 @@ impl RuntimeImpl {
             atom_registry: AtomRegistry::new(),
             class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
             user_class_id_serial: USER_CLASS_ID_START,
-            shape_registry: HashMap::with_capacity(64),
+            shape_registry: ShapeRegistry::new(),
 
             cur_stack_frame: std::ptr::null_mut(),
             #[cfg(debug_assertions)]

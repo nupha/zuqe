@@ -100,14 +100,14 @@ impl<'c> ScopedContext<'c> {
 
             // 2. make default shape for Array
             let mut array_shape = Shape::create(self, Some(array_proto), 1).unwrap();
-            // define `length` property at #0
+            self.rt_mut().unregister_shape(&array_shape);
             array_shape.add_shape_properties(
                 self,
                 &[(Atom::CONST_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)],
             );
 
-            // register shape
-            self.rt_ptr().register_shape(&array_shape).unwrap();
+            // register with new hash
+            self.rt_mut().register_shape(&array_shape).unwrap();
             self.array_shape.replace(array_shape);
         }
 

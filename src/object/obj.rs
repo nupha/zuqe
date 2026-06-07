@@ -243,8 +243,10 @@ impl ObjectImpl {
         #[cfg(debug_assertions)]
         if let Some(sh) = &shape {
             debug_assert!(
-                ctx.rt_ptr().is_shape_registered(sh),
-                "shape must be registered when used by object"
+                ctx.rt().is_shape_registered(sh),
+                "shape not registered in ObjectImpl::create: hash=0x{:x} use_count={}",
+                sh.hash,
+                sh.use_count,
             );
             debug_assert!(sh.use_count > 0);
         }
