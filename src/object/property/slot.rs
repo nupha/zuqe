@@ -132,7 +132,7 @@ impl ObjectImpl {
     /// extend property slot.
     /// Returns error if memory allocation fails.
     pub(crate) fn try_extend_prop_slot(&mut self, extra: usize) -> Result<(), i32> {
-        self.prop_values.try_reserve_exact(extra).map_err(|_| -1)?;
+        self.prop_values.try_reserve(extra).map_err(|_| -1)?;
         self.extend_prop_slot(extra);
         Ok(())
     }
