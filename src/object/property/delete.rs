@@ -36,27 +36,9 @@ impl ObjectImpl {
                     // property is not configurable and not-force: can't delete
                     Ok(false)
                 } else {
-                    // remove shape property
-                    let compact = self.modify_shape(ctx, |sh| {
-                        sh.prop_defs.remove_index(idx);
-
-                        // 1/8+ deletion: do slot compact
-                        if (sh.prop_defs.count_deleted() << 3) >= sh.prop_defs.len() {
-                            sh.prop_defs.compact();
-                            true
-                        } else {
-                            false
-                        }
-                    })?;
-
-                    // mark property value as deleted
+                    // Optimized: do not modify shape, only mark slot as Deleted
                     self.set_prop_slot_non_gc(idx, JSProperty::Deleted);
-
-                    if compact {
-                        // compact prop values list too
-                        self.prop_values
-                            .retain(|p| !matches!(p, JSProperty::Deleted));
-                    }
+                    self.deleted_slot_count += 1;
 
                     Ok(true)
                 };

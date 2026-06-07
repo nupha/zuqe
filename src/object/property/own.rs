@@ -44,16 +44,16 @@ impl ObjectImpl {
         self.shape().and_then(|sh| {
             sh.prop_defs
                 .find_hash(prop.id())
+                .filter(|&(i, _)| !matches!(self.prop_slot(i), JSProperty::Deleted))
                 .map(|(i, prs)| (i, prs.flags()))
                 .next()
         })
     }
 
     /// Check if given property name exists in shape.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn has_shape_property(&self, prop: Atom) -> bool {
-        self.shape()
-            .is_some_and(|sh| sh.prop_defs.find_hash(prop.id()).count() != 0)
+        self.find_shape_property(prop).is_some()
     }
 
     /// test if own property `prop` exists:

@@ -92,7 +92,9 @@ impl ObjectImpl {
 
         // 1. shape props
         for (idx, prs) in sh.prop_defs.iter() {
-            if !prs.atom.is_null() {
+            if !prs.atom.is_null()
+                && !matches!(self.prop_slot(idx), JSProperty::Deleted)
+            {
                 let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
                 let kind = prs.atom.desc_kind(ctx.rt());
 

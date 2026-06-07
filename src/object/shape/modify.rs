@@ -4,8 +4,10 @@
 use crate::{
     atom::Atom,
     context::ScopedContext,
-    object::{ObjectImpl, ShapeImpl},
+    object::{JSProperty, ObjectImpl, ShapeImpl},
 };
+
+use smallvec::SmallVec;
 
 impl ObjectImpl {
     /// modify object's shape by closure.
@@ -20,14 +22,20 @@ impl ObjectImpl {
             // shape is shared: dup to new
             self.shape().unwrap().dup(ctx)?
         } else {
-            // shape is non-share, use it
+            // shape is exclusive
             let sh = self.take_shape().unwrap();
-            ctx.rt_ptr().unregister_shape(&sh);
+            ctx.rt_mut().unregister_shape(&sh);
             sh
         };
 
         let r = update_fn(&mut use_shape);
-        ctx.rt_ptr().register_shape(&use_shape)?;
+
+        // batch compact deleted slots
+        if self.deleted_slot_count > 0 {
+            self.compact_deleted_slots(&mut use_shape);
+        }
+
+        ctx.rt_mut().register_shape(&use_shape)?;
         self.set_shape(use_shape);
 
         Ok(r)
@@ -152,5 +160,26 @@ impl ObjectImpl {
         } else {
             Ok(false)
         }
+    }
+
+    fn compact_deleted_slots(&mut self, shape: &mut ShapeImpl) {
+        debug_assert!(shape.use_count == 1);
+
+        // Remove all entries from prop_defs whose corresponding slot is Deleted
+        let mut removed_indices: SmallVec<[usize; 8]> = SmallVec::new();
+        for (idx, _) in shape.prop_defs.iter() {
+            if matches!(self.prop_slot(idx), JSProperty::Deleted) {
+                removed_indices.push(idx);
+            }
+        }
+        // Remove in reverse order to keep indices valid
+        for idx in removed_indices.iter().rev() {
+            shape.prop_defs.remove_index(*idx);
+        }
+
+        // compact prop_values
+        self.prop_values
+            .retain(|p| !matches!(p, JSProperty::Deleted));
+        self.deleted_slot_count = 0;
     }
 }

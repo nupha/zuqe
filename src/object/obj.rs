@@ -167,6 +167,10 @@ pub struct ObjectImpl {
     /// property value slots
     pub(super) prop_values: Vec<JSProperty>,
 
+    /// Number of slots marked as JSProperty::Deleted.
+    /// Batch compact is triggered when (deleted_slot_count << 3) >= prop_values.len().
+    pub(super) deleted_slot_count: u16,
+
     /// where this object is weak referenced
     #[cfg(feature = "builtin_mapset")]
     weak_refs: Vec<GcWeak<ObjectImpl>>,
@@ -344,6 +348,7 @@ impl ObjectImpl {
                 obj_flags: flags,
                 shape,
                 prop_values,
+                deleted_slot_count: 0,
                 payload,
                 #[cfg(feature = "builtin_mapset")]
                 weak_refs: Vec::new(),
