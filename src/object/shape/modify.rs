@@ -62,47 +62,51 @@ impl ObjectImpl {
         debug_assert_eq!(self.prop_values.len(), new_len);
 
         // find shape registry
-        if let Some(found) =
-            ctx.rt_ptr()
-                .find_shape_with_extend_prop(self.shape().unwrap(), prop, prop_flags)
+        // ★ use_count == 1: exclusive shape — no other object could have created the target shape,
+        // so global lookup would always miss. Skip the expensive HashMap GET entirely.
+
+        // avoid perform ::find_shape_with_extend_prop() for use_count==1 case.
+        if use_count != 1
+            && let Some(found) =
+                ctx.rt()
+                    .find_shape_with_extend_prop(self.shape().unwrap(), prop, prop_flags)
         {
-            // use existing shape
+            // found existing shape
             debug_assert_eq!(new_len, found.len());
             self.set_shape(found);
-            Ok(new_len)
-        } else {
-            let mut use_shape = if use_count != 1 {
-                // current shape is shared, dup to new without register.
-                let mut sh2 = self.shape().unwrap().dup(ctx)?;
-                sh2.prop_defs.try_reserve(1).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
-                sh2
-            } else {
-                // current shape is exclusive, use it.
-                let mut sh = self.take_shape().unwrap();
-                if sh.prop_defs.try_reserve(1).is_err() {
-                    self.set_shape(sh);
-                    ctx.throw_out_of_memory();
-                    return Err(-1);
-                }
-
-                ctx.rt_ptr().unregister_shape(&sh);
-                sh
-            };
-
-            debug_assert!(!ctx.rt_ptr().is_shape_registered(&use_shape));
-
-            // shape can be modified now.
-            use_shape.add_shape_properties(ctx, &[(prop, prop_flags)]);
-            // register the shape
-            ctx.rt_ptr().register_shape(&use_shape).unwrap();
-            // object uses the shape
-            self.set_shape(use_shape);
-
-            Ok(new_len)
+            return Ok(new_len);
         }
+
+        let mut use_shape = if use_count != 1 {
+            // current shape is shared, dup to new without register.
+            let mut sh2 = self.shape().unwrap().dup(ctx)?;
+            sh2.prop_defs.try_reserve(1).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+            sh2
+        } else {
+            // current shape is exclusive, unregister and use it.
+            let mut sh = self.take_shape().unwrap();
+            if sh.prop_defs.try_reserve(1).is_err() {
+                self.set_shape(sh);
+                ctx.throw_out_of_memory();
+                return Err(-1);
+            }
+            ctx.rt_mut().unregister_shape(&sh);
+            sh
+        };
+
+        debug_assert!(!ctx.rt().is_shape_registered(&use_shape));
+
+        // shape can be modified now.
+        use_shape.add_shape_properties(ctx, &[(prop, prop_flags)]);
+        // register the shape
+        ctx.rt_mut().register_shape(&use_shape).unwrap();
+        // object uses the shape
+        self.set_shape(use_shape);
+
+        Ok(new_len)
     }
 
     /// Updates flag of a shape property.
