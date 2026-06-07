@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use core::fmt;
+
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 use hash_link::HashList;
 
@@ -8,7 +10,6 @@ use crate::{ScopedContext, atom::Atom, context::ContextImpl, object::ShapeProper
 
 use super::super::{obj::Object, property::JS_PROP_LENGTH};
 
-#[derive(Debug)]
 pub(crate) struct ShapeImpl {
     pub(crate) use_count: u16,
     /// cached shape hash value
@@ -20,6 +21,22 @@ pub(crate) struct ShapeImpl {
     /// If true, the shape may have small array index properties 'n' with 0..=u32::MAX;
     /// If false, the shape is guaranteed not to have small array index properties
     pub(crate) has_small_array_index: bool,
+    /// Intrusive linked list next pointer for shape registry.
+    /// Used to chain shapes in the same hash bucket.
+    /// Traced during GC to keep the chain alive while registered.
+    pub(crate) registry_next: Option<GcRef<ShapeImpl>>,
+}
+
+impl fmt::Debug for ShapeImpl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ShapeImpl")
+            .field("use_count", &self.use_count)
+            .field("hash", &self.hash)
+            .field("proto", &self.proto)
+            .field("prop_defs", &self.prop_defs)
+            .field("has_small_array_index", &self.has_small_array_index)
+            .finish() // skip registry_next to avoid cycle
+    }
 }
 
 impl GcTrace for ShapeImpl {
@@ -28,6 +45,9 @@ impl GcTrace for ShapeImpl {
             x.trace(tr);
         }
         self.prop_defs.iter().for_each(|(_, p)| p.trace(tr));
+        if let Some(next) = self.registry_next {
+            tr.add(next);
+        }
     }
 }
 
@@ -46,6 +66,7 @@ impl ShapeImpl {
             prop_defs: props,
             has_small_array_index: false,
             hash,
+            registry_next: None,
         })
     }
 

@@ -61,32 +61,51 @@ impl RuntimeImpl {
         // ensure marking cycle is started
         self.gc_heap_mut().mark(partition_id, 0);
 
-        let mut gcx = self.gc_heap().create_trace_ctx(256);
+        // --- Phase 1: Remove unused shapes (use_count == 0) ---
+        self.shape_registry.remove_unused();
 
-        // mark contexts
-        for c in self.context_list.iter() {
-            c.trace(&mut gcx);
-        }
-        // mark stack frames
-        if let Some(sf) = self.current_stack_frame() {
-            sf.trace(&mut gcx);
-        }
-        // mark error value
-        if let Exception::Error(err) = self.exception() {
-            err.trace(&mut gcx);
-        }
+        // --- Phase 2: Trace shape registry into its own GcTraceCtx ---
+        // (field-level borrows to avoid &self conflicts with later &mut self)
+        let shape_nodes = {
+            let heap = &self.gc_heap;
+            let mut shape_gcx = heap.create_trace_ctx(128);
+            self.shape_registry.trace_all(&mut shape_gcx);
+            shape_gcx.take_nodes()
+        };
 
-        // mark user defined
-        if let Some(f) = self.gc_user_trace.as_ref() {
-            f(&mut gcx);
-        }
-        // trace gc_jobs: jobs removed from job_list but still alive during tick
-        // (they are in gc_jobs — a GC-traced Runtime field — and must not be swept)
-        for job in self.gc_jobs.iter() {
-            job.trace(&mut gcx);
-        }
+        // --- Phase 3: Trace other GC roots (contexts, stack, etc.) ---
+        let other_nodes = {
+            let heap = &self.gc_heap;
+            let mut gcx = heap.create_trace_ctx(256);
 
-        for n in gcx.take_nodes() {
+            // mark contexts
+            for c in self.context_list.iter() {
+                c.trace(&mut gcx);
+            }
+            // mark stack frames
+            if let Some(sf) = self.current_stack_frame() {
+                sf.trace(&mut gcx);
+            }
+            // mark error value
+            if let Exception::Error(err) = self.exception() {
+                err.trace(&mut gcx);
+            }
+
+            // mark user defined
+            if let Some(f) = self.gc_user_trace.as_ref() {
+                f(&mut gcx);
+            }
+            // trace gc_jobs: jobs removed from job_list but still alive during tick
+            // (they are in gc_jobs — a GC-traced Runtime field — and must not be swept)
+            for job in self.gc_jobs.iter() {
+                job.trace(&mut gcx);
+            }
+
+            gcx.take_nodes()
+        };
+
+        // --- Phase 4: Add all traced nodes to gray list ---
+        for n in shape_nodes.into_iter().chain(other_nodes.into_iter()) {
             if unsafe { n.as_ref().partition_id() } == partition_id {
                 self.gc_heap_mut().add_gray_node(n);
             }

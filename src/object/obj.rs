@@ -181,9 +181,9 @@ pub struct ObjectImpl {
 
 impl GcTrace for ObjectImpl {
     fn trace(&self, tr: &mut GcTraceCtx) {
-        if let Some(x) = self.shape.as_ref() {
-            x.trace(tr)
-        }
+        // Shape is traced through the shape registry during GC mark,
+        // so we do NOT trace self.shape here.
+        
         for p in self.prop_values.iter() {
             p.trace(tr);
         }
