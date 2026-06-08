@@ -476,11 +476,11 @@ impl Promise {
     pub fn payload(&self) -> &PromisePayload {
         #[cfg(debug_assertions)]
         {
-            self.0.payload().promise().unwrap()
+            unsafe { self.0.as_ref().payload() }.promise().unwrap()
         }
         #[cfg(not(debug_assertions))]
         unsafe {
-            self.0.payload().promise().unwrap_unchecked()
+            self.0.as_ref().payload().promise().unwrap_unchecked()
         }
     }
 

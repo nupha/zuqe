@@ -191,7 +191,7 @@ impl BCWrapper {
     /// get bcfunction payload
     #[inline]
     pub fn payload(&self) -> &BFuncPayload {
-        self.0.payload().bc_function().unwrap()
+        unsafe { self.0.as_ref().payload() }.bc_function().unwrap()
     }
 
     /// get bcfunction payload
@@ -384,7 +384,7 @@ impl BytecodeFunction {
 
     #[inline(always)]
     pub fn payload(&self) -> &BFuncPayload {
-        self.0.payload().bc_function().unwrap()
+        unsafe { self.0.as_ref().payload() }.bc_function().unwrap()
     }
 
     #[inline(always)]

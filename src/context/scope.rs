@@ -197,7 +197,7 @@ impl<'a> ScopedContext<'a> {
     /// Allocate a local gc node in scope to protect it within scope lifetime.
     #[inline]
     pub fn alloc_local<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
-        let r = self.gc().alloc_local(payload);
+        let r = self.gc().alloc_local(payload).map(|gc| gc.into_raw());
         if self.gc_heap().should_gc() {
             self.rt_mut().gc_req = true;
         }

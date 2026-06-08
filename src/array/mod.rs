@@ -110,7 +110,7 @@ impl Array {
 
     #[inline(always)]
     pub fn payload(&self) -> &ArrayPayload {
-        self.0.payload().array().unwrap()
+        unsafe { self.0.as_ref().payload() }.array().unwrap()
     }
 
     #[inline(always)]

@@ -341,7 +341,7 @@ impl ArrayBuffer {
     /// get array buffer payload
     #[inline(always)]
     pub fn payload(&self) -> &ArrayBufferPayload {
-        self.0.payload().array_buffer().unwrap()
+        unsafe { self.0.as_ref().payload() }.array_buffer().unwrap()
     }
 
     /// get array buffer payload
@@ -375,7 +375,7 @@ impl ArrayBuffer {
                 .drain(..)
                 .filter_map(|w| w.upgrade(heap))
             {
-                let mut o = Object::from(o);
+                let mut o = Object::from(o.into_raw());
                 // the typed array length and offset fields are not modified, only set count to 0
                 debug_assert!(
                     o.payload_mut().typed_array_mut().is_some(),

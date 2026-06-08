@@ -304,33 +304,33 @@ impl Deref for StringRef {
 
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        self.0.deref()
+        unsafe { self.0.as_ref() }
     }
 }
 
 impl std::ops::DerefMut for StringRef {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.0.as_ptr().as_ptr() }
+        unsafe { self.0.as_mut() }
     }
 }
 
 impl PartialEq for StringRef {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
-        self.0.content() == other.0.content()
+        unsafe { self.0.as_ref().content() == other.0.as_ref().content() }
     }
 }
 
 impl std::fmt::Display for StringRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.deref())
+        write!(f, "{}", unsafe { self.0.as_ref() })
     }
 }
 
 impl std::fmt::Debug for StringRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.0.deref())
+        write!(f, "{:?}", unsafe { self.0.as_ref() })
     }
 }
 

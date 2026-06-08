@@ -192,8 +192,8 @@ impl StackFrame {
                 // frames in a cycle.
                 let a_state = self
                     .async_state
-                    .upgrade(ctx.rt_ptr().gc_heap())
-                    .map(AsyncState::from);
+                    .upgrade(ctx.rt().gc_heap())
+                    .map(|x| AsyncState::from(x.into_raw()));
 
                 debug_assert!(a_state.is_some());
                 a_state

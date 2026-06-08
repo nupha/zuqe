@@ -82,7 +82,7 @@ fn js_map_iterator_next(
                     }
                     MapPair::Weak { key, value } => {
                         if let Some(key) = key.upgrade(ctx.rt_ptr().gc_heap()) {
-                            let key = Object(key);
+                            let key = Object(key.into_raw());
                             pair.replace((key.into(), if is_set { key.into() } else { *value }));
                             break;
                         }

@@ -553,7 +553,7 @@ impl ObjectImpl {
     pub(crate) fn remove_back_ref(&mut self, rt: &RuntimeImpl, eliminate: Object) {
         let heap = rt.gc_heap();
         self.weak_refs
-            .retain(|w| w.upgrade(heap).is_some_and(|o| o != eliminate.0));
+            .retain(|w| w.upgrade(heap).is_some_and(|o| *o.as_raw() != eliminate.0));
     }
 
     fn finalize(&mut self) {
@@ -566,7 +566,7 @@ impl ObjectImpl {
             let this = Object::from(self.gc_ref());
 
             for o in self.weak_refs.drain(..).filter_map(|w| w.upgrade(heap)) {
-                let mut o = Object::from(o);
+                let mut o = Object::from(o.into_raw());
                 if let Some(ms) = o.payload_mut().mapset_mut() {
                     ms.remove_weak_obj(this);
                 }
@@ -629,7 +629,7 @@ impl std::fmt::Debug for Object {
 
 impl Object {
     pub fn downgrade(&self) -> GcWeak<ObjectImpl> {
-        self.0.downgrade(self.rt_ptr().gc_heap_mut())
+        unsafe { self.0.downgrade(self.rt_ptr().gc_heap_mut()) }
     }
 }
 

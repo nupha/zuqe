@@ -141,8 +141,8 @@ impl JSMapState {
                     let Some(o) = key.as_object().copied() else {
                         unreachable!()
                     };
-                    k.upgrade(ctx.rt_ptr().gc_heap()).and_then(|k| {
-                        if Object(k) == o {
+                    k.upgrade(ctx.rt().gc_heap()).and_then(|k| {
+                        if Object(k.into_raw()) == o {
                             *v = value;
                             Some(*i)
                         } else {
@@ -201,8 +201,13 @@ impl JSMapState {
             lst.iter().find_map(|i| match self.slots.get(*i) {
                 Some(MapPair::Weak { key: k, value }) => {
                     if let Some(o) = key.as_object() {
-                        k.upgrade(o.rt_ptr().gc_heap())
-                            .and_then(|k| if Object(k) == *o { Some(*value) } else { None })
+                        k.upgrade(o.rt_ptr().gc_heap()).and_then(|k| {
+                            if Object(k.into_raw()) == *o {
+                                Some(*value)
+                            } else {
+                                None
+                            }
+                        })
                     } else {
                         None
                     }
@@ -240,7 +245,7 @@ impl JSMapState {
                 }
                 Some(MapPair::Weak { key: k, .. }) => {
                     if let Some(k) = k.upgrade(ctx.rt_ptr().gc_heap()) {
-                        if Object(k) == unsafe { *key.as_object_unchecked() } {
+                        if Object(k.into_raw()) == unsafe { *key.as_object_unchecked() } {
                             self.slots[*i] = MapPair::Removed;
                             self.remove_count += 1;
                             false
@@ -286,7 +291,7 @@ impl JSMapState {
                 Some(MapPair::Weak { key, .. }) => {
                     if key
                         .upgrade(obj.rt_ptr().gc_heap())
-                        .is_some_and(|k| k != obj.0)
+                        .is_some_and(|k| *k.as_raw() != obj.0)
                     {
                         self.slots[*i] = MapPair::Removed;
                         false

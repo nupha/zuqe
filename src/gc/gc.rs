@@ -105,7 +105,7 @@ impl RuntimeImpl {
         };
 
         // --- Phase 4: Add all traced nodes to gray list ---
-        for n in shape_nodes.into_iter().chain(other_nodes.into_iter()) {
+        for n in shape_nodes.into_iter().chain(other_nodes) {
             if unsafe { n.as_ref().partition_id() } == partition_id {
                 self.gc_heap_mut().add_gray_node(n);
             }

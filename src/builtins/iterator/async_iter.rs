@@ -274,12 +274,18 @@ impl AsyncIterableIterator {
     #[inline(always)]
     pub fn payload(&self) -> &AsyncIterPayload {
         #[cfg(debug_assertions)]
-        {
-            self.0.payload().async_iterator().unwrap()
+        unsafe {
+            self.0.as_ref().payload() 
+                .async_iterator()
+                .unwrap()
         }
         #[cfg(not(debug_assertions))]
         unsafe {
-            self.0.payload().async_iterator().unwrap_unchecked()
+            self.0
+                .as_ref()
+                .payload()
+                .async_iterator()
+                .unwrap_unchecked()
         }
     }
 

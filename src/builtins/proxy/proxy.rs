@@ -261,7 +261,7 @@ impl Proxy {
     /// get proxy payload reference
     #[inline(always)]
     pub(super) fn payload(&self) -> &ProxyPayload {
-        if let ObjectPayload::PROXY(s) = self.0.payload() {
+        if let ObjectPayload::PROXY(s) = unsafe { self.0.as_ref().payload() } {
             s.as_ref()
         } else {
             #[cfg(debug_assertions)]

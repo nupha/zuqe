@@ -264,7 +264,8 @@ impl AGenPayload {
             self.generator
                 .borrow()
                 .upgrade(ctx.rt_ptr().gc_heap())
-                .unwrap(),
+                .unwrap()
+                .into_raw(),
         ));
         let resolving_funcs = js_async_generator_resolve_function_create(ctx, generator, true)?;
         debug_assert!(resolving_funcs[0].is_callable());
@@ -284,7 +285,13 @@ impl AGenPayload {
         )?
         .try_into()?;
 
-        let gen_obj = self.generator.borrow().upgrade(ctx.rt().gc_heap()).unwrap();
+        let gen_obj: Object = self
+            .generator
+            .borrow()
+            .upgrade(ctx.rt().gc_heap())
+            .unwrap()
+            .into_raw()
+            .into();
 
         let resolving_funcs =
             js_async_generator_resolve_function_create(ctx, gen_obj.into(), false)?;

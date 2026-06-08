@@ -318,7 +318,7 @@ impl NativeFunction {
 
     #[inline(always)]
     pub(crate) fn payload(&self) -> &NFuncPayload {
-        self.0.payload().native_func().unwrap()
+        unsafe { self.0.as_ref().payload() }.native_func().unwrap()
     }
 
     #[inline(always)]

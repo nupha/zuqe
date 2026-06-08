@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, Object, ObjectPayload},
     value::JSValue,
 };
 
@@ -214,8 +214,8 @@ fn js_map_forEach(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             let pair = match kv {
                 MapPair::Strong { key, value } => Some((key, value)),
                 MapPair::Weak { key, value } => key
-                    .upgrade(ctx.rt_ptr().gc_heap())
-                    .map(|k| (JSValue::from(k), value)),
+                    .upgrade(ctx.rt().gc_heap())
+                    .map(|k| (JSValue::from(Object(k.into_raw())), value)),
                 MapPair::Removed => None,
             };
             if let Some((key, val)) = pair

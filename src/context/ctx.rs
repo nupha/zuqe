@@ -573,7 +573,9 @@ impl RuntimeImpl {
             let stack_id = heap.acquire_scope_stack(par);
             let gc_top_scope = heap.new_scope(stack_id);
 
-            let mut ctx = ContextPtr::from(gc_top_scope.alloc_local(inner).map_err(|_| -1)?);
+            let mut ctx =
+                ContextPtr::from(gc_top_scope.alloc_local(inner).map_err(|_| -1)?.into_raw());
+
             ctx.gc_top_scope = Some(unsafe {
                 // Store the top-level scope in ContextImpl so it lives as long
                 // as the context. It will be dropped in ContextImpl::drop.

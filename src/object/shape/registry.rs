@@ -158,16 +158,16 @@ impl ShapeRegistry {
 
         let mut ptr = self.buckets[idx];
         while let Some(candidate) = ptr {
-            if candidate.hash == hash
-                && candidate.proto == base_shape.proto
-                && candidate.prop_defs.len() == ttl_len
+            let c = unsafe { candidate.as_ref() };
+            if c.hash == hash
+                && c.proto == base_shape.proto
+                && c.prop_defs.len() == ttl_len
                 && base_shape
                     .prop_defs
                     .iter()
-                    .zip(candidate.prop_defs.iter())
+                    .zip(c.prop_defs.iter())
                     .all(|((_, a), (_, b))| a == b)
-                && candidate
-                    .prop_defs
+                && c.prop_defs
                     .last()
                     .is_some_and(|pr| pr.atom == prop && pr.flags() == prop_flags)
             {
@@ -175,7 +175,7 @@ impl ShapeRegistry {
                 sh.use_count += 1;
                 return Some(sh);
             }
-            ptr = candidate.registry_next;
+            ptr = c.registry_next;
         }
         None
     }
@@ -188,12 +188,13 @@ impl ShapeRegistry {
 
         let mut ptr = self.buckets[idx];
         while let Some(candidate) = ptr {
-            if candidate.proto == proto && candidate.prop_defs.count() == 0 {
+            let c = unsafe { candidate.as_ref() };
+            if c.proto == proto && c.prop_defs.count() == 0 {
                 let mut sh = Shape::from(candidate);
                 sh.use_count += 1;
                 return Some(sh);
             }
-            ptr = candidate.registry_next;
+            ptr = c.registry_next;
         }
         None
     }
@@ -208,7 +209,7 @@ impl ShapeRegistry {
             if candidate == target {
                 return true;
             }
-            ptr = candidate.registry_next;
+            ptr = unsafe { candidate.as_ref().registry_next };
         }
         false
     }
@@ -228,7 +229,7 @@ impl ShapeRegistry {
             while let Some(node) = ptr {
                 // Save next before modifying
                 let next = unsafe { (*ShapeImpl::gc_mut_ptr(node)).registry_next };
-                let new_idx = node.hash as usize & new_mask;
+                let new_idx = unsafe { node.as_ref() }.hash as usize & new_mask;
                 unsafe {
                     (*ShapeImpl::gc_mut_ptr(node)).registry_next = new_buckets[new_idx];
                 }
@@ -247,7 +248,7 @@ impl ShapeRegistry {
 impl ShapeImpl {
     #[inline(always)]
     unsafe fn gc_mut_ptr(gc_ref: GcRef<Self>) -> *mut Self {
-        gc_ref.as_ptr().as_ptr()
+        unsafe { gc_ref.as_ptr().as_ptr() }
     }
 }
 

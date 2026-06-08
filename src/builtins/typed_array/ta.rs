@@ -531,7 +531,7 @@ impl TypedArray {
 
     #[inline(always)]
     pub fn payload(&self) -> &TypedArrayPayload {
-        self.0.payload().typed_array().unwrap()
+        unsafe { self.0.as_ref().payload() }.typed_array().unwrap()
     }
 
     #[inline(always)]

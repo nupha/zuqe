@@ -22,7 +22,7 @@ macro_rules! gcref_wrapper {
         impl std::ops::DerefMut for $ty {
             #[inline(always)]
             fn deref_mut(&mut self) -> &mut Self::Target {
-                unsafe { &mut *self.0.as_ptr().as_ptr() }
+                unsafe { self.0.as_mut() }
             }
         }
     };
@@ -41,7 +41,7 @@ macro_rules! gcref_wrapper {
 
             #[inline(always)]
             fn deref(&self) -> &Self::Target {
-                std::ops::Deref::deref(&self.0)
+                unsafe { self.0.as_ref() }
             }
         }
 

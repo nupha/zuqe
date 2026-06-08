@@ -132,18 +132,18 @@ impl DataView {
         Ok(Self(o.0))
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn payload(&self) -> &DataViewPayload {
-        self.0.payload().data_view().unwrap()
+        unsafe { self.0.as_ref().payload() }.data_view().unwrap()
     }
 
     /// check if the TypedArray is detached.
-    #[inline]
+    #[inline(always)]
     pub fn is_detached(&self) -> bool {
         self.payload().is_detached()
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn array_buffer(&self) -> ArrayBuffer {
         self.payload().array_buffer()
     }

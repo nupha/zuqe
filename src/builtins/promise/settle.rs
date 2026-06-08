@@ -112,7 +112,7 @@ impl PromiseResolveFunc {
 
     pub fn payload(&self) -> &PromiseResolvePayload {
         if let ObjectPayload::PROMISE_RESOLVE_FUNCTION(x)
-        | ObjectPayload::PROMISE_REJECT_FUNCTION(x) = self.0.payload()
+        | ObjectPayload::PROMISE_REJECT_FUNCTION(x) = unsafe { self.0.as_ref().payload() }
         {
             x
         } else {

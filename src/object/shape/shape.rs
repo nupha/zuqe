@@ -194,14 +194,14 @@ impl std::ops::Deref for Shape {
 
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        self.0.deref()
+        unsafe { self.0.as_ref() }
     }
 }
 
 impl std::ops::DerefMut for Shape {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.0.as_ptr().as_ptr() }
+        unsafe { self.0.as_mut() }
     }
 }
 
@@ -221,7 +221,7 @@ impl Shape {
     ) -> Result<Self, i32> {
         ctx.alloc_local(ShapeImpl::new(proto, prop_defs)?)
             .map(|s| {
-                debug_assert_eq!(s.use_count, 1);
+                debug_assert_eq!(unsafe { s.as_ref() }.use_count, 1);
                 Self(s)
             })
             .map_err(|_| {
