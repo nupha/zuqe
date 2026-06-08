@@ -210,7 +210,7 @@ impl NativeFunction {
             // copy arguments to frame's local buffer
             stack_frame
                 .local_buf
-                .try_reserve_exact(args_length)
+                .try_reserve(args_length)
                 .map_err(|_| {
                     // Throw OOM in the native function's realm context.
                     // throw_out_of_memory is on ScopedContext (needs alloc_local
@@ -235,6 +235,8 @@ impl NativeFunction {
                     .chain(std::iter::repeat(JSValue::UNDEFINED))
                     .take(args_length),
             );
+
+            stack_frame.local_buf.shrink_to_fit();
             debug_assert_eq!(stack_frame.local_buf.len(), args_length);
 
             stack_frame.arg_count = args_length as _;

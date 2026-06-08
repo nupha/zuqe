@@ -441,7 +441,7 @@ impl<'s> JSParseState<'s> {
             let src_len = unsafe { self.buf_ptr.offset_from(ptr) as usize };
             if src_len > 0 {
                 let mut src = Vec::<u8>::new();
-                if src.try_reserve_exact(src_len).is_err() {
+                if src.try_reserve(src_len).is_err() {
                     self.ctx().throw_out_of_memory();
                     return Err(-1);
                 }

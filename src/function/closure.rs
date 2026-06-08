@@ -184,7 +184,7 @@ impl FunctionDef {
                 return Err(-1);
             }
             if lst.len() == lst.capacity() {
-                lst.try_reserve_exact(8).map_err(|_| {
+                lst.try_reserve(1).map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;

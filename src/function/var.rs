@@ -211,9 +211,7 @@ impl FunctionDef {
         ctx: &mut ScopedContext,
         name: Atom,
     ) -> Result<&mut JSGlobalVar, i32> {
-        if self.global_vars.len() == self.global_vars.capacity()
-            && self.global_vars.try_reserve_exact(2).is_err()
-        {
+        if self.global_vars.try_reserve(1).is_err() {
             ctx.throw_out_of_memory();
             return Err(-1);
         }
@@ -263,12 +261,10 @@ impl FunctionDef {
             return Err(-1);
         }
 
-        if self.args.len() == self.args.capacity() {
-            self.args.try_reserve_exact(2).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
-        }
+        self.args.try_reserve(1).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
         self.args.push(JSVarDef {
             var_name: name,

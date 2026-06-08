@@ -183,7 +183,7 @@ impl GcTrace for ObjectImpl {
     fn trace(&self, tr: &mut GcTraceCtx) {
         // Shape is traced through the shape registry during GC mark,
         // so we do NOT trace self.shape here.
-        
+
         for p in self.prop_values.iter() {
             p.trace(tr);
         }
@@ -256,7 +256,7 @@ impl ObjectImpl {
         if let Some(sh) = &mut shape {
             let prop_count = sh.len();
             if prop_values
-                .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
+                .try_reserve(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
                 .is_err()
             {
                 ctx.throw_out_of_memory();

@@ -35,12 +35,10 @@ impl FunctionDef {
         let scope_id = self.scopes.len(); // new scope id
 
         if self.scopes.len() == self.scopes.capacity() {
-            self.scopes
-                .try_reserve_exact(self.scopes.capacity() >> 2)
-                .map_err(|_| {
-                    self.ctx.with_current_scope(|mut s| s.throw_out_of_memory());
-                    -1
-                })?;
+            self.scopes.try_reserve(1).map_err(|_| {
+                self.ctx.with_current_scope(|mut s| s.throw_out_of_memory());
+                -1
+            })?;
         }
 
         self.scopes.push(JSVarScope {

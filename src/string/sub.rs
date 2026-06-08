@@ -141,9 +141,7 @@ fn do_substitution<NC: FnMut(&str) -> Result<Option<StringData>, i32>>(
                                 sbuf.push_char(c1)?;
                             }
 
-                            if sbuf.len() + 8 < sbuf.capacity() {
-                                sbuf.try_reserve_exact(16)?;
-                            }
+                            sbuf.try_reserve(8)?;
                         }
                     }
                     _ => {
@@ -158,9 +156,7 @@ fn do_substitution<NC: FnMut(&str) -> Result<Option<StringData>, i32>>(
             sbuf.push_char(c)?;
         }
 
-        if sbuf.len() + 8 < sbuf.capacity() {
-            sbuf.try_reserve_exact(32)?;
-        }
+        sbuf.try_reserve(8)?;
     }
 
     Ok(sbuf)

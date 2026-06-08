@@ -91,19 +91,16 @@ impl ShapeRegistry {
         let target = shape.gc_ref();
 
         let mut slot: &mut Option<GcRef<ShapeImpl>> = &mut self.buckets[idx];
-        loop {
-            if let Some(cur) = slot {
-                if *cur == target {
-                    // Unlink: slot = cur.registry_next
-                    *slot = unsafe { (*ShapeImpl::gc_mut_ptr(*cur)).registry_next };
-                    self.count -= 1;
-                    return;
-                }
-                slot = unsafe { &mut (*ShapeImpl::gc_mut_ptr(*cur)).registry_next };
-            } else {
-                break;
+        while let Some(cur) = *slot {
+            if cur == target {
+                // Unlink: slot = cur.registry_next
+                *slot = unsafe { (*ShapeImpl::gc_mut_ptr(cur)).registry_next };
+                self.count -= 1;
+                return;
             }
+            slot = unsafe { &mut (*ShapeImpl::gc_mut_ptr(cur)).registry_next };
         }
+
         // If we reach here, the shape was not found.
         debug_assert!(false, "remove: shape not found in registry");
     }
@@ -138,10 +135,8 @@ impl ShapeRegistry {
     /// Bucket heads (and their `registry_next` chains) are added to the
     /// traced set, which keeps them alive during the current GC cycle.
     pub(crate) fn trace_all(&self, gcx: &mut GcTraceCtx) {
-        for bucket in self.buckets.iter() {
-            if let Some(head) = bucket {
-                gcx.add(*head);
-            }
+        for head in self.buckets.iter().flatten() {
+            gcx.add(*head);
         }
     }
 
@@ -250,29 +245,35 @@ impl ShapeRegistry {
 
 /// Helper: get mutable pointer to ShapeImpl from GcRef.
 impl ShapeImpl {
+    #[inline(always)]
     unsafe fn gc_mut_ptr(gc_ref: GcRef<Self>) -> *mut Self {
-        gc_ref.as_ptr().as_ptr() as *mut Self
+        gc_ref.as_ptr().as_ptr()
     }
 }
 
 impl RuntimeImpl {
+    #[inline(always)]
     pub(crate) fn register_shape(&mut self, shape: &Shape) -> Result<(), i32> {
         debug_assert!(shape.use_count > 0);
         self.shape_registry.insert(shape)
     }
 
+    #[inline(always)]
     pub(crate) fn unregister_shape(&mut self, shape: &Shape) {
         self.shape_registry.remove(shape);
     }
 
+    #[inline(always)]
     pub(crate) fn is_shape_registered(&self, shape: &Shape) -> bool {
         self.shape_registry.contains(shape)
     }
 
+    #[inline(always)]
     pub(crate) fn find_shape_by_proto(&self, proto: Option<Object>) -> Option<Shape> {
         self.shape_registry.find_empty_by_proto(proto)
     }
 
+    #[inline(always)]
     pub(super) fn find_shape_with_extend_prop(
         &self,
         base_shape: &Shape,

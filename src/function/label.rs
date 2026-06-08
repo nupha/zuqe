@@ -41,7 +41,7 @@ impl Label {
         size: i32,
     ) -> Result<(), i32> {
         if self.pending_relocs.len() == self.pending_relocs.capacity()
-            && self.pending_relocs.try_reserve_exact(4).is_err()
+            && self.pending_relocs.try_reserve(1).is_err()
         {
             ctx.throw_out_of_memory();
             return Err(-1);
