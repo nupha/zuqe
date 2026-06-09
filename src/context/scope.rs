@@ -61,9 +61,9 @@ impl<T: ScopeResult> ScopeResult for Option<T> {
 impl ScopeResult for JSValue {
     fn promote(self, scope: &ScopedContext<'_>) -> Self {
         if let Some(node) = self.gc_node_ptr()
-            && let Some((parent, _)) = scope.gc().parent()
+            && let Some((parent, _)) = scope.gc_state().parent()
         {
-            scope.gc().promote_node_to(node, parent);
+            scope.gc_state().promote_node_to(node, parent);
         }
         self
     }
@@ -126,7 +126,7 @@ impl<'a> Drop for ScopedContext<'a> {
 
 impl PartialEq for ScopedContext<'_> {
     fn eq(&self, other: &Self) -> bool {
-        let gc = self.gc();
+        let gc = self.gc_state();
         self.ctx_ptr == other.ctx_ptr && gc.depth() == gc.depth() && gc.stack_id() == gc.stack_id()
     }
 }
@@ -176,7 +176,7 @@ impl<'a> From<&mut ScopedContext<'a>> for ContextPtr {
 impl<'a> ScopedContext<'a> {
     /// get gc scope state
     #[inline]
-    pub(crate) fn gc(&self) -> &GcScopeState<'_> {
+    pub(crate) fn gc_state(&self) -> &GcScopeState<'_> {
         match &self.gc_scope {
             GcScopeType::Owned(s) => s.deref(),
             GcScopeType::Ref {
@@ -191,13 +191,13 @@ impl<'a> ScopedContext<'a> {
 
     #[inline(always)]
     pub fn depth(&self) -> u8 {
-        self.gc().depth()
+        self.gc_state().depth()
     }
 
     /// Allocate a local gc node in scope to protect it within scope lifetime.
     #[inline]
     pub fn alloc_local<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
-        let r = self.gc().alloc_local(payload).map(|gc| gc.into_raw());
+        let r = self.gc_state().alloc_local(payload).map(|gc| gc.into_raw());
         if self.gc_heap().should_gc() {
             self.rt_mut().gc_req = true;
         }
@@ -213,7 +213,7 @@ impl<'a> ScopedContext<'a> {
     ///
     /// The returned `MustReturn<R>` wrapper (with `#[must_use]`) ensures
     /// the value is properly propagated through `with_new_scope`.
-    #[inline]
+    #[inline(always)]
     pub fn return_value<R: ScopeResult>(self, value: R) -> ScopeReturn<R> {
         let res = value.promote(&self);
         ScopeReturn::new(res)
@@ -221,7 +221,7 @@ impl<'a> ScopedContext<'a> {
 
     /// clear protected nodes inside.
     pub(crate) fn clear(&self) {
-        let s = self.gc();
+        let s = self.gc_state();
         let stack_id = self.ctx_ptr.scope_stack_id();
         debug_assert!(s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth(stack_id));
         s.clear();
@@ -300,7 +300,7 @@ impl ContextPtr {
         f: impl FnOnce(ScopedContext<'_>) -> ScopeReturn<R>,
     ) -> R {
         #[cfg(debug_assertions)]
-        let _d1 = self.current_scope().gc().depth();
+        let _d1 = self.current_scope().gc_state().depth();
         #[cfg(debug_assertions)]
         debug_assert_eq!(
             _d1,
@@ -312,12 +312,12 @@ impl ContextPtr {
 
         let s = self.new_scope();
         debug_assert!(
-            s.gc().depth() > 1,
+            s.gc_state().depth() > 1,
             "top level scope must exist, thus new scope must be greater than 1"
         );
 
         #[cfg(debug_assertions)]
-        let _d2 = s.gc().depth();
+        let _d2 = s.gc_state().depth();
         #[cfg(debug_assertions)]
         debug_assert_eq!(_d1, _d2 - 1);
 

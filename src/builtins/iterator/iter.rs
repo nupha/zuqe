@@ -236,11 +236,12 @@ impl<'a> ObjectIter<'a> {
 
             if cnt > 0 {
                 let scope_stack_id = ctx.scope_stack_id();
-                ctx.gc_heap_mut().with_current_scope(scope_stack_id, |s| {
-                    for n in protects.into_iter().take(cnt) {
-                        s.add_non_local(unsafe { NonNull::new_unchecked(n) });
-                    }
-                });
+                ctx.gc_heap_mut()
+                    .with_current_scope_of(scope_stack_id, |s| {
+                        for n in protects.into_iter().take(cnt) {
+                            s.add_non_local(unsafe { NonNull::new_unchecked(n) });
+                        }
+                    });
             }
         }
 

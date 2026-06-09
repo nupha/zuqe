@@ -24,7 +24,7 @@ pub(crate) struct ShapeImpl {
     /// Intrusive linked list next pointer for shape registry.
     /// Used to chain shapes in the same hash bucket.
     /// Traced during GC to keep the chain alive while registered.
-    pub(crate) registry_next: Option<GcRef<ShapeImpl>>,
+    pub(super) next: Option<GcRef<ShapeImpl>>,
 }
 
 impl fmt::Debug for ShapeImpl {
@@ -45,7 +45,7 @@ impl GcTrace for ShapeImpl {
             x.trace(tr);
         }
         self.prop_defs.iter().for_each(|(_, p)| p.trace(tr));
-        if let Some(next) = self.registry_next {
+        if let Some(next) = self.next {
             tr.add(next);
         }
     }
@@ -66,7 +66,7 @@ impl ShapeImpl {
             prop_defs: props,
             has_small_array_index: false,
             hash,
-            registry_next: None,
+            next: None,
         })
     }
 

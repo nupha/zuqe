@@ -332,7 +332,7 @@ impl<'c> ScopedContext<'c> {
         if let Exception::Error(val) = &exc
             && let Some(n) = val.gc_node_ptr()
         {
-            self.gc().add_non_local(n);
+            self.gc_state().add_non_local(n);
         }
         exc
     }

@@ -77,7 +77,7 @@ impl ShapeRegistry {
         // SAFETY: shape.use_count > 0 (guaranteed by caller), and the
         // shape is not yet in any linked list (debug_assert above).
         unsafe {
-            (*ShapeImpl::gc_mut_ptr(gc_ref)).registry_next = self.buckets[idx];
+            (*ShapeImpl::gc_mut_ptr(gc_ref)).next = self.buckets[idx];
         }
         self.buckets[idx] = Some(gc_ref);
         self.count += 1;
@@ -94,11 +94,11 @@ impl ShapeRegistry {
         while let Some(cur) = *slot {
             if cur == target {
                 // Unlink: slot = cur.registry_next
-                *slot = unsafe { (*ShapeImpl::gc_mut_ptr(cur)).registry_next };
+                *slot = unsafe { (*ShapeImpl::gc_mut_ptr(cur)).next };
                 self.count -= 1;
                 return;
             }
-            slot = unsafe { &mut (*ShapeImpl::gc_mut_ptr(cur)).registry_next };
+            slot = unsafe { &mut (*ShapeImpl::gc_mut_ptr(cur)).next };
         }
 
         // If we reach here, the shape was not found.
@@ -118,12 +118,12 @@ impl ShapeRegistry {
                 });
                 if should_remove {
                     let cur = slot.unwrap();
-                    *slot = unsafe { (*ShapeImpl::gc_mut_ptr(cur)).registry_next };
+                    *slot = unsafe { (*ShapeImpl::gc_mut_ptr(cur)).next };
                     self.count -= 1;
                     // Continue with the new head of the chain (same slot)
                 } else if let Some(cur) = slot {
                     // Move to next node
-                    slot = unsafe { &mut (*ShapeImpl::gc_mut_ptr(*cur)).registry_next };
+                    slot = unsafe { &mut (*ShapeImpl::gc_mut_ptr(*cur)).next };
                 } else {
                     break;
                 }
@@ -175,7 +175,7 @@ impl ShapeRegistry {
                 sh.use_count += 1;
                 return Some(sh);
             }
-            ptr = c.registry_next;
+            ptr = c.next;
         }
         None
     }
@@ -194,7 +194,7 @@ impl ShapeRegistry {
                 sh.use_count += 1;
                 return Some(sh);
             }
-            ptr = c.registry_next;
+            ptr = c.next;
         }
         None
     }
@@ -209,7 +209,7 @@ impl ShapeRegistry {
             if candidate == target {
                 return true;
             }
-            ptr = unsafe { candidate.as_ref().registry_next };
+            ptr = unsafe { candidate.as_ref().next };
         }
         false
     }
@@ -228,10 +228,10 @@ impl ShapeRegistry {
             let mut ptr = *bucket;
             while let Some(node) = ptr {
                 // Save next before modifying
-                let next = unsafe { (*ShapeImpl::gc_mut_ptr(node)).registry_next };
+                let next = unsafe { (*ShapeImpl::gc_mut_ptr(node)).next };
                 let new_idx = unsafe { node.as_ref() }.hash as usize & new_mask;
                 unsafe {
-                    (*ShapeImpl::gc_mut_ptr(node)).registry_next = new_buckets[new_idx];
+                    (*ShapeImpl::gc_mut_ptr(node)).next = new_buckets[new_idx];
                 }
                 new_buckets[new_idx] = Some(node);
                 ptr = next;

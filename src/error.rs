@@ -198,7 +198,7 @@ impl<'c> ScopedContext<'c> {
                 #[cfg(debug_assertions)]
                 let mut _found = false;
 
-                let mut scope = Some(self.gc()); // start from self.gc() - the most-inner scope.
+                let mut scope = Some(self.gc_state()); // start from self.gc() - the most-inner scope.
                 while let Some(s) = scope {
                     if s.remove_node(n) {
                         #[cfg(debug_assertions)]
