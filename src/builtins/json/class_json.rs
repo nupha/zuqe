@@ -22,7 +22,7 @@ fn js_json_stringify(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     ctx.with_new_scope(|mut cx| {
         let res = cx.json_stringify(obj, replacer, space);
-        cx.return_value(res)
+        cx.return_with(res)
     })
 }
 
@@ -83,7 +83,7 @@ fn js_json_parse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
         let res = parser.json_parse();
         let (cx, _) = parser.finish(());
-        cx.return_value(res)
+        cx.return_with(res)
     })?;
 
     if cc.length() > 1 && cc.arg(1).is_callable() {

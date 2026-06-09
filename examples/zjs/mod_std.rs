@@ -126,7 +126,7 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             EvalType::Global,
             flags,
         );
-        cx.return_value(res)
+        cx.return_with(res)
     });
 
     let lev = EVAL_SCRIPT_RECURSE.with(|s| {

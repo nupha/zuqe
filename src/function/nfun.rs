@@ -142,18 +142,18 @@ impl NFuncPayload {
                     let d1 = cc.arg(0).to_number(&mut cx).map(|n| n.to_f64());
                     let d1 = match d1 {
                         Ok(v) => v,
-                        Err(e) => return cx.return_value(Err(e)),
+                        Err(e) => return cx.return_with(Err(e)),
                     };
                     let d2 = cc.arg(1).to_number(&mut cx).map(|n| n.to_f64());
                     let d2 = match d2 {
                         Ok(v) => v,
-                        Err(e) => return cx.return_value(Err(e)),
+                        Err(e) => return cx.return_with(Err(e)),
                     };
                     Ok(JSValue::from(unsafe { f(d1, d2) }))
                 }
             };
 
-            cx.return_value(ret_val)
+            cx.return_with(ret_val)
         })
     }
 }
@@ -222,7 +222,7 @@ impl NativeFunction {
                     } else {
                         realm.with_new_scope_internal(|mut cx| {
                             cx.throw_out_of_memory();
-                            cx.return_value(())
+                            cx.return_with(())
                         });
                     }
                     -1

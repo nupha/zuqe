@@ -162,7 +162,7 @@ impl AsyncStateImpl {
             let res = self.resume_call(&mut scope, self.this_val, unsafe {
                 std::slice::from_raw_parts(self.arg_ptr().as_ptr(), self.arg_count())
             });
-            scope.return_value(res)
+            scope.return_with(res)
         });
 
         let completed = match ret_val {

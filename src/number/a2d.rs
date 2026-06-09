@@ -679,7 +679,7 @@ mod tests {
         let mut ctx = rt.create_context(|_| Ok(())).unwrap();
         ctx.with_new_scope(|mut scope| {
             f(&mut scope);
-            scope.return_value(())
+            scope.return_with(())
         });
     }
 

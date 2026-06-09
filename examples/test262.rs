@@ -16,8 +16,8 @@ use std::{
 use clap::Parser;
 use serde::Deserialize;
 use zuqe::{
-    CallContext, Callback, EvalFlags, EvalType, ExceptionText, JS_PROP_C_W_E, JSResult, JSValue,
-    ModuleDef, Runtime, ScopedContext, Context,
+    CallContext, Callback, Context, EvalFlags, EvalType, ExceptionText, JS_PROP_C_W_E, JSResult,
+    JSValue, ModuleDef, Runtime, ScopedContext,
 };
 
 /// counter of "Test262:AsyncTestComplete" messages
@@ -112,7 +112,7 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             EvalType::Global,
             EvalFlags::empty(),
         );
-        scope.return_value(result)
+        scope.return_with(result)
     })
 }
 
@@ -147,7 +147,7 @@ fn js_createRealm(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
     ctx2.with_new_scope(|mut scope| {
         let result = setup_ctx_test262_helpers(&mut scope);
-        scope.return_value(result)
+        scope.return_with(result)
     })
 }
 
@@ -328,7 +328,7 @@ fn run_harness(ctx: &mut Context, harness_files: &[PathBuf]) -> Result<(), Excep
                     let exc = scope.take_exception();
                     exc.to_text(&mut scope)
                 });
-            scope.return_value(result)
+            scope.return_with(result)
         })?;
     }
 
@@ -363,7 +363,7 @@ fn run_test_script(
                 EvalFlags::empty()
             },
         );
-        scope.return_value(result)
+        scope.return_with(result)
     })?;
 
     if is_async {
@@ -413,7 +413,7 @@ async fn run_test_script(
                 let exc = scope.take_exception();
                 exc.to_text(&mut scope)
             });
-        scope.return_value(result)
+        scope.return_with(result)
     })?;
 
     let _ = rt.run_async().await;

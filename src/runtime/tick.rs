@@ -45,7 +45,7 @@ impl RuntimeImpl {
                     let job = self.gc_jobs.last().unwrap();
                     let again = match job.run(&mut cx) {
                         Ok(s) => s == JobState::Again,
-                        Err(e) => return cx.return_value(Err(e)),
+                        Err(e) => return cx.return_with(Err(e)),
                     };
                     if again {
                         // multi-run task: leave in gc_jobs, run again in next tick
@@ -68,7 +68,7 @@ impl RuntimeImpl {
                     }
                 }
 
-                cx.return_value(Ok(()))
+                cx.return_with(Ok(()))
             })?;
         }
 

@@ -103,7 +103,7 @@ impl Bytecode {
                 throwed,
             );
 
-            realm_scope.return_value(val)
+            realm_scope.return_with(val)
         })
     }
 
@@ -2530,7 +2530,7 @@ impl Bytecode {
                 }
                 #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
                 if rt.gc_req {
-                    realm_scope.clear(); // clear nodes in exec scope
+                    realm_scope.clear_locals(); // clear nodes in exec scope
                     rt.gc_collect();
                 }
             }; // opcodes loop

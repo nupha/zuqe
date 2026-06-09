@@ -24,7 +24,7 @@ pub(crate) fn js_global_eval(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
             EvalFlags::empty(),
             -1,
         );
-        cx.return_value(res)
+        cx.return_with(res)
     })
 }
 

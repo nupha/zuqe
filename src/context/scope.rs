@@ -10,10 +10,10 @@ use crate::{ExceptionText, JSValue, context::ContextPtr};
 use super::ContextImpl;
 
 /// A wrapper type that ensures the return value of `with_new_scope` is
-/// properly returned via `ScopedContext::return_value`.
+/// properly returned via `ScopedContext::return_with`.
 ///
 /// The only way to construct a `ScopeReturn` is through
-/// `ScopedContext::return_value`, which moves GC nodes from the child
+/// `ScopedContext::return_with`, which moves GC nodes from the child
 /// scope to the parent scope before the child scope is destroyed.
 ///
 /// The `#[must_use]` attribute ensures the caller cannot accidentally
@@ -37,7 +37,7 @@ impl<R> ScopeReturn<R> {
 pub trait ScopeResult: Sized {
     /// Promote GC nodes from the child scope to the parent scope.
     ///
-    /// Called by `ScopedContext::return_value` before the child scope is
+    /// Called by `ScopedContext::return_with` before the child scope is
     /// destroyed. This ensures GC nodes retain their LOCAL protection
     /// across scope boundaries.
     fn promote(self, scope: &ScopedContext<'_>) -> Self;
@@ -214,13 +214,18 @@ impl<'a> ScopedContext<'a> {
     /// The returned `MustReturn<R>` wrapper (with `#[must_use]`) ensures
     /// the value is properly propagated through `with_new_scope`.
     #[inline(always)]
-    pub fn return_value<R: ScopeResult>(self, value: R) -> ScopeReturn<R> {
+    pub fn return_with<R: ScopeResult>(self, value: R) -> ScopeReturn<R> {
         let res = value.promote(&self);
         ScopeReturn::new(res)
     }
 
-    /// clear protected nodes inside.
-    pub(crate) fn clear(&self) {
+    /// remove the 'node' from scope protection.
+    pub fn remove_local(&mut self, node: NonNull<GcHead>) {
+        self.gc_state().remove_node(node);
+    }
+
+    /// clear all protected nodes in scope.
+    pub fn clear_locals(&self) {
         let s = self.gc_state();
         let stack_id = self.ctx_ptr.scope_stack_id();
         debug_assert!(s.depth() <= self.ctx_ptr.gc_heap().scope_max_depth(stack_id));
@@ -230,7 +235,7 @@ impl<'a> ScopedContext<'a> {
     /// run closure in a new child scope.
     ///
     /// The closure receives a `ScopedContext` and must return its value
-    /// via `scope.return_value(val)`. The `MustReturn<R>` wrapper (with
+    /// via `scope.return_with(val)`. The `MustReturn<R>` wrapper (with
     /// `#[must_use]`) ensures the value is properly propagated.
     pub fn with_new_scope<R: ScopeResult>(
         &mut self,
@@ -287,7 +292,7 @@ impl ContextPtr {
     /// Create a new scope, run closure in it, then destroy the scope.
     ///
     /// The closure receives a `ScopedContext` and must return its value
-    /// via `scope.return_value(val)`. Before the scope is destroyed,
+    /// via `scope.return_with(val)`. Before the scope is destroyed,
     /// GC nodes in the return value are moved to the parent scope's cache,
     /// preserving their LOCAL protection.
     ///
