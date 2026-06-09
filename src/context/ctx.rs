@@ -450,6 +450,20 @@ impl<'c> ScopedContext<'c> {
 ///
 /// `TopLevelContext` derefs to `ContextImpl`, so all context methods that
 /// don't need a scope are available directly.
+///
+/// # Notice: Root Scope GC Lifetime
+///
+/// The top-level GC scope (depth = 1) lives for the **entire lifetime** of
+/// the `Context`. Any GC node that ends up cached in this root scope — either
+/// via [`Self::with_root_scope`] or via [`ScopeResult::promote`] from a child
+/// scope — will be **permanently reachable** and therefore **never collected**
+/// by the garbage collector until the `Context` itself is dropped.
+///
+/// In long-running scenarios, the user is responsible for ensuring that values
+/// no longer needed are not retained in the root scope. Use
+/// [`Self::with_new_scope`] to isolate temporary work into child scopes so that
+/// intermediate values are released when the child scope exits, rather than
+/// being promoted to the root scope.
 pub struct Context<'c> {
     pub(super) ctx_ptr: ContextPtr,
     pub(super) _marker: std::marker::PhantomData<&'c ()>,
