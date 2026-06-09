@@ -370,4 +370,27 @@ impl<'c> ScopedContext<'c> {
             None,
         )
     }
+
+    /// Create native function object with callback and binding data, using function proto as proto object.
+    /// at least `length` arguments will be readable in arguments.
+    #[inline(always)]
+    pub fn create_native_function_with_data(
+        &mut self,
+        callback: Callback,
+        name: &str,
+        length: u8,
+        magic: i16,
+        binding_data: Box<[JSValue]>,
+    ) -> Result<NativeFunction, i32> {
+        let atom = Atom::from_str(self, name)?;
+        NativeFunction::create(
+            self,
+            callback,
+            atom,
+            length,
+            magic,
+            self.function_proto(),
+            Some(binding_data),
+        )
+    }
 }
