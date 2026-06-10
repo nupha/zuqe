@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx, GcTraceFn};
 
 use crate::{ScopedContext, context::ContextImpl, value::JSValue};
 
@@ -17,7 +17,7 @@ pub(crate) struct PollingJob {
     /// It's safe to call js functions inside this closure.
     runnable: Box<dyn Fn(&mut ScopedContext) -> Result<JobState, i32>>,
     /// To trace gc nodes that are referenced by this job.
-    pub(crate) gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
+    pub(crate) gc_trace: Option<Box<dyn GcTraceFn>>,
 }
 
 impl GcTrace for PollingJob {
@@ -39,7 +39,7 @@ impl PollingJob {
 /// One-shot job — executed once and always completes; never retried.
 pub(crate) struct OneshotJob {
     pub(crate) runnable: Box<dyn Fn(&mut ScopedContext) -> Result<(), i32>>,
-    pub(crate) gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
+    pub(crate) gc_trace: Option<Box<dyn GcTraceFn>>,
 }
 
 impl OneshotJob {

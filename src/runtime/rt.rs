@@ -3,7 +3,7 @@
 
 use std::{ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{GcHeap, GcPartitionId, GcTraceCtx};
+use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
 
 use crate::{
     BUILTIN_CLASS_DEFS, Context, JS_CLASS_OBJECT, ScopedContext, USER_CLASS_ID_START,
@@ -15,7 +15,7 @@ use crate::{
     context::ContextPtr,
     error::Exception,
     gc::gc::GC_TYPE_REGISTRY,
-    microtask::{OneshotJob, PollingJob},
+    microtask::PollingJob,
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
     stack_frame::{ExecMode, StackFrame},
@@ -75,13 +75,13 @@ pub struct RuntimeImpl {
     /// gc partition id
     pub(crate) gc_part_hot: GcPartitionId,
     /// Current running oneshot job held here during tick() so GC can trace it.
-    pub(crate) gc_oneshot_job: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
+    pub(crate) gc_oneshot_job: Option<Box<dyn GcTraceFn>>,
     /// Jobs temporarily held here during tick() so GC can trace them.
     /// Jobs are pushed before run(), popped on completion (Done),
     /// or kept for retry (Again) then re-enqueued to job_list at end of tick.
     pub(crate) gc_polling_jobs: Vec<PollingJob>,
     /// user defined gc trace callback
-    pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
+    pub(crate) gc_user_trace: Option<Box<dyn GcTraceFn>>,
     /// gc request flag
     pub(crate) gc_req: bool,
 

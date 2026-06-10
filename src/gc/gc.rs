@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use gc_lite::{
-    GcError, GcHeap, GcNode, GcPartitionId, GcRef, GcTrace, GcTraceCtx, gc_type_register,
+    GcError, GcHeap, GcNode, GcPartitionId, GcRef, GcTrace, GcTraceFn, gc_type_register,
 };
 
 use crate::{
@@ -139,7 +139,7 @@ impl RuntimeImpl {
     }
 
     #[inline(always)]
-    pub fn gc_set_trace_handler(&mut self, f: impl Fn(&mut GcTraceCtx) + 'static) {
+    pub fn gc_set_trace_handler(&mut self, f: impl GcTraceFn + 'static) {
         self.gc_user_trace.replace(Box::new(f));
     }
 
