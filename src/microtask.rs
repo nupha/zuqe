@@ -58,18 +58,18 @@ impl GcTrace for OneshotJob {
 }
 
 pub trait JobGcTrace {
-    fn trace_values(&self, tr: &mut GcTraceCtx);
+    fn trace_values(&self, gcx: &mut GcTraceCtx);
 }
 
 impl JobGcTrace for () {
     #[inline(always)]
-    fn trace_values(&self, _tr: &mut GcTraceCtx) {}
+    fn trace_values(&self, _: &mut GcTraceCtx) {}
 }
 
 impl JobGcTrace for JSValue {
     #[inline(always)]
-    fn trace_values(&self, tr: &mut GcTraceCtx) {
-        self.trace(tr);
+    fn trace_values(&self, gcx: &mut GcTraceCtx) {
+        self.trace(gcx);
     }
 }
 
@@ -82,7 +82,7 @@ impl ContextImpl {
     {
         self.polling_jobs.push_back(PollingJob {
             runnable: Box::new(runnable),
-            gc_trace: Some(Box::new(move |tr| gc_trace_nodes.trace_values(tr))),
+            gc_trace: Some(Box::new(move |gcx| gc_trace_nodes.trace_values(gcx))),
         });
     }
 
@@ -94,7 +94,7 @@ impl ContextImpl {
     {
         self.oneshot_jobs.push_back(OneshotJob {
             runnable: Box::new(runnable),
-            gc_trace: Some(Box::new(move |tr| gc_trace_nodes.trace_values(tr))),
+            gc_trace: Some(Box::new(move |gcx| gc_trace_nodes.trace_values(gcx))),
         });
     }
 }
