@@ -63,6 +63,8 @@ After installation, you need to add the MSYS2 toolchain binaries to your system 
 - `C:\msys64\clang64\bin` — Clang toolchain required by `bindgen`
 - `C:\msys64\usr\bin` — Common Unix utilities (`git`, `make`, `pacman`, `bash`, etc.)
 
+> **Important:** Place these paths at the **top** of the PATH list (above other entries). The `bindgen` crate loads `libclang.dll` at build time, which depends on `libLLVM-22.dll` and other DLLs in `clang64\bin`. If these paths appear too low in the PATH order, Windows may load incompatible DLLs from other directories first, causing `LoadLibraryExW` failures.
+
 Add these paths to your system PATH environment variable:
 
 1. Right-click on "This PC" or "My Computer" and select "Properties"
@@ -107,6 +109,7 @@ This command will compile the project using the Windows GNU toolchain and build 
 ## Troubleshooting
 
 - **Linker errors**: Ensure that the MinGW-w64 binaries are properly added to your PATH
+- **`libclang.dll` / `LoadLibraryExW` errors**: Ensure the MSYS2 paths are at the **top** of your PATH list, not at the bottom. The `libloading` crate does not use `LOAD_WITH_ALTERED_SEARCH_PATH`, so DLL dependencies (like `libLLVM-22.dll`) are resolved via the standard search order. If another directory earlier in PATH contains a conflicting DLL, loading will fail.
 - **Include path errors**: Verify that the paths in `.cargo/config.toml` point to your actual MSYS2 installation
 - **Missing libraries**: You may need to install additional development packages in MSYS2 using `pacman -S <package-name>`
 
