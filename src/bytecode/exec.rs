@@ -2524,7 +2524,7 @@ impl Bytecode {
                 #[cfg(all(debug_assertions, feature = "debug_gc"))]
                 {
                     // flush nodes in exec scope after each instruction
-                    realm_scope.clear();
+                    realm_scope.clear_locals();
                     // perform garbage collect after each opcode execution to strictly ensure gc is correct.
                     rt.gc_collect();
                 }

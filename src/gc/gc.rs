@@ -97,7 +97,11 @@ impl RuntimeImpl {
             }
             // trace gc_jobs: jobs removed from job_list but still alive during tick
             // (they are in gc_jobs — a GC-traced Runtime field — and must not be swept)
-            for job in self.gc_jobs.iter() {
+            for job in self.gc_polling_jobs.iter() {
+                job.trace(&mut gcx);
+            }
+            // trace gc_oneshot_job: oneshot job being executed during tick
+            if let Some(job) = self.gc_oneshot_job.as_ref() {
                 job.trace(&mut gcx);
             }
 

@@ -15,7 +15,7 @@ use crate::{
     context::ContextPtr,
     error::Exception,
     gc::gc::GC_TYPE_REGISTRY,
-    microtask::Job,
+    microtask::{OneshotJob, PollingJob},
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
     stack_frame::{ExecMode, StackFrame},
@@ -74,10 +74,12 @@ pub struct RuntimeImpl {
     pub(crate) gc_heap: GcHeap,
     /// gc partition id
     pub(crate) gc_part_hot: GcPartitionId,
+    /// Current running oneshot job held here during tick() so GC can trace it.
+    pub(crate) gc_oneshot_job: Option<OneshotJob>,
     /// Jobs temporarily held here during tick() so GC can trace them.
     /// Jobs are pushed before run(), popped on completion (Done),
     /// or kept for retry (Again) then re-enqueued to job_list at end of tick.
-    pub(crate) gc_jobs: Vec<Job>,
+    pub(crate) gc_polling_jobs: Vec<PollingJob>,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
     /// gc request flag
@@ -138,7 +140,8 @@ impl RuntimeImpl {
             gc_heap,
             gc_part_hot: gc_part_id,
             gc_user_trace: None,
-            gc_jobs: Vec::with_capacity(8),
+            gc_polling_jobs: Vec::with_capacity(4),
+            gc_oneshot_job: None,
             gc_req: false,
 
             interrupt_handler: None,

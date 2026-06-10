@@ -91,7 +91,7 @@ impl PromiseResolveFunc {
             return Ok(JSValue::UNDEFINED);
         } else if let Ok(then) = resolution.get_property(ctx, Atom::CONST_then) {
             if then.is_callable() {
-                ctx.queue_job(
+                ctx.queue_oneshot_job(
                     move |cx| js_promise_resolve_thenable_job(cx, promise, resolution, then),
                     JobGcTrace3 {
                         a: prf,
@@ -236,7 +236,7 @@ impl Promise {
 
                 // add a job to poll promise reaction in runtime tick
                 let is_reject = state == PromiseState::Rejected;
-                ctx.queue_job(
+                ctx.queue_oneshot_job(
                     move |cx| js_promise_reaction_job(cx, act, result, is_reject),
                     JobGcTrace2 { a: act, b: result },
                 );
@@ -295,7 +295,7 @@ impl Promise {
         // call chained reactions
         let mut reactions = self.payload_mut().take_reactions();
         for act in reactions[is_reject as usize].drain(..) {
-            ctx.queue_job(
+            ctx.queue_oneshot_job(
                 move |cx| js_promise_reaction_job(cx, act, value, is_reject),
                 JobGcTrace2 { a: act, b: value },
             );

@@ -14,8 +14,8 @@ use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_ASYNC_ITERABLE_ITERATOR,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
-    JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, Job, ScopeResult,
-    ScopeReturn,
+    JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, OneshotJob, PollingJob,
+    ScopeResult, ScopeReturn,
     atom::Atom,
     builtins::global::js_global_props,
     class::ClassID,
@@ -74,8 +74,11 @@ pub struct ContextImpl {
 
     pub(crate) allow_eval: bool,
 
-    /// pending micro-tasks
-    pub(crate) microtasks: VecDeque<Job>,
+    /// pending one-shot micro-tasks (always complete)
+    pub(crate) oneshot_jobs: VecDeque<OneshotJob>,
+    /// pending polling micro-tasks (may return `Again`)
+    pub(crate) polling_jobs: VecDeque<PollingJob>,
+
     /// user defined tick handlers
     pub(crate) tick_handlers: Vec<fn(&mut ScopedContext) -> bool>,
 
@@ -119,7 +122,8 @@ impl GcTrace for ContextImpl {
             o.trace(gcx)
         };
 
-        self.microtasks.iter().for_each(|x| x.trace(gcx));
+        self.polling_jobs.iter().for_each(|x| x.trace(gcx));
+        self.oneshot_jobs.iter().for_each(|x| x.trace(gcx));
     }
 }
 
@@ -178,7 +182,8 @@ impl ContextImpl {
 
             allow_eval: true,
 
-            microtasks: VecDeque::new(),
+            polling_jobs: VecDeque::new(),
+            oneshot_jobs: VecDeque::new(),
             tick_handlers: Vec::new(),
 
             gc_top_scope: None,
@@ -307,7 +312,8 @@ impl ContextImpl {
     }
 
     fn finalize(&mut self) {
-        self.microtasks.clear();
+        self.polling_jobs.clear();
+        self.oneshot_jobs.clear();
 
         // free loaded modules
         js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);

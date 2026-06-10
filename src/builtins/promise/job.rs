@@ -1,6 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
+
 use gc_lite::{GcTrace, GcTraceCtx};
 
-use crate::{JSValue, JobGcTrace, JobState, ScopedContext};
+use crate::{JSValue, JobGcTrace, ScopedContext};
 
 use super::{Promise, PromiseReaction, PromiseResolveFunc};
 
@@ -90,7 +93,7 @@ pub(super) fn js_promise_reaction_job(
     action: PromiseReaction,
     arg: JSValue,
     is_reject: bool,
-) -> Result<JobState, i32> {
+) -> Result<(), i32> {
     let mut result = if action.handler.is_undefined() {
         if is_reject {
             ctx.throw_value(arg);
@@ -120,7 +123,7 @@ pub(super) fn js_promise_reaction_job(
         func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&result))?;
     }
 
-    Ok(JobState::Done)
+    Ok(())
 }
 
 pub(super) fn js_promise_resolve_thenable_job(
@@ -128,12 +131,12 @@ pub(super) fn js_promise_resolve_thenable_job(
     promise: Promise,
     thenable: JSValue,
     then_func: JSValue,
-) -> Result<JobState, i32> {
+) -> Result<(), i32> {
     let rr = promise.create_resolving_functions(ctx)?;
     if then_func.call(ctx, thenable, &rr).is_err() {
         let err_val = ctx.take_exception().to_value(ctx);
         rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
     }
 
-    Ok(JobState::Done)
+    Ok(())
 }

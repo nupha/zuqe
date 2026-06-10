@@ -4,7 +4,7 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    Callback, JobState,
+    Callback,
     atom::Atom,
     builtins::promise::{JobGcTrace4, Promise},
     context::ScopedContext,
@@ -45,10 +45,10 @@ pub(crate) fn js_dynamic_import(ctx: &mut ScopedContext, specifier: JSValue) -> 
     // cannot run JS_LoadModuleInternal synchronously because it would
     // cause an unexpected recursion in js_evaluate_module()
     let rr = resolving_funcs;
-    ctx.queue_job(
+    ctx.queue_oneshot_job(
         move |cx| {
             js_dynamic_import_job(cx, resolving_funcs, basename_val, specifier);
-            Ok(JobState::Done)
+            Ok(())
         },
         JobGcTrace4 {
             a: basename_val,

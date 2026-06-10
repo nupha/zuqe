@@ -11,8 +11,9 @@ pub enum JobState {
     Again,
 }
 
-/// A job running in background, known as 'micro task'.
-pub(crate) struct Job {
+/// A polling job running in background, known as 'micro task'.
+/// May return `Again` to be re-queued for the next tick.
+pub(crate) struct PollingJob {
     /// It's safe to call js functions inside this closure.
     runnable: Box<dyn Fn(&mut ScopedContext) -> Result<JobState, i32>>,
 
@@ -20,7 +21,7 @@ pub(crate) struct Job {
     pub(crate) gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
 }
 
-impl GcTrace for Job {
+impl GcTrace for PollingJob {
     fn trace(&self, gcx: &mut GcTraceCtx) {
         if let Some(f) = self.gc_trace.as_ref() {
             f(gcx)
@@ -28,10 +29,31 @@ impl GcTrace for Job {
     }
 }
 
-impl Job {
+impl PollingJob {
     #[inline(always)]
     pub fn run(&self, ctx: &mut ScopedContext) -> Result<JobState, i32> {
         (self.runnable)(ctx)
+    }
+}
+
+/// One-shot job — executed once and always completes; never retried.
+pub(crate) struct OneshotJob {
+    runnable: Box<dyn Fn(&mut ScopedContext) -> Result<(), i32>>,
+    gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
+}
+
+impl OneshotJob {
+    #[inline(always)]
+    pub fn run(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+        (self.runnable)(ctx)
+    }
+}
+
+impl GcTrace for OneshotJob {
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        if let Some(f) = self.gc_trace.as_ref() {
+            f(gcx)
+        }
     }
 }
 
@@ -52,13 +74,25 @@ impl JobGcTrace for JSValue {
 }
 
 impl ContextImpl {
-    /// Add a pending micro-task.
+    /// Add a pending micro-task (polling mode, may return `Again`).
     pub fn queue_job<GCN, F>(&mut self, runnable: F, gc_trace_nodes: GCN)
     where
         GCN: JobGcTrace + 'static,
         F: Fn(&mut ScopedContext) -> Result<JobState, i32> + 'static,
     {
-        self.microtasks.push_back(Job {
+        self.polling_jobs.push_back(PollingJob {
+            runnable: Box::new(runnable),
+            gc_trace: Some(Box::new(move |tr| gc_trace_nodes.trace_values(tr))),
+        });
+    }
+
+    /// Add a one-shot micro-task — executed once and always completes; never retried.
+    pub fn queue_oneshot_job<GCN, F>(&mut self, runnable: F, gc_trace_nodes: GCN)
+    where
+        GCN: JobGcTrace + 'static,
+        F: Fn(&mut ScopedContext) -> Result<(), i32> + 'static,
+    {
+        self.oneshot_jobs.push_back(OneshotJob {
             runnable: Box::new(runnable),
             gc_trace: Some(Box::new(move |tr| gc_trace_nodes.trace_values(tr))),
         });

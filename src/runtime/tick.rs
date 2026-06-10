@@ -37,12 +37,29 @@ impl RuntimeImpl {
 
         for mut ctx in self.context_list.iter().copied() {
             ctx.with_new_scope_internal(|mut cx| {
-                // 1. run pending jobs (not for new added jobs)
-                while let Some(job) = cx.microtasks.pop_front() {
-                    // put job into gc-visible collection first, so GC can trace it during run()
-                    self.gc_jobs.push(job);
+                if !cx.oneshot_jobs.is_empty() {
+                    // 1. Run all one-shot jobs first (always complete, never retry).
+                    //    New oneshot jobs may be queued during execution, so keep
+                    //    draining until the queue is empty.
+                    while let Some(job) = cx.oneshot_jobs.pop_front() {
+                        self.gc_oneshot_job = Some(job); // place job in gc-visible slot so GC can trace it during run()
 
-                    let job = self.gc_jobs.last().unwrap();
+                        let job = self.gc_oneshot_job.as_ref().unwrap();
+                        if let Err(e) = job.run(&mut cx) {
+                            self.gc_oneshot_job = None;
+                            return cx.return_with(Err(e));
+                        }
+                    }
+
+                    self.gc_oneshot_job = None;
+                }
+
+                // 2. Run pending polling jobs (may return `Again`).
+                while let Some(job) = cx.polling_jobs.pop_front() {
+                    // put job into gc-visible collection first, so GC can trace it during run()
+                    self.gc_polling_jobs.push(job);
+
+                    let job = self.gc_polling_jobs.last().unwrap();
                     let again = match job.run(&mut cx) {
                         Ok(s) => s == JobState::Again,
                         Err(e) => return cx.return_with(Err(e)),
@@ -50,17 +67,17 @@ impl RuntimeImpl {
                     if again {
                         // multi-run task: leave in gc_jobs, run again in next tick
                     } else {
-                        self.gc_jobs.pop();
+                        self.gc_polling_jobs.pop();
                     }
                 }
 
-                // re-enqueue pending (Again) jobs to gc_jobs for next round
-                if !self.gc_jobs.is_empty() {
-                    cx.microtasks.extend(self.gc_jobs.drain(..));
+                // re-enqueue pending (Again) jobs for next round
+                if !self.gc_polling_jobs.is_empty() {
+                    cx.polling_jobs.extend(self.gc_polling_jobs.drain(..));
                     more_ticks = true;
                 }
 
-                // 2. run tick handlers
+                // 3. run tick handlers
                 let ctx_ptr = ContextPtr::from(cx.gc_ref());
                 for f in ctx_ptr.tick_handlers.iter() {
                     if f(&mut cx) {
