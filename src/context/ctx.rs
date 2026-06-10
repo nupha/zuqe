@@ -74,8 +74,8 @@ pub struct ContextImpl {
 
     pub(crate) allow_eval: bool,
 
-    /// context level queued jobs
-    pub(crate) job_list: VecDeque<Job>,
+    /// pending micro-tasks
+    pub(crate) microtasks: VecDeque<Job>,
     /// user defined tick handlers
     pub(crate) tick_handlers: Vec<fn(&mut ScopedContext) -> bool>,
 
@@ -119,8 +119,7 @@ impl GcTrace for ContextImpl {
             o.trace(gcx)
         };
 
-        // pending jobs
-        self.job_list.iter().for_each(|x| x.trace(gcx));
+        self.microtasks.iter().for_each(|x| x.trace(gcx));
     }
 }
 
@@ -179,7 +178,7 @@ impl ContextImpl {
 
             allow_eval: true,
 
-            job_list: VecDeque::new(),
+            microtasks: VecDeque::new(),
             tick_handlers: Vec::new(),
 
             gc_top_scope: None,
@@ -308,7 +307,7 @@ impl ContextImpl {
     }
 
     fn finalize(&mut self) {
-        self.job_list.clear();
+        self.microtasks.clear();
 
         // free loaded modules
         js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);

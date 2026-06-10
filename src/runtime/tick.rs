@@ -38,7 +38,7 @@ impl RuntimeImpl {
         for mut ctx in self.context_list.iter().copied() {
             ctx.with_new_scope_internal(|mut cx| {
                 // 1. run pending jobs (not for new added jobs)
-                while let Some(job) = cx.job_list.pop_front() {
+                while let Some(job) = cx.microtasks.pop_front() {
                     // put job into gc-visible collection first, so GC can trace it during run()
                     self.gc_jobs.push(job);
 
@@ -56,7 +56,7 @@ impl RuntimeImpl {
 
                 // re-enqueue pending (Again) jobs to gc_jobs for next round
                 if !self.gc_jobs.is_empty() {
-                    cx.job_list.extend(self.gc_jobs.drain(..));
+                    cx.microtasks.extend(self.gc_jobs.drain(..));
                     more_ticks = true;
                 }
 

@@ -52,12 +52,13 @@ impl JobGcTrace for JSValue {
 }
 
 impl ContextImpl {
+    /// Add a pending micro-task.
     pub fn queue_job<GCN, F>(&mut self, runnable: F, gc_trace_nodes: GCN)
     where
         GCN: JobGcTrace + 'static,
         F: Fn(&mut ScopedContext) -> Result<JobState, i32> + 'static,
     {
-        self.job_list.push_back(Job {
+        self.microtasks.push_back(Job {
             runnable: Box::new(runnable),
             gc_trace: Some(Box::new(move |tr| gc_trace_nodes.trace_values(tr))),
         });
