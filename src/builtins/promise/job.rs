@@ -9,14 +9,14 @@ use super::{Promise, PromiseReaction, PromiseResolveFunc};
 
 impl JobGcTrace for PromiseReaction {
     #[inline(always)]
-    fn trace_values(&self, gcx: &mut GcTraceCtx) {
+    fn job_trace_values(&self, gcx: &mut GcTraceCtx) {
         self.trace(gcx);
     }
 }
 
 impl JobGcTrace for PromiseResolveFunc {
     #[inline(always)]
-    fn trace_values(&self, gcx: &mut GcTraceCtx) {
+    fn job_trace_values(&self, gcx: &mut GcTraceCtx) {
         self.trace(gcx);
     }
 }
@@ -32,9 +32,9 @@ where
     B: JobGcTrace,
 {
     #[inline(always)]
-    fn trace_values(&self, tr: &mut GcTraceCtx) {
-        self.a.trace_values(tr);
-        self.b.trace_values(tr);
+    fn job_trace_values(&self, tr: &mut GcTraceCtx) {
+        self.a.job_trace_values(tr);
+        self.b.job_trace_values(tr);
     }
 }
 
@@ -51,10 +51,10 @@ where
     C: JobGcTrace,
 {
     #[inline(always)]
-    fn trace_values(&self, tr: &mut GcTraceCtx) {
-        self.a.trace_values(tr);
-        self.b.trace_values(tr);
-        self.c.trace_values(tr);
+    fn job_trace_values(&self, tr: &mut GcTraceCtx) {
+        self.a.job_trace_values(tr);
+        self.b.job_trace_values(tr);
+        self.c.job_trace_values(tr);
     }
 }
 
@@ -73,11 +73,11 @@ where
     D: JobGcTrace,
 {
     #[inline(always)]
-    fn trace_values(&self, tr: &mut GcTraceCtx) {
-        self.a.trace_values(tr);
-        self.b.trace_values(tr);
-        self.c.trace_values(tr);
-        self.d.trace_values(tr);
+    fn job_trace_values(&self, tr: &mut GcTraceCtx) {
+        self.a.job_trace_values(tr);
+        self.b.job_trace_values(tr);
+        self.c.job_trace_values(tr);
+        self.d.job_trace_values(tr);
     }
 }
 
