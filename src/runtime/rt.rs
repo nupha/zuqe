@@ -75,7 +75,7 @@ pub struct RuntimeImpl {
     /// gc partition id
     pub(crate) gc_part_hot: GcPartitionId,
     /// Current running oneshot job held here during tick() so GC can trace it.
-    pub(crate) gc_oneshot_job: Option<OneshotJob>,
+    pub(crate) gc_oneshot_job: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
     /// Jobs temporarily held here during tick() so GC can trace them.
     /// Jobs are pushed before run(), popped on completion (Done),
     /// or kept for retry (Again) then re-enqueued to job_list at end of tick.

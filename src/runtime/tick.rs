@@ -41,10 +41,9 @@ impl RuntimeImpl {
                     // 1. Run all one-shot jobs first (always complete, never retry).
                     //    New oneshot jobs may be queued during execution, so keep
                     //    draining until the queue is empty.
-                    while let Some(job) = cx.oneshot_jobs.pop_front() {
-                        self.gc_oneshot_job = Some(job); // place job in gc-visible slot so GC can trace it during run()
-
-                        let job = self.gc_oneshot_job.as_ref().unwrap();
+                    while let Some(mut job) = cx.oneshot_jobs.pop_front() {
+                        // hold job gc tracer so GC can trace it during run()
+                        self.gc_oneshot_job = job.gc_trace.take();
                         if let Err(e) = job.run(&mut cx) {
                             self.gc_oneshot_job = None;
                             return cx.return_with(Err(e));

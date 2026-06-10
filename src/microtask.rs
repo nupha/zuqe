@@ -16,12 +16,12 @@ pub enum JobState {
 pub(crate) struct PollingJob {
     /// It's safe to call js functions inside this closure.
     runnable: Box<dyn Fn(&mut ScopedContext) -> Result<JobState, i32>>,
-
     /// To trace gc nodes that are referenced by this job.
     pub(crate) gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
 }
 
 impl GcTrace for PollingJob {
+    #[inline(always)]
     fn trace(&self, gcx: &mut GcTraceCtx) {
         if let Some(f) = self.gc_trace.as_ref() {
             f(gcx)
@@ -38,8 +38,8 @@ impl PollingJob {
 
 /// One-shot job — executed once and always completes; never retried.
 pub(crate) struct OneshotJob {
-    runnable: Box<dyn Fn(&mut ScopedContext) -> Result<(), i32>>,
-    gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
+    pub(crate) runnable: Box<dyn Fn(&mut ScopedContext) -> Result<(), i32>>,
+    pub(crate) gc_trace: Option<Box<dyn Fn(&mut GcTraceCtx)>>,
 }
 
 impl OneshotJob {
@@ -50,6 +50,7 @@ impl OneshotJob {
 }
 
 impl GcTrace for OneshotJob {
+    #[inline(always)]
     fn trace(&self, gcx: &mut GcTraceCtx) {
         if let Some(f) = self.gc_trace.as_ref() {
             f(gcx)

@@ -91,18 +91,18 @@ impl RuntimeImpl {
                 err.trace(&mut gcx);
             }
 
-            // mark user defined
-            if let Some(f) = self.gc_user_trace.as_ref() {
+            // trace gc_oneshot_job: oneshot job being executed during tick
+            if let Some(f) = self.gc_oneshot_job.as_ref() {
                 f(&mut gcx);
             }
-            // trace gc_jobs: jobs removed from job_list but still alive during tick
-            // (they are in gc_jobs — a GC-traced Runtime field — and must not be swept)
+            // trace gc_polling_jobs: jobs removed from job_list but still alive during tick
             for job in self.gc_polling_jobs.iter() {
                 job.trace(&mut gcx);
             }
-            // trace gc_oneshot_job: oneshot job being executed during tick
-            if let Some(job) = self.gc_oneshot_job.as_ref() {
-                job.trace(&mut gcx);
+
+            // trace user defined gc
+            if let Some(f) = self.gc_user_trace.as_ref() {
+                f(&mut gcx);
             }
 
             gcx.take_nodes()
