@@ -294,7 +294,7 @@ impl Promise {
         })
     }
 
-    /// Create Promise with background running job.
+    /// Create Promise with background polling job.
     ///
     /// The `job` function could return:
     ///  - Some(value) - resolve promise with value.

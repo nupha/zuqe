@@ -91,13 +91,9 @@ impl RuntimeImpl {
                 err.trace(&mut gcx);
             }
 
-            // trace gc_oneshot_job: oneshot job being executed during tick
-            if let Some(f) = self.gc_oneshot_job.as_ref() {
+            // trace currently runnnig job
+            if let Some(f) = self.gc_job.as_ref() {
                 f(&mut gcx);
-            }
-            // trace gc_polling_jobs: jobs removed from job_list but still alive during tick
-            for job in self.gc_polling_jobs.iter() {
-                job.trace(&mut gcx);
             }
 
             // trace user defined gc

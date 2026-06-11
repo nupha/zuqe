@@ -37,46 +37,52 @@ impl RuntimeImpl {
 
         for mut ctx in self.context_list.iter().copied() {
             ctx.with_new_scope_internal(|mut cx| {
+                // 1. Run all one-shot jobs first (always complete, never retry).
+                //    New oneshot jobs may be queued during execution, so keep
+                //    draining until the queue is empty.
                 if !cx.oneshot_jobs.is_empty() {
-                    // 1. Run all one-shot jobs first (always complete, never retry).
-                    //    New oneshot jobs may be queued during execution, so keep
-                    //    draining until the queue is empty.
                     while let Some(mut job) = cx.oneshot_jobs.pop_front() {
                         // hold job gc tracer so GC can trace it during run()
-                        self.gc_oneshot_job = job.gc_trace.take();
+                        self.gc_job = job.gc_trace.take();
                         if let Err(e) = job.run(&mut cx) {
-                            self.gc_oneshot_job = None;
+                            self.gc_job = None;
                             return cx.return_with(Err(e));
                         }
                     }
-
-                    self.gc_oneshot_job = None;
+                    self.gc_job = None;
                 }
 
-                // 2. Run pending polling jobs (may return `Again`).
-                while let Some(job) = cx.polling_jobs.pop_front() {
-                    // put job into gc-visible collection first, so GC can trace it during run()
-                    self.gc_polling_jobs.push(job);
-
-                    let job = self.gc_polling_jobs.last().unwrap();
-                    let again = match job.run(&mut cx) {
-                        Ok(s) => s == JobState::Again,
-                        Err(e) => return cx.return_with(Err(e)),
+                // 2. Run polling jobs (may return `Again`) — one round only.
+                let num = cx.polling_jobs.len();
+                for _ in 0..num {
+                    let Some(mut job) = cx.polling_jobs.pop_front() else {
+                        break;
                     };
-                    if again {
-                        // multi-run task: leave in gc_jobs, run again in next tick
-                    } else {
-                        self.gc_polling_jobs.pop();
+
+                    // put job trace to temp holder and run the job
+                    self.gc_job = job.gc_trace.take();
+                    let res = job.run(&mut cx);
+                    let gc_trace = self.gc_job.take();
+
+                    match res {
+                        Ok(JobState::Again) => {
+                            job.gc_trace = gc_trace;
+                            cx.polling_jobs.push_back(job);
+                            more_ticks = true;
+                        }
+                        Ok(JobState::Done) => {}
+                        Err(e) => {
+                            return cx.return_with(Err(e));
+                        }
                     }
                 }
 
-                // re-enqueue pending (Again) jobs for next round
-                if !self.gc_polling_jobs.is_empty() {
-                    cx.polling_jobs.extend(self.gc_polling_jobs.drain(..));
+                // Oneshot jobs may also be queued by tick handlers; keep ticking if any remain.
+                if !cx.oneshot_jobs.is_empty() {
                     more_ticks = true;
                 }
 
-                // 3. run tick handlers
+                // 3. customized tick handlers
                 let ctx_ptr = ContextPtr::from(cx.gc_ref());
                 for f in ctx_ptr.tick_handlers.iter() {
                     if f(&mut cx) {

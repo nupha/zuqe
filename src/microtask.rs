@@ -44,7 +44,7 @@ pub(crate) struct OneshotJob {
 
 impl OneshotJob {
     #[inline(always)]
-    pub fn run(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+    pub fn run(self, ctx: &mut ScopedContext) -> Result<(), i32> {
         (self.runnable)(ctx)
     }
 }

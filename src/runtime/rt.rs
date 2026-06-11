@@ -74,12 +74,8 @@ pub struct RuntimeImpl {
     pub(crate) gc_heap: GcHeap,
     /// gc partition id
     pub(crate) gc_part_hot: GcPartitionId,
-    /// Current running oneshot job held here during tick() so GC can trace it.
-    pub(crate) gc_oneshot_job: Option<Box<dyn GcTraceFn>>,
-    /// Jobs temporarily held here during tick() so GC can trace them.
-    /// Jobs are pushed before run(), popped on completion (Done),
-    /// or kept for retry (Again) then re-enqueued to job_list at end of tick.
-    pub(crate) gc_polling_jobs: Vec<PollingJob>,
+    /// Hold currently running job gc tracer, so that GC can trace it.
+    pub(crate) gc_job: Option<Box<dyn GcTraceFn>>,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn GcTraceFn>>,
     /// gc request flag
@@ -139,10 +135,9 @@ impl RuntimeImpl {
 
             gc_heap,
             gc_part_hot: gc_part_id,
-            gc_user_trace: None,
-            gc_polling_jobs: Vec::with_capacity(4),
-            gc_oneshot_job: None,
+            gc_job: None,
             gc_req: false,
+            gc_user_trace: None,
 
             interrupt_handler: None,
 
