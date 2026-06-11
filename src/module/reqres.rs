@@ -156,70 +156,23 @@ fn js_default_module_normalize_name(
     base_name: &str,
     name: &str,
 ) -> Result<String, i32> {
-    //debug_assert!(!name.is_empty());
-
-    // 如果不是相对路径，直接返回原名
+    // Bare names (not starting with '.') are global, not relative to base
     if !name.starts_with('.') {
         return Ok(name.to_string());
     }
 
-    // 获取基础路径的目录部分
-    let base_dir = if let Some(pos) = base_name.rfind('/') {
-        &base_name[..pos]
+    let base_dir = std::path::Path::new(base_name)
+        .parent()
+        .unwrap_or(std::path::Path::new(""));
+
+    let resolved = base_dir.join(name);
+
+    // Canonicalize if the file exists, otherwise use absolute to resolve ./ and ../
+    if let Ok(p) = resolved.canonicalize() {
+        Ok(p.to_string_lossy().into_owned())
+    } else if let Ok(p) = std::path::absolute(&resolved) {
+        Ok(p.to_string_lossy().into_owned())
     } else {
-        ""
-    };
-
-    // 构建初始文件路径
-    let mut filename = if !base_dir.is_empty() {
-        format!("{}/", base_dir)
-    } else {
-        String::new()
-    };
-
-    // 标准化路径处理
-    let mut r = name;
-    loop {
-        if r.starts_with("./") {
-            r = &r[2..];
-        } else if r.starts_with("../") {
-            // 移除filename的最后一级路径元素，但不能是"."或".."
-            if !filename.is_empty() {
-                // 查找最后一个'/'的位置
-                let mut parts: Vec<&str> = filename.split('/').collect();
-                if !parts.is_empty() {
-                    let last_part = parts.last().unwrap_or(&"");
-                    // 如果最后一部分是"."或".."则停止处理
-                    if *last_part != "." && *last_part != ".." {
-                        // 移除最后一部分
-                        if parts.len() > 1 {
-                            parts.pop(); // 移除最后一部分
-                            filename = parts.join("/");
-                            if !filename.is_empty() {
-                                filename.push('/');
-                            }
-                        } else {
-                            filename.clear();
-                        }
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
-            r = &r[3..];
-        } else {
-            break;
-        }
+        Ok(resolved.to_string_lossy().into_owned())
     }
-
-    // 添加剩余的路径部分
-    if !filename.is_empty() || !r.is_empty() {
-        filename.push_str(r);
-    }
-
-    Ok(filename)
 }
