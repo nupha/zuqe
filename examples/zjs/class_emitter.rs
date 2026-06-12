@@ -26,9 +26,9 @@ fn js_emitter_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     JSEmitter::new_instance(
         ctx,
         new_target,
-        Box::new(EmitterData {
+        EmitterData {
             listeners: RefCell::new(Vec::new()),
-        }),
+        },
     )
     .map(JSValue::from)
 }
@@ -74,7 +74,7 @@ const CLASS_EMITTER_PROTO: &[FieldDef] = &[
 def_native_object!(
     "Emitter",
     JSEmitter,
-    Box<EmitterData>,
+    EmitterData,
     CLASS_EMITTER_PROTO,
     constructor: ClassCtorDef::new(js_emitter_constructor, 0, false).expose_to_global()
 );

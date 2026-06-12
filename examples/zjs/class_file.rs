@@ -211,43 +211,24 @@ const CLASS_FILE_PROTO: &[FieldDef] = &[
     FieldDef::FUNC("close", 0, js_file_close, 0),
 ];
 
-def_native_object!("File", JSFile, Box<RefCell<FileDesc>>, CLASS_FILE_PROTO);
+def_native_object!("File", JSFile, RefCell<FileDesc>, CLASS_FILE_PROTO);
 
 impl JSFile {
     /// Create a File instance from a std::fs::File handle.
     pub fn create_file_instance(ctx: &mut ScopedContext, fh: std::fs::File) -> Result<Object, i32> {
-        Self::new_instance(
-            ctx,
-            JSValue::UNDEFINED,
-            Box::new(RefCell::new(FileDesc::File(fh))),
-        )
-        .map(Into::into)
+        Self::new_instance(ctx, JSValue::UNDEFINED, RefCell::new(FileDesc::File(fh)))
+            .map(Into::into)
     }
     /// Create a File instance wrapping stdin.
     pub fn create_stdin_instance(ctx: &mut ScopedContext) -> Result<Object, i32> {
-        Self::new_instance(
-            ctx,
-            JSValue::UNDEFINED,
-            Box::new(RefCell::new(FileDesc::Stdin)),
-        )
-        .map(Into::into)
+        Self::new_instance(ctx, JSValue::UNDEFINED, RefCell::new(FileDesc::Stdin)).map(Into::into)
     }
     /// Create a File instance wrapping stdout.
     pub fn create_stdout_instance(ctx: &mut ScopedContext) -> Result<Object, i32> {
-        Self::new_instance(
-            ctx,
-            JSValue::UNDEFINED,
-            Box::new(RefCell::new(FileDesc::Stdout)),
-        )
-        .map(Into::into)
+        Self::new_instance(ctx, JSValue::UNDEFINED, RefCell::new(FileDesc::Stdout)).map(Into::into)
     }
     /// Create a File instance wrapping stderr.
     pub fn create_stderr_instance(ctx: &mut ScopedContext) -> Result<Object, i32> {
-        Self::new_instance(
-            ctx,
-            JSValue::UNDEFINED,
-            Box::new(RefCell::new(FileDesc::Stderr)),
-        )
-        .map(Into::into)
+        Self::new_instance(ctx, JSValue::UNDEFINED, RefCell::new(FileDesc::Stderr)).map(Into::into)
     }
 }

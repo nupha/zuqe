@@ -116,7 +116,7 @@ macro_rules! maybe_on_dispose {
         $cd = $cd.on_dispose(|_, opaque: *mut std::ffi::c_void, _| {
             if !opaque.is_null() {
                 unsafe {
-                    let _ = <$payload_ty as $crate::NativePayload>::from_raw(opaque);
+                    let _ = <Box<$payload_ty> as $crate::NativePayload>::from_raw(opaque);
                 }
             }
         });
@@ -170,7 +170,7 @@ macro_rules! def_native_object {
                 $(
                     cd = cd.on_gc_trace(|opaque, gcx| {
                         debug_assert!(!opaque.is_null());
-                        let p = unsafe { <$payload_ty as $crate::NativePayload>::raw_as_ref(opaque) };
+                        let p = unsafe { <Box<$payload_ty> as $crate::NativePayload>::raw_as_ref(opaque) };
                         $on_payload_gc(p, gcx);
                     });
                 )?
@@ -281,12 +281,13 @@ macro_rules! def_native_object {
 
         impl $native_ty {
             /// get payload data
-            pub fn payload(&self) -> Option<&<$payload_ty as $crate::NativePayload>::Target> {
+            pub fn payload(&self) -> Option<&$payload_ty> {
                 debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
+
                 if let Some(p) = self.as_object().payload().other() {
                     let ptr = p.opaque();
                     if !ptr.is_null() {
-                        Some(unsafe { <$payload_ty as $crate::NativePayload>::raw_as_ref(ptr) })
+                        Some(unsafe { <Box<$payload_ty> as $crate::NativePayload>::raw_as_ref(ptr) })
                     } else {
                         None
                     }
@@ -296,12 +297,13 @@ macro_rules! def_native_object {
             }
 
             /// get payload data mut
-            pub fn payload_mut(&mut self) -> Option<&mut <$payload_ty as $crate::NativePayload>::Target> {
+            pub fn payload_mut(&mut self) -> Option<&mut $payload_ty> {
                 debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
+
                 if let Some(p) = self.as_object_mut().payload_mut().other_mut() {
                     let ptr = p.opaque();
                     if !ptr.is_null() {
-                        Some(unsafe { <$payload_ty as $crate::NativePayload>::raw_as_mut(ptr) })
+                        Some(unsafe { <Box<$payload_ty> as $crate::NativePayload>::raw_as_mut(ptr) })
                     } else {
                         None
                     }
@@ -310,20 +312,19 @@ macro_rules! def_native_object {
                 }
             }
 
-            pub fn take_payload(&mut self) -> Option<$payload_ty>{
+            pub fn take_payload(&mut self) -> Option<Box<$payload_ty>>{
                 debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
-
                 if let Some(p) = self.as_object_mut().payload_mut().other_mut() {
                     unsafe {
                         let ptr = p.replace_opaque(std::ptr::null_mut());
                         if !ptr.is_null() {
-                            Some(<$payload_ty as $crate::NativePayload>::from_raw(ptr))
+                            Some(<Box<$payload_ty> as $crate::NativePayload>::from_raw(ptr))
                         } else {
                             None
                         }
                     }
                 } else {
-                    unreachable!()
+                    None
                 }
             }
 
@@ -333,14 +334,15 @@ macro_rules! def_native_object {
                 new_target: $crate::JSValue,
                 payload: $payload_ty,
             ) -> Result<Self, i32> {
-                let opaque = <$payload_ty as $crate::NativePayload>::into_raw(payload);
+                let p = Box::new(payload);
+                let opaque = <Box<$payload_ty> as $crate::NativePayload>::into_raw(p);
                 debug_assert!(!opaque.is_null());
 
                 ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject>::class_id(), opaque)
                     .map(Self)
                     .map_err(|_| {
                         unsafe {
-                            let _ = <$payload_ty as $crate::NativePayload>::from_raw(opaque);
+                            let _ = <Box<$payload_ty> as $crate::NativePayload>::from_raw(opaque);
                         }
                         -1
                     })
