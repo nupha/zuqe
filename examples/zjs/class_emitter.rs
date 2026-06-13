@@ -76,5 +76,5 @@ def_native_object!(
     JSEmitter,
     EmitterData,
     CLASS_EMITTER_PROTO,
-    constructor: ClassCtorDef::new(js_emitter_constructor, 0, false).expose_to_global()
+    Some(ClassCtorDef::new(js_emitter_constructor, 0, false).expose_to_global())
 );

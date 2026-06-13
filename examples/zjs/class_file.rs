@@ -211,7 +211,7 @@ const CLASS_FILE_PROTO: &[FieldDef] = &[
     FieldDef::FUNC("close", 0, js_file_close, 0),
 ];
 
-def_native_object!("File", JSFile, RefCell<FileDesc>, CLASS_FILE_PROTO);
+def_native_object!("File", JSFile, RefCell<FileDesc>, CLASS_FILE_PROTO, None);
 
 impl JSFile {
     /// Create a File instance from a std::fs::File handle.

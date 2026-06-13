@@ -1,69 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
-
 use crate::{ClassID, JSValue, Object};
-
-/// Native object payload data
-pub trait NativePayload {
-    type Target: ?Sized;
-
-    fn into_raw(self) -> *mut c_void;
-    unsafe fn from_raw(ptr: *mut c_void) -> Self;
-    unsafe fn raw_as_ref<'a>(ptr: *mut c_void) -> &'a Self::Target;
-    unsafe fn raw_as_mut<'a>(ptr: *mut c_void) -> &'a mut Self::Target;
-}
-
-impl<P> NativePayload for Box<P> {
-    type Target = P;
-
-    #[inline(always)]
-    fn into_raw(self) -> *mut c_void {
-        Box::into_raw(self).cast()
-    }
-
-    #[inline(always)]
-    unsafe fn from_raw(ptr: *mut c_void) -> Self {
-        unsafe { Box::from_raw(ptr.cast::<P>()) }
-    }
-
-    #[inline(always)]
-    unsafe fn raw_as_ref<'a>(ptr: *mut c_void) -> &'a Self::Target {
-        debug_assert!(!ptr.is_null());
-        unsafe { &*ptr.cast::<P>() }
-    }
-
-    #[inline(always)]
-    unsafe fn raw_as_mut<'a>(ptr: *mut c_void) -> &'a mut Self::Target {
-        debug_assert!(!ptr.is_null());
-        unsafe { &mut *ptr.cast::<P>() }
-    }
-}
-
-/// the dummy payload
-impl NativePayload for () {
-    type Target = ();
-
-    #[inline(always)]
-    fn into_raw(self) -> *mut c_void {
-        std::ptr::null_mut()
-    }
-
-    #[inline(always)]
-    unsafe fn from_raw(_: *mut c_void) -> Self {}
-
-    #[inline(always)]
-    unsafe fn raw_as_ref<'a>(_: *mut c_void) -> &'a Self::Target {
-        &()
-    }
-
-    #[inline(always)]
-    unsafe fn raw_as_mut<'a>(_: *mut c_void) -> &'a mut Self::Target {
-        // () is ZST, dangling pointer is safe to dereference
-        unsafe { &mut *std::ptr::NonNull::<()>::dangling().as_ptr() }
-    }
-}
 
 /// Marker trait for native object types.
 ///
@@ -97,12 +35,12 @@ impl Object {
 
 impl JSValue {
     pub fn as_native_object<O: NativeObject>(&self) -> Option<&O> {
-        self.as_object().and_then(|o| o.as_native_object::<O>())
+        self.as_object().and_then(Object::as_native_object::<O>)
     }
 
     pub fn as_native_object_mut<O: NativeObject>(&mut self) -> Option<&mut O> {
         self.as_object_mut()
-            .and_then(|o| o.as_native_object_mut::<O>())
+            .and_then(Object::as_native_object_mut::<O>)
     }
 }
 
@@ -145,11 +83,11 @@ macro_rules! def_native_object {
 
                 // Set on_dispose to free heap-allocated opaque.
                 // () payload uses null opaque so the null-check short-circuits;
-                // real types need from_raw to reclaim the Box.
+                // real types need Box::from_raw to reclaim the allocation.
                 cd = cd.on_dispose(|_, opaque: *mut std::ffi::c_void, _| {
                     if !opaque.is_null() {
                         unsafe {
-                            let _ = <Box<$payload_ty> as $crate::NativePayload>::from_raw(opaque);
+                            let _ = Box::from_raw(opaque.cast::<$payload_ty>());
                         }
                     }
                 });
@@ -161,7 +99,7 @@ macro_rules! def_native_object {
                 $(
                     cd = cd.on_gc_trace(|opaque, gcx| {
                         debug_assert!(!opaque.is_null());
-                        let p = unsafe { <Box<$payload_ty> as $crate::NativePayload>::raw_as_ref(opaque) };
+                        let p = unsafe { &*opaque.cast::<$payload_ty>() };
                         $on_payload_gc(p, gcx);
                     });
                 )?
@@ -233,8 +171,8 @@ macro_rules! def_native_object {
         }
     };
 
-    // ── @native: without payload ──
-    (@native $name:expr, $native_ty:ident, (), $proto:expr, $ctor:expr
+    // ── @native-no-payload: without payload ──
+    (@native-no-payload $name:expr, $native_ty:ident, $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
@@ -257,8 +195,8 @@ macro_rules! def_native_object {
         }
     };
 
-    // ── @native: with payload ──
-    (@native $name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr, $ctor:expr
+    // ── @native-with-payload: with payload ──
+    (@native-with-payload $name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
@@ -275,7 +213,7 @@ macro_rules! def_native_object {
                 if let Some(p) = self.as_object().payload().other() {
                     let ptr = p.opaque();
                     if !ptr.is_null() {
-                        Some(unsafe { <Box<$payload_ty> as $crate::NativePayload>::raw_as_ref(ptr) })
+                        Some(unsafe { &*ptr.cast::<$payload_ty>() })
                     } else {
                         None
                     }
@@ -291,7 +229,7 @@ macro_rules! def_native_object {
                 if let Some(p) = self.as_object_mut().payload_mut().other_mut() {
                     let ptr = p.opaque();
                     if !ptr.is_null() {
-                        Some(unsafe { <Box<$payload_ty> as $crate::NativePayload>::raw_as_mut(ptr) })
+                        Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
                     } else {
                         None
                     }
@@ -306,7 +244,7 @@ macro_rules! def_native_object {
                     unsafe {
                         let ptr = p.replace_opaque(std::ptr::null_mut());
                         if !ptr.is_null() {
-                            Some(<Box<$payload_ty> as $crate::NativePayload>::from_raw(ptr))
+                            Some(Box::from_raw(ptr.cast::<$payload_ty>()))
                         } else {
                             None
                         }
@@ -323,14 +261,14 @@ macro_rules! def_native_object {
                 payload: $payload_ty,
             ) -> Result<Self, i32> {
                 let p = Box::new(payload);
-                let opaque = <Box<$payload_ty> as $crate::NativePayload>::into_raw(p);
+                let opaque = Box::into_raw(p).cast::<std::ffi::c_void>();
                 debug_assert!(!opaque.is_null());
 
                 ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject>::class_id(), opaque)
                     .map(Self)
                     .map_err(|_| {
                         unsafe {
-                            let _ = <Box<$payload_ty> as $crate::NativePayload>::from_raw(opaque);
+                            let _ = Box::from_raw(opaque.cast::<$payload_ty>());
                         }
                         -1
                     })
@@ -338,30 +276,25 @@ macro_rules! def_native_object {
         }
     };
 
-    // ── Public: no constructor ──
-    ($name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr
+    // ── Public: no payload ──
+    ($name:expr, $native_ty:ident, (), $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?
-        $(, on_payload_gc: $on_payload_gc:expr)?) => {
-        $crate::def_native_object!(@native $name, $native_ty, $payload_ty, $proto, None
+        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $crate::def_native_object!(@native-no-payload $name, $native_ty, (), $proto, $ctor
             $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?
-            $(, on_payload_gc: $on_payload_gc)?);
-
+            $(, on_class_unregister: $on_unregister)?);
         $crate::def_native_object!(@impl $native_ty);
     };
 
-    // ── Public: with constructor ──
-    ($name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr
-        , constructor: $ctor:expr
+    // ── Public: with payload ──
+    ($name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
-        $crate::def_native_object!(@native $name, $native_ty, $payload_ty, $proto, Some($ctor)
+        $crate::def_native_object!(@native-with-payload $name, $native_ty, $payload_ty, $proto, $ctor
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?
             $(, on_payload_gc: $on_payload_gc)?);
-
         $crate::def_native_object!(@impl $native_ty);
     };
 }
