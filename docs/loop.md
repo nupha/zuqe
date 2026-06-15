@@ -113,7 +113,7 @@ Following is the code snippet extracted from example `zjs`, it registers a custo
 
 ```rust
 pub fn init_mod_os(ctx: &mut ScopedContext) -> Result<(), i32> {
-    ctx.register_module("os", MOD_OS_ENTRIES)?;
+    ctx.create_module("os", MOD_OS_ENTRIES)?;
     ctx.add_tick_handler(|cx| -> bool { js_os_poll(cx) });
     Ok(())
 }
@@ -194,7 +194,7 @@ fn main() -> ExitCode {
     // 4. Create context and register modules/classes
     let mut ctx = rt
         .create_context(|cx| {
-            Context::ECMA_CONTEXT_SETUP(cx)?;
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
             init_mod_std(cx)?;
             init_mod_os(cx)?;
             setup_globals(cx)

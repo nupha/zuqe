@@ -14,6 +14,8 @@ zjs [options] <filename>
 
 - **`-m, --module`**: Load the script as an ES6 module. When this flag is set, the script will be parsed and executed using ES6 module semantics instead of global script execution.
 
+- **`--memory-limit <n>`**: Set the memory (GC heap) limit to `n` bytes. Supports the same size suffixes as `--stack-size`.
+
 - **`--stack-size <n>`**: Set the JavaScript virtual machine stack size to `n` bytes. The stack size can be specified with suffixes:
   - `k` or `K` for kilobytes (multiply by 2^10)
   - `m` or `M` for megabytes (multiply by 2^20)
@@ -159,12 +161,12 @@ rt.set_stack_size(stack_size_bytes);
 rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
 // Register custom classes
-let class_id = CustomClass::register(rt.clone())?;
+let class_id = CustomClass::register(&mut rt)?;
 
 // Create execution context and set up environment
 let mut ctx = rt.create_context(|cx| {
     // ECMA standard stuff
-    Context::ECMA_CONTEXT_SETUP(cx)?;
+    ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
 
     // customized stuff
     cx.use_class(class_id)?;
@@ -195,7 +197,7 @@ async fn main() -> ExitCode {
 
     let mut promise_future = None;
 
-    ctx.with_new_scope(|mut scope| {
+    let res = ctx.with_new_scope(|mut scope| {
         let result = scope.eval(
             script.as_bytes(),
             &args.filename,
@@ -203,19 +205,37 @@ async fn main() -> ExitCode {
             EvalFlags::empty(),
         );
 
-        match result {
+        let r = match result {
             Ok(val) => {
                 if let Ok(promise) = Promise::try_from(val) {
-                    promise_future = Some(promise.into_future(&mut scope)?);
+                    match promise.into_future(&mut scope) {
+                        Ok(fut) => {
+                            promise_future = Some(fut);
+                            Ok(())
+                        }
+                        Err(_) => Err(scope.take_exception().to_text(&mut scope)),
+                    }
+                } else {
+                    // Non-promise result: print directly
+                    Ok(())
                 }
             }
-            Err(_) => { /* handle error */ }
-        }
+            Err(_) => Err(scope.take_exception().to_text(&mut scope)),
+        };
+        scope.return_with(r)
     });
+
+    // If eval error, print and exit
+    if let Err(e) = res {
+        // print error
+        return ExitCode::FAILURE;
+    }
 
     if let Some(js_fut) = promise_future {
         let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
         // Both the runtime and the JS Promise complete here
+    } else {
+        let _ = rt.run_async().await;
     }
 
     exit_code

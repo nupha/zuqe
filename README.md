@@ -12,7 +12,7 @@ Zuqe is inspired by QuickJS.
 ## 🎯 Design Goals
 
 - **Lightweight**: Small binary footprint and low memory overhead for IoT devices, edge computing, and resource-constrained environments
-- **Rust-Native**: Leverages Rust's memory safety, zero-cost abstractions and modern toolchain to boost engineering process
+- **Rust-Native**: Leverages Rust's memory safety, zero-cost abstractions and modern toolchain to boost engineering process, with seamless async bridging that connects JS Promises with Rust `Future`s in both directions
 - **Embedding-Friendly**: Easy to embed in and integrate with host applications
 - **Fast Bytecode Execution**: Optimized interpreter with efficient garbage collection
 - **Standards Compliance**: Evolving implementation of modern JavaScript standards
@@ -55,7 +55,6 @@ Zuqe is under active development. It currently passes a substantial portion of t
 ## 🎪 Use Cases
 
 - **IoT Devices**: Resource-constrained environments requiring JavaScript scripting
-- **Microcontrollers**: 32-bit systems with limited memory (512KB - 2MB RAM)
 - **Scripting Engine**: Embeddable scripting for applications
 - **Development Tools**: IDEs, build tools, and development utilities
 - **Serverless Functions**: Lightweight function execution environments
@@ -69,62 +68,137 @@ Add `zuqe` to your dependencies in `Cargo.toml`:
 
 ```toml
 [dependencies]
-zuqe = "0.4.0"
+zuqe = "0.7.0"
 ```
+
+Zuqe provides several Cargo features to customize the build:
+
+| Feature              | Description                                                             | Default |
+| -------------------- | ----------------------------------------------------------------------- | ------- |
+| `async_support`      | Enable Promise↔Future bridge and `Runtime::run_async()`                 | on      |
+| `all_unicode`        | Full Unicode support (XID, normalization)                               | on      |
+| `crossbeam_channel`  | Use `crossbeam::channel` instead of `std::sync::mpsc`                   | off     |
+| `serde_json_support` | Enable `JSValue` ↔ `serde_json::Value` conversion                       | off     |
+| `builtin_*`          | Individual built-in feature gates (symbol, proxy, mapset, regexp, etc.) | on      |
 
 ### Initialize Runtime and Context
 
-The core of any `zuqe` application is the `Runtime` and `Context`. The `Runtime` manages the engine, while the `Context` provides an isolated environment for script execution.
+The core of any `zuqe` application is the `Runtime` and `Context`. The `Runtime` manages the engine, while the `Context` provides an isolated execution environment.
 
 ```rust
-use zuqe::{Context, Runtime};
+use zuqe::{Context, Runtime, ScopedContext};
 
-let mut rt = Runtime::create().unwrap();
-let mut ctx = rt
-    .create_context(|cx| {
-        Context::ECMA_CONTEXT_SETUP(cx)
-    })
-    .unwrap();
+fn main() {
+    let mut rt = Runtime::create().unwrap();
+    let mut ctx = rt
+        .create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)
+        })
+        .unwrap();
+
+    // Ready to execute JavaScript with ctx
+}
 ```
 
-Note: `Context::ECMA_CONTEXT_SETUP` is a built‑in helper function that initializes the Context with standard ECMAScript‑compliant environment, wiring up well-known globals, built‑in objects, and runtime behavior. If you need a different setup (_for example to expose custom host APIs or restrict what JavaScript code can access_) you can pass your own setup function to `create_context()` instead; See the implementation of ECMA_CONTEXT_SETUP in the source code for guidance on how to customize this initialization.
+`ScopedContext::ECMA_CONTEXT_SETUP` is a built‑in helper that initializes the Context with a standard ECMAScript‑compliant environment, wiring up well-known globals, built‑in objects, and runtime behavior. You can also pass your own setup function to `create_context()` for custom host APIs or restricted environments.
 
 ### Run JavaScript
 
-Use `with_new_scope` and `eval_wait` to execute JavaScript code within the context, and wait until all jobs and promises are settled.
+Use `with_new_scope` and `eval_wait` to execute code within a bounded scope, waiting until all jobs and promises settle:
 
 ```rust
-use zuqe::{EvalFlags, EvalType};
+use zuqe::{Context, EvalFlags, EvalType, Runtime, ScopedContext};
 
-let script = r#"
-    let greet = (name) => `Hello, ${name}!`;
-    greet("Zuqe");
-"#;
+fn main() {
+    let mut rt = Runtime::create().unwrap();
+    let mut ctx = rt
+        .create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)
+        })
+        .unwrap();
 
-ctx.with_new_scope(|mut scope| {
-    let res = scope.eval_wait(
-        script.as_bytes(), // script content
-        "example.js",      // filename
-        EvalType::Global,  // global eval mode
-        EvalFlags::empty(),
-    );
+    let script = r#"
+        let greet = (name) => `Hello, ${name}!`;
+        greet("Zuqe");
+    "#;
 
-    match res {
-        Ok(val) => {
-            println!("eval result: {}", val.inspect(&mut scope).unwrap());
-        }
-        Err(e) => {
-            let mut err_msg = e.message;
-            if let Some(tb) = e.traceback {
-                err_msg = format!("{err_msg}\n{tb}");
+    ctx.with_new_scope(|mut scope| {
+        let res = scope.eval_wait(
+            script.as_bytes(),
+            "example.js",
+            EvalType::Global,
+            EvalFlags::empty(),
+        );
+
+        match res {
+            Ok(val) => {
+                println!("eval result: {}", val.inspect(&mut scope).unwrap());
             }
-            println!("error: {err_msg}");
+            Err(e) => {
+                let mut err_msg = e.message;
+                if let Some(tb) = e.traceback {
+                    err_msg = format!("{err_msg}\n{tb}");
+                }
+                println!("error: {err_msg}");
+            }
         }
-    }
-});
+    });
+}
 ```
 
-`with_new_scope` executes the evaluation inside a dedicated, bounded scope of the `Context`. Each call creates a fresh scope, runs the script within that scope, and then tears it down when the closure returns. This isolates local variables and temporary values to that scope, ensuring they do not leak into other executions while allowing the host application to safely reuse the same `Context` for multiple evaluations.
+`with_new_scope` executes the closure inside a dedicated, bounded scope. Each call creates a fresh scope, runs the script within it, and tears it down when the closure returns. This isolates local variables and temporary values, preventing leaks between executions and allowing safe reuse of the same `Context`.
+
+### Embedding API Highlights
+
+Beyond basic execution, Zuqe provides a rich embedding API:
+
+**Native Functions & Classes** — Wrap Rust functions as JS callables and define full classes with the `def_native_object!` macro:
+
+```rust
+use zuqe::{CallContext, FieldDef, JSResult, JSValue, ScopedContext, def_native_object};
+
+def_native_object!("File", JSFile, RefCell<FileDesc>, CLASS_FILE_PROTO, None);
+
+const CLASS_FILE_PROTO: &[FieldDef] = &[
+    FieldDef::FUNC("fileno", 0, js_file_fileno, 0),
+    FieldDef::FUNC("puts",   1, js_file_puts,   1),
+];
+```
+
+**Native Modules** — Export Rust functions and constants as ES modules via `ctx.create_module()`:
+
+```rust
+const MOD_OS_ENTRIES: &[FieldDef] = &[
+    FieldDef::FUNC("now", 0, js_os_now, 0),
+    FieldDef::INT32("SIGINT", 2, JS_PROP_CONFIGURABLE),
+];
+
+ctx.create_module("os", MOD_OS_ENTRIES)?;
+```
+
+**Async Support** — Convert JS Promises to Rust `Future`s and vice versa:
+
+```rust
+// Promise → Rust Future
+let promise = Promise::try_from(val)?;
+let fut = promise.into_future(&mut scope)?;
+let result: Result<JSValue, JSValue> = fut.await;
+
+// Rust Future → Promise (via channel)
+let (promise, tx) = Promise::create_with_channel(ctx, |cx, n: i32| {
+    Ok(JSValue::Int(n))
+})?;
+tokio::spawn(async move { tx.send(42).ok(); });
+```
+
+**Garbage Collection** — Configure GC heap limits and register custom trace handlers for native objects:
+
+```rust
+rt.gc_set_memory_limit(64_000_000);  // 64 MB heap limit
+rt.gc_set_trace_handler(|tracer| {
+    my_module_gc_trace(tracer);
+});
+```
 
 For more comprehensive examples, check the [examples](examples/) directory which includes:
 

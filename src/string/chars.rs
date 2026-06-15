@@ -293,6 +293,31 @@ impl<'a> Utf8Stream<'a> {
     pub const fn start_ptr(&self) -> NonNull<u8> {
         unsafe { NonNull::new_unchecked(self.data.as_ptr() as _) }
     }
+
+    /// return valid utf8 str since current position (inclusive), and move cursor to next byte if have some
+    pub fn next_str(&mut self) -> Option<&str> {
+        if self.index < self.data.len() {
+            match std::str::from_utf8(&self.data[self.index..]) {
+                Ok(s) => {
+                    self.index += s.len();
+                    Some(s)
+                }
+                Err(e) => {
+                    let n = e.valid_up_to();
+                    if n > 0 {
+                        let s =
+                            std::str::from_utf8(&self.data[self.index..self.index + n]).unwrap();
+                        self.index += n;
+                        Some(s)
+                    } else {
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        }
+    }
 }
 
 impl<'a> CharCodeDecoder for Utf8Stream<'a> {

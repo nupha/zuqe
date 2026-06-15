@@ -8,7 +8,7 @@ Add `zuqe` to your dependencies in `Cargo.toml`:
 
 ```toml
 [dependencies]
-zuqe = "0.4.0" # replace with the latest version
+zuqe = "0.7.0" # replace with the latest version
 ```
 
 ## 2. Initialize Runtime and Context
@@ -16,52 +16,63 @@ zuqe = "0.4.0" # replace with the latest version
 The core of any `zuqe` application is the `Runtime` and `Context`. The `Runtime` owns the engine, while the `Context` provides an isolated environment for script execution.
 
 ```rust
-use zuqe::{Context, Runtime};
+use zuqe::{Context, Runtime, ScopedContext};
 
-let mut rt = Runtime::create().unwrap();
+fn main() {
+    let mut rt = Runtime::create().unwrap();
 
-let mut ctx = rt
-    .create_context(|cx| {
-        Context::ECMA_CONTEXT_SETUP(cx)
-    })
-    .unwrap();
+    let mut ctx = rt
+        .create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)
+        })
+        .unwrap();
+}
 ```
 
-Where `Context::ECMA_CONTEXT_SETUP` is the context setup handler that initialize a context to meet ECMA standard. You may also provide your own context setup callback.
+Where `ScopedContext::ECMA_CONTEXT_SETUP` is the context setup handler that initializes a context to meet ECMA standard. You may also provide your own context setup callback.
 
 ## 3. Run JavaScript
 
 Use `with_new_scope` and `eval_wait` to execute JavaScript inside a new scope.
 
 ```rust
-use zuqe::{EvalFlags, EvalType};
+use zuqe::{Context, EvalFlags, EvalType, Runtime, ScopedContext};
 
-let script = r#"
-    let greet = (name) => `Hello, ${name}!`;
-    greet("Zuqe");
-"#;
+fn main() {
+    let mut rt = Runtime::create().unwrap();
+    let mut ctx = rt
+        .create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)
+        })
+        .unwrap();
 
-ctx.with_new_scope(|mut scope| {
-    let res = scope.eval_wait(
-        script.as_bytes(),
-        "example.js",
-        EvalType::Global,
-        EvalFlags::empty(),
-    );
+    let script = r#"
+        let greet = (name) => `Hello, ${name}!`;
+        greet("Zuqe");
+    "#;
 
-    match res {
-        Ok(val) => {
-            println!("eval result: {}", val.inspect(&mut scope).unwrap());
-        }
-        Err(e) => {
-            let mut err_msg = e.message;
-            if let Some(tb) = e.traceback {
-                err_msg = format!("{err_msg}\n{tb}");
+    ctx.with_new_scope(|mut scope| {
+        let res = scope.eval_wait(
+            script.as_bytes(),
+            "example.js",
+            EvalType::Global,
+            EvalFlags::empty(),
+        );
+
+        match res {
+            Ok(val) => {
+                println!("eval result: {}", val.inspect(&mut scope).unwrap());
             }
-            println!("error: {err_msg}");
+            Err(e) => {
+                let mut err_msg = e.message;
+                if let Some(tb) = e.traceback {
+                    err_msg = format!("{err_msg}\n{tb}");
+                }
+                println!("error: {err_msg}");
+            }
         }
-    }
-});
+    });
+}
 ```
 
 This tutorial provides a starting point for using the `zuqe` crate. The following tutorials cover modules, native functions, classes, and more advanced usage.

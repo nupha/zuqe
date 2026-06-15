@@ -34,11 +34,11 @@ In your own module you can define any number of such internal helpers. The next 
 
 ## 2. Module Registration
 
-To expose Rust functions and constants to JavaScript, construct an entry list describing every export and register it as a module using `ScopedContext::register_module`.
+To expose Rust functions and constants to JavaScript, construct an entry list describing every export and register it as a module using `ScopedContext::create_module`.
 
 Each entry is a `FieldDef`:
 
-- `FieldDef::CALL` exports a function.
+- `FieldDef::FUNC` exports a function.
 - `FieldDef::INT32` (and other variants) export constants.
 
 Here is a minimal entry table for the `os` module:
@@ -47,14 +47,14 @@ Here is a minimal entry table for the `os` module:
 use zuqe::{FieldDef, JS_PROP_CONFIGURABLE, ScopedContext};
 
 const MOD_OS_ENTRIES: &[FieldDef] = &[
-    FieldDef::CALL("now", 0, js_os_now, 0),
-    FieldDef::CALL("isatty", 1, js_os_isatty, 0),
+    FieldDef::FUNC("now", 0, js_os_now, 0),
+    FieldDef::FUNC("isatty", 1, js_os_isatty, 0),
     FieldDef::INT32("SIGINT", libc::SIGINT, JS_PROP_CONFIGURABLE),
 ];
 
 pub fn init_mod_os(ctx: &mut ScopedContext) -> Result<(), i32> {
     // The module name "os" must match the name used in JavaScript imports.
-    ctx.register_module("os", MOD_OS_ENTRIES)?;
+    ctx.create_module("os", MOD_OS_ENTRIES)?;
     Ok(())
 }
 ```
@@ -65,6 +65,8 @@ Field definition parameters:
 - **Argument count**: Minimum expected arguments for the function.
 - **Callback**: The Rust function implementation (e.g. `js_os_now`).
 - **Magic value**: Optional extra tag for overloading (use `0` for normal functions).
+
+Note: Earlier versions of the API used `FieldDef::CALL`; the current API uses `FieldDef::FUNC` instead.
 
 Once this initialization function has been called on a context, the `os` module becomes available to JavaScript code.
 
@@ -77,10 +79,10 @@ A module‑specific trace function typically walks your data structures and call
 ```rust
 use gc_lite::GcTraceCtx;
 
-pub fn mod_os_gc_trace(tracer: &mut GcTraceCtx) {
+pub fn mod_os_gc_trace(tr: &mut GcTraceCtx) {
     // Trace all JSValue fields that are kept alive by the os module.
     // For example:
-    // some_js_value.trace(tracer);
+    // some_js_value.trace(tr);
 }
 ```
 

@@ -60,11 +60,11 @@ fn module_loader(
     // Try to read the file
     match std::fs::read(module_name) {
         Ok(buf) => {
-            // Compile source script using ModuleDef::compile() method:
+            // Compile source script using ctx.compile_module() method:
             // - Takes source bytes, filename, and strip flag
             // - Compiles the source as an ES module (not global code)
             // - Returns a `ModuleDef` that can be evaluated
-            let md = ModuleDef::compile(&mut ctx, &buf, module_name, false)?;
+            let md = ctx.compile_module(&buf, module_name, false)?;
             Ok(md)
         }
         Err(_) => {
@@ -74,7 +74,7 @@ fn module_loader(
     }
 }
 
- fn main()   {
+fn main() -> Result<(), i32> {
     let mut rt = Runtime::create()?;
 
     // Setup module loading callbacks
@@ -87,7 +87,7 @@ fn module_loader(
     // Create execution context
     let mut ctx = rt
         .create_context(|cx| {
-            Context::ECMA_CONTEXT_SETUP(cx)
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)
         })
         .expect("fail to create context");
 
