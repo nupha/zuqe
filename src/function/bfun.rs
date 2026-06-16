@@ -414,10 +414,12 @@ impl BytecodeFunction {
             };
 
         // how many bytes to allocate for local buf (args+vars+stack)?
-        let (buf_values_count, js_mode) = (
-            arg_copy_num as usize + bc.var_count as usize + bc.stack_size as usize,
-            bc.mode(),
-        );
+        let buf_values_count = if arg_copy_num != 0 {
+            arg_copy_num as usize + bc.local_buf_size as usize
+        } else {
+            bc.local_buf_size as usize
+        };
+        let js_mode = bc.mode();
 
         let rt = ctx.rt_ptr();
         let mut stack_frame = StackFrame::new((*self).into(), js_mode, [this_obj, new_target]);
@@ -437,26 +439,20 @@ impl BytecodeFunction {
         // | stack space      | <- stack_buf
         // +------------------+
         //
-        if stack_frame
-            .local_buf
-            .try_reserve_exact(buf_values_count)
-            .is_err()
-        {
-            ctx.throw_out_of_memory();
-            return Err(-1);
-        }
+        stack_frame.local_buf = StackFrame::alloc_local_buf(ctx.rt_mut(), buf_values_count);
 
         // initialize args section
         if arg_copy_num != 0 {
             debug_assert!(arg_copy_num >= args.len());
 
             // copy actual arg values
-            stack_frame.local_buf.extend(args.iter().cloned());
+            stack_frame.local_buf.write_slice(0, args);
             // padding with undefined
-            stack_frame.local_buf.extend(std::iter::repeat_n(
-                JSValue::UNDEFINED,
+            stack_frame.local_buf.fill_range(
+                args.len(),
                 arg_copy_num - args.len(),
-            ));
+                JSValue::UNDEFINED,
+            );
 
             stack_frame.arg_count = arg_copy_num as _;
             stack_frame.arg_real_count = args.len() as _;
@@ -468,11 +464,11 @@ impl BytecodeFunction {
         }
 
         // initialize (vars + stack) section
-        stack_frame.local_buf.extend(std::iter::repeat_n(
-            JSValue::UNDEFINED,
+        stack_frame.local_buf.fill_range(
+            arg_copy_num as usize,
             (bc.var_count + bc.stack_size) as usize,
-        ));
-        debug_assert_eq!(stack_frame.local_buf.len(), buf_values_count);
+            JSValue::UNDEFINED,
+        );
 
         stack_frame.var_base_ptr = unsafe {
             stack_frame

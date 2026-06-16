@@ -15,9 +15,149 @@ use crate::{
     context::ScopedContext,
     error::{Exception, is_backtrace_needed},
     function::{AsyncStateImpl, VarRef},
-    runtime::RuntimePtr,
+    runtime::{RuntimeImpl, RuntimePtr},
     value::JSValue,
 };
+
+/// Inline capacity for var + stack slots in `local_buf` (zero-copy args excluded).
+pub(crate) const FRAME_INLINE_CAP: usize = 16;
+
+/// Fixed-capacity buffer for stack frame local data (args, vars, operand stack).
+///
+/// Unlike `SmallVec`, this type does **not** support growth after construction.
+/// Once allocated via `new_alloc(cap)`, the backing memory is immutable in size,
+/// guaranteeing that raw pointers derived from `buf_ptr()` remain valid for the
+/// buffer's entire lifetime.
+///
+/// # Variants
+/// - `Inline`: data stored directly in the enum (≤ `FRAME_INLINE_CAP` slots)
+/// - `Spill`: heap-allocated `Box<[JSValue]>` for larger frames
+pub(crate) enum FrameBuf {
+    Inline([JSValue; FRAME_INLINE_CAP]),
+    Spill(Box<[JSValue]>),
+}
+
+impl Default for FrameBuf {
+    #[inline(always)]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for FrameBuf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FrameBuf")
+            .field("capacity", &self.capacity())
+            .field("is_spill", &self.is_spill())
+            .finish()
+    }
+}
+
+impl FrameBuf {
+    /// Create an empty inline buffer (no heap allocation).
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self::Inline([JSValue::UNDEFINED; FRAME_INLINE_CAP])
+    }
+
+    /// Create a buffer with the given capacity, all slots initialized to `UNDEFINED`.
+    /// Uses inline storage for small frames, heap allocation for larger ones.
+    pub fn new_alloc(cap: usize) -> Self {
+        if cap <= FRAME_INLINE_CAP {
+            Self::Inline([JSValue::UNDEFINED; FRAME_INLINE_CAP])
+        } else {
+            Self::Spill(vec![JSValue::UNDEFINED; cap].into_boxed_slice())
+        }
+    }
+
+    /// Capacity in number of `JSValue` slots.
+    #[inline(always)]
+    pub fn capacity(&self) -> usize {
+        match self {
+            Self::Inline(_) => FRAME_INLINE_CAP,
+            Self::Spill(b) => b.len(),
+        }
+    }
+
+    /// Whether this buffer is heap-allocated (for frame pool recycling decisions).
+    #[inline(always)]
+    pub fn is_spill(&self) -> bool {
+        matches!(self, Self::Spill(_))
+    }
+
+    /// Whether this buffer has been allocated with usable storage.
+    /// Always true after `new()` or `new_alloc()` — the buffer is ready for use.
+    #[inline(always)]
+    pub fn has_buffer(&self) -> bool {
+        true
+    }
+
+    /// Raw pointer to the backing storage. Stable after construction.
+    #[inline(always)]
+    pub fn as_mut_ptr(&mut self) -> *mut JSValue {
+        match self {
+            Self::Inline(a) => a.as_mut_ptr(),
+            Self::Spill(b) => b.as_mut_ptr(),
+        }
+    }
+
+    #[inline(always)]
+    fn as_ptr(&self) -> *const JSValue {
+        match self {
+            Self::Inline(a) => a.as_ptr(),
+            Self::Spill(b) => b.as_ptr(),
+        }
+    }
+
+    /// Copy `src` into the buffer starting at `offset`.
+    #[inline]
+    pub fn write_slice(&mut self, offset: usize, src: &[JSValue]) {
+        if src.is_empty() {
+            return;
+        }
+        let cap = self.capacity();
+        assert!(
+            offset + src.len() <= cap,
+            "FrameBuf::write_slice out of bounds"
+        );
+        unsafe {
+            std::ptr::copy_nonoverlapping(src.as_ptr(), self.as_mut_ptr().add(offset), src.len());
+        }
+    }
+
+    /// Fill slots in `[offset, offset+len)` with `value`.
+    #[inline]
+    pub fn fill_range(&mut self, offset: usize, len: usize, value: JSValue) {
+        if len == 0 {
+            return;
+        }
+        let cap = self.capacity();
+        assert!(offset + len <= cap, "FrameBuf::fill_range out of bounds");
+        unsafe {
+            let ptr = self.as_mut_ptr().add(offset);
+            for i in 0..len {
+                ptr.add(i).write(value);
+            }
+        }
+    }
+}
+
+impl std::ops::Index<usize> for FrameBuf {
+    type Output = JSValue;
+    #[inline(always)]
+    fn index(&self, index: usize) -> &JSValue {
+        assert!(index < self.capacity(), "FrameBuf index out of bounds");
+        unsafe { &*self.as_ptr().add(index) }
+    }
+}
+
+impl std::ops::IndexMut<usize> for FrameBuf {
+    #[inline(always)]
+    fn index_mut(&mut self, index: usize) -> &mut JSValue {
+        assert!(index < self.capacity(), "FrameBuf index out of bounds");
+        unsafe { &mut *self.as_mut_ptr().add(index) }
+    }
+}
 
 bitflags::bitflags! {
     /// execution flag
@@ -67,7 +207,7 @@ pub struct StackFrame {
     pub(crate) async_state: GcWeak<AsyncStateImpl>,
 
     /// Buffer storing arguments, local variables, and stack space
-    pub(crate) local_buf: Vec<JSValue>,
+    pub(crate) local_buf: FrameBuf,
 
     /// Argument values base pointer and count, points into local_buf (self-referencing)
     /// For native callback stack frame, this pointer should be null.
@@ -137,6 +277,16 @@ impl PartialEq for StackFrame {
 }
 
 impl StackFrame {
+    /// Allocate a `local_buf` with the given slot count.
+    /// Uses inline storage for small frames; large frames reuse the runtime frame pool.
+    pub(crate) fn alloc_local_buf(rt: &mut RuntimeImpl, buf_len: usize) -> FrameBuf {
+        if buf_len <= FRAME_INLINE_CAP {
+            FrameBuf::new()
+        } else {
+            rt.take_frame_buf(buf_len)
+        }
+    }
+
     pub(crate) fn new(func_obj: Object, mode: ExecMode, protected_values: [JSValue; 2]) -> Self {
         Self {
             prev: std::ptr::null_mut(),
@@ -148,7 +298,7 @@ impl StackFrame {
             is_async: false,
             async_state: GcWeak::default(),
 
-            local_buf: Vec::new(),
+            local_buf: FrameBuf::new(),
             arg_base_ptr: std::ptr::null_mut(),
             arg_real_count: 0,
             arg_count: 0,
@@ -317,7 +467,7 @@ impl StackFrame {
 
             // free local buf up to stack top (sp)
             // NOTE: this seems not needed. because when local_buf is dropped, rust will automatically do free stuff.
-            if !self.local_buf.is_empty() {
+            if self.local_buf.has_buffer() {
                 let mut pval = self.local_buf.as_mut_ptr();
                 let end_ptr = unsafe { self.stack_base_ptr().add(sp).as_ptr() };
                 while pval < end_ptr {
@@ -373,6 +523,15 @@ impl StackFrame {
     //         .chain(stack_iter)
     //         .chain(var_refs_iter)
     // }
+}
+
+impl Drop for StackFrame {
+    fn drop(&mut self) {
+        if self.local_buf.is_spill() {
+            let mut rt = self.rt;
+            rt.recycle_frame_buf(std::mem::take(&mut self.local_buf));
+        }
+    }
 }
 
 pub struct StackFrameParentIter<'a> {

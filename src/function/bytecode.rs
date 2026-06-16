@@ -97,6 +97,9 @@ pub struct BytecodeImpl {
 
     pub(crate) stack_size: u16,
 
+    /// Precomputed `var_count + stack_size` for zero-copy arg calls.
+    pub(crate) local_buf_size: u16,
+
     pub(crate) arg_count: u16,
     pub(crate) var_count: u16,
     pub(crate) closure_var_count: u16,
@@ -183,6 +186,7 @@ impl BytecodeImpl {
                 EvalType::Direct | EvalType::Indirect
             ),
             stack_size,
+            local_buf_size: var_count.saturating_add(stack_size),
 
             binary,
             consts_section,

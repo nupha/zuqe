@@ -14,7 +14,7 @@ use crate::{
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     runtime::js_check_stack_overflow,
-    stack_frame::{ExecMode, StackFrame},
+    stack_frame::{ExecMode, FrameBuf, StackFrame},
     value::JSValue,
 };
 
@@ -208,36 +208,19 @@ impl NativeFunction {
 
         if args.len() < args_length {
             // copy arguments to frame's local buffer
-            stack_frame
-                .local_buf
-                .try_reserve(args_length)
-                .map_err(|_| {
-                    // Throw OOM in the native function's realm context.
-                    // throw_out_of_memory is on ScopedContext (needs alloc_local
-                    // for the Error object), but realm is a ContextPtr.
-                    // Use with_new_scope to ensure a scope is available.
-                    let mut realm = nfunc.payload().realm;
-                    if realm == ctx.ctx_ptr {
-                        ctx.throw_out_of_memory();
-                    } else {
-                        realm.with_new_scope_internal(|mut cx| {
-                            cx.throw_out_of_memory();
-                            cx.return_with(())
-                        });
-                    }
-                    -1
-                })?;
+            stack_frame.local_buf = FrameBuf::new_alloc(args_length);
 
             // copy args up to `length` count
-            stack_frame.local_buf.extend(
-                args.iter()
-                    .copied()
-                    .chain(std::iter::repeat(JSValue::UNDEFINED))
-                    .take(args_length),
-            );
-
-            stack_frame.local_buf.shrink_to_fit();
-            debug_assert_eq!(stack_frame.local_buf.len(), args_length);
+            let copy_count = std::cmp::min(args.len(), args_length);
+            stack_frame.local_buf.write_slice(0, &args[..copy_count]);
+            // padding with undefined for missing args
+            if copy_count < args_length {
+                stack_frame.local_buf.fill_range(
+                    copy_count,
+                    args_length - copy_count,
+                    JSValue::UNDEFINED,
+                );
+            }
 
             stack_frame.arg_count = args_length as _;
             stack_frame.arg_real_count = args.len() as _;

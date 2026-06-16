@@ -12,7 +12,7 @@ use crate::{
     function::BCWrapper,
     gcref_wrapper,
     runtime::js_check_stack_overflow,
-    stack_frame::{ExecMode, StackFrame},
+    stack_frame::{ExecMode, FrameBuf, StackFrame},
     value::JSValue,
 };
 
@@ -54,37 +54,14 @@ impl AsyncStateImpl {
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {
-        let (arg_count, var_count, stack_size, mode) = {
+        let (arg_count, var_count, local_buf_size, mode) = {
             let bc = bytecode_func.payload().bytecode();
-            (bc.arg_count, bc.var_count, bc.stack_size, bc.mode())
+            (bc.arg_count, bc.var_count, bc.local_buf_size, bc.mode())
         };
 
         // alloc local buf, set up arguments, variables and stack pointer
         let arg_count = std::cmp::max(arg_count as usize, args.len());
-        let buf_len = arg_count + var_count as usize + stack_size as usize;
-
-        let mut local_buf = {
-            let mut lst = Vec::<JSValue>::new();
-            lst.try_reserve_exact(buf_len).map_err(|_| {
-                ctx.with_current_scope(|mut scx| {
-                    scx.throw_out_of_memory();
-                });
-                -1
-            })?;
-
-            // initialize with undefined
-            unsafe {
-                lst.set_len(buf_len);
-            }
-            lst.fill(JSValue::UNDEFINED);
-
-            // copy arg values
-            for (i, a) in args.iter().enumerate() {
-                lst[i] = *a;
-            }
-
-            lst
-        };
+        let buf_len = arg_count + local_buf_size as usize;
 
         // make a dedicated stack frame for async execution
         let mut stack_frame = Box::pin(StackFrame::new(
@@ -93,24 +70,29 @@ impl AsyncStateImpl {
             [JSValue::UNDEFINED, JSValue::UNDEFINED],
         ));
 
-        unsafe {
-            let sf = stack_frame.as_mut().get_unchecked_mut();
+        let sf = unsafe { stack_frame.as_mut().get_unchecked_mut() };
+        sf.is_async = true;
 
-            sf.is_async = true;
-            sf.arg_base_ptr = local_buf.as_mut_ptr();
-            sf.arg_real_count = args.len() as _;
-            sf.arg_count = arg_count as _;
-            sf.var_base_ptr = local_buf.as_mut_ptr().add(arg_count as usize);
-            sf.var_count = var_count;
-            sf.local_buf = local_buf;
-        }
+        // Initialize local_buf directly in-place to avoid the
+        // SmallVec-move-then-dangling-pointer pitfall.
+        sf.local_buf = FrameBuf::new_alloc(buf_len);
+        sf.local_buf.write_slice(0, args);
+
+        sf.arg_real_count = args.len() as _;
+        sf.arg_count = arg_count as _;
+        sf.var_count = var_count;
+
+        // Derive pointers from the final buffer location.
+        // With FrameBuf, the backing memory is fixed after construction.
+        sf.arg_base_ptr = sf.local_buf.as_mut_ptr();
+        sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_count as usize) };
 
         Ok(Self {
             this_val: this_obj,
             resolving_funcs,
-            throw_flag: false,
             is_completed: false,
             stack_frame,
+            throw_flag: false,
         })
     }
 

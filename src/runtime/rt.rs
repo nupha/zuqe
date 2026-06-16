@@ -18,7 +18,7 @@ use crate::{
     microtask::PollingJob,
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
-    stack_frame::{ExecMode, StackFrame},
+    stack_frame::{ExecMode, FrameBuf, StackFrame},
     utils::js_get_stack_pointer,
     value::JSValue,
 };
@@ -49,6 +49,9 @@ pub struct RuntimeImpl {
     /// current stack frame depth
     #[cfg(debug_assertions)]
     stack_depth: i32,
+
+    /// Pool of spilled frame buffers (var + stack slots) for reuse on large frames.
+    frame_buf_pool: Vec<FrameBuf>,
 
     /// current exception
     pub(super) cur_exception: Exception,
@@ -114,6 +117,8 @@ impl RuntimeImpl {
             cur_stack_frame: std::ptr::null_mut(),
             #[cfg(debug_assertions)]
             stack_depth: 0,
+
+            frame_buf_pool: Vec::new(),
 
             module_load_opaque: std::ptr::null_mut(),
             sab_funcs: None,
@@ -273,6 +278,27 @@ impl RuntimeImpl {
         }
 
         sf
+    }
+
+    const FRAME_BUF_POOL_MAX: usize = 32;
+
+    /// Take a pre-allocated frame buffer from the pool, or allocate a new one.
+    #[inline]
+    pub(crate) fn take_frame_buf(&mut self, min_cap: usize) -> FrameBuf {
+        while let Some(buf) = self.frame_buf_pool.pop() {
+            if buf.capacity() >= min_cap {
+                return buf;
+            }
+        }
+        FrameBuf::new_alloc(min_cap)
+    }
+
+    /// Return a spilled frame buffer to the pool for reuse.
+    #[inline]
+    pub(crate) fn recycle_frame_buf(&mut self, buf: FrameBuf) {
+        if buf.is_spill() && self.frame_buf_pool.len() < Self::FRAME_BUF_POOL_MAX {
+            self.frame_buf_pool.push(buf);
+        }
     }
 
     /// test if current stack-frame is in strict mode
