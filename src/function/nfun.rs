@@ -94,7 +94,7 @@ impl NFuncPayload {
     fn call(&mut self, this_value: JSValue, args: &[JSValue], flags: i32) -> JSResult {
         let mut cc = CallContext::new(this_value, args, self.magic as _, self.data.as_deref_mut());
 
-        self.realm.with_new_scope_internal(|mut cx| {
+        self.realm.with_new_scope(|mut cx| {
             let ret_val: JSResult = match self.callback {
                 Callback::Func(f) => f(&mut cx, cc),
                 Callback::Getter(f) => {

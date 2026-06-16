@@ -289,45 +289,13 @@ impl ContextPtr {
         }
     }
 
-    /// Create a new scope, run closure in it, then destroy the scope.
-    ///
-    /// The closure receives a `ScopedContext` and must return its value
-    /// via `scope.return_with(val)`. Before the scope is destroyed,
-    /// GC nodes in the return value are moved to the parent scope's cache,
-    /// preserving their LOCAL protection.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure the context is in a valid state for creating
-    /// a new scope (i.e., there is a current scope to serve as parent).
-    pub(crate) fn with_new_scope_internal<R: ScopeResult>(
+    /// Create a child scope above the current (innermost) scope, run closure in it.
+    pub(crate) fn with_new_scope<R: ScopeResult>(
         &mut self,
         f: impl FnOnce(ScopedContext<'_>) -> ScopeReturn<R>,
     ) -> R {
-        #[cfg(debug_assertions)]
-        let _d1 = self.current_scope().gc_state().depth();
-        #[cfg(debug_assertions)]
-        debug_assert_eq!(
-            _d1,
-            self.gc_heap().scope_max_depth(self.scope_stack_id()),
-            "with_new_scope_internal: current scope (depth={}) must be innermost (max_depth={})",
-            _d1,
-            self.gc_heap().scope_max_depth(self.scope_stack_id()),
-        );
-
-        let s = self.new_scope();
-        debug_assert!(
-            s.gc_state().depth() > 1,
-            "top level scope must exist, thus new scope must be greater than 1"
-        );
-
-        #[cfg(debug_assertions)]
-        let _d2 = s.gc_state().depth();
-        #[cfg(debug_assertions)]
-        debug_assert_eq!(_d1, _d2 - 1);
-
-        let ret = f(s);
-        ret.into_inner()
+        let mut s = self.current_scope();
+        s.with_new_scope(f)
     }
 }
 

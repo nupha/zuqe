@@ -36,7 +36,7 @@ impl RuntimeImpl {
         let mut more_ticks = false;
 
         for mut ctx in self.context_list.iter().copied() {
-            ctx.with_new_scope_internal(|mut cx| {
+            ctx.with_new_scope(|mut cx| {
                 // 1. Run all one-shot jobs first (always complete, never retry).
                 //    New oneshot jobs may be queued during execution, so keep
                 //    draining until the queue is empty.

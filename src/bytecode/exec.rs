@@ -75,23 +75,22 @@ impl Bytecode {
 
         // SAFETY: The return value (JSValue) is used immediately by the caller.
         // It is stored on the VM stack which is traced by GC marker.
-        realm_ctx.with_new_scope_internal(|realm_scope| {
+        realm_ctx.with_new_scope(|mut cx| {
             // caller-scope must be at lower index than realm-scope in gc scope stack
             #[cfg(debug_assertions)]
-            if realm_scope.scope_stack_id() == caller_scope.scope_stack_id() {
+            if cx.scope_stack_id() == caller_scope.scope_stack_id() {
                 debug_assert!(
-                    realm_scope.depth() > caller_scope.depth(),
+                    cx.depth() > caller_scope.depth(),
                     "stack_id={:?}, {}, {}",
-                    realm_scope.scope_stack_id(),
-                    realm_scope.depth(),
+                    cx.scope_stack_id(),
+                    cx.depth(),
                     caller_scope.depth()
                 );
             }
 
-            let mut realm_scope = realm_scope;
             let val = self.execute_with_realm_scope(
                 caller_scope,
-                &mut realm_scope,
+                &mut cx,
                 func_home_obj,
                 stack_frame,
                 this_obj,
@@ -103,7 +102,7 @@ impl Bytecode {
                 throwed,
             );
 
-            realm_scope.return_with(val)
+            cx.return_with(val)
         })
     }
 
