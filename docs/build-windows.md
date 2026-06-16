@@ -63,16 +63,19 @@ After installation, you need to add the MSYS2 toolchain binaries to your system 
 - `C:\msys64\clang64\bin` — Clang toolchain required by `bindgen`
 - `C:\msys64\usr\bin` — Common Unix utilities (`git`, `make`, `pacman`, `bash`, etc.)
 
-> **Important:** Place these paths at the **top** of the PATH list (above other entries). The `bindgen` crate loads `libclang.dll` at build time, which depends on `libLLVM-22.dll` and other DLLs in `clang64\bin`. If these paths appear too low in the PATH order, Windows may load incompatible DLLs from other directories first, causing `LoadLibraryExW` failures.
+> **Important:**
+> - Place these paths at the **top** of the PATH list (above other entries). The `bindgen` crate loads `libclang.dll` at build time, which depends on `libLLVM-22.dll` and other DLLs in `clang64\bin`. If these paths appear too low in the PATH order, Windows may load incompatible DLLs from other directories first, causing `LoadLibraryExW` failures.
+> - Set the environment variable `MSYS2_PATH_TYPE=inherit` so that MSYS2 shells inherit the system PATH. By default, MSYS2 does **not** inherit external PATH entries, which means tools like `cargo` (installed under `%USERPROFILE%\.cargo\bin`) will not be found inside the MSYS2 shell. Setting this variable ensures `cargo`, `rustc`, and other externally installed tools are accessible.
 
-Add these paths to your system PATH environment variable:
+Add these paths to your system PATH environment variable, and also create the `MSYS2_PATH_TYPE` variable:
 
 1. Right-click on "This PC" or "My Computer" and select "Properties"
 2. Click "Advanced system settings"
 3. Click "Environment Variables"
 4. Under "System variables", find and edit "Path"
 5. Add all three directories listed above to the list
-6. Click "OK" to save changes
+6. Under "System variables", click "New" to create a new variable: set **Variable name** to `MSYS2_PATH_TYPE` and **Variable value** to `inherit`
+7. Click "OK" to save changes
 
 You may need to restart your command prompt or terminal for the changes to take effect.
 
@@ -88,6 +91,10 @@ linker = "x86_64-w64-mingw32-gcc"
 ar = "x86_64-w64-mingw32-ar"
 
 [env]
+# Prepend MSYS2 toolchain paths to PATH for the build process.
+# This ensures gcc, dlltool, clang, etc. are found even when building from PowerShell.
+PATH = { value = "C:/msys64/mingw64/bin;C:/msys64/clang64/bin;C:/msys64/usr/bin", prepend = true }
+
 # Set include paths for Windows GNU environment
 CFLAGS_x86_64-pc-windows-gnu = "-IC:/msys64/mingw64/include"
 CXXFLAGS_x86_64-pc-windows-gnu = "-IC:/msys64/mingw64/include"
@@ -98,7 +105,7 @@ Adjust the include and library paths according to your MSYS2 installation locati
 
 ## Step 6: Build the Project
 
-With all the dependencies installed and configured, you can now build the project:
+Open the **MSYS2 MSYS shell** (not PowerShell or CMD) and navigate to the project directory. With all the dependencies installed and configured, you can now build the project:
 
 ```bash
 cargo build --examples
@@ -106,9 +113,13 @@ cargo build --examples
 
 This command will compile the project using the Windows GNU toolchain and build the `zjs` and `test262` examples.
 
+> **Note:** It is strongly recommended to build inside the **MSYS2 MSYS shell**. Running `cargo build` in PowerShell may cause GCC to crash with errors like `gcc: error: spawn failed (exit status 0xc0000005)` due to DLL conflicts or environment incompatibilities. MSYS2 provides a Unix-like environment that the GNU toolchain expects and avoids these issues.
+
 ## Troubleshooting
 
+- **`gcc: error: spawn failed (exit status 0xc0000005)` in PowerShell**: This is an access violation caused by running GCC outside the MSYS2 shell. DLL conflicts or incompatible environment variables in PowerShell can crash GCC's process spawning. Switch to the **MSYS2 MSYS shell** to resolve this.
 - **Linker errors**: Ensure that the MinGW-w64 binaries are properly added to your PATH
+- **`cargo` not found in MSYS2 shell**: Set the environment variable `MSYS2_PATH_TYPE=inherit` so MSYS2 inherits the system PATH (including `%USERPROFILE%\.cargo\bin`)
 - **`libclang.dll` / `LoadLibraryExW` errors**: Ensure the MSYS2 paths are at the **top** of your PATH list, not at the bottom. The `libloading` crate does not use `LOAD_WITH_ALTERED_SEARCH_PATH`, so DLL dependencies (like `libLLVM-22.dll`) are resolved via the standard search order. If another directory earlier in PATH contains a conflicting DLL, loading will fail.
 - **Include path errors**: Verify that the paths in `.cargo/config.toml` point to your actual MSYS2 installation
 - **Missing libraries**: You may need to install additional development packages in MSYS2 using `pacman -S <package-name>`
