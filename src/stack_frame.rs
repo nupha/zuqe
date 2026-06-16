@@ -464,19 +464,6 @@ impl StackFrame {
             // var_refs may still referencing the stack,
             // before stack frame drop, detatch all var_refs.
             self.close_var_refs();
-
-            // free local buf up to stack top (sp)
-            // NOTE: this seems not needed. because when local_buf is dropped, rust will automatically do free stuff.
-            if self.local_buf.has_buffer() {
-                let mut pval = self.local_buf.as_mut_ptr();
-                let end_ptr = unsafe { self.stack_base_ptr().add(sp).as_ptr() };
-                while pval < end_ptr {
-                    unsafe {
-                        std::ptr::replace(pval, JSValue::UNDEFINED);
-                        pval = pval.add(1);
-                    }
-                }
-            }
         }
 
         // switch back to previous stack frame
@@ -494,42 +481,13 @@ impl StackFrame {
             _mark: PhantomData,
         }
     }
-
-    // pub(crate) fn gc_nodes(&self) -> impl Iterator<Item = NonNull<GcHead>> {
-    //     let args_iter = unsafe {
-    //         std::slice::from_raw_parts(
-    //             self.arg_base_ptr,
-    //             std::cmp::max(self.arg_real_count, self.arg_count) as usize,
-    //         )
-    //         .iter()
-    //         .filter_map(move |v| v.gc_node_ptr())
-    //     };
-
-    //     let vars_iter = self
-    //         .var_values()
-    //         .iter()
-    //         .filter_map(move |v| v.gc_node_ptr());
-
-    //     let stack_iter = self
-    //         .stack_values()
-    //         .iter()
-    //         .filter_map(move |v| v.gc_node_ptr());
-
-    //     let var_refs_iter = self.var_refs().iter().map(|v| v.gc_ref().node_ptr());
-
-    //     std::iter::once(self.func_obj.gc_ref().node_ptr())
-    //         .chain(args_iter)
-    //         .chain(vars_iter)
-    //         .chain(stack_iter)
-    //         .chain(var_refs_iter)
-    // }
 }
 
 impl Drop for StackFrame {
     fn drop(&mut self) {
         if self.local_buf.is_spill() {
-            let mut rt = self.rt;
-            rt.recycle_frame_buf(std::mem::take(&mut self.local_buf));
+            self.rt
+                .recycle_frame_buf(std::mem::take(&mut self.local_buf));
         }
     }
 }

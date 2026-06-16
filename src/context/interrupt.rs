@@ -24,9 +24,9 @@ impl RuntimeImpl {
 
 impl<'c> ScopedContext<'c> {
     /// Returns `Err` if abort running with exception set
-    #[inline(never)]
+    #[inline(always)]
     pub(crate) fn poll_interrupts(&mut self) -> Result<(), i32> {
-        if let Some(cb) = self.rt().interrupt_handler.as_ref() {
+        if self.rt().interrupt_handler.is_some() {
             let mut counter = self.interrupt_counter.get();
             counter -= 1;
             self.interrupt_counter.set(if counter > 0 {
@@ -36,15 +36,25 @@ impl<'c> ScopedContext<'c> {
             });
 
             if counter <= 0 {
-                // call interrupt callback
-                if cb(self.rt()) {
-                    self.rt_mut()
-                        .set_exception(Exception::Interrupted(130.into()));
-                    return Err(-1);
-                }
+                self.poll_interrupts_cb()?;
             }
         }
 
         Ok(())
+    }
+
+    /// call interrupt callback
+    /// Returns `Err` if abort running with exception set
+    #[cold]
+    #[inline(never)]
+    fn poll_interrupts_cb(&mut self) -> Result<(), i32> {
+        let cb = unsafe { self.rt().interrupt_handler.as_ref().unwrap_unchecked() };
+        if cb(self.rt()) {
+            self.rt_mut()
+                .set_exception(Exception::Interrupted(130.into()));
+            Err(-1)
+        } else {
+            Ok(())
+        }
     }
 }
