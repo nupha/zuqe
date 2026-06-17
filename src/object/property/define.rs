@@ -11,8 +11,8 @@ use crate::{
     function::prop_str_to_atom,
     number::IntOrFloat,
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSProperty, Object,
-        ObjectImpl, PropertyKey,
+        JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSProperty,
+        Object, ObjectImpl, PropertyKey,
     },
     utils::unlikely,
     value::JSValue,
@@ -345,7 +345,7 @@ impl ObjectImpl {
         let p = props;
         props.own_property_names_foreach(
             ctx,
-            JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
+            JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK,
             |cx, key: PropertyKey| -> Result<(), i32> {
                 let desc = p.get_property(cx, key.atom)?;
                 this.define_property_desc(cx, key.atom, desc, JS_PROP_THROW)?;

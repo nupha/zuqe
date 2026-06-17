@@ -526,7 +526,7 @@ mod serde_json_support {
     use crate::{
         Array, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext,
         builtins::iterator::JSIteratorKindEnum,
-        object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, Object},
+        object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, Object},
         string::StringRef,
         value::JSValue,
     };
@@ -691,7 +691,7 @@ mod serde_json_support {
             let mut o = *obj;
             let kvs = o.get_own_property_kvs(
                 ctx,
-                JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK,
+                JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK,
                 JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
             )?;
 

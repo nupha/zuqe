@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
+        JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
         PropertyKey,
     },
     parse::JSParseState,
@@ -48,7 +48,7 @@ fn internalize_json_property(
             len = o.get_length_prop(ctx)? as u32;
             pks = [].into();
         } else {
-            pks = o.get_own_property_names(ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK)?;
+            pks = o.get_own_property_names(ctx, JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK)?;
             len = pks.len() as u32;
         }
 

@@ -12,7 +12,7 @@ use crate::{
     },
     error::JSResult,
     function::{CallContext, FieldDef, build_arg_list, js_function_apply},
-    object::{JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
+    object::{JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     value::JSValue,
 };
 
@@ -124,7 +124,7 @@ fn js_reflect_ownKeys(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if val.is_object() {
         val.build_own_property_kvs_array(
             ctx,
-            JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
+            JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK,
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
         )
     } else {

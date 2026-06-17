@@ -8,7 +8,7 @@ use crate::{
     atom::Atom,
     builtins::iterator::JSIteratorKindEnum,
     error::JSResult,
-    object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E},
+    object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E},
     string::{StringBuf, StringData, StringRef},
     value::JSValue,
 };
@@ -299,7 +299,7 @@ fn js_json_to_str(
                     // query own property names.
                     let kvs = val.get_own_property_kvs(
                         ctx,
-                        JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK,
+                        JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK,
                         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
                     )?;
 

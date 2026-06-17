@@ -12,7 +12,7 @@ use crate::{
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
+        JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
         ObjectPayload,
     },
@@ -112,7 +112,7 @@ pub(crate) fn js_object_getOwnPropertyNames(ctx: &mut ScopedContext, cc: CallCon
     let arg0 = cc.arg(0);
     arg0.build_own_property_kvs_array(
         ctx,
-        JS_GPN_INDEX_MASK,
+        JS_GPN_STR_OR_INT_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
     )
 }
@@ -138,7 +138,7 @@ pub(crate) fn js_object_keys(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     );
 
     cc.arg(0)
-        .build_own_property_kvs_array(ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK, unsafe {
+        .build_own_property_kvs_array(ctx, JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK, unsafe {
             std::mem::transmute::<u8, JSIteratorKindEnum>(kind as u8)
         })
 }
@@ -340,7 +340,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptors(
     let mut obj = cc.arg(0).objectify(ctx)?;
 
     let mut keys = SmallVec::<[Atom; 8]>::new();
-    obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |_, pkey| {
+    obj.own_property_names_foreach(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK, |_, pkey| {
         keys.push(pkey.atom);
         Ok(())
     })?;

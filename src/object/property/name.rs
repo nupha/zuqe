@@ -16,7 +16,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_ENUMERABLE};
+use super::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_GPN_SET_ENUM, JS_PROP_ENUMERABLE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropertyKeyKind {
@@ -120,7 +120,7 @@ impl ObjectImpl {
         let obj_flags = self.flags();
         if obj_flags.is_exotic() {
             if obj_flags.is_fast_array() {
-                if flags & JS_GPN_INDEX_MASK != 0 {
+                if flags & JS_GPN_STR_OR_INT_MASK != 0 {
                     for i in 0..self.fast_array_count() {
                         callback(
                             ctx,
@@ -135,7 +135,7 @@ impl ObjectImpl {
                 }
             } else if self.class_id() == JS_CLASS_STRING {
                 // String object
-                if flags & JS_GPN_INDEX_MASK != 0 {
+                if flags & JS_GPN_STR_OR_INT_MASK != 0 {
                     let buf_len = StringRef::try_from(Object::from_ref(self)).unwrap().len();
 
                     for i in 0..buf_len {

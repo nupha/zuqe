@@ -39,7 +39,7 @@ pub use {
     module::ModuleDef,
     number::IntOrFloat,
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
+        JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_FORCE, JS_PROP_WRITABLE, Object,
     },
     runtime::{Runtime, RuntimeImpl},

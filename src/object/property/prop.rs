@@ -84,8 +84,8 @@ pub const PROP_TYPE_ASYNC_STAR: i32 = 6;
 pub const PROP_TYPE_PRIVATE: i32 = 1 << 4;
 
 // Get property names flags
-/// Include array or string index properties
-pub const JS_GPN_INDEX_MASK: i32 = 1 << 0; // a.k.a. JS_GPN_STRING_MASK
+/// Include index(int) or string properties
+pub const JS_GPN_STR_OR_INT_MASK: i32 = 1 << 0;
 /// Include symbol properties
 pub const JS_GPN_SYMBOL_MASK: i32 = 1 << 1;
 /// Include private properties
@@ -371,7 +371,7 @@ impl ObjectImpl {
         excluded: Option<Object>,
         setprop: bool,
     ) -> Result<(), i32> {
-        let mut gpn_flags = JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
+        let mut gpn_flags = JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
         if source.flags().is_exotic()
             && ctx.rt_ptr().class_registry[source.class_id() as usize]
                 .exotic

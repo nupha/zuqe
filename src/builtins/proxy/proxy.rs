@@ -14,7 +14,7 @@ use crate::{
     error::JSResult,
     function::{Callback, JS_CALL_FLAG_CONSTRUCTOR},
     object::{
-        JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
+        JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
         JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE,
         JSPropertyDescriptor, Object, ObjectImpl, ObjectPayload, PropertyKey,
@@ -604,7 +604,7 @@ fn js_proxy_get_own_property_names(
     if method.is_undefined() {
         return px
             .target
-            .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK);
+            .get_own_property_names(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK);
     }
 
     let prop_array = method.call(ctx, px.handler, &[px.target.into()])?;
@@ -646,7 +646,7 @@ fn js_proxy_get_own_property_names(
 
     for k2 in px
         .target
-        .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK)?
+        .get_own_property_names(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK)?
     {
         if let Some(desc) = px.target.get_own_property(ctx, k2.atom)? {
             // safety, property should be found

@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::{
-    JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE,
+    JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE,
     JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty,
     ObjectPayload, Shape,
 };
@@ -644,7 +644,7 @@ impl ObjectImpl {
 
             self.own_property_names_foreach(
                 ctx,
-                JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
+                JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK,
                 |cx, pkey| {
                     let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
@@ -676,7 +676,7 @@ impl ObjectImpl {
     pub fn is_sealed(&mut self, ctx: &mut ScopedContext, is_frozen: bool) -> Result<bool, i32> {
         let mut keys = SmallVec::<[Atom; 8]>::new();
 
-        self.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |_, pk| {
+        self.own_property_names_foreach(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK, |_, pk| {
             keys.push(pk.atom);
             Ok(())
         })?;

@@ -13,7 +13,7 @@ use crate::{
     context::ScopedContext,
     number::MAX_SAFE_INTEGER,
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH,
+        JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH,
         JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Object, ObjectImpl, ObjectPayload,
         PropertyKeyKind,
     },
@@ -261,7 +261,7 @@ impl Array {
         if !self.is_fast_array() {
             // if `self` is sparse array, delete all index properties
             let mut del = SmallVec::<[u32; 64]>::new();
-            self.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_ENUM_ONLY, |_, p| {
+            self.own_property_names_foreach(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_ENUM_ONLY, |_, p| {
                 if let PropertyKeyKind::ArrayIndex(i) = p.kind {
                     del.push(i);
                 }
