@@ -198,9 +198,16 @@ impl<'a> ScopedContext<'a> {
     #[inline]
     pub fn alloc_local<T: GcNode>(&mut self, payload: T) -> Result<GcRef<T>, (GcError, T)> {
         let r = self.gc_state().alloc_local(payload).map(|gc| gc.into_raw());
-        if self.gc_heap().should_gc() {
-            self.rt_mut().gc_req = true;
+
+        let rt = self.rt_mut();
+        rt.alloc_count += 1;
+        if rt.alloc_count >= rt.alloc_check_interval {
+            rt.alloc_count = 0;
+            if rt.gc_heap.should_gc() {
+                rt.gc_req = true;
+            }
         }
+
         r
     }
 

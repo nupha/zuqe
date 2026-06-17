@@ -65,12 +65,12 @@ impl ArrayPayload {
     }
 
     #[inline(always)]
-    pub fn push(&mut self, val: JSValue) -> Result<(), TryReserveError> {
+    pub(crate) fn push(&mut self, val: JSValue) -> Result<(), TryReserveError> {
         self.values.try_push(val)
     }
 
     #[inline(always)]
-    pub fn pop(&mut self) -> Option<JSValue> {
+    pub(crate) fn pop(&mut self) -> Option<JSValue> {
         self.values.pop()
     }
 
@@ -80,17 +80,19 @@ impl ArrayPayload {
     }
 
     #[inline(always)]
-    pub fn remove(&mut self, index: usize) -> JSValue {
+    pub(crate) fn remove(&mut self, index: usize) -> JSValue {
         self.values.remove(index)
     }
 
+    /// # Note
+    /// handle array and value write-barrier or bind relation by yourself.
     #[inline(always)]
-    pub fn set_nth(&mut self, index: usize, value: JSValue) {
+    pub(crate) fn set_nth(&mut self, index: usize, value: JSValue) {
         self.values[index] = value;
     }
 
     #[inline(always)]
-    pub fn replace_values(&mut self, values: Vec<JSValue>) {
+    pub(crate) fn replace_values(&mut self, values: Vec<JSValue>) {
         self.values = values;
     }
 }

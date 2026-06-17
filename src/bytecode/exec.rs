@@ -106,10 +106,13 @@ impl Bytecode {
         })
     }
 
+    /// # Args:
+    /// - caller_ctx: caller's scope must be kept untouched in this function. Consider using &ScopedContext instead?
+    /// - realm_scope: a dedicated sub-scope under the bytecode's realm-context for this execution
     #[allow(clippy::too_many_arguments)]
     fn execute_with_realm_scope(
         &self,
-        caller_ctx: &mut ScopedContext, // caller's scope must be kept untouched in this function. Consider using &ScopedContext instead?
+        caller_ctx: &mut ScopedContext,
         realm_scope: &mut ScopedContext,
         func_home_obj: Option<Object>,
         stack_frame: &mut StackFrame,
@@ -2529,7 +2532,11 @@ impl Bytecode {
                 }
                 #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
                 if rt.gc_req {
-                    realm_scope.clear_locals(); // clear nodes in exec scope
+                    // Live values have been put on the stack frame and will be marked by GC.
+                    // Remaining locals in realm_scope are transient and safe to release.
+                    // This avoids realm_scope accumulate too many unnecessary locals.
+                    realm_scope.clear_locals();
+                    // perform garbage collect after each opcode execution to strictly ensure gc is correct.
                     rt.gc_collect();
                 }
             }; // opcodes loop

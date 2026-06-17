@@ -15,7 +15,6 @@ use crate::{
     context::ContextPtr,
     error::Exception,
     gc::gc::GC_TYPE_REGISTRY,
-    microtask::PollingJob,
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
     stack_frame::{ExecMode, FrameBuf, StackFrame},
@@ -23,7 +22,10 @@ use crate::{
     value::JSValue,
 };
 
-const STACK_SIZE_BYTES_DEFAULT: usize = 720 * 1024; // 512 * 1024;
+/// default stack size in bytes
+const DEFAULT_STACK_SIZE: usize = 720 * 1024;
+/// number of allocations between should_gc() checks.
+const DEFAULT_ALLOC_CHECK_INTERVAL: u32 = 32;
 
 /// interrupt returns true to break execution
 pub trait InterruptFn: Fn(&RuntimeImpl) -> bool {}
@@ -83,6 +85,10 @@ pub struct RuntimeImpl {
     pub(crate) gc_user_trace: Option<Box<dyn GcTraceFn>>,
     /// gc request flag
     pub(crate) gc_req: bool,
+    /// allocation counter for batched should_gc() check
+    pub(crate) alloc_count: u32,
+    /// number of allocations between should_gc() checks
+    pub(crate) alloc_check_interval: u32,
 
     pub(crate) interrupt_handler: Option<Box<dyn InterruptFn>>,
 
@@ -125,7 +131,7 @@ impl RuntimeImpl {
 
             context_list: Vec::with_capacity(1),
 
-            stack_size: STACK_SIZE_BYTES_DEFAULT,
+            stack_size: DEFAULT_STACK_SIZE,
             stack_top: 0,
             stack_limit: 0,
 
@@ -142,6 +148,8 @@ impl RuntimeImpl {
             gc_part_hot: gc_part_id,
             gc_job: None,
             gc_req: false,
+            alloc_count: 0,
+            alloc_check_interval: DEFAULT_ALLOC_CHECK_INTERVAL,
             gc_user_trace: None,
 
             interrupt_handler: None,

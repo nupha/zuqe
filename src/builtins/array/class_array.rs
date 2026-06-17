@@ -1586,28 +1586,6 @@ fn copy_sub_array(
             }
         }
 
-        // LEGACY
-        // let done_count = obj
-        //     .with_fast_array_values_mut(|lst| {
-        //         let len = lst.len();
-        //         for i in 0..count {
-        //             let (from, to) = if dir < 0 {
-        //                 (start_pos + count - i - 1, to_pos + count - i - 1)
-        //             } else {
-        //                 (start_pos + i, to_pos + i)
-        //             };
-
-        //             if from < len && to < len {
-        //                 lst[to] = lst[from];
-        //             } else {
-        //                 return i;
-        //             }
-        //         }
-
-        //         count
-        //     })
-        //     .unwrap();
-
         if done_count == count {
             return Ok(()); // early exit for fast path
         }
