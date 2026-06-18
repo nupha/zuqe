@@ -85,8 +85,9 @@ impl RuntimeImpl {
         self.shape_registry.clear();
 
         let pid = self.gc_part_id();
-        self.gc_heap_mut()
-            .remove_partition(pid, GcHeap::DUMMY_DISPOSE_CALLBACK);
+        if let Some(link) = self.gc_heap().finalize_partition(pid) {
+            self.gc_heap_mut().dealloc_partition(pid, link);
+        }
     }
 }
 

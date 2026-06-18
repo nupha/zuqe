@@ -328,22 +328,21 @@ impl RuntimeImpl {
 
         self.cur_exception = Exception::default();
 
-        // Pop and drop scopes from contexts BEFORE remove_partition.
+        // Two-phase partition release.
         //
-        // ContextImpl GC nodes hold gc_top_scope.  When dropped (via GcScope's
-        // Drop), it calls GcHeap::pop_scope through an internal raw pointer to
-        // the heap, not through RuntimeImpl — so this is safe while we hold
-        // &mut self here.
+        // Phase 1 (finalize, &self): Drop GC node payloads without freeing
+        //   memory.  Since finalize_partition only takes &GcHeap (shared ref),
+        //   any reentrant GcHeap access during Drop is safe — the borrow
+        //   checker prevents aliasing &mut references.
         //
-        // Without this pre-step, when GcHeap::remove_partition later disposes
-        // the ContextImpl GC nodes, ContextImpl::drop() would call
-        //   self.rt_mut().gc_heap_mut().release_scope_stack(...)
-        // which creates a SECOND &mut GcHeap aliasing the one already held by
-        // remove_partition(&mut self).  This is UB and causes segfault on
-        // macOS (and potentially other platforms).
+        // Phase 2 (dealloc, &mut self): Free the memory of all finalized
+        //   nodes.  No Drop callbacks run, so no risk of reentrancy.
         //
-        // With gc_top_scope already taken, ContextImpl::drop finds it == None
-        // and skips the gc_heap access entirely.
+        // Before Phase 1 we pop gc_top_scope from all contexts so that
+        // ContextImpl::drop finds gc_top_scope == None and skips the
+        // gc_heap_mut() access entirely.
+
+        // Pre-step: pop gc_top_scope from all contexts.
         for ctx_ptr in &mut self.context_list {
             drop(ctx_ptr.gc_top_scope.take());
         }
@@ -351,10 +350,16 @@ impl RuntimeImpl {
         self.context_list.clear();
         self.shape_registry.clear();
 
-        // remove root partition: dealloc all nodes live in it.
+        // Phase 1: finalize — call Drop on all GC nodes with &GcHeap.
+        // This reborrows &mut self as &self; the borrow drops when the call
+        // returns, restoring &mut self for Phase 2.
         let pid = self.gc_part_id();
-        self.gc_heap_mut()
-            .remove_partition(pid, GcHeap::DUMMY_DISPOSE_CALLBACK);
+        let link = self.gc_heap().finalize_partition(pid);
+
+        // Phase 2: dealloc — free memory, no Drop callbacks.
+        if let Some(link) = link {
+            self.gc_heap_mut().dealloc_partition(pid, link);
+        }
 
         // class unregister callbacks
         let class_registry = std::mem::take(&mut self.class_registry);
