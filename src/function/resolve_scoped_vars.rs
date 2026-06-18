@@ -462,7 +462,6 @@ impl FunctionDef {
                         if var_id & ARGUMENT_VAR_OFFSET != 0 {
                             push_vec_u8(bc, OpCode::MAKE_VAR_REF as _);
                             push_vec_atom(bc, var_name);
-                            push_vec_u16(bc, (var_id - ARGUMENT_VAR_OFFSET) as _);
                         } else {
                             push_vec_u8(bc, OpCode::MAKE_LOC_REF as _);
                             push_vec_atom(bc, var_name);
