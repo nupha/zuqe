@@ -72,7 +72,7 @@ once_cell = "1.21"
 hash-link = "0.1"
 smallvec = "1.13"
 fallible_collections = "0.5"
-gc-lite = { version = "0.5", path="../gc-lite-v2" }
+gc-lite = { version = "0.5.1", path="../gc-lite-v2" }
 lre = { version = "0.1", optional = true }
 libc = { version = "0.2", optional = true }
 unicode-xid = { version = "0.2", optional = true }
