@@ -327,6 +327,27 @@ impl RuntimeImpl {
         debug_assert!(self.cur_stack_frame.is_null());
 
         self.cur_exception = Exception::default();
+
+        // Pop and drop scopes from contexts BEFORE remove_partition.
+        //
+        // ContextImpl GC nodes hold gc_top_scope.  When dropped (via GcScope's
+        // Drop), it calls GcHeap::pop_scope through an internal raw pointer to
+        // the heap, not through RuntimeImpl — so this is safe while we hold
+        // &mut self here.
+        //
+        // Without this pre-step, when GcHeap::remove_partition later disposes
+        // the ContextImpl GC nodes, ContextImpl::drop() would call
+        //   self.rt_mut().gc_heap_mut().release_scope_stack(...)
+        // which creates a SECOND &mut GcHeap aliasing the one already held by
+        // remove_partition(&mut self).  This is UB and causes segfault on
+        // macOS (and potentially other platforms).
+        //
+        // With gc_top_scope already taken, ContextImpl::drop finds it == None
+        // and skips the gc_heap access entirely.
+        for ctx_ptr in &mut self.context_list {
+            drop(ctx_ptr.gc_top_scope.take());
+        }
+
         self.context_list.clear();
         self.shape_registry.clear();
 
@@ -334,15 +355,6 @@ impl RuntimeImpl {
         let pid = self.gc_part_id();
         self.gc_heap_mut()
             .remove_partition(pid, GcHeap::DUMMY_DISPOSE_CALLBACK);
-
-        // All scope stacks should have been released by ContextImpl::drop.
-        // GcHeap::drop will clean up any remaining scopes as a safety net.
-
-        // debug_assert_eq!(
-        //     self.gc_heap().nodes_iter(root_scope_id).count(),
-        //     0,
-        //     "should not have live gc nodes"
-        // );
 
         // class unregister callbacks
         let class_registry = std::mem::take(&mut self.class_registry);
