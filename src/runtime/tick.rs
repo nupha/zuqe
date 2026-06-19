@@ -44,9 +44,19 @@ impl RuntimeImpl {
                     while let Some(mut job) = cx.oneshot_jobs.pop_front() {
                         // hold job gc tracer so GC can trace it during run()
                         self.gc_job = job.gc_trace.take();
-                        if let Err(e) = job.run(&mut cx) {
+                        if let Err(_e) = job.run(&mut cx) {
                             self.gc_job = None;
-                            return cx.return_with(Err(e));
+                            // Process-level interrupt takes priority.
+                            if matches!(self.cur_exception, Exception::Interrupted(_)) {
+                                return cx.return_with(Err(-1));
+                            }
+                            // Per ES §9.5: isolate job error, continue to next job.
+                            log::warn!(
+                                "[task error] one-shot job failed: {:?}",
+                                self.cur_exception
+                            );
+                            self.cur_exception = Exception::No;
+                            continue;
                         }
                     }
                     self.gc_job = None;
@@ -71,8 +81,14 @@ impl RuntimeImpl {
                             more_ticks = true;
                         }
                         Ok(JobState::Done) => {}
-                        Err(e) => {
-                            return cx.return_with(Err(e));
+                        Err(_) => {
+                            // Per ES §9.5: isolate job error.
+                            if matches!(self.cur_exception, Exception::Interrupted(_)) {
+                                return cx.return_with(Err(-1));
+                            }
+                            log::warn!("[task error] polling job failed: {:?}", self.cur_exception);
+                            self.cur_exception = Exception::No;
+                            // Don't re-queue — treat as Done.
                         }
                     }
                 }
@@ -92,6 +108,24 @@ impl RuntimeImpl {
 
                 cx.return_with(Ok(()))
             })?;
+        }
+
+        // Catch-all: interrupt set by native code not caught above (e.g. tick handlers).
+        match self.cur_exception {
+            Exception::No => {}
+            Exception::Interrupted(_) => {
+                return Err(-1);
+            }
+            _ => {
+                // Clear any lingering exception before GC and exit.
+                // Job error handlers already cleaned up; anything left (e.g. from tick handlers)
+                // must not leak to the next tick() call.
+                log::warn!(
+                    "[task error] lingering exception cleared: {:?}",
+                    self.cur_exception
+                );
+                self.cur_exception = Exception::No;
+            }
         }
 
         if self.gc_req || self.gc_heap().should_gc() {
