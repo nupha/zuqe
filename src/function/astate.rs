@@ -186,7 +186,9 @@ impl AsyncStateImpl {
         this_obj: JSValue,
         args: &[JSValue],
     ) -> JSResult {
-        ctx.poll_interrupts()?;
+        if ctx.poll_interrupts() {
+            return Err(-1);
+        }
 
         // state has a dedicated stack frame for async function
         let mut func = *self.stack_frame.func_obj.as_BCWrapper().unwrap();

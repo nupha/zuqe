@@ -81,6 +81,7 @@ impl Runtime {
 impl RuntimeImpl {
     unsafe fn panic_free_gc(&mut self) {
         self.cur_exception = Exception::default();
+        self.interrupt_code = None;
         self.context_list.clear();
         self.shape_registry.clear();
 

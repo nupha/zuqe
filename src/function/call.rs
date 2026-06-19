@@ -139,7 +139,9 @@ impl ObjectImpl {
     ) -> JSResult {
         debug_assert!(self.is_callable(), "must be callable object");
 
-        ctx.poll_interrupts()?;
+        if ctx.poll_interrupts() {
+            return Err(-1);
+        }
 
         let is_ctor = flags & JS_CALL_FLAG_CONSTRUCTOR != 0;
         if unlikely(is_ctor && !self.flags().is_constructor()) {

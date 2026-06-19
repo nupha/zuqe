@@ -57,7 +57,9 @@ pub(crate) fn js_object_isPrototypeOf(ctx: &mut ScopedContext, cc: CallContext) 
             };
 
             // avoid infinite loop (possible with proxies)
-            ctx.poll_interrupts()?;
+            if ctx.poll_interrupts() {
+                return Err(-1);
+            }
         };
 
         Ok(b.into())

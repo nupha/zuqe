@@ -240,8 +240,8 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
-    /// Eval `source` script in `self` scope, wait till all pending jobs are finished.
-    /// Returns the result value.
+    /// Eval `source` script in `self` scope, wait till all microtasks are finished or execution is interrupted.
+    /// Returns the event loop exit status with optional value.
     #[cfg(not(feature = "async_support"))]
     pub fn eval_wait(
         &mut self,
@@ -249,54 +249,56 @@ impl<'c> ScopedContext<'c> {
         filename: &str,
         eval_type: EvalType,
         flags: EvalFlags,
-    ) -> Result<JSValue, crate::ExceptionText> {
+    ) -> ExitStatus {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
-        let ret_val = self
-            .eval_internal(source, filename, eval_type, flags)
-            .map_err(|_| {
+        let ret_val = match self.eval_internal(source, filename, eval_type, flags) {
+            Ok(v) => v,
+            Err(_) => {
                 let exc = self.rt_mut().take_exception();
-                exc.to_text(self)
-            })?;
+                return ExitStatus::Exception(exc);
+            }
+        };
 
         // `ret_val` could be used in tick() phase, must ensure it's alive then.
         // Note: ret_val should already be root or local node.
         debug_assert!(ret_val.gc_node().is_none_or(|h| h.is_root_or_local()));
 
         let mut promise = crate::builtins::promise::Promise::try_from(ret_val).ok();
-        let mut result = if let Some(p) = promise {
+        let mut result: ExitStatus = if let Some(p) = promise {
             match p.state() {
                 crate::builtins::promise::PromiseState::Fulfilled => {
                     promise = None;
-                    let res = p.result();
-                    Ok(res)
+                    ExitStatus::Value(p.result())
                 }
                 crate::builtins::promise::PromiseState::Rejected => {
                     promise = None;
-                    Err(Exception::from(p.result()).to_text(self))
+                    ExitStatus::Exception(Exception::from(p.result()))
                 }
-                _ => Ok(JSValue::UNDEFINED),
+                _ => ExitStatus::Value(JSValue::UNDEFINED),
             }
         } else {
-            Ok(ret_val)
+            ExitStatus::Value(ret_val)
         };
 
         // tick to finish
         loop {
             match self.rt_mut().tick() {
-                Ok(crate::runtime::TickStatus::Continue) => {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
+                crate::runtime::TickStatus::Continue => {
+                    std::thread::yield_now();
                     continue;
                 }
-                Ok(crate::runtime::TickStatus::Stop) => {
-                    if let Some(p) = promise {
+                crate::runtime::TickStatus::Stop => {
+                    if let Some(code) = self.rt_mut().take_interrupt() {
+                        log::debug!("Interrupted with code {}", u8::from(code));
+                        result = ExitStatus::Interrupted(code);
+                    } else if let Some(p) = promise {
                         match p.state() {
                             crate::builtins::promise::PromiseState::Fulfilled => {
-                                result = Ok(p.result());
+                                result = ExitStatus::Value(p.result());
                             }
                             crate::builtins::promise::PromiseState::Rejected => {
-                                // no need to return reject value
-                                // result = Err(ErrorText::from(self, p.result()));
+                                // keep initial ExitStatus::Exception from pre-tick assessment
                             }
                             crate::builtins::promise::PromiseState::Pending => {
                                 #[cfg(debug_assertions)]
@@ -304,11 +306,6 @@ impl<'c> ScopedContext<'c> {
                             }
                         }
                     }
-                    break;
-                }
-                Err(_) => {
-                    let exc = self.rt_mut().take_exception();
-                    result = Err(exc.to_text(self));
                     break;
                 }
             }

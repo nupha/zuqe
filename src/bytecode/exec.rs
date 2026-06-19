@@ -1378,7 +1378,7 @@ impl Bytecode {
                         let n = unsafe { read_from_ptr::<i32>(pc) }; // could be minus
                         PC_GO!(n);
 
-                        if unlikely(realm_scope.poll_interrupts().is_err()) {
+                        if unlikely(realm_scope.poll_interrupts()) {
                             break State::Exception;
                         }
                     }
@@ -1424,7 +1424,7 @@ impl Bytecode {
                             };
                         }
 
-                        if unlikely(realm_scope.poll_interrupts().is_err()) {
+                        if unlikely(realm_scope.poll_interrupts()) {
                             break State::Exception;
                         }
                     }
@@ -2554,6 +2554,18 @@ impl Bytecode {
                 }
 
                 State::Exception => {
+                    // Interrupt bypasses catch handling — it is not a JS exception.
+                    if realm_scope.rt().interrupt_code.is_some() {
+                        let pc_offset = unsafe { pc.offset_from(pc_base) as usize };
+                        stack_frame.handle_exit(
+                            realm_scope,
+                            pc_offset,
+                            0,
+                            self.func_kind() != FunctionKind::Normal,
+                        );
+                        return JSValue::EXCEPTION;
+                    }
+
                     if let Some((pc2, sp2)) =
                         self.catch_exception(realm_scope, stack_frame, pc, pc_base, sp, sp_base)
                     {

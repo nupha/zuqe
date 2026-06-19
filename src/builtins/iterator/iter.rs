@@ -13,8 +13,8 @@ use crate::{
     error::{Exception, JSResult},
     function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-        JS_PROP_THROW, Object, ObjectPayload, PropertyKey,
+        JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E,
+        JS_PROP_ENUMERABLE, JS_PROP_THROW, Object, ObjectPayload, PropertyKey,
     },
     value::JSValue,
 };
@@ -103,7 +103,8 @@ impl ForInIterPayload {
 
             if !it.is_array {
                 // obj is not an array: query own property names list
-                let names = ob.get_own_property_names(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_SET_ENUM)?;
+                let names =
+                    ob.get_own_property_names(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_SET_ENUM)?;
                 it.prop_count = names.len() as _;
                 it.prop_enums = names;
             }
@@ -141,7 +142,9 @@ impl ForInIterPayload {
             }
 
             // avoid infinite loop
-            ctx.poll_interrupts()?;
+            if ctx.poll_interrupts() {
+                return Err(-1);
+            }
         }
 
         if slow_path {

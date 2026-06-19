@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::process::ExitCode;
-
 use gc_lite::GcNode;
 
 use crate::{
@@ -19,20 +17,16 @@ impl<'c> ScopedContext<'c> {
     }
 }
 
-pub enum TickStatus {
+pub(super) enum TickStatus {
+    /// More jobs to process — call tick() again.
     Continue,
+    /// Event loop stopped normally (or interrupted — check interrupt_code).
     Stop,
 }
 
 impl RuntimeImpl {
-    /// Interrupt running.
-    /// When in native function handler, after calling this, must returns Err
-    pub fn interrupt(&mut self, code: ExitCode) {
-        self.set_exception(Exception::Interrupted(code));
-    }
-
-    /// to run background jobs for one round
-    pub(crate) fn tick(&mut self) -> Result<TickStatus, i32> {
+    /// Run background jobs for one round.
+    pub(super) fn tick(&mut self) -> TickStatus {
         let mut more_ticks = false;
 
         for mut ctx in self.context_list.iter().copied() {
@@ -44,12 +38,8 @@ impl RuntimeImpl {
                     while let Some(mut job) = cx.oneshot_jobs.pop_front() {
                         // hold job gc tracer so GC can trace it during run()
                         self.gc_job = job.gc_trace.take();
+
                         if let Err(_e) = job.run(&mut cx) {
-                            self.gc_job = None;
-                            // Process-level interrupt takes priority.
-                            if matches!(self.cur_exception, Exception::Interrupted(_)) {
-                                return cx.return_with(Err(-1));
-                            }
                             // Per ES §9.5: isolate job error, continue to next job.
                             log::warn!(
                                 "[task error] one-shot job failed: {:?}",
@@ -58,37 +48,46 @@ impl RuntimeImpl {
                             self.cur_exception = Exception::No;
                             continue;
                         }
+                        // Interrupt detected — stop processing more jobs.
+                        // The catch-all below will return Err(-1) from tick().
+                        if self.interrupt_code.is_some() {
+                            break;
+                        }
                     }
+
                     self.gc_job = None;
                 }
 
                 // 2. Run polling jobs (may return `Again`) — one round only.
-                let num = cx.polling_jobs.len();
-                for _ in 0..num {
-                    let Some(mut job) = cx.polling_jobs.pop_front() else {
-                        break;
-                    };
+                //    Skip if interrupt is pending.
+                if self.interrupt_code.is_none() {
+                    let num = cx.polling_jobs.len();
+                    for _ in 0..num {
+                        let Some(mut job) = cx.polling_jobs.pop_front() else {
+                            break;
+                        };
 
-                    // put job trace to temp holder and run the job
-                    self.gc_job = job.gc_trace.take();
-                    let res = job.run(&mut cx);
-                    let gc_trace = self.gc_job.take();
+                        // put job trace to temp holder and run the job
+                        self.gc_job = job.gc_trace.take();
+                        let res = job.run(&mut cx);
+                        let gc_trace = self.gc_job.take();
 
-                    match res {
-                        Ok(JobState::Again) => {
-                            job.gc_trace = gc_trace;
-                            cx.polling_jobs.push_back(job);
-                            more_ticks = true;
-                        }
-                        Ok(JobState::Done) => {}
-                        Err(_) => {
-                            // Per ES §9.5: isolate job error.
-                            if matches!(self.cur_exception, Exception::Interrupted(_)) {
-                                return cx.return_with(Err(-1));
+                        match res {
+                            Ok(JobState::Again) => {
+                                job.gc_trace = gc_trace;
+                                cx.polling_jobs.push_back(job);
+                                more_ticks = true;
                             }
-                            log::warn!("[task error] polling job failed: {:?}", self.cur_exception);
-                            self.cur_exception = Exception::No;
-                            // Don't re-queue — treat as Done.
+                            Ok(JobState::Done) => {}
+                            Err(_) => {
+                                // Per ES §9.5: isolate job error.
+                                log::warn!(
+                                    "[task error] polling job failed: {:?}",
+                                    self.cur_exception
+                                );
+                                self.cur_exception = Exception::No;
+                                // Don't re-queue — treat as Done.
+                            }
                         }
                     }
                 }
@@ -106,36 +105,26 @@ impl RuntimeImpl {
                     }
                 }
 
-                cx.return_with(Ok(()))
-            })?;
+                cx.return_with(())
+            });
         }
 
-        // Catch-all: interrupt set by native code not caught above (e.g. tick handlers).
-        match self.cur_exception {
-            Exception::No => {}
-            Exception::Interrupted(_) => {
-                return Err(-1);
-            }
-            _ => {
-                // Clear any lingering exception before GC and exit.
-                // Job error handlers already cleaned up; anything left (e.g. from tick handlers)
-                // must not leak to the next tick() call.
-                log::warn!(
-                    "[task error] lingering exception cleared: {:?}",
-                    self.cur_exception
-                );
-                self.cur_exception = Exception::No;
-            }
+        // ES §9.5 ensures all job exceptions are isolated inside scopes.
+        debug_assert_eq!(self.cur_exception, Exception::No);
+
+        // Interrupt check — independent from exception.
+        if self.interrupt_code.is_some() {
+            return TickStatus::Stop;
         }
 
         if self.gc_req || self.gc_heap().should_gc() {
             self.gc_collect();
         }
 
-        Ok(if more_ticks {
+        if more_ticks {
             TickStatus::Continue
         } else {
             TickStatus::Stop
-        })
+        }
     }
 }

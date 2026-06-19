@@ -50,8 +50,11 @@ impl ObjectImpl {
                                             break Ok(true);
                                         }
                                         obj1 = o;
-                                        // must check for timeout to avoid infinite loop
-                                        ctx.poll_interrupts()?;
+
+                                        // check to avoid infinite loop
+                                        if ctx.poll_interrupts() {
+                                            return Err(-1);
+                                        }
                                     } else {
                                         break 'px_proto Ok(false);
                                     }

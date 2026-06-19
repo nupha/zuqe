@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::process::ExitCode;
+
 use crate::{
-    Exception,
     context::ScopedContext,
     runtime::{InterruptFn, RuntimeImpl},
 };
@@ -23,9 +24,11 @@ impl RuntimeImpl {
 }
 
 impl<'c> ScopedContext<'c> {
-    /// Returns `Err` if abort running with exception set
+    /// Poll interrupt handler callback and return true if an interrupt was triggered.
+    /// The bytecode executor should stop execution when this returns true.
+    /// This is a control-flow signal, NOT related to exceptions.
     #[inline(always)]
-    pub(crate) fn poll_interrupts(&mut self) -> Result<(), i32> {
+    pub(crate) fn poll_interrupts(&mut self) -> bool {
         if self.rt().interrupt_handler.is_some() {
             let mut counter = self.interrupt_counter.get();
             counter -= 1;
@@ -35,26 +38,25 @@ impl<'c> ScopedContext<'c> {
                 JS_INTERRUPT_COUNTER_INIT
             });
 
-            if counter <= 0 {
-                self.poll_interrupts_cb()?;
+            if counter <= 0 && self.poll_interrupts_cb() {
+                return true;
             }
         }
 
-        Ok(())
+        false
     }
 
-    /// call interrupt callback
-    /// Returns `Err` if abort running with exception set
+    /// Call interrupt handler callback.
+    /// Returns `true` if the callback triggered an interrupt.
     #[cold]
     #[inline(never)]
-    fn poll_interrupts_cb(&mut self) -> Result<(), i32> {
+    fn poll_interrupts_cb(&mut self) -> bool {
         let cb = unsafe { self.rt().interrupt_handler.as_ref().unwrap_unchecked() };
         if cb(self.rt()) {
-            self.rt_mut()
-                .set_exception(Exception::Interrupted(130.into()));
-            Err(-1)
+            self.rt_mut().interrupt(ExitCode::from(130));
+            true
         } else {
-            Ok(())
+            false
         }
     }
 }

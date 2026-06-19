@@ -24,10 +24,20 @@ pub enum Exception {
     OutOfMemory,
     /// Too many classes registered
     TooManyClasses,
-    /// Virtual machine interrupted, see Runtime::set_interrupt_handler()
-    Interrupted(ExitCode),
     /// JavaScript error value from one of context
     Error(JSValue),
+}
+
+/// Result of the complete event loop execution.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExitStatus {
+    /// A value produced by the executed script.
+    /// Use Value(JSValue::UNDEFINED) for normal stop with no meaningful value.
+    Value(JSValue),
+    /// Process was interrupted via interrupt().
+    Interrupted(ExitCode),
+    /// An unrecoverable runtime exception occurred.
+    Exception(Exception),
 }
 
 impl Exception {
@@ -53,10 +63,6 @@ impl Exception {
             },
             Self::TooManyClasses => ExceptionText {
                 message: String::from("Too many classes"),
-                traceback: None,
-            },
-            Self::Interrupted(code) => ExceptionText {
-                message: format!("Interrupted({:?})", code),
                 traceback: None,
             },
             Self::Error(e) => {
@@ -93,9 +99,6 @@ impl Exception {
                 .map_or(JSValue::Int(-1), JSValue::from),
             Self::TooManyClasses => ctx
                 .create_string_from_static("too many classes")
-                .map_or(JSValue::Int(-1), JSValue::from),
-            Self::Interrupted(_) => ctx
-                .create_string_from_static("interrupted")
                 .map_or(JSValue::Int(-1), JSValue::from),
             Self::Error(v) => v,
         }

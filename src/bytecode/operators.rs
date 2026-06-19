@@ -12,7 +12,7 @@ use crate::{
     context::ScopedContext,
     function::{Callback, FunctionKind, VarRef},
     object::{
-        JS_GPN_STR_OR_INT_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
+        JS_GPN_SET_ENUM, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
         JS_PROP_WRITABLE, Object,
     },
@@ -382,10 +382,14 @@ pub(super) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                         it.obj.replace(up);
 
                         // must check for timeout to avoid infinite loop
-                        ctx.poll_interrupts()?;
+                        if ctx.poll_interrupts() {
+                            return Err(-1);
+                        }
 
-                        let names =
-                            up.get_own_property_names(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_SET_ENUM)?;
+                        let names = up.get_own_property_names(
+                            ctx,
+                            JS_GPN_STR_OR_INT_MASK | JS_GPN_SET_ENUM,
+                        )?;
                         it.prop_count = names.len() as _;
                         it.prop_enums = names;
                         it.idx = 0;

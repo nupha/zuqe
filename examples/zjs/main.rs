@@ -15,7 +15,7 @@ use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use libloading::Library;
 use zuqe::{
-    Context, EvalFlags, EvalType, Exception, ModuleDef, Runtime, ScopedContext,
+    Context, EvalFlags, EvalType, Exception, ExitStatus, ModuleDef, Runtime, ScopedContext,
     builtins::promise::Promise,
 };
 
@@ -337,19 +337,23 @@ async fn main() -> ExitCode {
     };
 
     match run_result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(Exception::OutOfMemory) => {
+        ExitStatus::Value(_) => ExitCode::SUCCESS,
+        ExitStatus::Interrupted(code) => {
+            #[cfg(debug_assertions)]
+            log::debug!("Process interrupted with code {:?}", code);
+            code
+        }
+        ExitStatus::Exception(Exception::OutOfMemory) => {
             colorize_println("out of memory", RedFg);
             ExitCode::FAILURE
         }
-        Err(Exception::Interrupted(code)) => code,
-        Err(Exception::Error(err)) => {
+        ExitStatus::Exception(Exception::Error(err)) => {
             ctx.with_root_scope(|mut cx| {
                 colorize_println(err.to_string(&mut cx).unwrap().encode_utf8(false), RedFg);
             });
             ExitCode::FAILURE
         }
-        Err(Exception::No | Exception::TooManyClasses) => {
+        ExitStatus::Exception(Exception::No | Exception::TooManyClasses) => {
             unreachable!();
         }
     }

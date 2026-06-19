@@ -6,7 +6,7 @@ use std::{
     task::{Context as TaskContext, Poll},
 };
 
-use crate::Exception;
+use crate::{ExitStatus, JSValue};
 
 use super::{Runtime, tick::TickStatus};
 
@@ -21,18 +21,25 @@ impl<'rt> RunFuture<'rt> {
 }
 
 impl<'rt> std::future::Future for RunFuture<'rt> {
-    type Output = Result<(), Exception>;
+    type Output = ExitStatus;
 
     fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
 
         match this.rt.tick() {
-            Ok(TickStatus::Continue) => {
+            TickStatus::Continue => {
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            Ok(TickStatus::Stop) => Poll::Ready(Ok(())),
-            Err(_) => Poll::Ready(Err(this.rt.exception())),
+            TickStatus::Stop => {
+                debug_assert!(matches!(this.rt.exception(), crate::Exception::No));
+
+                Poll::Ready(if let Some(code) = this.rt.take_interrupt() {
+                    ExitStatus::Interrupted(code)
+                } else {
+                    ExitStatus::Value(JSValue::UNDEFINED)
+                })
+            }
         }
     }
 }

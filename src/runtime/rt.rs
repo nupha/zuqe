@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ffi::c_void, pin::Pin, ptr::NonNull};
+use std::{ffi::c_void, pin::Pin, process::ExitCode, ptr::NonNull};
 
 use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
 
@@ -57,6 +57,8 @@ pub struct RuntimeImpl {
 
     /// current exception
     pub(super) cur_exception: Exception,
+    /// Process-level interrupt flag
+    pub(crate) interrupt_code: Option<ExitCode>,
 
     /// pre-compiled regexp in parsing state.
     #[cfg(feature = "builtin_regexp")]
@@ -136,6 +138,7 @@ impl RuntimeImpl {
             stack_limit: 0,
 
             cur_exception: Exception::No,
+            interrupt_code: None,
 
             #[cfg(feature = "builtin_regexp")]
             regexp_precompiled: Vec::new(),
@@ -216,6 +219,17 @@ impl RuntimeImpl {
         }
 
         self.cur_exception = exc;
+    }
+
+    /// Set the interrupt flag with given exit code.
+    /// Unlike set_exception(), this does NOT go through the Exception mechanism.
+    pub const fn interrupt(&mut self, code: ExitCode) {
+        self.interrupt_code = Some(code);
+    }
+
+    /// Take the interrupt exit code, if any. Clears the flag.
+    pub const fn take_interrupt(&mut self) -> Option<ExitCode> {
+        self.interrupt_code.take()
     }
 
     /// get stack frame for current running function
@@ -327,6 +341,8 @@ impl RuntimeImpl {
         debug_assert!(self.cur_stack_frame.is_null());
 
         self.cur_exception = Exception::default();
+
+        self.interrupt_code = None;
 
         // Two-phase partition release.
         //
