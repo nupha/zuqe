@@ -43,6 +43,7 @@ impl RuntimeImpl {
                             // Per ES §9.5: isolate job error, continue to next job.
                             log::warn!("[task error] {:?}", self.cur_exception);
                             self.cur_exception = Exception::No;
+                            self.gc_job = None;
                             continue;
                         }
 
@@ -113,6 +114,11 @@ impl RuntimeImpl {
 
                 cx.return_with(())
             });
+
+            // Skip remaining contexts if interrupted
+            if self.interrupt_code.is_some() {
+                break;
+            }
         }
 
         // ES §9.5 ensures all job exceptions are isolated inside scopes.
