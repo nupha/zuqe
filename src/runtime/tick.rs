@@ -39,17 +39,14 @@ impl RuntimeImpl {
                         // hold job gc tracer so GC can trace it during run()
                         self.gc_job = job.gc_trace.take();
 
-                        if let Err(_e) = job.run(&mut cx) {
+                        if job.run(&mut cx).is_err() {
                             // Per ES §9.5: isolate job error, continue to next job.
-                            log::warn!(
-                                "[task error] one-shot job failed: {:?}",
-                                self.cur_exception
-                            );
+                            log::warn!("[task error] {:?}", self.cur_exception);
                             self.cur_exception = Exception::No;
                             continue;
                         }
-                        // Interrupt detected — stop processing more jobs.
-                        // The catch-all below will return Err(-1) from tick().
+
+                        // Interrupt detected — stop now
                         if self.interrupt_code.is_some() {
                             break;
                         }
@@ -58,9 +55,9 @@ impl RuntimeImpl {
                     self.gc_job = None;
                 }
 
-                // 2. Run polling jobs (may return `Again`) — one round only.
-                //    Skip if interrupt is pending.
                 if self.interrupt_code.is_none() {
+                    // 2. Run polling jobs (may return `Again`) — one round only.
+                    //    Skip if interrupt is pending.
                     let num = cx.polling_jobs.len();
                     for _ in 0..num {
                         let Some(mut job) = cx.polling_jobs.pop_front() else {
@@ -81,27 +78,36 @@ impl RuntimeImpl {
                             Ok(JobState::Done) => {}
                             Err(_) => {
                                 // Per ES §9.5: isolate job error.
-                                log::warn!(
-                                    "[task error] polling job failed: {:?}",
-                                    self.cur_exception
-                                );
+                                log::warn!("[task error] {:?}", self.cur_exception);
                                 self.cur_exception = Exception::No;
                                 // Don't re-queue — treat as Done.
                             }
                         }
+
+                        // Interrupt detected — stop now
+                        if self.interrupt_code.is_some() {
+                            break;
+                        }
                     }
-                }
 
-                // Oneshot jobs may also be queued by tick handlers; keep ticking if any remain.
-                if !cx.oneshot_jobs.is_empty() {
-                    more_ticks = true;
-                }
+                    if self.interrupt_code.is_none() {
+                        // 3. customized tick handlers
+                        let ctx_ptr = ContextPtr::from(cx.gc_ref());
+                        for f in ctx_ptr.tick_handlers.iter() {
+                            if f(&mut cx) {
+                                more_ticks = true;
+                            }
 
-                // 3. customized tick handlers
-                let ctx_ptr = ContextPtr::from(cx.gc_ref());
-                for f in ctx_ptr.tick_handlers.iter() {
-                    if f(&mut cx) {
-                        more_ticks = true;
+                            // Interrupt detected — stop now
+                            if self.interrupt_code.is_some() {
+                                break;
+                            }
+                        }
+
+                        // Oneshot jobs may also be queued by polling handlers; keep ticking if any remain.
+                        if !cx.oneshot_jobs.is_empty() {
+                            more_ticks = true;
+                        }
                     }
                 }
 
