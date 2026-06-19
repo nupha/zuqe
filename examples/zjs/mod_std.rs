@@ -163,7 +163,7 @@ fn js_gc(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
 fn std_exit(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let n = cc.arg(0).to_number(ctx)?.to_i32();
     ctx.rt_mut().interrupt(ExitCode::from(n as u8));
-    Err(-1) // propagates immediately; cur_exception is already set to Interrupted.
+    Ok(JSValue::UNDEFINED)
 }
 
 const MOD_STD_ENTRIES: &[FieldDef] = &[
