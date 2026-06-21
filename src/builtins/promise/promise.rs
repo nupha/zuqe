@@ -323,9 +323,21 @@ impl Promise {
                 match job(cx) {
                     Ok(Some(v)) => {
                         rr[0].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&v))?;
+                        debug_assert_eq!(
+                            cx.rt().exception(),
+                            crate::Exception::No,
+                            "[promise create_with_job] resolve() left exception behind"
+                        );
                         Ok(JobState::Done)
                     }
-                    Ok(None) => Ok(JobState::Again),
+                    Ok(None) => {
+                        debug_assert_eq!(
+                            cx.rt().exception(),
+                            crate::Exception::No,
+                            "[promise create_with_job] job returned Ok(None) but left exception behind"
+                        );
+                        Ok(JobState::Again)
+                    }
                     Err(_) => {
                         let err_val = cx.take_exception().to_value(cx);
                         rr[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;

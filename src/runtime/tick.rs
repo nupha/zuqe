@@ -36,24 +36,19 @@ impl RuntimeImpl {
                 //    draining until the queue is empty.
                 if !cx.oneshot_jobs.is_empty() {
                     while let Some(mut job) = cx.oneshot_jobs.pop_front() {
-                        // hold job gc tracer so GC can trace it during run()
-                        self.gc_job = job.gc_trace.take();
+                        self.gc_job = job.gc_trace.take(); // hold job gc tracer so GC can trace it during run()
+                        let res = job.run(&mut cx);
+                        self.gc_job = None;
 
-                        if job.run(&mut cx).is_err() {
-                            // Per ES §9.5: isolate job error, continue to next job.
+                        if res.is_err() {
                             log::warn!("[task error] {:?}", self.cur_exception);
                             self.cur_exception = Exception::No;
-                            self.gc_job = None;
                             continue;
-                        }
-
-                        // Interrupt detected — stop now
-                        if self.interrupt_code.is_some() {
+                        } else if self.interrupt_code.is_some() {
+                            // Interrupt detected — stop now
                             break;
                         }
                     }
-
-                    self.gc_job = None;
                 }
 
                 if self.interrupt_code.is_none() {
@@ -78,7 +73,6 @@ impl RuntimeImpl {
                             }
                             Ok(JobState::Done) => {}
                             Err(_) => {
-                                // Per ES §9.5: isolate job error.
                                 log::warn!("[task error] {:?}", self.cur_exception);
                                 self.cur_exception = Exception::No;
                                 // Don't re-queue — treat as Done.
@@ -121,8 +115,18 @@ impl RuntimeImpl {
             }
         }
 
-        // ES §9.5 ensures all job exceptions are isolated inside scopes.
-        debug_assert_eq!(self.cur_exception, Exception::No);
+        // ES §9.5: any exception left behind by a job is a bug in debug builds,
+        // and must be isolated (cleared) in release builds.
+        debug_assert_eq!(
+            self.cur_exception,
+            Exception::No,
+            "[task bug] a job or tick handler left exception behind: {:?}",
+            self.cur_exception
+        );
+        if !matches!(self.cur_exception, Exception::No) {
+            log::warn!("[task leaked an exception] {:?}", self.cur_exception);
+            self.cur_exception = Exception::No;
+        }
 
         // Interrupt check — independent from exception.
         if self.interrupt_code.is_some() {

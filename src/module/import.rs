@@ -165,24 +165,39 @@ fn js_load_module_rejected(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     let _ = cc
         .data(1)
         .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&error));
+
+    debug_assert_eq!(
+        ctx.rt().exception(),
+        crate::Exception::No,
+        "[import js_load_module_rejected] left exception behind"
+    );
     Ok(JSValue::UNDEFINED)
 }
 
 fn js_load_module_fulfilled(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if let Ok(ns) = if let JSValue::Module(mut m) = cc.data(2) {
-        m.ns(ctx)
-    } else {
+    let JSValue::Module(mut m) = cc.data(2) else {
         unreachable!()
-    } {
-        // resolve() with module namespace
-        let _ = cc.data(0).call(ctx, JSValue::UNDEFINED, &[ns.into()]);
-    } else {
-        // reject() with error
-        let err_val = ctx.take_exception().to_value(ctx);
-        let _ = cc
-            .data(1)
-            .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
+    };
+
+    match m.ns(ctx) {
+        Ok(ns) => {
+            // resolve with module namespace
+            let _ = cc.data(0).call(ctx, JSValue::UNDEFINED, &[ns.into()]);
+        }
+        Err(_) => {
+            // reject with error
+            let err_val = ctx.take_exception().to_value(ctx);
+            let _ = cc
+                .data(1)
+                .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
+        }
     }
+
+    debug_assert_eq!(
+        ctx.rt().exception(),
+        crate::Exception::No,
+        "[import js_load_module_fulfilled] left exception behind"
+    );
 
     Ok(JSValue::UNDEFINED)
 }

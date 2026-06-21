@@ -173,8 +173,11 @@ pub struct ObjectIter<'a> {
 
 impl Drop for ObjectIter<'_> {
     fn drop(&mut self) {
-        if !self.done {
-            let _ = self.close();
+        if !self.done && self.close().is_err() {
+            // Note: self.close() may leave an exception behind
+            // (e.g. when the `return` method returns a non-object).
+            // In a Drop context we cannot propagate the error - just clear the exception silently.
+            self.ctx.rt_mut().clear_exception();
         }
     }
 }
@@ -184,15 +187,18 @@ impl<'a> Iterator for ObjectIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
-            None
-        } else if let Ok((value, done)) = self.ctx.with_current_scope(|mut scope| {
-            Self::fetch_next(&mut scope, self.target, self.next_method, &[])
-        }) {
-            self.done = done;
-            if done { None } else { Some(Ok(value)) }
-        } else {
-            Some(Err(-1))
+            return None;
         }
+
+        self.ctx
+            .with_current_scope(|mut scope| {
+                Self::fetch_next(&mut scope, self.target, self.next_method, &[])
+            })
+            .map(|(value, done)| {
+                self.done = done;
+                if done { None } else { Some(Ok(value)) }
+            })
+            .unwrap_or_else(|_| Some(Err(-1)))
     }
 }
 

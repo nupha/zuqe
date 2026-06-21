@@ -275,9 +275,7 @@ impl AsyncIterableIterator {
     pub fn payload(&self) -> &AsyncIterPayload {
         #[cfg(debug_assertions)]
         unsafe {
-            self.0.as_ref().payload() 
-                .async_iterator()
-                .unwrap()
+            self.0.as_ref().payload().async_iterator().unwrap()
         }
         #[cfg(not(debug_assertions))]
         unsafe {
@@ -325,19 +323,26 @@ fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     if ait.completed() {
         make_iterator_next_result(ctx, JSValue::UNDEFINED, true)
     } else if let Some(fetcher) = ait.fetcher.clone() {
-        let promise = Promise::create_with_job(ctx, move |cx| match fetcher.try_fetch(cx) {
-            Ok(IterFetchStatus::Value(value)) => {
-                make_iterator_next_result(cx, value, false).map(Some)
-            }
-            Ok(IterFetchStatus::Done) => {
-                make_iterator_next_result(cx, JSValue::UNDEFINED, true).map(Some)
-            }
-            Ok(IterFetchStatus::Wait) => Ok(None),
-            Err(e) => {
-                //cx.throw_internal_error("fail to fetch next value");
-                Err(e)
-            }
+        let promise = Promise::create_with_job(ctx, move |cx| {
+            fetcher.try_fetch(cx).and_then(|s| {
+                let ret = match s {
+                    IterFetchStatus::Value(value) => {
+                        make_iterator_next_result(cx, value, false).map(Some)
+                    }
+                    IterFetchStatus::Done => {
+                        make_iterator_next_result(cx, JSValue::UNDEFINED, true).map(Some)
+                    }
+                    IterFetchStatus::Wait => Ok(None),
+                };
+                debug_assert_eq!(
+                    cx.rt().exception(),
+                    crate::Exception::No,
+                    "[async_iter next] try_fetch succeeded but left exception behind"
+                );
+                ret
+            })
         })?;
+
         Ok(promise.into())
     } else {
         make_iterator_next_result(ctx, JSValue::UNDEFINED, true)

@@ -136,6 +136,11 @@ impl Promise {
                                 )?;
                             }
                         }
+                        debug_assert_eq!(
+                            cx.rt().exception(),
+                            crate::Exception::No,
+                            "[promise create_from_future] future result handled but left exception behind"
+                        );
                         Ok(JobState::Done)
                     } else {
                         Ok(JobState::Again)
