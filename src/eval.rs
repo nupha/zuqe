@@ -168,7 +168,7 @@ impl<'c> ScopedContext<'c> {
             // throughout the compilation window.
             let bc = fd.create_bytecode(&mut child_scope)?;
 
-            // Promote the resulting Bytecode (and thus its BytecodeImpl) from
+            // IMPORTANT: Promote the resulting Bytecode (and thus its BytecodeImpl) from
             // the child scope to the parent scope, so it remains LOCAL after
             // child_scope drops. The atoms/cpool targets it references are
             // kept alive via BytecodeImpl::trace thereafter.

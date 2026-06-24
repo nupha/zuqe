@@ -316,8 +316,20 @@ impl AGenPayload {
 
     fn resolve_or_reject(&mut self, ctx: &mut ScopedContext, result: &JSValue, is_reject: bool) {
         let req = self.queue.remove(0);
-        req.resolving_funcs[is_reject as usize]
-            .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(result))
+        let func = req.resolving_funcs[is_reject as usize];
+
+        // Protect all GC-referenced values from the request and the call
+        // arguments in the current scope. After removing from the queue they
+        // are no longer traced by AGenPayload::trace, but the resolve call
+        // below may trigger GC through promise settlement / reaction.
+        let scope = ctx.gc_state();
+        for v in [req.result, req.promise, *result, func].iter() {
+            if let Some(n) = v.gc_node_ptr() {
+                scope.add_non_local(n);
+            }
+        }
+
+        func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(result))
             .unwrap();
     }
 

@@ -503,6 +503,11 @@ impl ObjectImpl {
     }
 
     #[inline(always)]
+    pub(crate) fn shape_mut(&mut self) -> Option<&mut Shape> {
+        self.shape.as_mut()
+    }
+
+    #[inline(always)]
     pub(crate) const fn take_shape(&mut self) -> Option<Shape> {
         self.shape.take()
     }

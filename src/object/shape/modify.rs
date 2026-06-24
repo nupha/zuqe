@@ -53,8 +53,24 @@ impl ObjectImpl {
             (sh.len(), sh.use_count)
         };
         debug_assert_eq!(self.prop_values.len(), old_len);
-
         let new_len = old_len + 1;
+
+        // Always try registry lookup first (dedup across objects).
+        if let Some(found) =
+            ctx.rt()
+                .find_shape_with_extend_prop(self.shape().unwrap(), prop, prop_flags)
+        {
+            debug_assert_eq!(new_len, found.len());
+            self.try_extend_prop_slot(1).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+            debug_assert_eq!(self.prop_values.len(), new_len);
+            self.set_shape(found);
+            return Ok(new_len);
+        }
+
+        // Not found. Extend slot first, then branch by exclusivity.
         self.try_extend_prop_slot(1).map_err(|_| {
             ctx.throw_out_of_memory();
             -1

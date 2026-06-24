@@ -69,6 +69,7 @@ impl Runtime {
                 debug_assert!(!rt_ptr.is_null());
                 unsafe { (*rt_ptr).gc_collect_in(pid) }
             }
+
             (*rt.get())
                 .gc_heap_mut()
                 .set_custom_gc_collect(Some(arena_full_collect));
