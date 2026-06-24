@@ -91,6 +91,11 @@ impl RuntimeImpl {
                 err.trace(&mut gcx);
             }
 
+            // NOTE: Atom registry is NOT responsible for keeping atom
+            // descriptor strings alive. Atom descriptors are traced through
+            // objects that reference them (BytecodeImpl via ATOM opcodes,
+            // ShapeImpl via property keys etc.). See `GcTrace for Atom`.
+
             // trace currently runnnig job
             if let Some(f) = self.gc_job.as_ref() {
                 f(&mut gcx);
@@ -129,7 +134,7 @@ impl RuntimeImpl {
         freed
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn gc_collect(&mut self) {
         self.gc_collect_in(self.gc_part_id());
     }
