@@ -173,11 +173,18 @@ pub struct ObjectIter<'a> {
 
 impl Drop for ObjectIter<'_> {
     fn drop(&mut self) {
-        if !self.done && self.close().is_err() {
-            // Note: self.close() may leave an exception behind
-            // (e.g. when the `return` method returns a non-object).
-            // In a Drop context we cannot propagate the error - just clear the exception silently.
-            self.ctx.rt_mut().clear_exception();
+        if !self.done {
+            let has_pending = self.ctx.rt().exception() != Exception::No;
+            let _ = self.close();
+            // close() via close_iter_internal:
+            //   - If there WAS a pending exception: preserved and re-threw it
+            //   - If there was NO pending exception and .return() failed: set a new one
+            //
+            // If there was a pending exception, keep it (caller will handle).
+            // Only clear if close() itself generated a NEW error we can't propagate.
+            if !has_pending && self.ctx.rt().exception() != Exception::No {
+                self.ctx.rt_mut().clear_exception();
+            }
         }
     }
 }
