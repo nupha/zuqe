@@ -127,10 +127,11 @@ impl<'c> ScopedContext<'c> {
         debug_assert_eq!(fd.body_scope, 1);
 
         // parse source in a dedicated scope.
-        self.with_new_scope(|scope| {
-            // create parse state with root fd, then parse source.
+        {
+            let mut cp = self.ctx_ptr;
+            let child_scope = cp.new_scope();
             let mut parser = JSParseState::new(
-                scope,
+                child_scope,
                 unsafe { NonNull::new_unchecked(fd.as_mut()) },
                 source,
                 filename,
@@ -143,9 +144,9 @@ impl<'c> ScopedContext<'c> {
             parser.skip_shebang();
             let res = parser.parse_program();
 
-            let (scope, _) = parser.finish(());
-            scope.return_with(res)
-        })?;
+            let (_, _) = parser.finish(());
+            res
+        }?;
 
         // has top-level await?
         let has_await = fd.has_await;

@@ -9,30 +9,6 @@ use crate::{ExceptionText, JSValue, context::ContextPtr};
 
 use super::ContextImpl;
 
-/// A wrapper type that ensures the return value of `with_new_scope` is
-/// properly returned via `ScopedContext::return_with`.
-///
-/// The only way to construct a `ScopeReturn` is through
-/// `ScopedContext::return_with`, which moves GC nodes from the child
-/// scope to the parent scope before the child scope is destroyed.
-///
-/// The `#[must_use]` attribute ensures the caller cannot accidentally
-/// discard the return value.
-#[must_use = "return value must be propagated from with_new_scope"]
-pub struct ScopeReturn<R> {
-    value: R,
-}
-
-impl<R> ScopeReturn<R> {
-    const fn new(value: R) -> Self {
-        Self { value }
-    }
-
-    pub fn into_inner(self) -> R {
-        self.value
-    }
-}
-
 /// Trait for types that can be safely returned from `with_new_scope`.
 pub trait ScopeResult: Sized {
     /// Promote GC nodes from the child scope to the parent scope.
@@ -103,9 +79,10 @@ pub(crate) enum GcScopeType<'a> {
     // caught by Rust's borrow checker because `ContextPtr` is `Copy` and
     // the scope access goes through `unsafe` code.
     //
-    // Store `(stack_id, depth)` instead and resolve reference dynamically
-    // via `ctx_ptr.gc_heap()` is safer.
-    Ref { stack_id: GcScopeStackId, depth: u8 },
+    // Store `(stack_id, index)` instead and resolve reference dynamically
+    // via `ctx_ptr.gc_heap()`. `index` is 0-based (index = depth - 1),
+    // allowing direct `get_unchecked` access without the `depth - 1` conversion.
+    Ref { stack_id: GcScopeStackId, index: u8 },
 }
 
 #[derive(Debug)]
@@ -176,16 +153,17 @@ impl<'a> From<&mut ScopedContext<'a>> for ContextPtr {
 impl<'a> ScopedContext<'a> {
     /// get gc scope state
     #[inline]
+    #[allow(unused_unsafe)] // debug_assert may trigger unused unsafe warning
     pub(crate) fn gc_state(&self) -> &GcScopeState<'_> {
         match &self.gc_scope {
             GcScopeType::Owned(s) => s.deref(),
             GcScopeType::Ref {
-                stack_id, depth, ..
-            } => self
-                .ctx_ptr
-                .gc_heap()
-                .scope(*stack_id, *depth)
-                .expect("Ref scope must exist"),
+                stack_id, index, ..
+            } => unsafe {
+                // SAFETY: `index` is constructed as `depth - 1` by `current_scope()`,
+                // ensuring it is always a valid 0-based index into the scope Vec.
+                self.ctx_ptr.gc_heap().scope_unchecked(*stack_id, *index)
+            },
         }
     }
 
@@ -211,21 +189,6 @@ impl<'a> ScopedContext<'a> {
         r
     }
 
-    /// Return a value from a `with_new_scope` closure.
-    ///
-    /// This method consumes the `ScopedContext`, ensuring the closure
-    /// cannot use the scope after returning. Before the scope is destroyed,
-    /// GC nodes in the return value are moved to the parent scope's cache,
-    /// preserving their LOCAL protection.
-    ///
-    /// The returned `MustReturn<R>` wrapper (with `#[must_use]`) ensures
-    /// the value is properly propagated through `with_new_scope`.
-    #[inline(always)]
-    pub fn return_with<R: ScopeResult>(self, value: R) -> ScopeReturn<R> {
-        let res = value.promote(&self);
-        ScopeReturn::new(res)
-    }
-
     /// remove the 'node' from scope protection.
     pub fn remove_local(&mut self, node: NonNull<GcHead>) {
         self.gc_state().remove_node(node);
@@ -241,35 +204,40 @@ impl<'a> ScopedContext<'a> {
 
     /// run closure in a new child scope.
     ///
-    /// The closure receives a `ScopedContext` and must return its value
-    /// via `scope.return_with(val)`. The `MustReturn<R>` wrapper (with
-    /// `#[must_use]`) ensures the value is properly propagated.
+    /// The closure receives a `&mut ScopedContext` and returns a value directly.
+    /// `promote` is called automatically inside `with_new_scope` to move GC nodes
+    /// from the child scope to the parent scope before the child scope is destroyed.
     pub fn with_new_scope<R: ScopeResult>(
         &mut self,
-        f: impl FnOnce(ScopedContext<'_>) -> ScopeReturn<R>,
+        f: impl FnOnce(&mut ScopedContext<'_>) -> R,
     ) -> R {
         #[cfg(debug_assertions)]
         {
             let _d1 = self.depth();
+            let max_depth = self.gc_heap().scope_max_depth(self.scope_stack_id());
             debug_assert_eq!(
-                _d1,
-                self.gc_heap().scope_max_depth(self.scope_stack_id()),
+                _d1, max_depth,
                 "with_new_scope: self (depth={}) must be the innermost scope (max_depth={})",
-                _d1,
-                self.gc_heap().scope_max_depth(self.scope_stack_id()),
+                _d1, max_depth,
             );
-            let s = self.ctx_ptr.new_scope();
-
-            let ret_val = f(s);
-            debug_assert_eq!(_d1, self.depth(), "{self:p}: {self:?}");
-            ret_val.into_inner()
+            let result = {
+                let mut s = self.ctx_ptr.new_scope();
+                let r = f(&mut s);
+                let r = r.promote(&s);
+                // s drops here → releases mutable borrow on self.ctx_ptr
+                r
+            };
+            let d2 = self.depth();
+            debug_assert_eq!(_d1, d2, "{self:p}: {self:?}");
+            result
         }
 
         #[cfg(not(debug_assertions))]
         {
-            let s = self.ctx_ptr.new_scope();
-            let ret_val = f(s);
-            ret_val.into_inner()
+            let mut s = self.ctx_ptr.new_scope();
+            let result = f(&mut s);
+            let result = result.promote(&s);
+            result
         }
     }
 
@@ -285,7 +253,7 @@ impl<'a> ScopedContext<'a> {
 
 impl ContextPtr {
     /// push a new scope above current scope
-    fn new_scope(&mut self) -> ScopedContext<'_> {
+    pub(crate) fn new_scope(&mut self) -> ScopedContext<'_> {
         let ctx_ptr = *self;
         let stack_id = self.scope_stack_id();
         let gc_scope = self.gc_heap_mut().new_scope(stack_id);
@@ -299,7 +267,7 @@ impl ContextPtr {
     /// Create a child scope above the current (innermost) scope, run closure in it.
     pub(crate) fn with_new_scope<R: ScopeResult>(
         &mut self,
-        f: impl FnOnce(ScopedContext<'_>) -> ScopeReturn<R>,
+        f: impl FnOnce(&mut ScopedContext<'_>) -> R,
     ) -> R {
         let mut s = self.current_scope();
         s.with_new_scope(f)
@@ -316,7 +284,7 @@ impl ContextImpl {
                 ctx_ptr: self.gc_ref().into(),
                 gc_scope: GcScopeType::Ref {
                     stack_id,
-                    depth: s.depth(),
+                    index: s.depth() - 1,
                 },
             }
         } else {

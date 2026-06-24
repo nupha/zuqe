@@ -677,9 +677,9 @@ mod tests {
     fn with_ctx(f: impl FnOnce(&mut ScopedContext)) {
         let mut rt = Runtime::create().unwrap();
         let mut ctx = rt.create_context(|_| Ok(())).unwrap();
-        ctx.with_new_scope(|mut scope| {
-            f(&mut scope);
-            scope.return_with(())
+        ctx.with_new_scope(|scope| {
+            f(scope);
+            ()
         });
     }
 

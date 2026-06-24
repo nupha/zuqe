@@ -249,7 +249,7 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         };
-        scope.return_with(code)
+        code
     });
 
     #[cfg(debug_assertions)]
@@ -292,9 +292,9 @@ async fn main() -> ExitCode {
                     Ok(())
                 }
             }
-            Err(_) => Err(scope.take_exception().to_text(&mut scope)),
+            Err(_) => Err(scope.take_exception().to_text(scope)),
         };
-        scope.return_with(r)
+        r
     });
 
     #[cfg(debug_assertions)]

@@ -140,11 +140,11 @@ impl AsyncStateImpl {
             return Err(-1);
         }
 
-        let mut ret_val = ctx.with_new_scope(|mut scope| {
-            let res = self.resume_call(&mut scope, self.this_val, unsafe {
+        let mut ret_val = ctx.with_new_scope(|scope| {
+            let res = self.resume_call(scope, self.this_val, unsafe {
                 std::slice::from_raw_parts(self.arg_ptr().as_ptr(), self.arg_count())
             });
-            scope.return_with(res)
+            res
         });
 
         let completed = match ret_val {

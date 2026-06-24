@@ -16,7 +16,7 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             2 => Colors::GreenFg,  // info
             3 => Colors::YellowFg, // warn
             4 => Colors::RedFg,    // error
-            _ => Colors::WhiteFg,
+            _ => Colors::Reset,
         }
     };
 

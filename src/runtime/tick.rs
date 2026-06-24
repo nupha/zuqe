@@ -30,14 +30,14 @@ impl RuntimeImpl {
         let mut more_ticks = false;
 
         for mut ctx in self.context_list.iter().copied() {
-            ctx.with_new_scope(|mut cx| {
+            ctx.with_new_scope(|cx| {
                 // 1. Run all one-shot jobs first (always complete, never retry).
                 //    New oneshot jobs may be queued during execution, so keep
                 //    draining until the queue is empty.
                 if !cx.oneshot_jobs.is_empty() {
                     while let Some(mut job) = cx.oneshot_jobs.pop_front() {
                         self.gc_job = job.gc_trace.take(); // hold job gc tracer so GC can trace it during run()
-                        let res = job.run(&mut cx);
+                        let res = job.run(cx);
                         self.gc_job = None;
 
                         if res.is_err() {
@@ -62,7 +62,7 @@ impl RuntimeImpl {
 
                         // put job trace to temp holder and run the job
                         self.gc_job = job.gc_trace.take();
-                        let res = job.run(&mut cx);
+                        let res = job.run(cx);
                         let gc_trace = self.gc_job.take();
 
                         match res {
@@ -89,7 +89,7 @@ impl RuntimeImpl {
                         // 3. customized tick handlers
                         let ctx_ptr = ContextPtr::from(cx.gc_ref());
                         for f in ctx_ptr.tick_handlers.iter() {
-                            if f(&mut cx) {
+                            if f(cx) {
                                 more_ticks = true;
                             }
 
@@ -106,7 +106,7 @@ impl RuntimeImpl {
                     }
                 }
 
-                cx.return_with(())
+                ()
             });
 
             // Skip remaining contexts if interrupted

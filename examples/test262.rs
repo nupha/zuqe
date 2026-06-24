@@ -105,14 +105,14 @@ fn js_detachArrayBuffer(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let source = cc.arg(0).inspect(ctx)?;
-    ctx.with_new_scope(|mut scope| {
+    ctx.with_new_scope(|scope| {
         let result = scope.eval(
             source.as_bytes(),
             "<eval>",
             EvalType::Global,
             EvalFlags::empty(),
         );
-        scope.return_with(result)
+        result
     })
 }
 
@@ -145,9 +145,9 @@ fn js_createRealm(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     let mut ctx2 = ctx
         .rt_mut()
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
-    ctx2.with_new_scope(|mut scope| {
-        let result = setup_ctx_test262_helpers(&mut scope);
-        scope.return_with(result)
+    ctx2.with_new_scope(|scope| {
+        let result = setup_ctx_test262_helpers(scope);
+        result
     })
 }
 
@@ -316,7 +316,7 @@ fn run_harness(ctx: &mut Context, harness_files: &[PathBuf]) -> Result<(), Excep
             })
             .unwrap();
 
-        ctx.with_new_scope(|mut scope| {
+        ctx.with_new_scope(|scope| {
             let result = scope
                 .eval(
                     src.as_bytes(),
@@ -326,9 +326,9 @@ fn run_harness(ctx: &mut Context, harness_files: &[PathBuf]) -> Result<(), Excep
                 )
                 .map_err(|_| {
                     let exc = scope.take_exception();
-                    exc.to_text(&mut scope)
+                    exc.to_text(scope)
                 });
-            scope.return_with(result)
+            result
         })?;
     }
 
@@ -348,7 +348,7 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    ctx.with_new_scope(|mut scope| {
+    ctx.with_new_scope(|scope| {
         let result = scope.eval_wait(
             script.as_bytes(),
             filename.as_os_str().to_str().unwrap(),
@@ -363,7 +363,7 @@ fn run_test_script(
                 EvalFlags::empty()
             },
         );
-        scope.return_with(result)
+        result
     })?;
 
     if is_async {
@@ -393,7 +393,7 @@ async fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    ctx.with_new_scope(|mut scope| {
+    ctx.with_new_scope(|scope| {
         let result = scope
             .eval(
                 script.as_bytes(),
@@ -411,9 +411,9 @@ async fn run_test_script(
             )
             .map_err(|_| {
                 let exc = scope.take_exception();
-                exc.to_text(&mut scope)
+                exc.to_text(scope)
             });
-        scope.return_with(result)
+        result
     })?;
 
     let _ = rt.run_async().await;

@@ -15,7 +15,7 @@ use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_ASYNC_ITERABLE_ITERATOR,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
     JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, OneshotJob, PollingJob,
-    ScopeResult, ScopeReturn,
+    ScopeResult,
     atom::Atom,
     builtins::global::js_global_props,
     class::ClassID,
@@ -528,7 +528,7 @@ impl<'c> Context<'c> {
         let stack_id = self.ctx_ptr.scope_stack_id();
         ScopedContext {
             ctx_ptr: self.ctx_ptr,
-            gc_scope: GcScopeType::Ref { stack_id, depth: 1 },
+            gc_scope: GcScopeType::Ref { stack_id, index: 0 },
         }
     }
 
@@ -540,7 +540,7 @@ impl<'c> Context<'c> {
     /// Create a child scope, run closure in it.
     pub fn with_new_scope<R: ScopeResult>(
         &mut self,
-        f: impl FnOnce(ScopedContext<'_>) -> ScopeReturn<R>,
+        f: impl FnOnce(&mut ScopedContext<'_>) -> R,
     ) -> R {
         self.root_scope().with_new_scope(f)
     }
@@ -620,30 +620,30 @@ impl RuntimeImpl {
         // sub-scope during setup. When the sub-scope drops, LOCAL is removed,
         // but the objects remain reachable through ContextImpl fields
         // (global_obj, global_var_obj, etc.) which are roots via context_list.
-        ctx.root_scope().with_new_scope(|mut cx| {
+        ctx.root_scope().with_new_scope(|cx| {
             // DON'T CHANGE FOLLOWING ORDER
 
             // base object must be initialized before creating global
             let r1 = cx.init_core_objects();
             if r1.is_err() {
-                return cx.return_with(r1);
+                return r1;
             }
             // make global namespace
             let r2 = cx.create_base_object();
             if let Err(e) = r2 {
-                return cx.return_with(Err(e));
+                return Err(e);
             }
             cx.global_obj = Some(r2.unwrap());
             // make global var object
             let r3 = cx.create_base_object_with_proto(None);
             if let Err(e) = r3 {
-                return cx.return_with(Err(e));
+                return Err(e);
             }
             cx.global_var_obj = Some(r3.unwrap());
 
             // user initialization
-            let res = setup(&mut cx);
-            cx.return_with(res)
+            let res = setup(cx);
+            res
         })?;
 
         Ok(ctx)

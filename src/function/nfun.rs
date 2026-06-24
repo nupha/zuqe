@@ -94,24 +94,24 @@ impl NFuncPayload {
     fn call(&mut self, this_value: JSValue, args: &[JSValue], flags: i32) -> JSResult {
         let mut cc = CallContext::new(this_value, args, self.magic as _, self.data.as_deref_mut());
 
-        self.realm.with_new_scope(|mut cx| {
+        self.realm.with_new_scope(|cx| {
             let ret_val: JSResult = match self.callback {
-                Callback::Func(f) => f(&mut cx, cc),
+                Callback::Func(f) => f(cx, cc),
                 Callback::Getter(f) => {
                     debug_assert_eq!(cc.length(), 0);
-                    f(&mut cx, cc)
+                    f(cx, cc)
                 }
                 Callback::Setter(f) => {
                     debug_assert_eq!(cc.length(), 1);
-                    f(&mut cx, cc)
+                    f(cx, cc)
                 }
                 Callback::IteratorNext(f) => {
                     let mut iter_state = IteratorState::NotDone;
-                    let r = f(&mut cx, cc, &mut iter_state);
+                    let r = f(cx, cc, &mut iter_state);
                     if let Ok(v) = r
                         && iter_state != IteratorState::NotParsed
                     {
-                        make_iterator_next_result(&mut cx, v, iter_state == IteratorState::Done)
+                        make_iterator_next_result(cx, v, iter_state == IteratorState::Done)
                     } else {
                         r
                     }
@@ -121,39 +121,39 @@ impl NFuncPayload {
                         cx.throw_type_error("must be called with new");
                         Err(-1)
                     } else {
-                        f(&mut cx, cc)
+                        f(cx, cc)
                     }
                 }
                 Callback::ConstructorOrFunc(f) => {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                         cc.set_this(JSValue::UNDEFINED); // set this_value to undefined
                     }
-                    f(&mut cx, cc)
+                    f(cx, cc)
                 }
 
                 Callback::FF(f) => {
                     //debug_assert!(data.is_none(), "binding data not allowed");
                     cc.arg(0)
-                        .to_number(&mut cx)
+                        .to_number(cx)
                         .map(|n| JSValue::from(unsafe { f(n.to_f64()) }))
                 }
                 Callback::FFF(f) => {
                     //debug_assert!(data.is_none(), "binding data not allowed");
-                    let d1 = cc.arg(0).to_number(&mut cx).map(|n| n.to_f64());
+                    let d1 = cc.arg(0).to_number(cx).map(|n| n.to_f64());
                     let d1 = match d1 {
                         Ok(v) => v,
-                        Err(e) => return cx.return_with(Err(e)),
+                        Err(e) => return Err(e),
                     };
-                    let d2 = cc.arg(1).to_number(&mut cx).map(|n| n.to_f64());
+                    let d2 = cc.arg(1).to_number(cx).map(|n| n.to_f64());
                     let d2 = match d2 {
                         Ok(v) => v,
-                        Err(e) => return cx.return_with(Err(e)),
+                        Err(e) => return Err(e),
                     };
                     Ok(JSValue::from(unsafe { f(d1, d2) }))
                 }
             };
 
-            cx.return_with(ret_val)
+            ret_val
         })
     }
 }

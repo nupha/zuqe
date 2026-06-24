@@ -14,15 +14,16 @@ use crate::{
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
+use crate::context::ScopeResult;
 
 fn js_json_stringify(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0);
     let replacer = cc.arg(1);
     let space = cc.arg(2);
 
-    ctx.with_new_scope(|mut cx| {
+    ctx.with_new_scope(|cx| {
         let res = cx.json_stringify(obj, replacer, space);
-        cx.return_with(res)
+        res
     })
 }
 
@@ -75,16 +76,20 @@ fn internalize_json_property(
 fn js_json_parse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(ctx)?;
 
-    let mut obj = ctx.with_new_scope(|cx| {
+    let mut obj = {
+        let mut cp = ctx.ctx_ptr;
+        let child_scope = cp.new_scope();
         let source = s.content().encode_utf8_bytes(true);
 
-        let mut parser = JSParseState::new_for_json(cx, &source, "<input>");
+        let mut parser = JSParseState::new_for_json(child_scope, &source, "<input>");
         parser.ext_json = false; // flags & JS_PARSE_JSON_EXT != 0;
 
         let res = parser.json_parse();
-        let (cx, _) = parser.finish(());
-        cx.return_with(res)
-    })?;
+        let (scope_back, _) = parser.finish(());
+        // Promote GC nodes from the parsing child scope to the current scope
+        let res = res.promote(&scope_back);
+        res
+    }?;
 
     if cc.length() > 1 && cc.arg(1).is_callable() {
         let reviver = cc.arg(1);
