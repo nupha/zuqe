@@ -5,7 +5,7 @@ use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
     atom::Atom,
-    context::ScopedContext,
+    context::{ScopeResult, ScopedContext},
     error::JSResult,
     function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
@@ -126,8 +126,21 @@ impl<'c> ScopedContext<'c> {
         fd.body_scope = fd.push_scope(0)? as i32;
         debug_assert_eq!(fd.body_scope, 1);
 
-        // parse source in a dedicated scope.
-        {
+        // parse source in a dedicated scope, then compile to bytecode.
+        //
+        // The parser child scope MUST outlive `create_bytecode`: during
+        // parsing, atoms and constant-pool objects are allocated as LOCAL in
+        // this scope. `create_bytecode` consumes them into a `BytecodeImpl`
+        // which only becomes LOCAL at its end (`mkbc.rs::alloc_local`). If the
+        // child scope is dropped before that, a GC in between would reclaim
+        // those objects leaving dangling references (see
+        // bugs/parser-gc-atom-collect.md Bug 1A/1B).
+        //
+        // `JSParseState::finish` returns the inner `ScopedContext` (the child
+        // scope) without dropping it, so we can keep it alive across
+        // `create_bytecode`. After compilation, the resulting `Bytecode` is
+        // promoted to the parent scope (so it survives child_scope drop).
+        let (bc, has_await) = {
             let mut cp = self.ctx_ptr;
             let child_scope = cp.new_scope();
             let mut parser = JSParseState::new(
@@ -142,17 +155,35 @@ impl<'c> ScopedContext<'c> {
             parser.allow_html_comments = frame_module.is_none();
 
             parser.skip_shebang();
-            let res = parser.parse_program();
+            parser.parse_program()?;
 
-            let (_, _) = parser.finish(());
-            res
-        }?;
+            // Recover the child scope (does NOT drop it) and keep it alive.
+            let (mut child_scope, _) = parser.finish(());
 
-        // has top-level await?
-        let has_await = fd.has_await;
+            // has top-level await?
+            let has_await = fd.has_await;
 
-        // compile function def into bytecode.
-        let bc = fd.create_bytecode(self)?;
+            // compile function def into bytecode while child_scope is alive,
+            // so parser-created atoms / cpool targets stay LOCAL-protected
+            // throughout the compilation window.
+            let bc = fd.create_bytecode(&mut child_scope)?;
+
+            // Promote the resulting Bytecode (and thus its BytecodeImpl) from
+            // the child scope to the parent scope, so it remains LOCAL after
+            // child_scope drops. The atoms/cpool targets it references are
+            // kept alive via BytecodeImpl::trace thereafter.
+            let bc_val = JSValue::Bytecode(bc);
+            let bc_val = bc_val.promote(&child_scope);
+            let bc = match bc_val {
+                JSValue::Bytecode(b) => b,
+                _ => unreachable!(),
+            };
+
+            // child_scope dropped here: atom descriptors / cpool targets that
+            // were only referenced by child_scope LOCAL are now either
+            // promoted (bc) or traced through BytecodeImpl.
+            (bc, has_await)
+        };
 
         #[cfg(debug_assertions)]
         debug_assert!(

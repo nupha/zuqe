@@ -55,7 +55,7 @@ impl RuntimeImpl {
     }
 
     /// collect garbage
-    fn gc_collect_in(&mut self, partition_id: GcPartitionId) -> usize {
+    pub(crate) fn gc_collect_in(&mut self, partition_id: GcPartitionId) -> usize {
         log::trace!("[collect] {partition_id:?}");
 
         // ensure marking cycle is started
