@@ -205,7 +205,7 @@ fn js_generator_next(
             }
             GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR
             | GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD => {
-                // SP[-1] was set to JS_UNDEFINED in the previous call
+                // SP[-1] was set to UNDEFINED in the previous call
                 let val = cc.arg(0);
 
                 if magic == GEN_MAGIC_THROW
@@ -219,7 +219,7 @@ fn js_generator_next(
                         debug_assert_eq!(
                             *sp_ptr.offset(-1).as_ptr(),
                             JSValue::UNDEFINED,
-                            "SP[-1] was set to JS_UNDEFINED in the previous call"
+                            "SP[-1] was set to UNDEFINED in the previous call"
                         );
 
                         std::ptr::replace(sp_ptr.offset(-1).as_ptr(), val);
@@ -253,15 +253,9 @@ fn js_generator_next(
                 debug_assert!(res.unwrap().is_int());
 
                 // get the returned yield value at the top of the stack
-                //
-                // SAFETY: This is a synchronous generator — no `await` point
-                // exists in this execution path. Arena GC cannot fire during
-                // synchronous bytecode execution. Between this ptr::replace
-                // and ret_val.err() below there are no allocations. The value
-                // is also a LOCAL of the bytecode scope (realm_scope) — see
-                // clear_locals() only used in debug_gc feature.
-                let ret_val = g.with_stack_frame_mut(|sf| unsafe {
-                    std::ptr::replace(sf.stack_cur_ptr().offset(-1).as_ptr(), JSValue::UNDEFINED)
+                // Use StackFrame::take() for consistency — it auto-protects.
+                let ret_val = g.with_stack_frame_mut(|sf| {
+                    sf.take(-1, ctx)
                 });
 
                 *iter_state = if let Ok(JSValue::Int(FUNC_RET_YIELD_STAR)) = res {

@@ -449,8 +449,15 @@ impl Array {
 
             sort_values_by(ctx, slots.as_mut_slice(), cmp)?;
 
+            // Protect sorted values before writing back. slots is a local Vec,
+            // not traced by GC — set_property_u32 may allocate and trigger GC.
+            for v in &slots {
+                if let Some(n) = v.gc_node_ptr() {
+                    ctx.gc_state().add_non_local(n);
+                }
+            }
             let slots_len = slots.len() as i64;
-            for (i, v) in slots.into_iter().enumerate() {
+            for (i, v) in slots.drain(..).enumerate() {
                 obj.set_property_u32(ctx, i as u32, v)?;
             }
             if undefined_count > 0 {
@@ -483,8 +490,14 @@ impl Array {
 
             sort_values_default(slots.as_mut_slice());
 
+            // Protect sorted values before writing back.
+            for v in slots.iter().map(|(v, _)| v) {
+                if let Some(n) = v.gc_node_ptr() {
+                    ctx.gc_state().add_non_local(n);
+                }
+            }
             let slots_len = slots.len() as i64;
-            for (i, (v, _)) in slots.into_iter().enumerate() {
+            for (i, (v, _)) in slots.drain(..).enumerate() {
                 obj.set_property_u32(ctx, i as u32, v)?;
             }
             if undefined_count > 0 {
@@ -584,10 +597,19 @@ impl ObjectImpl {
 
         if self.is_fast_array() {
             // take array list out
-            let items = std::mem::take(&mut self.payload_mut().array_mut().unwrap().values);
+            let mut items = std::mem::take(&mut self.payload_mut().array_mut().unwrap().values);
             let mut arr_obj = Object::from_ref(self);
 
-            for (i, v) in items.into_iter().enumerate() {
+            // Protect remaining elements from GC during the loop. After
+            // mem::take, elements are no longer traced by ArrayPayload::trace.
+            // add_own_property below may allocate and trigger arena GC.
+            for v in items.iter() {
+                if let Some(n) = v.gc_node_ptr() {
+                    ctx.gc_state().add_non_local(n);
+                }
+            }
+
+            for (i, v) in items.drain(..).enumerate() {
                 // add_property cannot fail here
                 // but __JS_AtomFromUInt32(i) fails for i > i32::MAX
                 //

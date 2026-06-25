@@ -127,6 +127,12 @@ impl AGenPayload {
                             eprintln!("{}", ctx.rt().exception().to_text(ctx).message);
                         }
                     } else {
+                        // Protect rejection value before reject(). result comes
+                        // from queue (traced but not LOCAL) and may be an error
+                        // object passed to .throw() on a completed generator.
+                        if let Some(n) = result.gc_node_ptr() {
+                            ctx.gc_state().add_non_local(n);
+                        }
                         self.reject(ctx, result);
                     }
                     State::Done
@@ -183,6 +189,11 @@ impl AGenPayload {
                             }
                             Err(_) => {
                                 let err_val = ctx.take_exception().to_value(ctx);
+                                // Protect err_val before reject(); it was taken
+                                // from cur_exception and is no longer in any GC root.
+                                if let Some(n) = err_val.gc_node_ptr() {
+                                    ctx.gc_state().add_non_local(n);
+                                }
                                 self.complete();
                                 self.reject(ctx, err_val);
                             }
@@ -239,6 +250,11 @@ impl AGenPayload {
                 // A poisoned .constructor property is observable and the resulting
                 // exception should be delivered to the catch handler.
                 let err_val = ctx.take_exception().to_value(ctx);
+                // Protect err_val before js_promise_resolve — after take_exception
+                // it's no longer in any GC root, and js_promise_resolve may allocate.
+                if let Some(n) = err_val.gc_node_ptr() {
+                    ctx.gc_state().add_non_local(n);
+                }
                 js_promise_resolve(
                     ctx,
                     CallContext::new(
@@ -328,13 +344,11 @@ impl AGenPayload {
     }
 
     fn resolve_or_reject(&mut self, ctx: &mut ScopedContext, result: &JSValue, is_reject: bool) {
-        // result is created by make_iterator_next_result (in resolve()) as a
-        // LOCAL in the current scope — already protected. Verify with assert.
         debug_assert!(
             result.gc_node_ptr().map_or(true, |n| unsafe {
                 n.as_ref().is_root_or_local()
             }),
-            "result must be gc local or root"
+            "resolve_or_reject: result not protected"
         );
 
         let req = self.dequeue(ctx);
@@ -357,6 +371,12 @@ impl AGenPayload {
 
     #[inline(always)]
     pub(crate) fn reject(&mut self, ctx: &mut ScopedContext, exception: JSValue) {
+        debug_assert!(
+            exception.gc_node_ptr().map_or(true, |n| unsafe {
+                n.as_ref().is_root_or_local()
+            }),
+            "exception must be gc local or root"
+        );
         self.resolve_or_reject(ctx, &exception, true);
     }
 }
@@ -516,13 +536,13 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
             ));
 
             s.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED);
+            // Protect arg before resolve/reject, which may allocate.
+            if let Some(n) = arg.gc_node_ptr() {
+                ctx.gc_state().add_non_local(n);
+            }
             if is_reject {
                 s.reject(ctx, arg);
             } else {
-                // Protect resolved value before resolve(), which may allocate.
-                if let Some(n) = arg.gc_node_ptr() {
-                    ctx.gc_state().add_non_local(n);
-                }
                 s.resolve(ctx, arg, true);
             }
         } else {

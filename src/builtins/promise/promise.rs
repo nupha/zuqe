@@ -634,6 +634,13 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
         cc.arg(0)
     };
 
+    // Protect obj from GC before writing into values. define_property_value_u32
+    // may trigger destruct_fast_array which allocates and could fire arena GC.
+    // obj is a LOCAL of the current child scope (NFuncPayload::call uses
+    // with_new_scope), but protect explicitly to be safe.
+    if let Some(n) = obj.gc_node_ptr() {
+        ctx.gc_state().add_non_local(n);
+    }
     values.define_property_value_u32(ctx, index as u32, obj, JS_PROP_C_W_E)?;
 
     match remainingElementsCount_add(ctx, resolve_element_env, -1)? {

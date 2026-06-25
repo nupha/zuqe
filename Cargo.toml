@@ -27,6 +27,24 @@ builtin_math = []
 dump_bytecode = []
 debug_gc = []
 
+# GC transient protection: prevent use-after-free when GC nodes are moved
+# between protected locations (scope LOCAL / Vec / stack frame). The danger
+# window opens when a node is taken OUT of a traced location AND BEFORE it
+# is re-anchored (via add_non_local, write barrier bind, or being re-stored
+# into a traced container). If any node allocation triggers GC collect during
+# this window (arena full, memory pressure, or explicit gc_request), the
+# Rust-local GcRef is invisible to GC roots → the node gets swept.
+# 
+# This feature documents the fix pattern: re-anchor via scope.add_non_local()
+# immediately after taking a value from any traced location, before any call
+# that might allocate GC nodes. Without this protection, the bug manifests
+# whenever a GC collect happens to fire during the unprotected window.
+# 
+# Enabling this feature has no effect on behavior; the protection code is
+# always compiled in. The feature exists to group and document all
+# transient-protection fix sites.
+gc_transient_protection = []
+
 default = [
     "all_unicode",
     "async_support",
