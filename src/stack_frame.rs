@@ -56,7 +56,7 @@ impl std::fmt::Debug for FrameBuf {
 impl FrameBuf {
     /// Create an empty inline buffer (no heap allocation).
     #[inline(always)]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self::Inline([JSValue::UNDEFINED; FRAME_INLINE_CAP])
     }
 
@@ -81,15 +81,8 @@ impl FrameBuf {
 
     /// Whether this buffer is heap-allocated (for frame pool recycling decisions).
     #[inline(always)]
-    pub fn is_spill(&self) -> bool {
+    pub const fn is_spill(&self) -> bool {
         matches!(self, Self::Spill(_))
-    }
-
-    /// Whether this buffer has been allocated with usable storage.
-    /// Always true after `new()` or `new_alloc()` — the buffer is ready for use.
-    #[inline(always)]
-    pub fn has_buffer(&self) -> bool {
-        true
     }
 
     /// Raw pointer to the backing storage. Stable after construction.
@@ -381,10 +374,14 @@ impl StackFrame {
     /// Takes `&self` because the mutation is on the raw stack buffer, not on
     /// the StackFrame struct fields. This allows calling through `Pin<Box<Self>>`.
     pub fn take(&self, offset: isize, ctx: &ScopedContext) -> JSValue {
-        let ptr = self.stack_cur_ptr().as_ptr();
-        let v = unsafe { std::ptr::replace(ptr.offset(offset), JSValue::UNDEFINED) };
-        ctx.gc_protect(&v);
-        v
+        let val = unsafe {
+            std::ptr::replace(
+                self.stack_cur_ptr().as_ptr().offset(offset),
+                JSValue::UNDEFINED,
+            )
+        };
+        ctx.gc_protect_transient(&val);
+        val
     }
 
     /// Returns *Actual* argument values
@@ -461,8 +458,7 @@ impl StackFrame {
                             let _ = ObjectIter::close_iter_internal(ctx, o);
                         }
                     } else {
-                        let exc = ctx.take_exception();
-                        let err_val = exc.to_value(ctx);
+                        let err_val = ctx.take_exception().to_value(ctx);
                         unsafe {
                             std::ptr::replace(sp_base.add(sp), err_val);
                         }

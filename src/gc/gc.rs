@@ -177,7 +177,9 @@ impl ScopedContext<'_> {
     /// Use immediately after taking a value out of a traced location (stack
     /// frame, Vec, cur_exception, etc.) before any call that might allocate.
     /// This is a no-op for primitive values or already-protected nodes.
-    pub fn gc_protect(&self, val: &JSValue) {
+    #[inline(always)]
+    pub(crate) fn gc_protect_transient(&self, val: &JSValue) {
+        #[cfg(feature = "gc_protect_transient")]
         if let Some(n) = val.gc_node_ptr() {
             self.gc_state().add_non_local(n);
         }

@@ -135,7 +135,6 @@ impl AsyncState {
         }
 
         a_state.execute(ctx);
-
         Ok(JSValue::UNDEFINED)
     }
 

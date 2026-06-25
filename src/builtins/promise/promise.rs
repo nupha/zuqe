@@ -638,7 +638,7 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
     // may trigger destruct_fast_array which allocates and could fire arena GC.
     // obj is a LOCAL of the current child scope (NFuncPayload::call uses
     // with_new_scope), but protect explicitly to be safe.
-    ctx.gc_protect(&obj);
+    ctx.gc_protect_transient(&obj);
     values.define_property_value_u32(ctx, index as u32, obj, JS_PROP_C_W_E)?;
 
     match remainingElementsCount_add(ctx, resolve_element_env, -1)? {

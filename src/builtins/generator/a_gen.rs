@@ -130,7 +130,7 @@ impl AGenPayload {
                         // Protect rejection value before reject(). result comes
                         // from queue (traced but not LOCAL) and may be an error
                         // object passed to .throw() on a completed generator.
-                        ctx.gc_protect(&result);
+                        ctx.gc_protect_transient(&result);
                         self.reject(ctx, result);
                     }
                     State::Done
@@ -151,12 +151,8 @@ impl AGenPayload {
                         // SP[-1] <- value
                         // SP[0]  <- completion type
                         // SP++
-                        let sf = unsafe {
-                            self.async_state
-                                .stack_frame
-                                .as_mut()
-                                .get_unchecked_mut()
-                        };
+                        let sf =
+                            unsafe { self.async_state.stack_frame.as_mut().get_unchecked_mut() };
                         sf.store(-1, result);
                         sf.push(JSValue::Int(completion_type));
                     }
@@ -180,14 +176,11 @@ impl AGenPayload {
                                 // Protect the function return value; it was taken
                                 // from the async stack in AsyncStateImpl::resume()
                                 // via ptr::replace without protection.
-                                ctx.gc_protect(&val);
+                                ctx.gc_protect_transient(&val);
                                 self.resolve(ctx, val, true);
                             }
                             Err(_) => {
                                 let err_val = ctx.take_exception().to_value(ctx);
-                                // Protect err_val before reject(); it was taken
-                                // from cur_exception and is no longer in any GC root.
-                                ctx.gc_protect(&err_val);
                                 self.complete();
                                 self.reject(ctx, err_val);
                             }
@@ -244,9 +237,11 @@ impl AGenPayload {
                 // A poisoned .constructor property is observable and the resulting
                 // exception should be delivered to the catch handler.
                 let err_val = ctx.take_exception().to_value(ctx);
-                // Protect err_val before js_promise_resolve — after take_exception
-                // it's no longer in any GC root, and js_promise_resolve may allocate.
-                ctx.gc_protect(&err_val);
+                debug_assert!(
+                    err_val
+                        .gc_node_ptr()
+                        .is_none_or(|n| unsafe { n.as_ref().is_root_or_local() })
+                );
                 js_promise_resolve(
                     ctx,
                     CallContext::new(
@@ -320,6 +315,8 @@ impl AGenPayload {
     /// survive GC during the subsequent resolve/reject call.
     pub fn dequeue(&mut self, ctx: &ScopedContext) -> Box<JSAsyncGeneratorRequest> {
         let req = self.queue.remove(0);
+
+        #[cfg(feature = "gc_protect_transient")]
         for v in [
             req.result,
             req.promise,
@@ -328,16 +325,18 @@ impl AGenPayload {
         ]
         .iter()
         {
-            ctx.gc_protect(&v);
+            ctx.gc_protect_transient(&v);
         }
+
         req
     }
 
     fn resolve_or_reject(&mut self, ctx: &mut ScopedContext, result: &JSValue, is_reject: bool) {
+        #[cfg(feature = "gc_protect_transient")]
         debug_assert!(
-            result.gc_node_ptr().map_or(true, |n| unsafe {
-                n.as_ref().is_root_or_local()
-            }),
+            result
+                .gc_node_ptr()
+                .map_or(true, |n| unsafe { n.as_ref().is_root_or_local() }),
             "resolve_or_reject: result not protected"
         );
 
@@ -349,24 +348,12 @@ impl AGenPayload {
 
     #[inline(always)]
     pub(crate) fn resolve(&mut self, ctx: &mut ScopedContext, value: JSValue, done: bool) {
-        debug_assert!(
-            value.gc_node_ptr().map_or(true, |n| unsafe {
-                n.as_ref().is_root_or_local()
-            }),
-            "value must be gc local or root"
-        );
         let result = make_iterator_next_result(ctx, value, done).unwrap_or(JSValue::EXCEPTION);
         self.resolve_or_reject(ctx, &result, false);
     }
 
     #[inline(always)]
     pub(crate) fn reject(&mut self, ctx: &mut ScopedContext, exception: JSValue) {
-        debug_assert!(
-            exception.gc_node_ptr().map_or(true, |n| unsafe {
-                n.as_ref().is_root_or_local()
-            }),
-            "exception must be gc local or root"
-        );
         self.resolve_or_reject(ctx, &exception, true);
     }
 }
@@ -527,7 +514,7 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
 
             s.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED);
             // Protect arg before resolve/reject, which may allocate.
-            ctx.gc_protect(&arg);
+            ctx.gc_protect_transient(&arg);
             if is_reject {
                 s.reject(ctx, arg);
             } else {

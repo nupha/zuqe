@@ -27,23 +27,11 @@ builtin_math = []
 dump_bytecode = []
 debug_gc = []
 
-# GC transient protection: prevent use-after-free when GC nodes are moved
-# between protected locations (scope LOCAL / Vec / stack frame). The danger
-# window opens when a node is taken OUT of a traced location AND BEFORE it
-# is re-anchored (via add_non_local, write barrier bind, or being re-stored
-# into a traced container). If any node allocation triggers GC collect during
-# this window (arena full, memory pressure, or explicit gc_request), the
-# Rust-local GcRef is invisible to GC roots → the node gets swept.
-# 
-# This feature documents the fix pattern: re-anchor via scope.add_non_local()
-# immediately after taking a value from any traced location, before any call
-# that might allocate GC nodes. Without this protection, the bug manifests
-# whenever a GC collect happens to fire during the unprotected window.
-# 
-# Enabling this feature has no effect on behavior; the protection code is
-# always compiled in. The feature exists to group and document all
-# transient-protection fix sites.
-gc_transient_protection = []
+# Protect temporarily dangling GC objects taken out of traced locations before
+# they are re-anchored. Enable only when gc_alloc may trigger collect (arena
+# full, etc.). If gc_alloc never triggers collect (almost the standard behavior),
+# this feature should NOT be enabled.
+gc_protect_transient = []
 
 default = [
     "all_unicode",
@@ -57,6 +45,8 @@ default = [
     "builtin_json",
     "builtin_date",
     "builtin_math",
+
+    "gc_protect_transient",
 ]
 
 [profile.release]
@@ -90,7 +80,7 @@ once_cell = "1.21"
 hash-link = "0.1"
 smallvec = "1.13"
 fallible_collections = "0.5"
-gc-lite = { version = "0.5.1", path="../gc-lite-v2" }
+gc-lite = { version = "0.5.1", path = "../gc-lite-v2" }
 lre = { version = "0.1", optional = true }
 libc = { version = "0.2", optional = true }
 unicode-xid = { version = "0.2", optional = true }

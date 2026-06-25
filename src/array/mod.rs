@@ -13,9 +13,9 @@ use crate::{
     context::ScopedContext,
     number::MAX_SAFE_INTEGER,
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH,
-        JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Object, ObjectImpl, ObjectPayload,
-        PropertyKeyKind,
+        JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
+        JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Object, ObjectImpl,
+        ObjectPayload, PropertyKeyKind,
     },
     object_cast,
     string::StringData,
@@ -261,12 +261,16 @@ impl Array {
         if !self.is_fast_array() {
             // if `self` is sparse array, delete all index properties
             let mut del = SmallVec::<[u32; 64]>::new();
-            self.own_property_names_foreach(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_ENUM_ONLY, |_, p| {
-                if let PropertyKeyKind::ArrayIndex(i) = p.kind {
-                    del.push(i);
-                }
-                Ok(())
-            })?;
+            self.own_property_names_foreach(
+                ctx,
+                JS_GPN_STR_OR_INT_MASK | JS_GPN_ENUM_ONLY,
+                |_, p| {
+                    if let PropertyKeyKind::ArrayIndex(i) = p.kind {
+                        del.push(i);
+                    }
+                    Ok(())
+                },
+            )?;
 
             for i in del {
                 self.delete_property_i64(ctx, i as _, JS_PROP_THROW)?;
@@ -451,9 +455,11 @@ impl Array {
 
             // Protect sorted values before writing back. slots is a local Vec,
             // not traced by GC — set_property_u32 may allocate and trigger GC.
+            #[cfg(feature = "gc_protect_transient")]
             for v in &slots {
-                ctx.gc_protect(&v);
+                ctx.gc_protect_transient(v);
             }
+
             let slots_len = slots.len() as i64;
             for (i, v) in slots.drain(..).enumerate() {
                 obj.set_property_u32(ctx, i as u32, v)?;
@@ -489,9 +495,11 @@ impl Array {
             sort_values_default(slots.as_mut_slice());
 
             // Protect sorted values before writing back.
+            #[cfg(feature = "gc_protect_transient")]
             for v in slots.iter().map(|(v, _)| v) {
-                ctx.gc_protect(&v);
+                ctx.gc_protect_transient(&v);
             }
+
             let slots_len = slots.len() as i64;
             for (i, (v, _)) in slots.drain(..).enumerate() {
                 obj.set_property_u32(ctx, i as u32, v)?;
@@ -599,8 +607,9 @@ impl ObjectImpl {
             // Protect remaining elements from GC during the loop. After
             // mem::take, elements are no longer traced by ArrayPayload::trace.
             // add_own_property below may allocate and trigger arena GC.
+            #[cfg(feature = "gc_protect_transient")]
             for v in items.iter() {
-                ctx.gc_protect(&v);
+                ctx.gc_protect_transient(v);
             }
 
             for (i, v) in items.drain(..).enumerate() {
