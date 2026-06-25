@@ -413,6 +413,11 @@ impl Atom {
     }
 
     /// make atom from `str`. if `str` is a safe-integer representation, create int-atom instead.
+    ///
+    /// Because the returned atom is a root, the underlying descriptor string is guaranteed to
+    /// survive GC. Non-small-int atoms always store a root descriptor — if the same string was
+    /// previously registered as a non-root atom (e.g. via `from_str` in a GC scope), this function
+    /// upgrades it to a root.
     pub(crate) fn root_str(rt: &mut RuntimeImpl, str: &str) -> Result<Self, i32> {
         if str.is_empty() {
             Ok(Atom::CONST_empty_string)
@@ -422,7 +427,15 @@ impl Atom {
             Ok(Self::new_small_int(i))
         } else {
             let s = StringRef::create_root(rt.into(), StringData::from_str(str)?, None)?;
-            Self::root_string(rt, s, AtomKind::String)
+            let atom = Self::root_string(rt, s, AtomKind::String)?;
+            // register_atom may return an existing atom that was originally created
+            // via from_str/from_string (scope-local, non-root descriptor). Ensure
+            // the descriptor is root regardless of its origin.
+            if !atom.descriptor(rt).gc_head().is_root() {
+                let desc = atom.descriptor(rt).gc_head_ptr();
+                rt.gc_heap_mut().set_root_node(desc);
+            }
+            Ok(atom)
         }
     }
 

@@ -142,15 +142,18 @@ impl RuntimeImpl {
         Ok(())
     }
 
-    /// Register a user-defined (non-builtin) class
+    /// Register a non-builtin class
     pub fn register_class_def(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
         debug_assert!(!class_def.name.is_empty());
         debug_assert!(class_def.on_finalize.is_some());
 
         class_def.name_atom = {
             let a = Atom::root_str(self, class_def.name)?;
-            let s = a.descriptor(self).gc_head_ptr();
-            self.gc_heap_mut().set_root_node(s); // class name atom is root gc node
+            debug_assert!(!a.is_small_int());
+            debug_assert!(
+                a.descriptor(self).gc_head().is_root(),
+                "class name atom should be root gc node"
+            );
             a
         };
 
