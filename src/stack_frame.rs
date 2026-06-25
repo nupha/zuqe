@@ -352,6 +352,43 @@ impl StackFrame {
         }
     }
 
+    /// Write a value at `SP[offset]` without advancing SP.
+    /// The slot must already be allocated (within the stack buffer).
+    #[inline(always)]
+    pub fn store(&self, offset: isize, val: JSValue) {
+        unsafe {
+            *self.stack_cur_ptr().offset(offset).as_ptr() = val;
+        }
+    }
+
+    /// Push a value onto the stack: write at SP[0] and advance SP by 1.
+    #[inline(always)]
+    pub fn push(&mut self, val: JSValue) {
+        unsafe {
+            *self.stack_cur_ptr().as_ptr() = val;
+        }
+        self.cur_sp_offset += 1;
+    }
+
+    /// Take a value from the stack at `offset` (relative to SP) and protect it
+    /// in the current GC scope. This is the ONLY safe way to consume a value
+    /// from the bytecode stack — replaces the slot with UNDEFINED and protects
+    /// any GC node held by the value.
+    ///
+    /// After calling this, the value at `SP[offset]` is UNDEFINED and should
+    /// not be accessed again.
+    ///
+    /// Takes `&self` because the mutation is on the raw stack buffer, not on
+    /// the StackFrame struct fields. This allows calling through `Pin<Box<Self>>`.
+    pub fn take(&self, offset: isize, ctx: &ScopedContext) -> JSValue {
+        let ptr = self.stack_cur_ptr().as_ptr();
+        let v = unsafe { std::ptr::replace(ptr.offset(offset), JSValue::UNDEFINED) };
+        if let Some(n) = v.gc_node_ptr() {
+            ctx.gc_state().add_non_local(n);
+        }
+        v
+    }
+
     /// Returns *Actual* argument values
     pub const fn arg_values(&self) -> &[JSValue] {
         if self.arg_real_count > 0 {

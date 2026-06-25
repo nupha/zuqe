@@ -143,21 +143,18 @@ impl AGenPayload {
                         // in case the 'throw' method is called
                         self.async_state.set_throw_flag(false);
 
-                        // to update stack:
+                        // update stack:
                         // SP[-1] <- value
-                        // SP[0] <- completion type
+                        // SP[0]  <- completion type
                         // SP++
-                        unsafe {
-                            let sp = self.async_state.stack_frame.stack_cur_ptr().as_ptr();
-                            *sp.offset(-1) = result;
-                            *sp = JSValue::Int(completion_type);
-
+                        let sf = unsafe {
                             self.async_state
                                 .stack_frame
                                 .as_mut()
                                 .get_unchecked_mut()
-                                .cur_sp_offset += 1;
-                        }
+                        };
+                        sf.store(-1, result);
+                        sf.push(JSValue::Int(completion_type));
                     }
 
                     self.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
@@ -176,6 +173,12 @@ impl AGenPayload {
                         match func_ret {
                             Ok(val) => {
                                 self.complete();
+                                // Protect the function return value; it was taken
+                                // from the async stack in AsyncStateImpl::resume()
+                                // via ptr::replace without protection.
+                                if let Some(n) = val.gc_node_ptr() {
+                                    ctx.gc_state().add_non_local(n);
+                                }
                                 self.resolve(ctx, val, true);
                             }
                             Err(_) => {
@@ -191,19 +194,8 @@ impl AGenPayload {
                             unreachable!()
                         };
 
-                        // take stack top value.
-                        let value = unsafe {
-                            std::ptr::replace(
-                                self.async_state
-                                    .stack_frame
-                                    // HINT: stack_cur_ptr advances the addr of stack top value by 1.
-                                    // subtract 1 to access stack top value addr.
-                                    .stack_cur_ptr()
-                                    .offset(-1)
-                                    .as_ptr(),
-                                JSValue::UNDEFINED,
-                            )
-                        };
+                        // take stack top value with GC protection.
+                        let value = self.async_state.take_top(ctx);
 
                         match code {
                             FUNC_RET_YIELD | FUNC_RET_YIELD_STAR => {
@@ -314,33 +306,57 @@ impl AGenPayload {
         }
     }
 
-    fn resolve_or_reject(&mut self, ctx: &mut ScopedContext, result: &JSValue, is_reject: bool) {
+    /// Dequeue a request from the queue, protecting all its GC-referenced
+    /// fields in the current scope. The fields lose GC trace protection
+    /// when removed from AGenPayload::queue; this method ensures they
+    /// survive GC during the subsequent resolve/reject call.
+    pub fn dequeue(&mut self, ctx: &ScopedContext) -> Box<JSAsyncGeneratorRequest> {
         let req = self.queue.remove(0);
-        let func = req.resolving_funcs[is_reject as usize];
-
-        // Protect all GC-referenced values from the request and the call
-        // arguments in the current scope. After removing from the queue they
-        // are no longer traced by AGenPayload::trace, but the resolve call
-        // below may trigger GC through promise settlement / reaction.
-        let scope = ctx.gc_state();
-        for v in [req.result, req.promise, *result, func].iter() {
+        for v in [
+            req.result,
+            req.promise,
+            req.resolving_funcs[0],
+            req.resolving_funcs[1],
+        ]
+        .iter()
+        {
             if let Some(n) = v.gc_node_ptr() {
-                scope.add_non_local(n);
+                ctx.gc_state().add_non_local(n);
             }
         }
+        req
+    }
 
+    fn resolve_or_reject(&mut self, ctx: &mut ScopedContext, result: &JSValue, is_reject: bool) {
+        // result is created by make_iterator_next_result (in resolve()) as a
+        // LOCAL in the current scope — already protected. Verify with assert.
+        debug_assert!(
+            result.gc_node_ptr().map_or(true, |n| unsafe {
+                n.as_ref().is_root_or_local()
+            }),
+            "result must be gc local or root"
+        );
+
+        let req = self.dequeue(ctx);
+        let func = req.resolving_funcs[is_reject as usize];
         func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(result))
             .unwrap();
     }
 
-    #[inline]
-    pub fn resolve(&mut self, ctx: &mut ScopedContext, value: JSValue, done: bool) {
+    #[inline(always)]
+    pub(crate) fn resolve(&mut self, ctx: &mut ScopedContext, value: JSValue, done: bool) {
+        debug_assert!(
+            value.gc_node_ptr().map_or(true, |n| unsafe {
+                n.as_ref().is_root_or_local()
+            }),
+            "value must be gc local or root"
+        );
         let result = make_iterator_next_result(ctx, value, done).unwrap_or(JSValue::EXCEPTION);
         self.resolve_or_reject(ctx, &result, false);
     }
 
     #[inline(always)]
-    pub fn reject(&mut self, ctx: &mut ScopedContext, exception: JSValue) {
+    pub(crate) fn reject(&mut self, ctx: &mut ScopedContext, exception: JSValue) {
         self.resolve_or_reject(ctx, &exception, true);
     }
 }
@@ -503,6 +519,10 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
             if is_reject {
                 s.reject(ctx, arg);
             } else {
+                // Protect resolved value before resolve(), which may allocate.
+                if let Some(n) = arg.gc_node_ptr() {
+                    ctx.gc_state().add_non_local(n);
+                }
                 s.resolve(ctx, arg, true);
             }
         } else {
@@ -516,15 +536,7 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
                 s.async_state.set_throw_flag(false);
 
                 // set return value of await.
-                unsafe {
-                    *s.async_state
-                        .stack_frame
-                        // HINT: stack_cur_ptr() advances the stack top addr by 1,
-                        // subtract 1 to access stack top.
-                        .stack_cur_ptr()
-                        .offset(-1)
-                        .as_ptr() = arg;
-                }
+                s.async_state.stack_frame.store(-1, arg);
             }
 
             s.resume_next(ctx);

@@ -131,6 +131,17 @@ impl AsyncStateImpl {
         }
     }
 
+    /// Take the top value from the async frame stack and protect it
+    /// in the current GC scope. After this call the stack slot is UNDEFINED
+    /// and the returned value is guaranteed to survive GC within this scope.
+    ///
+    /// Unlike `pop`, this does NOT adjust SP — it only reads and clears SP[-1].
+    /// This is the safe alternative to raw `ptr::replace` on the async stack.
+    #[inline(always)]
+    pub fn take_top(&mut self, ctx: &ScopedContext) -> JSValue {
+        self.stack_frame.take(-1, ctx)
+    }
+
     /// Resume execution of the async function.
     pub(crate) fn resume(&mut self, ctx: &mut ScopedContext) -> JSResult {
         debug_assert!(!self.is_completed);
@@ -151,6 +162,12 @@ impl AsyncStateImpl {
             Ok(JSValue::UNDEFINED) => {
                 debug_assert!(self.stack_frame.cur_sp_offset > 0);
                 // get stack top value
+                //
+                // SAFETY: The value read here has lost its LOCAL protection
+                // (child scope exited above). However, between this ptr::replace
+                // and the return, the only operation is close_var_refs() which
+                // does NOT allocate GC objects. Therefore arena GC cannot fire
+                // during this window. The caller is responsible for protection.
                 ret_val = Ok(unsafe {
                     std::ptr::replace(
                         // HINT: stack_cur_ptr advances the stack_top pointer by 1.

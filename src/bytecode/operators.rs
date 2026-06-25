@@ -22,6 +22,16 @@ use crate::{
     value::JSValue,
 };
 
+// SAFETY NOTE for all `ptr::replace(sp.offset(N), JSValue::UNDEFINED)` below:
+// Values on the bytecode stack are LOCALs allocated in `realm_scope`. The LOCAL
+// flag persists after ptr::replace removes them from the stack — the scope is
+// not cleared during normal execution (`clear_locals()` is only called under
+// `#[cfg(all(debug_assertions, feature = "debug_gc"))]`). When arena GC fires
+// during the subsequent allocating calls (to_atom, delete_property, etc.),
+// mark_prepare sets all LOCAL nodes to gray, so these values survive.
+// Therefore no GC bug can occur at these sites.
+
+
 #[inline(always)]
 pub(super) fn js_operator_delete(ctx: &mut ScopedContext, sp: *mut JSValue) -> i32 {
     let (mut op1, op2) = unsafe {

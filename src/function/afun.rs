@@ -162,13 +162,8 @@ impl AsyncState {
                 }
             }
         } else {
-            // Retrieve value at stack top
-            let value = unsafe {
-                std::ptr::replace(
-                    self.stack_frame.stack_cur_ptr().offset(-1).as_ptr(), // SP[-1]
-                    JSValue::UNDEFINED,
-                )
-            };
+            // Retrieve value at stack top with GC protection
+            let value = self.take_top(ctx);
 
             // Handle await expression
             let mut promise = if let Ok(v) = js_promise_resolve(
