@@ -6,13 +6,14 @@ use gc_lite::{
 };
 
 use crate::{
-    context::ContextImpl,
+    context::{ContextImpl, ScopedContext},
     error::Exception,
     function::{AsyncStateImpl, BytecodeImpl, VarRefImpl},
     module::ModuleDefImpl,
     object::{ObjectImpl, ShapeImpl},
     runtime::RuntimeImpl,
     string::StringImpl,
+    value::JSValue,
 };
 
 // register gc data types
@@ -166,5 +167,19 @@ impl RuntimeImpl {
 
     pub fn gc_set_threshold(&mut self, threshold: usize) {
         self.gc_heap_mut().set_gc_threshold(threshold);
+    }
+}
+
+impl ScopedContext<'_> {
+    /// GC transient node protection
+    ///
+    /// Ensure a JSValue survives collection within the current scope.
+    /// Use immediately after taking a value out of a traced location (stack
+    /// frame, Vec, cur_exception, etc.) before any call that might allocate.
+    /// This is a no-op for primitive values or already-protected nodes.
+    pub fn gc_protect(&self, val: &JSValue) {
+        if let Some(n) = val.gc_node_ptr() {
+            self.gc_state().add_non_local(n);
+        }
     }
 }

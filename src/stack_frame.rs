@@ -383,9 +383,7 @@ impl StackFrame {
     pub fn take(&self, offset: isize, ctx: &ScopedContext) -> JSValue {
         let ptr = self.stack_cur_ptr().as_ptr();
         let v = unsafe { std::ptr::replace(ptr.offset(offset), JSValue::UNDEFINED) };
-        if let Some(n) = v.gc_node_ptr() {
-            ctx.gc_state().add_non_local(n);
-        }
+        ctx.gc_protect(&v);
         v
     }
 

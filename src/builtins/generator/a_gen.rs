@@ -130,9 +130,7 @@ impl AGenPayload {
                         // Protect rejection value before reject(). result comes
                         // from queue (traced but not LOCAL) and may be an error
                         // object passed to .throw() on a completed generator.
-                        if let Some(n) = result.gc_node_ptr() {
-                            ctx.gc_state().add_non_local(n);
-                        }
+                        ctx.gc_protect(&result);
                         self.reject(ctx, result);
                     }
                     State::Done
@@ -182,18 +180,14 @@ impl AGenPayload {
                                 // Protect the function return value; it was taken
                                 // from the async stack in AsyncStateImpl::resume()
                                 // via ptr::replace without protection.
-                                if let Some(n) = val.gc_node_ptr() {
-                                    ctx.gc_state().add_non_local(n);
-                                }
+                                ctx.gc_protect(&val);
                                 self.resolve(ctx, val, true);
                             }
                             Err(_) => {
                                 let err_val = ctx.take_exception().to_value(ctx);
                                 // Protect err_val before reject(); it was taken
                                 // from cur_exception and is no longer in any GC root.
-                                if let Some(n) = err_val.gc_node_ptr() {
-                                    ctx.gc_state().add_non_local(n);
-                                }
+                                ctx.gc_protect(&err_val);
                                 self.complete();
                                 self.reject(ctx, err_val);
                             }
@@ -252,9 +246,7 @@ impl AGenPayload {
                 let err_val = ctx.take_exception().to_value(ctx);
                 // Protect err_val before js_promise_resolve — after take_exception
                 // it's no longer in any GC root, and js_promise_resolve may allocate.
-                if let Some(n) = err_val.gc_node_ptr() {
-                    ctx.gc_state().add_non_local(n);
-                }
+                ctx.gc_protect(&err_val);
                 js_promise_resolve(
                     ctx,
                     CallContext::new(
@@ -336,9 +328,7 @@ impl AGenPayload {
         ]
         .iter()
         {
-            if let Some(n) = v.gc_node_ptr() {
-                ctx.gc_state().add_non_local(n);
-            }
+            ctx.gc_protect(&v);
         }
         req
     }
@@ -537,9 +527,7 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
 
             s.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED);
             // Protect arg before resolve/reject, which may allocate.
-            if let Some(n) = arg.gc_node_ptr() {
-                ctx.gc_state().add_non_local(n);
-            }
+            ctx.gc_protect(&arg);
             if is_reject {
                 s.reject(ctx, arg);
             } else {

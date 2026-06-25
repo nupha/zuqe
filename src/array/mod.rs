@@ -452,9 +452,7 @@ impl Array {
             // Protect sorted values before writing back. slots is a local Vec,
             // not traced by GC — set_property_u32 may allocate and trigger GC.
             for v in &slots {
-                if let Some(n) = v.gc_node_ptr() {
-                    ctx.gc_state().add_non_local(n);
-                }
+                ctx.gc_protect(&v);
             }
             let slots_len = slots.len() as i64;
             for (i, v) in slots.drain(..).enumerate() {
@@ -492,9 +490,7 @@ impl Array {
 
             // Protect sorted values before writing back.
             for v in slots.iter().map(|(v, _)| v) {
-                if let Some(n) = v.gc_node_ptr() {
-                    ctx.gc_state().add_non_local(n);
-                }
+                ctx.gc_protect(&v);
             }
             let slots_len = slots.len() as i64;
             for (i, (v, _)) in slots.drain(..).enumerate() {
@@ -604,9 +600,7 @@ impl ObjectImpl {
             // mem::take, elements are no longer traced by ArrayPayload::trace.
             // add_own_property below may allocate and trigger arena GC.
             for v in items.iter() {
-                if let Some(n) = v.gc_node_ptr() {
-                    ctx.gc_state().add_non_local(n);
-                }
+                ctx.gc_protect(&v);
             }
 
             for (i, v) in items.drain(..).enumerate() {
