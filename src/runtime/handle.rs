@@ -51,28 +51,6 @@ impl Runtime {
         let rt_ptr = rt.get();
         unsafe {
             (*rt.get()).gc_heap_mut().set_opaque(rt_ptr.cast());
-
-            // Register a host-provided full GC collect callback so that
-            // arena-full allocations (in gc-lite `alloc_node_mem`) run the
-            // complete GC cycle instead of the built-in ROOT/LOCAL-only
-            // `garbage_collect`. This ensures host-side roots (shape registry,
-            // contexts, stack frames, etc.) are traced, fixing the arena GC
-            // path incompleteness (see bugs/parser-gc-atom-collect.md Bug 2).
-            //
-            // The callback recovers the `RuntimeImpl` pointer via the heap's
-            // `opaque` slot (set above) and delegates to `gc_collect_in`.
-            extern "C" fn arena_full_collect(
-                heap: *mut GcHeap,
-                pid: GcPartitionId,
-            ) -> usize {
-                let rt_ptr = unsafe { (*heap).opaque().cast::<RuntimeImpl>() };
-                debug_assert!(!rt_ptr.is_null());
-                unsafe { (*rt_ptr).gc_collect_in(pid) }
-            }
-
-            (*rt.get())
-                .gc_heap_mut()
-                .set_custom_gc_collect(Some(arena_full_collect));
         }
 
         Ok(Self(rt))

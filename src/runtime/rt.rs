@@ -110,11 +110,10 @@ impl RuntimeImpl {
     pub(super) fn new() -> Result<Self, i32> {
         // create gc heap and partition for this runtime
         let mut gc_heap = GcHeap::new(&GC_TYPE_REGISTRY);
-
         gc_heap.set_memory_limit(0); // no memory limit
         gc_heap.set_gc_threshold(8); // small threshould to trigger gc ASAP
 
-        let gc_part_id = gc_heap.create_partition();
+        let gc_part_id = gc_heap.create_partition(64 * 1024, 16 * 1024);
 
         let mut rt = Self {
             atom_registry: AtomRegistry::new(),

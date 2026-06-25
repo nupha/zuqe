@@ -31,6 +31,8 @@ debug_gc = []
 # they are re-anchored. Enable only when gc_alloc may trigger collect (arena
 # full, etc.). If gc_alloc never triggers collect (almost the standard behavior),
 # this feature should NOT be enabled.
+#
+# You almost never need this.
 gc_protect_transient = []
 
 default = [
@@ -45,8 +47,6 @@ default = [
     "builtin_json",
     "builtin_date",
     "builtin_math",
-
-    "gc_protect_transient",
 ]
 
 [profile.release]
