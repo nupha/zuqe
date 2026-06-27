@@ -98,6 +98,27 @@ Create or edit the `.cargo/config.toml` file in your project root directory:
 ```toml
 [target.x86_64-pc-windows-gnu]
 linker = "rust-lld"
+
+# rust-lld does not inherit MinGW library search paths automatically
+# (unlike the default GCC linker driver). Pass them explicitly.
+rustflags = [
+    "-C", "link-arg=-LC:/msys64/mingw64/lib",
+    "-C", "link-arg=-LC:/msys64/mingw64/x86_64-w64-mingw32/lib",
+    "-C", "link-arg=-lwinpthread",
+]
+
+#
+# FOLLOWING ARE OPTIONAL
+#
+
+[env]
+# Prepend MSYS2 toolchain paths to PATH for the build process.
+# This ensures gcc, dlltool, clang, etc. are found even when building from PowerShell.
+PATH = { value = "C:/msys64/mingw64/bin;C:/msys64/clang64/bin;C:/msys64/usr/bin", prepend = true }
+
+# Set include paths for Windows GNU environment
+CFLAGS_x86_64-pc-windows-gnu = "-IC:/msys64/mingw64/include"
+CXXFLAGS_x86_64-pc-windows-gnu = "-IC:/msys64/mingw64/include"
 ```
 
 Linker `rust-lld` is available at `<rust-sysroot>/lib/rustlib/x86_64-pc-windows-gnu/bin/rust-lld.exe`, bundled with every Rust toolchain — no separate installation needed. Cargo resolves it through the rustup proxy automatically.
@@ -135,5 +156,6 @@ This command will compile the project using the Windows GNU toolchain and build 
 - The project specifically requires the GNU toolchain rather than MSVC for Windows builds
 - The `bindgen` crate (used by `lre`) dynamically loads `libclang` at build time, which is why `mingw-w64-clang-x86_64-clang` is required alongside GCC
 - If you encounter any issues, ensure all toolchains are properly installed and configured in your PATH
+
 
 
