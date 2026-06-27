@@ -148,20 +148,33 @@ fn js_host_resolve_imported_module_atom(
     js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)
 }
 
-/// Strip the Windows `\\?\` prefix from a canonicalized path.
+/// Canonicalize a path, stripping the Windows `\\?\` prefix that `canonicalize()` adds.
 ///
-/// On Windows, `std::fs::canonicalize()` returns paths with `\\?\` prefix
-/// (extended-length path format, e.g. `\\?\C:\Users\...`). This prefix
-/// breaks user-facing display (e.g. `import.meta.url`) and `starts_with`
-/// comparisons. This helper strips it for cross-platform consistency.
-#[cfg(windows)]
-fn strip_extended_prefix(path: &std::path::Path) -> std::path::PathBuf {
-    let s = path.to_string_lossy();
-    if s.starts_with(r"\\?\") {
-        std::path::PathBuf::from(&s[4..])
-    } else {
-        path.to_path_buf()
+/// On Windows, `std::fs::canonicalize()` returns paths with `\\?\` prefix (extended-length
+/// path format, e.g. `\\?\C:\Users\...`). This breaks user-facing display and `starts_with`
+/// comparisons. This wrapper strips that prefix for cross-platform consistency.
+///
+/// Also handles `\\?\UNC\server\share\...` → `\\server\share\...` conversion correctly.
+fn canonicalize_path<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<std::path::PathBuf> {
+    let p = std::fs::canonicalize(path)?;
+
+    #[cfg(windows)]
+    {
+        let s = p.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            // UNC paths: `\\?\UNC\server\share\...` → `\\server\share\...`
+            if let Some(unc) = rest
+                .strip_prefix("UNC\\")
+                .or_else(|| rest.strip_prefix("UNC/"))
+            {
+                return Ok(std::path::PathBuf::from(format!("\\{}", unc)));
+            }
+            // Regular paths: `\\?\C:\...` → `C:\...`
+            return Ok(std::path::PathBuf::from(rest));
+        }
     }
+
+    Ok(p)
 }
 
 /// default module filename normalizer
@@ -182,9 +195,7 @@ fn js_default_module_normalize_name(
     let resolved = base_dir.join(name);
 
     // Canonicalize if the file exists, otherwise use absolute to resolve ./ and ../
-    if let Ok(p) = resolved.canonicalize() {
-        #[cfg(windows)]
-        let p = strip_extended_prefix(&p);
+    if let Ok(p) = canonicalize_path(&resolved) {
         Ok(p.to_string_lossy().into_owned())
     } else if let Ok(p) = std::path::absolute(&resolved) {
         Ok(p.to_string_lossy().into_owned())
