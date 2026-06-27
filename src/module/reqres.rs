@@ -27,7 +27,6 @@ impl GcTrace for ModuleDependency {
 
 impl ModuleDef {
     /// add module dependency, returns the dependency index.
-    /// `module_name` is not consumed.
     pub fn add_dependency(
         &mut self,
         ctx: &mut ScopedContext,
@@ -61,7 +60,6 @@ impl ModuleDef {
 
 impl ContextImpl {
     /// find the loaded module by module name.
-    /// Note: `name` is not consumed.
     pub fn find_loaded_module(&self, name: Atom) -> Option<ModuleDef> {
         self.loaded_modules.iter().find_map(|m| {
             if m.module_name == name {
@@ -150,6 +148,22 @@ fn js_host_resolve_imported_module_atom(
     js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)
 }
 
+/// Strip the Windows `\\?\` prefix from a canonicalized path.
+///
+/// On Windows, `std::fs::canonicalize()` returns paths with `\\?\` prefix
+/// (extended-length path format, e.g. `\\?\C:\Users\...`). This prefix
+/// breaks user-facing display (e.g. `import.meta.url`) and `starts_with`
+/// comparisons. This helper strips it for cross-platform consistency.
+#[cfg(windows)]
+fn strip_extended_prefix(path: &std::path::Path) -> std::path::PathBuf {
+    let s = path.to_string_lossy();
+    if s.starts_with(r"\\?\") {
+        std::path::PathBuf::from(&s[4..])
+    } else {
+        path.to_path_buf()
+    }
+}
+
 /// default module filename normalizer
 fn js_default_module_normalize_name(
     _: &mut ScopedContext,
@@ -169,6 +183,8 @@ fn js_default_module_normalize_name(
 
     // Canonicalize if the file exists, otherwise use absolute to resolve ./ and ../
     if let Ok(p) = resolved.canonicalize() {
+        #[cfg(windows)]
+        let p = strip_extended_prefix(&p);
         Ok(p.to_string_lossy().into_owned())
     } else if let Ok(p) = std::path::absolute(&resolved) {
         Ok(p.to_string_lossy().into_owned())
