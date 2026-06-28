@@ -54,6 +54,7 @@ impl<'c> ScopedContext<'c> {
     /// Compile `source` to bytecode or module def, don't run.
     ///
     /// In module type, `filename` is used to identify the module.
+    #[inline(never)]
     pub(crate) fn compile(
         &mut self,
         source: &[u8],
