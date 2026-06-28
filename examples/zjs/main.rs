@@ -265,36 +265,32 @@ async fn main() -> ExitCode {
 
     let mut promise_future = None;
 
-    let res = ctx.with_new_scope(|mut scope| {
-        let result = scope.eval(
-            script.as_bytes(),
-            &args.filename,
-            if is_module {
-                EvalType::Module
-            } else {
-                EvalType::Global
-            },
-            EvalFlags::empty(),
-        );
-
-        let r = match result {
-            Ok(val) => {
-                if let Ok(promise) = Promise::try_from(val) {
-                    match promise.into_future(&mut scope) {
-                        Ok(fut) => {
-                            promise_future = Some(fut);
-                            Ok(())
-                        }
-                        Err(_) => Err(scope.take_exception().to_text(&mut scope)),
+    let result = ctx.eval(
+        script.as_bytes(),
+        &args.filename,
+        if is_module {
+            EvalType::Module
+        } else {
+            EvalType::Global
+        },
+        EvalFlags::empty(),
+    );
+    let res = ctx.with_root_scope(|mut cx| match result {
+        Ok(val) => {
+            if let Ok(promise) = Promise::try_from(val) {
+                match promise.into_future(&mut cx) {
+                    Ok(fut) => {
+                        promise_future = Some(fut);
+                        Ok(())
                     }
-                } else {
-                    colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
-                    Ok(())
+                    Err(_) => Err(cx.take_exception().to_text(&mut cx)),
                 }
+            } else {
+                colorize_println(val.inspect(&mut cx).unwrap(), GreenFg);
+                Ok(())
             }
-            Err(_) => Err(scope.take_exception().to_text(scope)),
-        };
-        r
+        }
+        Err(_) => Err(cx.take_exception().to_text(&mut cx)),
     });
 
     #[cfg(debug_assertions)]

@@ -174,11 +174,11 @@ impl RuntimeImpl {
     }
 
     const fn update_stack_limit(&mut self) {
-        if self.stack_size == 0 {
-            self.stack_limit = 0; // no limit
+        self.stack_limit = if self.stack_size == 0 {
+            0 // no limit
         } else {
-            self.stack_limit = self.stack_top - self.stack_size;
-        }
+            self.stack_top - self.stack_size
+        };
     }
 
     /// set max stack size. 0 for unlimited
@@ -421,7 +421,7 @@ pub(crate) fn js_check_stack_overflow(rt: &RuntimeImpl, alloca_size: usize) -> b
     }
 }
 
-fn JS_UpdateStackTop(rt: &mut RuntimeImpl) {
+pub(crate) fn JS_UpdateStackTop(rt: &mut RuntimeImpl) {
     rt.stack_top = js_get_stack_pointer();
     rt.update_stack_limit();
 }

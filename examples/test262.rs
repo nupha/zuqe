@@ -142,13 +142,11 @@ fn js_string_codePointRange(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
 
 fn js_createRealm(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     // SAFETY: ctx2 is used immediately and dropped before rt.
-    let mut ctx2 = ctx
+    let ctx2 = ctx
         .rt_mut()
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
-    ctx2.with_new_scope(|scope| {
-        let result = setup_ctx_test262_helpers(scope);
-        result
-    })
+
+    ctx2.root_scope().with_new_scope(setup_ctx_test262_helpers)
 }
 
 fn setup_ctx_test262_helpers(ctx: &mut ScopedContext) -> Result<JSValue, i32> {
@@ -308,28 +306,21 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(ctx: &mut Context, harness_files: &[PathBuf]) -> Result<(), ExceptionText> {
+fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ExceptionText> {
     for file in harness_files {
-        let src = std::fs::read_to_string(file)
+        let script = std::fs::read_to_string(file)
             .inspect_err(|_| {
                 println!("Failed to read file: {}", file.display());
             })
             .unwrap();
 
-        ctx.with_new_scope(|scope| {
-            let result = scope
-                .eval(
-                    src.as_bytes(),
-                    file.as_os_str().to_string_lossy().as_ref(),
-                    EvalType::Global,
-                    EvalFlags::empty(),
-                )
-                .map_err(|_| {
-                    let exc = scope.take_exception();
-                    exc.to_text(scope)
-                });
-            result
-        })?;
+        ctx.eval(
+            script.as_bytes(),
+            file.as_os_str().to_string_lossy().as_ref(),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .map_err(|_| ctx.take_exception().to_text(&mut ctx.root_scope()))?;
     }
 
     Ok(())
@@ -380,9 +371,9 @@ fn run_test_script(
 }
 
 #[cfg(feature = "async_support")]
-async fn run_test_script(
-    rt: &mut Runtime,
-    ctx: &mut Context<'_>,
+async fn run_test_script<'c>(
+    rt: &'c mut Runtime,
+    mut ctx: Context<'c>,
     script: &str,
     filename: &Path,
     is_module: bool,
@@ -393,28 +384,21 @@ async fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    ctx.with_new_scope(|scope| {
-        let result = scope
-            .eval(
-                script.as_bytes(),
-                filename.as_os_str().to_str().unwrap(),
-                if is_module {
-                    EvalType::Module
-                } else {
-                    EvalType::Global
-                },
-                if is_strict {
-                    EvalFlags::STRICT
-                } else {
-                    EvalFlags::empty()
-                },
-            )
-            .map_err(|_| {
-                let exc = scope.take_exception();
-                exc.to_text(scope)
-            });
-        result
-    })?;
+    ctx.eval(
+        script.as_bytes(),
+        filename.as_os_str().to_str().unwrap(),
+        if is_module {
+            EvalType::Module
+        } else {
+            EvalType::Global
+        },
+        if is_strict {
+            EvalFlags::STRICT
+        } else {
+            EvalFlags::empty()
+        },
+    )
+    .map_err(|_| ctx.take_exception().to_text(&mut ctx.root_scope()))?;
 
     let _ = rt.run_async().await;
 
@@ -525,7 +509,7 @@ fn run_test_file(
         #[cfg(debug_assertions)]
         debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
 
-        if let Err(exc) = run_harness(&mut ctx, &harness_files) {
+        if let Err(exc) = run_harness(ctx, &harness_files) {
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&exc, false, false, false, outf);
 
@@ -706,7 +690,7 @@ async fn run_test_file(
         #[cfg(debug_assertions)]
         debug_assert_eq!(ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()), 1);
 
-        if let Err(exc) = run_harness(&mut ctx, &harness_files) {
+        if let Err(exc) = run_harness(ctx, &harness_files) {
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&exc, false, false, false, outf);
 
@@ -755,7 +739,7 @@ async fn run_test_file(
 
             let res = run_test_script(
                 &mut rt,
-                &mut ctx,
+                ctx,
                 content.as_str(),
                 filename,
                 is_module,

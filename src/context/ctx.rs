@@ -469,6 +469,7 @@ impl<'c> ScopedContext<'c> {
 /// [`Self::with_new_scope`] to isolate temporary work into child scopes so that
 /// intermediate values are released when the child scope exits, rather than
 /// being promoted to the root scope.
+#[derive(Clone, Copy)]
 pub struct Context<'c> {
     pub(super) ctx_ptr: ContextPtr,
     pub(super) _marker: std::marker::PhantomData<&'c ()>,
@@ -523,8 +524,9 @@ impl std::fmt::Debug for Context<'_> {
 }
 
 impl<'c> Context<'c> {
-    /// Obtain a `ScopedContext` representing the top-level GC scope.
-    pub(crate) fn root_scope(&self) -> ScopedContext<'_> {
+    /// Obtain `ScopedContext` representing the top-level GC scope.
+    #[inline]
+    pub fn root_scope(&self) -> ScopedContext<'c> {
         let stack_id = self.ctx_ptr.scope_stack_id();
         ScopedContext {
             ctx_ptr: self.ctx_ptr,
@@ -538,7 +540,7 @@ impl<'c> Context<'c> {
     }
 
     /// Create a child scope, run closure in it.
-    pub fn with_new_scope<R: ScopeResult>(
+    pub(crate) fn with_new_scope<R: ScopeResult>(
         &mut self,
         f: impl FnOnce(&mut ScopedContext<'_>) -> R,
     ) -> R {
@@ -611,7 +613,7 @@ impl RuntimeImpl {
         // Register to context list.
         self.context_list.push(ctx_ptr);
 
-        let ctx = Context {
+        let mut ctx = Context {
             ctx_ptr,
             _marker: std::marker::PhantomData,
         };
@@ -620,30 +622,18 @@ impl RuntimeImpl {
         // sub-scope during setup. When the sub-scope drops, LOCAL is removed,
         // but the objects remain reachable through ContextImpl fields
         // (global_obj, global_var_obj, etc.) which are roots via context_list.
-        ctx.root_scope().with_new_scope(|cx| {
+        ctx.with_new_scope(|cx| {
             // DON'T CHANGE FOLLOWING ORDER
 
             // base object must be initialized before creating global
-            let r1 = cx.init_core_objects();
-            if r1.is_err() {
-                return r1;
-            }
+            cx.init_core_objects()?;
             // make global namespace
-            let r2 = cx.create_base_object();
-            if let Err(e) = r2 {
-                return Err(e);
-            }
-            cx.global_obj = Some(r2.unwrap());
+            cx.global_obj = Some(cx.create_base_object()?);
             // make global var object
-            let r3 = cx.create_base_object_with_proto(None);
-            if let Err(e) = r3 {
-                return Err(e);
-            }
-            cx.global_var_obj = Some(r3.unwrap());
+            cx.global_var_obj = Some(cx.create_base_object_with_proto(None)?);
 
             // user initialization
-            let res = setup(cx);
-            res
+            setup(cx)
         })?;
 
         Ok(ctx)

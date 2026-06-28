@@ -4,6 +4,7 @@
 use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
+    Context,
     atom::Atom,
     context::{ScopeResult, ScopedContext},
     error::JSResult,
@@ -344,6 +345,48 @@ impl<'c> ScopedContext<'c> {
         }
 
         result
+    }
+}
+
+impl<'c> Context<'c> {
+    /// Compile source and run to get result.
+    ///
+    /// Eval in either global or module mode, eval in `self` scope.
+    pub fn eval(
+        &mut self,
+        source: &[u8],
+        filename: &str,
+        eval_type: EvalType,
+        flags: EvalFlags,
+    ) -> JSResult {
+        // Refresh stack_top at the outermost eval entry point.
+        // At this point all Rust-side initialization (class registration,
+        // native module init, etc.) is complete and unwound, so stack_top
+        // anchors at the shallowest frame (main level). Subsequent JS execution
+        // (including recursive module linking/eval) gets an accurate stack_size budget.
+        crate::runtime::JS_UpdateStackTop(self.rt_mut());
+
+        self.with_new_scope(|cx| cx.eval(source, filename, eval_type, flags))
+    }
+
+    /// Eval `source` script in `self` scope, wait till all microtasks are finished or execution is interrupted.
+    /// Returns the event loop exit status with optional value.
+    #[cfg(not(feature = "async_support"))]
+    pub fn eval_wait(
+        &mut self,
+        source: &[u8],
+        filename: &str,
+        eval_type: EvalType,
+        flags: EvalFlags,
+    ) -> ExitStatus {
+        // Refresh stack_top at the outermost eval entry point.
+        // At this point all Rust-side initialization (class registration,
+        // native module init, etc.) is complete and unwound, so stack_top
+        // anchors at the shallowest frame (main level). Subsequent JS execution
+        // (including recursive module linking/eval) gets an accurate stack_size budget.
+        crate::runtime::JS_UpdateStackTop(self.rt_mut());
+
+        self.with_new_scope(|cx| cx.eval_wait(source, filename, eval_type, flags))
     }
 }
 
