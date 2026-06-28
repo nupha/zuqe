@@ -151,138 +151,224 @@ impl ModuleDef {
 
     /// InnerModuleEvaluation, returns depth index or error value.
     /// `index`: depth index
+    ///
+    /// Iterative version: uses an explicit worklist instead of recursion
+    /// to avoid C stack overflow on deep module dependency trees.
     fn run_internal(
         &mut self,
         ctx: &mut ScopedContext,
         index: i32,
         stack_top: &mut Option<ModuleDef>,
     ) -> Result<i32, JSValue> {
-        if js_check_stack_overflow(ctx.rt(), 0) {
-            return Err(ctx
-                .create_error_object(
-                    ErrorKind::Internal,
-                    "stack overflow",
-                    ctx.throw_need_backtrace(),
-                )
-                .map_or_else(|| Exception::OutOfMemory.to_value(ctx), JSValue::from));
+        /// Per-module state during iterative evaluation.
+        struct EvalState {
+            module: ModuleDef,
+            /// Index into `module.dependencies` to track which dependency is next.
+            dep_index: usize,
+            /// Whether the entry phase (overflow check, status init, stack push) is done.
+            entered: bool,
         }
 
-        match self.status() {
-            JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-            | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => {
-                let err = self.get_eval_error();
-                return if !err.is_undefined() {
-                    debug_assert!(!err.is_null());
-                    Err(err)
-                } else {
-                    Ok(index)
-                };
-            }
-            JSModuleStatus::JS_MODULE_STATUS_EVALUATING => {
-                return Ok(index);
-            }
-            JSModuleStatus::JS_MODULE_STATUS_LINKED => {}
-            _ => {
-                unreachable!();
-            }
-        }
+        let mut worklist: Vec<EvalState> = Vec::new();
+        worklist.push(EvalState {
+            module: *self,
+            dep_index: 0,
+            entered: false,
+        });
 
-        self.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATING;
-        self.dfs_index = index;
-        self.dfs_ancestor_index = index;
-        self.pending_async_dependencies = 0;
+        let mut result: Result<(), JSValue> = Ok(());
+        let mut index = index;
 
-        // push 'self' on stack
-        self.stack_prev = stack_top.take();
-        stack_top.replace(*self);
+        while !worklist.is_empty() && result.is_ok() {
+            let top = worklist.len() - 1;
 
-        let mut index = index + 1;
+            // === ENTER phase ===
+            if !worklist[top].entered {
+                worklist[top].entered = true;
 
-        for i in 0..self.dependencies.len() {
-            let mut m1 = self.dependencies[i].module.unwrap();
-            index = m1.run_internal(ctx, index, stack_top)?;
-
-            debug_assert!(matches!(
-                m1.status(),
-                JSModuleStatus::JS_MODULE_STATUS_EVALUATING
-                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-            ));
-
-            if m1.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATING {
-                self.dfs_ancestor_index =
-                    std::cmp::min(self.dfs_ancestor_index, m1.dfs_ancestor_index);
-            } else {
-                m1 = m1.cycle_root().unwrap();
-                debug_assert!(matches!(
-                    m1.status(),
-                    JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-                        | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-                ));
-                let err = m1.get_eval_error();
-                if !err.is_undefined() {
-                    return Err(err);
-                }
-            }
-
-            if m1.async_evaluation() {
-                self.pending_async_dependencies += 1;
-
-                if m1.async_parent_modules.len() == m1.async_parent_modules.capacity()
-                    && m1.async_parent_modules.try_reserve(1).is_err()
-                {
-                    return Err(ctx
+                if js_check_stack_overflow(ctx.rt(), 0) {
+                    result = Err(ctx
                         .create_error_object(
                             ErrorKind::Internal,
                             "stack overflow",
                             ctx.throw_need_backtrace(),
                         )
                         .map_or_else(|| Exception::OutOfMemory.to_value(ctx), JSValue::from));
-                }
-
-                m1.async_parent_modules.push(*self);
-            }
-        }
-
-        if self.pending_async_dependencies > 0 {
-            debug_assert!(!self.async_evaluation());
-            self.set_async_evaluation(true);
-            self.async_evaluation_timestamp = ctx.rt_ptr().module_async_evaluation_next_timestamp;
-            ctx.rt_ptr().module_async_evaluation_next_timestamp += 1;
-        } else if self.has_tla() {
-            debug_assert!(!self.async_evaluation());
-            self.set_async_evaluation(true);
-            self.async_evaluation_timestamp = ctx.rt_ptr().module_async_evaluation_next_timestamp;
-            ctx.rt_ptr().module_async_evaluation_next_timestamp += 1;
-            self.execute_async_module(ctx).map_err(JSValue::Int)?;
-        } else {
-            self.execute_sync_module(ctx)?;
-        }
-
-        debug_assert!(self.dfs_ancestor_index <= self.dfs_index);
-
-        if self.dfs_index == self.dfs_ancestor_index {
-            loop {
-                // pop module from stack
-                let mut md = stack_top.take().unwrap();
-                *stack_top = md.stack_prev.take();
-
-                md.status = if md.async_evaluation() {
-                    JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-                } else {
-                    JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-                };
-
-                // spec bug: cycle_root must be assigned before the test
-                md.set_cycle_root(*self);
-
-                if md.eq(self) {
                     break;
                 }
+
+                // Status check (same as recursive early return)
+                match worklist[top].module.status() {
+                    JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => {
+                        let err = worklist[top].module.get_eval_error();
+                        if !err.is_undefined() {
+                            debug_assert!(!err.is_null());
+                            result = Err(err);
+                            break;
+                        }
+                        // Already processed — pop immediately
+                        worklist.pop();
+                        continue;
+                    }
+                    JSModuleStatus::JS_MODULE_STATUS_EVALUATING => {
+                        // Already being evaluated in another path (cycle)
+                        worklist.pop();
+                        continue;
+                    }
+                    JSModuleStatus::JS_MODULE_STATUS_LINKED => {}
+                    _ => {
+                        unreachable!();
+                    }
+                }
+
+                worklist[top].module.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATING;
+                worklist[top].module.dfs_index = index;
+                worklist[top].module.dfs_ancestor_index = index;
+                worklist[top].module.pending_async_dependencies = 0;
+
+                // push 'self' on stack
+                worklist[top].module.stack_prev = stack_top.take();
+                stack_top.replace(worklist[top].module);
+
+                index += 1;
+            }
+
+            // === Check previous dependency's result ===
+            // This mirrors the post-recursive-call logic in the recursive version.
+            if worklist[top].dep_index > 0 {
+                let mut prev = worklist[top].module.dependencies[worklist[top].dep_index - 1]
+                    .module
+                    .unwrap();
+
+                if prev.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATING {
+                    // Child is still evaluating (in same cycle): Tarjan ancestor update
+                    worklist[top].module.dfs_ancestor_index = std::cmp::min(
+                        worklist[top].module.dfs_ancestor_index,
+                        prev.dfs_ancestor_index,
+                    );
+                } else {
+                    // Child is EVALUATING_ASYNC or EVALUATED: check for errors
+                    prev = prev.cycle_root().unwrap();
+                    debug_assert!(matches!(
+                        prev.status(),
+                        JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                            | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+                    ));
+                    let err = prev.get_eval_error();
+                    if !err.is_undefined() {
+                        result = Err(err);
+                        break;
+                    }
+                }
+
+                // Async dependency tracking
+                if prev.async_evaluation() {
+                    worklist[top].module.pending_async_dependencies += 1;
+
+                    if prev.async_parent_modules.len() == prev.async_parent_modules.capacity()
+                        && prev.async_parent_modules.try_reserve(1).is_err()
+                    {
+                        result = Err(ctx
+                            .create_error_object(
+                                ErrorKind::Internal,
+                                "stack overflow",
+                                ctx.throw_need_backtrace(),
+                            )
+                            .map_or_else(|| Exception::OutOfMemory.to_value(ctx), JSValue::from));
+                        break;
+                    }
+
+                    prev.async_parent_modules.push(worklist[top].module);
+                }
+            }
+
+            if result.is_err() {
+                break;
+            }
+
+            // === All dependencies done → post-processing ===
+            if worklist[top].dep_index >= worklist[top].module.dependencies.len() {
+                let cur_module = &mut worklist[top].module;
+
+                // Module execution (same as recursive post-deps logic)
+                if cur_module.pending_async_dependencies > 0 {
+                    debug_assert!(!cur_module.async_evaluation());
+                    cur_module.set_async_evaluation(true);
+                    cur_module.async_evaluation_timestamp =
+                        ctx.rt_ptr().module_async_evaluation_next_timestamp;
+                    ctx.rt_ptr().module_async_evaluation_next_timestamp += 1;
+                } else if cur_module.has_tla() {
+                    debug_assert!(!cur_module.async_evaluation());
+                    cur_module.set_async_evaluation(true);
+                    cur_module.async_evaluation_timestamp =
+                        ctx.rt_ptr().module_async_evaluation_next_timestamp;
+                    ctx.rt_ptr().module_async_evaluation_next_timestamp += 1;
+                    match cur_module.execute_async_module(ctx) {
+                        Ok(()) => {}
+                        Err(e) => {
+                            result = Err(JSValue::Int(e));
+                            break;
+                        }
+                    }
+                } else {
+                    match cur_module.execute_sync_module(ctx) {
+                        Ok(()) => {}
+                        Err(e) => {
+                            result = Err(e);
+                            break;
+                        }
+                    }
+                }
+
+                if result.is_err() {
+                    break;
+                }
+
+                // Tarjan SCC: if this module is the root of a strongly connected component,
+                // pop all modules in the cycle from stack_top.
+                if cur_module.dfs_index == cur_module.dfs_ancestor_index {
+                    loop {
+                        let mut md = stack_top.take().unwrap();
+                        *stack_top = md.stack_prev.take();
+
+                        md.status = if md.async_evaluation() {
+                            JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                        } else {
+                            JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+                        };
+
+                        // spec bug: cycle_root must be assigned before the test
+                        md.set_cycle_root(*cur_module);
+
+                        if md.eq(cur_module) {
+                            break;
+                        }
+                    }
+                }
+
+                // Pop from worklist without touching stack_top.
+                // For non-SCC-root modules, stack_top cleanup is handled by the SCC root's pop.
+                // For SCC-root modules, the pop above already restored stack_top.
+                worklist.pop();
+                continue;
+            }
+
+            // === PROCESS next dependency ===
+            {
+                let dep_idx = worklist[top].dep_index;
+                let child = worklist[top].module.dependencies[dep_idx].module.unwrap();
+
+                worklist[top].dep_index += 1;
+                worklist.push(EvalState {
+                    module: child,
+                    dep_index: 0,
+                    entered: false,
+                });
             }
         }
 
-        Ok(index)
+        result.map(|_| index)
     }
 
     /// execute module function in async manner

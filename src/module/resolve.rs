@@ -115,183 +115,278 @@ impl ModuleDef {
 
     /// Prepare module `self` to be executed by resolving all the imported variables.
     /// Resolving imports, exports.
+    ///
+    /// Iterative version: uses an explicit worklist instead of recursion
+    /// to avoid C stack overflow on deep module dependency trees.
     fn inner_module_linking(
         &mut self,
         ctx: &mut ScopedContext,
         stack_top: &mut Option<ModuleDef>,
         index: i32,
     ) -> Result<i32, i32> {
-        if unlikely(js_check_stack_overflow(ctx.rt(), 0)) {
-            ctx.throw_stack_overflow();
-            return Err(-1);
-        } else if matches!(
-            self.status,
-            JSModuleStatus::JS_MODULE_STATUS_LINKING
-                | JSModuleStatus::JS_MODULE_STATUS_LINKED
-                | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-                | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-        ) {
-            return Ok(index);
+        /// Per-module state during iterative linking.
+        struct LinkState {
+            module: ModuleDef,
+            /// Index into `module.dependencies` to track which dependency is next.
+            /// Also indicates phase: `dep_index == 0 && !entered` means entry phase,
+            /// otherwise processing dependencies.
+            dep_index: usize,
+            /// Whether the entry phase (overflow check, status init, stack push) is done.
+            entered: bool,
         }
 
-        debug_assert!(self.status == JSModuleStatus::JS_MODULE_STATUS_UNLINKED);
+        let mut worklist: Vec<LinkState> = Vec::new();
+        worklist.push(LinkState {
+            module: *self,
+            dep_index: 0,
+            entered: false,
+        });
 
-        self.status = JSModuleStatus::JS_MODULE_STATUS_LINKING;
-        self.dfs_index = index;
-        self.dfs_ancestor_index = index;
+        let mut result = Ok(());
+        let mut index = index;
 
-        // push `self` on stack
-        self.stack_prev = stack_top.take();
-        stack_top.replace(*self);
+        while !worklist.is_empty() && result.is_ok() {
+            let top = worklist.len() - 1;
 
-        let mut index = index + 1;
+            // === ENTER phase ===
+            if !worklist[top].entered {
+                worklist[top].entered = true;
 
-        for i in 0..self.dependencies.len() {
-            let mut m1 = self.dependencies[i].module.unwrap();
-
-            index = m1.inner_module_linking(ctx, stack_top, index)?;
-            debug_assert!(matches!(
-                m1.status,
-                JSModuleStatus::JS_MODULE_STATUS_LINKING
-                    | JSModuleStatus::JS_MODULE_STATUS_LINKED
-                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-            ));
-
-            if m1.status == JSModuleStatus::JS_MODULE_STATUS_LINKING {
-                self.dfs_ancestor_index =
-                    std::cmp::min(self.dfs_ancestor_index, m1.dfs_ancestor_index);
-            }
-        }
-
-        // check the indirect exports
-        for exp in self.export_entries.iter() {
-            if let ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) = exp.export_type
-                && exp.local_name != Atom::CONST__star_
-            {
-                let m1 = self.dependencies[req_module_idx as usize].module.unwrap();
-                let ret = m1.resolve_export(ctx, exp.local_name, None)?;
-                if !matches!(ret, ResolveExport::Found { .. }) {
-                    ret.throw_syntax_error_export(ctx, self, &exp.export_name);
-                    return Err(-1);
+                if js_check_stack_overflow(ctx.rt(), 0) {
+                    ctx.throw_stack_overflow();
+                    result = Err(-1);
+                    break;
                 }
+
+                // Status check (same as recursive early return)
+                if matches!(
+                    worklist[top].module.status,
+                    JSModuleStatus::JS_MODULE_STATUS_LINKING
+                        | JSModuleStatus::JS_MODULE_STATUS_LINKED
+                        | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                        | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+                ) {
+                    // Already processed — skip entry, pop immediately
+                    worklist.pop();
+                    continue;
+                }
+
+                debug_assert_eq!(
+                    worklist[top].module.status,
+                    JSModuleStatus::JS_MODULE_STATUS_UNLINKED
+                );
+
+                worklist[top].module.status = JSModuleStatus::JS_MODULE_STATUS_LINKING;
+                worklist[top].module.dfs_index = index;
+                worklist[top].module.dfs_ancestor_index = index;
+
+                // push onto stack_top (same as recursive `self.stack_prev = stack_top.take(); stack_top.replace(*self);`)
+                worklist[top].module.stack_prev = stack_top.take();
+                stack_top.replace(worklist[top].module);
+
+                index += 1;
             }
-        }
 
-        if self.init_func.is_none() {
-            // is bytecode module
-            debug_assert!(self.func_created, "module function should be created");
-            let mut md_func = BCWrapper::try_from(self.bytecode).unwrap();
-
-            for imp in self.import_entries.iter() {
-                let import_var_idx = imp.var_idx;
-
-                let mut reqm = self.dependencies[imp.req_module_idx as usize]
+            // === Check previous dependency's ancestor status ===
+            // This mirrors the post-recursive-call check in the recursive version:
+            //   if m1.status == LINKING { self.dfs_ancestor_index = min(..., m1.dfs_ancestor_index); }
+            if worklist[top].dep_index > 0 {
+                let prev_dep = worklist[top].module.dependencies[worklist[top].dep_index - 1]
                     .module
                     .unwrap();
+                if prev_dep.status == JSModuleStatus::JS_MODULE_STATUS_LINKING {
+                    worklist[top].module.dfs_ancestor_index = std::cmp::min(
+                        worklist[top].module.dfs_ancestor_index,
+                        prev_dep.dfs_ancestor_index,
+                    );
+                }
+            }
 
-                if imp.import_name == Atom::CONST__star_ {
-                    // name space import
-                    let val = reqm.ns(ctx)?;
-                    md_func.payload_mut().closure_var_refs_mut()[import_var_idx as usize]
-                        .set_value(&mut ctx.rt_ptr(), val.into());
-                } else {
-                    match reqm.resolve_export(ctx, imp.import_name, None)? {
-                        ResolveExport::Found {
-                            module: dep,
-                            export_type,
-                            local_name,
-                            ..
-                        } => {
-                            match export_type {
-                                ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
-                                    if local_name == Atom::CONST__star_ {
-                                        // name space import from
-                                        let mut m2 = dep.dependencies[req_module_idx as usize]
-                                            .module
-                                            .unwrap();
+            // === All dependencies done → post-processing ===
+            if worklist[top].dep_index >= worklist[top].module.dependencies.len() {
+                let cur_module = &mut worklist[top].module;
 
-                                        let val = m2.ns(ctx)?;
-                                        let vref = {
-                                            let mut vr = js_create_module_var(ctx, true)?;
-                                            vr.set_value(&mut ctx.rt_ptr(), val.into());
-                                            vr
-                                        };
-                                        md_func.payload_mut().closure_var_refs_mut()
-                                            [import_var_idx as usize] = vref;
+                // check the indirect exports
+                for i in 0..cur_module.export_entries.len() {
+                    if let ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) =
+                        cur_module.export_entries[i].export_type
+                        && cur_module.export_entries[i].local_name != Atom::CONST__star_
+                    {
+                        let m1 = cur_module.dependencies[req_module_idx as usize]
+                            .module
+                            .unwrap();
+                        let ret =
+                            m1.resolve_export(ctx, cur_module.export_entries[i].local_name, None)?;
+                        if !matches!(ret, ResolveExport::Found { .. }) {
+                            ret.throw_syntax_error_export(
+                                ctx,
+                                cur_module,
+                                &cur_module.export_entries[i].export_name,
+                            );
+                            result = Err(-1);
+                            break;
+                        }
+                    }
+                }
+
+                if result.is_err() {
+                    break;
+                }
+
+                // bytecode module init (same logic as recursive version)
+                if cur_module.init_func.is_none() {
+                    // is bytecode module
+                    debug_assert!(cur_module.func_created, "module function should be created");
+                    let mut md_func = BCWrapper::try_from(cur_module.bytecode).unwrap();
+
+                    for i in 0..cur_module.import_entries.len() {
+                        let import_var_idx = cur_module.import_entries[i].var_idx;
+
+                        let mut reqm = cur_module.dependencies
+                            [cur_module.import_entries[i].req_module_idx as usize]
+                            .module
+                            .unwrap();
+
+                        if cur_module.import_entries[i].import_name == Atom::CONST__star_ {
+                            // name space import
+                            let val = reqm.ns(ctx)?;
+                            md_func.payload_mut().closure_var_refs_mut()[import_var_idx as usize]
+                                .set_value(&mut ctx.rt_ptr(), val.into());
+                        } else {
+                            match reqm.resolve_export(
+                                ctx,
+                                cur_module.import_entries[i].import_name,
+                                None,
+                            )? {
+                                ResolveExport::Found {
+                                    module: dep,
+                                    export_type,
+                                    local_name,
+                                    ..
+                                } => {
+                                    match export_type {
+                                        ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
+                                            if local_name == Atom::CONST__star_ {
+                                                // name space import from
+                                                let mut m2 = dep.dependencies
+                                                    [req_module_idx as usize]
+                                                    .module
+                                                    .unwrap();
+
+                                                let val = m2.ns(ctx)?;
+                                                let vref = {
+                                                    let mut vr = js_create_module_var(ctx, true)?;
+                                                    vr.set_value(&mut ctx.rt_ptr(), val.into());
+                                                    vr
+                                                };
+                                                md_func.payload_mut().closure_var_refs_mut()
+                                                    [import_var_idx as usize] = vref;
+                                            }
+                                        }
+                                        ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
+                                            debug_assert_ne!(local_name, Atom::CONST__star_);
+
+                                            let vr = var_ref.unwrap_or_else(|| {
+                                                debug_assert!(
+                                                    dep.func_created,
+                                                    "module function must have been created"
+                                                );
+                                                dep.bytecode
+                                                    .as_object_BCWrapper()
+                                                    .unwrap()
+                                                    .payload()
+                                                    .closure_var_refs()
+                                                    [var_idx as usize]
+                                            });
+                                            md_func.payload_mut().closure_var_refs_mut()
+                                                [import_var_idx as usize] = vr;
+                                        }
                                     }
                                 }
-                                ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
-                                    debug_assert_ne!(local_name, Atom::CONST__star_);
-
-                                    let vr = var_ref.unwrap_or_else(|| {
-                                        debug_assert!(
-                                            dep.func_created,
-                                            "module function must have been created"
-                                        );
-                                        dep.bytecode
-                                            .as_object_BCWrapper()
-                                            .unwrap()
-                                            .payload()
-                                            .closure_var_refs()
-                                            [var_idx as usize]
-                                    });
-                                    md_func.payload_mut().closure_var_refs_mut()
-                                        [import_var_idx as usize] = vr;
+                                r => {
+                                    r.throw_syntax_error_export(
+                                        ctx,
+                                        &reqm,
+                                        &cur_module.import_entries[i].import_name,
+                                    );
+                                    result = Err(-1);
+                                    break;
                                 }
                             }
                         }
-                        r => {
-                            r.throw_syntax_error_export(ctx, &reqm, &imp.import_name);
-                            return Err(-1);
+                    }
+
+                    if result.is_err() {
+                        break;
+                    }
+
+                    // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
+                    {
+                        for i in 0..cur_module.export_entries.len() {
+                            if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
+                                &mut cur_module.export_entries[i].export_type
+                            {
+                                debug_assert_ne!(*var_idx, u16::MAX);
+                                let vr = md_func.payload().closure_var_refs()[*var_idx as usize];
+                                var_ref.replace(vr);
+                            }
+                        }
+
+                        debug_assert!(cur_module.func_created);
+                    }
+
+                    // initialize the global variables
+                    // Note: following function call with this_obj=TRUE actually executes bytecode like this:
+                    //     push_this ;; true
+                    //     if_false 7
+                    //     return_undef ;; exit immediately here
+                    //     ...
+                    // it seems this call has no actual effect according to the bytecode.
+                    // should this call be removed? and the emitted bytecode (see above) be optimized?
+
+                    md_func.call(ctx, JSValue::Bool(true), &[])?;
+                }
+
+                if result.is_err() {
+                    break;
+                }
+
+                // Tarjan SCC: if this module is the root of a strongly connected component,
+                // pop all modules in the cycle from stack_top.
+                if cur_module.dfs_index == cur_module.dfs_ancestor_index {
+                    loop {
+                        let mut m1 = stack_top.take().unwrap();
+                        *stack_top = m1.stack_prev.take();
+
+                        m1.status = JSModuleStatus::JS_MODULE_STATUS_LINKED;
+                        if m1.eq(cur_module) {
+                            break;
                         }
                     }
                 }
+
+                // Pop from worklist without touching stack_top.
+                // For non-SCC-root modules, stack_top cleanup is handled by the SCC root's pop.
+                // For SCC-root modules, the pop above already restored stack_top.
+                worklist.pop();
+                continue;
             }
 
-            // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
+            // === PROCESS next dependency ===
             {
-                for exp in self.export_entries.iter_mut() {
-                    if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
-                        &mut exp.export_type
-                    {
-                        debug_assert_ne!(*var_idx, u16::MAX);
-                        let vr = md_func.payload().closure_var_refs()[*var_idx as usize];
-                        var_ref.replace(vr);
-                    }
-                }
+                let dep_idx = worklist[top].dep_index;
+                let child = worklist[top].module.dependencies[dep_idx].module.unwrap();
 
-                debug_assert!(self.func_created);
-            }
-
-            // initialize the global variables
-            // Note: following function call with this_obj=TRUE actually executes bytecode like this:
-            //     push_this ;; true
-            //     if_false 7
-            //     return_undef ;; exit immediately here
-            //     ...
-            // it seems this call has no actual effect according to the bytecode.
-            // should this call be removed? and the emitted bytecode (see above) be optimized?
-
-            md_func.call(ctx, JSValue::Bool(true), &[])?;
-        }
-
-        debug_assert!(self.dfs_ancestor_index <= self.dfs_index);
-
-        if self.dfs_index == self.dfs_ancestor_index {
-            loop {
-                // pop from top module from stack
-                let mut m1 = stack_top.take().unwrap();
-                *stack_top = m1.stack_prev.take();
-
-                m1.status = JSModuleStatus::JS_MODULE_STATUS_LINKED;
-                if m1.eq(self) {
-                    break;
-                }
+                worklist[top].dep_index += 1;
+                worklist.push(LinkState {
+                    module: child,
+                    dep_index: 0,
+                    entered: false,
+                });
             }
         }
 
-        Ok(index)
+        result.map(|_| index)
     }
 
     /// Prepare a module to be executed by resolving all the imported variables.
