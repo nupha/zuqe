@@ -564,7 +564,7 @@ impl ObjectImpl {
     fn finalize(&mut self) {
         let mut rt = self.rt_ptr();
 
-        // Map Set object remove weakref
+        // WeakMap/WeakSet cleanup
         #[cfg(feature = "builtin_mapset")]
         {
             let heap = rt.gc_heap();
@@ -572,6 +572,14 @@ impl ObjectImpl {
 
             for o in self.weak_refs.drain(..).filter_map(|w| w.upgrade(heap)) {
                 let mut o = Object::from(o.into_raw());
+                debug_assert!(
+                    matches!(
+                        o.class_id(),
+                        crate::JS_CLASS_WEAKSET | crate::JS_CLASS_WEAKMAP
+                    ),
+                    "must be WeakSet or WeakMap object"
+                );
+
                 if let Some(ms) = o.payload_mut().mapset_mut() {
                     ms.remove_weak_obj(this);
                 }
@@ -681,10 +689,14 @@ impl ObjectImpl {
     pub fn is_sealed(&mut self, ctx: &mut ScopedContext, is_frozen: bool) -> Result<bool, i32> {
         let mut keys = SmallVec::<[Atom; 8]>::new();
 
-        self.own_property_names_foreach(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK, |_, pk| {
-            keys.push(pk.atom);
-            Ok(())
-        })?;
+        self.own_property_names_foreach(
+            ctx,
+            JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK,
+            |_, pk| {
+                keys.push(pk.atom);
+                Ok(())
+            },
+        )?;
 
         for a in keys {
             if let Some(desc) = self.get_own_property(ctx, a)?

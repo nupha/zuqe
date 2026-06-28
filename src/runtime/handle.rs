@@ -14,8 +14,6 @@ use std::sync::{
     atomic::{AtomicPtr, Ordering},
 };
 
-use gc_lite::{GcHeap, GcPartitionId};
-
 use crate::{error::Exception, runtime::RuntimeImpl};
 
 #[cfg(not(debug_assertions))]
