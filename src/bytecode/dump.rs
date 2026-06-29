@@ -302,7 +302,7 @@ pub(crate) fn dump_opcodes(
                 let idx = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) as usize };
                 print!(
                     " {idx}  ; {}",
-                    consts[idx].inspect_internal(ctx.rt_mut(), true).unwrap()
+                    consts[idx].inspect_internal(ctx, true).unwrap()
                 );
             }
             OpcodeFormat::ATOM => {
@@ -697,7 +697,7 @@ pub(super) fn dump_run_instruction(
                 " {idx}  ; {}",
                 b.load_const(idx as usize)
                     .unwrap()
-                    .inspect_internal(ctx.rt_mut(), true)
+                    .inspect_internal(ctx, true)
                     .unwrap()
             );
         }
@@ -857,11 +857,11 @@ pub(super) fn dump_run_stack(
                     if v.as_object_Proxy().is_some() {
                         "[object Proxy]".to_string() // to avoid ::inspect() on a revoked Proxy returnes error
                     } else {
-                        v.inspect_internal(ctx.rt_mut(), true).unwrap()
+                        v.inspect_internal(ctx, true).unwrap()
                     }
                     #[cfg(not(feature = "builtin_proxy"))]
                     {
-                        v.inspect_internal(ctx.rt_mut(), true).unwrap()
+                        v.inspect_internal(ctx, true).unwrap()
                     }
                 };
 

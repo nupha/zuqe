@@ -569,8 +569,13 @@ impl StackFrameArena {
                         let _ = crate::builtins::iterator::ObjectIter::close_iter_internal(ctx, o);
                     }
                 } else {
-                    // Found catch: return PC position.
-                    // Caller writes the exception value to sp[sp].
+                    // Found catch: write exception value to stack
+                    // and return PC position with incremented SP.
+                    let err_val = ctx.take_exception().to_value(ctx);
+                    unsafe {
+                        std::ptr::write(sp_base.add(sp), err_val);
+                    }
+                    sp += 1;
                     return Some((pos as usize, sp));
                 }
             }
@@ -1061,7 +1066,10 @@ impl StackFrame {
         mut sp: usize,
     ) -> Option<(usize, usize)> {
         let exc = ctx.rt().exception();
-        debug_assert!(exc != Exception::No);
+        debug_assert!(
+            exc != Exception::No,
+            "handle_exception called without an exception"
+        );
 
         if let Exception::Error(err_val) = exc
             && is_backtrace_needed(err_val)

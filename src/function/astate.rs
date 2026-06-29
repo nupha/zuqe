@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{mem, ptr::NonNull};
+use std::mem;
+use std::ptr::NonNull;
 
-use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx, GcWeak};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     ScopedContext,
+    bytecode::exec::execute_trampoline,
     context::ContextPtr,
     error::JSResult,
     function::BCWrapper,
@@ -384,7 +386,13 @@ impl AsyncStateImpl {
         }
     }
 
-    /// Resume execution of the async function.
+    /// Resume execution of the async function using the trampoline-based
+    /// stackless interpreter.
+    ///
+    /// This replaces the legacy `resume_call()` which used a temporary
+    /// Pin<Box<StackFrame>> + Bytecode::execute(). Now it directly calls
+    /// execute_trampoline() which runs in a single C-stack loop,
+    /// eliminating C-stack recursion for JS-to-JS calls.
     pub(crate) fn resume(&mut self, ctx: &mut ScopedContext) -> JSResult {
         debug_assert!(!self.is_completed);
 
@@ -406,260 +414,50 @@ impl AsyncStateImpl {
             }
         }
 
-        // Copy args to avoid borrow conflict: arena borrow (for data_ptr)
-        // and ctx.with_new_scope (&mut ctx) cannot coexist.
-        let args_vec: Vec<JSValue> = {
-            let arena = ctx.rt().frame_arena();
-            let head = self.frame_head(arena);
-            let data_ptr = arena.data_ptr(head);
-            let slice = unsafe {
-                std::slice::from_raw_parts(
-                    data_ptr.add(head.arg_base_offset as usize),
-                    head.arg_real_count as usize,
-                )
-            };
-            slice.iter().copied().collect()
+        // Get the active frame index (must be Active now).
+        let frame_idx = match self.frame {
+            AsyncFrameState::Active(idx) => idx,
+            _ => unreachable!("frame should be Active after put_frame"),
         };
 
-        let mut ret_val = ctx.with_new_scope(|scope| {
-            let res = self.resume_call(scope, self.this_val, &args_vec);
-            res
-        });
+        // Capture Copy values before mutable borrow for closure_var_refs.
+        let this_val = self.this_val;
+        let bc = self.bytecode_func.payload().bytecode();
+        let closure_vars = self.bytecode_func.payload_mut().closure_var_refs_mut();
 
-        let completed = match ret_val {
-            Ok(JSValue::UNDEFINED) => {
-                // After resume_call, frame is Suspended. Put it back
-                // in the arena so we can access the data buffer.
-                self.ensure_active(ctx.rt_mut().frame_arena_mut());
-                // Get the stack top value from the frame data buffer.
-                // Must carefully order borrows to avoid double-borrowing arena.
-                let sp_val = {
-                    let arena = ctx.rt_mut().frame_arena_mut();
-                    // Extract all needed info from FrameHead first, then drop
-                    // the mutable borrow before accessing arena again.
-                    let (sp_off, var_base, var_count, dp) = {
-                        let head = self.frame_head_mut(arena);
-                        debug_assert!(head.cur_sp_offset > 0);
-                        let off = head.cur_sp_offset;
-                        let vb = head.var_base_offset;
-                        let vc = head.var_count;
-                        // Get data pointer directly from head's buf field
-                        // (avoids arena reborrow; async frames always Heap).
-                        let dp = match &head.buf {
-                            FrameBufLocation::Heap(b) => b.as_ptr() as *mut JSValue,
-                            _ => std::ptr::null_mut(),
-                        };
-                        (off, vb, vc, dp)
-                    };
-                    // SAFETY: dp points to the frame's Heap buffer (async
-                    // frames always use Heap). Pointer arithmetic yields the
-                    // stack top slot (sp[-1] = base + var_count + sp_offset - 1).
-                    let sp_slot = unsafe {
-                        dp.add((var_base + var_count as u32) as usize + sp_off as usize - 1)
-                    };
-                    unsafe { std::ptr::replace(sp_slot, JSValue::UNDEFINED) }
-                };
-                ret_val = Ok(sp_val);
-                true
-            }
-            Err(_) => true,
-            _ => false,
-        };
+        // Execute via trampoline.
+        // closure_vars comes from BytecodeFunction's closure_var_refs,
+        // which serves the same role as var_ref_list in the legacy path.
+        let (ret_val, is_completed) = execute_trampoline(
+            bc,
+            frame_idx,
+            ctx,
+            this_val,           // this_obj
+            JSValue::UNDEFINED, // new_target
+            &[],                // args already in frame
+            closure_vars,       // closure var refs
+        );
 
-        if completed {
+        if is_completed {
+            // Function completed (normal return or exception).
+            // The frame was freed by execute_trampoline.
             self.is_completed = true;
-            // After resume_call, frame may still be Suspended (e.g., Err path).
-            // Put it back in the arena for cleanup.
-            self.ensure_active(ctx.rt_mut().frame_arena_mut());
-            // Close closure variables: VarRef raw pointers into the frame data
-            // buffer must be detached before the buffer is recycled.
+            self.frame = AsyncFrameState::Active(FrameIndex::NULL);
+            // We don't need to close VarRefs here because
+            // execute_trampoline's free_frame already handles cleanup.
+        } else {
+            // Function suspended (yield/await).
+            // Take the frame snapshot from arena.
             let arena = ctx.rt_mut().frame_arena_mut();
-            let head = self.frame_head_mut(arena);
-            // VarRef cleanup: var_ref_list is moved to ClosedOver state
-            // (data copied out of frame buffer, pointers become independent).
-            // For now, we simply clear the list — the BCWrapper's closure_var_refs
-            // already hold the captured values.
-            head.var_ref_list.clear();
+            let snapshot = arena.take_frame(frame_idx);
+            self.frame = AsyncFrameState::Suspended(snapshot);
         }
 
-        ret_val
-    }
-
-    /// Resume executing async function in given scope.
-    ///
-    /// Currently delegates to Bytecode::execute() which uses the legacy
-    /// StackFrame-based path. When exec.rs is fully migrated, this will
-    /// call execute_trampoline() instead.
-    fn resume_call(
-        &mut self,
-        ctx: &mut ScopedContext,
-        this_obj: JSValue,
-        args: &[JSValue],
-    ) -> JSResult {
-        if ctx.poll_interrupts() {
-            return Err(-1);
+        if ret_val.is_exception() {
+            Err(-1)
+        } else {
+            Ok(ret_val)
         }
-
-        // Get bytecode from the stored BCWrapper.
-        // Note: do NOT deref (*self.bytecode_func), as that would convert
-        // BCWrapper to Object, losing BCWrapper-specific methods.
-        let mut func = self.bytecode_func;
-        let func_node_ptr = func.gc_node_ptr().as_ptr();
-
-        let bf = func.payload_mut();
-        let bc = bf.bytecode();
-
-        // Build a weak back-reference so closure VarRefs can track this
-        // AsyncStateImpl through the temporary StackFrame.
-        let async_backref: GcWeak<AsyncStateImpl> =
-            unsafe { self.gc_ref().downgrade(ctx.rt_mut().gc_heap_mut()) };
-
-        // Get current frame state from arena.
-        let arena = ctx.rt_mut().frame_arena_mut();
-        let head = self.frame_head(&*arena);
-        let pc_offset = head.cur_pc_offset;
-        let sp_offset = head.cur_sp_offset;
-        debug_assert!(sp_offset >= 0);
-
-        // Build legacy StackFrame, execute, and restore frame state.
-        // The frame metadata (Heap buffer, VarRefs, offsets) is extracted
-        // from the legacy StackFrame after execution and stored back into
-        // self.frame as an AsyncStackFrame snapshot.
-        let (ret_val, frame_snapshot) = {
-            use crate::stack_frame::{FrameBuf, FrameState, StackFrame};
-
-            let mut sf = Box::pin(StackFrame::new(
-                self.bytecode_func.into(),
-                head.mode,
-                head.protected_values,
-            ));
-
-            let sf_mut = unsafe { sf.as_mut().get_unchecked_mut() };
-            sf_mut.is_async = true;
-            sf_mut.async_state = async_backref;
-
-            // Transfer Heap buffer ownership to the temporary StackFrame.
-            // IMPORTANT: this consumes self.frame (sets it to Active(NULL)).
-            // After bc.execute(), we extract the modified state and restore
-            // self.frame to a valid Suspended snapshot.
-            match mem::replace(&mut self.frame, AsyncFrameState::Active(FrameIndex::NULL)) {
-                AsyncFrameState::Active(frame_idx) => {
-                    let snapshot = arena.take_frame(frame_idx);
-                    match snapshot.head.buf {
-                        FrameBufLocation::Heap(heap_buf) => {
-                            sf_mut.local_buf = FrameBuf::Spill(heap_buf);
-                        }
-                        _ => unreachable!("Async frame must be Heap"),
-                    }
-                    sf_mut.arg_base_ptr = sf_mut.local_buf.as_mut_ptr();
-                    unsafe {
-                        sf_mut.var_base_ptr = sf_mut
-                            .local_buf
-                            .as_mut_ptr()
-                            .add(snapshot.head.arg_count as usize);
-                    }
-                    sf_mut.arg_real_count = snapshot.head.arg_real_count;
-                    sf_mut.arg_count = snapshot.head.arg_count;
-                    sf_mut.var_count = snapshot.head.var_count;
-                    sf_mut.cur_pc_offset = snapshot.head.cur_pc_offset;
-                    sf_mut.cur_sp_offset = snapshot.head.cur_sp_offset;
-                    // Preserve VarRefs from the snapshot.
-                    *sf_mut.var_refs_mut() = snapshot.head.var_ref_list;
-                }
-                AsyncFrameState::Suspended(snapshot) => {
-                    match snapshot.head.buf {
-                        FrameBufLocation::Heap(heap_buf) => {
-                            sf_mut.local_buf = FrameBuf::Spill(heap_buf);
-                        }
-                        _ => unreachable!("Suspended frame must be Heap"),
-                    }
-                    sf_mut.arg_base_ptr = sf_mut.local_buf.as_mut_ptr();
-                    unsafe {
-                        sf_mut.var_base_ptr = sf_mut
-                            .local_buf
-                            .as_mut_ptr()
-                            .add(snapshot.head.arg_count as usize);
-                    }
-                    sf_mut.arg_real_count = snapshot.head.arg_real_count;
-                    sf_mut.arg_count = snapshot.head.arg_count;
-                    sf_mut.var_count = snapshot.head.var_count;
-                    sf_mut.cur_pc_offset = snapshot.head.cur_pc_offset;
-                    sf_mut.cur_sp_offset = snapshot.head.cur_sp_offset;
-                    // Preserve VarRefs from the snapshot.
-                    *sf_mut.var_refs_mut() = snapshot.head.var_ref_list;
-                }
-            }
-
-            let rv = bc.execute(
-                ctx,
-                bf.home_object(),
-                sf_mut,
-                this_obj,
-                JSValue::UNDEFINED,
-                pc_offset,
-                sp_offset as usize,
-                bf.closure_var_refs_mut(),
-                args,
-                self.throw_flag,
-            );
-
-            // Extract modified frame state from the legacy StackFrame
-            // before sf is dropped (which would free the Heap buffer).
-            // IMPORTANT: this must happen INSIDE the block, because sf
-            // is dropped at the closing brace and sf_mut becomes dangling.
-            // We use mem::replace to take ownership of the Heap buffer
-            // without dropping it, and mem::take for Vec fields.
-            let buf_ptr = sf_mut.local_buf.as_mut_ptr();
-            let heap_buf = match std::mem::replace(&mut sf_mut.local_buf, FrameBuf::new()) {
-                FrameBuf::Spill(b) => b,
-                _ => unreachable!("Async frame must use Heap buffer after execute"),
-            };
-            let buf_cap = heap_buf.len() as u32;
-            // Compute offsets from base pointer differences.
-            // arg_base_ptr and var_base_ptr point into the Heap buffer;
-            // offset_from yields the JSValue-index offset.
-            let arg_base_offset = unsafe { sf_mut.arg_base_ptr.offset_from(buf_ptr) } as u32;
-            let var_base_offset = unsafe { sf_mut.var_base_ptr.offset_from(buf_ptr) } as u32;
-
-            let snapshot = AsyncStackFrame {
-                head: FrameHead {
-                    prev: FrameIndex::NULL,
-                    state: FrameState::Active,
-                    func_obj: self.bytecode_func.into(),
-                    mode: sf_mut.mode,
-                    cur_pc_offset: sf_mut.cur_pc_offset,
-                    cur_sp_offset: sf_mut.cur_sp_offset,
-                    protected_values: sf_mut.protected_values,
-                    var_ref_list: std::mem::take(sf_mut.var_refs_mut()),
-                    buf: FrameBufLocation::Heap(heap_buf),
-                    buf_capacity: buf_cap,
-                    arg_base_offset,
-                    arg_real_count: sf_mut.arg_real_count,
-                    arg_count: sf_mut.arg_count,
-                    var_base_offset,
-                    var_count: sf_mut.var_count,
-                },
-            };
-
-            (rv, snapshot)
-        };
-
-        // Restore the frame state from the legacy execution.
-        // The frame is always Suspended after resume_call — the caller
-        // (resume) decides whether to put it back in the arena.
-        self.frame = AsyncFrameState::Suspended(frame_snapshot);
-
-        // Note: closure values could be allocated in stack-frame's gc scope during execution,
-        // before stack-frame is dropping, promote closure values up to func's gc scope.
-        let func_node = unsafe { std::ptr::NonNull::new_unchecked(func_node_ptr) };
-        let mut rt = ctx.rt_ptr();
-        for vr in bf.closure_var_refs() {
-            if let Some(n) = vr.value().gc_node_ptr() {
-                rt.gc_heap_mut().bind(func_node, n);
-            }
-        }
-
-        ret_val.err()
     }
 }
 

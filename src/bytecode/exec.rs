@@ -4100,6 +4100,204 @@ impl Bytecode {
                     }
 
                     // ═══════════════════════════════════════════════════
+                    // Property access
+                    // ═══════════════════════════════════════════════════
+                    OpCode::LNOT => {
+                        let op_1: JSValue = SP_VAL!(-1);
+                        let b = match op_1 {
+                            JSValue::Int(i) => i != 0,
+                            JSValue::Bool(b) => b,
+                            JSValue::NULL | JSValue::UNDEFINED => false,
+                            _ => {
+                                if let Ok(b) = op_1.to_bool() {
+                                    b
+                                } else {
+                                    break State::Exception;
+                                }
+                            }
+                        };
+                        SP_PUT!(-1, JSValue::Bool(!b));
+                    }
+                    OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
+                        // get_field: [obj, ^] -> [value, ^]
+                        // get_field2: [obj, ^] -> [obj, value, ^]
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+
+                        if let Ok(val) = SP_REF!(-1).get_property(realm_scope, atom) {
+                            if opcode == OpCode::GET_FIELD {
+                                SP_PUT!(-1, val);
+                            } else {
+                                SP_PUT!(0, val);
+                                SP_GO!(1)
+                            }
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::PUT_FIELD => {
+                        // [obj, value, ^] -> [^]
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        let obj = SP_VAL!(-2);
+                        let value = SP_VAL!(-1);
+                        SP_GO!(-2);
+
+                        let r = obj.set_property_internal(
+                            realm_scope,
+                            atom,
+                            value,
+                            None,
+                            JS_PROP_THROW_STRICT,
+                        );
+                        if unlikely(r.is_err()) {
+                            break State::Exception;
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Binary arithmetic
+                    // ═══════════════════════════════════════════════════
+                    OpCode::ADD
+                    | OpCode::SUB
+                    | OpCode::MUL
+                    | OpCode::DIV
+                    | OpCode::MOD
+                    | OpCode::POW => {
+                        let op1 = SP_VAL!(-2);
+                        let op2 = SP_VAL!(-1);
+                        let res = match opcode {
+                            OpCode::ADD => JSValue::arith_add(realm_scope, op1, op2),
+                            OpCode::SUB => JSValue::arith_sub(realm_scope, op1, op2),
+                            OpCode::MUL => JSValue::arith_mul(realm_scope, op1, op2),
+                            OpCode::DIV => JSValue::arith_div(realm_scope, op1, op2),
+                            OpCode::MOD => JSValue::arith_mod(realm_scope, op1, op2),
+                            OpCode::POW => JSValue::arith_pow(realm_scope, op1, op2),
+                            _ => unreachable!(),
+                        };
+
+                        if let Ok(val) = res {
+                            SP_PUT!(-2, val);
+                            SP_GO!(-1);
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Control flow
+                    // ═══════════════════════════════════════════════════
+                    OpCode::GOTO => {
+                        let n = unsafe { read_from_ptr::<i32>(pc) }; // could be minus
+                        PC_GO!(n);
+
+                        if unlikely(realm_scope.poll_interrupts()) {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::IF_TRUE | OpCode::IF_FALSE => {
+                        let b = opcode == OpCode::IF_TRUE;
+                        let op_1 = SP_VAL!(-1);
+                        SP_GO!(-1);
+
+                        // skip jump offset
+                        PC_GO!(4);
+
+                        let test = match op_1 {
+                            JSValue::Int(i) => i != 0,
+                            JSValue::Bool(b) => b,
+                            JSValue::UNDEFINED | JSValue::NULL => false,
+                            _ => {
+                                if let Ok(x) = op_1.to_bool() {
+                                    x
+                                } else {
+                                    break State::Exception;
+                                }
+                            }
+                        };
+
+                        if b == test {
+                            // jump pc
+                            pc = unsafe {
+                                pc.offset((read_from_ptr::<i32>(pc.offset(-4)) - 4) as isize)
+                            };
+                        }
+
+                        if unlikely(realm_scope.poll_interrupts()) {
+                            break State::Exception;
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Array element access
+                    // ═══════════════════════════════════════════════════
+                    OpCode::GET_ARRAY_EL => {
+                        // [array, prop, ^] -> [value, ^]
+                        let val = SP_REF!(-2)
+                            .get_property_value(realm_scope, SP_VAL!(-1))
+                            .unwrap_or(JSValue::EXCEPTION);
+                        let is_err = val.is_exception();
+                        SP_PUT!(-2, val);
+                        SP_GO!(-1);
+
+                        if unlikely(is_err) {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::GET_ARRAY_EL2 => {
+                        // [array, prop, ^] -> [array, value, ^]
+                        let val = SP_REF!(-2)
+                            .get_property_value(realm_scope, SP_VAL!(-1))
+                            .unwrap_or(JSValue::EXCEPTION);
+                        let is_err = val.is_exception();
+                        SP_PUT!(-1, val);
+
+                        if unlikely(is_err) {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::GET_ARRAY_EL3 => {
+                        // [array, prop, ^] -> [array, prop1, value, ^]
+                        match SP_REF!(-2) {
+                            JSValue::Int(_) | JSValue::String(_) | JSValue::Symbol(_) => {}
+                            a => {
+                                // must be tested before ToPropertyKey
+                                if a.is_undefined_or_null() {
+                                    realm_scope.throw_type_error("value has no property ");
+                                    break State::Exception;
+                                }
+                                let Ok(prop1) = SP_REF!(-1).to_propkey(realm_scope) else {
+                                    break State::Exception;
+                                };
+                                SP_PUT!(-1, prop1);
+                            }
+                        }
+
+                        let val = SP_REF!(-2)
+                            .get_property_value(realm_scope, SP_VAL!(-1))
+                            .unwrap_or(JSValue::EXCEPTION);
+                        let is_err = val.is_exception();
+                        SP_PUT!(0, val);
+                        SP_GO!(1);
+
+                        if unlikely(is_err) {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::PUT_ARRAY_EL => {
+                        // [arr, prop, value, ^] -> [^]
+                        let mut arr = SP_VAL!(-3);
+                        let ret = arr.set_property_value(
+                            realm_scope,
+                            SP_VAL!(-2),
+                            SP_VAL!(-1),
+                            JS_PROP_THROW_STRICT,
+                        );
+                        SP_GO!(-3);
+                        if unlikely(ret.is_err()) {
+                            break State::Exception;
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
                     // Misc
                     // ═══════════════════════════════════════════════════
                     OpCode::GET_SUPER => {
@@ -4135,6 +4333,36 @@ impl Bytecode {
                         {
                             realm_scope.throw_internal_error("regex not supported");
                             break State::Exception;
+                        }
+                    }
+                    OpCode::NOP => {}
+
+                    // ═══════════════════════════════════════════════════
+                    // Try-catch
+                    // ═══════════════════════════════════════════════════
+                    OpCode::CATCH => {
+                        let diff = unsafe { read_from_ptr::<i32>(pc) };
+                        SP_PUT!(
+                            0,
+                            JSValue::CatchOffset(pc.offset_from(pc_base) as i32 + diff)
+                        );
+                        SP_GO!(1);
+                        PC_GO!(4);
+                    }
+                    OpCode::NIP_CATCH => {
+                        // [catch_offset, ..., ret_val, ^] -> [ret_eval, ^]
+                        SP_GO!(-1);
+                        // keep ret_val
+                        let ret_val = SP_VAL!(0);
+                        // drop ... values
+                        while sp > sp_base && !matches!(SP_REF!(-1), JSValue::CatchOffset(_)) {
+                            SP_GO!(-1);
+                        }
+                        if unlikely(sp == sp_base) {
+                            realm_scope.throw_internal_error("nip_catch");
+                            break State::Exception;
+                        } else {
+                            SP_PUT!(-1, ret_val);
                         }
                     }
 
@@ -4264,11 +4492,58 @@ impl Bytecode {
                     }
 
                     // ═══════════════════════════════════════════════════
+                    // Generator/Async suspension and return
+                    // ═══════════════════════════════════════════════════
+                    OpCode::AWAIT => {
+                        break State::Done(JSValue::Int(FUNC_RET_AWAIT), true);
+                    }
+                    OpCode::YIELD => {
+                        break State::Done(JSValue::Int(FUNC_RET_YIELD), true);
+                    }
+                    OpCode::YIELD_STAR | OpCode::ASYNC_YIELD_STAR => {
+                        break State::Done(JSValue::Int(FUNC_RET_YIELD_STAR), true);
+                    }
+                    OpCode::INITIAL_YIELD => {
+                        break State::Done(JSValue::Int(FUNC_RET_INITIAL_YIELD), true);
+                    }
+                    OpCode::RETURN_ASYNC => {
+                        break State::Done(JSValue::UNDEFINED, true);
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Subroutine call (try-finally)
+                    // ═══════════════════════════════════════════════════
+                    OpCode::GOSUB => {
+                        let diff = unsafe { read_from_ptr::<i32>(pc) };
+                        // Push return address as Int (offset to instruction after GOSUB)
+                        SP_PUT!(0, JSValue::Int(pc.offset_from(pc_base) as i32 + 4));
+                        SP_GO!(1);
+                        PC_GO!(diff);
+                    }
+                    OpCode::RET => {
+                        if let JSValue::Int(i) = SP_REF!(-1) {
+                            let pos = *i;
+                            if unlikely(pos >= bytecodes.len() as i32) {
+                                realm_scope.throw_internal_error("invalid ret value");
+                                break State::Exception;
+                            } else {
+                                SP_GO!(-1);
+                                pc = unsafe { pc_base.offset(pos as isize) };
+                            }
+                        } else {
+                            realm_scope.throw_internal_error("invalid ret value");
+                            break State::Exception;
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
                     // Unimplemented: with, short_opcode, etc.
                     // ═══════════════════════════════════════════════════
                     _ => {
                         // TODO: Port remaining opcodes from execute_with_realm_scope.
-                        return ExecAction::Unwind;
+                        realm_scope
+                            .throw_internal_error("unimplemented opcode in execute_with_arena");
+                        break State::Exception;
                     }
                 } // match opcode
 
@@ -4357,7 +4632,9 @@ impl Bytecode {
 /// - `cur_scope`: GC scope for the current frame
 /// - `virtual_frames`: caller chain (saved on call, restored on return)
 ///
-/// Returns the final JSValue (or EXCEPTION on uncaught error).
+/// Returns (result, is_completed) tuple:
+/// - result: the return value (or EXCEPTION on uncaught error)
+/// - is_completed: true if the function completed, false if suspended (yield/await)
 pub(crate) fn execute_trampoline(
     start_bc: Bytecode,
     start_frame_idx: FrameIndex,
@@ -4366,7 +4643,7 @@ pub(crate) fn execute_trampoline(
     new_target: JSValue,
     args: &[JSValue],
     captured_vars: &mut [VarRef],
-) -> JSValue {
+) -> (JSValue, bool) {
     use crate::stack_frame::VirtualFrame;
     use std::mem::ManuallyDrop;
 
@@ -4390,9 +4667,16 @@ pub(crate) fn execute_trampoline(
     let mut cur_scope: ScopedContext<'static> =
         unsafe { std::mem::transmute(realm_ctx.new_scope()) };
 
+    // Initialize PC/SP offsets from the frame head.
+    // On first execution, both are 0 (fresh frame).
+    // On resume after yield/await, they hold the saved position
+    // from execute_with_arena's State::Done handler.
+    let (mut pc_offset, mut sp_offset) = {
+        let arena = unsafe { &*arena_ptr };
+        let head = arena.frame(start_frame_idx);
+        (head.cur_pc_offset, head.cur_sp_offset as usize)
+    };
     let mut throwed = false;
-    let mut pc_offset = 0usize;
-    let mut sp_offset = 0usize;
 
     'trampoline: loop {
         let arena = unsafe { &mut *arena_ptr };
@@ -4418,9 +4702,15 @@ pub(crate) fn execute_trampoline(
                 callee_frame_idx: callee_idx,
                 return_sp,
             } => {
-                let caller_scope = ManuallyDrop::new(std::mem::replace(&mut cur_scope, unsafe {
-                    std::mem::zeroed()
-                }));
+                // Create callee's GC scope first, then swap to avoid
+                // zero-initializing ScopedContext (which contains NonNull).
+                // SAFETY: lifetime erased to 'static; trampoline restores
+                // and drops all scopes before realm_ctx expires.
+                let callee_scope: ScopedContext<'static> =
+                    unsafe { std::mem::transmute(realm_ctx.new_scope()) };
+
+                let caller_scope =
+                    ManuallyDrop::new(std::mem::replace(&mut cur_scope, callee_scope));
 
                 virtual_frames.push(VirtualFrame {
                     frame_idx: cur_frame_idx,
@@ -4429,11 +4719,6 @@ pub(crate) fn execute_trampoline(
                     caller_scope,
                     caller_ctx_ptr: None,
                 });
-
-                // Create callee's GC scope.
-                // SAFETY: lifetime erased to 'static; trampoline restores
-                // and drops all scopes before realm_ctx expires.
-                cur_scope = unsafe { std::mem::transmute(realm_ctx.new_scope()) };
 
                 cur_bc = callee_bc;
                 cur_frame_idx = callee_idx;
@@ -4469,12 +4754,32 @@ pub(crate) fn execute_trampoline(
             // ── Frame return ──
             ExecAction::Return(ret_val, is_generator) => {
                 if is_generator {
-                    if !virtual_frames.is_empty() {
-                        for vf in virtual_frames.drain(..).rev() {
-                            let _scope = ManuallyDrop::into_inner(vf.caller_scope);
+                    if ret_val.is_undefined() {
+                        // RETURN_ASYNC: async function completed normally.
+                        // The actual return value is at SP[-1] in the frame.
+                        let arena = unsafe { &mut *arena_ptr };
+                        let head = arena.frame(cur_frame_idx);
+                        let sp_cur = arena.stack_cur_ptr(head);
+                        let actual_ret = unsafe { std::ptr::read(sp_cur.offset(-1)) };
+                        arena.free_frame(cur_frame_idx);
+                        drop(cur_scope);
+                        // Drain virtual_frames to drop saved caller scopes.
+                        while let Some(vf) = virtual_frames.pop() {
+                            drop(ManuallyDrop::into_inner(vf.caller_scope));
                         }
+                        return (actual_ret, true);
                     }
-                    return ret_val;
+                    // YIELD/AWAIT/YIELD_STAR: function suspended.
+                    // Frame stays Active in arena; caller must take_frame.
+                    drop(cur_scope);
+                    // Drain virtual_frames to drop saved caller scopes.
+                    // These were placed in ManuallyDrop during CallBytecode.
+                    // On early return (yield/await), we must explicitly drain
+                    // them to prevent GC scope stack corruption.
+                    while let Some(vf) = virtual_frames.pop() {
+                        drop(ManuallyDrop::into_inner(vf.caller_scope));
+                    }
+                    return (ret_val, false);
                 }
 
                 let arena = unsafe { &mut *arena_ptr };
@@ -4492,11 +4797,16 @@ pub(crate) fn execute_trampoline(
                         *sp_ptr.add(caller_vf.return_sp) = ret_val;
                     }
 
+                    // Restore PC and adjust SP to match legacy CALL handler:
+                    //   SP_GO!(-(call_argc + 1)) + SP_GO!(1)
+                    // After call returns: sp = old_sp - call_argc
+                    // return_sp = old_sp - call_argc - 1
+                    // So: new_sp = return_sp + 1
                     pc_offset = caller_head.cur_pc_offset;
-                    sp_offset = caller_head.cur_sp_offset as usize + 1;
+                    sp_offset = caller_vf.return_sp + 1;
                     throwed = false;
                 } else {
-                    return ret_val;
+                    return (ret_val, true);
                 }
             }
 
@@ -4518,7 +4828,7 @@ pub(crate) fn execute_trampoline(
 
                     continue 'trampoline;
                 } else {
-                    return JSValue::EXCEPTION;
+                    return (JSValue::EXCEPTION, true);
                 }
             }
 
