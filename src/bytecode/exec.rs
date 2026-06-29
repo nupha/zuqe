@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::cmp;
+
 use std::ptr::NonNull;
 
 use fallible_collections::TryCollect;
 
 use crate::{
-    Array,
+    Array, JS_CLASS_OBJECT,
     array::alloc_fast_array_slots,
     atom::{Atom, AtomKind},
     builtins::{
@@ -35,15 +37,16 @@ use crate::{
     },
     eval::{EvalFlags, EvalType},
     function::{
-        BCWrapper, Bytecode, CallContext, FunctionKind, JS_CALL_FLAG_CONSTRUCTOR, VarRef,
-        build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
+        BCWrapper, BFuncPayload, Bytecode, CallContext, FunctionKind, JS_CALL_FLAG_CONSTRUCTOR,
+        VarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
+        js_function_set_properties,
     },
     module::{js_dynamic_import, js_import_meta},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, Object,
+        JS_PROP_WRITABLE, JSProperty, LazyInit, Object, ObjectPayload,
     },
     stack_frame::{ExecMode, FrameBufLocation, FrameHead, FrameIndex, StackFrame, StackFrameArena},
     utils::{read_from_ptr, unlikely},
@@ -2657,6 +2660,44 @@ impl Bytecode {
 // Stackless Interpreter: Trampoline and Arena-aware Execution
 // ============================================================================
 
+/// Arena-based equivalent of StackFrame::get_var_ref.
+fn arena_get_var_ref(
+    ctx: &mut ScopedContext,
+    var_idx: u16,
+    is_arg: bool,
+    arg_base_ptr: *mut JSValue,
+    var_base_ptr: *mut JSValue,
+    var_ref_list: &mut Vec<VarRef>,
+    arg_count: u16,
+    var_count: u16,
+    mode: ExecMode,
+) -> Result<VarRef, i32> {
+    if let Some(vr) = var_ref_list
+        .iter()
+        .find(|x| x.is_match(var_idx, is_arg))
+        .copied()
+    {
+        return Ok(vr);
+    }
+    let pvalue = unsafe {
+        NonNull::new_unchecked(if is_arg {
+            debug_assert!(var_idx < arg_count);
+            unsafe { arg_base_ptr.offset(var_idx as isize) }
+        } else {
+            debug_assert!(var_idx < var_count);
+            unsafe { var_base_ptr.offset(var_idx as isize) }
+        })
+    };
+    let async_state = if mode.contains(ExecMode::ASYNC) {
+        None
+    } else {
+        None
+    };
+    let vref = VarRef::create_bind(ctx, var_idx, is_arg, pvalue, async_state)?;
+    var_ref_list.push(vref);
+    Ok(vref)
+}
+
 impl Bytecode {
     /// Execute bytecodes using the arena-based stackless model.
     ///
@@ -2666,7 +2707,7 @@ impl Bytecode {
     ///
     /// Returns the ExecAction describing what the trampoline should do next.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn execute_with_arena(
+    pub(super) fn execute_with_arena(
         &self,
         realm_scope: &mut ScopedContext,
         arena: &mut StackFrameArena,
@@ -2907,201 +2948,1399 @@ impl Bytecode {
             },
         }
 
-        // ── Opcode dispatch loop (inner loop breaks with State) ──
-        // The outer 'restart loop is intentionally absent: currently ALL
-        // State variants return ExecAction to the trampoline. When the
-        // trampoline is fully integrated, CallBytecode / TailCall will
-        // switch to the callee frame and re-enter via 'restart instead
-        // of returning. For now, a single-pass inner loop is equivalent.
-        let state: State = loop {
-            let opcode = unsafe { std::mem::transmute::<u8, OpCode>(PC_FETCH!(u8)) };
+        // ── Opcode dispatch loop ──
+        // The outer 'arena_loop handles exception catch re-entry.
+        // CallBytecode / TailCall return ExecAction to the trampoline.
+        // Done / Exception: Done returns ExecAction::Return, Exception
+        // tries local catch and re-enters via continue 'arena_loop.
+        'arena_loop: loop {
+            let state: State = loop {
+                let opcode = unsafe { std::mem::transmute::<u8, OpCode>(PC_FETCH!(u8)) };
 
-            match opcode {
-                OpCode::PUSH_I32 => {
-                    let a = PC_FETCH!(i32);
-                    SP_PUT!(0, JSValue::Int(a));
-                    SP_GO!(1);
-                }
-                OpCode::PUSH_CONST => {
-                    let id = PC_FETCH!(u32);
-                    SP_PUT!(0, CPOOL![id]);
-                    SP_GO!(1);
-                }
-
-                OpCode::CALL | OpCode::TAIL_CALL => {
-                    // [func_obj, arg1, ..., argN, ^] -> [ret_val, ^]
-                    let call_argc = PC_FETCH!(u16);
-                    let call_argv = unsafe { sp.offset(-(call_argc as isize)) };
-
-                    unsafe {
-                        *cur_pc_offset_ptr = pc.offset_from(pc_base) as _;
+                match opcode {
+                    // ═══════════════════════════════════════════════════
+                    // PUSH / CONST / VALUE ops
+                    // ═══════════════════════════════════════════════════
+                    OpCode::PUSH_I32 => {
+                        // [^] -> [int_value, ^]
+                        let a = PC_FETCH!(i32);
+                        SP_PUT!(0, JSValue::Int(a));
+                        SP_GO!(1);
                     }
-
-                    let func = unsafe { *call_argv.offset(-1) };
-
-                    // ── Inline bytecode dispatch ──
-                    // Detect bytecode functions and create an arena frame
-                    // instead of recursing through the C call stack.
-                    if let Ok(mut bfun) = BCWrapper::try_from(func) {
-                        let bc = bfun.payload().bytecode();
-                        let callee_buf_cap = bc.arg_count as usize + bc.local_buf_size as usize;
-
-                        // Allocate callee frame in the arena.
-                        let callee_frame_idx =
-                            arena.alloc_frame(bfun.into(), bc.mode(), callee_buf_cap);
-
-                        // Set prev chain.
-                        arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
-
-                        // Initialize callee frame data from stack args.
-                        {
-                            // Get data ptr first (immutable borrow), then
-                            // mutable head for field writes.
-                            let callee_data = {
-                                let h = arena.frame(callee_frame_idx);
-                                arena.data_ptr(h)
-                            };
-                            let callee_head = arena.frame_mut(callee_frame_idx);
-                            let args_slice = unsafe {
-                                std::slice::from_raw_parts(call_argv, call_argc as usize)
-                            };
-                            for (i, arg) in args_slice.iter().enumerate() {
-                                unsafe {
-                                    *callee_data.add(i) = *arg;
+                    OpCode::PUSH_CONST => {
+                        // [^] -> [const_val, ^]
+                        let id = PC_FETCH!(u32);
+                        SP_PUT!(0, CPOOL![id]);
+                        SP_GO!(1);
+                    }
+                    OpCode::PUSH_ATOM_VALUE => {
+                        let a = PC_FETCH!(u32);
+                        SP_PUT!(
+                            0,
+                            Atom::from_id(a)
+                                .to_value(realm_scope)
+                                .unwrap_or(JSValue::EXCEPTION)
+                        );
+                        SP_GO!(1);
+                    }
+                    OpCode::UNDEFINED => {
+                        SP_PUT!(0, JSValue::UNDEFINED);
+                        SP_GO!(1);
+                    }
+                    OpCode::NULL => {
+                        SP_PUT!(0, JSValue::NULL);
+                        SP_GO!(1);
+                    }
+                    OpCode::PUSH_THIS => {
+                        let val: JSValue = if !mode.contains(ExecMode::STRICT) {
+                            match this_obj {
+                                JSValue::Object(_) => this_obj,
+                                JSValue::NULL | JSValue::UNDEFINED => {
+                                    JSValue::Object(realm_scope.global_obj())
+                                }
+                                _ => {
+                                    if let Ok(v) = this_obj.objectify(realm_scope) {
+                                        v.into()
+                                    } else {
+                                        break State::Exception;
+                                    }
                                 }
                             }
-                            callee_head.arg_base_offset = 0;
-                            callee_head.arg_real_count = call_argc;
-                            callee_head.arg_count = std::cmp::max(bc.arg_count, call_argc);
-                            callee_head.var_base_offset = callee_head.arg_count as u32;
-                            callee_head.var_count = bc.var_count;
-                            callee_head.cur_sp_offset = 0;
+                        } else {
+                            this_obj
+                        };
+                        SP_PUT!(0, val);
+                        SP_GO!(1);
+                    }
+                    OpCode::PUSH_FALSE => {
+                        SP_PUT!(0, JSValue::Bool(false));
+                        SP_GO!(1);
+                    }
+                    OpCode::PUSH_TRUE => {
+                        SP_PUT!(0, JSValue::Bool(true));
+                        SP_GO!(1);
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // OBJECT / SPECIAL_OBJECT
+                    // ═══════════════════════════════════════════════════
+                    OpCode::OBJECT => {
+                        // [^] -> [obj, ^]
+                        let obj = realm_scope
+                            .create_base_object()
+                            .map_or(JSValue::EXCEPTION, JSValue::Object);
+                        SP_PUT!(0, obj);
+                        SP_GO!(1);
+                        if unlikely(SP_REF!(-1).is_exception()) {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::SPECIAL_OBJECT => {
+                        let id = PC_FETCH!(u8);
+                        debug_assert!(
+                            (SpecialObject::Arguments as u8..=SpecialObject::ImportMeta as u8)
+                                .contains(&id)
+                        );
+                        match unsafe { std::mem::transmute::<u8, SpecialObject>(id) } {
+                            SpecialObject::Arguments => {
+                                SP_PUT!(0, js_build_arguments(realm_scope, args));
+                                SP_GO!(1);
+                                if unlikely(SP_REF!(-1).is_exception()) {
+                                    break State::Exception;
+                                }
+                            }
+                            SpecialObject::MappedArguments => {
+                                let object_proto = realm_scope.class_proto(JS_CLASS_OBJECT);
+                                let mut obj = match realm_scope.create_instance_with_proto_payload(
+                                    object_proto,
+                                    ObjectPayload::MAPPED_ARGUMENTS,
+                                ) {
+                                    Ok(o) => o,
+                                    Err(_) => {
+                                        break State::Exception;
+                                    }
+                                };
+
+                                if obj
+                                    .add_own_property(
+                                        realm_scope,
+                                        Atom::CONST_length,
+                                        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                                        JSProperty::Normal(JSValue::Int(args.len() as i32)),
+                                    )
+                                    .is_err()
+                                {
+                                    break State::Exception;
+                                }
+
+                                let mut abort = false;
+                                for i in 0..cmp::min(args.len() as i32, self.arg_count as i32) {
+                                    let content = match arena_get_var_ref(
+                                        realm_scope,
+                                        i as u16,
+                                        true,
+                                        arg_base_ptr,
+                                        var_base_ptr,
+                                        &mut arena.frame_mut(cur_frame_idx).var_ref_list,
+                                        self.arg_count,
+                                        self.var_count,
+                                        mode,
+                                    ) {
+                                        Ok(vr) => JSProperty::VarRef(vr),
+                                        Err(_) => {
+                                            abort = true;
+                                            break;
+                                        }
+                                    };
+                                    if obj
+                                        .add_own_property(
+                                            realm_scope,
+                                            Atom::new_small_int(i as u32),
+                                            JS_PROP_C_W_E | JS_PROP_VARREF,
+                                            content,
+                                        )
+                                        .is_err()
+                                    {
+                                        abort = true;
+                                        break;
+                                    }
+                                }
+                                if abort {
+                                    break State::Exception;
+                                }
+
+                                for (i, a) in args
+                                    .iter()
+                                    .enumerate()
+                                    .skip(cmp::min(args.len(), self.arg_count as usize))
+                                {
+                                    if obj
+                                        .define_property_value_u32(
+                                            realm_scope,
+                                            i as _,
+                                            *a,
+                                            JS_PROP_C_W_E,
+                                        )
+                                        .is_err()
+                                    {
+                                        abort = true;
+                                        break;
+                                    }
+                                }
+                                if abort {
+                                    break State::Exception;
+                                }
+
+                                #[cfg(feature = "builtin_symbol")]
+                                if obj
+                                    .define_property_value(
+                                        realm_scope,
+                                        Atom::CONST_Symbol_iterator,
+                                        realm_scope.array_proto_values,
+                                        JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+                                    )
+                                    .is_err()
+                                {
+                                    break State::Exception;
+                                }
+
+                                if obj
+                                    .define_property_value(
+                                        realm_scope,
+                                        Atom::CONST_callee,
+                                        JSValue::from(func_obj),
+                                        JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+                                    )
+                                    .is_err()
+                                {
+                                    break State::Exception;
+                                }
+
+                                let ma = JSValue::Object(obj);
+                                SP_PUT!(0, ma);
+                                SP_GO!(1);
+                                if unlikely(SP_REF!(-1).is_exception()) {
+                                    break State::Exception;
+                                }
+                            }
+                            SpecialObject::ThisFunc => {
+                                SP_PUT!(0, JSValue::from(func_obj));
+                                SP_GO!(1);
+                            }
+                            SpecialObject::NewTarget => {
+                                SP_PUT!(0, new_target);
+                                SP_GO!(1);
+                            }
+                            SpecialObject::HomeObject => {
+                                SP_PUT!(
+                                    0,
+                                    if let Some(ho) = func_home_obj {
+                                        JSValue::Object(ho)
+                                    } else {
+                                        JSValue::UNDEFINED
+                                    }
+                                );
+                                SP_GO!(1);
+                            }
+                            SpecialObject::VarObject => {
+                                SP_PUT!(
+                                    0,
+                                    realm_scope
+                                        .create_base_object_with_proto(None)
+                                        .map_or(JSValue::EXCEPTION, JSValue::Object)
+                                );
+                                SP_GO!(1);
+                                if unlikely(SP_REF!(-1).is_exception()) {
+                                    break State::Exception;
+                                }
+                            }
+                            SpecialObject::ImportMeta => {
+                                SP_PUT!(
+                                    0,
+                                    js_import_meta(realm_scope)
+                                        .map_or(JSValue::EXCEPTION, JSValue::Object)
+                                );
+                                SP_GO!(1);
+                                if unlikely(SP_REF!(-1).is_exception()) {
+                                    break State::Exception;
+                                }
+                            }
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // REST params
+                    // ═══════════════════════════════════════════════════
+                    OpCode::REST => {
+                        let start = PC_FETCH!(u16);
+                        if let Ok(arr) = args
+                            .iter()
+                            .skip(start as usize)
+                            .copied()
+                            .try_collect::<Vec<_>>()
+                            .map_err(|_| {
+                                realm_scope.throw_out_of_memory();
+                                -1
+                            })
+                            .and_then(|vv| Array::from_values(realm_scope, vv))
+                        {
+                            SP_PUT!(0, JSValue::from(arr));
+                            SP_GO!(1);
+                        } else {
+                            SP_PUT!(0, JSValue::EXCEPTION);
+                            SP_GO!(1);
+                            break State::Exception;
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Stack manipulation ops
+                    // ═══════════════════════════════════════════════════
+                    OpCode::DROP => {
+                        SP_GO!(-1);
+                    }
+                    OpCode::NIP => {
+                        SP_PUT!(-2, SP_VAL!(-1));
+                        SP_GO!(-1);
+                    }
+                    OpCode::NIP1 => {
+                        SP_PUT!(-3, SP_VAL!(-2));
+                        SP_PUT!(-2, SP_VAL!(-1));
+                        SP_GO!(-1);
+                    }
+                    OpCode::DUP => {
+                        SP_PUT!(0, SP_VAL!(-1));
+                        SP_GO!(1);
+                    }
+                    OpCode::DUP1 => {
+                        SP_PUT!(0, SP_VAL!(-1));
+                        SP_PUT!(-1, SP_VAL!(-2));
+                        SP_GO!(1);
+                    }
+                    OpCode::DUP2 => {
+                        SP_PUT!(0, SP_VAL!(-2));
+                        SP_PUT!(1, SP_VAL!(-1));
+                        SP_GO!(2);
+                    }
+                    OpCode::SWAP => unsafe {
+                        std::ptr::swap(sp.offset(-1), sp.offset(-2));
+                    },
+                    OpCode::SWAP2 => unsafe {
+                        std::ptr::swap(sp.offset(-1), sp.offset(-3));
+                        std::ptr::swap(sp.offset(-2), sp.offset(-4));
+                    },
+
+                    // ═══════════════════════════════════════════════════
+                    // Local variable / argument access
+                    // ═══════════════════════════════════════════════════
+                    OpCode::GET_LOC => {
+                        // [^] -> [local_val, ^]
+                        let idx = PC_FETCH!(u16);
+                        SP_PUT!(0, *VAR_REF![idx]);
+                        SP_GO!(1);
+                    }
+                    OpCode::PUT_LOC => {
+                        // [val, ^] -> [^]
+                        let idx = PC_FETCH!(u16);
+                        *VAR_REF![idx] = SP_VAL!(-1);
+                        SP_GO!(-1);
+                    }
+                    OpCode::GET_ARG => {
+                        // [^] -> [arg_val, ^]
+                        let idx = PC_FETCH!(u16);
+                        SP_PUT!(0, *ARG_REF!(idx));
+                        SP_GO!(1);
+                    }
+                    OpCode::PUT_ARG => {
+                        let idx = PC_FETCH!(u16);
+                        *ARG_REF!(idx) = SP_VAL!(-1);
+                        SP_GO!(-1);
+                    }
+                    OpCode::SET_ARG => {
+                        let idx = PC_FETCH!(u16);
+                        *ARG_REF![idx] = SP_VAL!(-1);
+                    }
+                    OpCode::SET_LOC => {
+                        let idx = PC_FETCH!(u16);
+                        *VAR_REF![idx] = SP_VAL!(-1);
+                    }
+                    OpCode::CLOSE_LOC => {
+                        let idx = PC_FETCH!(u16);
+                        let head = arena.frame_mut(cur_frame_idx);
+                        if let Some(vr) = head
+                            .var_ref_list
+                            .iter_mut()
+                            .find(|v| v.is_match(idx, false))
+                        {
+                            vr.detach();
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Closure variable refs
+                    // ═══════════════════════════════════════════════════
+                    OpCode::GET_VAR_REF => {
+                        let idx = PC_FETCH!(u16);
+                        let val = captured_vars[idx as usize].value();
+                        SP_PUT!(0, val);
+                        SP_GO!(1);
+                    }
+                    OpCode::PUT_VAR_REF => {
+                        let idx = PC_FETCH!(u16);
+                        captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
+                        SP_GO!(-1);
+                    }
+                    OpCode::SET_VAR_REF => {
+                        let idx = PC_FETCH!(u16);
+                        let val_ref = &mut captured_vars[idx as usize];
+                        val_ref.set_value(&mut rt, SP_VAL!(0));
+                    }
+                    OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        let idx = PC_FETCH!(u16);
+                        SP_PUT!(
+                            0,
+                            realm_scope
+                                .create_base_object_with_proto(None)
+                                .map_or(JSValue::EXCEPTION, JSValue::Object)
+                        );
+                        SP_GO!(1);
+                        if unlikely(SP_REF!(-1).is_exception()) {
+                            break State::Exception;
                         }
 
-                        let return_sp =
-                            unsafe { sp.offset(-(call_argc as isize + 1)).offset_from(sp_base) }
-                                as usize;
+                        let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
+                            Ok(captured_vars[idx as usize])
+                        } else {
+                            arena_get_var_ref(
+                                realm_scope,
+                                idx,
+                                opcode == OpCode::MAKE_ARG_REF,
+                                arg_base_ptr,
+                                var_base_ptr,
+                                &mut arena.frame_mut(cur_frame_idx).var_ref_list,
+                                self.arg_count,
+                                self.var_count,
+                                mode,
+                            )
+                        };
+                        match var_ref {
+                            Ok(vr) => {
+                                if unsafe { SP_MUT!(-1).as_object_mut_unchecked() }
+                                    .add_own_property(
+                                        realm_scope,
+                                        atom,
+                                        JS_PROP_WRITABLE | JS_PROP_VARREF,
+                                        JSProperty::VarRef(vr),
+                                    )
+                                    .is_err()
+                                {
+                                    break State::Exception;
+                                } else {
+                                    SP_PUT!(
+                                        0,
+                                        atom.to_value(realm_scope).unwrap_or(JSValue::EXCEPTION)
+                                    );
+                                    SP_GO!(1);
+                                }
+                            }
+                            Err(_) => {
+                                break State::Exception;
+                            }
+                        }
+                    }
 
-                        if unlikely(opcode == OpCode::TAIL_CALL) {
-                            break State::TailCall {
+                    // ═══════════════════════════════════════════════════
+                    // Type conversion / unary operations
+                    // ═══════════════════════════════════════════════════
+                    OpCode::PLUS | OpCode::NEG | OpCode::INC | OpCode::DEC => {
+                        let op1 = SP_VAL!(-1);
+                        if opcode == OpCode::PLUS
+                            && matches!(op1, JSValue::Int(_) | JSValue::Float64(_))
+                        {
+                            // + before an int or float: do nothing
+                            SP_PUT!(-1, op1);
+                        } else if let Ok(res) =
+                            UnaryOp::new(realm_scope, op1, true).map(|unary| match opcode {
+                                OpCode::PLUS => unary.plus(),
+                                OpCode::NEG => unary.neg(),
+                                OpCode::INC => unary.inc(),
+                                OpCode::DEC => unary.dec(),
+                                _ => unreachable!(),
+                            })
+                        {
+                            SP_PUT!(-1, res);
+                        } else {
+                            SP_PUT!(-1, JSValue::UNDEFINED);
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::TO_PROPKEY => match SP_REF!(-1) {
+                        JSValue::Int(_) | JSValue::String(_) => {}
+                        #[cfg(feature = "builtin_symbol")]
+                        JSValue::Symbol(_) => {}
+                        _ => {
+                            if let Ok(pk) = SP_REF!(-1).to_propkey(realm_scope) {
+                                SP_PUT!(-1, pk);
+                            } else {
+                                break State::Exception;
+                            }
+                        }
+                    },
+                    OpCode::TO_OBJECT => {
+                        if !SP_REF!(-1).is_object() {
+                            if let Ok(o) = SP_VAL!(-1).objectify(realm_scope) {
+                                SP_PUT!(-1, JSValue::from(o));
+                            } else {
+                                break State::Exception;
+                            }
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // CALL / RETURN
+                    // ═══════════════════════════════════════════════════
+                    OpCode::CALL | OpCode::TAIL_CALL => {
+                        // [func_obj, arg1, ..., argN, ^] -> [ret_val, ^]
+                        let call_argc = PC_FETCH!(u16);
+                        let call_argv = unsafe { sp.offset(-(call_argc as isize)) };
+
+                        unsafe {
+                            *cur_pc_offset_ptr = pc.offset_from(pc_base) as _;
+                        }
+
+                        let func = unsafe { *call_argv.offset(-1) };
+
+                        // ── Inline bytecode dispatch ──
+                        if let Ok(mut bfun) = BCWrapper::try_from(func) {
+                            let bc = bfun.payload().bytecode();
+                            let callee_buf_cap = bc.arg_count as usize + bc.local_buf_size as usize;
+
+                            let callee_frame_idx =
+                                arena.alloc_frame(bfun.into(), bc.mode(), callee_buf_cap);
+                            arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+
+                            // Init callee frame data from stack args.
+                            {
+                                let callee_data = {
+                                    let h = arena.frame(callee_frame_idx);
+                                    arena.data_ptr(h)
+                                };
+                                let callee_head = arena.frame_mut(callee_frame_idx);
+                                let args_slice = unsafe {
+                                    std::slice::from_raw_parts(call_argv, call_argc as usize)
+                                };
+                                for (i, arg) in args_slice.iter().enumerate() {
+                                    unsafe {
+                                        *callee_data.add(i) = *arg;
+                                    }
+                                }
+                                callee_head.arg_base_offset = 0;
+                                callee_head.arg_real_count = call_argc;
+                                callee_head.arg_count = std::cmp::max(bc.arg_count, call_argc);
+                                callee_head.var_base_offset = callee_head.arg_count as u32;
+                                callee_head.var_count = bc.var_count;
+                                callee_head.cur_sp_offset = 0;
+                            }
+
+                            let return_sp = unsafe {
+                                sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
+                            } as usize;
+
+                            if unlikely(opcode == OpCode::TAIL_CALL) {
+                                break State::TailCall {
+                                    callee_bc: bc,
+                                    callee_func_obj: bfun.into(),
+                                    callee_buf_cap,
+                                };
+                            }
+                            break State::CallBytecode {
                                 callee_bc: bc,
-                                callee_func_obj: bfun.into(),
-                                callee_buf_cap,
+                                callee_frame_idx,
+                                return_sp,
                             };
                         }
-                        break State::CallBytecode {
-                            callee_bc: bc,
-                            callee_frame_idx,
-                            return_sp,
-                        };
+
+                        // Native function: use legacy call_internal path.
+                        let ret_val = func.call_internal(
+                            realm_scope,
+                            JSValue::UNDEFINED,
+                            JSValue::UNDEFINED,
+                            unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
+                            0,
+                        );
+                        if let Ok(r) = ret_val {
+                            if unlikely(opcode == OpCode::TAIL_CALL) {
+                                break State::Done(r, false);
+                            } else {
+                                SP_GO!(-(call_argc as i32 + 1));
+                                SP_PUT!(0, r);
+                                SP_GO!(1);
+                            }
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::CALL_CONSTRUCTOR => {
+                        let call_argc = PC_FETCH!(u16) as i32;
+                        let call_argv = unsafe { sp.offset(-call_argc as isize) };
+                        unsafe {
+                            *cur_pc_offset_ptr = pc.offset_from(pc_base) as _;
+                        }
+
+                        let func = unsafe { *call_argv.offset(-2) };
+                        let ret_val = func.call_internal(
+                            realm_scope,
+                            JSValue::UNDEFINED,
+                            unsafe { *call_argv.offset(-1) },
+                            unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
+                            JS_CALL_FLAG_CONSTRUCTOR,
+                        );
+                        if let Ok(val) = ret_val {
+                            SP_GO!(-(call_argc + 2));
+                            SP_PUT!(0, val);
+                            SP_GO!(1);
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::CALL_METHOD | OpCode::TAIL_CALL_METHOD => {
+                        let call_argc = PC_FETCH!(u16) as i32;
+                        let call_argv = unsafe { sp.offset(-call_argc as isize) };
+                        unsafe {
+                            *cur_pc_offset_ptr = pc.offset_from(pc_base) as _;
+                        }
+
+                        let func = unsafe { *call_argv.offset(-1) };
+                        let ret_val = func.call_internal(
+                            realm_scope,
+                            unsafe { *call_argv.offset(-2) },
+                            JSValue::UNDEFINED,
+                            unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
+                            0,
+                        );
+                        if let Ok(r) = ret_val {
+                            if unlikely(opcode == OpCode::TAIL_CALL_METHOD) {
+                                break State::Done(r, false);
+                            } else {
+                                SP_GO!(-(call_argc + 2));
+                                SP_PUT!(0, r);
+                                SP_GO!(1);
+                            }
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::RETURN => {
+                        SP_GO!(-1);
+                        let ret = SP_VAL!(0);
+                        break State::Done(ret, false);
+                    }
+                    OpCode::RETURN_UNDEF => {
+                        break State::Done(JSValue::UNDEFINED, false);
                     }
 
-                    // Native function: use legacy call_internal path.
-                    let ret_val = func.call_internal(
-                        realm_scope,
-                        JSValue::UNDEFINED,
-                        JSValue::UNDEFINED,
-                        unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
-                        0,
-                    );
-                    if let Ok(r) = ret_val {
-                        if unlikely(opcode == OpCode::TAIL_CALL) {
-                            break State::Done(r, false);
+                    // ═══════════════════════════════════════════════════
+                    // Unary / comparison / binary logic
+                    // ═══════════════════════════════════════════════════
+                    OpCode::POST_INC | OpCode::POST_DEC => {
+                        let op1 = SP_VAL!(-1);
+                        if let Ok(n1) = op1.to_number(realm_scope) {
+                            SP_PUT!(-1, JSValue::from(n1));
+                            if let Ok(res) =
+                                UnaryOp::new(realm_scope, JSValue::from(n1), true).map(|unary| {
+                                    match opcode {
+                                        OpCode::POST_INC => unary.inc(),
+                                        OpCode::POST_DEC => unary.dec(),
+                                        _ => unreachable!(),
+                                    }
+                                })
+                            {
+                                SP_PUT!(0, res);
+                                SP_GO!(1);
+                            } else {
+                                break State::Exception;
+                            }
                         } else {
-                            SP_GO!(-(call_argc as i32 + 1));
-                            SP_PUT!(0, r);
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::INC_LOC | OpCode::DEC_LOC => {
+                        let idx = PC_FETCH!(u8) as i32;
+                        let op1 = VAR_REF![idx];
+                        if let Ok(res) =
+                            UnaryOp::new(realm_scope, *op1, true).map(|unary| match opcode {
+                                OpCode::INC_LOC => unary.inc(),
+                                OpCode::DEC_LOC => unary.dec(),
+                                _ => unreachable!(),
+                            })
+                        {
+                            *op1 = res;
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::ADD_LOC => {
+                        let idx = PC_FETCH!(u8) as i32;
+                        let op1 = SP_VAL!(-1);
+                        SP_GO!(-1);
+                        let pv = VAR_REF![idx];
+                        if let Ok(val) = JSValue::arith_add(realm_scope, *pv, op1) {
+                            *pv = val;
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::NOT => {
+                        if let Ok(res) =
+                            UnaryOp::new_int(realm_scope, SP_VAL!(-1)).map(|unary| unary.not())
+                        {
+                            SP_PUT!(-1, res);
+                        } else {
+                            SP_PUT!(-1, JSValue::UNDEFINED);
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::SHL
+                    | OpCode::SHR
+                    | OpCode::SAR
+                    | OpCode::AND
+                    | OpCode::OR
+                    | OpCode::XOR => {
+                        if let Ok(new_sp) = op_binary_logic(realm_scope, opcode, sp) {
+                            sp = new_sp;
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::LT | OpCode::LTE | OpCode::GT | OpCode::GTE => {
+                        let op1 = SP_VAL!(-2);
+                        let op2 = SP_VAL!(-1);
+                        if let Ok(rel) = op1.arith_cmp(realm_scope, op2) {
+                            let b = matches!(
+                                (rel, opcode),
+                                (Some(std::cmp::Ordering::Less), OpCode::LT | OpCode::LTE)
+                                    | (Some(std::cmp::Ordering::Greater), OpCode::GT | OpCode::GTE)
+                                    | (Some(std::cmp::Ordering::Equal), OpCode::LTE | OpCode::GTE)
+                            );
+                            SP_PUT!(-2, JSValue::Bool(b));
+                            SP_GO!(-1);
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::EQ | OpCode::NEQ => {
+                        let op1 = SP_VAL!(-2);
+                        let op2 = SP_VAL!(-1);
+                        if let Ok(b) = op1.arith_eq(realm_scope, op2) {
+                            SP_PUT!(-2, JSValue::Bool(b ^ (opcode == OpCode::NEQ)));
+                            SP_GO!(-1);
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::STRICT_EQ | OpCode::STRICT_NEQ => {
+                        let mut b = SP_VAL!(-2).strict_eq(SP_VAL!(-1));
+                        if opcode == OpCode::STRICT_NEQ {
+                            b = !b;
+                        }
+                        SP_PUT!(-2, JSValue::Bool(b));
+                        SP_GO!(-1);
+                    }
+                    OpCode::IN => {
+                        if let Ok(b) = js_operator_in(realm_scope, SP_REF!(-1), SP_REF!(-2)) {
+                            SP_PUT!(-2, JSValue::Bool(b));
+                            SP_GO!(-1);
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::PRIVATE_IN => {
+                        #[cfg(feature = "builtin_symbol")]
+                        if unlikely(
+                            crate::bytecode::operators::js_operator_private_in(realm_scope, sp)
+                                .is_err(),
+                        ) {
+                            break State::Exception;
+                        } else {
+                            SP_GO!(-1);
+                        }
+                        #[cfg(not(feature = "builtin_symbol"))]
+                        {
+                            realm_scope.throw_internal_error("Symbol is not supported");
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::INSTANCEOF => {
+                        if unlikely(js_operator_instanceof(realm_scope, sp).is_err()) {
+                            break State::Exception;
+                        } else {
+                            SP_GO!(-1);
+                        }
+                    }
+                    OpCode::TYPEOF => {
+                        let op1 = SP_VAL!(-1);
+                        let atom = op1.type_of();
+                        SP_PUT!(
+                            -1,
+                            atom.force_string(realm_scope)
+                                .map_or(JSValue::EXCEPTION, JSValue::from)
+                        );
+                    }
+                    OpCode::DELETE => {
+                        if unlikely(js_operator_delete(realm_scope, sp) != 0) {
+                            break State::Exception;
+                        } else {
+                            SP_GO!(-1);
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Global variable access
+                    // ═══════════════════════════════════════════════════
+                    OpCode::CHECK_VAR => {
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        if let Ok(b) = realm_scope.check_global_var(atom) {
+                            SP_PUT!(0, JSValue::Bool(b));
+                            SP_GO!(1);
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::GET_VAR_UNDEF | OpCode::GET_VAR => {
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        if let Ok(val) = realm_scope.get_global_var(atom, opcode == OpCode::GET_VAR)
+                        {
+                            SP_PUT!(0, val);
+                            SP_GO!(1);
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        let res = realm_scope.set_global_var(
+                            atom,
+                            SP_VAL!(-1),
+                            (opcode as u8 - OpCode::PUT_VAR as u8) as _,
+                        );
+                        SP_GO!(-1);
+                        if res.is_err() {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::PUT_VAR_STRICT => {
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        if let JSValue::Bool(false) = SP_VAL!(-2) {
+                            JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                            break State::Exception;
+                        } else {
+                            let ret = realm_scope.set_global_var(atom, SP_VAL!(-1), 2);
+                            SP_GO!(-2);
+                            if unlikely(ret.is_err()) {
+                                break State::Exception;
+                            }
+                        }
+                    }
+                    OpCode::DEFINE_VAR => {
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        let flags = PC_FETCH!(u8);
+                        let r = realm_scope.define_global_var(atom, flags as _);
+                        if unlikely(r.is_err()) {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::CHECK_DEFINE_VAR => {
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        let flags = PC_FETCH!(u8);
+                        let r = realm_scope.define_global_var_checked(atom, flags as _);
+                        if unlikely(r.is_err()) {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::DEFINE_FUNC => {
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        let flags = PC_FETCH!(u8);
+                        let func = SP_VAL!(-1);
+                        SP_GO!(-1);
+                        let r = realm_scope.define_global_function(atom, func, flags as _);
+                        if unlikely(r.is_err()) {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::DELETE_VAR => {
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        match realm_scope
+                            .global_obj()
+                            .delete_property(realm_scope, atom, 0)
+                        {
+                            Ok(ret) => {
+                                SP_PUT!(0, JSValue::Bool(ret));
+                                SP_GO!(1);
+                            }
+                            Err(_) => {
+                                break State::Exception;
+                            }
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Local variable check / init
+                    // ═══════════════════════════════════════════════════
+                    OpCode::SET_LOC_UNINITIALIZED => {
+                        let idx = PC_FETCH!(u16);
+                        *VAR_REF![idx] = JSValue::UNINITIALIZED;
+                    }
+                    OpCode::GET_LOC_CHECK | OpCode::GET_LOC_CHECKTHIS => {
+                        let idx = PC_FETCH!(u16);
+                        let value = VAR_REF![idx];
+                        if unlikely(value.is_uninitialized()) {
+                            JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, false);
+                            break State::Exception;
+                        } else {
+                            SP_PUT!(0, *value);
                             SP_GO!(1);
                         }
-                    } else {
+                    }
+                    OpCode::PUT_LOC_CHECK => {
+                        let idx = PC_FETCH!(u16);
+                        let pval = VAR_REF![idx];
+                        if unlikely(pval.is_uninitialized()) {
+                            JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, false);
+                            break State::Exception;
+                        } else {
+                            *pval = SP_VAL!(-1);
+                            SP_GO!(-1);
+                        }
+                    }
+                    OpCode::PUT_LOC_CHECK_INIT => {
+                        let idx = PC_FETCH!(u16);
+                        let pval = VAR_REF![idx];
+                        if unlikely(!pval.is_uninitialized()) {
+                            realm_scope
+                                .throw_reference_error("'this' can be initialized only once");
+                            break State::Exception;
+                        } else {
+                            *pval = SP_VAL!(-1);
+                            SP_GO!(-1);
+                        }
+                    }
+                    OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
+                        let idx = PC_FETCH!(u16);
+                        let val = captured_vars[idx as usize].value();
+                        if unlikely(val.is_uninitialized()) {
+                            JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, true);
+                            break State::Exception;
+                        } else if opcode == OpCode::GET_VAR_REF_CHECK {
+                            SP_PUT!(0, val);
+                            SP_GO!(1);
+                        } else {
+                            captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
+                            SP_GO!(-1);
+                        }
+                    }
+                    OpCode::PUT_VAR_REF_CHECK_INIT => {
+                        let idx = PC_FETCH!(u16);
+                        if unlikely(!captured_vars[idx as usize].value().is_uninitialized()) {
+                            JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, true);
+                            break State::Exception;
+                        } else {
+                            captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
+                            SP_GO!(-1);
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Constructor / brand / throw
+                    // ═══════════════════════════════════════════════════
+                    OpCode::CHECK_CTOR_RETURN => {
+                        if !SP_REF!(-1).is_object() {
+                            if unlikely(!SP_REF!(-1).is_undefined()) {
+                                realm_scope.throw_type_error(
+                                    "derived class constructor must return an object or undefined",
+                                );
+                                break State::Exception;
+                            } else {
+                                SP_PUT!(0, JSValue::Bool(true));
+                                SP_GO!(1);
+                            }
+                        } else {
+                            SP_PUT!(0, JSValue::Bool(false));
+                            SP_GO!(1);
+                        }
+                    }
+                    OpCode::CHECK_CTOR => {
+                        if new_target.is_undefined() {
+                            realm_scope
+                                .throw_type_error("class constructors must be invoked with 'new'");
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::CHECK_BRAND => {
+                        #[cfg(feature = "builtin_symbol")]
+                        if let Ok(b) = SP_REF!(-2).check_brand(realm_scope, SP_VAL!(-1)) {
+                            if unlikely(!b) {
+                                realm_scope.throw_type_error("invalid brand on object");
+                                break State::Exception;
+                            }
+                        } else {
+                            break State::Exception;
+                        }
+                        #[cfg(not(feature = "builtin_symbol"))]
+                        {
+                            realm_scope.throw_internal_error("Symbol is not supported");
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::ADD_BRAND => {
+                        #[cfg(feature = "builtin_symbol")]
+                        {
+                            let mut func_obj = SP_VAL!(-2);
+                            let home_object = SP_VAL!(-1);
+                            SP_GO!(-2);
+                            if unlikely(func_obj.add_brand(realm_scope, home_object).is_err()) {
+                                break State::Exception;
+                            }
+                        }
+                        #[cfg(not(feature = "builtin_symbol"))]
+                        {
+                            realm_scope
+                                .throw_internal_error("can't add brand: Symbol is not supported");
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::THROW => {
+                        SP_GO!(-1);
+                        realm_scope.throw_value(SP_VAL!(0));
                         break State::Exception;
                     }
+                    OpCode::THROW_ERROR => {
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        let type_ = PC_FETCH!(u8);
+                        match type_ {
+                            JS_THROW_VAR_RO => {
+                                realm_scope.throw_type_error_read_only(atom);
+                            }
+                            JS_THROW_VAR_REDECL => {
+                                JS_ThrowSyntaxErrorVarRedeclaration(realm_scope, atom);
+                            }
+                            JS_THROW_VAR_UNINITIALIZED => {
+                                JS_ThrowReferenceErrorUninitialized(realm_scope, atom);
+                            }
+                            JS_THROW_ERROR_DELETE_SUPER => {
+                                realm_scope
+                                    .throw_reference_error("unsupported reference to 'super'");
+                            }
+                            JS_THROW_ERROR_ITERATOR_THROW => {
+                                realm_scope
+                                    .throw_type_error("iterator does not have a throw method");
+                            }
+                            _ => {
+                                realm_scope.throw_internal_error(&format!(
+                                    "invalid throw var type {type_}"
+                                ));
+                            }
+                        }
+                        break State::Exception;
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Array / Apply
+                    // ═══════════════════════════════════════════════════
+                    OpCode::ARRAY_FROM => {
+                        let call_argc = PC_FETCH!(u16) as i32;
+                        if let Ok(mut list) = alloc_fast_array_slots(realm_scope, call_argc as _) {
+                            let call_argv = unsafe { sp.offset(-call_argc as isize) };
+                            for i in 0..call_argc as usize {
+                                let val = unsafe { *call_argv.add(i) };
+                                list.push(val);
+                            }
+                            if let Ok(arr) = crate::array::Array::from_values(realm_scope, list) {
+                                SP_GO!(-call_argc);
+                                SP_PUT!(0, JSValue::from(arr));
+                                SP_GO!(1);
+                            } else {
+                                break State::Exception;
+                            }
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::APPLY => {
+                        let magic = PC_FETCH!(u16) as i32;
+                        let op_3 = SP_VAL!(-3);
+                        let op_2 = SP_VAL!(-2);
+                        let op_1 = SP_VAL!(-1);
+                        SP_GO!(-3);
+                        if let Ok(res) = js_function_apply(
+                            realm_scope,
+                            CallContext::new(op_3, &[op_2, op_1], magic, None),
+                        ) {
+                            SP_PUT!(0, res);
+                            SP_GO!(1);
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Eval
+                    // ═══════════════════════════════════════════════════
+                    OpCode::EVAL => {
+                        let call_argc = PC_FETCH!(u16) as i32;
+                        let scope_idx = PC_FETCH!(u16) as i32 - 1;
+                        let call_argv = unsafe { sp.offset(-call_argc as isize) };
+                        unsafe {
+                            *cur_pc_offset_ptr = pc.offset_from(pc_base) as _;
+                        }
+                        let func_val = unsafe { *call_argv.offset(-1) };
+                        let ret_val = if func_val.is_same(realm_scope.eval_func) {
+                            if call_argc >= 1 {
+                                let obj = unsafe { &*call_argv };
+                                obj.eval_object(
+                                    realm_scope,
+                                    JSValue::UNDEFINED,
+                                    EvalType::Direct,
+                                    EvalFlags::empty(),
+                                    scope_idx as _,
+                                )
+                            } else {
+                                Ok(JSValue::UNDEFINED)
+                            }
+                        } else {
+                            func_val.call_internal(
+                                realm_scope,
+                                JSValue::UNDEFINED,
+                                JSValue::UNDEFINED,
+                                unsafe {
+                                    std::slice::from_raw_parts(call_argv, call_argc as usize)
+                                },
+                                0,
+                            )
+                        };
+                        SP_GO!(-(call_argc + 1));
+                        if let Ok(v) = ret_val {
+                            SP_PUT!(0, v);
+                            SP_GO!(1);
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::APPLY_EVAL => {
+                        let var_scope_idx = PC_FETCH!(u16) as i32 - 1;
+                        let func_val = SP_REF!(-2);
+                        if let Ok(arg_list) = build_arg_list(realm_scope, SP_VAL!(-1)) {
+                            let ret_val = {
+                                if func_val.is_same(realm_scope.eval_func) {
+                                    if !arg_list.is_empty() {
+                                        arg_list[0].eval_object(
+                                            realm_scope,
+                                            JSValue::UNDEFINED,
+                                            EvalType::Direct,
+                                            EvalFlags::empty(),
+                                            var_scope_idx,
+                                        )
+                                    } else {
+                                        Ok(JSValue::UNDEFINED)
+                                    }
+                                } else {
+                                    func_val.call(realm_scope, JSValue::UNDEFINED, &arg_list)
+                                }
+                            };
+                            if let Ok(v) = ret_val {
+                                SP_GO!(-2);
+                                SP_PUT!(0, v);
+                                SP_GO!(1);
+                            } else {
+                                break State::Exception;
+                            }
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Misc
+                    // ═══════════════════════════════════════════════════
+                    OpCode::GET_SUPER => {
+                        if let Ok(proto) = SP_REF!(-1).prototype(realm_scope) {
+                            SP_PUT!(-1, proto);
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::IMPORT => {
+                        if let Ok(res) = js_dynamic_import(realm_scope, SP_VAL!(-1)) {
+                            SP_PUT!(-1, res);
+                        } else {
+                            break State::Exception;
+                        }
+                    }
+                    OpCode::REGEXP => {
+                        #[cfg(feature = "builtin_regexp")]
+                        if let JSValue::Int(re_id) = SP_VAL!(-1) {
+                            let re = Box::new(
+                                realm_scope.rt().regexp_precompiled[re_id as usize].clone(),
+                            );
+                            let regexp = crate::builtins::regexp::RegExp::from(
+                                realm_scope,
+                                JSValue::UNDEFINED,
+                                re,
+                            )
+                            .map_or(JSValue::EXCEPTION, |o| o.into());
+                            SP_PUT!(-2, regexp);
+                            SP_GO!(-1);
+                        }
+                        #[cfg(not(feature = "builtin_regexp"))]
+                        {
+                            realm_scope.throw_internal_error("regex not supported");
+                            break State::Exception;
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // FCLOSURE
+                    // ═══════════════════════════════════════════════════
+                    OpCode::FCLOSURE => {
+                        // [^] -> [func_obj, ^]
+                        let id = PC_FETCH!(u32);
+
+                        if let JSValue::Bytecode(bc) = CPOOL![id] {
+                            let mut abort = false;
+                            let captures: Vec<VarRef> = if bc.closure_var_count != 0 {
+                                let mut lst = Vec::new();
+                                if lst
+                                    .try_reserve_exact(bc.closure_var_count as usize)
+                                    .is_err()
+                                {
+                                    realm_scope.throw_out_of_memory();
+                                    break State::Exception;
+                                }
+                                for cv in bc.closure_vars() {
+                                    lst.push(if cv.is_local() {
+                                        match arena_get_var_ref(
+                                            realm_scope,
+                                            cv.var_idx,
+                                            cv.is_arg(),
+                                            arg_base_ptr,
+                                            var_base_ptr,
+                                            &mut arena.frame_mut(cur_frame_idx).var_ref_list,
+                                            self.arg_count,
+                                            self.var_count,
+                                            mode,
+                                        ) {
+                                            Ok(vr) => vr,
+                                            Err(_) => {
+                                                abort = true;
+                                                break;
+                                            }
+                                        }
+                                    } else {
+                                        captured_vars[cv.var_idx as usize]
+                                    });
+                                }
+                                lst
+                            } else {
+                                Vec::new()
+                            };
+                            if abort {
+                                break State::Exception;
+                            }
+
+                            let p = BFuncPayload::new(bc, captures);
+                            let isa = match bc.func_kind() {
+                                FunctionKind::Normal => ObjectPayload::BYTECODE_FUNCTION(p),
+                                FunctionKind::Generator => ObjectPayload::GENERATOR_FUNCTION(p),
+                                FunctionKind::Async => ObjectPayload::ASYNC_FUNCTION(p),
+                                FunctionKind::AsyncGenerator => {
+                                    ObjectPayload::ASYNC_GENERATOR_FUNCTION(p)
+                                }
+                            };
+                            let mut obj = match realm_scope.create_instance_with_proto_payload(
+                                realm_scope.class_proto(isa.class_id()),
+                                isa,
+                            ) {
+                                Ok(o) => o,
+                                Err(_) => {
+                                    break State::Exception;
+                                }
+                            };
+
+                            js_function_set_properties(
+                                realm_scope,
+                                obj,
+                                if bc.func_name.is_null() {
+                                    Atom::CONST_empty_string
+                                } else {
+                                    bc.func_name
+                                },
+                                bc.attrs.defined_arg_count as _,
+                            );
+
+                            if let Some(gen_class_id) = bc.func_kind().generator_class_id() {
+                                let proto = match realm_scope.create_base_object_with_proto(
+                                    realm_scope.class_proto(gen_class_id),
+                                ) {
+                                    Ok(p) => p,
+                                    Err(_) => {
+                                        break State::Exception;
+                                    }
+                                };
+                                if obj
+                                    .define_property_value(
+                                        realm_scope,
+                                        Atom::CONST_prototype,
+                                        proto.into(),
+                                        JS_PROP_WRITABLE,
+                                    )
+                                    .is_err()
+                                {
+                                    break State::Exception;
+                                }
+                            } else if bc.has_prototype() {
+                                obj.set_flag_constructor(true);
+                                if obj
+                                    .define_lazy_property(
+                                        realm_scope,
+                                        Atom::CONST_prototype,
+                                        LazyInit::Prototype,
+                                        JS_PROP_WRITABLE,
+                                    )
+                                    .is_err()
+                                {
+                                    break State::Exception;
+                                }
+                            }
+
+                            let r = JSValue::from(obj);
+                            SP_PUT!(0, r);
+                            SP_GO!(1);
+                            if r.is_exception() {
+                                break State::Exception;
+                            }
+                        } else {
+                            unreachable!()
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // Unimplemented: with, short_opcode, etc.
+                    // ═══════════════════════════════════════════════════
+                    _ => {
+                        // TODO: Port remaining opcodes from execute_with_realm_scope.
+                        return ExecAction::Unwind;
+                    }
+                } // match opcode
+
+                #[cfg(all(debug_assertions, feature = "debug_gc"))]
+                {
+                    realm_scope.clear_locals();
+                    rt.gc_collect();
+                }
+                #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
+                if rt.gc_req {
+                    realm_scope.clear_locals();
+                    rt.gc_collect();
+                }
+            }; // opcodes inner loop
+
+            // ── State dispatch ──
+            match state {
+                State::Done(ret_val, is_generator) => {
+                    unsafe {
+                        *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
+                        *cur_sp_offset_ptr = sp.offset_from(sp_base) as i32;
+                    }
+                    return ExecAction::Return(ret_val, is_generator);
                 }
 
-                OpCode::RETURN => {
-                    SP_GO!(-1);
-                    let ret = SP_VAL!(0);
-                    break State::Done(ret, false);
-                }
-                OpCode::RETURN_UNDEF => {
-                    break State::Done(JSValue::UNDEFINED, false);
-                }
-
-                // ── Generator yield / async await ──
-                // These opcodes produce State::Done with is_generator=true,
-                // which maps to ExecAction::Return(ret_val, true).
-
-                // For all other opcodes, delegate to the legacy handler.
-                // This is a transitional measure; full migration will
-                // replicate all opcode handlers in this function.
-                //
-                // When the trampoline is active, unhandled opcodes cause a
-                // runtime error. The trampoline is currently unused in
-                // production code paths; the legacy execute_with_realm_scope
-                // handles all execution.
-                _ => {
-                    // TODO: Port all opcodes from execute_with_realm_scope.
-                    // For now, return an error-like action that will
-                    // propagate upward in the trampoline.
+                State::Exception => {
+                    // Interrupt bypasses catch handling.
+                    if realm_scope.rt().interrupt_code.is_some() {
+                        return ExecAction::Unwind;
+                    }
+                    if let Some((new_pc, new_sp)) =
+                        arena.find_catch_in_frame(cur_frame_idx, realm_scope)
+                    {
+                        unsafe {
+                            *cur_sp_offset_ptr = new_sp as i32;
+                            pc = pc_base.add(new_pc);
+                            sp = sp_base.add(new_sp);
+                        }
+                        continue 'arena_loop;
+                    }
                     return ExecAction::Unwind;
                 }
-            } // match opcode
 
-            #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
-            if rt.gc_req {
-                realm_scope.clear_locals();
-                rt.gc_collect();
-            }
-        }; // opcodes inner loop
-
-        // ── State dispatch ──
-        // TODO: When the trampoline is fully integrated, CallBytecode and
-        // TailCall should NOT return. Instead, they should switch to the
-        // callee frame (update cur_frame_idx / pc / sp / pc_base / sp_base
-        // etc.) and `continue 'restart` to re-enter the opcode dispatch
-        // loop without trampoline round-trip. Done / Exception still return.
-        match state {
-            State::Done(ret_val, is_generator) => {
-                // Save pc/sp to frame head before returning.
-                unsafe {
-                    *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
-                    *cur_sp_offset_ptr = sp.offset_from(sp_base) as i32;
-                }
-                return ExecAction::Return(ret_val, is_generator);
-            }
-
-            State::Exception => {
-                return ExecAction::Unwind;
-            }
-
-            State::CallBytecode {
-                callee_bc,
-                callee_frame_idx,
-                return_sp,
-            } => {
-                // Save current pc/sp before yielding to trampoline.
-                unsafe {
-                    *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
-                    *cur_sp_offset_ptr = sp.offset_from(sp_base) as i32;
-                }
-                return ExecAction::CallBytecode {
+                State::CallBytecode {
                     callee_bc,
                     callee_frame_idx,
                     return_sp,
-                };
-            }
+                } => {
+                    unsafe {
+                        *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
+                        *cur_sp_offset_ptr = sp.offset_from(sp_base) as i32;
+                    }
+                    return ExecAction::CallBytecode {
+                        callee_bc,
+                        callee_frame_idx,
+                        return_sp,
+                    };
+                }
 
-            State::TailCall {
-                callee_bc,
-                callee_func_obj,
-                callee_buf_cap,
-            } => {
-                return ExecAction::TailCall {
+                State::TailCall {
                     callee_bc,
                     callee_func_obj,
                     callee_buf_cap,
-                };
+                } => {
+                    return ExecAction::TailCall {
+                        callee_bc,
+                        callee_func_obj,
+                        callee_buf_cap,
+                    };
+                }
             }
-        }
+        } // 'arena_loop
     }
 }
 
@@ -3267,21 +4506,19 @@ pub(crate) fn execute_trampoline(
                 arena.free_frame(cur_frame_idx);
                 drop(cur_scope);
 
-                loop {
-                    if let Some(caller_vf) = virtual_frames.pop() {
-                        cur_scope = ManuallyDrop::into_inner(caller_vf.caller_scope);
-                        cur_bc = caller_vf.caller_bc;
-                        cur_frame_idx = caller_vf.frame_idx;
+                if let Some(caller_vf) = virtual_frames.pop() {
+                    cur_scope = ManuallyDrop::into_inner(caller_vf.caller_scope);
+                    cur_bc = caller_vf.caller_bc;
+                    cur_frame_idx = caller_vf.frame_idx;
 
-                        let caller_head = arena.frame(caller_vf.frame_idx);
-                        pc_offset = caller_head.cur_pc_offset;
-                        sp_offset = caller_head.cur_sp_offset as usize;
-                        throwed = true;
+                    let caller_head = arena.frame(caller_vf.frame_idx);
+                    pc_offset = caller_head.cur_pc_offset;
+                    sp_offset = caller_head.cur_sp_offset as usize;
+                    throwed = true;
 
-                        continue 'trampoline;
-                    } else {
-                        return JSValue::EXCEPTION;
-                    }
+                    continue 'trampoline;
+                } else {
+                    return JSValue::EXCEPTION;
                 }
             }
 

@@ -28,7 +28,7 @@ pub(crate) struct ClosureVar {
     // 0-based index
     // when flags `is_local` is set: index to a normal variable in the parent function.
     // otherwise: index to a closure variable of the parent function.
-    var_idx: u16,
+    pub(crate) var_idx: u16,
 
     pub(crate) var_name: Atom,
 }

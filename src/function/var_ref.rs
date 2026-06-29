@@ -123,13 +123,13 @@ impl VarRefImpl {
     /// this makes var ref no longer refer to a local variable.
     /// if has async funtion, free it too.
     /// if `self` is already detached, do nothing.
-    const fn detach(&mut self) {
+    pub(crate) const fn detach(&mut self) {
         if let Self::Bind { pvalue, .. } = self {
             *self = Self::Detached(unsafe { *pvalue.as_ref() });
         }
     }
 
-    const fn is_match(&self, var_idx: u16, is_arg: bool) -> bool {
+    pub(crate) const fn is_match(&self, var_idx: u16, is_arg: bool) -> bool {
         if let Self::Bind {
             is_arg: a,
             var_idx: i,
@@ -208,7 +208,7 @@ impl VarRef {
     }
 
     /// create a bind var ref
-    fn create_bind(
+    pub(crate) fn create_bind(
         ctx: &mut ScopedContext,
         var_idx: u16,
         is_arg: bool,
