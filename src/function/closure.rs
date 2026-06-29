@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ptr::NonNull;
+
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
@@ -8,7 +10,7 @@ use crate::{
     atom::Atom,
     context::ScopedContext,
     object::{JS_PROP_WRITABLE, LazyInit, Object, ObjectPayload},
-    stack_frame::StackFrame,
+    stack_frame::{FrameIndex, StackFrame, StackFrameArena},
 };
 
 use super::{
@@ -287,6 +289,121 @@ impl Bytecode {
             // add the 'prototype' property: delay instantiation to avoid
             // creating cycles for every javascript function. The prototype
             // object is created on the fly when first accessed
+            obj.set_flag_constructor(true);
+            obj.define_lazy_property(
+                ctx,
+                Atom::CONST_prototype,
+                LazyInit::Prototype,
+                JS_PROP_WRITABLE,
+            )?;
+        }
+
+        Ok(obj)
+    }
+
+    /// Create closure for arena-based execution (stackless trampoline path).
+    /// Used by direct eval when the caller's frame is in the arena instead of
+    /// a legacy StackFrame. Creates VarRefs pointing into the arena's data buffer.
+    pub(crate) fn make_closure_for_arena(
+        &self,
+        ctx: &mut ScopedContext,
+        proto: Option<Object>,
+        captured_vars: &[VarRef],
+        arena: &mut StackFrameArena,
+        parent_frame_idx: FrameIndex,
+    ) -> Result<BCWrapper, i32> {
+        let captures: Vec<VarRef> = if self.closure_var_count != 0 {
+            // Extract frame metadata before mutable borrow for var_ref_list.
+            let (arg_base, var_base, arg_count, var_count) = {
+                let head = arena.frame(parent_frame_idx);
+                let data_ptr = arena.data_ptr(head);
+                (
+                    data_ptr,
+                    unsafe { data_ptr.add(head.var_base_offset as usize) },
+                    head.arg_count,
+                    head.var_count,
+                )
+            };
+            let parent_var_refs = &mut arena.frame_mut(parent_frame_idx).var_ref_list;
+
+            let mut lst = Vec::new();
+            lst.try_reserve_exact(self.closure_var_count as usize)
+                .map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
+
+            for cv in self.closure_vars() {
+                lst.push(if cv.is_local() {
+                    // Create VarRef pointing to the local variable in the arena frame
+                    // (arena equivalent of StackFrame::get_var_ref).
+                    if let Some(vr) = parent_var_refs
+                        .iter()
+                        .find(|x| x.is_match(cv.var_idx, cv.is_arg()))
+                        .copied()
+                    {
+                        vr
+                    } else {
+                        let pvalue = unsafe {
+                            NonNull::new_unchecked(if cv.is_arg() {
+                                debug_assert!(cv.var_idx < arg_count);
+                                arg_base.add(cv.var_idx as usize)
+                            } else {
+                                debug_assert!(cv.var_idx < var_count);
+                                var_base.add(cv.var_idx as usize)
+                            })
+                        };
+                        let vref = VarRef::create_bind(ctx, cv.var_idx, cv.is_arg(), pvalue, None)?;
+                        parent_var_refs.push(vref);
+                        vref
+                    }
+                } else {
+                    captured_vars[cv.var_idx as usize]
+                });
+            }
+
+            lst
+        } else {
+            Vec::new()
+        };
+
+        let mut obj = {
+            let p = BFuncPayload::new(*self, captures);
+            let isa = match self.func_kind() {
+                FunctionKind::Normal => ObjectPayload::BYTECODE_FUNCTION(p),
+                FunctionKind::Generator => ObjectPayload::GENERATOR_FUNCTION(p),
+                FunctionKind::Async => ObjectPayload::ASYNC_FUNCTION(p),
+                FunctionKind::AsyncGenerator => ObjectPayload::ASYNC_GENERATOR_FUNCTION(p),
+            };
+            BCWrapper(
+                ctx.create_instance_with_proto_payload(
+                    proto.or_else(|| ctx.class_proto(isa.class_id())),
+                    isa,
+                )
+                .map_err(|_| -1)?
+                .gc_ref(),
+            )
+        };
+
+        js_function_set_properties(
+            ctx,
+            obj.into(),
+            if self.func_name.is_null() {
+                Atom::CONST_empty_string
+            } else {
+                self.func_name
+            },
+            self.attrs.defined_arg_count as _,
+        );
+
+        if let Some(gen_class_id) = self.func_kind().generator_class_id() {
+            debug_assert!(matches!(
+                gen_class_id,
+                JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
+            ));
+            let proto = ctx.create_base_object_with_proto(ctx.class_proto(gen_class_id))?;
+            obj.define_property_value(ctx, Atom::CONST_prototype, proto.into(), JS_PROP_WRITABLE)?;
+        } else if self.has_prototype() {
             obj.set_flag_constructor(true);
             obj.define_lazy_property(
                 ctx,

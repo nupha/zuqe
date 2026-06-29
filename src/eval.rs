@@ -8,10 +8,10 @@ use crate::{
     atom::Atom,
     context::{ScopeResult, ScopedContext},
     error::JSResult,
-    function::{Bytecode, FunctionDef, FunctionKind, add_closure_variables},
+    function::{BCWrapper, Bytecode, FunctionDef, FunctionKind, VarRef, add_closure_variables},
     module::ModuleDef,
     parse::JSParseState,
-    stack_frame::ExecMode,
+    stack_frame::{ExecMode, FrameIndex, StackFrame},
     value::JSValue,
 };
 
@@ -65,10 +65,23 @@ impl<'c> ScopedContext<'c> {
     ) -> Result<Compiled, i32> {
         // get (bytecode, module, js_mode) of current stack frame
         let (frame_func_bc, frame_module, js_mode) = if eval_type == EvalType::Direct {
-            let cur_func = self
+            // Try old-style StackFrame first, then arena frame for stackless path.
+            // BCWrapper is Copy, so we use .copied() to get an owned value.
+            let cur_func: BCWrapper = self
                 .rt()
                 .current_stack_frame()
-                .and_then(|sf| sf.func_obj.as_BCWrapper())
+                .and_then(|sf| sf.func_obj.as_BCWrapper().copied())
+                .or_else(|| {
+                    // Trampoline path: get func_obj from the arena's current frame.
+                    let rt = self.rt();
+                    let idx = rt.active_trampoline_frame;
+                    if !idx.is_null() {
+                        let head = rt.frame_arena().frame(idx);
+                        BCWrapper::try_from(JSValue::from(head.func_obj)).ok()
+                    } else {
+                        None
+                    }
+                })
                 .unwrap(); // <-- stack function must be a BCWrapper object
 
             let bc = cur_func.payload().bytecode();
@@ -227,19 +240,55 @@ impl<'c> ScopedContext<'c> {
                 Compiled::GlobalOrIndirect(bc) => bc.run_as_function(self, this_obj, &[], None),
                 Compiled::Direct(bc) => {
                     let mut rt = self.rt_ptr();
-                    bc.run_as_function(
+
+                    // Try old-style StackFrame path first (non-trampoline callers).
+                    let sf_raw: *mut StackFrame = unsafe {
+                        match (*rt).current_stack_frame_mut() {
+                            Some(sf) => sf as *mut StackFrame,
+                            None => std::ptr::null_mut(),
+                        }
+                    };
+                    if !sf_raw.is_null() {
+                        let sf = unsafe { &mut *sf_raw };
+                        if let Some(bf) = sf.func_obj.as_BCWrapper_mut() {
+                            let cv_ptr: *const [VarRef] = bf.payload().closure_var_refs();
+                            drop(bf); // release borrow on sf
+                            let captured_vars = unsafe { &*cv_ptr };
+                            return bc.run_as_function(
+                                self,
+                                this_obj,
+                                captured_vars,
+                                Some(unsafe { &mut *sf_raw }),
+                            );
+                        }
+                    }
+
+                    // Trampoline path: use arena frame.
+                    let idx = unsafe { (*rt).active_trampoline_frame };
+                    if idx.is_null() {
+                        // No old-style StackFrame and no trampoline frame:
+                        // treat as indirect/global eval (no captured vars).
+                        return bc.run_as_function(self, this_obj, &[], None);
+                    }
+                    let captured_vars = {
+                        let head = unsafe { (*rt).frame_arena().frame(idx) };
+                        let bfun = BCWrapper::try_from(JSValue::from(head.func_obj))
+                            .expect("eval: caller must be bytecode function");
+                        // SAFETY: bfun is a Copy type (GcRef). The &[VarRef]
+                        // points into GC-managed memory that remains valid
+                        // for the duration of this call.
+                        let cv_ptr: *const [VarRef] = bfun.payload().closure_var_refs();
+                        unsafe { &*cv_ptr }
+                    };
+
+                    bc.make_closure_for_arena(
                         self,
-                        this_obj,
-                        rt.current_stack_frame()
-                            .unwrap()
-                            .func_obj
-                            .as_BCWrapper()
-                            .copied()
-                            .unwrap() // <-- stack function must be a BCWrapper
-                            .payload()
-                            .closure_var_refs(),
-                        rt.current_stack_frame_mut(),
-                    )
+                        None,
+                        captured_vars,
+                        unsafe { (*rt).frame_arena_mut() },
+                        idx,
+                    )?
+                    .call(self, this_obj, &[])
                 }
                 Compiled::Module(mut md) => {
                     // Problem: m has created function? m was linked?

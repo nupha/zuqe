@@ -30,7 +30,7 @@ use crate::{
     },
     context::{ContextPtr, ScopedContext},
     error::{
-        JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
+        Exception, JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
         JS_ThrowReferenceErrorUninitialized, JS_ThrowReferenceErrorUninitialized2,
         JS_ThrowSyntaxErrorVarRedeclaration,
@@ -48,7 +48,7 @@ use crate::{
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
         JS_PROP_WRITABLE, JSProperty, LazyInit, Object, ObjectPayload,
     },
-    stack_frame::{ExecMode, FrameBufLocation, FrameHead, FrameIndex, StackFrame, StackFrameArena},
+    stack_frame::{ExecMode, FrameIndex, StackFrame, StackFrameArena},
     utils::{read_from_ptr, unlikely},
     value::JSValue,
 };
@@ -2763,6 +2763,25 @@ impl Bytecode {
             *cur_sp_offset_ptr = sp_offset as i32;
         }
 
+        // Resolve captured_vars from the current frame's function object.
+        // Each function in the call chain has its own closure_var_refs stored
+        // in its BFuncPayload. The trampoline always passes the initial
+        // function's captured_vars, which is wrong after a call/frame switch.
+        // We re-derive the correct slice from the current frame's func_obj.
+        let captured_vars: &mut [VarRef] = {
+            let func_obj = arena.frame(cur_frame_idx).func_obj;
+            if let Ok(mut bfun) = BCWrapper::try_from(JSValue::from(func_obj)) {
+                // SAFETY: bfun is a Copy (GcRef), so payload_mut borrows GC-managed
+                // memory that outlives this function call. No GC runs during execution.
+                let cv: *mut [VarRef] = bfun.payload_mut().closure_var_refs_mut();
+                unsafe { &mut *cv }
+            } else {
+                // Non-bytecode functions have no closure_var_refs.
+                // But execute_with_arena should never be called for them.
+                &mut []
+            }
+        };
+
         if throwed {
             let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
 
@@ -3454,51 +3473,62 @@ impl Bytecode {
                         // ── Inline bytecode dispatch ──
                         if let Ok(mut bfun) = BCWrapper::try_from(func) {
                             let bc = bfun.payload().bytecode();
-                            let callee_buf_cap = bc.arg_count as usize + bc.local_buf_size as usize;
+                            let func_kind = bc.func_kind();
 
-                            let callee_frame_idx =
-                                arena.alloc_frame(bfun.into(), bc.mode(), callee_buf_cap);
-                            arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+                            // Generator and async functions need their specific
+                            // class_call path (creates AGenPayload/AsyncState and
+                            // runs INITIAL_YIELD). Only plain (non-generator)
+                            // bytecode functions can use the inline frame setup.
+                            if func_kind == FunctionKind::Normal {
+                                let callee_buf_cap =
+                                    bc.arg_count as usize + bc.local_buf_size as usize;
 
-                            // Init callee frame data from stack args.
-                            {
-                                let callee_data = {
-                                    let h = arena.frame(callee_frame_idx);
-                                    arena.data_ptr(h)
-                                };
-                                let callee_head = arena.frame_mut(callee_frame_idx);
-                                let args_slice = unsafe {
-                                    std::slice::from_raw_parts(call_argv, call_argc as usize)
-                                };
-                                for (i, arg) in args_slice.iter().enumerate() {
-                                    unsafe {
-                                        *callee_data.add(i) = *arg;
+                                let callee_frame_idx =
+                                    arena.alloc_frame(bfun.into(), bc.mode(), callee_buf_cap);
+                                arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+
+                                // Init callee frame data from stack args.
+                                {
+                                    let callee_data = {
+                                        let h = arena.frame(callee_frame_idx);
+                                        arena.data_ptr(h)
+                                    };
+                                    let callee_head = arena.frame_mut(callee_frame_idx);
+                                    let args_slice = unsafe {
+                                        std::slice::from_raw_parts(call_argv, call_argc as usize)
+                                    };
+                                    for (i, arg) in args_slice.iter().enumerate() {
+                                        unsafe {
+                                            *callee_data.add(i) = *arg;
+                                        }
                                     }
+                                    callee_head.arg_base_offset = 0;
+                                    callee_head.arg_real_count = call_argc;
+                                    callee_head.arg_count = std::cmp::max(bc.arg_count, call_argc);
+                                    callee_head.var_base_offset = callee_head.arg_count as u32;
+                                    callee_head.var_count = bc.var_count;
+                                    callee_head.cur_sp_offset = 0;
                                 }
-                                callee_head.arg_base_offset = 0;
-                                callee_head.arg_real_count = call_argc;
-                                callee_head.arg_count = std::cmp::max(bc.arg_count, call_argc);
-                                callee_head.var_base_offset = callee_head.arg_count as u32;
-                                callee_head.var_count = bc.var_count;
-                                callee_head.cur_sp_offset = 0;
-                            }
 
-                            let return_sp = unsafe {
-                                sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
-                            } as usize;
+                                let return_sp = unsafe {
+                                    sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
+                                } as usize;
 
-                            if unlikely(opcode == OpCode::TAIL_CALL) {
-                                break State::TailCall {
+                                if unlikely(opcode == OpCode::TAIL_CALL) {
+                                    break State::TailCall {
+                                        callee_bc: bc,
+                                        callee_func_obj: bfun.into(),
+                                        callee_buf_cap,
+                                    };
+                                }
+                                break State::CallBytecode {
                                     callee_bc: bc,
-                                    callee_func_obj: bfun.into(),
-                                    callee_buf_cap,
+                                    callee_frame_idx,
+                                    return_sp,
                                 };
                             }
-                            break State::CallBytecode {
-                                callee_bc: bc,
-                                callee_frame_idx,
-                                return_sp,
-                            };
+                            // Generator/async function: fall through to
+                            // call_internal for proper class_call handling.
                         }
 
                         // Native function: use legacy call_internal path.
@@ -4654,6 +4684,7 @@ pub(crate) fn execute_trampoline(
         let rt = start_scope.rt_mut();
         &raw mut rt.frame_arena
     };
+    let mut rt_ptr = start_scope.rt_ptr();
 
     let mut cur_bc = start_bc;
     let mut cur_frame_idx = start_frame_idx;
@@ -4676,10 +4707,15 @@ pub(crate) fn execute_trampoline(
         let head = arena.frame(start_frame_idx);
         (head.cur_pc_offset, head.cur_sp_offset as usize)
     };
-    let mut throwed = false;
+    // Check for a pending runtime exception (e.g., .throw() on a suspended
+    // async generator or async function). If present, the first
+    // execute_with_arena call must handle it immediately.
+    let mut throwed = cur_scope.rt().exception() != Exception::No;
 
     'trampoline: loop {
         let arena = unsafe { &mut *arena_ptr };
+
+        rt_ptr.active_trampoline_frame = cur_frame_idx;
 
         let action = cur_bc.execute_with_arena(
             &mut cur_scope,
@@ -4758,20 +4794,39 @@ pub(crate) fn execute_trampoline(
                         // RETURN_ASYNC: async function completed normally.
                         // The actual return value is at SP[-1] in the frame.
                         let arena = unsafe { &mut *arena_ptr };
-                        let head = arena.frame(cur_frame_idx);
-                        let sp_cur = arena.stack_cur_ptr(head);
-                        let actual_ret = unsafe { std::ptr::read(sp_cur.offset(-1)) };
+                        // Extract stack pointer and read return value.
+                        let sp_offset = {
+                            let head = arena.frame(cur_frame_idx);
+                            head.cur_sp_offset
+                        };
+                        let sp_base = {
+                            let head = arena.frame(cur_frame_idx);
+                            arena.stack_base_ptr(head)
+                        };
+                        let actual_ret =
+                            unsafe { std::ptr::read(sp_base.offset(sp_offset as isize - 1)) };
+                        // Detach all VarRefs before freeing the frame. The
+                        // frame may hold closure variables captured by inner
+                        // arrows (e.g., `new.target` in `async () => new.target`).
+                        let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                        for vr in var_refs {
+                            vr.detach();
+                        }
                         arena.free_frame(cur_frame_idx);
                         drop(cur_scope);
                         // Drain virtual_frames to drop saved caller scopes.
                         while let Some(vf) = virtual_frames.pop() {
                             drop(ManuallyDrop::into_inner(vf.caller_scope));
                         }
+                        rt_ptr.active_trampoline_frame = FrameIndex::NULL;
+
                         return (actual_ret, true);
                     }
+
                     // YIELD/AWAIT/YIELD_STAR: function suspended.
                     // Frame stays Active in arena; caller must take_frame.
                     drop(cur_scope);
+
                     // Drain virtual_frames to drop saved caller scopes.
                     // These were placed in ManuallyDrop during CallBytecode.
                     // On early return (yield/await), we must explicitly drain
@@ -4779,6 +4834,7 @@ pub(crate) fn execute_trampoline(
                     while let Some(vf) = virtual_frames.pop() {
                         drop(ManuallyDrop::into_inner(vf.caller_scope));
                     }
+                    rt_ptr.active_trampoline_frame = FrameIndex::NULL;
                     return (ret_val, false);
                 }
 
@@ -4806,6 +4862,7 @@ pub(crate) fn execute_trampoline(
                     sp_offset = caller_vf.return_sp + 1;
                     throwed = false;
                 } else {
+                    rt_ptr.active_trampoline_frame = FrameIndex::NULL;
                     return (ret_val, true);
                 }
             }
@@ -4828,6 +4885,7 @@ pub(crate) fn execute_trampoline(
 
                     continue 'trampoline;
                 } else {
+                    rt_ptr.active_trampoline_frame = FrameIndex::NULL;
                     return (JSValue::EXCEPTION, true);
                 }
             }

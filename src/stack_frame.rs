@@ -582,6 +582,60 @@ impl StackFrameArena {
         }
         None
     }
+
+    /// Create a VarRef pointing to a local variable in the given arena frame.
+    /// Arena-equivalent of `StackFrame::get_var_ref()`. Used by direct eval
+    /// in the stackless path where no old-style StackFrame exists.
+    pub(crate) fn get_var_ref_frame(
+        &mut self,
+        ctx: &mut ScopedContext,
+        frame_idx: FrameIndex,
+        var_idx: u16,
+        is_arg: bool,
+        var_ref_list: &mut Vec<VarRef>,
+    ) -> Result<VarRef, i32> {
+        use crate::function::VarRef;
+
+        // search in existing var refs
+        if let Some(vr) = var_ref_list
+            .iter()
+            .find(|x| x.is_match(var_idx, is_arg))
+            .copied()
+        {
+            return Ok(vr);
+        }
+
+        let head = self.frame(frame_idx);
+        let data_ptr = self.data_ptr(head);
+        let arg_base = data_ptr;
+        let var_base = unsafe { data_ptr.add(head.var_base_offset as usize) };
+        let pvalue = unsafe {
+            NonNull::new_unchecked(if is_arg {
+                debug_assert!(var_idx < head.arg_count);
+                arg_base.add(var_idx as usize)
+            } else {
+                debug_assert!(var_idx < head.var_count);
+                var_base.add(var_idx as usize)
+            })
+        };
+
+        let vref = VarRef::create_bind(
+            ctx,
+            var_idx,
+            is_arg,
+            pvalue,
+            if head.mode.contains(ExecMode::ASYNC) {
+                // Async frames can be detached; hold a weak ref so that
+                // the VarRef stays valid even when the GC runs between
+                // yield/await and resumption.
+                None
+            } else {
+                None
+            },
+        )?;
+        var_ref_list.push(vref);
+        Ok(vref)
+    }
 }
 
 impl AsyncStackFrame {
