@@ -147,14 +147,14 @@ impl AGenPayload {
                         // in case the 'throw' method is called
                         self.async_state.set_throw_flag(false);
 
-                        // update stack:
-                        // SP[-1] <- value
-                        // SP[0]  <- completion type
-                        // SP++
-                        let sf =
-                            unsafe { self.async_state.stack_frame.as_mut().get_unchecked_mut() };
-                        sf.store(-1, result);
-                        sf.push(JSValue::Int(completion_type));
+                        // Update stack via arena: SP[-1] <- value, SP[0] <- completion type, SP++
+                        {
+                            let arena = ctx.rt_mut().frame_arena_mut();
+                            self.async_state.stack_store(arena, -1, result);
+                            self.async_state
+                                .stack_store(arena, 0, JSValue::Int(completion_type));
+                            self.async_state.bump_sp(arena, 1);
+                        }
                     }
 
                     self.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
@@ -193,7 +193,12 @@ impl AGenPayload {
                         };
 
                         // take stack top value with GC protection.
-                        let value = self.async_state.take_top(ctx);
+                        // Use raw pointer to arena to avoid borrow conflict:
+                        // arena is in ctx's RuntimeImpl, and we also pass ctx.
+                        let value = {
+                            let arena = ctx.rt().frame_arena();
+                            self.async_state.take_top(arena, ctx)
+                        };
 
                         match code {
                             FUNC_RET_YIELD | FUNC_RET_YIELD_STAR => {
@@ -530,8 +535,11 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
             } else {
                 s.async_state.set_throw_flag(false);
 
-                // set return value of await.
-                s.async_state.stack_frame.store(-1, arg);
+                // set return value of await (write to SP[-1]).
+                {
+                    let arena = ctx.rt_mut().frame_arena_mut();
+                    s.async_state.stack_store(arena, -1, arg);
+                }
             }
 
             s.resume_next(ctx);

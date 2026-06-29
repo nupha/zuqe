@@ -124,14 +124,23 @@ impl AsyncState {
             a_state.set_throw_flag(true);
         } else {
             // return value of await
-            debug_assert!(a_state.stack_frame.cur_sp_offset > 0);
+            {
+                let arena = ctx.rt().frame_arena();
+                debug_assert!(a_state.cur_sp_offset(arena) > 0);
+            }
 
             a_state.set_throw_flag(false);
-            a_state.set_return_value(if args.is_empty() {
-                JSValue::UNDEFINED
-            } else {
-                args[0]
-            });
+            {
+                let arena = ctx.rt_mut().frame_arena_mut();
+                a_state.set_return_value(
+                    arena,
+                    if args.is_empty() {
+                        JSValue::UNDEFINED
+                    } else {
+                        args[0]
+                    },
+                );
+            }
         }
 
         a_state.execute(ctx);
@@ -161,8 +170,12 @@ impl AsyncState {
                 }
             }
         } else {
-            // Retrieve value at stack top with GC protection
-            let value = self.take_top(ctx);
+            // Retrieve value at stack top with GC protection.
+            // Arena access is via ctx.rt() (immutable), compatible with ctx borrow.
+            let value = {
+                let arena = ctx.rt().frame_arena();
+                self.take_top(arena, ctx)
+            };
 
             // Handle await expression
             let mut promise = if let Ok(v) = js_promise_resolve(

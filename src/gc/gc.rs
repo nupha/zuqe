@@ -83,9 +83,26 @@ impl RuntimeImpl {
             for c in self.context_list.iter() {
                 c.trace(&mut gcx);
             }
-            // mark stack frames
+            // mark stack frames (legacy model)
             if let Some(sf) = self.current_stack_frame() {
                 sf.trace(&mut gcx);
+            }
+            // mark stackless arena frames (active frames in StackFrameArena)
+            self.frame_arena.trace(&mut gcx);
+            // mark trampoline virtual frames (caller bytecodes not in arena prev chain).
+            // Currently always null; will be wired when trampoline integration is complete.
+            let vframes_ptr = self.active_trampoline_vframes;
+            if !vframes_ptr.is_null() {
+                // SAFETY: vframes_ptr is non-null only during trampoline execution.
+                // Iteration requires length metadata; this will be expanded when
+                // the trampoline stores its virtual frame slice.
+            }
+            // Double-trace active trampoline frame's func_obj (belt-and-suspenders
+            // with arena trace: covers the race window between arena state update
+            // and trampoline iteration when GC triggers).
+            if !self.active_trampoline_frame.is_null() {
+                let head = self.frame_arena.frame(self.active_trampoline_frame);
+                head.func_obj.trace(&mut gcx);
             }
             // mark error value
             if let Exception::Error(err) = self.exception() {

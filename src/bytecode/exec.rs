@@ -26,7 +26,7 @@ use crate::{
         OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
         OP_DEFINE_METHOD_SETTER,
     },
-    context::ScopedContext,
+    context::{ContextPtr, ScopedContext},
     error::{
         JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
@@ -35,8 +35,8 @@ use crate::{
     },
     eval::{EvalFlags, EvalType},
     function::{
-        Bytecode, CallContext, FunctionKind, JS_CALL_FLAG_CONSTRUCTOR, VarRef, build_arg_list,
-        js_build_arguments, js_build_mapped_arguments, js_function_apply,
+        BCWrapper, Bytecode, CallContext, FunctionKind, JS_CALL_FLAG_CONSTRUCTOR, VarRef,
+        build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
     },
     module::{js_dynamic_import, js_import_meta},
     object::{
@@ -45,10 +45,46 @@ use crate::{
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
         JS_PROP_WRITABLE, JSProperty, Object,
     },
-    stack_frame::{ExecMode, StackFrame},
+    stack_frame::{ExecMode, FrameBufLocation, FrameHead, FrameIndex, StackFrame, StackFrameArena},
     utils::{read_from_ptr, unlikely},
     value::JSValue,
 };
+
+/// Action returned by the bytecode interpreter inner loop to the trampoline.
+/// The inner loop processes opcodes normally; when it encounters a call,
+/// return, tail call, or uncaught exception, it yields control to the
+/// trampoline via this enum.
+#[derive(Debug)]
+enum ExecAction {
+    /// Call a bytecode function: trampoline saves caller state and switches
+    /// to the callee frame.
+    CallBytecode {
+        callee_bc: Bytecode,
+        callee_frame_idx: FrameIndex,
+        /// SP offset in caller frame where return value should be stored.
+        return_sp: usize,
+    },
+    /// Cross-realm call: trampoline switches to callee's context scope.
+    CallBytecodeCrossRealm {
+        callee_bc: Bytecode,
+        callee_frame_idx: FrameIndex,
+        callee_ctx_ptr: ContextPtr,
+        return_sp: usize,
+    },
+    /// Tail-call optimization: recycle current frame, switch to callee
+    /// without pushing a VirtualFrame.
+    TailCall {
+        callee_bc: Bytecode,
+        callee_func_obj: Object,
+        callee_buf_cap: usize,
+    },
+    /// Frame returned normally or yielded (generator/async suspension).
+    /// bool = true means the frame suspended (yield/await), not completed.
+    Return(JSValue, bool),
+    /// Uncaught exception in current frame; trampoline must propagate
+    /// upward through the virtual call stack.
+    Unwind,
+}
 
 impl Bytecode {
     /// Execute bytecodes. Return value is protected as local gc node.
@@ -2613,6 +2649,649 @@ impl Bytecode {
             // abort with sp=0
             stack_frame.handle_exit(ctx, pc_offset, 0, self.func_kind() != FunctionKind::Normal);
             None
+        }
+    }
+}
+
+// ============================================================================
+// Stackless Interpreter: Trampoline and Arena-aware Execution
+// ============================================================================
+
+impl Bytecode {
+    /// Execute bytecodes using the arena-based stackless model.
+    ///
+    /// This variant works with FrameIndex + StackFrameArena instead of
+    /// the legacy &mut StackFrame. It is called by execute_trampoline()
+    /// and supports returning ExecAction for call/return/unwind control.
+    ///
+    /// Returns the ExecAction describing what the trampoline should do next.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn execute_with_arena(
+        &self,
+        realm_scope: &mut ScopedContext,
+        arena: &mut StackFrameArena,
+        cur_frame_idx: FrameIndex,
+        this_obj: JSValue,
+        new_target: JSValue,
+        func_home_obj: Option<Object>,
+        pc_offset: usize,
+        sp_offset: usize,
+        captured_vars: &mut [VarRef],
+        args: &[JSValue],
+        throwed: bool,
+    ) -> ExecAction {
+        let mut rt = realm_scope.rt_ptr();
+
+        let bytecodes = self.opcodes();
+        debug_assert!(
+            pc_offset < bytecodes.len(),
+            "pc_offset={}, bytecodes.len()={}",
+            pc_offset,
+            bytecodes.len()
+        );
+
+        // Extract frame data pointers from the arena.
+        // All raw pointers derived here remain stable because:
+        // - Arena data is a fixed-capacity Box<[JSValue]> (never resized).
+        // - FrameHead is in a Vec that may reallocate, but raw pointers
+        //   into arena.data (not FrameHead) are used for data access.
+        //
+        // Split into immutable then mutable borrows: data_ptr and
+        // stack_base_ptr take &self on arena, while frame_mut takes &mut.
+        let (arg_base_ptr, var_base_ptr, sp_base, mode, func_obj) = {
+            let head = arena.frame(cur_frame_idx);
+            let arg_base = arena.data_ptr(head);
+            let var_base = unsafe { arg_base.add(head.var_base_offset as usize) };
+            let sp = arena.stack_base_ptr(head);
+            (arg_base, var_base, sp, head.mode, head.func_obj)
+        };
+        let head = arena.frame_mut(cur_frame_idx);
+        // Store a raw pointer to cur_sp_offset for SP_GO! macro updates.
+        // SAFETY: FrameHead is in Vec<FrameHead>, its address is stable
+        // for the duration of this function (no arena resizing).
+        let cur_sp_offset_ptr: *mut i32 = &mut head.cur_sp_offset;
+        let cur_pc_offset_ptr: *mut usize = &mut head.cur_pc_offset;
+
+        let cpools = self.consts();
+
+        let pc_base = bytecodes.as_ptr();
+        let mut pc = unsafe { pc_base.add(pc_offset) };
+        let mut sp = unsafe { sp_base.add(sp_offset) };
+
+        unsafe {
+            *cur_sp_offset_ptr = sp_offset as i32;
+        }
+
+        if throwed {
+            let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
+
+            if let Some((new_pc, new_sp)) = arena.find_catch_in_frame(cur_frame_idx, realm_scope) {
+                unsafe {
+                    *cur_sp_offset_ptr = new_sp as i32;
+                    pc = pc_base.add(new_pc);
+                    sp = sp_base.add(new_sp);
+                }
+            } else {
+                // Exception not caught in this frame; propagate upward.
+                return ExecAction::Unwind;
+            }
+        }
+
+        // ── Stack access macros ──
+        // These work with raw pointers and the cur_sp_offset pointer,
+        // identical to the legacy versions but using *cur_sp_offset_ptr.
+
+        macro_rules! SP_VAL {
+            (0) => {
+                unsafe { *sp }
+            };
+            ($idx:expr) => {
+                unsafe { *sp.offset($idx as isize) }
+            };
+        }
+
+        #[cfg(debug_assertions)]
+        macro_rules! SP_REF {
+            (0) => {
+                unsafe { sp.as_ref().unwrap() }
+            };
+            ($idx:expr) => {
+                unsafe { sp.offset($idx as isize).as_ref().unwrap() }
+            };
+        }
+        #[cfg(not(debug_assertions))]
+        macro_rules! SP_REF {
+            (0) => {
+                unsafe { &*sp }
+            };
+            ($idx:expr) => {
+                unsafe { &*sp.offset($idx as isize) }
+            };
+        }
+
+        #[cfg(debug_assertions)]
+        macro_rules! SP_MUT {
+            ($idx:expr) => {
+                unsafe { sp.offset($idx as isize).as_mut().unwrap() }
+            };
+        }
+        #[cfg(not(debug_assertions))]
+        macro_rules! SP_MUT {
+            ($idx:expr) => {
+                unsafe { &mut *sp.offset($idx as isize) }
+            };
+        }
+
+        #[cfg(debug_assertions)]
+        macro_rules! SP_PUT {
+            ($idx:expr, $val:expr) => {
+                unsafe {
+                    *sp.offset(($idx) as isize).as_mut().unwrap() = $val;
+                }
+            };
+        }
+        #[cfg(not(debug_assertions))]
+        macro_rules! SP_PUT {
+            ($idx:expr, $val:expr) => {
+                unsafe {
+                    *sp.offset(($idx) as isize) = $val;
+                }
+            };
+        }
+
+        macro_rules! SP_GO {
+            ($step:expr) => {
+                sp = unsafe {
+                    *cur_sp_offset_ptr += ($step) as i32;
+                    sp.offset(($step) as isize)
+                }
+            };
+        }
+
+        macro_rules! PC_GO {
+            ($step:expr) => {
+                pc = unsafe { pc.offset(($step) as isize) }
+            };
+        }
+        macro_rules! PC_FETCH {
+            (i32) => {
+                unsafe {
+                    let v = read_from_ptr::<i32>(pc);
+                    pc = pc.add(4);
+                    v
+                }
+            };
+            (u32) => {
+                unsafe {
+                    let v = read_from_ptr::<u32>(pc);
+                    pc = pc.add(4);
+                    v
+                }
+            };
+            (i16) => {
+                unsafe {
+                    let v = read_from_ptr::<i16>(pc);
+                    pc = pc.add(2);
+                    v
+                }
+            };
+            (u16) => {
+                unsafe {
+                    let v = read_from_ptr::<u16>(pc);
+                    pc = pc.add(2);
+                    v
+                }
+            };
+            (u8) => {
+                unsafe {
+                    let v = read_from_ptr::<u8>(pc);
+                    pc = pc.add(1);
+                    v
+                }
+            };
+        }
+
+        #[cfg(debug_assertions)]
+        macro_rules! ARG_REF {
+            ($idx:expr) => {
+                unsafe { arg_base_ptr.offset(($idx) as _).as_mut().unwrap() }
+            };
+        }
+        #[cfg(not(debug_assertions))]
+        macro_rules! ARG_REF {
+            ($idx:expr) => {
+                unsafe { &mut *arg_base_ptr.offset(($idx) as _) }
+            };
+        }
+
+        #[cfg(debug_assertions)]
+        macro_rules! VAR_REF {
+        [$idx:expr] => {
+            unsafe { (var_base_ptr.offset(($idx) as isize).as_mut().unwrap()) }
+        };
+    }
+        #[cfg(not(debug_assertions))]
+        macro_rules! VAR_REF {
+        [$idx:expr] => {
+            unsafe { (&mut *var_base_ptr.offset(($idx) as isize)) }
+        };
+    }
+
+        #[cfg(debug_assertions)]
+        macro_rules! CPOOL {
+        [$idx:expr] => {
+            cpools.as_ref()[($idx) as usize]
+        };
+    }
+        #[cfg(not(debug_assertions))]
+        macro_rules! CPOOL {
+        [$idx:expr] => {
+            unsafe {
+                *cpools.as_ref().as_ptr().add(($idx) as usize)
+            }
+        };
+    }
+
+        enum State {
+            Done(JSValue, bool),
+            Exception,
+            CallBytecode {
+                callee_bc: Bytecode,
+                callee_frame_idx: FrameIndex,
+                return_sp: usize,
+            },
+            TailCall {
+                callee_bc: Bytecode,
+                callee_func_obj: Object,
+                callee_buf_cap: usize,
+            },
+        }
+
+        // ── Opcode dispatch loop (inner loop breaks with State) ──
+        // The outer 'restart loop is intentionally absent: currently ALL
+        // State variants return ExecAction to the trampoline. When the
+        // trampoline is fully integrated, CallBytecode / TailCall will
+        // switch to the callee frame and re-enter via 'restart instead
+        // of returning. For now, a single-pass inner loop is equivalent.
+        let state: State = loop {
+            let opcode = unsafe { std::mem::transmute::<u8, OpCode>(PC_FETCH!(u8)) };
+
+            match opcode {
+                OpCode::PUSH_I32 => {
+                    let a = PC_FETCH!(i32);
+                    SP_PUT!(0, JSValue::Int(a));
+                    SP_GO!(1);
+                }
+                OpCode::PUSH_CONST => {
+                    let id = PC_FETCH!(u32);
+                    SP_PUT!(0, CPOOL![id]);
+                    SP_GO!(1);
+                }
+
+                OpCode::CALL | OpCode::TAIL_CALL => {
+                    // [func_obj, arg1, ..., argN, ^] -> [ret_val, ^]
+                    let call_argc = PC_FETCH!(u16);
+                    let call_argv = unsafe { sp.offset(-(call_argc as isize)) };
+
+                    unsafe {
+                        *cur_pc_offset_ptr = pc.offset_from(pc_base) as _;
+                    }
+
+                    let func = unsafe { *call_argv.offset(-1) };
+
+                    // ── Inline bytecode dispatch ──
+                    // Detect bytecode functions and create an arena frame
+                    // instead of recursing through the C call stack.
+                    if let Ok(mut bfun) = BCWrapper::try_from(func) {
+                        let bc = bfun.payload().bytecode();
+                        let callee_buf_cap = bc.arg_count as usize + bc.local_buf_size as usize;
+
+                        // Allocate callee frame in the arena.
+                        let callee_frame_idx =
+                            arena.alloc_frame(bfun.into(), bc.mode(), callee_buf_cap);
+
+                        // Set prev chain.
+                        arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+
+                        // Initialize callee frame data from stack args.
+                        {
+                            // Get data ptr first (immutable borrow), then
+                            // mutable head for field writes.
+                            let callee_data = {
+                                let h = arena.frame(callee_frame_idx);
+                                arena.data_ptr(h)
+                            };
+                            let callee_head = arena.frame_mut(callee_frame_idx);
+                            let args_slice = unsafe {
+                                std::slice::from_raw_parts(call_argv, call_argc as usize)
+                            };
+                            for (i, arg) in args_slice.iter().enumerate() {
+                                unsafe {
+                                    *callee_data.add(i) = *arg;
+                                }
+                            }
+                            callee_head.arg_base_offset = 0;
+                            callee_head.arg_real_count = call_argc;
+                            callee_head.arg_count = std::cmp::max(bc.arg_count, call_argc);
+                            callee_head.var_base_offset = callee_head.arg_count as u32;
+                            callee_head.var_count = bc.var_count;
+                            callee_head.cur_sp_offset = 0;
+                        }
+
+                        let return_sp =
+                            unsafe { sp.offset(-(call_argc as isize + 1)).offset_from(sp_base) }
+                                as usize;
+
+                        if unlikely(opcode == OpCode::TAIL_CALL) {
+                            break State::TailCall {
+                                callee_bc: bc,
+                                callee_func_obj: bfun.into(),
+                                callee_buf_cap,
+                            };
+                        }
+                        break State::CallBytecode {
+                            callee_bc: bc,
+                            callee_frame_idx,
+                            return_sp,
+                        };
+                    }
+
+                    // Native function: use legacy call_internal path.
+                    let ret_val = func.call_internal(
+                        realm_scope,
+                        JSValue::UNDEFINED,
+                        JSValue::UNDEFINED,
+                        unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
+                        0,
+                    );
+                    if let Ok(r) = ret_val {
+                        if unlikely(opcode == OpCode::TAIL_CALL) {
+                            break State::Done(r, false);
+                        } else {
+                            SP_GO!(-(call_argc as i32 + 1));
+                            SP_PUT!(0, r);
+                            SP_GO!(1);
+                        }
+                    } else {
+                        break State::Exception;
+                    }
+                }
+
+                OpCode::RETURN => {
+                    SP_GO!(-1);
+                    let ret = SP_VAL!(0);
+                    break State::Done(ret, false);
+                }
+                OpCode::RETURN_UNDEF => {
+                    break State::Done(JSValue::UNDEFINED, false);
+                }
+
+                // ── Generator yield / async await ──
+                // These opcodes produce State::Done with is_generator=true,
+                // which maps to ExecAction::Return(ret_val, true).
+
+                // For all other opcodes, delegate to the legacy handler.
+                // This is a transitional measure; full migration will
+                // replicate all opcode handlers in this function.
+                //
+                // When the trampoline is active, unhandled opcodes cause a
+                // runtime error. The trampoline is currently unused in
+                // production code paths; the legacy execute_with_realm_scope
+                // handles all execution.
+                _ => {
+                    // TODO: Port all opcodes from execute_with_realm_scope.
+                    // For now, return an error-like action that will
+                    // propagate upward in the trampoline.
+                    return ExecAction::Unwind;
+                }
+            } // match opcode
+
+            #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
+            if rt.gc_req {
+                realm_scope.clear_locals();
+                rt.gc_collect();
+            }
+        }; // opcodes inner loop
+
+        // ── State dispatch ──
+        // TODO: When the trampoline is fully integrated, CallBytecode and
+        // TailCall should NOT return. Instead, they should switch to the
+        // callee frame (update cur_frame_idx / pc / sp / pc_base / sp_base
+        // etc.) and `continue 'restart` to re-enter the opcode dispatch
+        // loop without trampoline round-trip. Done / Exception still return.
+        match state {
+            State::Done(ret_val, is_generator) => {
+                // Save pc/sp to frame head before returning.
+                unsafe {
+                    *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
+                    *cur_sp_offset_ptr = sp.offset_from(sp_base) as i32;
+                }
+                return ExecAction::Return(ret_val, is_generator);
+            }
+
+            State::Exception => {
+                return ExecAction::Unwind;
+            }
+
+            State::CallBytecode {
+                callee_bc,
+                callee_frame_idx,
+                return_sp,
+            } => {
+                // Save current pc/sp before yielding to trampoline.
+                unsafe {
+                    *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
+                    *cur_sp_offset_ptr = sp.offset_from(sp_base) as i32;
+                }
+                return ExecAction::CallBytecode {
+                    callee_bc,
+                    callee_frame_idx,
+                    return_sp,
+                };
+            }
+
+            State::TailCall {
+                callee_bc,
+                callee_func_obj,
+                callee_buf_cap,
+            } => {
+                return ExecAction::TailCall {
+                    callee_bc,
+                    callee_func_obj,
+                    callee_buf_cap,
+                };
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Top-Level Trampoline
+// ============================================================================
+
+/// Execute bytecode in a single trampoline loop, completely avoiding
+/// C-stack recursion for JS-to-JS calls.
+///
+/// The trampoline maintains:
+/// - `cur_bc`: currently executing bytecode
+/// - `cur_frame_idx`: currently executing frame in the arena
+/// - `cur_scope`: GC scope for the current frame
+/// - `virtual_frames`: caller chain (saved on call, restored on return)
+///
+/// Returns the final JSValue (or EXCEPTION on uncaught error).
+pub(crate) fn execute_trampoline(
+    start_bc: Bytecode,
+    start_frame_idx: FrameIndex,
+    start_scope: &mut ScopedContext,
+    this_obj: JSValue,
+    new_target: JSValue,
+    args: &[JSValue],
+    captured_vars: &mut [VarRef],
+) -> JSValue {
+    use crate::stack_frame::VirtualFrame;
+    use std::mem::ManuallyDrop;
+
+    // Get a stable raw pointer to the arena. The arena lives in RuntimeImpl
+    // which has the same lifetime as the runtime. Using a raw pointer avoids
+    // borrow conflicts between cur_scope (which borrows rt) and arena access.
+    let arena_ptr: *mut StackFrameArena = {
+        let rt = start_scope.rt_mut();
+        &raw mut rt.frame_arena
+    };
+
+    let mut cur_bc = start_bc;
+    let mut cur_frame_idx = start_frame_idx;
+    let mut virtual_frames: Vec<VirtualFrame> = Vec::new();
+
+    // realm_ctx provides the factory for new GC scopes.
+    // We transmute scopes to 'static because VirtualFrame stores them
+    // with ManuallyDrop — the actual lifetime is managed by the trampoline
+    // loop which restores and drops each scope before the realm expires.
+    let mut realm_ctx = start_bc.realm();
+    let mut cur_scope: ScopedContext<'static> =
+        unsafe { std::mem::transmute(realm_ctx.new_scope()) };
+
+    let mut throwed = false;
+    let mut pc_offset = 0usize;
+    let mut sp_offset = 0usize;
+
+    'trampoline: loop {
+        let arena = unsafe { &mut *arena_ptr };
+
+        let action = cur_bc.execute_with_arena(
+            &mut cur_scope,
+            arena,
+            cur_frame_idx,
+            this_obj,
+            new_target,
+            None, // func_home_obj
+            pc_offset,
+            sp_offset,
+            captured_vars,
+            args,
+            throwed,
+        );
+
+        match action {
+            // ── Call sub-frame ──
+            ExecAction::CallBytecode {
+                callee_bc,
+                callee_frame_idx: callee_idx,
+                return_sp,
+            } => {
+                let caller_scope = ManuallyDrop::new(std::mem::replace(&mut cur_scope, unsafe {
+                    std::mem::zeroed()
+                }));
+
+                virtual_frames.push(VirtualFrame {
+                    frame_idx: cur_frame_idx,
+                    caller_bc: cur_bc,
+                    return_sp,
+                    caller_scope,
+                    caller_ctx_ptr: None,
+                });
+
+                // Create callee's GC scope.
+                // SAFETY: lifetime erased to 'static; trampoline restores
+                // and drops all scopes before realm_ctx expires.
+                cur_scope = unsafe { std::mem::transmute(realm_ctx.new_scope()) };
+
+                cur_bc = callee_bc;
+                cur_frame_idx = callee_idx;
+                pc_offset = 0;
+                sp_offset = 0;
+                throwed = false;
+            }
+
+            // ── Tail call ──
+            ExecAction::TailCall {
+                callee_bc,
+                callee_func_obj,
+                callee_buf_cap,
+            } => {
+                let arena = unsafe { &mut *arena_ptr };
+                arena.free_frame(cur_frame_idx);
+                let new_idx = arena.alloc_frame(callee_func_obj, callee_bc.mode(), callee_buf_cap);
+                {
+                    let head = arena.frame_mut(new_idx);
+                    head.arg_base_offset = 0;
+                    head.var_base_offset = head.arg_count as u32;
+                    head.var_count = callee_bc.var_count;
+                    head.cur_sp_offset = 0;
+                }
+
+                cur_bc = callee_bc;
+                cur_frame_idx = new_idx;
+                pc_offset = 0;
+                sp_offset = 0;
+                throwed = false;
+            }
+
+            // ── Frame return ──
+            ExecAction::Return(ret_val, is_generator) => {
+                if is_generator {
+                    if !virtual_frames.is_empty() {
+                        for vf in virtual_frames.drain(..).rev() {
+                            let _scope = ManuallyDrop::into_inner(vf.caller_scope);
+                        }
+                    }
+                    return ret_val;
+                }
+
+                let arena = unsafe { &mut *arena_ptr };
+                arena.free_frame(cur_frame_idx);
+                drop(cur_scope);
+
+                if let Some(caller_vf) = virtual_frames.pop() {
+                    cur_bc = caller_vf.caller_bc;
+                    cur_frame_idx = caller_vf.frame_idx;
+                    cur_scope = ManuallyDrop::into_inner(caller_vf.caller_scope);
+
+                    let caller_head = arena.frame(caller_vf.frame_idx);
+                    let sp_ptr = arena.stack_base_ptr(caller_head);
+                    unsafe {
+                        *sp_ptr.add(caller_vf.return_sp) = ret_val;
+                    }
+
+                    pc_offset = caller_head.cur_pc_offset;
+                    sp_offset = caller_head.cur_sp_offset as usize + 1;
+                    throwed = false;
+                } else {
+                    return ret_val;
+                }
+            }
+
+            // ── Exception propagation ──
+            ExecAction::Unwind => {
+                let arena = unsafe { &mut *arena_ptr };
+                arena.free_frame(cur_frame_idx);
+                drop(cur_scope);
+
+                loop {
+                    if let Some(caller_vf) = virtual_frames.pop() {
+                        cur_scope = ManuallyDrop::into_inner(caller_vf.caller_scope);
+                        cur_bc = caller_vf.caller_bc;
+                        cur_frame_idx = caller_vf.frame_idx;
+
+                        let caller_head = arena.frame(caller_vf.frame_idx);
+                        pc_offset = caller_head.cur_pc_offset;
+                        sp_offset = caller_head.cur_sp_offset as usize;
+                        throwed = true;
+
+                        continue 'trampoline;
+                    } else {
+                        return JSValue::EXCEPTION;
+                    }
+                }
+            }
+
+            // ── Cross-realm call (deferred; falls through to error for now) ──
+            ExecAction::CallBytecodeCrossRealm { .. } => {
+                // Cross-realm call handling is deferred. For initial
+                // implementation, bytecode cross-realm detection in
+                // execute_with_arena produces CallBytecode instead.
+                unreachable!("CallBytecodeCrossRealm not yet implemented");
+            }
         }
     }
 }

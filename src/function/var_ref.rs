@@ -9,7 +9,7 @@ use crate::{
     RuntimeImpl,
     context::ScopedContext,
     gcref_wrapper,
-    stack_frame::{ExecMode, StackFrame},
+    stack_frame::{ExecMode, FrameHead, StackFrame},
     value::JSValue,
 };
 
@@ -56,6 +56,48 @@ impl GcTrace for VarRefImpl {
 }
 
 impl VarRefImpl {
+    /// Internal helper that updates pvalue for a heap buffer transfer.
+    /// Defined on VarRefImpl (&mut self) to avoid Rust 2024 match ergonomics
+    /// issues when matching through GcRef::as_mut() indirection.
+    pub(crate) fn update_pvalue_for_heap_buf_impl(
+        &mut self,
+        heap_buf: &Box<[JSValue]>,
+        head: &FrameHead,
+    ) {
+        Self::update_pvalue_for_heap_buf_offsets_impl(
+            self,
+            heap_buf,
+            head.arg_base_offset,
+            head.var_base_offset,
+        )
+    }
+
+    /// Same as update_pvalue_for_heap_buf_impl but takes offsets directly
+    /// to avoid borrow-checker conflicts with FrameHead field access.
+    pub(crate) fn update_pvalue_for_heap_buf_offsets_impl(
+        &mut self,
+        heap_buf: &Box<[JSValue]>,
+        arg_base_offset: u32,
+        var_base_offset: u32,
+    ) {
+        match self {
+            Self::Bind {
+                pvalue,
+                is_arg,
+                var_idx,
+                ..
+            } => {
+                let off = if *is_arg {
+                    arg_base_offset as usize + *var_idx as usize
+                } else {
+                    var_base_offset as usize + *var_idx as usize
+                };
+                *pvalue = NonNull::from(&heap_buf[off]);
+            }
+            _ => {}
+        }
+    }
+
     /// get variable value
     #[inline(always)]
     pub(crate) const fn value(&self) -> JSValue {
@@ -109,6 +151,44 @@ pub struct VarRef(GcRef<VarRefImpl>);
 gcref_wrapper!(VarRef, VarRefImpl);
 
 impl VarRef {
+    /// Update the raw pointer (pvalue) of a Bind VarRef to point into a new
+    /// heap-allocated buffer. Called during take_frame when an async frame's
+    /// data is transferred from the arena to an independent Heap Box.
+    ///
+    /// The offset within the data region is computed from the frame header's
+    /// arg_base_offset or var_base_offset plus the variable index.
+    pub(crate) fn update_pvalue_for_heap_buf(
+        &mut self,
+        heap_buf: &Box<[JSValue]>,
+        head: &FrameHead,
+    ) {
+        // delegate to inner impl to avoid Rust 2024 match ergonomics issues
+        // with GcRef::as_mut() indirection
+        unsafe {
+            VarRefImpl::update_pvalue_for_heap_buf_impl(self.0.as_mut(), heap_buf, head);
+        }
+    }
+
+    /// Variant of update_pvalue_for_heap_buf that takes the base offsets
+    /// directly instead of a &FrameHead reference. This avoids borrow-checker
+    /// conflicts when the caller needs to mutably borrow FrameHead.var_ref_list
+    /// while simultaneously reading FrameHead offset fields.
+    pub(crate) fn update_pvalue_for_heap_buf_offsets(
+        &mut self,
+        heap_buf: &Box<[JSValue]>,
+        arg_base_offset: u32,
+        var_base_offset: u32,
+    ) {
+        unsafe {
+            VarRefImpl::update_pvalue_for_heap_buf_offsets_impl(
+                self.0.as_mut(),
+                heap_buf,
+                arg_base_offset,
+                var_base_offset,
+            );
+        }
+    }
+
     /// update variable value
     pub(crate) fn set_value(&mut self, rt: &mut RuntimeImpl, new_value: JSValue) {
         self.set_value_internal(new_value);

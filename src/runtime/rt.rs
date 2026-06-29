@@ -17,7 +17,7 @@ use crate::{
     gc::gc::GC_TYPE_REGISTRY,
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
-    stack_frame::{ExecMode, FrameBuf, StackFrame},
+    stack_frame::{ExecMode, FrameBuf, FrameIndex, StackFrame, StackFrameArena, VirtualFrame},
     utils::js_get_stack_pointer,
     value::JSValue,
 };
@@ -48,6 +48,17 @@ pub struct RuntimeImpl {
     pub(crate) stack_top: usize,
     /// current stack frame to execute bytecode or native function
     pub(crate) cur_stack_frame: *mut Pin<StackFrame>,
+    /// Bump-arena frame storage for the stackless interpreter.
+    /// All active frame headers and data buffers live here.
+    pub(crate) frame_arena: StackFrameArena,
+    /// Trampoline virtual call stack pointer, set before each trampoline
+    /// iteration and cleared afterward. GC uses this to trace caller
+    /// bytecodes that are not reachable through arena heads alone.
+    /// SAFETY: Only valid during trampoline execution; null otherwise.
+    pub(crate) active_trampoline_vframes: *const VirtualFrame,
+    /// Current frame being executed by the trampoline, set before each
+    /// iteration. Used by GC to double-trace the active frame's func_obj.
+    pub(crate) active_trampoline_frame: FrameIndex,
     /// current stack frame depth
     #[cfg(debug_assertions)]
     stack_depth: i32,
@@ -122,6 +133,9 @@ impl RuntimeImpl {
             shape_registry: ShapeRegistry::new(),
 
             cur_stack_frame: std::ptr::null_mut(),
+            frame_arena: StackFrameArena::new(),
+            active_trampoline_vframes: std::ptr::null::<VirtualFrame>(),
+            active_trampoline_frame: FrameIndex::NULL,
             #[cfg(debug_assertions)]
             stack_depth: 0,
 
@@ -235,6 +249,18 @@ impl RuntimeImpl {
     #[inline(always)]
     pub(crate) const fn current_stack_frame(&self) -> Option<&StackFrame> {
         unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref() }
+    }
+
+    /// Get mutable reference to the StackFrameArena for stackless frame ops.
+    #[inline(always)]
+    pub(crate) fn frame_arena_mut(&mut self) -> &mut StackFrameArena {
+        &mut self.frame_arena
+    }
+
+    /// Get immutable reference to the StackFrameArena.
+    #[inline(always)]
+    pub(crate) const fn frame_arena(&self) -> &StackFrameArena {
+        &self.frame_arena
     }
 
     /// get stack frame for current running function

@@ -13,7 +13,6 @@ use crate::{
     },
     object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
-    stack_frame::StackFrame,
     value::JSValue,
 };
 
@@ -62,12 +61,6 @@ impl GeneratorPayload {
     #[inline(always)]
     pub fn is_completed(&self) -> bool {
         self.async_state.is_completed
-    }
-
-    /// run with stack frame
-    #[inline(always)]
-    fn with_stack_frame_mut<R>(&mut self, f: impl FnOnce(&mut StackFrame) -> R) -> R {
-        f(unsafe { self.async_state.stack_frame.as_mut().get_unchecked_mut() })
     }
 
     /// execute the function up to 'OP_initial_yield' opcode
@@ -214,18 +207,26 @@ fn js_generator_next(
                     ctx.throw_value(val);
                     g.async_state.set_throw_flag(true);
                 } else {
-                    g.with_stack_frame_mut(|sf| unsafe {
-                        let sp_ptr = sf.stack_cur_ptr();
+                    // Read current SP offset to verify SP[-1] is UNDEFINED.
+                    {
+                        let arena = ctx.rt_mut().frame_arena_mut();
+                        let sp_off = g.async_state.cur_sp_offset(arena);
+                        debug_assert!(sp_off > 0);
+                        let head = g.async_state.frame_head(arena);
+                        let sp_base = arena.stack_base_ptr(head);
                         debug_assert_eq!(
-                            *sp_ptr.offset(-1).as_ptr(),
+                            unsafe { *sp_base.add(sp_off as usize - 1) },
                             JSValue::UNDEFINED,
                             "SP[-1] was set to UNDEFINED in the previous call"
                         );
-
-                        std::ptr::replace(sp_ptr.offset(-1).as_ptr(), val);
-                        std::ptr::replace(sp_ptr.as_ptr(), JSValue::Int(magic));
-                        sf.cur_sp_offset += 1; // move sp pointer
-                    });
+                    }
+                    // Write val to SP[-1], magic to SP[0], then advance SP by 1.
+                    {
+                        let arena = ctx.rt_mut().frame_arena_mut();
+                        g.async_state.stack_store(arena, -1, val);
+                        g.async_state.stack_store(arena, 0, JSValue::Int(magic));
+                        g.async_state.bump_sp(arena, 1);
+                    }
 
                     g.async_state.set_throw_flag(false);
                 }
@@ -252,11 +253,13 @@ fn js_generator_next(
 
                 debug_assert!(res.unwrap().is_int());
 
-                // get the returned yield value at the top of the stack
-                // Use StackFrame::take() for consistency — it auto-protects.
-                let ret_val = g.with_stack_frame_mut(|sf| {
-                    sf.take(-1, ctx)
-                });
+                // Get the returned yield value at the top of the stack.
+                // Uses take_top which replaces SP[-1] with UNDEFINED and
+                // protects the GC node in the current scope.
+                let ret_val = {
+                    let arena = ctx.rt().frame_arena();
+                    g.async_state.take_top(arena, ctx)
+                };
 
                 *iter_state = if let Ok(JSValue::Int(FUNC_RET_YIELD_STAR)) = res {
                     g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR);
