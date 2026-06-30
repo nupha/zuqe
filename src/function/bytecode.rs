@@ -480,6 +480,7 @@ impl std::fmt::Debug for Bytecode {
 
 impl Bytecode {
     /// Create Function from `self` Bytecode with captured variables, then calls the function.
+    /// Automatically routes to arena or legacy path based on ctx mode.
     pub(crate) fn run_as_function(
         &self,
         ctx: &mut ScopedContext,
@@ -487,7 +488,20 @@ impl Bytecode {
         captured_vars: &[VarRef],
         parent_stack_frame: Option<&mut StackFrame>,
     ) -> JSResult {
-        let f = self.make_closure(ctx, None, captured_vars, parent_stack_frame)?;
-        f.call(ctx, this_obj, &[])
+        if ctx.is_arena_mode() {
+            let mut rt = ctx.rt_ptr();
+            let parent_frame = rt.active_trampoline_frame;
+            self.make_closure_for_arena(
+                ctx,
+                None,
+                captured_vars,
+                rt.frame_arena_mut(),
+                parent_frame,
+            )?
+            .call(ctx, this_obj, &[])
+        } else {
+            let f = self.make_closure(ctx, None, captured_vars, parent_stack_frame)?;
+            f.call(ctx, this_obj, &[])
+        }
     }
 }

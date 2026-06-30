@@ -217,6 +217,8 @@ impl Bytecode {
         captured_vars: &[VarRef],
         parent_stack_frame: Option<&mut StackFrame>,
     ) -> Result<BCWrapper, i32> {
+        debug_assert!(!ctx.is_arena_mode());
+
         let captures: Vec<VarRef> = if self.closure_var_count != 0 {
             debug_assert!(
                 parent_stack_frame.is_some(),
@@ -237,6 +239,7 @@ impl Bytecode {
                     // the existing variable reference in parent stack frame
                     up_sf.get_var_ref(ctx, cv.var_idx, cv.is_arg())?
                 } else {
+                    debug_assert!((cv.var_idx as usize) < captured_vars.len());
                     captured_vars[cv.var_idx as usize]
                 });
             }
@@ -312,6 +315,8 @@ impl Bytecode {
         arena: &mut StackFrameArena,
         parent_frame_idx: FrameIndex,
     ) -> Result<BCWrapper, i32> {
+        debug_assert!(ctx.is_arena_mode());
+
         let captures: Vec<VarRef> = if self.closure_var_count != 0 {
             // Extract frame metadata before mutable borrow for var_ref_list.
             let (arg_base, var_base, arg_count, var_count) = {
@@ -358,6 +363,7 @@ impl Bytecode {
                         vref
                     }
                 } else {
+                    debug_assert!((cv.var_idx as usize) < captured_vars.len());
                     captured_vars[cv.var_idx as usize]
                 });
             }
@@ -440,9 +446,15 @@ pub(crate) fn add_closure_variables(
 
     // Add lexical variables in scope at the point of evaluation
     let vardefs = bc.local_vars();
+    debug_assert!(
+        scope_idx < vardefs.len() as i32,
+        "scope_idx={scope_idx}, vardefs.len={}",
+        vardefs.len()
+    );
+
     let mut i = scope_idx;
     while i >= 0 {
-        let vd = vardefs.get(i as usize).unwrap();
+        let vd = &vardefs[i as usize];
         if vd.scope_level > 0 {
             let mut cv = ClosureVar {
                 flags: 0,

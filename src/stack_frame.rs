@@ -594,7 +594,7 @@ impl StackFrameArena {
         is_arg: bool,
         var_ref_list: &mut Vec<VarRef>,
     ) -> Result<VarRef, i32> {
-        use crate::function::VarRef;
+        debug_assert!(ctx.is_arena_mode());
 
         // search in existing var refs
         if let Some(vr) = var_ref_list

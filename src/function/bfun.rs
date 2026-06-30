@@ -10,6 +10,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
     atom::Atom,
+    bytecode::exec_stackless::execute_trampoline,
     class::ClassID,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
@@ -20,7 +21,7 @@ use crate::{
     },
     object_cast,
     runtime::js_check_stack_overflow,
-    stack_frame::StackFrame,
+    stack_frame::{FrameIndex, StackFrame, StackFrameArena},
     value::JSValue,
 };
 
@@ -403,6 +404,76 @@ impl BytecodeFunction {
     ) -> JSResult {
         let bc = self.payload().bytecode();
 
+        // ── Arena mode: allocate arena frame and execute via trampoline ──
+        if ctx.is_arena_mode() {
+            let func_obj: Object = **self;
+            let bf = self.payload_mut();
+            let mut rt = ctx.rt_ptr();
+
+            let parent_frame = unsafe { (*rt).active_trampoline_frame };
+            let saved_frame = unsafe { (*rt).active_trampoline_frame };
+            let arena_ptr: *mut StackFrameArena = unsafe {
+                &raw mut (*rt).frame_arena
+            };
+
+            let buf_cap = bc.arg_count as usize + bc.local_buf_size as usize;
+            let frame_idx = unsafe {
+                let arena = &mut *arena_ptr;
+                let idx = arena.alloc_frame(func_obj, bc.mode(), buf_cap);
+                arena.frame_mut(idx).prev = parent_frame;
+                idx
+            };
+
+            // Copy args into arena frame data buffer
+            let arg_copy_num = std::cmp::max(args.len(), bc.arg_count as usize);
+            unsafe {
+                let arena = &mut *arena_ptr;
+                let callee_data = {
+                    let h = arena.frame(frame_idx);
+                    arena.data_ptr(h)
+                };
+                for (i, arg) in args.iter().enumerate() {
+                    *callee_data.add(i) = *arg;
+                }
+                for i in args.len()..arg_copy_num {
+                    *callee_data.add(i) = JSValue::UNDEFINED;
+                }
+                let head = arena.frame_mut(frame_idx);
+                head.protected_values = [this_obj, new_target];
+                head.arg_base_offset = 0;
+                head.arg_real_count = args.len() as _;
+                head.arg_count = arg_copy_num as _;
+                head.var_base_offset = head.arg_count as u32;
+                head.var_count = bc.var_count;
+                head.cur_sp_offset = 0;
+            }
+
+            let captured_vars = bf.closure_var_refs_mut();
+
+            // execute_trampoline manages active_trampoline_frame internally,
+            // save and restore the outer value.
+            let (ret_val, is_completed) = execute_trampoline(
+                bc,
+                frame_idx,
+                ctx,
+                this_obj,
+                new_target,
+                args,
+                captured_vars,
+            );
+            unsafe { (*rt).active_trampoline_frame = saved_frame; }
+
+            debug_assert!(
+                is_completed,
+                "synchronous BytecodeFunction::call should not suspend"
+            );
+            if ret_val.is_exception() {
+                return Err(-1);
+            }
+            return Ok(ret_val);
+        }
+
+        // ── Legacy mode: create StackFrame and execute via execute() ──
         // how many args that should be copied to local buf?
         // `args.len()` is actual argument count
         // `b.arg_count` is the length when defining the function

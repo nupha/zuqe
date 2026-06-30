@@ -237,6 +237,8 @@ impl StackFrame {
         var_idx: u16,
         is_arg: bool,
     ) -> Result<VarRef, i32> {
+        debug_assert!(!ctx.is_arena_mode());
+
         // search in existing var refs
         if let Some(vr) = self
             .var_refs()

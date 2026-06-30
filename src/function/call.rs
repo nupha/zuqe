@@ -129,7 +129,25 @@ impl ObjectImpl {
     /// * ctx is the caller ctx.
     /// * argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
     /// * flags & JS_CALL_FLAG_CONSTRUCTOR !=0 indicates a constructor call
+    /// Wrapper around do_call_internal that preserves active_trampoline_frame
+    /// across the call. Nested execute_trampoline (e.g., async/generator
+    /// class_call) clears this field on exit; save/restore ensures the caller's
+    /// arena mode detection remains intact.
     fn call_internal(
+        &self,
+        ctx: &mut ScopedContext,
+        this_obj: JSValue,
+        new_target: JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> JSResult {
+        let saved = ctx.rt().active_trampoline_frame;
+        let result = self.do_call_internal(ctx, this_obj, new_target, args, flags);
+        ctx.rt_mut().active_trampoline_frame = saved;
+        result
+    }
+
+    fn do_call_internal(
         &self,
         ctx: &mut ScopedContext,
         this_obj: JSValue,

@@ -16,7 +16,7 @@ use crate::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
         JS_PROP_WRITABLE, Object,
     },
-    stack_frame::StackFrame,
+    stack_frame::{FrameIndex, StackFrame, StackFrameArena},
     string::{JS_ConcatString3, StringRef},
     utils::unlikely,
     value::JSValue,
@@ -156,6 +156,93 @@ pub(super) fn js_op_define_class(
 
     let mut proto = ctx.create_base_object_with_proto(parent_proto)?;
     let mut ctor = bc.make_closure(ctx, parent_class.to_object(), captured_vars, Some(sframe))?;
+
+    ctor.method_set_home_object(Some(proto));
+    ctor.set_flag_constructor(true);
+
+    ctor.define_property_value(
+        ctx,
+        Atom::CONST_length,
+        JSValue::Int(bc.attrs.defined_arg_count as i32),
+        JS_PROP_CONFIGURABLE,
+    )?;
+
+    if is_computed_name {
+        ctor.define_name_computed(ctx, unsafe { *sp.offset(-3) }, JS_PROP_CONFIGURABLE)?;
+    } else {
+        ctor.define_name(ctx, class_name, JS_PROP_CONFIGURABLE)?;
+    }
+
+    // the constructor property must be first. It can be overridden by
+    // computed property names
+    proto.define_property_value(
+        ctx,
+        Atom::CONST_constructor,
+        ctor.into(),
+        JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_THROW,
+    )?;
+
+    // set the prototype property
+    ctor.define_property_value(ctx, Atom::CONST_prototype, proto.into(), JS_PROP_THROW)?;
+
+    unsafe {
+        std::ptr::replace(sp.offset(-2), ctor.into());
+        std::ptr::replace(sp.offset(-1), proto.into());
+    }
+
+    Ok(())
+}
+
+/// Arena-aware version of `js_op_define_class` that uses
+/// `make_closure_for_arena` instead of `make_closure`.
+pub(super) fn js_op_define_class_for_arena(
+    ctx: &mut ScopedContext,
+    sp: *mut JSValue,
+    class_name: Atom,
+    class_flags: i32,
+    captured_vars: &[VarRef],
+    arena: &mut StackFrameArena,
+    parent_frame_idx: FrameIndex,
+    is_computed_name: bool,
+) -> Result<(), i32> {
+    // SP[-1] is bytecode
+    let bc_val = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
+    let bc = match bc_val {
+        JSValue::Bytecode(b) => b,
+        _ => unreachable!(),
+    };
+    debug_assert_eq!(bc.func_kind(), FunctionKind::Normal);
+
+    // SP[-2]: parent class
+    let mut parent_class = unsafe { *sp.offset(-2) };
+    let parent_proto: Option<Object>;
+
+    if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
+        if parent_class.is_null() {
+            parent_proto = None;
+            parent_class = ctx.function_proto().into();
+        } else if unlikely(!parent_class.is_constructor()) {
+            ctx.throw_type_error("parent class must be constructor ");
+            return Err(-1);
+        } else {
+            parent_proto = match parent_class.get_property(ctx, Atom::CONST_prototype)? {
+                JSValue::NULL => None,
+                JSValue::Object(o) => Some(o),
+                _ => {
+                    ctx.throw_type_error("parent prototype must be an object or null");
+                    return Err(-1);
+                }
+            };
+        }
+    } else {
+        // parent_class is undefined, use Function
+        parent_class = ctx.function_proto().into();
+        parent_proto = ctx.class_proto(JS_CLASS_OBJECT);
+    }
+
+    let mut proto = ctx.create_base_object_with_proto(parent_proto)?;
+    let mut ctor =
+        bc.make_closure_for_arena(ctx, parent_class.to_object(), captured_vars, arena, parent_frame_idx)?;
 
     ctor.method_set_home_object(Some(proto));
     ctor.set_flag_constructor(true);

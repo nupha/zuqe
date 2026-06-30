@@ -65,24 +65,20 @@ impl<'c> ScopedContext<'c> {
     ) -> Result<Compiled, i32> {
         // get (bytecode, module, js_mode) of current stack frame
         let (frame_func_bc, frame_module, js_mode) = if eval_type == EvalType::Direct {
-            // Try old-style StackFrame first, then arena frame for stackless path.
-            // BCWrapper is Copy, so we use .copied() to get an owned value.
-            let cur_func: BCWrapper = self
-                .rt()
-                .current_stack_frame()
-                .and_then(|sf| sf.func_obj.as_BCWrapper().copied())
-                .or_else(|| {
-                    // Trampoline path: get func_obj from the arena's current frame.
-                    let rt = self.rt();
-                    let idx = rt.active_trampoline_frame;
-                    if !idx.is_null() {
-                        let head = rt.frame_arena().frame(idx);
-                        BCWrapper::try_from(JSValue::from(head.func_obj)).ok()
-                    } else {
-                        None
-                    }
-                })
-                .unwrap(); // <-- stack function must be a BCWrapper object
+            // Determine the calling function's BCWrapper based on execution mode.
+            // - Arena (trampoline) path: get func_obj from the current arena frame.
+            // - Legacy path: get func_obj from the StackFrame stack.
+            let cur_func: BCWrapper = if self.is_arena_mode() {
+                let rt = self.rt();
+                let head = rt.frame_arena().frame(rt.active_trampoline_frame);
+                BCWrapper::try_from(JSValue::from(head.func_obj))
+                    .expect("arena frame func_obj must be a BCWrapper")
+            } else {
+                let rt = self.rt();
+                rt.current_stack_frame()
+                    .and_then(|sf| sf.func_obj.as_BCWrapper().copied())
+                    .expect("current stack frame must be a BCWrapper")
+            };
 
             let bc = cur_func.payload().bytecode();
             let mode = bc.mode();
@@ -237,58 +233,56 @@ impl<'c> ScopedContext<'c> {
     ) -> JSResult {
         if self.allow_eval {
             match self.compile(source, filename, eval_type, eval_flags, var_scope_idx)? {
-                Compiled::GlobalOrIndirect(bc) => bc.run_as_function(self, this_obj, &[], None),
+                Compiled::GlobalOrIndirect(bc) => {
+                    bc.run_as_function(self, this_obj, &[], None)
+                }
                 Compiled::Direct(bc) => {
-                    let mut rt = self.rt_ptr();
-
-                    // Try old-style StackFrame path first (non-trampoline callers).
-                    let sf_raw: *mut StackFrame = unsafe {
-                        match (*rt).current_stack_frame_mut() {
-                            Some(sf) => sf as *mut StackFrame,
-                            None => std::ptr::null_mut(),
+                    if self.is_arena_mode() {
+                        // Arena mode: get captured_vars from the trampoline frame
+                        // and delegate to run_as_function (which routes to
+                        // make_closure_for_arena internally).
+                        let mut rt = self.rt_ptr();
+                        let idx = unsafe { (*rt).active_trampoline_frame };
+                        if idx.is_null() {
+                            bc.run_as_function(self, this_obj, &[], None)
+                        } else {
+                            let captured_vars = {
+                                let head = unsafe { (*rt).frame_arena().frame(idx) };
+                                let bfun = BCWrapper::try_from(JSValue::from(head.func_obj))
+                                    .expect("eval: caller must be bytecode function");
+                                let cv_ptr: *const [VarRef] =
+                                    bfun.payload().closure_var_refs();
+                                unsafe { &*cv_ptr }
+                            };
+                            bc.run_as_function(self, this_obj, captured_vars, None)
                         }
-                    };
-                    if !sf_raw.is_null() {
-                        let sf = unsafe { &mut *sf_raw };
-                        if let Some(bf) = sf.func_obj.as_BCWrapper_mut() {
-                            let cv_ptr: *const [VarRef] = bf.payload().closure_var_refs();
-                            drop(bf); // release borrow on sf
-                            let captured_vars = unsafe { &*cv_ptr };
-                            return bc.run_as_function(
-                                self,
-                                this_obj,
-                                captured_vars,
-                                Some(unsafe { &mut *sf_raw }),
-                            );
+                    } else {
+                        // Legacy mode: get captured_vars from the StackFrame.
+                        let mut rt = self.rt_ptr();
+                        let sf_raw: *mut StackFrame = unsafe {
+                            match (*rt).current_stack_frame_mut() {
+                                Some(sf) => sf as *mut StackFrame,
+                                None => std::ptr::null_mut(),
+                            }
+                        };
+                        if !sf_raw.is_null() {
+                            let sf = unsafe { &mut *sf_raw };
+                            if let Some(bf) = sf.func_obj.as_BCWrapper_mut() {
+                                let cv_ptr: *const [VarRef] =
+                                    bf.payload().closure_var_refs();
+                                drop(bf);
+                                let captured_vars = unsafe { &*cv_ptr };
+                                return bc.run_as_function(
+                                    self,
+                                    this_obj,
+                                    captured_vars,
+                                    Some(unsafe { &mut *sf_raw }),
+                                );
+                            }
                         }
+                        // No legacy StackFrame available: no captured vars.
+                        bc.run_as_function(self, this_obj, &[], None)
                     }
-
-                    // Trampoline path: use arena frame.
-                    let idx = unsafe { (*rt).active_trampoline_frame };
-                    if idx.is_null() {
-                        // No old-style StackFrame and no trampoline frame:
-                        // treat as indirect/global eval (no captured vars).
-                        return bc.run_as_function(self, this_obj, &[], None);
-                    }
-                    let captured_vars = {
-                        let head = unsafe { (*rt).frame_arena().frame(idx) };
-                        let bfun = BCWrapper::try_from(JSValue::from(head.func_obj))
-                            .expect("eval: caller must be bytecode function");
-                        // SAFETY: bfun is a Copy type (GcRef). The &[VarRef]
-                        // points into GC-managed memory that remains valid
-                        // for the duration of this call.
-                        let cv_ptr: *const [VarRef] = bfun.payload().closure_var_refs();
-                        unsafe { &*cv_ptr }
-                    };
-
-                    bc.make_closure_for_arena(
-                        self,
-                        None,
-                        captured_vars,
-                        unsafe { (*rt).frame_arena_mut() },
-                        idx,
-                    )?
-                    .call(self, this_obj, &[])
                 }
                 Compiled::Module(mut md) => {
                     // Problem: m has created function? m was linked?

@@ -217,6 +217,17 @@ impl ContextImpl {
         self.class_slots[class_id as usize].proto = Some(proto);
     }
 
+    /// Check if the current execution is using the arena-based stackless
+    /// interpreter (trampoline/execute_with_arena) or the legacy StackFrame
+    /// path (execute_with_realm_scope).
+    ///
+    /// When `active_trampoline_frame` is non-null, we are in the trampoline.
+    /// Otherwise the legacy path is active (or no execution at all).
+    #[inline(always)]
+    pub fn is_arena_mode(&self) -> bool {
+        !self.rt.active_trampoline_frame.is_null()
+    }
+
     /// get runtime ptr
     #[inline(always)]
     pub(crate) const fn rt_ptr(&self) -> RuntimePtr {

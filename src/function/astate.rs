@@ -8,7 +8,7 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     ScopedContext,
-    bytecode::exec::execute_trampoline,
+    bytecode::exec_stackless::execute_trampoline,
     context::ContextPtr,
     error::JSResult,
     function::BCWrapper,
