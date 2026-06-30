@@ -775,9 +775,10 @@ impl Bytecode {
                         SP_GO!(-1);
                     }
                     OpCode::SET_VAR_REF => {
+                        // [value, ^] -> [value, ^]
+                        // store stack top value to var_ref
                         let idx = PC_FETCH!(u16);
-                        let val_ref = &mut captured_vars[idx as usize];
-                        val_ref.set_value(&mut rt, SP_VAL!(0));
+                        captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                     }
                     OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
