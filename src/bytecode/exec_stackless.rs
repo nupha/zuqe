@@ -117,7 +117,7 @@ impl Bytecode {
     ///
     /// Returns the ExecAction describing what the trampoline should do next.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn execute_with_arena(
+    fn execute_with_arena(
         &self,
         realm_scope: &mut ScopedContext,
         arena: &mut StackFrameArena,
@@ -128,14 +128,13 @@ impl Bytecode {
         pc_offset: usize,
         sp_offset: usize,
         captured_vars: &mut [VarRef],
-        mut args: &[JSValue],
+        args: &[JSValue],
         throwed: bool,
     ) -> ExecAction {
         debug_assert!(realm_scope.is_arena_mode());
 
         let mut rt = realm_scope.rt_ptr();
         let bytecodes = self.opcodes();
-
         debug_assert!(
             pc_offset < bytecodes.len(),
             "pc_offset={}, bytecodes.len()={}",
@@ -2728,7 +2727,6 @@ pub(crate) fn execute_trampoline(
     start_scope: &mut ScopedContext,
     this_obj: JSValue,
     new_target: JSValue,
-    args: &[JSValue],
     captured_vars: &mut [VarRef],
     func_home_obj: Option<Object>,
 ) -> (JSValue, bool) {
@@ -2767,21 +2765,26 @@ pub(crate) fn execute_trampoline(
     // execute_with_arena call must handle it immediately.
     let mut throwed = cur_scope.rt().exception() != Exception::No;
 
+    // args is derived from the current frame's arena data at the top of
+    // each loop iteration — no need for an external parameter. This is
+    // equivalent to how exec.rs passes fresh args via C-stack frames.
+    let mut args;
+
     'trampoline: loop {
         let arena = unsafe { &mut *arena_ptr };
 
         rt_ptr.active_trampoline_frame = cur_frame_idx;
         debug_assert!(cur_scope.is_arena_mode());
 
-        // Derive args from the current frame's arena data, so
-        // execute_with_arena always receives the correct args — matching
-        // the standard executor (exec.rs) where call_internal provides
-        // fresh args for every function invocation.
-        let args = unsafe {
+        // Like exec.rs's execute_with_realm_scope, we use args directly.
+        // Keep it in sync with the current frame — frames switch across
+        // CallBytecode / TailCall / Return / Unwind, but deriving once at
+        // the top of the loop is simpler and always correct.
+        {
             let head = arena.frame(cur_frame_idx);
             let data = arena.data_ptr(head);
-            std::slice::from_raw_parts(data, head.arg_real_count as usize)
-        };
+            args = unsafe { std::slice::from_raw_parts(data, head.arg_real_count as usize) };
+        }
 
         // Derive func_home_obj from the current frame's function object.
         // Methods using `super` need this to look up their [[HomeObject]].

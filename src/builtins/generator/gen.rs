@@ -258,7 +258,7 @@ fn js_generator_next(
                 // protects the GC node in the current scope.
                 let ret_val = {
                     let arena = ctx.rt().frame_arena();
-                    g.async_state.take_top(arena, ctx)
+                    g.async_state.take_top_value(arena, ctx)
                 };
 
                 *iter_state = if let Ok(JSValue::Int(FUNC_RET_YIELD_STAR)) = res {

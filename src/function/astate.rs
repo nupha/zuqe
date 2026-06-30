@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::mem;
-use std::ptr::NonNull;
+use std::{mem, ptr::NonNull};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
@@ -222,6 +221,12 @@ impl AsyncStateImpl {
         self.throw_flag = is_reject;
     }
 
+    /// Get immutable reference to the FrameHead via the arena.
+    #[inline(always)]
+    pub(crate) fn frame_head<'a>(&'a self, arena: &'a StackFrameArena) -> &'a FrameHead {
+        self.frame.frame_head(arena)
+    }
+
     /// Get mutable reference to the FrameHead via the arena.
     /// Only valid when frame is Active; panics if Suspended.
     #[inline(always)]
@@ -233,11 +238,6 @@ impl AsyncStateImpl {
             AsyncFrameState::Active(idx) => arena.frame_mut(idx),
             AsyncFrameState::Suspended(_) => unreachable!("frame_head_mut: frame is Suspended"),
         }
-    }
-
-    /// Get immutable reference to the FrameHead via the arena.
-    pub(crate) fn frame_head<'a>(&'a self, arena: &'a StackFrameArena) -> &'a FrameHead {
-        self.frame.frame_head(arena)
     }
 
     /// Get the current FrameIndex, if the frame is Active in the arena.
@@ -266,7 +266,11 @@ impl AsyncStateImpl {
     /// Unlike `pop`, this does NOT adjust SP — it only reads and clears SP[-1].
     /// This is the safe alternative to raw `ptr::replace` on the async stack.
     #[inline(always)]
-    pub fn take_top(&mut self, arena: &StackFrameArena, ctx: &ScopedContext) -> JSValue {
+    pub(crate) fn take_top_value(
+        &mut self,
+        arena: &StackFrameArena,
+        ctx: &ScopedContext,
+    ) -> JSValue {
         // Use frame_head() which works for both Active and Suspended frames.
         // For Suspended frames, the Heap buffer pointer is obtained via
         // arena.data_ptr(head) which handles FrameBufLocation::Heap correctly.
@@ -415,7 +419,6 @@ impl AsyncStateImpl {
             ctx,
             this_val,           // this_obj
             JSValue::UNDEFINED, // new_target
-            &[],                // args already in frame
             closure_vars,       // closure var refs
             home_obj,
         );

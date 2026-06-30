@@ -233,16 +233,14 @@ impl<'c> ScopedContext<'c> {
     ) -> JSResult {
         if self.allow_eval {
             match self.compile(source, filename, eval_type, eval_flags, var_scope_idx)? {
-                Compiled::GlobalOrIndirect(bc) => {
-                    bc.run_as_function(self, this_obj, &[], None)
-                }
+                Compiled::GlobalOrIndirect(bc) => bc.run_as_function(self, this_obj, &[], None),
                 Compiled::Direct(bc) => {
                     if self.is_arena_mode() {
                         // Arena mode: get captured_vars from the trampoline frame
                         // and delegate to run_as_function (which routes to
                         // make_closure_for_arena internally).
-                        let mut rt = self.rt_ptr();
-                        let idx = unsafe { (*rt).active_trampoline_frame };
+                        let rt = self.rt_ptr();
+                        let idx = rt.active_trampoline_frame;
                         if idx.is_null() {
                             bc.run_as_function(self, this_obj, &[], None)
                         } else {
@@ -250,8 +248,7 @@ impl<'c> ScopedContext<'c> {
                                 let head = unsafe { (*rt).frame_arena().frame(idx) };
                                 let bfun = BCWrapper::try_from(JSValue::from(head.func_obj))
                                     .expect("eval: caller must be bytecode function");
-                                let cv_ptr: *const [VarRef] =
-                                    bfun.payload().closure_var_refs();
+                                let cv_ptr: *const [VarRef] = bfun.payload().closure_var_refs();
                                 unsafe { &*cv_ptr }
                             };
                             bc.run_as_function(self, this_obj, captured_vars, None)
@@ -268,8 +265,7 @@ impl<'c> ScopedContext<'c> {
                         if !sf_raw.is_null() {
                             let sf = unsafe { &mut *sf_raw };
                             if let Some(bf) = sf.func_obj.as_BCWrapper_mut() {
-                                let cv_ptr: *const [VarRef] =
-                                    bf.payload().closure_var_refs();
+                                let cv_ptr: *const [VarRef] = bf.payload().closure_var_refs();
                                 drop(bf);
                                 let captured_vars = unsafe { &*cv_ptr };
                                 return bc.run_as_function(

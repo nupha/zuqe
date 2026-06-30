@@ -206,7 +206,7 @@ impl AGenPayload {
                         // arena is in ctx's RuntimeImpl, and we also pass ctx.
                         let value = {
                             let arena = ctx.rt().frame_arena();
-                            self.async_state.take_top(arena, ctx)
+                            self.async_state.take_top_value(arena, ctx)
                         };
 
                         match code {

@@ -253,7 +253,7 @@ impl RuntimeImpl {
 
     /// Get mutable reference to the StackFrameArena for stackless frame ops.
     #[inline(always)]
-    pub(crate) fn frame_arena_mut(&mut self) -> &mut StackFrameArena {
+    pub(crate) const fn frame_arena_mut(&mut self) -> &mut StackFrameArena {
         &mut self.frame_arena
     }
 
@@ -354,7 +354,8 @@ impl RuntimeImpl {
             // Arena/stackless mode: check the active frame's ExecMode
             // from the arena frame head.
             let idx = self.active_trampoline_frame.as_usize();
-            self.frame_arena.heads
+            self.frame_arena
+                .heads
                 .get(idx)
                 .is_some_and(|head| head.mode.contains(ExecMode::STRICT))
         } else {

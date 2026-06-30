@@ -21,7 +21,7 @@ use crate::{
     },
     object_cast,
     runtime::js_check_stack_overflow,
-    stack_frame::{FrameIndex, StackFrame, StackFrameArena},
+    stack_frame::{StackFrame, StackFrameArena},
     value::JSValue,
 };
 
@@ -404,15 +404,15 @@ impl BytecodeFunction {
     ) -> JSResult {
         let bc = self.payload().bytecode();
 
-        // ── Arena mode: allocate arena frame and execute via trampoline ──
         if ctx.is_arena_mode() {
+            // Arena mode: allocate arena frame and execute via trampoline
             let func_obj: Object = **self;
             let bf = self.payload_mut();
             let mut rt = ctx.rt_ptr();
 
-            let parent_frame = unsafe { (*rt).active_trampoline_frame };
-            let saved_frame = unsafe { (*rt).active_trampoline_frame };
-            let arena_ptr: *mut StackFrameArena = unsafe { &raw mut (*rt).frame_arena };
+            let parent_frame = rt.active_trampoline_frame;
+            let saved_frame = rt.active_trampoline_frame;
+            let arena_ptr: *mut StackFrameArena = &raw mut rt.frame_arena;
 
             // init_frame_args uses max(bc.arg_count, actual_args.len()) as the arg region size.
             // Allocate accordingly.
@@ -425,7 +425,7 @@ impl BytecodeFunction {
                 idx
             };
 
-            // Copy args into arena frame data buffer
+            // Copy all args into arena frame buffer
             unsafe {
                 let arena = &mut *arena_ptr;
                 arena.init_frame_args(frame_idx, bc.arg_count, bc.var_count, args);
@@ -446,22 +446,22 @@ impl BytecodeFunction {
                 ctx,
                 this_obj,
                 new_target,
-                args,
                 captured_vars,
                 home_obj,
             );
-            unsafe {
-                (*rt).active_trampoline_frame = saved_frame;
-            }
+
+            rt.active_trampoline_frame = saved_frame;
 
             debug_assert!(
                 is_completed,
                 "synchronous BytecodeFunction::call should not suspend"
             );
-            if ret_val.is_exception() {
-                return Err(-1);
-            }
-            return Ok(ret_val);
+
+            return if ret_val.is_exception() {
+                Err(-1)
+            } else {
+                Ok(ret_val)
+            };
         }
 
         // ── Legacy mode: create StackFrame and execute via execute() ──

@@ -174,7 +174,7 @@ impl AsyncState {
             // Arena access is via ctx.rt() (immutable), compatible with ctx borrow.
             let value = {
                 let arena = ctx.rt().frame_arena();
-                self.take_top(arena, ctx)
+                self.take_top_value(arena, ctx)
             };
 
             // Handle await expression
