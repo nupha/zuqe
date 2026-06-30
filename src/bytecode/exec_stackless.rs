@@ -1896,17 +1896,23 @@ impl Bytecode {
                                 Atom::CONST_return
                             },
                         ) {
-                            let ret_flag = if method.is_undefined_or_null() {
+                            let ret_flag = if unlikely(method.is_undefined_or_null()) {
                                 true
-                            } else if let Ok(ret) = method.call(
-                                realm_scope,
-                                SP_VAL!(-4),
-                                std::slice::from_ref(SP_REF!(-1)),
-                            ) {
-                                SP_PUT!(-1, ret);
-                                false
                             } else {
-                                break State::Exception;
+                                if let Ok(ret) = method.call(
+                                    realm_scope,
+                                    SP_VAL!(-4),
+                                    if flags & 2 != 0 {
+                                        &[]
+                                    } else {
+                                        std::slice::from_ref(SP_REF!(-1))
+                                    },
+                                ) {
+                                    SP_PUT!(-1, ret);
+                                } else {
+                                    break State::Exception;
+                                }
+                                false
                             };
 
                             SP_PUT!(0, JSValue::Bool(ret_flag));
