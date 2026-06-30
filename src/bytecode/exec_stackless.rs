@@ -2908,6 +2908,16 @@ pub(crate) fn execute_trampoline(
                 }
 
                 let arena = unsafe { &mut *arena_ptr };
+                // Detach all VarRefs before freeing the frame. The frame may
+                // hold closure variables captured by inner functions (e.g.
+                // `var nextCount` in an async iterator factory captured by
+                // the `.next()` method). Without detach, VarRef raw pointers
+                // into arena.data become dangling after the region is reused.
+                // (The same pattern is used in the generator-completed path.)
+                let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                for vr in var_refs {
+                    vr.detach();
+                }
                 arena.free_frame(cur_frame_idx);
                 drop(cur_scope);
 
