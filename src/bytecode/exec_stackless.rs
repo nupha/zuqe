@@ -2726,6 +2726,7 @@ pub(crate) fn execute_trampoline(
     new_target: JSValue,
     args: &[JSValue],
     captured_vars: &mut [VarRef],
+    func_home_obj: Option<Object>,
 ) -> (JSValue, bool) {
     use crate::stack_frame::VirtualFrame;
     use std::mem::ManuallyDrop;
@@ -2771,13 +2772,22 @@ pub(crate) fn execute_trampoline(
         rt_ptr.active_trampoline_frame = cur_frame_idx;
         debug_assert!(cur_scope.is_arena_mode());
 
+        // Derive func_home_obj from the current frame's function object.
+        // Methods using `super` need this to look up their [[HomeObject]].
+        let func_home_obj = {
+            let head = arena.frame(cur_frame_idx);
+            BCWrapper::try_from(JSValue::from(head.func_obj))
+                .ok()
+                .and_then(|bfun| bfun.payload().home_object())
+        };
+
         let action = cur_bc.execute_with_arena(
             &mut cur_scope,
             arena,
             cur_frame_idx,
             this_obj,
             new_target,
-            None, // func_home_obj
+            func_home_obj,
             pc_offset,
             sp_offset,
             captured_vars,

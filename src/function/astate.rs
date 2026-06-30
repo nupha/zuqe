@@ -402,6 +402,8 @@ impl AsyncStateImpl {
         // Capture Copy values before mutable borrow for closure_var_refs.
         let this_val = self.this_val;
         let bc = self.bytecode_func.payload().bytecode();
+        // Get home_object before closure_var_refs_mut to avoid conflicting borrows.
+        let home_obj = self.bytecode_func.payload().home_object();
         let closure_vars = self.bytecode_func.payload_mut().closure_var_refs_mut();
 
         // Execute via trampoline.
@@ -415,6 +417,7 @@ impl AsyncStateImpl {
             JSValue::UNDEFINED, // new_target
             &[],                // args already in frame
             closure_vars,       // closure var refs
+            home_obj,
         );
 
         if is_completed {

@@ -432,6 +432,9 @@ impl BytecodeFunction {
                 head.protected_values = [this_obj, new_target];
             }
 
+            // Get home_object before closure_var_refs_mut to avoid
+            // conflicting mutable borrows on bf.
+            let home_obj = bf.home_object();
             let captured_vars = bf.closure_var_refs_mut();
 
             // execute_trampoline manages active_trampoline_frame internally,
@@ -444,6 +447,7 @@ impl BytecodeFunction {
                 new_target,
                 args,
                 captured_vars,
+                home_obj,
             );
             unsafe { (*rt).active_trampoline_frame = saved_frame; }
 

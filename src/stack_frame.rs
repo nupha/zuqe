@@ -48,6 +48,14 @@ impl FrameIndex {
     pub const fn is_null(self) -> bool {
         self.0 == u32::MAX
     }
+
+    /// Convert to usize for arena head indexing.
+    /// Panics if this is FrameIndex::NULL.
+    #[inline(always)]
+    pub(crate) const fn as_usize(self) -> usize {
+        debug_assert!(!self.is_null());
+        self.0 as usize
+    }
 }
 
 /// Frame lifecycle state within the arena.

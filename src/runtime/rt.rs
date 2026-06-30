@@ -348,10 +348,19 @@ impl RuntimeImpl {
         }
     }
 
-    /// test if current stack-frame is in strict mode
+    /// test if current stack-frame is in strict mode.
     pub(crate) fn is_strict_mode(&self) -> bool {
-        self.current_stack_frame()
-            .is_some_and(|sf| sf.mode.contains(ExecMode::STRICT))
+        if !self.active_trampoline_frame.is_null() {
+            // Arena/stackless mode: check the active frame's ExecMode
+            // from the arena frame head.
+            let idx = self.active_trampoline_frame.as_usize();
+            self.frame_arena.heads
+                .get(idx)
+                .is_some_and(|head| head.mode.contains(ExecMode::STRICT))
+        } else {
+            self.current_stack_frame()
+                .is_some_and(|sf| sf.mode.contains(ExecMode::STRICT))
+        }
     }
 
     /// test if allowed to throw error according to `flags`
