@@ -412,11 +412,12 @@ impl BytecodeFunction {
 
             let parent_frame = unsafe { (*rt).active_trampoline_frame };
             let saved_frame = unsafe { (*rt).active_trampoline_frame };
-            let arena_ptr: *mut StackFrameArena = unsafe {
-                &raw mut (*rt).frame_arena
-            };
+            let arena_ptr: *mut StackFrameArena = unsafe { &raw mut (*rt).frame_arena };
 
-            let buf_cap = bc.arg_count as usize + bc.local_buf_size as usize;
+            // init_frame_args uses max(bc.arg_count, actual_args.len()) as the arg region size.
+            // Allocate accordingly.
+            let buf_cap =
+                std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
             let frame_idx = unsafe {
                 let arena = &mut *arena_ptr;
                 let idx = arena.alloc_frame(func_obj, bc.mode(), buf_cap);
@@ -449,7 +450,9 @@ impl BytecodeFunction {
                 captured_vars,
                 home_obj,
             );
-            unsafe { (*rt).active_trampoline_frame = saved_frame; }
+            unsafe {
+                (*rt).active_trampoline_frame = saved_frame;
+            }
 
             debug_assert!(
                 is_completed,

@@ -13,8 +13,7 @@
 // StackFrameArena arena, not in legacy StackFrame objects.
 // ============================================================================
 
-use std::cmp;
-use std::ptr::NonNull;
+use std::{cmp, mem::ManuallyDrop, ptr::NonNull};
 
 use fallible_collections::TryCollect;
 
@@ -58,12 +57,13 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, LazyInit, Object, ObjectPayload,
+        JS_PROP_WRITABLE, JSProperty, Object, ObjectPayload,
     },
-    stack_frame::{ExecMode, FrameIndex, StackFrameArena},
+    stack_frame::{ExecMode, FrameIndex, StackFrameArena, VirtualFrame},
     utils::{read_from_ptr, unlikely},
     value::JSValue,
 };
+
 // ============================================================================
 // Stackless Interpreter: Trampoline and Arena-aware Execution
 // ============================================================================
@@ -92,10 +92,10 @@ fn arena_get_var_ref(
     let pvalue = unsafe {
         NonNull::new_unchecked(if is_arg {
             debug_assert!(var_idx < arg_count);
-            unsafe { arg_base_ptr.offset(var_idx as isize) }
+            arg_base_ptr.offset(var_idx as isize)
         } else {
             debug_assert!(var_idx < var_count);
-            unsafe { var_base_ptr.offset(var_idx as isize) }
+            var_base_ptr.offset(var_idx as isize)
         })
     };
     let async_state = if mode.contains(ExecMode::ASYNC) {
@@ -128,7 +128,7 @@ impl Bytecode {
         pc_offset: usize,
         sp_offset: usize,
         captured_vars: &mut [VarRef],
-        args: &[JSValue],
+        mut args: &[JSValue],
         throwed: bool,
     ) -> ExecAction {
         debug_assert!(realm_scope.is_arena_mode());
@@ -200,12 +200,6 @@ impl Bytecode {
                 &mut []
             }
         };
-
-        // Re-derive `args` from the current frame's arena data, for the same
-        // reason as captured_vars above — the trampoline's args parameter
-        // becomes stale after a CallBytecode/TailCall frame switch.
-        let args: &[JSValue] =
-            unsafe { std::slice::from_raw_parts(arg_base_ptr, arg_real_count as usize) };
 
         if throwed {
             let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
@@ -906,8 +900,12 @@ impl Bytecode {
                             // runs INITIAL_YIELD). Only plain (non-generator)
                             // bytecode functions can use the inline frame setup.
                             if func_kind == FunctionKind::Normal {
+                                // init_frame_args uses max(bc.arg_count, actual_args)
+                                // as the arg region size. Allocate accordingly to
+                                // prevent buffer overflow into adjacent frames.
                                 let callee_buf_cap =
-                                    bc.arg_count as usize + bc.local_buf_size as usize;
+                                    std::cmp::max(bc.arg_count as usize, call_argc as usize)
+                                        + bc.local_buf_size as usize;
 
                                 let callee_frame_idx =
                                     arena.alloc_frame(bfun.into(), bc.mode(), callee_buf_cap);
@@ -2734,9 +2732,6 @@ pub(crate) fn execute_trampoline(
     captured_vars: &mut [VarRef],
     func_home_obj: Option<Object>,
 ) -> (JSValue, bool) {
-    use crate::stack_frame::VirtualFrame;
-    use std::mem::ManuallyDrop;
-
     // Get a stable raw pointer to the arena. The arena lives in RuntimeImpl
     // which has the same lifetime as the runtime. Using a raw pointer avoids
     // borrow conflicts between cur_scope (which borrows rt) and arena access.
@@ -2777,6 +2772,16 @@ pub(crate) fn execute_trampoline(
 
         rt_ptr.active_trampoline_frame = cur_frame_idx;
         debug_assert!(cur_scope.is_arena_mode());
+
+        // Derive args from the current frame's arena data, so
+        // execute_with_arena always receives the correct args — matching
+        // the standard executor (exec.rs) where call_internal provides
+        // fresh args for every function invocation.
+        let args = unsafe {
+            let head = arena.frame(cur_frame_idx);
+            let data = arena.data_ptr(head);
+            std::slice::from_raw_parts(data, head.arg_real_count as usize)
+        };
 
         // Derive func_home_obj from the current frame's function object.
         // Methods using `super` need this to look up their [[HomeObject]].
