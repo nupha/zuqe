@@ -151,12 +151,12 @@ impl Bytecode {
         //
         // Split into immutable then mutable borrows: data_ptr and
         // stack_base_ptr take &self on arena, while frame_mut takes &mut.
-        let (arg_base_ptr, var_base_ptr, sp_base, mode, func_obj) = {
+        let (arg_base_ptr, var_base_ptr, sp_base, mode, func_obj, arg_real_count) = {
             let head = arena.frame(cur_frame_idx);
             let arg_base = arena.data_ptr(head);
             let var_base = unsafe { arg_base.add(head.var_base_offset as usize) };
             let sp = arena.stack_base_ptr(head);
-            (arg_base, var_base, sp, head.mode, head.func_obj)
+            (arg_base, var_base, sp, head.mode, head.func_obj, head.arg_real_count)
         };
         let head = arena.frame_mut(cur_frame_idx);
         // Store a raw pointer to cur_sp_offset for SP_GO! macro updates.
@@ -192,6 +192,13 @@ impl Bytecode {
                 // But execute_with_arena should never be called for them.
                 &mut []
             }
+        };
+
+        // Re-derive `args` from the current frame's arena data, for the same
+        // reason as captured_vars above — the trampoline's args parameter
+        // becomes stale after a CallBytecode/TailCall frame switch.
+        let args: &[JSValue] = unsafe {
+            std::slice::from_raw_parts(arg_base_ptr, arg_real_count as usize)
         };
 
         if throwed {
