@@ -147,7 +147,16 @@ impl AGenPayload {
                         // in case the 'throw' method is called
                         self.async_state.set_throw_flag(false);
 
-                        // Update stack via arena: SP[-1] <- value, SP[0] <- completion type, SP++
+                        // to update stack:
+                        // SP[-1] <- result value
+                        // SP[0]  <- completion type
+                        // SP++
+                        //
+                        // Save .next() argument and completion type onto the stack.
+                        // The YIELD_STAR loop already reset cur_sp_offset to 4
+                        // ([iter_obj, next, catch, val, ^]), so we overwrite val
+                        // with the arg and push type on top → 5 items:
+                        //   sp[-5]=iter, sp[-4]=next, sp[-3]=catch, sp[-2]=arg, sp[-1]=type
                         {
                             let arena = ctx.rt_mut().frame_arena_mut();
                             self.async_state.stack_store(arena, -1, result);

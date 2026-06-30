@@ -425,27 +425,11 @@ impl BytecodeFunction {
             };
 
             // Copy args into arena frame data buffer
-            let arg_copy_num = std::cmp::max(args.len(), bc.arg_count as usize);
             unsafe {
                 let arena = &mut *arena_ptr;
-                let callee_data = {
-                    let h = arena.frame(frame_idx);
-                    arena.data_ptr(h)
-                };
-                for (i, arg) in args.iter().enumerate() {
-                    *callee_data.add(i) = *arg;
-                }
-                for i in args.len()..arg_copy_num {
-                    *callee_data.add(i) = JSValue::UNDEFINED;
-                }
+                arena.init_frame_args(frame_idx, bc.arg_count, bc.var_count, args);
                 let head = arena.frame_mut(frame_idx);
                 head.protected_values = [this_obj, new_target];
-                head.arg_base_offset = 0;
-                head.arg_real_count = args.len() as _;
-                head.arg_count = arg_copy_num as _;
-                head.var_base_offset = head.arg_count as u32;
-                head.var_count = bc.var_count;
-                head.cur_sp_offset = 0;
             }
 
             let captured_vars = bf.closure_var_refs_mut();

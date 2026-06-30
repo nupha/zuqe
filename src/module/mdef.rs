@@ -500,22 +500,38 @@ pub(super) fn get_script_or_module_name(
     ctx: &mut ContextImpl,
     n_stack_levels: usize,
 ) -> Option<Atom> {
-    // XXX: currently we just use the filename of the englobing
-    // function from the debug info. May need to add a ScriptOrModule
-    // info in Bytecode.
-    for sf in ctx
-        .rt()
-        .current_stack_frame()
-        .map_or(StackFrameParentIter::EMPTY, |f| f.parent_iter(true))
-        .skip(n_stack_levels)
-    {
-        if let Some(bcf) = sf.func_obj.as_BCWrapper() {
-            let bc = bcf.payload().bytecode();
-            if !bc.is_direct_or_indirect_eval {
-                return bc.debug.as_ref().map(|d| d.filename);
+    let rt = ctx.rt();
+
+    if ctx.is_arena_mode() {
+        // Arena path: walk the arena frame chain via FrameHead::prev links.
+        let arena = rt.frame_arena();
+        let mut cur = rt.active_trampoline_frame;
+        for _ in 0..=n_stack_levels {
+            if cur.is_null() {
+                return None;
             }
-        } else {
-            break;
+            let head = arena.frame(cur);
+            if let Some(bcf) = head.func_obj.as_BCWrapper() {
+                let bc = bcf.payload().bytecode();
+                if !bc.is_direct_or_indirect_eval {
+                    return bc.debug.as_ref().map(|d| d.filename);
+                }
+            }
+            cur = head.prev;
+        }
+    } else {
+        // Legacy path: walk the StackFrame chain.
+        if let Some(sf) = rt.current_stack_frame() {
+            for sf in sf.parent_iter(true).skip(n_stack_levels) {
+                if let Some(bcf) = sf.func_obj.as_BCWrapper() {
+                    let bc = bcf.payload().bytecode();
+                    if !bc.is_direct_or_indirect_eval {
+                        return bc.debug.as_ref().map(|d| d.filename);
+                    }
+                } else {
+                    break;
+                }
+            }
         }
     }
 

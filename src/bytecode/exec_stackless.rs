@@ -913,35 +913,15 @@ impl Bytecode {
                                 arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
 
                                 // Init callee frame data from stack args.
-                                {
-                                    let callee_data = {
-                                        let h = arena.frame(callee_frame_idx);
-                                        arena.data_ptr(h)
-                                    };
-                                    let callee_head = arena.frame_mut(callee_frame_idx);
-                                    let args_slice = unsafe {
-                                        std::slice::from_raw_parts(call_argv, call_argc as usize)
-                                    };
-                                    for (i, arg) in args_slice.iter().enumerate() {
-                                        unsafe {
-                                            *callee_data.add(i) = *arg;
-                                        }
-                                    }
-                                    // Fill remaining formal parameter slots with UNDEFINED.
-                                    let arg_copy_num = std::cmp::max(bc.arg_count, call_argc);
-                                    for i in call_argc..arg_copy_num {
-                                        unsafe {
-                                            *callee_data.add(i as usize) = JSValue::UNDEFINED;
-                                        }
-                                    }
-
-                                    callee_head.arg_base_offset = 0;
-                                    callee_head.arg_real_count = call_argc;
-                                    callee_head.arg_count = std::cmp::max(bc.arg_count, call_argc);
-                                    callee_head.var_base_offset = callee_head.arg_count as u32;
-                                    callee_head.var_count = bc.var_count;
-                                    callee_head.cur_sp_offset = 0;
-                                }
+                                let args_slice = unsafe {
+                                    std::slice::from_raw_parts(call_argv, call_argc as usize)
+                                };
+                                arena.init_frame_args(
+                                    callee_frame_idx,
+                                    bc.arg_count,
+                                    bc.var_count,
+                                    args_slice,
+                                );
 
                                 let return_sp = unsafe {
                                     sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
@@ -2905,6 +2885,15 @@ pub(crate) fn execute_trampoline(
 
                     // YIELD/AWAIT/YIELD_STAR: function suspended.
                     // Frame stays Active in arena; caller must take_frame.
+                    //
+                    // Note: no stack-pointer fix-up for YIELD_STAR here — the
+                    // SUSPENDED_YIELD_STAR resume handler in a_gen.rs pushes
+                    // completion_type onto the stack (bumping sp), and the
+                    // DUP/IF_TRUE/DROP bytecode sequence that follows
+                    // ASYNC_YIELD_STAR in expr_yield.rs consumes it before
+                    // looping back to ITERATOR_NEXT, keeping the stack at
+                    // depth 4 (matching label_loop).  Same principle as the
+                    // legacy exec.rs path.
                     drop(cur_scope);
 
                     // Drain virtual_frames to drop saved caller scopes.

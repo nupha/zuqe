@@ -334,6 +334,47 @@ impl StackFrameArena {
         unsafe { self.stack_base_ptr(head).add(head.cur_sp_offset as usize) }
     }
 
+    /// Initialize a freshly allocated frame's argument region.
+    ///
+    /// Copies `args` into the arg slots and fills any remaining formal-parameter
+    /// slots with `UNDEFINED`.  Sets `arg_real_count`, `arg_count`,
+    /// `var_base_offset`, `var_count` and `cur_sp_offset` on the frame head.
+    ///
+    /// This is the single canonical path for frame argument setup – all call
+    /// sites (bfun.call, inline trampoline, AsyncStateImpl::new) MUST use this
+    /// to ensure consistent treatment of missing arguments and head fields.
+    #[inline(always)]
+    pub(crate) fn init_frame_args(
+        &mut self,
+        idx: FrameIndex,
+        bc_arg_count: u16,
+        bc_var_count: u16,
+        args: &[JSValue],
+    ) {
+        let arg_count = std::cmp::max(bc_arg_count as usize, args.len());
+        let data_ptr = {
+            let head = self.frame(idx);
+            self.data_ptr(head)
+        };
+        let head = self.frame_mut(idx);
+
+        // Copy actual arguments into the args region.
+        for (i, arg) in args.iter().enumerate() {
+            unsafe { *data_ptr.add(i) = *arg; }
+        }
+        // Fill unsupplied formal parameter slots with UNDEFINED.
+        for i in args.len()..arg_count {
+            unsafe { *data_ptr.add(i) = JSValue::UNDEFINED; }
+        }
+
+        head.arg_base_offset = 0;
+        head.arg_real_count = args.len() as u16;
+        head.arg_count = arg_count as u16;
+        head.var_base_offset = arg_count as u32;
+        head.var_count = bc_var_count;
+        head.cur_sp_offset = 0;
+    }
+
     // ── GC-safe stack access API ──
 
     /// Push a value onto the frame's operand stack (SP += 1).

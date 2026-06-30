@@ -149,27 +149,14 @@ impl AsyncStateImpl {
 
         // Initialize frame data: copy args, zero-fill vars, set up offsets.
         {
-            // Get data pointer first (immutable borrow), then mutable head.
-            // Explicit block ensures the immutable borrow is released.
+            arena.init_frame_args(frame_idx, arg_count as u16, var_count, args);
+
+            // Async frames are Heap-backed (not bump-allocated), so the local
+            // variable region is NOT implicitly zero-initialised – fill it here.
             let data_ptr = {
                 let head = arena.frame(frame_idx);
                 arena.data_ptr(head)
             };
-            let head = arena.frame_mut(frame_idx);
-
-            // Copy actual arguments into the args region.
-            for (i, arg) in args.iter().enumerate() {
-                unsafe {
-                    *data_ptr.add(i) = *arg;
-                }
-            }
-            // Fill remaining formal parameter slots with UNDEFINED.
-            for i in args.len()..arg_count {
-                unsafe {
-                    *data_ptr.add(i) = JSValue::UNDEFINED;
-                }
-            }
-            // Fill local variable region with UNDEFINED.
             let var_start = arg_count;
             let var_end = var_start + var_count as usize;
             for i in var_start..var_end {
@@ -177,14 +164,6 @@ impl AsyncStateImpl {
                     *data_ptr.add(i) = JSValue::UNDEFINED;
                 }
             }
-
-            // Set up frame layout offsets (all relative to data buffer start).
-            head.arg_base_offset = 0;
-            head.arg_real_count = args.len() as u16;
-            head.arg_count = arg_count as u16;
-            head.var_base_offset = arg_count as u32;
-            head.var_count = var_count;
-            head.cur_sp_offset = 0; // stack starts empty
         }
 
         Ok(Self {
