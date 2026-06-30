@@ -1,18 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-// ============================================================================
-// Stackless Interpreter: Trampoline and Arena-aware Execution
-//
-// This module contains the stackless (arena-based) bytecode interpreter and
-// the top-level trampoline that drives it. This is the NEW execution path;
-// the LEGACY path lives in exec.rs (execute_with_realm_scope).
-//
-// The trampoline maintains a virtual call stack via VirtualFrame, completely
-// avoiding C-stack recursion for JS-to-JS calls. Frame data lives in a
-// StackFrameArena arena, not in legacy StackFrame objects.
-// ============================================================================
-
 use std::{cmp, mem::ManuallyDrop, ptr::NonNull};
 
 use fallible_collections::TryCollect;
@@ -2810,12 +2798,13 @@ pub(crate) fn execute_trampoline(
         );
 
         match action {
-            // ── Call sub-frame ──
             ExecAction::CallBytecode {
                 callee_bc,
                 callee_frame_idx: callee_idx,
                 return_sp,
             } => {
+                // ── Call sub-frame ──
+
                 // Create callee's GC scope first, then swap to avoid
                 // zero-initializing ScopedContext (which contains NonNull).
                 // SAFETY: lifetime erased to 'static; trampoline restores
@@ -2841,7 +2830,6 @@ pub(crate) fn execute_trampoline(
                 throwed = false;
             }
 
-            // ── Tail call ──
             ExecAction::TailCall {
                 callee_bc,
                 callee_func_obj,
@@ -2865,8 +2853,8 @@ pub(crate) fn execute_trampoline(
                 throwed = false;
             }
 
-            // ── Frame return ──
             ExecAction::Return(ret_val, is_generator) => {
+                // ── Frame return ──
                 if is_generator {
                     if ret_val.is_undefined() {
                         // RETURN_ASYNC: async function completed normally.
