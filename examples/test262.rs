@@ -82,7 +82,7 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let arg = cc.arg(i);
         let repr = arg.inspect(ctx)?;
 
-        // print!("{}", repr);
+        print!("{}", repr);
 
         if repr.eq("Test262:AsyncTestComplete") {
             ASYNC_DONE.fetch_add(1, Ordering::SeqCst);
@@ -91,7 +91,7 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     }
 
-    // println!();
+    println!();
 
     Ok(JSValue::UNDEFINED)
 }
