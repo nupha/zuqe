@@ -1890,33 +1890,26 @@ impl Bytecode {
                         if let Ok(method) = SP_REF!(-4).get_property(
                             realm_scope,
                             if flags & 1 != 0 {
-                                Atom::CONST_return
-                            } else {
                                 Atom::CONST_throw
+                            } else {
+                                Atom::CONST_return
                             },
                         ) {
-                            if method.is_undefined_or_null() {
-                                if flags & 2 != 0 {
-                                    // return but not found: just break
-                                    // (yield* returns the value)
-                                } else {
-                                    // throw method not found: should throw TypeError
-                                    realm_scope
-                                        .throw_type_error("iterator.throw method is not defined");
-                                    break State::Exception;
-                                }
-                            } else if let Ok(ret) = SP_REF!(-3).call(
+                            let ret_flag = if method.is_undefined_or_null() {
+                                true
+                            } else if let Ok(ret) = method.call(
                                 realm_scope,
                                 SP_VAL!(-4),
                                 std::slice::from_ref(SP_REF!(-1)),
                             ) {
                                 SP_PUT!(-1, ret);
-                                SP_GO!(1);
-                                SP_PUT!(0, JSValue::Bool(true));
-                                SP_GO!(1);
+                                false
                             } else {
                                 break State::Exception;
-                            }
+                            };
+
+                            SP_PUT!(0, JSValue::Bool(ret_flag));
+                            SP_GO!(1);
                         } else {
                             break State::Exception;
                         }
