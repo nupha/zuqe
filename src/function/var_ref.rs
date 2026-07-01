@@ -9,11 +9,9 @@ use crate::{
     RuntimeImpl,
     context::ScopedContext,
     gcref_wrapper,
-    stack_frame::{ExecMode, FrameHead, StackFrame},
+    stack_frame::{FrameHead, StackFrame},
     value::JSValue,
 };
-
-use super::AsyncState;
 
 #[repr(u8)]
 #[derive(Debug)]
@@ -28,24 +26,15 @@ pub enum VarRefImpl {
         /// StackFrame::arg_base_ptr[var_idx] or StackFrame::var_base_ptr[var_idx],
         /// for speed access only
         pvalue: NonNull<JSValue>,
-
-        async_state: Option<AsyncState>,
     },
 }
 
 impl GcTrace for VarRefImpl {
     fn trace(&self, gcx: &mut GcTraceCtx) {
         match self {
-            Self::Bind {
-                async_state,
-                pvalue,
-                ..
-            } => {
+            Self::Bind { pvalue, .. } => {
                 unsafe {
                     pvalue.as_ref().trace(gcx);
-                }
-                if let Some(a) = async_state {
-                    a.trace(gcx);
                 }
             }
             Self::Detached(value) => {
@@ -213,13 +202,11 @@ impl VarRef {
         var_idx: u16,
         is_arg: bool,
         pvalue: NonNull<JSValue>,
-        async_state: Option<AsyncState>,
     ) -> Result<Self, i32> {
         ctx.alloc_local(VarRefImpl::Bind {
             is_arg,
             var_idx,
             pvalue,
-            async_state,
         })
         .map(Self)
         .map_err(|_| {
@@ -262,25 +249,6 @@ impl StackFrame {
                     debug_assert!(var_idx < self.var_count);
                     self.var_base_ptr.offset(var_idx as isize)
                 })
-            },
-            if self.mode.contains(ExecMode::ASYNC) {
-                // The stack frame is detached and may be destroyed at any
-                // time so its reference count must be increased. Calling
-                // close_var_refs() when destroying the stack frame is not
-                // possible because it would change the graph between the GC
-                // objects. Another solution could be to temporarily detach
-                // the VarRef of async functions during the GC. It would
-                // have the advantage of allowing the release of unused stack
-                // frames in a cycle.
-                let a_state = self
-                    .async_state
-                    .upgrade(ctx.rt().gc_heap())
-                    .map(|x| AsyncState::from(x.into_raw()));
-
-                debug_assert!(a_state.is_some());
-                a_state
-            } else {
-                None
             },
         )?;
 

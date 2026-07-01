@@ -358,7 +358,7 @@ impl Bytecode {
                                 var_base.add(cv.var_idx as usize)
                             })
                         };
-                        let vref = VarRef::create_bind(ctx, cv.var_idx, cv.is_arg(), pvalue, None)?;
+                        let vref = VarRef::create_bind(ctx, cv.var_idx, cv.is_arg(), pvalue)?;
                         parent_var_refs.push(vref);
                         vref
                     }

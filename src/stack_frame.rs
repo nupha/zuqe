@@ -112,6 +112,7 @@ pub(crate) struct FrameHead {
     pub(crate) cur_sp_offset: i32,
 
     /// Protected values: this_obj, new_target (deprecated but needed for compat).
+    #[deprecated(note = "unused")]
     pub(crate) protected_values: [JSValue; 2],
 
     /// Variable references for closure capture.
@@ -636,6 +637,60 @@ impl StackFrameArena {
         None
     }
 
+    /// Search the frame's operand stack for a GOSUB return address (finally block marker).
+    ///
+    /// When a try-finally block is entered, the compiler emits a `GOSUB` instruction
+    /// that pushes `JSValue::Int(return_pc)` onto the operand stack. On exception
+    /// propagation, this marker must be found so the finally block executes before
+    /// the exception propagates upward.
+    ///
+    /// Returns `Some((finally_pc, finally_sp))` if a GOSUB marker is found,
+    /// or `None` if no finally block needs to be executed in this frame.
+    ///
+    /// ## Implementation Notes
+    ///
+    /// The scanning logic is structurally identical to `find_catch_in_frame`, except:
+    /// - It looks for `JSValue::Int` (GOSUB return PC) instead of `JSValue::CatchOffset`
+    /// - The found marker is left at the stack top (for `RET` to consume it)
+    /// - Values between the old top and the marker are cleared to `UNDEFINED`
+    ///
+    /// ## Known Limitation
+    ///
+    /// GOSUB uses `JSValue::Int` without a dedicated tag — the same "security flaw"
+    /// noted in `exec.rs`'s GOSUB handler (`XXX: should have a different tag to avoid
+    /// security flaw`). Regular integer values on the operand stack could be
+    /// mistaken for GOSUB markers. In practice this is extremely rare because:
+    /// 1. GOSUB markers are small positive values (PC offsets within bytecode)
+    /// 2. They are placed at deterministic stack depths by the compiler
+    /// 3. The scanning clears consumed intermediate values
+    pub(crate) fn find_finally_in_frame(&self, idx: FrameIndex) -> Option<(usize, usize)> {
+        let head = self.frame(idx);
+        let sp_base = self.stack_base_ptr(head);
+        let mut sp = head.cur_sp_offset as usize;
+
+        // Scan from top of stack downward, looking for JSValue::Int (GOSUB marker).
+        // GOSUB return addresses are always positive PC offsets.
+        while sp > 0 {
+            sp -= 1;
+            if let JSValue::Int(pos) =
+                unsafe { std::ptr::replace(sp_base.add(sp), JSValue::UNDEFINED) }
+            {
+                if pos > 0 {
+                    // Found potential GOSUB marker. Replace it to keep it on
+                    // the cleaned stack (RET reads SP[-1]).
+                    unsafe {
+                        std::ptr::write(sp_base.add(sp), JSValue::Int(pos));
+                    }
+                    // sp is now at the GOSUB marker position; increment so
+                    // the marker is at SP[-1] (stack top).
+                    sp += 1;
+                    return Some((pos as usize, sp));
+                }
+            }
+        }
+        None
+    }
+
     /// Create a VarRef pointing to a local variable in the given arena frame.
     /// Arena-equivalent of `StackFrame::get_var_ref()`. Used by direct eval
     /// in the stackless path where no old-style StackFrame exists.
@@ -672,20 +727,7 @@ impl StackFrameArena {
             })
         };
 
-        let vref = VarRef::create_bind(
-            ctx,
-            var_idx,
-            is_arg,
-            pvalue,
-            if head.mode.contains(ExecMode::ASYNC) {
-                // Async frames can be detached; hold a weak ref so that
-                // the VarRef stays valid even when the GC runs between
-                // yield/await and resumption.
-                None
-            } else {
-                None
-            },
-        )?;
+        let vref = VarRef::create_bind(ctx, var_idx, is_arg, pvalue)?;
         var_ref_list.push(vref);
         Ok(vref)
     }

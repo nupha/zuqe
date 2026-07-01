@@ -363,10 +363,62 @@ impl<'c> ScopedContext<'c> {
 
         let rt = self.rt_ptr();
 
-        for sf in rt
-            .current_stack_frame()
-            .map_or(StackFrameParentIter::EMPTY, |f| f.parent_iter(true))
-        {
+        // Check if we are in arena (stackless) mode.
+        if !rt.active_trampoline_frame.is_null() {
+            // ── Arena mode: traverse FrameHead.prev chain ──
+            let arena = &rt.frame_arena;
+            let mut frame_idx = rt.active_trampoline_frame;
+            let mut first = true;
+            while !frame_idx.is_null() {
+                let head = arena.frame(frame_idx);
+                if backtrace_flags & JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL != 0 && first {
+                    backtrace_flags &= !JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
+                } else {
+                    let str1 = get_func_name(head.func_obj).map_or(Cow::Borrowed("<anonymous>"), |x| {
+                        if x.is_empty() {
+                            Cow::Borrowed("<anonymous>")
+                        } else {
+                            Cow::Owned(x)
+                        }
+                    });
+                    dbuf.write_fmt(format_args!("    at {}", str1))
+                        .map_err(|_| -1)?;
+
+                    let mut backtrace_barrier = false;
+
+                    if let Some(bc) = head.func_obj.as_BCWrapper().map(|f| f.payload().bytecode()) {
+                        backtrace_barrier = bc.attrs.backtrace_barrier;
+
+                        if let Some(debug) = bc.debug.as_ref() {
+                            let line_num1 = bc.find_line_num(
+                                (head.cur_pc_offset as u32).wrapping_sub(1),
+                            );
+                            let atom_str = debug.filename.to_utf8(&rt);
+
+                            dbuf.write_fmt(format_args!(" ({atom_str}"))
+                                .map_err(|_| -1)?;
+                            if let Some(n) = line_num1 {
+                                dbuf.write_fmt(format_args!(":{n}")).map_err(|_| -1)?;
+                            }
+                            dbuf.write_all(b")").map_err(|_| -1)?;
+                        }
+                    } else {
+                        dbuf.write_all(b" (native)").map_err(|_| -1)?;
+                    }
+                    dbuf.write_all(b"\n").map_err(|_| -1)?;
+
+                    if backtrace_barrier {
+                        break;
+                    }
+                }
+                frame_idx = head.prev;
+                first = false;
+            }
+        } else {
+            for sf in rt
+                .current_stack_frame()
+                .map_or(StackFrameParentIter::EMPTY, |f| f.parent_iter(true))
+            {
             if backtrace_flags & JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL != 0 {
                 backtrace_flags &= !JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
             } else {
@@ -409,6 +461,7 @@ impl<'c> ScopedContext<'c> {
                 }
             }
         }
+    }
 
         Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string())
     }

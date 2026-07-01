@@ -28,7 +28,7 @@ use crate::{
         OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
         OP_DEFINE_METHOD_SETTER,
     },
-    context::ScopedContext,
+    context::{ContextPtr, ScopedContext},
     error::{
         Exception, JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
@@ -66,7 +66,6 @@ fn arena_get_var_ref(
     var_ref_list: &mut Vec<VarRef>,
     arg_count: u16,
     var_count: u16,
-    mode: ExecMode,
 ) -> Result<VarRef, i32> {
     debug_assert!(ctx.is_arena_mode());
 
@@ -86,12 +85,7 @@ fn arena_get_var_ref(
             var_base_ptr.offset(var_idx as isize)
         })
     };
-    let async_state = if mode.contains(ExecMode::ASYNC) {
-        None
-    } else {
-        None
-    };
-    let vref = VarRef::create_bind(ctx, var_idx, is_arg, pvalue, async_state)?;
+    let vref = VarRef::create_bind(ctx, var_idx, is_arg, pvalue)?;
     var_ref_list.push(vref);
     Ok(vref)
 }
@@ -509,7 +503,6 @@ impl Bytecode {
                                         &mut arena.frame_mut(cur_frame_idx).var_ref_list,
                                         self.arg_count,
                                         self.var_count,
-                                        mode,
                                     ) {
                                         Ok(vr) => JSProperty::VarRef(vr),
                                         Err(_) => {
@@ -787,7 +780,6 @@ impl Bytecode {
                                 &mut arena.frame_mut(cur_frame_idx).var_ref_list,
                                 self.arg_count,
                                 self.var_count,
-                                mode,
                             )
                         };
                         match var_ref {
@@ -908,6 +900,12 @@ impl Bytecode {
                                     bc.var_count,
                                     args_slice,
                                 );
+
+                                // Per ECMAScript, a plain CALL passes undefined as
+                                // this value. The function's own strict/sloppy mode
+                                // determines how this is handled in PUSH_THIS.
+                                arena.frame_mut(callee_frame_idx).protected_values =
+                                    [JSValue::UNDEFINED, JSValue::UNDEFINED];
 
                                 let return_sp = unsafe {
                                     sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
@@ -2694,6 +2692,104 @@ impl Bytecode {
 }
 
 // ============================================================================
+// TrampolineScope: Safe Scope Wrapper for Trampoline Use
+// ============================================================================
+
+/// A GC scope wrapper for trampoline use that encapsulates the lifetime
+/// management and eliminates direct `'static` transmute exposure.
+///
+/// # Safety
+///
+/// The GC scope lives on the GC heap, managed through `ContextPtr` (a `Copy`
+/// type that is just a raw pointer to `ContextImpl`). The lifetime parameter in
+/// `ScopedContext` / `GcScope` is `PhantomData<&'a ()>` — it only exists for
+/// compile-time borrow checking. The actual scope lifecycle is determined by:
+///
+/// 1. Push: creating a scope via `ContextPtr::new_scope()` pushes onto the GC
+///    heap's scope stack. The returned `GcScope` holds a raw `NonNull<GcHeap>`
+///    pointer to pop from during drop.
+/// 2. Pop: dropping the `GcScope` calls `heap.pop_scope()`.
+///
+/// The trampoline loop guarantees LIFO ordering and drops all scopes before
+/// the runtime (and thus the GC heap) is destroyed. The `'static` transmute
+/// is safe under this guarantee because:
+/// - `ContextPtr` is `Copy` — the scope's ctx reference survives independently
+/// - The GC heap maintains scope stacks via raw pointers, not Rust lifetimes
+/// - `ManuallyDrop` prevents auto-drop at the wrong time
+/// - All scopes are explicitly drained before trampoline exit
+#[derive(Debug)]
+struct TrampolineScope {
+    /// The underlying scope. Wrapped in `ManuallyDrop` to prevent automatic
+    /// drop when the scope is moved across trampoline iterations (via
+    /// `std::mem::replace` in the CallBytecode handler). Manually restored
+    /// via `take()` or `into_inner()`.
+    ///
+    /// SAFETY: The `'static` lifetime is safe because:
+    /// - The actual GC scope lifecycle is runtime-managed on the GC heap
+    /// - This wrapper guarantees LIFO drop order within the trampoline
+    /// - All scopes are dropped before the runtime/GC heap is destroyed
+    inner: ManuallyDrop<ScopedContext<'static>>,
+}
+
+impl TrampolineScope {
+    /// Create a new scope from a ContextPtr by pushing onto the GC scope stack.
+    ///
+    /// SAFETY:
+    /// - The returned scope must be dropped before the GC heap is destroyed.
+    /// - The trampoline loop ensures LIFO ordering of scope creation/destruction.
+    unsafe fn new(ctx: &mut ContextPtr) -> Self {
+        // SAFETY: The 'static transmute erases only the phantom lifetime.
+        // The actual scope is managed on the GC heap through ContextPtr's
+        // raw NonNull<GcHeap>. This is safe because:
+        // 1. ContextPtr is Copy — it's just a raw pointer
+        // 2. GcScope's lifetime is PhantomData<&'a ()> — zero runtime cost
+        // 3. ManuallyDrop ensures we control when the scope is popped
+        // 4. The trampoline drops all scopes before the runtime is destroyed
+        let erased: ScopedContext<'static> = std::mem::transmute(ctx.new_scope());
+        Self {
+            inner: ManuallyDrop::new(erased),
+        }
+    }
+
+    /// Borrow the inner scope mutably (for passing to `execute_with_arena`).
+    fn scope_mut(&mut self) -> &mut ScopedContext<'static> {
+        &mut self.inner
+    }
+
+    /// Take ownership of the inner scope, consuming this wrapper.
+    /// The caller becomes responsible for dropping the scope.
+    fn into_inner(mut self) -> ScopedContext<'static> {
+        // SAFETY: ManuallyDrop::take() is only called once; self is consumed.
+        // This prevents the wrapper's drop from trying to drop inner again.
+        unsafe { ManuallyDrop::take(&mut self.inner) }
+    }
+
+    /// Restore a `TrampolineScope` from a `ScopedContext` that was previously
+    /// extracted via `into_inner()` (e.g., from a `VirtualFrame`'s `caller_scope`).
+    ///
+    /// SAFETY: The `ScopedContext` must have been created by this trampoline
+    /// (via `TrampolineScope::new`) and must not outlive the GC heap.
+    const unsafe fn from_inner(inner: ScopedContext<'static>) -> Self {
+        Self {
+            inner: ManuallyDrop::new(inner),
+        }
+    }
+}
+
+impl std::ops::Deref for TrampolineScope {
+    type Target = ScopedContext<'static>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl std::ops::DerefMut for TrampolineScope {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+// ============================================================================
 // Top-Level Trampoline
 // ============================================================================
 
@@ -2703,7 +2799,7 @@ impl Bytecode {
 /// The trampoline maintains:
 /// - `cur_bc`: currently executing bytecode
 /// - `cur_frame_idx`: currently executing frame in the arena
-/// - `cur_scope`: GC scope for the current frame
+/// - `cur_trampoline_scope`: GC scope for the current frame (via `TrampolineScope`)
 /// - `virtual_frames`: caller chain (saved on call, restored on return)
 ///
 /// Returns (result, is_completed) tuple:
@@ -2713,14 +2809,14 @@ pub(crate) fn execute_trampoline(
     start_bc: Bytecode,
     start_frame_idx: FrameIndex,
     start_scope: &mut ScopedContext,
-    this_obj: JSValue,
-    new_target: JSValue,
+    mut this_obj: JSValue,
+    mut new_target: JSValue,
     captured_vars: &mut [VarRef],
     func_home_obj: Option<Object>,
 ) -> (JSValue, bool) {
     // Get a stable raw pointer to the arena. The arena lives in RuntimeImpl
     // which has the same lifetime as the runtime. Using a raw pointer avoids
-    // borrow conflicts between cur_scope (which borrows rt) and arena access.
+    // borrow conflicts between cur_trampoline_scope (which borrows rt) and arena access.
     let arena_ptr: *mut StackFrameArena = {
         let rt = start_scope.rt_mut();
         &raw mut rt.frame_arena
@@ -2732,12 +2828,11 @@ pub(crate) fn execute_trampoline(
     let mut virtual_frames: Vec<VirtualFrame> = Vec::new();
 
     // realm_ctx provides the factory for new GC scopes.
-    // We transmute scopes to 'static because VirtualFrame stores them
-    // with ManuallyDrop — the actual lifetime is managed by the trampoline
-    // loop which restores and drops each scope before the realm expires.
+    // Using TrampolineScope instead of raw 'static transmute:
+    // the scope lives on the GC heap and is managed through ContextPtr (Copy).
+    // ManuallyDrop prevents auto-drop when scopes are moved across iterations.
     let mut realm_ctx = start_bc.realm();
-    let mut cur_scope: ScopedContext<'static> =
-        unsafe { std::mem::transmute(realm_ctx.new_scope()) };
+    let mut cur_trampoline_scope = unsafe { TrampolineScope::new(&mut realm_ctx) };
 
     // Initialize PC/SP offsets from the frame head.
     // On first execution, both are 0 (fresh frame).
@@ -2751,7 +2846,7 @@ pub(crate) fn execute_trampoline(
     // Check for a pending runtime exception (e.g., .throw() on a suspended
     // async generator or async function). If present, the first
     // execute_with_arena call must handle it immediately.
-    let mut throwed = cur_scope.rt().exception() != Exception::No;
+    let mut throwed = cur_trampoline_scope.rt().exception() != Exception::No;
 
     // args is derived from the current frame's arena data at the top of
     // each loop iteration — no need for an external parameter. This is
@@ -2762,7 +2857,7 @@ pub(crate) fn execute_trampoline(
         let arena = unsafe { &mut *arena_ptr };
 
         rt_ptr.active_trampoline_frame = cur_frame_idx;
-        debug_assert!(cur_scope.is_arena_mode());
+        debug_assert!(cur_trampoline_scope.is_arena_mode());
 
         // Like exec.rs's execute_with_realm_scope, we use args directly.
         // Keep it in sync with the current frame — frames switch across
@@ -2784,7 +2879,7 @@ pub(crate) fn execute_trampoline(
         };
 
         let action = cur_bc.execute_with_arena(
-            &mut cur_scope,
+            cur_trampoline_scope.scope_mut(),
             arena,
             cur_frame_idx,
             this_obj,
@@ -2805,15 +2900,19 @@ pub(crate) fn execute_trampoline(
             } => {
                 // ── Call sub-frame ──
 
-                // Create callee's GC scope first, then swap to avoid
-                // zero-initializing ScopedContext (which contains NonNull).
-                // SAFETY: lifetime erased to 'static; trampoline restores
-                // and drops all scopes before realm_ctx expires.
-                let callee_scope: ScopedContext<'static> =
-                    unsafe { std::mem::transmute(realm_ctx.new_scope()) };
+                // Create callee's GC scope via TrampolineScope (encapsulates
+                // the safe 'static transmute — the scope lives on the GC heap
+                // and is managed through ContextPtr, which is Copy).
+                let callee_trampoline_scope = unsafe { TrampolineScope::new(&mut realm_ctx) };
 
-                let caller_scope =
-                    ManuallyDrop::new(std::mem::replace(&mut cur_scope, callee_scope));
+                // Swap: replace cur_trampoline_scope with callee's scope.
+                // The caller's scope (the old value) is extracted via
+                // into_inner() and stored in VirtualFrame's caller_scope.
+                // ManuallyDrop prevents auto-drop while stored in the Vec.
+                let caller_scope = ManuallyDrop::new(
+                    std::mem::replace(&mut cur_trampoline_scope, callee_trampoline_scope)
+                        .into_inner(),
+                );
 
                 virtual_frames.push(VirtualFrame {
                     frame_idx: cur_frame_idx,
@@ -2828,6 +2927,18 @@ pub(crate) fn execute_trampoline(
                 pc_offset = 0;
                 sp_offset = 0;
                 throwed = false;
+
+                // Update this_obj and new_target from the callee frame's
+                // protected_values. For plain CALL these are UNDEFINED;
+                // for CALL_METHOD (which goes through call_internal
+                // instead of inline dispatch) the trampoline is not
+                // entered — but this read is still correct for inline cases.
+                {
+                    let arena = unsafe { &*arena_ptr };
+                    let callee_head = arena.frame(callee_idx);
+                    this_obj = callee_head.protected_values[0];
+                    new_target = callee_head.protected_values[1];
+                }
             }
 
             ExecAction::TailCall {
@@ -2844,12 +2955,18 @@ pub(crate) fn execute_trampoline(
                     head.var_base_offset = head.arg_count as u32;
                     head.var_count = callee_bc.var_count;
                     head.cur_sp_offset = 0;
+                    
+                    // For plain TAIL_CALL, this/new_target are undefined.
+                    // (TAIL_CALL_METHOD goes through call_internal, not here.)
+                    head.protected_values = [JSValue::UNDEFINED, JSValue::UNDEFINED];
                 }
 
                 cur_bc = callee_bc;
                 cur_frame_idx = new_idx;
                 pc_offset = 0;
                 sp_offset = 0;
+                this_obj = JSValue::UNDEFINED;
+                new_target = JSValue::UNDEFINED;
                 throwed = false;
             }
 
@@ -2879,7 +2996,7 @@ pub(crate) fn execute_trampoline(
                             vr.detach();
                         }
                         arena.free_frame(cur_frame_idx);
-                        drop(cur_scope);
+                        drop(cur_trampoline_scope.into_inner());
                         // Drain virtual_frames to drop saved caller scopes.
                         while let Some(vf) = virtual_frames.pop() {
                             drop(ManuallyDrop::into_inner(vf.caller_scope));
@@ -2900,7 +3017,7 @@ pub(crate) fn execute_trampoline(
                     // looping back to ITERATOR_NEXT, keeping the stack at
                     // depth 4 (matching label_loop).  Same principle as the
                     // legacy exec.rs path.
-                    drop(cur_scope);
+                    drop(cur_trampoline_scope.into_inner());
 
                     // Drain virtual_frames to drop saved caller scopes.
                     // These were placed in ManuallyDrop during CallBytecode.
@@ -2925,12 +3042,16 @@ pub(crate) fn execute_trampoline(
                     vr.detach();
                 }
                 arena.free_frame(cur_frame_idx);
-                drop(cur_scope);
+                drop(cur_trampoline_scope.into_inner());
 
                 if let Some(caller_vf) = virtual_frames.pop() {
                     cur_bc = caller_vf.caller_bc;
                     cur_frame_idx = caller_vf.frame_idx;
-                    cur_scope = ManuallyDrop::into_inner(caller_vf.caller_scope);
+                    cur_trampoline_scope = unsafe {
+                        TrampolineScope::from_inner(ManuallyDrop::into_inner(
+                            caller_vf.caller_scope,
+                        ))
+                    };
 
                     let caller_head = arena.frame(caller_vf.frame_idx);
                     let sp_ptr = arena.stack_base_ptr(caller_head);
@@ -2955,11 +3076,42 @@ pub(crate) fn execute_trampoline(
             // ── Exception propagation ──
             ExecAction::Unwind => {
                 let arena = unsafe { &mut *arena_ptr };
+
+                // Before freeing the frame and propagating, check for a
+                // finally block (GOSUB marker) in the current frame.
+                // This handles cases where find_catch_in_frame didn't find
+                // a CatchOffset but a GOSUB/THROW pattern exists (e.g.,
+                // nested try-finally with cleanups, or try-finally without
+                // catch where the CatchOffset was already consumed).
+                if let Some((finally_pc, finally_sp)) = arena.find_finally_in_frame(cur_frame_idx) {
+                    // Found a finally block. Save the exception value on
+                    // the stack below the GOSUB marker so the THROW after
+                    // the finally block can re-throw it.
+                    let err_val = cur_trampoline_scope
+                        .take_exception()
+                        .to_value(&mut cur_trampoline_scope);
+                    let sp_base = arena.stack_base_ptr(arena.frame(cur_frame_idx));
+                    unsafe {
+                        // Write exception below the GOSUB marker position.
+                        // After finally executes and RET pops the GOSUB
+                        // marker, the exception is at TOS for THROW.
+                        std::ptr::write(sp_base.add(finally_sp - 1), err_val);
+                    }
+                    pc_offset = finally_pc;
+                    sp_offset = finally_sp + 1; // exception + GOSUB marker
+                    throwed = false;
+                    continue 'trampoline;
+                }
+
                 arena.free_frame(cur_frame_idx);
-                drop(cur_scope);
+                drop(cur_trampoline_scope.into_inner());
 
                 if let Some(caller_vf) = virtual_frames.pop() {
-                    cur_scope = ManuallyDrop::into_inner(caller_vf.caller_scope);
+                    cur_trampoline_scope = unsafe {
+                        TrampolineScope::from_inner(ManuallyDrop::into_inner(
+                            caller_vf.caller_scope,
+                        ))
+                    };
                     cur_bc = caller_vf.caller_bc;
                     cur_frame_idx = caller_vf.frame_idx;
 
