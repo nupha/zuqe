@@ -456,6 +456,7 @@ impl Bytecode {
                 callee_bc: Bytecode,
                 callee_func_obj: Object,
                 callee_buf_cap: usize,
+                args: Vec<JSValue>,
             },
         }
 
@@ -978,14 +979,27 @@ impl Bytecode {
                                     std::cmp::max(bc.arg_count as usize, call_argc as usize)
                                         + bc.local_buf_size as usize;
 
-                                let callee_frame_idx =
-                                    arena.alloc_frame(bfun.into(), bc.mode(), callee_buf_cap);
-                                arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
-
                                 // Init callee frame data from stack args.
                                 let args_slice = unsafe {
                                     std::slice::from_raw_parts(call_argv, call_argc as usize)
                                 };
+
+                                if unlikely(opcode == OpCode::TAIL_CALL) {
+                                    // Tail call: the trampoline will free the current
+                                    // frame and allocate the callee frame, so we only
+                                    // need to pass the copied arguments.
+                                    break State::TailCall {
+                                        callee_bc: bc,
+                                        callee_func_obj: bfun.into(),
+                                        callee_buf_cap,
+                                        args: args_slice.to_vec(),
+                                    };
+                                }
+
+                                let callee_frame_idx =
+                                    arena.alloc_frame(bfun.into(), bc.mode(), callee_buf_cap);
+                                arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+
                                 arena.init_frame_args(
                                     callee_frame_idx,
                                     bc.arg_count,
@@ -1003,13 +1017,6 @@ impl Bytecode {
                                     sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
                                 } as usize;
 
-                                if unlikely(opcode == OpCode::TAIL_CALL) {
-                                    break State::TailCall {
-                                        callee_bc: bc,
-                                        callee_func_obj: bfun.into(),
-                                        callee_buf_cap,
-                                    };
-                                }
                                 break State::CallBytecode {
                                     callee_bc: bc,
                                     callee_frame_idx,
@@ -2771,11 +2778,13 @@ impl Bytecode {
                     callee_bc,
                     callee_func_obj,
                     callee_buf_cap,
+                    args,
                 } => {
                     return ExecAction::TailCall {
                         callee_bc,
                         callee_func_obj,
                         callee_buf_cap,
+                        args,
                     };
                 }
             }
@@ -2832,7 +2841,7 @@ pub(crate) fn execute_trampoline(
     // Check for a pending runtime exception (e.g., .throw() on a suspended
     // async generator or async function). If present, the first
     // execute_with_arena call must handle it immediately.
-    let mut throwed = cur_trampoline_scope.rt().exception() != Exception::No;
+    let mut throwed = rt_ptr.exception() != Exception::No;
 
     // Initialize PC/SP offsets from the frame head.
     // On first execution, both are 0 (fresh frame).
@@ -2900,8 +2909,7 @@ pub(crate) fn execute_trampoline(
                 // Create callee's GC scope via TrampolineScope (encapsulates
                 // the safe 'static transmute — the scope lives on the GC heap
                 // and is managed through ContextPtr, which is Copy).
-                let callee_trampoline_scope =
-                    unsafe { TrampolineScope::new(&mut realm_ctx) };
+                let callee_trampoline_scope = unsafe { TrampolineScope::new(&mut realm_ctx) };
 
                 // Swap: replace cur_trampoline_scope with callee's scope.
                 // The caller's scope (the old value) is extracted via
@@ -2943,17 +2951,31 @@ pub(crate) fn execute_trampoline(
                 callee_bc,
                 callee_func_obj,
                 callee_buf_cap,
+                args,
             } => {
                 let arena = unsafe { &mut *arena_ptr };
+
+                // Detach any closure VarRefs that reference the outgoing frame
+                // before it is recycled, otherwise captured variables become
+                // dangling pointers into the arena data buffer.
+                {
+                    let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                    for vr in var_refs.iter_mut() {
+                        vr.detach();
+                    }
+                }
                 arena.free_frame(cur_frame_idx);
+
                 let new_idx = arena.alloc_frame(callee_func_obj, callee_bc.mode(), callee_buf_cap);
+                arena.init_frame_args(
+                    new_idx,
+                    callee_bc.arg_count,
+                    callee_bc.var_count,
+                    &args,
+                );
+
                 {
                     let head = arena.frame_mut(new_idx);
-                    head.arg_base_offset = 0;
-                    head.var_base_offset = head.arg_count as u32;
-                    head.var_count = callee_bc.var_count;
-                    head.cur_sp_offset = 0;
-
                     // For plain TAIL_CALL, this/new_target are undefined.
                     // (TAIL_CALL_METHOD goes through call_internal, not here.)
                     head.protected_values = [JSValue::UNDEFINED, JSValue::UNDEFINED];
@@ -3033,17 +3055,27 @@ pub(crate) fn execute_trampoline(
                 }
 
                 let arena = unsafe { &mut *arena_ptr };
-                // Detach all VarRefs before freeing the frame. The frame may
-                // hold closure variables captured by inner functions (e.g.
-                // `var nextCount` in an async iterator factory captured by
-                // the `.next()` method). Without detach, VarRef raw pointers
-                // into arena.data become dangling after the region is reused.
-                // (The same pattern is used in the generator-completed path.)
-                let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
-                for vr in var_refs {
-                    vr.detach();
+
+                // ── Frame lifecycle management ──
+                // The outermost frame (start_frame_idx) was allocated by
+                // BytecodeFunction::call. The trampoline's Return/Unwind
+                // handlers skip freeing it — the caller owns it and will
+                // detach + free after execute_trampoline returns.
+                // Inner frames (created by CallBytecode) are owned here.
+                let is_outermost = virtual_frames.is_empty();
+                if !is_outermost {
+                    // Detach all VarRefs before freeing the frame. The frame may
+                    // hold closure variables captured by inner functions (e.g.
+                    // `var nextCount` in an async iterator factory captured by
+                    // the `.next()` method). Without detach, VarRef raw pointers
+                    // into arena.data become dangling after the region is reused.
+                    // (The same pattern is used in the generator-completed path.)
+                    let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                    for vr in var_refs {
+                        vr.detach();
+                    }
+                    arena.free_frame(cur_frame_idx);
                 }
-                arena.free_frame(cur_frame_idx);
                 // Promote before scope pop so the value stays LOCAL
                 // in the parent scope (caller's scope, or start_scope).
                 promote_to_parent(ret_val, &cur_trampoline_scope);
@@ -3106,7 +3138,12 @@ pub(crate) fn execute_trampoline(
                     continue 'trampoline;
                 }
 
-                arena.free_frame(cur_frame_idx);
+                // Same rule as Return handler: inner frames are freed here,
+                // the outermost frame is owned by BytecodeFunction::call.
+                let is_outermost = virtual_frames.is_empty();
+                if !is_outermost {
+                    arena.free_frame(cur_frame_idx);
+                }
                 drop(cur_trampoline_scope.into_inner());
 
                 if let Some(caller_vf) = virtual_frames.pop() {

@@ -274,8 +274,8 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }
 
             // call wrapper promise's then() method.
-            // next_promise, resolve_element, reject_element will be protected
-            // by StackFrame, no manual required.
+            // next_promise, resolve_element, reject_element are protected
+            // by StackFrame (gc will trace stackframe values), no manual required.
             if next_promise
                 .invoke(ctx, Atom::CONST_then, &[resolve_element, reject_element])
                 .is_err()

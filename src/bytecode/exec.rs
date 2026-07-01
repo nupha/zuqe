@@ -77,6 +77,7 @@ pub(crate) enum ExecAction {
         callee_bc: Bytecode,
         callee_func_obj: Object,
         callee_buf_cap: usize,
+        args: Vec<JSValue>,
     },
     /// Frame returned normally or yielded (generator/async suspension).
     /// bool = true means the frame suspended (yield/await), not completed.

@@ -20,7 +20,7 @@ use crate::{
         ObjectPayload,
     },
     object_cast,
-    stack_frame::StackFrameArena,
+    stack_frame::{FrameState, StackFrameArena},
     value::JSValue,
 };
 
@@ -460,6 +460,23 @@ impl BytecodeFunction {
             is_completed,
             "synchronous BytecodeFunction::call should not suspend"
         );
+
+        // ── Frame lifecycle cleanup ──
+        // The trampoline's Return/Unwind handlers skip free_frame for the
+        // outermost frame (start_frame_idx). We own the frame — detach and
+        // free it here. Only free if the frame is still Active (may be
+        // Suspended if a nested BytecodeFunction::call's free_frame took
+        // the non-LIFO path).
+        unsafe {
+            let arena = &mut *arena_ptr;
+            let var_refs = &mut arena.frame_mut(frame_idx).var_ref_list;
+            for vr in var_refs.iter_mut() {
+                vr.detach();
+            }
+            if arena.frame(frame_idx).state == FrameState::Active {
+                arena.free_frame(frame_idx);
+            }
+        }
 
         if ret_val.is_exception() {
             Err(-1)

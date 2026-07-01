@@ -197,6 +197,16 @@ impl ScopedContext<'_> {
     #[inline(always)]
     pub(crate) fn gc_protect_transient(&self, val: &JSValue) {
         #[cfg(feature = "gc_protect_transient")]
+        self.gc_protect_transient_force(val)
+    }
+
+    /// Force-version gc_protect_transient that always protects, regardless of
+    /// feature flag. Use this for C-stack-local values that were previously
+    /// traced by StackFrame::trace (legacy model) but, in the arena/trampoline
+    /// execution model, lack GC root coverage between the point they leave a
+    /// traced location and the point they are stored in a new traced location.
+    #[inline(always)]
+    pub(crate) fn gc_protect_transient_force(&self, val: &JSValue) {
         if let Some(n) = val.gc_node_ptr() {
             self.gc_state().add_non_local(n);
         }
