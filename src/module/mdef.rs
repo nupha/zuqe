@@ -13,7 +13,6 @@ use crate::{
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, Object, ObjectPayload},
     runtime::RuntimeImpl,
-    stack_frame::StackFrameParentIter,
     value::JSValue,
 };
 
@@ -530,7 +529,8 @@ pub(super) fn get_script_or_module_name(
             // Native function or non-bytecode: stop walking.
             break;
         }
-        return None;
+
+        None
     } else {
         // Legacy fallback (preserved for reference):
         // if let Some(sf) = rt.current_stack_frame() {
@@ -545,10 +545,10 @@ pub(super) fn get_script_or_module_name(
         //         }
         //     }
         // }
-        unreachable!("BytecodeFunction::call always uses arena mode; legacy StackFrame chain should not be reachable");
+        unreachable!(
+            "BytecodeFunction::call always uses arena mode; legacy StackFrame chain should not be reachable"
+        );
     }
-
-    None
 }
 
 /// get module import.meta object of context current execution.

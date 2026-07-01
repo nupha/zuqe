@@ -8,10 +8,10 @@ use crate::{
     atom::Atom,
     context::{ScopeResult, ScopedContext},
     error::JSResult,
-    function::{BCWrapper, Bytecode, FunctionDef, FunctionKind, VarRef, add_closure_variables},
+    function::{BCWrapper, Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
     parse::JSParseState,
-    stack_frame::{ExecMode, StackFrame},
+    stack_frame::ExecMode,
     value::JSValue,
 };
 
@@ -80,7 +80,9 @@ impl<'c> ScopedContext<'c> {
                 // rt.current_stack_frame()
                 //     .and_then(|sf| sf.func_obj.as_BCWrapper().copied())
                 //     .expect("current stack frame must be a BCWrapper")
-                unreachable!("eval: BytecodeFunction::call always uses arena mode; legacy stack_frame lookup should not be reachable");
+                unreachable!(
+                    "eval: BytecodeFunction::call always uses arena mode; legacy stack_frame lookup should not be reachable"
+                );
             };
 
             let bc = cur_func.payload().bytecode();
@@ -268,8 +270,10 @@ impl<'c> ScopedContext<'c> {
                         //     }
                         // }
                         // bc.run_as_function(self, this_obj, &[], None)
-                        unreachable!("eval: BytecodeFunction::call always uses arena mode; \
-                            legacy captured_vars from StackFrame should not be reachable");
+                        unreachable!(
+                            "eval: BytecodeFunction::call always uses arena mode; \
+                            legacy captured_vars from StackFrame should not be reachable"
+                        );
                     }
                 }
                 Compiled::Module(mut md) => {

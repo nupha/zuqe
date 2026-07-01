@@ -50,43 +50,6 @@ use crate::{
     value::JSValue,
 };
 
-/// Action returned by the bytecode interpreter inner loop to the trampoline.
-/// The inner loop processes opcodes normally; when it encounters a call,
-/// return, tail call, or uncaught exception, it yields control to the
-/// trampoline via this enum.
-#[derive(Debug)]
-pub(crate) enum ExecAction {
-    /// Call a bytecode function: trampoline saves caller state and switches
-    /// to the callee frame.
-    CallBytecode {
-        callee_bc: Bytecode,
-        callee_frame_idx: FrameIndex,
-        /// SP offset in caller frame where return value should be stored.
-        return_sp: usize,
-    },
-    /// Cross-realm call: trampoline switches to callee's context scope.
-    CallBytecodeCrossRealm {
-        callee_bc: Bytecode,
-        callee_frame_idx: FrameIndex,
-        callee_ctx_ptr: ContextPtr,
-        return_sp: usize,
-    },
-    /// Tail-call optimization: recycle current frame, switch to callee
-    /// without pushing a VirtualFrame.
-    TailCall {
-        callee_bc: Bytecode,
-        callee_func_obj: Object,
-        callee_buf_cap: usize,
-        args: Vec<JSValue>,
-    },
-    /// Frame returned normally or yielded (generator/async suspension).
-    /// bool = true means the frame suspended (yield/await), not completed.
-    Return(JSValue, bool),
-    /// Uncaught exception in current frame; trampoline must propagate
-    /// upward through the virtual call stack.
-    Unwind,
-}
-
 impl Bytecode {
     /// Execute bytecodes. Return value is protected as local gc node.
     ///

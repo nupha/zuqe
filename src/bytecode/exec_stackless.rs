@@ -16,7 +16,6 @@ use crate::{
     bytecode::{
         OpCode, SpecialObject,
         arithmatic::{UnaryOp, op_binary_logic},
-        exec::ExecAction,
         operators::{
             js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next,
             js_has_unscopable, js_iterator_get_value_done, js_method_set_properties,
@@ -51,6 +50,43 @@ use crate::{
     utils::{read_from_ptr, unlikely},
     value::JSValue,
 };
+
+/// Action returned by the bytecode interpreter inner loop to the trampoline.
+/// The inner loop processes opcodes normally; when it encounters a call,
+/// return, tail call, or uncaught exception, it yields control to the
+/// trampoline via this enum.
+#[derive(Debug)]
+pub(crate) enum ExecAction {
+    /// Call a bytecode function: trampoline saves caller state and switches
+    /// to the callee frame.
+    CallBytecode {
+        callee_bc: Bytecode,
+        callee_frame_idx: FrameIndex,
+        /// SP offset in caller frame where return value should be stored.
+        return_sp: usize,
+    },
+    /// Cross-realm call: trampoline switches to callee's context scope.
+    CallBytecodeCrossRealm {
+        callee_bc: Bytecode,
+        callee_frame_idx: FrameIndex,
+        callee_ctx_ptr: ContextPtr,
+        return_sp: usize,
+    },
+    /// Tail-call optimization: recycle current frame, switch to callee
+    /// without pushing a VirtualFrame.
+    TailCall {
+        callee_bc: Bytecode,
+        callee_func_obj: Object,
+        callee_buf_cap: usize,
+        args: Vec<JSValue>,
+    },
+    /// Frame returned normally or yielded (generator/async suspension).
+    /// bool = true means the frame suspended (yield/await), not completed.
+    Return(JSValue, bool),
+    /// Uncaught exception in current frame; trampoline must propagate
+    /// upward through the virtual call stack.
+    Unwind,
+}
 
 /// A GC scope wrapper for trampoline use that encapsulates the lifetime
 /// management and eliminates direct `'static` transmute exposure.
@@ -148,8 +184,8 @@ impl std::ops::DerefMut for TrampolineScope {
     }
 }
 
-/// Arena-based equivalent of StackFrame::get_var_ref.
-fn arena_get_var_ref(
+#[allow(clippy::too_many_arguments)]
+fn get_var_ref(
     ctx: &mut ScopedContext,
     var_idx: u16,
     is_arg: bool,
@@ -587,7 +623,7 @@ impl Bytecode {
 
                                 let mut abort = false;
                                 for i in 0..cmp::min(args.len() as i32, self.arg_count as i32) {
-                                    let content = match arena_get_var_ref(
+                                    let content = match get_var_ref(
                                         realm_scope,
                                         i as u16,
                                         true,
@@ -864,7 +900,7 @@ impl Bytecode {
                         let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
                             Ok(captured_vars[idx as usize])
                         } else {
-                            arena_get_var_ref(
+                            get_var_ref(
                                 realm_scope,
                                 idx,
                                 opcode == OpCode::MAKE_ARG_REF,
