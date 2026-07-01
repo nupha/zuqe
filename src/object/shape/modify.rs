@@ -9,6 +9,14 @@ use crate::{
 
 use smallvec::SmallVec;
 
+// In debug mode, compact eagerly to catch index-invalidation bugs early.
+// In release mode, delay until the number of deleted slots reaches this
+// threshold to avoid unnecessary work on transient delete-recreate patterns.
+#[cfg(debug_assertions)]
+const PROP_SLOT_COMPACT_THRESHOLD: u16 = 0;
+#[cfg(not(debug_assertions))]
+const PROP_SLOT_COMPACT_THRESHOLD: u16 = 4;
+
 impl ObjectImpl {
     /// modify object's shape by closure.
     /// an exclusive, unregistered shape is passed to closure as argument.
@@ -31,7 +39,7 @@ impl ObjectImpl {
         let r = update_fn(&mut use_shape);
 
         // batch compact deleted slots
-        if self.deleted_slot_count > 0 {
+        if self.deleted_slot_count > PROP_SLOT_COMPACT_THRESHOLD {
             self.compact_deleted_slots(&mut use_shape);
         }
 
@@ -95,11 +103,11 @@ impl ObjectImpl {
 
         let mut use_shape = if use_count != 1 {
             // current shape is shared, dup to new without register.
-            let  sh2 = self.shape().unwrap().dup(ctx)?;
+            let sh2 = self.shape().unwrap().dup(ctx)?;
             sh2
         } else {
             // current shape is exclusive, unregister and use it.
-            let  sh = self.take_shape().unwrap();
+            let sh = self.take_shape().unwrap();
             ctx.rt_mut().unregister_shape(&sh);
             sh
         };
@@ -117,14 +125,16 @@ impl ObjectImpl {
     }
 
     /// Updates flag of a shape property.
-    /// if object's shape was changed, returns true
+    /// Returns the property's (post-compact) index so callers can update their
+    /// cached idx — the index may change when compact_deleted_slots runs.
+    /// When flags are unchanged the original index is still valid.
     pub(crate) fn modify_shape_property_flags(
         &mut self,
         ctx: &mut ScopedContext,
         prop: Atom,
         flags_fn: impl FnOnce(u32) -> u32,
-    ) -> Result<bool, i32> {
-        let (idx, prs_flag) = self
+    ) -> Result<usize, i32> {
+        let (mut idx, prs_flag) = self
             .shape()
             .unwrap()
             .prop_defs
@@ -140,10 +150,19 @@ impl ObjectImpl {
                 sh.prop_defs.get_mut(idx).unwrap().set_flags(new_flags);
                 sh.full_rehash();
             })?;
-            Ok(true)
-        } else {
-            Ok(false)
+            // modify_shape may compact deleted slots, shifting indices.
+            // Re-find to get the post-compact index.
+            idx = self
+                .shape()
+                .unwrap()
+                .prop_defs
+                .find_hash(prop.id())
+                .next()
+                .map(|(i, _)| i)
+                .unwrap();
         }
+
+        Ok(idx)
     }
 
     /// Updates flag of a shape property by index.
@@ -187,6 +206,10 @@ impl ObjectImpl {
         for idx in removed_indices.iter().rev() {
             shape.prop_defs.remove_index(*idx);
         }
+        // Actually compact the hash list so deleted entries are removed and
+        // the hash table is rebuilt — this ensures find_hash returns correct
+        // indices after prop_values is compacted.
+        shape.prop_defs.compact();
 
         // compact prop_values
         self.prop_values

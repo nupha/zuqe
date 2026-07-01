@@ -143,7 +143,7 @@ impl ObjectImpl {
         ctx: &mut ScopedContext,
         prop: Atom,
         prs_flags: u32,
-        idx: usize,
+        mut idx: usize,
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -169,19 +169,12 @@ impl ObjectImpl {
                 }
             }
             JS_PROP_GETSET => {
-                // convert getset property to normal type
-                self.modify_shape_property_flags(ctx, prop, |f| {
+                // convert getset property to normal type.
+                idx = self.modify_shape_property_flags(ctx, prop, |f| {
                     let f2 = f & !(JS_PROP_TMASK | JS_PROP_WRITABLE);
                     debug_assert_eq!(flags & JS_PROP_TMASK, JS_PROP_NORMAL);
                     f2
                 })?;
-
-                // self.shape_prepare_update(ctx)?;
-                // let sh = self.shape().unwrap();
-                // let prs = unsafe { sh.as_mut().prop_defs.get_mut(&prop.id()).unwrap() };
-                // prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
-                // debug_assert_eq!(prs.flags() & JS_PROP_TMASK, JS_PROP_NORMAL);
-
                 self.set_prop_slot_non_gc(idx, JSProperty::default());
             }
             JS_PROP_VARREF => {
@@ -231,12 +224,11 @@ impl ObjectImpl {
                             Ok(false)
                         };
                     } else {
-                        self.modify_shape_property_flags(ctx, prop, |f| {
+                        idx = self.modify_shape_property_flags(ctx, prop, |f| {
                             let f2 = f & !(JS_PROP_TMASK | JS_PROP_WRITABLE);
                             debug_assert_eq!(f2 & JS_PROP_TMASK, JS_PROP_NORMAL);
                             f2
                         })?;
-
                         self.set_prop_slot(idx, JSProperty::Normal(vref.value()));
                     }
                 }
@@ -289,7 +281,7 @@ impl ObjectImpl {
         ctx: &mut ScopedContext,
         prop: Atom,
         prs_flags: u32,
-        idx: usize,
+        mut idx: usize,
         getter: JSValue,
         setter: JSValue,
         flags: u32,
@@ -311,7 +303,7 @@ impl ObjectImpl {
         if prs_flags & JS_PROP_TMASK != JS_PROP_GETSET {
             // property is not getset type:
             // change shape property type and clear old property value.
-            self.modify_shape_property_flags(ctx, prop, |f| {
+            idx = self.modify_shape_property_flags(ctx, prop, |f| {
                 (f & (JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE)) | JS_PROP_GETSET
             })?;
         } else {
