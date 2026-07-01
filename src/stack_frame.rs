@@ -165,8 +165,8 @@ pub(crate) struct StackFrameArena {
 }
 
 impl StackFrameArena {
-    /// Fixed arena data capacity in JSValue slots (8192 ≈ 64KB).
-    pub(crate) const ARENA_DATA_CAP: usize = 8192;
+    /// Arena data capacity in JSValue slots
+    pub(crate) const RAME_ARENA_CAP: usize = 512 * 1024 / std::mem::size_of::<JSValue>();
 
     /// Maximum number of cached heap buffers before eviction.
     const HEAP_BUF_CACHE_MAX: usize = 8;
@@ -174,7 +174,7 @@ impl StackFrameArena {
     pub(crate) fn new() -> Self {
         Self {
             heads: Vec::with_capacity(256),
-            data: vec![JSValue::UNDEFINED; Self::ARENA_DATA_CAP].into_boxed_slice(),
+            data: vec![JSValue::UNDEFINED; Self::RAME_ARENA_CAP].into_boxed_slice(),
             data_used: 0,
             suspended_count: 0,
             heap_buf_cache: Vec::new(),
@@ -368,11 +368,15 @@ impl StackFrameArena {
 
         // Copy actual arguments into the args region.
         for (i, arg) in args.iter().enumerate() {
-            unsafe { *data_ptr.add(i) = *arg; }
+            unsafe {
+                *data_ptr.add(i) = *arg;
+            }
         }
         // Fill unsupplied formal parameter slots with UNDEFINED.
         for i in args.len()..arg_count {
-            unsafe { *data_ptr.add(i) = JSValue::UNDEFINED; }
+            unsafe {
+                *data_ptr.add(i) = JSValue::UNDEFINED;
+            }
         }
 
         head.arg_base_offset = 0;
