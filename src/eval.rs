@@ -11,7 +11,7 @@ use crate::{
     function::{BCWrapper, Bytecode, FunctionDef, FunctionKind, VarRef, add_closure_variables},
     module::ModuleDef,
     parse::JSParseState,
-    stack_frame::{ExecMode, FrameIndex, StackFrame},
+    stack_frame::{ExecMode, StackFrame},
     value::JSValue,
 };
 
@@ -67,7 +67,8 @@ impl<'c> ScopedContext<'c> {
         let (frame_func_bc, frame_module, js_mode) = if eval_type == EvalType::Direct {
             // Determine the calling function's BCWrapper based on execution mode.
             // - Arena (trampoline) path: get func_obj from the current arena frame.
-            // - Legacy path: get func_obj from the StackFrame stack.
+            // - Non-arena path: get func_obj from the StackFrame stack (legacy
+            //   callers like native eval from non-trampoline context).
             let cur_func: BCWrapper = if self.is_arena_mode() {
                 let rt = self.rt();
                 let head = rt.stack_frame_arena().frame(rt.active_trampoline_frame);
@@ -250,7 +251,12 @@ impl<'c> ScopedContext<'c> {
                             bc.run_as_function(self, this_obj, captured_vars, None)
                         }
                     } else {
-                        // Legacy mode: get captured_vars from the StackFrame.
+                        // Non-arena mode: get captured_vars from the StackFrame.
+                        // This handles eval called from native code outside a
+                        // trampoline (e.g., Promise jobs, native callbacks).
+                        // Execution now always goes through arena via
+                        // BytecodeFunction::call, but closure variable
+                        // resolution still needs the legacy frame as source.
                         let mut rt = self.rt_ptr();
                         let sf_raw: *mut StackFrame = match rt.current_stack_frame_mut() {
                             Some(sf) => sf as *mut StackFrame,
@@ -320,7 +326,7 @@ impl<'c> ScopedContext<'c> {
     ) -> ExitStatus {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
-        let ret_val = match self.eval_internal(source, filename, eval_type, flags) {
+        let ret_val = match self.eval(source, filename, eval_type, flags) {
             Ok(v) => v,
             Err(_) => {
                 let exc = self.rt_mut().take_exception();

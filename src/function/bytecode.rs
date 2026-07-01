@@ -480,7 +480,10 @@ impl std::fmt::Debug for Bytecode {
 
 impl Bytecode {
     /// Create Function from `self` Bytecode with captured variables, then calls the function.
-    /// Automatically routes to arena or legacy path based on ctx mode.
+    /// Always executes via arena (trampoline) path — `BytecodeFunction::call` no longer
+    /// has a legacy fallback. Closure creation still routes based on `ctx.is_arena_mode()`:
+    /// arena mode uses `make_closure_for_arena` (resolves var refs from arena frames);
+    /// legacy mode uses `make_closure` (resolves from the provided `parent_stack_frame`).
     pub(crate) fn run_as_function(
         &self,
         ctx: &mut ScopedContext,

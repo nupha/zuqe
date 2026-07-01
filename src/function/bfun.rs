@@ -20,12 +20,11 @@ use crate::{
         ObjectPayload,
     },
     object_cast,
-    runtime::js_check_stack_overflow,
-    stack_frame::{StackFrame, StackFrameArena},
+    stack_frame::StackFrameArena,
     value::JSValue,
 };
 
-use super::{Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, VarRef};
+use super::{Bytecode, CallContext, VarRef};
 
 /// Special index for argument scope.
 /// This is same to `FunctionDef::body_scope`, which was automatically pushed
@@ -400,172 +399,86 @@ impl BytecodeFunction {
         this_obj: JSValue,
         new_target: JSValue,
         args: &[JSValue],
-        flags: i32,
+        _flags: i32,
     ) -> JSResult {
         let bc = self.payload().bytecode();
 
-        // ── Arena mode: allocate arena frame and execute via trampoline ──
-        if ctx.is_arena_mode() {
-            let func_obj: Object = **self;
-            let bf = self.payload_mut();
-            let mut rt = ctx.rt_ptr();
+        // ── Allocate arena frame and execute via trampoline ──
+        // BytecodeFunction::call always uses the arena/trampoline path.
+        // The legacy StackFrame path has been removed — all bytecode
+        // function execution goes through execute_trampoline.
+        // When active_trampoline_frame is null (first call from a
+        // non-trampoline context, e.g. native callback), we create a
+        // root arena frame — execute_trampoline handles this correctly.
+        let func_obj: Object = **self;
+        let bf = self.payload_mut();
+        let mut rt = ctx.rt_ptr();
 
-            let parent_frame = rt.active_trampoline_frame;
-            let saved_frame = rt.active_trampoline_frame;
-            let arena_ptr: *mut StackFrameArena = &raw mut rt.frame_arena;
+        let parent_frame = rt.active_trampoline_frame;
+        let saved_frame = rt.active_trampoline_frame;
+        let arena_ptr: *mut StackFrameArena = &raw mut rt.frame_arena;
 
-            // init_frame_args uses max(bc.arg_count, actual_args.len()) as the arg region size.
-            // Allocate accordingly.
-            let buf_cap =
-                std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
-            let frame_idx = unsafe {
-                let arena = &mut *arena_ptr;
-                let idx = arena.alloc_frame(func_obj, bc.mode(), buf_cap);
-                arena.frame_mut(idx).prev = parent_frame;
-                idx
-            };
-
-            // Copy all args into arena frame buffer
-            unsafe {
-                let arena = &mut *arena_ptr;
-                arena.init_frame_args(frame_idx, bc.arg_count, bc.var_count, args);
-                let head = arena.frame_mut(frame_idx);
-                head.protected_values = [this_obj, new_target];
-            }
-
-            // Get home_object before closure_var_refs_mut to avoid
-            // conflicting mutable borrows on bf.
-            let home_obj = bf.home_object();
-            let captured_vars = bf.closure_var_refs_mut();
-
-            // execute_trampoline manages active_trampoline_frame internally,
-            // save and restore the outer value.
-            let (ret_val, is_completed) = execute_trampoline(
-                bc,
-                frame_idx,
-                ctx,
-                this_obj,
-                new_target,
-                captured_vars,
-                home_obj,
-            );
-
-            rt.active_trampoline_frame = saved_frame;
-
-            debug_assert!(
-                is_completed,
-                "synchronous BytecodeFunction::call should not suspend"
-            );
-
-            return if ret_val.is_exception() {
-                Err(-1)
-            } else {
-                Ok(ret_val)
-            };
-        }
-
-        // ── Legacy mode fallback: create StackFrame and execute via execute() ──
-        // how many args that should be copied to local buf?
-        // `args.len()` is actual argument count
-        // `b.arg_count` is the length when defining the function
-        let arg_copy_num =
-            if flags & JS_CALL_FLAG_COPY_ARGV != 0 || args.len() < bc.arg_count as usize {
-                std::cmp::max(args.len(), bc.arg_count as usize)
-            } else {
-                0
-            };
-
-        // how many bytes to allocate for local buf (args+vars+stack)?
-        let buf_values_count = if arg_copy_num != 0 {
-            arg_copy_num as usize + bc.local_buf_size as usize
-        } else {
-            bc.local_buf_size as usize
+        // init_frame_args uses max(bc.arg_count, actual_args.len()) as the arg region size.
+        // Allocate accordingly.
+        let buf_cap =
+            std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
+        let frame_idx = unsafe {
+            let arena = &mut *arena_ptr;
+            let idx = arena.alloc_frame(func_obj, bc.mode(), buf_cap);
+            arena.frame_mut(idx).prev = parent_frame;
+            idx
         };
-        let js_mode = bc.mode();
 
-        let rt = ctx.rt_ptr();
-        let mut stack_frame = StackFrame::new((*self).into(), js_mode, [this_obj, new_target]);
-
-        // ensure stack has minimal free space.
-        if js_check_stack_overflow(&rt, 32) {
-            ctx.throw_stack_overflow();
-            return Err(-1);
+        // Copy all args into arena frame buffer
+        unsafe {
+            let arena = &mut *arena_ptr;
+            arena.init_frame_args(frame_idx, bc.arg_count, bc.var_count, args);
+            let head = arena.frame_mut(frame_idx);
+            head.protected_values = [this_obj, new_target];
         }
 
-        // make local buffer and running bytecodes with it.
-        // local_buf layout:
-        //
-        // +------------------+
-        // | argument values  | <- arg_buf (optional, if need to copy arg)
-        // | variable values  | <- var_buf
-        // | stack space      | <- stack_buf
-        // +------------------+
-        //
-        stack_frame.local_buf = StackFrame::alloc_local_buf(ctx.rt_mut(), buf_values_count);
+        // Get home_object before closure_var_refs_mut to avoid
+        // conflicting mutable borrows on bf.
+        let home_obj = bf.home_object();
+        let captured_vars = bf.closure_var_refs_mut();
 
-        // initialize args section
-        if arg_copy_num != 0 {
-            debug_assert!(arg_copy_num >= args.len());
-
-            // copy actual arg values
-            stack_frame.local_buf.write_slice(0, args);
-            // padding with undefined
-            stack_frame.local_buf.fill_range(
-                args.len(),
-                arg_copy_num - args.len(),
-                JSValue::UNDEFINED,
-            );
-
-            stack_frame.arg_count = arg_copy_num as _;
-            stack_frame.arg_real_count = args.len() as _;
-            stack_frame.arg_base_ptr = stack_frame.local_buf.as_mut_ptr()
-        } else {
-            stack_frame.arg_count = args.len() as _;
-            stack_frame.arg_real_count = args.len() as _;
-            stack_frame.arg_base_ptr = args.as_ptr().cast::<JSValue>() as *mut _;
-        }
-
-        // initialize (vars + stack) section
-        stack_frame.local_buf.fill_range(
-            arg_copy_num as usize,
-            (bc.var_count + bc.stack_size) as usize,
-            JSValue::UNDEFINED,
+        // execute_trampoline manages active_trampoline_frame internally,
+        // save and restore the outer value.
+        let (ret_val, is_completed) = execute_trampoline(
+            bc,
+            frame_idx,
+            ctx,
+            this_obj,
+            new_target,
+            captured_vars,
+            home_obj,
         );
 
-        stack_frame.var_base_ptr = unsafe {
-            stack_frame
-                .local_buf
-                .as_mut_ptr()
-                .add(arg_copy_num as usize)
-        };
-        stack_frame.var_count = bc.var_count;
+        rt.active_trampoline_frame = saved_frame;
 
-        let bf = self.payload_mut();
+        debug_assert!(
+            is_completed,
+            "synchronous BytecodeFunction::call should not suspend"
+        );
 
-        // `ret_val` Ok(value) is protected by the current GC scope (allocated inside `execute()`).
-        let ret_val = bc
-            .execute(
-                ctx,
-                bf.home_object(),
-                &mut stack_frame,
-                this_obj,
-                new_target,
-                0,
-                0,
-                bf.closure_var_refs_mut(),
-                args,
-                false,
-            )
-            .err();
+        if ret_val.is_exception() {
+            Err(-1)
+        } else {
+            #[cfg(debug_assertions)]
+            if let Some(n) = ret_val.gc_node_ptr() {
+                let head = unsafe { n.as_ref() };
+                debug_assert!(
+                    head.is_root_or_local(),
+                    "BytecodeFunction::call returned a GC value that is neither LOCAL nor ROOT: \
+                     is_root={}, is_local={}. This means the trampoline scope's \
+                     promote_to_parent failed to protect the return value, or the value was \
+                     allocated in a child scope that was already popped.",
+                    head.is_root(),
+                    head.is_local(),
+                );
+            }
 
-        // Hint: NO write barrier needed here for `bf.closure_var_refs()`.
-        // Each `VarRef` in the closure list is a GC node; its value is already
-        // protected by `VarRef::set_value()` which calls `GcHeap::bind()` on every
-        // update via PUT_VAR_REF / SET_VAR_REF opcodes during bytecode execution.
-        // Unlike async functions (see astate.rs), this stack frame is ephemeral and
-        // destroyed immediately after `execute()` returns, so no cross-scope promotion
-        // is required.
-
-        ret_val
+            Ok(ret_val)
+        }
     }
 }
