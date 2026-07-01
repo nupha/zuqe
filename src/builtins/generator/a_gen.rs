@@ -158,7 +158,7 @@ impl AGenPayload {
                         // with the arg and push type on top → 5 items:
                         //   sp[-5]=iter, sp[-4]=next, sp[-3]=catch, sp[-2]=arg, sp[-1]=type
                         {
-                            let arena = ctx.rt_mut().frame_arena_mut();
+                            let arena = ctx.rt_mut().stack_frame_arena_mut();
                             self.async_state.stack_store(arena, -1, result);
                             self.async_state
                                 .stack_store(arena, 0, JSValue::Int(completion_type));
@@ -205,7 +205,7 @@ impl AGenPayload {
                         // Use raw pointer to arena to avoid borrow conflict:
                         // arena is in ctx's RuntimeImpl, and we also pass ctx.
                         let value = {
-                            let arena = ctx.rt().frame_arena();
+                            let arena = ctx.rt().stack_frame_arena();
                             self.async_state.take_top_value(arena, ctx)
                         };
 
@@ -546,7 +546,7 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
 
                 // set return value of await (write to SP[-1]).
                 {
-                    let arena = ctx.rt_mut().frame_arena_mut();
+                    let arena = ctx.rt_mut().stack_frame_arena_mut();
                     s.async_state.stack_store(arena, -1, arg);
                 }
             }

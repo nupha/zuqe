@@ -70,7 +70,7 @@ impl<'c> ScopedContext<'c> {
             // - Legacy path: get func_obj from the StackFrame stack.
             let cur_func: BCWrapper = if self.is_arena_mode() {
                 let rt = self.rt();
-                let head = rt.frame_arena().frame(rt.active_trampoline_frame);
+                let head = rt.stack_frame_arena().frame(rt.active_trampoline_frame);
                 BCWrapper::try_from(JSValue::from(head.func_obj))
                     .expect("arena frame func_obj must be a BCWrapper")
             } else {
@@ -236,37 +236,32 @@ impl<'c> ScopedContext<'c> {
                 Compiled::GlobalOrIndirect(bc) => bc.run_as_function(self, this_obj, &[], None),
                 Compiled::Direct(bc) => {
                     if self.is_arena_mode() {
-                        // Arena mode: get captured_vars from the trampoline frame
-                        // and delegate to run_as_function (which routes to
-                        // make_closure_for_arena internally).
                         let rt = self.rt_ptr();
                         let idx = rt.active_trampoline_frame;
                         if idx.is_null() {
                             bc.run_as_function(self, this_obj, &[], None)
                         } else {
-                            let captured_vars = {
-                                let head = unsafe { (*rt).frame_arena().frame(idx) };
-                                let bfun = BCWrapper::try_from(JSValue::from(head.func_obj))
-                                    .expect("eval: caller must be bytecode function");
-                                let cv_ptr: *const [VarRef] = bfun.payload().closure_var_refs();
-                                unsafe { &*cv_ptr }
-                            };
+                            // get captured_vars from the trampoline frame
+                            let head = rt.stack_frame_arena().frame(idx);
+                            let bfun = BCWrapper::try_from(JSValue::from(head.func_obj))
+                                .expect("eval: caller must be bytecode function");
+                            let captured_vars = bfun.payload().closure_var_refs();
+
                             bc.run_as_function(self, this_obj, captured_vars, None)
                         }
                     } else {
                         // Legacy mode: get captured_vars from the StackFrame.
                         let mut rt = self.rt_ptr();
-                        let sf_raw: *mut StackFrame = unsafe {
-                            match (*rt).current_stack_frame_mut() {
-                                Some(sf) => sf as *mut StackFrame,
-                                None => std::ptr::null_mut(),
-                            }
+                        let sf_raw: *mut StackFrame = match rt.current_stack_frame_mut() {
+                            Some(sf) => sf as *mut StackFrame,
+                            None => std::ptr::null_mut(),
                         };
+
                         if !sf_raw.is_null() {
                             let sf = unsafe { &mut *sf_raw };
                             if let Some(bf) = sf.func_obj.as_BCWrapper_mut() {
                                 let cv_ptr: *const [VarRef] = bf.payload().closure_var_refs();
-                                drop(bf);
+
                                 let captured_vars = unsafe { &*cv_ptr };
                                 return bc.run_as_function(
                                     self,

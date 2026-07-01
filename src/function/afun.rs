@@ -125,13 +125,13 @@ impl AsyncState {
         } else {
             // return value of await
             {
-                let arena = ctx.rt().frame_arena();
+                let arena = ctx.rt().stack_frame_arena();
                 debug_assert!(a_state.cur_sp_offset(arena) > 0);
             }
 
             a_state.set_throw_flag(false);
             {
-                let arena = ctx.rt_mut().frame_arena_mut();
+                let arena = ctx.rt_mut().stack_frame_arena_mut();
                 a_state.set_return_value(
                     arena,
                     if args.is_empty() {
@@ -173,7 +173,7 @@ impl AsyncState {
             // Retrieve value at stack top with GC protection.
             // Arena access is via ctx.rt() (immutable), compatible with ctx borrow.
             let value = {
-                let arena = ctx.rt().frame_arena();
+                let arena = ctx.rt().stack_frame_arena();
                 self.take_top_value(arena, ctx)
             };
 

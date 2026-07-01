@@ -245,22 +245,22 @@ impl RuntimeImpl {
         self.interrupt_code.take()
     }
 
-    /// get stack frame for current running function
-    #[inline(always)]
-    pub(crate) const fn current_stack_frame(&self) -> Option<&StackFrame> {
-        unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref() }
-    }
-
     /// Get mutable reference to the StackFrameArena for stackless frame ops.
     #[inline(always)]
-    pub(crate) const fn frame_arena_mut(&mut self) -> &mut StackFrameArena {
+    pub(crate) const fn stack_frame_arena_mut(&mut self) -> &mut StackFrameArena {
         &mut self.frame_arena
     }
 
     /// Get immutable reference to the StackFrameArena.
     #[inline(always)]
-    pub(crate) const fn frame_arena(&self) -> &StackFrameArena {
+    pub(crate) const fn stack_frame_arena(&self) -> &StackFrameArena {
         &self.frame_arena
+    }
+
+    /// get stack frame for current running function
+    #[inline(always)]
+    pub(crate) const fn current_stack_frame(&self) -> Option<&StackFrame> {
+        unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref() }
     }
 
     /// get stack frame for current running function

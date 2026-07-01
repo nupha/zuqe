@@ -142,7 +142,7 @@ impl AsyncStateImpl {
         let arg_count = std::cmp::max(arg_count as usize, args.len());
         let buf_capacity = arg_count + local_buf_size as usize;
 
-        let arena = ctx.rt_mut().frame_arena_mut();
+        let arena = ctx.rt_mut().stack_frame_arena_mut();
         let frame_idx =
             arena.alloc_frame(bytecode_func.into(), mode | ExecMode::ASYNC, buf_capacity);
 
@@ -392,7 +392,7 @@ impl AsyncStateImpl {
         if matches!(&self.frame, AsyncFrameState::Suspended(_)) {
             let old = mem::replace(&mut self.frame, AsyncFrameState::Active(FrameIndex::NULL));
             if let AsyncFrameState::Suspended(snapshot) = old {
-                let new_idx = ctx.rt_mut().frame_arena_mut().put_frame(snapshot);
+                let new_idx = ctx.rt_mut().stack_frame_arena_mut().put_frame(snapshot);
                 self.frame = AsyncFrameState::Active(new_idx);
             }
         }
@@ -433,7 +433,7 @@ impl AsyncStateImpl {
         } else {
             // Function suspended (yield/await).
             // Take the frame snapshot from arena.
-            let arena = ctx.rt_mut().frame_arena_mut();
+            let arena = ctx.rt_mut().stack_frame_arena_mut();
             let snapshot = arena.take_frame(frame_idx);
             self.frame = AsyncFrameState::Suspended(snapshot);
         }

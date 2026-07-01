@@ -508,7 +508,7 @@ pub(super) fn get_script_or_module_name(
         // non-eval frame's filename.  Start from the *current* frame (the
         // innermost one being executed, which for dynamic import is the
         // eval'd code's frame or the module-evaluation frame).
-        let arena = rt.frame_arena();
+        let arena = rt.stack_frame_arena();
         let mut cur = rt.active_trampoline_frame;
         let mut skipped = 0;
 

@@ -167,7 +167,7 @@ pub(crate) struct StackFrameArena {
 
 impl StackFrameArena {
     /// Arena data capacity in JSValue slots
-    pub(crate) const RAME_ARENA_CAP: usize = 512 * 1024 / std::mem::size_of::<JSValue>();
+    pub(crate) const STACK_FRAME_ARENA_CAP: usize = 512 * 1024 / std::mem::size_of::<JSValue>();
 
     /// Maximum number of cached heap buffers before eviction.
     const HEAP_BUF_CACHE_MAX: usize = 8;
@@ -175,7 +175,7 @@ impl StackFrameArena {
     pub(crate) fn new() -> Self {
         Self {
             heads: Vec::with_capacity(256),
-            data: vec![JSValue::UNDEFINED; Self::RAME_ARENA_CAP].into_boxed_slice(),
+            data: vec![JSValue::UNDEFINED; Self::STACK_FRAME_ARENA_CAP].into_boxed_slice(),
             data_used: 0,
             suspended_count: 0,
             heap_buf_cache: Vec::new(),

@@ -495,7 +495,7 @@ impl Bytecode {
                 ctx,
                 None,
                 captured_vars,
-                rt.frame_arena_mut(),
+                rt.stack_frame_arena_mut(),
                 parent_frame,
             )?
             .call(ctx, this_obj, &[])
