@@ -407,16 +407,21 @@ impl StackFrameArena {
         };
         let head = self.frame_mut(idx);
 
-        // Copy actual arguments into the args region.
-        for (i, arg) in args.iter().enumerate() {
+        // Fill all slots: copied args → remaining slots UNDEFINED (arg holes + var region).
+        // The var region is NOT implicitly zero-initialized: although arena data
+        // starts as vec![UNDEFINED], after frames are freed and reallocated,
+        // stale data from previous frames can leak into the var slots.
+        for (i, val) in args
+            .iter()
+            .copied()
+            .chain(std::iter::repeat_n(
+                JSValue::UNDEFINED,
+                (arg_count + bc_var_count as usize) - args.len(),
+            ))
+            .enumerate()
+        {
             unsafe {
-                *data_ptr.add(i) = *arg;
-            }
-        }
-        // Fill unsupplied formal parameter slots with UNDEFINED.
-        for i in args.len()..arg_count {
-            unsafe {
-                *data_ptr.add(i) = JSValue::UNDEFINED;
+                *data_ptr.add(i) = val;
             }
         }
 

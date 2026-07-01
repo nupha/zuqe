@@ -532,19 +532,20 @@ pub(super) fn get_script_or_module_name(
         }
         return None;
     } else {
-        // Legacy path: walk the StackFrame chain.
-        if let Some(sf) = rt.current_stack_frame() {
-            for sf in sf.parent_iter(true).skip(n_stack_levels) {
-                if let Some(bcf) = sf.func_obj.as_BCWrapper() {
-                    let bc = bcf.payload().bytecode();
-                    if !bc.is_direct_or_indirect_eval {
-                        return bc.debug.as_ref().map(|d| d.filename);
-                    }
-                } else {
-                    break;
-                }
-            }
-        }
+        // Legacy fallback (preserved for reference):
+        // if let Some(sf) = rt.current_stack_frame() {
+        //     for sf in sf.parent_iter(true).skip(n_stack_levels) {
+        //         if let Some(bcf) = sf.func_obj.as_BCWrapper() {
+        //             let bc = bcf.payload().bytecode();
+        //             if !bc.is_direct_or_indirect_eval {
+        //                 return bc.debug.as_ref().map(|d| d.filename);
+        //             }
+        //         } else {
+        //             break;
+        //         }
+        //     }
+        // }
+        unreachable!("BytecodeFunction::call always uses arena mode; legacy StackFrame chain should not be reachable");
     }
 
     None

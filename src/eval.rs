@@ -75,10 +75,12 @@ impl<'c> ScopedContext<'c> {
                 BCWrapper::try_from(JSValue::from(head.func_obj))
                     .expect("arena frame func_obj must be a BCWrapper")
             } else {
-                let rt = self.rt();
-                rt.current_stack_frame()
-                    .and_then(|sf| sf.func_obj.as_BCWrapper().copied())
-                    .expect("current stack frame must be a BCWrapper")
+                // Legacy fallback (preserved for reference):
+                // let rt = self.rt();
+                // rt.current_stack_frame()
+                //     .and_then(|sf| sf.func_obj.as_BCWrapper().copied())
+                //     .expect("current stack frame must be a BCWrapper")
+                unreachable!("eval: BytecodeFunction::call always uses arena mode; legacy stack_frame lookup should not be reachable");
             };
 
             let bc = cur_func.payload().bytecode();
@@ -251,34 +253,23 @@ impl<'c> ScopedContext<'c> {
                             bc.run_as_function(self, this_obj, captured_vars, None)
                         }
                     } else {
-                        // Non-arena mode: get captured_vars from the StackFrame.
-                        // This handles eval called from native code outside a
-                        // trampoline (e.g., Promise jobs, native callbacks).
-                        // Execution now always goes through arena via
-                        // BytecodeFunction::call, but closure variable
-                        // resolution still needs the legacy frame as source.
-                        let mut rt = self.rt_ptr();
-                        let sf_raw: *mut StackFrame = match rt.current_stack_frame_mut() {
-                            Some(sf) => sf as *mut StackFrame,
-                            None => std::ptr::null_mut(),
-                        };
-
-                        if !sf_raw.is_null() {
-                            let sf = unsafe { &mut *sf_raw };
-                            if let Some(bf) = sf.func_obj.as_BCWrapper_mut() {
-                                let cv_ptr: *const [VarRef] = bf.payload().closure_var_refs();
-
-                                let captured_vars = unsafe { &*cv_ptr };
-                                return bc.run_as_function(
-                                    self,
-                                    this_obj,
-                                    captured_vars,
-                                    Some(unsafe { &mut *sf_raw }),
-                                );
-                            }
-                        }
-                        // No legacy StackFrame available: no captured vars.
-                        bc.run_as_function(self, this_obj, &[], None)
+                        // Legacy fallback (preserved for reference):
+                        // let mut rt = self.rt_ptr();
+                        // let sf_raw: *mut StackFrame = match rt.current_stack_frame_mut() {
+                        //     Some(sf) => sf as *mut StackFrame,
+                        //     None => std::ptr::null_mut(),
+                        // };
+                        // if !sf_raw.is_null() {
+                        //     let sf = unsafe { &mut *sf_raw };
+                        //     if let Some(bf) = sf.func_obj.as_BCWrapper_mut() {
+                        //         let cv_ptr: *const [VarRef] = bf.payload().closure_var_refs();
+                        //         let captured_vars = unsafe { &*cv_ptr };
+                        //         return bc.run_as_function(self, this_obj, captured_vars, Some(unsafe { &mut *sf_raw }));
+                        //     }
+                        // }
+                        // bc.run_as_function(self, this_obj, &[], None)
+                        unreachable!("eval: BytecodeFunction::call always uses arena mode; \
+                            legacy captured_vars from StackFrame should not be reachable");
                     }
                 }
                 Compiled::Module(mut md) => {

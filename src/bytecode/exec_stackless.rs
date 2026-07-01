@@ -1362,6 +1362,24 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
                         let value = VAR_REF![idx];
                         if unlikely(value.is_uninitialized()) {
+                            // Per ES spec, this error belongs in the caller's realm
+                            // (same pattern as CHECK_CTOR_RETURN).
+                            let prev = arena.frame(cur_frame_idx).prev;
+                            if !prev.is_null() {
+                                let prev_func = arena.frame(prev).func_obj;
+                                if let Ok(bfun) = BCWrapper::try_from(JSValue::from(prev_func)) {
+                                    let mut caller_ctx_ptr = bfun.payload().bytecode().realm();
+                                    let mut caller_scope = caller_ctx_ptr.new_scope();
+                                    JS_ThrowReferenceErrorUninitialized2(
+                                        &mut caller_scope,
+                                        self,
+                                        idx,
+                                        false,
+                                    );
+                                    // caller_scope dropped → GC scope popped
+                                    break State::Exception;
+                                }
+                            }
                             JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, false);
                             break State::Exception;
                         } else {
@@ -1423,6 +1441,26 @@ impl Bytecode {
                     OpCode::CHECK_CTOR_RETURN => {
                         if !SP_REF!(-1).is_object() {
                             if unlikely(!SP_REF!(-1).is_undefined()) {
+                                // Per ES [[Construct]], throw TypeError in the CALLER's realm,
+                                // not the current function's realm.
+                                // Retrive caller's realm from the prev frame.
+                                let prev = arena.frame(cur_frame_idx).prev;
+                                if !prev.is_null() {
+                                    let prev_func = arena.frame(prev).func_obj;
+                                    if let Ok(bfun) = BCWrapper::try_from(JSValue::from(prev_func))
+                                    {
+                                        let mut caller_ctx_ptr = bfun.payload().bytecode().realm();
+                                        let mut caller_scope = caller_ctx_ptr.new_scope();
+                                        caller_scope.throw_type_error(
+                                            "derived class constructor must return \
+                                             an object or undefined",
+                                        );
+                                        // caller_scope dropped → GC scope popped
+                                        break State::Exception;
+                                    }
+                                }
+
+                                // Fallback: no caller frame available.
                                 realm_scope.throw_type_error(
                                     "derived class constructor must return an object or undefined",
                                 );
@@ -2905,11 +2943,13 @@ pub(crate) fn execute_trampoline(
                 callee_frame_idx: callee_idx,
                 return_sp,
             } => {
-                // ── Call sub-frame ──
-                // Create callee's GC scope via TrampolineScope (encapsulates
-                // the safe 'static transmute — the scope lives on the GC heap
-                // and is managed through ContextPtr, which is Copy).
-                let callee_trampoline_scope = unsafe { TrampolineScope::new(&mut realm_ctx) };
+                // Create callee's GC scope from the callee's realm, not the
+                // start function's realm — cross-realm calls (e.g., a function
+                // created by other.Function('return this')) need the callee's
+                // [[GlobalEnv]] for PUSH_THIS binding in non-strict mode.
+                let mut callee_realm_ctx = callee_bc.realm();
+                let callee_trampoline_scope =
+                    unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
 
                 // Swap: replace cur_trampoline_scope with callee's scope.
                 // The caller's scope (the old value) is extracted via
@@ -2967,12 +3007,7 @@ pub(crate) fn execute_trampoline(
                 arena.free_frame(cur_frame_idx);
 
                 let new_idx = arena.alloc_frame(callee_func_obj, callee_bc.mode(), callee_buf_cap);
-                arena.init_frame_args(
-                    new_idx,
-                    callee_bc.arg_count,
-                    callee_bc.var_count,
-                    &args,
-                );
+                arena.init_frame_args(new_idx, callee_bc.arg_count, callee_bc.var_count, &args);
 
                 {
                     let head = arena.frame_mut(new_idx);

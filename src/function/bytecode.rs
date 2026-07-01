@@ -489,22 +489,34 @@ impl Bytecode {
         ctx: &mut ScopedContext,
         this_obj: JSValue,
         captured_vars: &[VarRef],
-        parent_stack_frame: Option<&mut StackFrame>,
+        _parent_stack_frame: Option<&mut StackFrame>,
     ) -> JSResult {
-        if ctx.is_arena_mode() {
-            let mut rt = ctx.rt_ptr();
-            let parent_frame = rt.active_trampoline_frame;
-            self.make_closure_for_arena(
-                ctx,
-                None,
-                captured_vars,
-                rt.stack_frame_arena_mut(),
-                parent_frame,
-            )?
-            .call(ctx, this_obj, &[])
-        } else {
-            let f = self.make_closure(ctx, None, captured_vars, parent_stack_frame)?;
-            f.call(ctx, this_obj, &[])
-        }
+        // Always uses the arena closure creation path. Legacy `make_closure`
+        // (which requires a `&mut StackFrame` from the legacy interpreter) is
+        // no longer needed — `BytecodeFunction::call` unconditionally enters
+        // the trampoline, and closure variable resolution from arena frames
+        // is handled by `make_closure_for_arena`.
+        //
+        // When `active_trampoline_frame` is null (top-level entry from the
+        // test runner or eval), FrameIndex::NULL serves as the parent — the
+        // callee has no closure variables, so no parent frame resolution is
+        // needed.
+        //
+        // Legacy fallback (preserved for reference):
+        // if !ctx.is_arena_mode() {
+        //     let f = self.make_closure(ctx, None, captured_vars, parent_stack_frame)?;
+        //     f.call(ctx, this_obj, &[])
+        // } else { ... }
+        
+        let mut rt = ctx.rt_ptr();
+        let parent_frame = rt.active_trampoline_frame;
+        self.make_closure_for_arena(
+            ctx,
+            None,
+            captured_vars,
+            rt.stack_frame_arena_mut(),
+            parent_frame,
+        )?
+        .call(ctx, this_obj, &[])
     }
 }

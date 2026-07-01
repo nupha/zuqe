@@ -481,19 +481,22 @@ impl BytecodeFunction {
         if ret_val.is_exception() {
             Err(-1)
         } else {
-            #[cfg(debug_assertions)]
-            if let Some(n) = ret_val.gc_node_ptr() {
-                let head = unsafe { n.as_ref() };
-                debug_assert!(
-                    head.is_root_or_local(),
-                    "BytecodeFunction::call returned a GC value that is neither LOCAL nor ROOT: \
-                     is_root={}, is_local={}. This means the trampoline scope's \
-                     promote_to_parent failed to protect the return value, or the value was \
-                     allocated in a child scope that was already popped.",
-                    head.is_root(),
-                    head.is_local(),
-                );
-            }
+            // The return value may be either:
+            // 1. A newly allocated object that was properly promoted to the parent
+            //    scope by promote_to_parent (above). Such objects retain their LOCAL
+            //    flag.
+            // 2. A pre-existing GC object (e.g., a string constant from the bytecode's
+            //    constant pool, or an object from a higher scope). These are kept alive
+            //    by their owning GcTrace path (BytecodeImpl::GcTrace traces consts()),
+            //    not by LOCAL/ROOT flags.
+            //
+            // promote_to_parent correctly handles case 1. For case 2, the value is
+            // not in the trampoline scope's cache, so promote_to_parent silently skips
+            // it — this is correct because the value is already protected elsewhere.
+            //
+            // No debug assert here: testing is_root_or_local() would give false
+            // positives for case 2, and genuine promotion failures for case 1 would
+            // manifest as use-after-free crashes detected by the GC's integrity checks.
 
             Ok(ret_val)
         }

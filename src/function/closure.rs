@@ -315,9 +315,11 @@ impl Bytecode {
         arena: &mut StackFrameArena,
         parent_frame_idx: FrameIndex,
     ) -> Result<BCWrapper, i32> {
-        debug_assert!(ctx.is_arena_mode());
-
         let captures: Vec<VarRef> = if self.closure_var_count != 0 {
+            debug_assert!(
+                ctx.is_arena_mode(),
+                "closure vars require active arena mode"
+            );
             // Extract frame metadata before mutable borrow for var_ref_list.
             let (arg_base, var_base, arg_count, var_count) = {
                 let head = arena.frame(parent_frame_idx);

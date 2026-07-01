@@ -343,14 +343,20 @@ impl RuntimeImpl {
 
     /// get current running function
     pub(crate) fn current_function(&self) -> JSValue {
-        if !self.active_trampoline_frame.is_null() {
-            // Arena mode: read func_obj from the active frame head.
+        // Native function calls (e.g., NativeFunction::class_call) still push
+        // legacy StackFrames even in arena mode. Check the legacy stack first —
+        // when a native function is active, its StackFrame is the correct source
+        // of truth for "the currently executing function". Fall back to the arena
+        // frame only when no native call is in progress.
+        if let Some(sf) = self.current_stack_frame() {
+            // only NativeFunction::class_call pick legacy path now.
+            sf.func_obj.into()
+        } else if !self.active_trampoline_frame.is_null() {
+            // Arena mode, no native call active: read func_obj from arena frame.
             let head = self.frame_arena.frame(self.active_trampoline_frame);
             head.func_obj.into()
         } else {
-            self.current_stack_frame()
-                .map(|s| s.func_obj.into())
-                .unwrap_or(JSValue::UNDEFINED)
+            JSValue::UNDEFINED
         }
     }
 
