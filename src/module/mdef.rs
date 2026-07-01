@@ -504,21 +504,33 @@ pub(super) fn get_script_or_module_name(
 
     if ctx.is_arena_mode() {
         // Arena path: walk the arena frame chain via FrameHead::prev links.
+        // Skip `n_stack_levels` eval frames first, then return the first
+        // non-eval frame's filename.  Start from the *current* frame (the
+        // innermost one being executed, which for dynamic import is the
+        // eval'd code's frame or the module-evaluation frame).
         let arena = rt.frame_arena();
         let mut cur = rt.active_trampoline_frame;
-        for _ in 0..=n_stack_levels {
-            if cur.is_null() {
-                return None;
-            }
+        let mut skipped = 0;
+
+        while !cur.is_null() {
             let head = arena.frame(cur);
             if let Some(bcf) = head.func_obj.as_BCWrapper() {
                 let bc = bcf.payload().bytecode();
-                if !bc.is_direct_or_indirect_eval {
-                    return bc.debug.as_ref().map(|d| d.filename);
+                if bc.is_direct_or_indirect_eval {
+                    cur = head.prev;
+                    continue;
                 }
+                if skipped < n_stack_levels {
+                    skipped += 1;
+                    cur = head.prev;
+                    continue;
+                }
+                return bc.debug.as_ref().map(|d| d.filename);
             }
-            cur = head.prev;
+            // Native function or non-bytecode: stop walking.
+            break;
         }
+        return None;
     } else {
         // Legacy path: walk the StackFrame chain.
         if let Some(sf) = rt.current_stack_frame() {

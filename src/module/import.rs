@@ -42,7 +42,7 @@ pub(crate) fn js_dynamic_import(ctx: &mut ScopedContext, specifier: JSValue) -> 
 
     let (promise, resolving_funcs) = Promise::create(ctx)?;
 
-    // cannot run JS_LoadModuleInternal synchronously because it would
+    // cannot run js_dynamic_import_job synchronously because it would
     // cause an unexpected recursion in js_evaluate_module()
     let rr = resolving_funcs;
     ctx.queue_oneshot_job(
