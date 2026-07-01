@@ -269,13 +269,6 @@ impl RuntimeImpl {
         unsafe { self.cur_stack_frame.cast::<StackFrame>().as_mut() }
     }
 
-    /// get current running function
-    pub(crate) fn current_function(&self) -> JSValue {
-        self.current_stack_frame()
-            .map(|s| s.func_obj.into())
-            .unwrap_or(JSValue::UNDEFINED)
-    }
-
     /// Pushes a new stack frame onto the execution stack
     ///
     /// # Safety
@@ -348,6 +341,19 @@ impl RuntimeImpl {
         }
     }
 
+    /// get current running function
+    pub(crate) fn current_function(&self) -> JSValue {
+        if !self.active_trampoline_frame.is_null() {
+            // Arena mode: read func_obj from the active frame head.
+            let head = self.frame_arena.frame(self.active_trampoline_frame);
+            head.func_obj.into()
+        } else {
+            self.current_stack_frame()
+                .map(|s| s.func_obj.into())
+                .unwrap_or(JSValue::UNDEFINED)
+        }
+    }
+
     /// test if current stack-frame is in strict mode.
     pub(crate) fn is_strict_mode(&self) -> bool {
         if !self.active_trampoline_frame.is_null() {
@@ -355,7 +361,7 @@ impl RuntimeImpl {
             // from the arena frame head.
             let idx = self.active_trampoline_frame.as_usize();
             self.frame_arena
-                .heads
+                .frames
                 .get(idx)
                 .is_some_and(|head| head.mode.contains(ExecMode::STRICT))
         } else {

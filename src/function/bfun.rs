@@ -404,11 +404,8 @@ impl BytecodeFunction {
     ) -> JSResult {
         let bc = self.payload().bytecode();
 
-        // ── Arena mode (default): allocate arena frame and execute via trampoline ──
-        // This completely avoids C-stack recursion for JS-to-JS calls.
-        // The legacy path (StackFrame + execute()) is preserved below as a
-        // compile-time fallback for debugging/comparison.
-        {
+        // ── Arena mode: allocate arena frame and execute via trampoline ──
+        if ctx.is_arena_mode() {
             let func_obj: Object = **self;
             let bf = self.payload_mut();
             let mut rt = ctx.rt_ptr();

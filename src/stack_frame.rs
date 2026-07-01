@@ -35,7 +35,7 @@ use crate::{
 // - heap_buf_cache recycles oversized heap buffers for future allocations.
 // ============================================================================
 
-/// Index into StackFrameArena::heads, equivalent to a pointer but not
+/// Index into StackFrameArena::frames, equivalent to a pointer but not
 /// constrained by Rust's borrow rules. Multiple frames can be accessed
 /// simultaneously through their indices.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,7 +89,7 @@ pub(crate) enum FrameBufLocation {
 
 /// Fixed-size header for every stack frame in the arena.
 ///
-/// FrameHead is stored in StackFrameArena::heads (a Vec). It can be safely
+/// FrameHead is stored in StackFrameArena::frames (a Vec). It can be safely
 /// moved during Vec reallocation because:
 /// - arg/var/stack raw pointers point into arena.data or a Heap Box,
 ///   never into FrameHead itself.
@@ -141,18 +141,34 @@ pub(crate) struct FrameHead {
 
 /// Bump-allocator frame storage.
 ///
-/// All active FrameHead entries are stored contiguously in `heads`.
+/// All active FrameHead entries are stored contiguously in `frames`.
 /// `data` is a fixed-capacity Box<[JSValue]> (allocated once, never resized)
 /// to guarantee pointer stability for Arena-variant frames.
 ///
 /// When the arena is full, new sync frame data is allocated on the heap
 /// and cached in heap_buf_cache for reuse. Async frames always use Heap.
 pub(crate) struct StackFrameArena {
-    /// Frame headers array. May contain Suspended tombstone slots
-    /// (never swap_remove'd, preserving prev chain integrity).
-    pub(crate) heads: Vec<FrameHead>,
-    /// Fixed-capacity data buffer for Arena-variant frames.
-    /// Allocated once at construction, never resized.
+    /// Frame headers array, logically equivalent to the JS call stack.
+    ///
+    /// **Invariant**: `alloc_frame` always appends at `frames.len()` and
+    /// `free_frame` hot-LIFO-pops the last element when `idx == len-1`.
+    /// For synchronous execution the `frames` order is identical to call-stack
+    /// order: deeper calls have larger indices.  LIFO return keeps `frames`
+    /// compact; no holes, no gaps.
+    ///
+    /// **Exception**: async frames (generator/async/async-generator) that are
+    /// `take_frame`'d (Suspended) while outer synchronous frames continue create
+    /// Suspended tombstone slots that are NOT hot-LIFO-removable (the outer
+    /// frame sits above them).  These are reclaimed by `compact()` at GC
+    /// safe points.
+    ///
+    /// **Future**: Once all legacy `StackFrame` users are migrated, `frames`
+    /// plus `prev` links can replace the old `StackFrame.prev` chain for
+    /// backtrace, debugger, and stack introspection — no separate traversal
+    /// structure needed for synchronous code.
+    pub(crate) frames: Vec<FrameHead>,
+
+    /// Fixed-capacity buffer space for arena.
     pub(crate) data: Box<[JSValue]>,
     /// Bump pointer within data (next free slot).
     pub(crate) data_used: usize,
@@ -174,7 +190,7 @@ impl StackFrameArena {
 
     pub(crate) fn new() -> Self {
         Self {
-            heads: Vec::with_capacity(256),
+            frames: Vec::with_capacity(256),
             data: vec![JSValue::UNDEFINED; Self::STACK_FRAME_ARENA_CAP].into_boxed_slice(),
             data_used: 0,
             suspended_count: 0,
@@ -194,13 +210,11 @@ impl StackFrameArena {
         mode: ExecMode,
         buf_capacity: usize,
     ) -> FrameIndex {
-        let idx = FrameIndex(self.heads.len() as u32);
+        let idx = FrameIndex(self.frames.len() as u32);
 
         let buf = if mode.contains(ExecMode::ASYNC) {
-            // Async frames always use heap-allocated buffers because their
-            // lifetime spans multiple yield/await cycles, incompatible with
-            // the arena's LIFO bump-allocator model.
-            FrameBufLocation::Heap(self.take_from_cache_or_alloc(buf_capacity))
+            // Async frames are always use heap-allocated
+            FrameBufLocation::Heap(self.reuse_cache_or_alloc(buf_capacity))
         } else if self.data_used + buf_capacity <= self.data.len() {
             // Sync frame fits in arena: bump-allocate.
             let buf_offset = self.data_used as u32;
@@ -208,10 +222,10 @@ impl StackFrameArena {
             FrameBufLocation::Arena { buf_offset }
         } else {
             // Arena full for this frame: use heap (cached or new).
-            FrameBufLocation::Heap(self.take_from_cache_or_alloc(buf_capacity))
+            FrameBufLocation::Heap(self.reuse_cache_or_alloc(buf_capacity))
         };
 
-        self.heads.push(FrameHead {
+        self.frames.push(FrameHead {
             prev: FrameIndex::NULL,
             state: FrameState::Active,
             func_obj,
@@ -235,7 +249,7 @@ impl StackFrameArena {
     /// Find a cached heap buffer with capacity >= required, or allocate new.
     /// Uses linear first-fit scan; cache is small (max 8 entries) so the
     /// O(n) scan overhead is negligible compared to maintaining sort order.
-    fn take_from_cache_or_alloc(&mut self, required: usize) -> Box<[JSValue]> {
+    fn reuse_cache_or_alloc(&mut self, required: usize) -> Box<[JSValue]> {
         if let Some(pos) = self.heap_buf_cache.iter().position(|b| b.len() >= required) {
             self.heap_buf_cache.remove(pos)
         } else {
@@ -245,18 +259,23 @@ impl StackFrameArena {
 
     /// Logically free a frame.
     ///
-    /// LIFO path (frame is last in heads): pop FrameHead + rewind data_used.
+    /// LIFO path (frame is last in frames): pop FrameHead + rewind data_used,
+    /// then cascade-pop any Suspended tombstone slots that are now exposed at
+    /// the new end of the Vec (they were blocked by this frame above them).
+    /// This keeps `frames` compact for the common LIFO-return case without
+    /// waiting for an explicit `compact()` pass.
+    ///
     /// Non-LIFO path: mark Suspended, wait for compact.
     ///
     /// ⚠️ Caller MUST ensure var_ref_list has been closed (close_var_refs)
     /// before calling free_frame on sync frames. VarRef raw pointers into
     /// arena.data become dangling after the region is reused.
     pub(crate) fn free_frame(&mut self, idx: FrameIndex) {
-        debug_assert_eq!(self.heads[idx.0 as usize].state, FrameState::Active);
+        debug_assert_eq!(self.frames[idx.0 as usize].state, FrameState::Active);
 
-        if idx.0 as usize == self.heads.len() - 1 {
+        if idx.0 as usize == self.frames.len() - 1 {
             // Hot LIFO path: pop FrameHead and rewind arena bump pointer.
-            let head = self.heads.pop().unwrap();
+            let head = self.frames.pop().unwrap();
             match head.buf {
                 FrameBufLocation::Arena { .. } => {
                     self.data_used -= head.buf_capacity as usize;
@@ -278,10 +297,31 @@ impl StackFrameArena {
                     // Suspended frame data already migrated; only FrameHead freed.
                 }
             }
+
+            // Cascade-pop: after removing the active frame, any Suspended
+            // tombstones now exposed at the new end can also be popped
+            // safely — no remaining active frame's prev points to them.
+            //
+            // Safety arguments:
+            // - Suspended frames own no live data (buf=None after take_frame).
+            // - No external reference permanently pins a Suspended frame index.
+            //   AsyncStateImpl.frame_idx is overwritten by put_frame on resume.
+            // - GC trace skips Suspended frames entirely.
+            // - prev pointers from remaining active frames never target a
+            //   Suspended frame that is above them in the Vec (prev always
+            //   points to a lower index).
+            while let Some(tail) = self.frames.last() {
+                if tail.state == FrameState::Suspended {
+                    self.frames.pop();
+                    self.suspended_count -= 1;
+                } else {
+                    break;
+                }
+            }
         } else {
             // Cold path: async frame not at stack top (blocked by sibling frames).
             // Mark Suspended to preserve prev chain; heap buffer is recycled.
-            let head = &mut self.heads[idx.0 as usize];
+            let head = &mut self.frames[idx.0 as usize];
             if let FrameBufLocation::Heap(heap_buf) =
                 std::mem::replace(&mut head.buf, FrameBufLocation::None)
             {
@@ -301,7 +341,7 @@ impl StackFrameArena {
     /// Get immutable reference to a frame header by index.
     #[inline(always)]
     pub(crate) fn frame(&self, idx: FrameIndex) -> &FrameHead {
-        &self.heads[idx.0 as usize]
+        &self.frames[idx.0 as usize]
     }
 
     /// Get mutable reference to a frame header by index.
@@ -311,7 +351,7 @@ impl StackFrameArena {
     /// passed to frame_mut.
     #[inline(always)]
     pub(crate) fn frame_mut(&mut self, idx: FrameIndex) -> &mut FrameHead {
-        &mut self.heads[idx.0 as usize]
+        &mut self.frames[idx.0 as usize]
     }
 
     /// Get raw pointer to a frame's data buffer (works for both Arena and Heap).
@@ -467,13 +507,13 @@ impl StackFrameArena {
     /// VarRef pvalues are updated to point into the Heap Box before transfer.
     ///
     /// Release strategy:
-    /// - If frame is last in heads: pop directly (hot path, O(1), no tombstone).
+    /// - If frame is last in frames: pop directly (hot path, O(1), no tombstone).
     /// - Otherwise: mark Suspended, leave tombstone for later compact.
     pub(crate) fn take_frame(&mut self, idx: FrameIndex) -> AsyncStackFrame {
         let idx_usize = idx.0 as usize;
-        let is_last = idx_usize == self.heads.len() - 1;
+        let is_last = idx_usize == self.frames.len() - 1;
 
-        let head = &mut self.heads[idx_usize];
+        let head = &mut self.frames[idx_usize];
         debug_assert_eq!(head.state, FrameState::Active);
         debug_assert!(
             head.mode.contains(ExecMode::ASYNC),
@@ -520,9 +560,9 @@ impl StackFrameArena {
         };
 
         if is_last {
-            // Hot path: frame is at top of heads, pop without leaving tombstone.
+            // Hot path: frame is at top of frames, pop without leaving tombstone.
             // No other frame's prev points to this index.
-            self.heads.pop();
+            self.frames.pop();
         } else {
             // Cold path: other frames' prev may point here; leave tombstone.
             head.buf_capacity = 0;
@@ -537,21 +577,24 @@ impl StackFrameArena {
 
     /// Place a suspended async frame back into the arena for resumption.
     ///
-    /// The snapshot's FrameHead (with Heap buffer) is pushed onto heads.
+    /// The snapshot's FrameHead (with Heap buffer) is pushed onto frames.
     /// No arena bump allocation, no data copy, no VarRef pvalue update needed
     /// (pvalues already point into the Heap Box, which remains stable).
     pub(crate) fn put_frame(&mut self, mut snapshot: AsyncStackFrame) -> FrameIndex {
-        let new_idx = FrameIndex(self.heads.len() as u32);
+        let new_idx = FrameIndex(self.frames.len() as u32);
 
         // prev will be set by trampoline based on the call stack at resume time.
         snapshot.head.prev = FrameIndex::NULL;
         snapshot.head.state = FrameState::Active;
 
-        self.heads.push(snapshot.head);
+        self.frames.push(snapshot.head);
         new_idx
     }
 
-    /// Compact heads: remove all Suspended tombstone slots and remap prev indices.
+    /// Compact frames: remove all remaining Suspended tombstone slots and remap
+    /// prev indices.  The common LIFO-return case has already been handled by
+    /// `free_frame`'s cascade-pop; this pass only needs to clean up the
+    /// occasional non-tail Suspended slots that could not be cascade-popped.
     ///
     /// Must be called at a GC safe point when:
     /// - Trampoline is not running (VirtualFrames are cleared).
@@ -562,22 +605,22 @@ impl StackFrameArena {
             return;
         }
 
-        let old_len = self.heads.len();
+        let old_len = self.frames.len();
         let mut mapping: Vec<Option<u32>> = Vec::with_capacity(old_len);
-        let mut new_heads: Vec<FrameHead> = Vec::with_capacity(old_len);
+        let mut new_frames: Vec<FrameHead> = Vec::with_capacity(old_len);
 
         // Pass 1: filter out Suspended slots, build index mapping.
-        for head in self.heads.drain(..) {
+        for head in self.frames.drain(..) {
             if head.state == FrameState::Suspended {
                 mapping.push(None);
             } else {
-                mapping.push(Some(new_heads.len() as u32));
-                new_heads.push(head);
+                mapping.push(Some(new_frames.len() as u32));
+                new_frames.push(head);
             }
         }
 
-        // Pass 2: remap prev indices in surviving heads.
-        for head in &mut new_heads {
+        // Pass 2: remap prev indices in surviving frames.
+        for head in &mut new_frames {
             if !head.prev.is_null() {
                 let old_idx = head.prev.0 as usize;
                 if let Some(&Some(new_idx)) = mapping.get(old_idx) {
@@ -586,7 +629,7 @@ impl StackFrameArena {
             }
         }
 
-        self.heads = new_heads;
+        self.frames = new_frames;
         self.suspended_count = 0;
     }
 
@@ -771,7 +814,7 @@ pub(crate) struct VirtualFrame {
 
 impl GcTrace for StackFrameArena {
     fn trace(&self, tr: &mut GcTraceCtx) {
-        for head in &self.heads {
+        for head in &self.frames {
             // Skip suspended/freed slots; their data is traced by AsyncStateImpl.
             if head.state != FrameState::Active {
                 continue;

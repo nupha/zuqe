@@ -2783,6 +2783,19 @@ impl Bytecode {
     }
 }
 
+/// Promote `value`'s GC node from the current scope to its parent scope.
+/// Must be called **before** the scope is dropped — just like
+/// `ScopeResult::promote` in `with_new_scope`.  Returns the (unchanged)
+/// value so callers can chain: `val = promote_to_parent(val, scope)`.
+fn promote_to_parent(value: JSValue, scope: &ScopedContext<'_>) -> JSValue {
+    if let Some(node) = value.gc_node_ptr()
+        && let Some((parent, _)) = scope.gc_state().parent()
+    {
+        scope.gc_state().promote_node_to(node, parent);
+    }
+    value
+}
+
 /// Execute bytecode in a single trampoline loop, completely avoiding
 /// C-stack recursion for JS-to-JS calls.
 ///
@@ -2808,17 +2821,12 @@ pub(crate) fn execute_trampoline(
     let mut cur_bc = start_bc;
     let mut cur_frame_idx = start_frame_idx;
 
-    // realm_ctx provides the factory for new GC scopes.
-    let mut realm_ctx = start_bc.realm();
-
     // Get a stable raw pointer to the arena. The arena lives in RuntimeImpl
     // which has the same lifetime as the runtime. Using a raw pointer avoids
     // borrow conflicts between cur_trampoline_scope (which borrows rt) and arena access.
     let arena_ptr: *mut StackFrameArena = &raw mut rt_ptr.frame_arena;
 
-    // Using TrampolineScope instead of raw 'static transmute:
-    // the scope lives on the GC heap and is managed through ContextPtr (Copy).
-    // ManuallyDrop prevents auto-drop when scopes are moved across iterations.
+    let mut realm_ctx = start_bc.realm();
     let mut cur_trampoline_scope = unsafe { TrampolineScope::new(&mut realm_ctx) };
 
     // Check for a pending runtime exception (e.g., .throw() on a suspended
@@ -2892,7 +2900,8 @@ pub(crate) fn execute_trampoline(
                 // Create callee's GC scope via TrampolineScope (encapsulates
                 // the safe 'static transmute — the scope lives on the GC heap
                 // and is managed through ContextPtr, which is Copy).
-                let callee_trampoline_scope = unsafe { TrampolineScope::new(&mut realm_ctx) };
+                let callee_trampoline_scope =
+                    unsafe { TrampolineScope::new(&mut realm_ctx) };
 
                 // Swap: replace cur_trampoline_scope with callee's scope.
                 // The caller's scope (the old value) is extracted via
@@ -2985,6 +2994,9 @@ pub(crate) fn execute_trampoline(
                             vr.detach();
                         }
                         arena.free_frame(cur_frame_idx);
+                        // Promote before scope pop so the value stays LOCAL
+                        // in the parent scope (caller's scope).
+                        promote_to_parent(actual_ret, &cur_trampoline_scope);
                         drop(cur_trampoline_scope.into_inner());
 
                         // Drain virtual_frames to drop saved caller scopes.
@@ -3032,6 +3044,9 @@ pub(crate) fn execute_trampoline(
                     vr.detach();
                 }
                 arena.free_frame(cur_frame_idx);
+                // Promote before scope pop so the value stays LOCAL
+                // in the parent scope (caller's scope, or start_scope).
+                promote_to_parent(ret_val, &cur_trampoline_scope);
                 drop(cur_trampoline_scope.into_inner());
 
                 if let Some(caller_vf) = virtual_frames.pop() {
