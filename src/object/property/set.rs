@@ -240,7 +240,6 @@ impl ObjectImpl {
         //
         // property is not defined, add the property
         //
-
         if unlikely(flags & JS_PROP_NO_ADD != 0) {
             JS_ThrowReferenceErrorNotDefined(ctx, prop);
             return Err(-1);

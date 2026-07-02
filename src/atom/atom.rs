@@ -150,24 +150,28 @@ impl Atom {
         }
 
         let s = self.descriptor(ctx.rt());
-        let atom_info = s.atom_info().unwrap();
         let content = s.content();
 
         if content.is_empty() || content.is_ident() {
             return Ok(None);
         }
 
-        if let AtomKind::String = atom_info.kind() {
-            let buf_len = content.len();
+        // NaN check — must be before AtomKind::String check since const atoms
+        // may not be AtomKind::String yet are canonical numeric indices per ECMA-262.
+        if let Some(b) = content.ascii()
+            && b == b"NaN"
+        {
+            return Ok(Some(IntOrFloat::Float64(f64::NAN)));
+        }
 
-            // check for: -0, Infinity, -Infinity
+        if let AtomKind::String = s.atom_info().unwrap().kind() {
+            let buf_len = content.len();
             let mut chars = content.chars();
 
             if let Some((_, c)) = chars.next() {
                 if let Some(mut ch) = c.char() {
                     if ch == '-' {
                         if let Some((_, CharCode::Char(c2))) = chars.next() {
-                            // -0 case is specific
                             if c2 == '0' && buf_len == 2 {
                                 return Ok(Some(IntOrFloat::Float64(-0.0)));
                             } else {
@@ -179,7 +183,6 @@ impl Atom {
                     }
 
                     if !ch.is_ascii_digit() {
-                        // XXX: should test NaN, but the tests do not check it
                         if ch == 'I' {
                             let mut nfinity = "nfinity".chars();
                             loop {
@@ -198,20 +201,13 @@ impl Atom {
                         }
                     }
                 } else {
-                    // broken surrogate
                     return Ok(None);
                 }
-            }
 
-            if !self.is_const() {
-                // XXX: bignum: would be better to only accept integer to avoid
-                // relying on current floating point precision
-                // this is ECMA CanonicalNumericIndexString primitive
+                // ECMA CanonicalNumericIndexString primitive
                 let num = s.to_number(ctx);
-
-                // test num as string is same to original value
-                let str = JSValue::from(num).to_string(ctx)?;
-                if content.eq(str.content()) {
+                let str_val = JSValue::from(num).to_string(ctx)?;
+                if s.content().eq(str_val.content()) {
                     return Ok(Some(num));
                 }
             }
