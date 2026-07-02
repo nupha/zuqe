@@ -29,11 +29,10 @@ use crate::{
     },
     context::{ContextPtr, ScopedContext},
     error::{
-        Exception, is_backtrace_needed, JS_THROW_ERROR_DELETE_SUPER,
-        JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL, JS_THROW_VAR_RO,
-        JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
+        Exception, JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
+        JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
         JS_ThrowReferenceErrorUninitialized, JS_ThrowReferenceErrorUninitialized2,
-        JS_ThrowSyntaxErrorVarRedeclaration,
+        JS_ThrowSyntaxErrorVarRedeclaration, is_backtrace_needed,
     },
     eval::{EvalFlags, EvalType},
     function::{
@@ -78,7 +77,6 @@ pub(crate) enum ExecAction {
     TailCall {
         callee_bc: Bytecode,
         callee_func_obj: Object,
-        callee_buf_cap: usize,
         args: Vec<JSValue>,
     },
     /// Frame returned normally or yielded (generator/async suspension).
@@ -499,10 +497,15 @@ impl Bytecode {
                 callee_frame_idx: FrameIndex,
                 return_sp: usize,
             },
+            CallBytecodeCrossRealm {
+                callee_bc: Bytecode,
+                callee_frame_idx: FrameIndex,
+                callee_ctx_ptr: ContextPtr,
+                return_sp: usize,
+            },
             TailCall {
                 callee_bc: Bytecode,
                 callee_func_obj: Object,
-                callee_buf_cap: usize,
                 args: Vec<JSValue>,
             },
         }
@@ -1022,9 +1025,9 @@ impl Bytecode {
                                 // init_frame_args uses max(bc.arg_count, actual_args)
                                 // as the arg region size. Allocate accordingly to
                                 // prevent buffer overflow into adjacent frames.
-                                let callee_buf_cap =
-                                    std::cmp::max(bc.arg_count as usize, call_argc as usize)
-                                        + bc.local_buf_size as usize;
+                                //
+                                // N.B. buf_cap is now computed inside
+                                // build_callee_frame; we no longer need it here.
 
                                 // Init callee frame data from stack args.
                                 let args_slice = unsafe {
@@ -1033,42 +1036,45 @@ impl Bytecode {
 
                                 if unlikely(opcode == OpCode::TAIL_CALL) {
                                     // Tail call: the trampoline will free the current
-                                    // frame and allocate the callee frame, so we only
-                                    // need to pass the copied arguments.
+                                    // frame and allocate the callee frame using
+                                    // build_callee_frame, so we only need to pass
+                                    // the copied arguments.
                                     break State::TailCall {
                                         callee_bc: bc,
                                         callee_func_obj: bfun.into(),
-                                        callee_buf_cap,
                                         args: args_slice.to_vec(),
                                     };
                                 }
 
+                                // Non-tail call: use build_callee_frame to
+                                // allocate and initialize the callee frame.
                                 let callee_frame_idx =
-                                    arena.alloc_frame(bfun.into(), bc.mode(), callee_buf_cap);
+                                    build_callee_frame(arena, bfun.into(), bc, args_slice);
                                 arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
-
-                                arena.init_frame_args(
-                                    callee_frame_idx,
-                                    bc.arg_count,
-                                    bc.var_count,
-                                    args_slice,
-                                );
-
-                                // Per ECMAScript, a plain CALL passes undefined as
-                                // this value. The function's own strict/sloppy mode
-                                // determines how this is handled in PUSH_THIS.
-                                arena.frame_mut(callee_frame_idx).protected_values =
-                                    [JSValue::UNDEFINED, JSValue::UNDEFINED];
 
                                 let return_sp = unsafe {
                                     sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
                                 } as usize;
 
-                                break State::CallBytecode {
-                                    callee_bc: bc,
-                                    callee_frame_idx,
-                                    return_sp,
-                                };
+                                // Detect cross-realm calls: if the callee's realm
+                                // differs from the current realm, use the
+                                // CallBytecodeCrossRealm path so the trampoline
+                                // can properly switch GC scopes.
+                                let callee_ctx = bc.realm();
+                                if callee_ctx != realm_scope.ctx_ptr {
+                                    break State::CallBytecodeCrossRealm {
+                                        callee_bc: bc,
+                                        callee_frame_idx,
+                                        callee_ctx_ptr: callee_ctx,
+                                        return_sp,
+                                    };
+                                } else {
+                                    break State::CallBytecode {
+                                        callee_bc: bc,
+                                        callee_frame_idx,
+                                        return_sp,
+                                    };
+                                }
                             }
                             // Generator/async function: fall through to
                             // call_internal for proper class_call handling.
@@ -1646,8 +1652,9 @@ impl Bytecode {
                             *cur_pc_offset_ptr = pc.offset_from(pc_base) as _;
                         }
                         let func_val = unsafe { *call_argv.offset(-1) };
-                        let ret_val = if func_val.is_same(realm_scope.eval_func) {
-                            if call_argc >= 1 {
+                        if func_val.is_same(realm_scope.eval_func) {
+                            // ── Direct eval (intrinsic %eval%) ──
+                            let ret_val = if call_argc >= 1 {
                                 let obj = unsafe { &*call_argv };
                                 obj.eval_object(
                                     realm_scope,
@@ -1658,9 +1665,43 @@ impl Bytecode {
                                 )
                             } else {
                                 Ok(JSValue::UNDEFINED)
+                            };
+                            SP_GO!(-(call_argc + 1));
+                            if let Ok(v) = ret_val {
+                                SP_PUT!(0, v);
+                                SP_GO!(1);
+                            } else {
+                                break State::Exception;
                             }
                         } else {
-                            func_val.call_internal(
+                            // ── eval was reassigned — treat as normal function call ──
+                            // Use inline bytecode dispatch (same as CALL handler) to
+                            // avoid C stack recursion through call_internal.
+                            // Since EVAL in `return eval(...)` position is semantically
+                            // a tail call (the result is immediately returned), use
+                            // TailCall to avoid VirtualFrame push — this prevents C stack
+                            // growth for deep recursion like tco-non-eval-function-dynamic.
+                            if let Ok(bfun) = BCWrapper::try_from(func_val) {
+                                let bc = bfun.payload().bytecode();
+                                let func_kind = bc.func_kind();
+                                if func_kind == FunctionKind::Normal {
+                                    let args_slice = unsafe {
+                                        std::slice::from_raw_parts(call_argv, call_argc as usize)
+                                    };
+                                    // Use TailCall: the trampoline will recycle the current
+                                    // frame and reuse it for the callee, avoiding VirtualFrame
+                                    // push. Since eval(...) is immediately followed by RETURN
+                                    // in the bytecode, this is semantically correct.
+                                    break State::TailCall {
+                                        callee_bc: bc,
+                                        callee_func_obj: bfun.into(),
+                                        args: args_slice.to_vec(),
+                                    };
+                                }
+                            }
+
+                            // Generator/async bytecode or native function: fall through to call_internal.
+                            let ret_val = func_val.call_internal(
                                 realm_scope,
                                 JSValue::UNDEFINED,
                                 JSValue::UNDEFINED,
@@ -1668,14 +1709,14 @@ impl Bytecode {
                                     std::slice::from_raw_parts(call_argv, call_argc as usize)
                                 },
                                 0,
-                            )
-                        };
-                        SP_GO!(-(call_argc + 1));
-                        if let Ok(v) = ret_val {
-                            SP_PUT!(0, v);
-                            SP_GO!(1);
-                        } else {
-                            break State::Exception;
+                            );
+                            SP_GO!(-(call_argc + 1));
+                            if let Ok(v) = ret_val {
+                                SP_PUT!(0, v);
+                                SP_GO!(1);
+                            } else {
+                                break State::Exception;
+                            }
                         }
                     }
                     OpCode::APPLY_EVAL => {
@@ -2273,7 +2314,8 @@ impl Bytecode {
                         // For WITH-scope references, ECMA-262 9.1.1.2.6 GetBindingValue
                         // step 2 requires HasProperty before Get. This also ensures the
                         // correct Proxy trap sequence for with-object proxies.
-                        let obj_has_prop = SP_REF!(-1).to_atom(realm_scope)
+                        let obj_has_prop = SP_REF!(-1)
+                            .to_atom(realm_scope)
                             .and_then(|atom| SP_REF!(-2).has_property(realm_scope, atom));
                         if let Ok(false) = obj_has_prop {
                             if rt.is_strict_mode() {
@@ -2680,14 +2722,10 @@ impl Bytecode {
                                         // 9.1.1.2.6 GetBindingValue steps 2-3). The getter
                                         // may have deleted the property. If so, return undefined
                                         // (non-strict) or throw ReferenceError (strict).
-                                        if !env_obj
-                                            .has_property(realm_scope, atom)
-                                            .unwrap_or(false)
+                                        if !env_obj.has_property(realm_scope, atom).unwrap_or(false)
                                         {
                                             if rt.is_strict_mode() {
-                                                JS_ThrowReferenceErrorNotDefined(
-                                                    realm_scope, atom,
-                                                );
+                                                JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
                                                 break State::Exception;
                                             }
                                             SP_PUT!(-1, JSValue::UNDEFINED);
@@ -2703,18 +2741,20 @@ impl Bytecode {
                                         // SetMutableBinding step 2: HasProperty (ECMA-262 9.1.1.2.5)
                                         match env_obj.has_property(realm_scope, atom) {
                                             Ok(false) | Err(_) if rt.is_strict_mode() => {
-                                                JS_ThrowReferenceErrorNotDefined(
-                                                    realm_scope, atom,
-                                                );
+                                                JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
                                                 break State::Exception;
                                             }
                                             _ => {}
                                         }
-                                        let prop = atom.to_value(realm_scope)
+                                        let prop = atom
+                                            .to_value(realm_scope)
                                             .unwrap_or(JSValue::EXCEPTION);
                                         let val = SP_VAL!(-2);
                                         let ret = env_obj.set_property_value(
-                                            realm_scope, prop, val, JS_PROP_THROW_STRICT,
+                                            realm_scope,
+                                            prop,
+                                            val,
+                                            JS_PROP_THROW_STRICT,
                                         );
                                         SP_GO!(-2);
                                         if unlikely(ret.is_err()) {
@@ -2742,7 +2782,8 @@ impl Bytecode {
                                         // GetBindingValue step 2: HasProperty (ECMA-262 9.1.1.2.6)
                                         let val = match env_obj.has_property(realm_scope, atom) {
                                             Ok(false) | Err(_) => JSValue::UNDEFINED,
-                                            _ => env_obj.get_property(realm_scope, atom)
+                                            _ => env_obj
+                                                .get_property(realm_scope, atom)
                                                 .unwrap_or(JSValue::UNDEFINED),
                                         };
                                         SP_PUT!(0, val);
@@ -2752,7 +2793,8 @@ impl Bytecode {
                                         // GetBindingValue step 2: HasProperty (ECMA-262 9.1.1.2.6)
                                         let val = match env_obj.has_property(realm_scope, atom) {
                                             Ok(false) | Err(_) => JSValue::UNDEFINED,
-                                            _ => env_obj.get_property(realm_scope, atom)
+                                            _ => env_obj
+                                                .get_property(realm_scope, atom)
                                                 .unwrap_or(JSValue::UNDEFINED),
                                         };
                                         SP_PUT!(-1, JSValue::UNDEFINED);
@@ -2926,16 +2968,32 @@ impl Bytecode {
                     };
                 }
 
+                State::CallBytecodeCrossRealm {
+                    callee_bc,
+                    callee_frame_idx,
+                    callee_ctx_ptr,
+                    return_sp,
+                } => {
+                    unsafe {
+                        *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
+                        *cur_sp_offset_ptr = sp.offset_from(sp_base) as i32;
+                    }
+                    return ExecAction::CallBytecodeCrossRealm {
+                        callee_bc,
+                        callee_frame_idx,
+                        callee_ctx_ptr,
+                        return_sp,
+                    };
+                }
+
                 State::TailCall {
                     callee_bc,
                     callee_func_obj,
-                    callee_buf_cap,
                     args,
                 } => {
                     return ExecAction::TailCall {
                         callee_bc,
                         callee_func_obj,
-                        callee_buf_cap,
                         args,
                     };
                 }
@@ -2955,6 +3013,31 @@ fn promote_to_parent(value: JSValue, scope: &ScopedContext<'_>) -> JSValue {
         scope.gc_state().promote_node_to(node, parent);
     }
     value
+}
+
+/// Allocate and initialize a callee frame in the arena.
+///
+/// Computes the buffer capacity from the bytecode's declared arg count,
+/// actual argument count, and local buffer size. Allocates a frame, copies
+/// arguments, fills unset slots with `UNDEFINED`, and initializes
+/// `this`/`new_target` protected values to `UNDEFINED`.
+///
+/// Returns the index of the newly created frame.
+///
+/// Used by both CALL (non-tail) and TAIL_CALL to eliminate code duplication
+/// between the opcode inline dispatch and the trampoline handler.
+#[inline(always)]
+fn build_callee_frame(
+    arena: &mut StackFrameArena,
+    func_obj: Object,
+    bc: Bytecode,
+    args: &[JSValue],
+) -> FrameIndex {
+    let buf_cap = std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
+    let idx = arena.alloc_frame(func_obj, bc.mode(), buf_cap);
+    arena.init_frame_args(idx, bc.arg_count, bc.var_count, args);
+    arena.frame_mut(idx).protected_values = [JSValue::UNDEFINED, JSValue::UNDEFINED];
+    idx
 }
 
 /// Execute bytecode in a single trampoline loop, completely avoiding
@@ -3104,10 +3187,19 @@ pub(crate) fn execute_trampoline(
             ExecAction::TailCall {
                 callee_bc,
                 callee_func_obj,
-                callee_buf_cap,
                 args,
             } => {
                 let arena = unsafe { &mut *arena_ptr };
+
+                // Save the prev link before freeing the current frame — this
+                // preserves the backtrace chain across TCO. After frame
+                // replacement, the callee's prev points to the original caller
+                // (skipping the tail-calling function), which matches ECMAScript
+                // tail-call semantics.
+                let orig_prev = {
+                    let head = arena.frame(cur_frame_idx);
+                    head.prev
+                };
 
                 // Detach any closure VarRefs that reference the outgoing frame
                 // before it is recycled, otherwise captured variables become
@@ -3120,15 +3212,13 @@ pub(crate) fn execute_trampoline(
                 }
                 arena.free_frame(cur_frame_idx);
 
-                let new_idx = arena.alloc_frame(callee_func_obj, callee_bc.mode(), callee_buf_cap);
-                arena.init_frame_args(new_idx, callee_bc.arg_count, callee_bc.var_count, &args);
+                // Use build_callee_frame for consistent frame initialization
+                // (same path as non-tail CALL in execute_with_arena).
+                let new_idx = build_callee_frame(arena, callee_func_obj, callee_bc, &args);
 
-                {
-                    let head = arena.frame_mut(new_idx);
-                    // For plain TAIL_CALL, this/new_target are undefined.
-                    // (TAIL_CALL_METHOD goes through call_internal, not here.)
-                    head.protected_values = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-                }
+                // Restore the backtrace chain: the tail-called function appears
+                // to have been called directly by the original caller.
+                arena.frame_mut(new_idx).prev = orig_prev;
 
                 cur_bc = callee_bc;
                 cur_frame_idx = new_idx;
@@ -3321,12 +3411,50 @@ pub(crate) fn execute_trampoline(
                 }
             }
 
-            ExecAction::CallBytecodeCrossRealm { .. } => {
-                // ── Cross-realm call (deferred; falls through to error for now) ──
-                // Cross-realm call handling is deferred. For initial
-                // implementation, bytecode cross-realm detection in
-                // execute_with_arena produces CallBytecode instead.
-                unreachable!("CallBytecodeCrossRealm not yet implemented");
+            ExecAction::CallBytecodeCrossRealm {
+                callee_bc,
+                callee_frame_idx: callee_idx,
+                callee_ctx_ptr,
+                return_sp,
+            } => {
+                // ── Cross-realm call ──
+                // Create callee's GC scope from the explicit callee_ctx_ptr.
+                // The callee has a different realm context, so we must switch
+                // to its GC scope for correct [[GlobalEnv]] bindings.
+                let mut callee_realm_ctx = callee_ctx_ptr;
+                let callee_trampoline_scope =
+                    unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
+
+                // Swap: replace cur_trampoline_scope with callee's scope.
+                // The caller's scope is extracted via into_inner() and stored
+                // in VirtualFrame's caller_scope with caller_ctx_ptr set.
+                let caller_scope = ManuallyDrop::new(
+                    std::mem::replace(&mut cur_trampoline_scope, callee_trampoline_scope)
+                        .into_inner(),
+                );
+
+                virtual_frames.push(VirtualFrame {
+                    frame_idx: cur_frame_idx,
+                    caller_bc: cur_bc,
+                    return_sp,
+                    caller_scope,
+                    caller_ctx_ptr: Some(callee_ctx_ptr),
+                });
+
+                cur_bc = callee_bc;
+                cur_frame_idx = callee_idx;
+                pc_offset = 0;
+                sp_offset = 0;
+                throwed = false;
+
+                // Update this_obj and new_target from the callee frame's
+                // protected_values (matching the CallBytecode handler).
+                {
+                    let arena = unsafe { &*arena_ptr };
+                    let callee_head = arena.frame(callee_idx);
+                    this_obj = callee_head.protected_values[0];
+                    new_target = callee_head.protected_values[1];
+                }
             }
         }
     }

@@ -82,7 +82,7 @@ pub(crate) enum GcScopeType<'a> {
     // Store `(stack_id, index)` instead and resolve reference dynamically
     // via `ctx_ptr.gc_heap()`. `index` is 0-based (index = depth - 1),
     // allowing direct `get_unchecked` access without the `depth - 1` conversion.
-    Ref { stack_id: GcScopeStackId, index: u8 },
+    Ref { stack_id: GcScopeStackId, index: u32 },
 }
 
 #[derive(Debug)]
@@ -168,7 +168,7 @@ impl<'a> ScopedContext<'a> {
     }
 
     #[inline(always)]
-    pub fn depth(&self) -> u8 {
+    pub fn depth(&self) -> u32 {
         self.gc_state().depth()
     }
 

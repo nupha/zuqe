@@ -9,14 +9,6 @@ use crate::{
 
 use smallvec::SmallVec;
 
-// In debug mode, compact eagerly to catch index-invalidation bugs early.
-// In release mode, delay until the number of deleted slots reaches this
-// threshold to avoid unnecessary work on transient delete-recreate patterns.
-#[cfg(debug_assertions)]
-const PROP_SLOT_COMPACT_THRESHOLD: u16 = 0;
-#[cfg(not(debug_assertions))]
-const PROP_SLOT_COMPACT_THRESHOLD: u16 = 4;
-
 impl ObjectImpl {
     /// modify object's shape by closure.
     /// an exclusive, unregistered shape is passed to closure as argument.
@@ -38,8 +30,13 @@ impl ObjectImpl {
 
         let r = update_fn(&mut use_shape);
 
-        // batch compact deleted slots
-        if self.deleted_slot_count > PROP_SLOT_COMPACT_THRESHOLD {
+        // compact props slot when deleted count ≥ threshold AND deleted count ≥ half of total slots.
+        #[cfg(debug_assertions)]
+        let should_compact = true;
+        #[cfg(not(debug_assertions))]
+        let should_compact = self.deleted_slot_count >= 8
+            && self.deleted_slot_count >= (self.prop_values.len() / 2) as u16;
+        if should_compact {
             self.compact_deleted_slots(&mut use_shape);
         }
 
@@ -103,8 +100,7 @@ impl ObjectImpl {
 
         let mut use_shape = if use_count != 1 {
             // current shape is shared, dup to new without register.
-            let sh2 = self.shape().unwrap().dup(ctx)?;
-            sh2
+            self.shape().unwrap().dup(ctx)?
         } else {
             // current shape is exclusive, unregister and use it.
             let sh = self.take_shape().unwrap();
