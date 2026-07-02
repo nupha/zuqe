@@ -41,6 +41,7 @@ impl<'s> JSParseState<'s> {
     /// func_name must be JS_ATOM_NULL.
     ///
     /// Note: `func_name` is consumed inside.
+    #[inline(never)]
     fn parse_function_sub(
         &mut self,
         func_type: JSParseFunctionEnum,
@@ -467,6 +468,7 @@ impl<'s> JSParseState<'s> {
     /// Parse function declaration for function statements, expressions, arrow functions and var declarations.
     /// Returns new created FunctionDef raw pointer on success, or Err on failure. You don't need to free it manually.
     #[allow(clippy::too_many_arguments)]
+    #[inline(never)]
     pub(super) fn parse_function_decl_ex(
         &mut self,
         func_type: JSParseFunctionEnum,

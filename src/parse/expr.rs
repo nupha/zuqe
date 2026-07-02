@@ -20,6 +20,7 @@ use super::{
 
 impl<'s> JSParseState<'s> {
     // allowed parse_flags: PF_IN_ACCEPTED
+    #[inline(never)]
     pub(super) fn parse_assign_expr2(&mut self, parse_flags: i32) -> Result<(), i32> {
         if self.token.kind == TokenKind::YIELD {
             return self.parse_yield(parse_flags);
@@ -156,6 +157,7 @@ impl<'s> JSParseState<'s> {
     }
 
     // allowed parse_flags: PF_IN_ACCEPTED
+    #[inline(never)]
     pub(super) fn parse_expr2(&mut self, parse_flags: i32) -> Result<(), i32> {
         let mut comma = false;
 
@@ -205,6 +207,7 @@ impl<'s> JSParseState<'s> {
     /// and then checking for postfix operators or access patterns that follow it.
     ///
     /// allowed parse_flags: PF_POSTFIX_CALL, PF_ARROW_FUNC
+    #[inline(never)]
     pub(super) fn parse_postfix_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
         let mut accept_lparen: bool = (parse_flags & PF_POSTFIX_CALL) != 0;
         let mut call_type = FuncCallType::FUNC_CALL_NORMAL;

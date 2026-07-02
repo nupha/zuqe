@@ -45,6 +45,7 @@ impl<'s> JSParseState<'s> {
         self.next_token()
     }
 
+    #[inline(never)]
     pub(super) fn parse_stmt_or_decl(&mut self, decl_mask: i32) -> Result<(), i32> {
         let mut label_name = Atom::NULL;
 

@@ -20,6 +20,7 @@ use super::{
 
 impl<'s> JSParseState<'s> {
     /// allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
+    #[inline(never)]
     pub(super) fn parse_expr_binary(&mut self, level: i32, parse_flags: i32) -> Result<(), i32> {
         if level == 0 {
             return self.parse_unary((parse_flags & PF_ARROW_FUNC) | PF_POW_ALLOWED);
@@ -123,6 +124,7 @@ impl<'s> JSParseState<'s> {
     }
 
     // allowed parse_flags: PF_ARROW_FUNC, PF_POW_ALLOWED, PF_POW_FORBIDDEN
+    #[inline(never)]
     pub(super) fn parse_unary(&mut self, mut parse_flags: i32) -> Result<(), i32> {
         match self.token.kind {
             op @ (TokenKind::Char('+' | '-' | '!' | '~') | TokenKind::VOID) => {
