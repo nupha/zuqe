@@ -10,7 +10,6 @@ use crate::{
     context::ContextImpl,
     function::{Bytecode, get_func_name},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload},
-    stack_frame::StackFrameParentIter,
     value::JSValue,
 };
 
@@ -247,10 +246,10 @@ impl<'c> ScopedContext<'c> {
     /// test if throw error should add backtrace
     pub(crate) fn throw_need_backtrace(&self) -> bool {
         let rt = self.rt();
-        rt.exception() != Exception::OutOfMemory
-            && rt
-                .current_stack_frame()
-                .is_none_or(|sf| sf.func_obj.as_BCWrapper().is_some()) // add backtrace if called from a bytecode function
+        // In stackless (arena) mode, all bytecode execution goes through the
+        // trampoline — active_trampoline_frame is non-null whenever we are
+        // executing JS bytecode (including native callbacks called from it).
+        rt.exception() != Exception::OutOfMemory && !rt.active_trampoline_frame.is_null()
     }
 
     /// make error object and throw it as current exception.
@@ -363,9 +362,8 @@ impl<'c> ScopedContext<'c> {
 
         let rt = self.rt_ptr();
 
-        // Check if we are in arena (stackless) mode.
+        // ── Arena mode: traverse FrameHead.prev chain (if active) ──
         if !rt.active_trampoline_frame.is_null() {
-            // ── Arena mode: traverse FrameHead.prev chain ──
             let arena = &rt.frame_arena;
             let mut frame_idx = rt.active_trampoline_frame;
             let mut first = true;
@@ -414,54 +412,7 @@ impl<'c> ScopedContext<'c> {
                 frame_idx = head.prev;
                 first = false;
             }
-        } else {
-            for sf in rt
-                .current_stack_frame()
-                .map_or(StackFrameParentIter::EMPTY, |f| f.parent_iter(true))
-            {
-            if backtrace_flags & JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL != 0 {
-                backtrace_flags &= !JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
-            } else {
-                let str1 = get_func_name(sf.func_obj).map_or(Cow::Borrowed("<anonymous>"), |x| {
-                    if x.is_empty() {
-                        Cow::Borrowed("<anonymous>")
-                    } else {
-                        Cow::Owned(x)
-                    }
-                });
-                dbuf.write_fmt(format_args!("    at {}", str1))
-                    .map_err(|_| -1)?;
-
-                let mut backtrace_barrier = false;
-
-                if let Some(bc) = sf.func_obj.as_BCWrapper().map(|f| f.payload().bytecode()) {
-                    backtrace_barrier = bc.attrs.backtrace_barrier;
-
-                    if let Some(debug) = bc.debug.as_ref() {
-                        let line_num1 = bc.find_line_num(
-                            (sf.cur_pc_offset as u32).wrapping_sub(1), // be u32::MAX when (*sf).cur_pc_offset==0
-                        );
-                        let atom_str = debug.filename.to_utf8(&rt);
-
-                        dbuf.write_fmt(format_args!(" ({atom_str}"))
-                            .map_err(|_| -1)?;
-                        if let Some(n) = line_num1 {
-                            dbuf.write_fmt(format_args!(":{n}")).map_err(|_| -1)?;
-                        }
-                        dbuf.write_all(b")").map_err(|_| -1)?;
-                    }
-                } else {
-                    dbuf.write_all(b" (native)").map_err(|_| -1)?;
-                }
-                dbuf.write_all(b"\n").map_err(|_| -1)?;
-
-                /* stop backtrace if JS_EVAL_FLAG_BACKTRACE_BARRIER was used */
-                if backtrace_barrier {
-                    break;
-                }
-            }
         }
-    }
 
         Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string())
     }

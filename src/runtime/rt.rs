@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ffi::c_void, pin::Pin, process::ExitCode, ptr::NonNull};
+use std::{ffi::c_void, process::ExitCode, ptr::NonNull};
 
 use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
 
@@ -17,7 +17,7 @@ use crate::{
     gc::gc::GC_TYPE_REGISTRY,
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
-    stack_frame::{ExecMode, FrameBuf, FrameIndex, StackFrame, StackFrameArena, VirtualFrame},
+    stack_frame::{ExecMode, FrameIndex, StackFrameArena, VirtualFrame},
     utils::js_get_stack_pointer,
     value::JSValue,
 };
@@ -46,8 +46,6 @@ pub struct RuntimeImpl {
     pub(crate) stack_size: usize,  /* in bytes, 0 if no limit */
     pub(crate) stack_limit: usize, /* lower stack limit */
     pub(crate) stack_top: usize,
-    /// current stack frame to execute bytecode or native function
-    pub(crate) cur_stack_frame: *mut Pin<StackFrame>,
     /// Bump-arena frame storage for the stackless interpreter.
     /// All active frame headers and data buffers live here.
     pub(crate) frame_arena: StackFrameArena,
@@ -59,13 +57,6 @@ pub struct RuntimeImpl {
     /// Current frame being executed by the trampoline, set before each
     /// iteration. Used by GC to double-trace the active frame's func_obj.
     pub(crate) active_trampoline_frame: FrameIndex,
-    /// current stack frame depth
-    #[cfg(debug_assertions)]
-    stack_depth: i32,
-
-    /// Pool of spilled frame buffers (var + stack slots) for reuse on large frames.
-    frame_buf_pool: Vec<FrameBuf>,
-
     /// current exception
     pub(super) cur_exception: Exception,
     /// Process-level interrupt flag
@@ -132,14 +123,9 @@ impl RuntimeImpl {
             user_class_id_serial: USER_CLASS_ID_START,
             shape_registry: ShapeRegistry::new(),
 
-            cur_stack_frame: std::ptr::null_mut(),
             frame_arena: StackFrameArena::new(),
             active_trampoline_vframes: std::ptr::null::<VirtualFrame>(),
             active_trampoline_frame: FrameIndex::NULL,
-            #[cfg(debug_assertions)]
-            stack_depth: 0,
-
-            frame_buf_pool: Vec::new(),
 
             module_load_opaque: std::ptr::null_mut(),
             sab_funcs: None,
@@ -257,102 +243,9 @@ impl RuntimeImpl {
         &self.frame_arena
     }
 
-    /// get stack frame for current running function
-    #[inline(always)]
-    pub(crate) const fn current_stack_frame(&self) -> Option<&StackFrame> {
-        unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref() }
-    }
-
-    /// get stack frame for current running function
-    #[inline(always)]
-    pub(crate) const fn current_stack_frame_mut(&mut self) -> Option<&mut StackFrame> {
-        unsafe { self.cur_stack_frame.cast::<StackFrame>().as_mut() }
-    }
-
-    /// Pushes a new stack frame onto the execution stack
-    ///
-    /// # Safety
-    /// The caller must ensure the frame pointer is valid
-    pub(crate) fn push_stack_frame(&mut self, mut stack_frame: NonNull<StackFrame>) {
-        debug_assert!(unsafe { stack_frame.as_ref().parent().is_none() });
-        debug_assert_ne!(
-            self.cur_stack_frame.cast::<()>(),
-            stack_frame.as_ptr().cast::<()>()
-        );
-
-        if self.cur_stack_frame.is_null() {
-            #[cfg(debug_assertions)]
-            debug_assert_eq!(self.stack_depth, 0);
-            self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
-        } else {
-            unsafe {
-                stack_frame.as_mut().prev = self.cur_stack_frame;
-            }
-            self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
-        }
-
-        #[cfg(debug_assertions)]
-        {
-            self.stack_depth += 1;
-        }
-    }
-
-    /// Pops the current stack frame, restore current frame stack to previouse
-    pub(crate) fn pop_stack_frame(&mut self) -> *mut Pin<StackFrame> {
-        debug_assert!(!self.cur_stack_frame.is_null());
-
-        let sf = self.cur_stack_frame;
-        unsafe {
-            self.cur_stack_frame = (*sf.cast::<StackFrame>()).prev;
-            (*sf.cast::<StackFrame>()).prev = std::ptr::null_mut();
-        }
-
-        #[cfg(debug_assertions)]
-        {
-            self.stack_depth -= 1;
-            debug_assert!(self.stack_depth >= 0);
-
-            if self.stack_depth == 0 {
-                debug_assert!(self.cur_stack_frame.is_null());
-            }
-        }
-
-        sf
-    }
-
-    const FRAME_BUF_POOL_MAX: usize = 32;
-
-    /// Take a pre-allocated frame buffer from the pool, or allocate a new one.
-    #[inline]
-    pub(crate) fn take_frame_buf(&mut self, min_cap: usize) -> FrameBuf {
-        while let Some(buf) = self.frame_buf_pool.pop() {
-            if buf.capacity() >= min_cap {
-                return buf;
-            }
-        }
-        FrameBuf::new_alloc(min_cap)
-    }
-
-    /// Return a spilled frame buffer to the pool for reuse.
-    #[inline]
-    pub(crate) fn recycle_frame_buf(&mut self, buf: FrameBuf) {
-        if buf.is_spill() && self.frame_buf_pool.len() < Self::FRAME_BUF_POOL_MAX {
-            self.frame_buf_pool.push(buf);
-        }
-    }
-
     /// get current running function
     pub(crate) fn current_function(&self) -> JSValue {
-        // Native function calls (e.g., NativeFunction::class_call) still push
-        // legacy StackFrames even in arena mode. Check the legacy stack first —
-        // when a native function is active, its StackFrame is the correct source
-        // of truth for "the currently executing function". Fall back to the arena
-        // frame only when no native call is in progress.
-        if let Some(sf) = self.current_stack_frame() {
-            // only NativeFunction::class_call pick legacy path now.
-            sf.func_obj.into()
-        } else if !self.active_trampoline_frame.is_null() {
-            // Arena mode, no native call active: read func_obj from arena frame.
+        if !self.active_trampoline_frame.is_null() {
             let head = self.frame_arena.frame(self.active_trampoline_frame);
             head.func_obj.into()
         } else {
@@ -363,16 +256,13 @@ impl RuntimeImpl {
     /// test if current stack-frame is in strict mode.
     pub(crate) fn is_strict_mode(&self) -> bool {
         if !self.active_trampoline_frame.is_null() {
-            // Arena/stackless mode: check the active frame's ExecMode
-            // from the arena frame head.
             let idx = self.active_trampoline_frame.as_usize();
             self.frame_arena
                 .frames
                 .get(idx)
                 .is_some_and(|head| head.mode.contains(ExecMode::STRICT))
         } else {
-            self.current_stack_frame()
-                .is_some_and(|sf| sf.mode.contains(ExecMode::STRICT))
+            false
         }
     }
 
@@ -384,8 +274,6 @@ impl RuntimeImpl {
 
     fn finalize(&mut self) {
         log::trace!("[rt_fin] {self:p}");
-
-        debug_assert!(self.cur_stack_frame.is_null());
 
         self.cur_exception = Exception::default();
 

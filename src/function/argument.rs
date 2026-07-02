@@ -10,7 +10,6 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
         JS_PROP_WRITABLE, JSProperty, Object, ObjectPayload,
     },
-    stack_frame::StackFrame,
     value::JSValue,
 };
 
@@ -70,62 +69,6 @@ pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) ->
     .unwrap();
 
     obj.into()
-}
-
-/// legacy arguments object: add references to the function arguments
-pub(crate) fn js_build_mapped_arguments(
-    ctx: &mut ScopedContext,
-    args: &[JSValue],
-    sf: &mut StackFrame,
-    arg_count: i32,
-) -> Result<Object, i32> {
-    let mut obj = ctx
-        .create_instance_with_proto_payload(
-            ctx.class_proto(JS_CLASS_OBJECT),
-            ObjectPayload::MAPPED_ARGUMENTS,
-        )
-        .map_err(|_| -1)?;
-
-    // add the `length` property
-    obj.add_own_property(
-        ctx,
-        Atom::CONST_length,
-        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        JSProperty::Normal(JSValue::Int(args.len() as i32)),
-    )?;
-
-    for i in 0..arg_count {
-        let content = JSProperty::VarRef(sf.get_var_ref(ctx, i as _, true)?);
-        obj.add_own_property(
-            ctx,
-            Atom::new_small_int(i as u32),
-            JS_PROP_C_W_E | JS_PROP_VARREF,
-            content,
-        )?;
-    }
-
-    // the arguments not mapped to the arguments of the function can be normal properties
-    for (i, a) in args.iter().enumerate().skip(arg_count as usize) {
-        obj.define_property_value_u32(ctx, i as _, *a, JS_PROP_C_W_E)?;
-    }
-
-    #[cfg(feature = "builtin_symbol")]
-    obj.define_property_value(
-        ctx,
-        Atom::CONST_Symbol_iterator,
-        ctx.array_proto_values,
-        JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-    )?;
-
-    // callee returns this function in non strict mode
-    obj.define_property_value(
-        ctx,
-        Atom::CONST_callee,
-        ctx.rt_ptr().current_stack_frame().unwrap().func_obj.into(),
-        JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-    )?;
-
-    Ok(obj)
 }
 
 pub(crate) fn build_arg_list(

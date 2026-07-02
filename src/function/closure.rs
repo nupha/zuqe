@@ -10,7 +10,7 @@ use crate::{
     atom::Atom,
     context::ScopedContext,
     object::{JS_PROP_WRITABLE, LazyInit, Object, ObjectPayload},
-    stack_frame::{FrameIndex, StackFrame, StackFrameArena},
+    stack_frame::{FrameIndex, StackFrameArena},
 };
 
 use super::{
@@ -209,100 +209,7 @@ impl FunctionDef {
 }
 
 impl Bytecode {
-    /// Create a function object with Bytecode and captured variables.
-    pub(crate) fn make_closure(
-        &self,
-        ctx: &mut ScopedContext,
-        proto: Option<Object>,
-        captured_vars: &[VarRef],
-        parent_stack_frame: Option<&mut StackFrame>,
-    ) -> Result<BCWrapper, i32> {
-        debug_assert!(!ctx.is_arena_mode());
 
-        let captures: Vec<VarRef> = if self.closure_var_count != 0 {
-            debug_assert!(
-                parent_stack_frame.is_some(),
-                "must have parent stack frame if there is any closure variable"
-            );
-            let up_sf = parent_stack_frame.unwrap();
-
-            // initialize var_refs with closure variables
-            let mut lst = Vec::new();
-            lst.try_reserve_exact(self.closure_var_count as usize)
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
-
-            for cv in self.closure_vars() {
-                lst.push(if cv.is_local() {
-                    // the existing variable reference in parent stack frame
-                    up_sf.get_var_ref(ctx, cv.var_idx, cv.is_arg())?
-                } else {
-                    debug_assert!((cv.var_idx as usize) < captured_vars.len());
-                    captured_vars[cv.var_idx as usize]
-                });
-            }
-
-            lst
-        } else {
-            Vec::new()
-        };
-
-        let mut obj = {
-            let p = BFuncPayload::new(*self, captures);
-            let isa = match self.func_kind() {
-                FunctionKind::Normal => ObjectPayload::BYTECODE_FUNCTION(p),
-                FunctionKind::Generator => ObjectPayload::GENERATOR_FUNCTION(p),
-                FunctionKind::Async => ObjectPayload::ASYNC_FUNCTION(p),
-                FunctionKind::AsyncGenerator => ObjectPayload::ASYNC_GENERATOR_FUNCTION(p),
-            };
-            BCWrapper(
-                ctx.create_instance_with_proto_payload(
-                    proto.or_else(|| ctx.class_proto(isa.class_id())),
-                    isa,
-                )
-                .map_err(|_| -1)?
-                .gc_ref(),
-            )
-        };
-
-        js_function_set_properties(
-            ctx,
-            obj.into(),
-            if self.func_name.is_null() {
-                Atom::CONST_empty_string
-            } else {
-                self.func_name
-            },
-            self.attrs.defined_arg_count as _,
-        );
-
-        if let Some(gen_class_id) = self.func_kind().generator_class_id() {
-            // generator functions have a prototype field which is used as
-            // prototype for the generator object
-            debug_assert!(matches!(
-                gen_class_id,
-                JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
-            ));
-
-            let proto = ctx.create_base_object_with_proto(ctx.class_proto(gen_class_id))?;
-            obj.define_property_value(ctx, Atom::CONST_prototype, proto.into(), JS_PROP_WRITABLE)?;
-        } else if self.has_prototype() {
-            // add the 'prototype' property: delay instantiation to avoid
-            // creating cycles for every javascript function. The prototype
-            // object is created on the fly when first accessed
-            obj.set_flag_constructor(true);
-            obj.define_lazy_property(
-                ctx,
-                Atom::CONST_prototype,
-                LazyInit::Prototype,
-                JS_PROP_WRITABLE,
-            )?;
-        }
-
-        Ok(obj)
-    }
 
     /// Create closure for arena-based execution (stackless trampoline path).
     /// Used by direct eval when the caller's frame is in the arena instead of

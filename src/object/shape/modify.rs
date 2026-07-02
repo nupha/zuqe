@@ -34,7 +34,7 @@ impl ObjectImpl {
         #[cfg(debug_assertions)]
         let should_compact = true;
         #[cfg(not(debug_assertions))]
-        let should_compact = self.deleted_slot_count >= 8
+        let should_compact = self.deleted_slot_count > 8
             && self.deleted_slot_count >= (self.prop_values.len() / 2) as u16;
         if should_compact {
             self.compact_deleted_slots(&mut use_shape);

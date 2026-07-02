@@ -238,13 +238,13 @@ impl<'c> ScopedContext<'c> {
     ) -> JSResult {
         if self.allow_eval {
             match self.compile(source, filename, eval_type, eval_flags, var_scope_idx)? {
-                Compiled::GlobalOrIndirect(bc) => bc.run_as_function(self, this_obj, &[], None),
+                Compiled::GlobalOrIndirect(bc) => bc.run_as_function(self, this_obj, &[]),
                 Compiled::Direct(bc) => {
                     if self.is_arena_mode() {
                         let rt = self.rt_ptr();
                         let idx = rt.active_trampoline_frame;
                         if idx.is_null() {
-                            bc.run_as_function(self, this_obj, &[], None)
+                            bc.run_as_function(self, this_obj, &[])
                         } else {
                             // get captured_vars from the trampoline frame
                             let head = rt.stack_frame_arena().frame(idx);
@@ -252,7 +252,7 @@ impl<'c> ScopedContext<'c> {
                                 .expect("eval: caller must be bytecode function");
                             let captured_vars = bfun.payload().closure_var_refs();
 
-                            bc.run_as_function(self, this_obj, captured_vars, None)
+                            bc.run_as_function(self, this_obj, captured_vars)
                         }
                     } else {
                         // Legacy fallback (preserved for reference):

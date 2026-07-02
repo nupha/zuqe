@@ -11,7 +11,7 @@ use crate::{
     eval::EvalType,
     function::{FunctionDef, VarRef},
     gcref_wrapper,
-    stack_frame::{ExecMode, StackFrame},
+    stack_frame::ExecMode,
     utils::{get_leb128, get_sleb128, read_from_ptr},
     value::JSValue,
 };
@@ -489,7 +489,6 @@ impl Bytecode {
         ctx: &mut ScopedContext,
         this_obj: JSValue,
         captured_vars: &[VarRef],
-        _parent_stack_frame: Option<&mut StackFrame>,
     ) -> JSResult {
         // Always uses the arena closure creation path. Legacy `make_closure`
         // (which requires a `&mut StackFrame` from the legacy interpreter) is

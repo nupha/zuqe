@@ -4,7 +4,6 @@
 include!(concat!(env!("OUT_DIR"), "/opcodes.rs"));
 
 pub mod arithmatic;
-pub(crate) mod exec;
 pub(crate) mod exec_stackless;
 pub(crate) mod operators;
 

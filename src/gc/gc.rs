@@ -83,10 +83,6 @@ impl RuntimeImpl {
             for c in self.context_list.iter() {
                 c.trace(&mut gcx);
             }
-            // mark stack frames (legacy model)
-            if let Some(sf) = self.current_stack_frame() {
-                sf.trace(&mut gcx);
-            }
             // mark stackless arena frames (active frames in StackFrameArena)
             self.frame_arena.trace(&mut gcx);
             // mark trampoline virtual frames (caller bytecodes not in arena prev chain).

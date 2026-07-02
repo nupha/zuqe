@@ -9,7 +9,7 @@ use crate::{
     RuntimeImpl,
     context::ScopedContext,
     gcref_wrapper,
-    stack_frame::{FrameHead, StackFrame},
+    stack_frame::FrameHead,
     value::JSValue,
 };
 
@@ -213,64 +213,5 @@ impl VarRef {
             ctx.throw_out_of_memory();
             -1
         })
-    }
-}
-
-impl StackFrame {
-    /// find or create VarRef specified by (var_id, is_arg).
-    pub(crate) fn get_var_ref(
-        &mut self,
-        ctx: &mut ScopedContext,
-        var_idx: u16,
-        is_arg: bool,
-    ) -> Result<VarRef, i32> {
-        debug_assert!(!ctx.is_arena_mode());
-
-        // search in existing var refs
-        if let Some(vr) = self
-            .var_refs()
-            .iter()
-            .find(|x| x.is_match(var_idx, is_arg))
-            .copied()
-        {
-            return Ok(vr);
-        }
-
-        // make new VarRef bind to target var_idx
-        let vref = VarRef::create_bind(
-            ctx,
-            var_idx,
-            is_arg,
-            unsafe {
-                NonNull::new_unchecked(if is_arg {
-                    debug_assert!(var_idx < self.arg_count);
-                    self.arg_base_ptr.offset(var_idx as isize)
-                } else {
-                    debug_assert!(var_idx < self.var_count);
-                    self.var_base_ptr.offset(var_idx as isize)
-                })
-            },
-        )?;
-
-        self.var_refs_mut().push(vref);
-
-        Ok(vref)
-    }
-
-    /// detach var ref (lexical) specified by (var_idx, is_arg)
-    pub(crate) fn close_var_ref(&mut self, var_idx: u16, is_arg: bool) {
-        if let Some(vr) = self
-            .var_refs_mut()
-            .iter_mut()
-            .find(|v| v.is_match(var_idx, is_arg))
-        {
-            vr.detach();
-        }
-    }
-
-    pub(crate) fn close_var_refs(&mut self) {
-        for vr in self.var_refs_mut().iter_mut() {
-            vr.detach();
-        }
     }
 }
