@@ -1,0 +1,175 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
+
+use std::mem::ManuallyDrop;
+
+use crate::{
+    Object, ScopedContext,
+    function::{Bytecode, VarRef},
+    value::JSValue,
+};
+
+/// Index into StackFrameArena::frames, equivalent to a pointer but not
+/// constrained by Rust's borrow rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FrameIndex(pub(super) u32);
+
+impl FrameIndex {
+    pub const NULL: Self = Self(u32::MAX);
+
+    #[inline(always)]
+    pub const fn is_null(self) -> bool {
+        self.0 == u32::MAX
+    }
+
+    /// Convert to usize for arena head indexing.
+    /// Panics if this is FrameIndex::NULL.
+    #[inline(always)]
+    pub(crate) const fn as_usize(self) -> usize {
+        debug_assert!(!self.is_null());
+        self.0 as usize
+    }
+}
+
+/// Frame lifecycle state within the arena.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FrameState {
+    /// Frame is actively executing or on the virtual call stack.
+    Active,
+    /// Async frame has been suspended at a yield/await point.
+    Suspended,
+}
+
+bitflags::bitflags! {
+    #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub(crate) struct ExecMode: u8 {
+        const STRICT = 1 << 0;
+        const STRIP  = 1 << 1;
+        const ASYNC  = 1 << 2;
+    }
+}
+
+/// Fixed-size header for every stack frame in the arena.
+///
+/// StackFrame is stored in StackFrameArena::frames (a Vec). It can be safely
+/// moved during Vec reallocation because:
+/// - arg/var/stack raw pointers point into arena.data or a Heap Box,
+///   never into StackFrame itself.
+/// - FrameIndex is a pure index; the prev chain survives Vec moves.
+/// - All external references use FrameIndex, not &StackFrame.
+#[derive(Debug)]
+pub(crate) struct StackFrame {
+    /// Previous stack frame in the call chain (FrameIndex::NULL for root).
+    pub(crate) prev: FrameIndex,
+    pub(crate) state: FrameState,
+    /// Execution mode flags (STRICT / STRIP / ASYNC).
+    pub(crate) mode: ExecMode,
+
+    /// Associated function object (Bytecode or Native).
+    pub(crate) func_obj: Object,
+
+    /// Program counter offset within the bytecode stream.
+    pub(crate) cur_pc_offset: usize,
+    /// Stack pointer offset relative to stack_base_ptr.
+    pub(crate) cur_sp_offset: i32,
+
+    /// Variable references for closure capture.
+    pub(crate) var_ref_list: Vec<VarRef>,
+
+    /// Where the frame's data buffer lives.
+    pub(crate) buf: FrameBuffer,
+    /// Total capacity of the data buffer, in JSValue units.
+    pub(crate) buf_capacity: u32,
+
+    /// Offsets relative to the data buffer start (buf).
+    pub(crate) arg_base_offset: u32,
+    /// Number of actual arguments passed.
+    pub(crate) arg_real_count: u16,
+    /// Number of formal parameters (>= arg_real_count).
+    pub(crate) arg_count: u16,
+    /// Start offset of local variables.
+    pub(crate) var_base_offset: u32,
+    /// Number of local variables.
+    pub(crate) var_count: u16,
+
+    /// Protected values: this_obj, new_target (deprecated but needed for compat).
+    #[deprecated(note = "unused")]
+    pub(crate) protected_values: [JSValue; 2],
+}
+
+impl StackFrame {
+    /// Get the stack base pointer: start of the operand stack region,
+    /// immediately after the local variables area.
+    #[inline(always)]
+    pub(crate) fn stack_base_ptr(&self) -> *mut JSValue {
+        unsafe {
+            self.buf
+                .data_ptr()
+                .add((self.var_base_offset + self.var_count as u32) as usize)
+        }
+    }
+
+    /// Get current stack top pointer (stack_base_ptr + cur_sp_offset).
+    #[inline(always)]
+    pub(crate) fn stack_cur_ptr(&self) -> *mut JSValue {
+        debug_assert!(self.cur_sp_offset >= 0);
+        unsafe { self.stack_base_ptr().add(self.cur_sp_offset as usize) }
+    }
+}
+
+/// Location of a frame's data buffer (args + vars + operand stack).
+#[derive(Debug)]
+pub(crate) enum FrameBuffer {
+    /// Data stored in StackFrameArena's shared fixed-capacity data slice
+    /// (bump-allocated). `data_base` is the arena's data pointer (stable for
+    /// the lifetime of the arena — `Box<[JSValue]>` never reallocates);
+    /// `buf_offset` is the offset within that slice.
+    Arena {
+        data_base: *mut JSValue,
+        buf_offset: u32,
+    },
+    /// Data stored in an independent heap allocation.
+    Heap(Box<[JSValue]>),
+    /// Slot has been suspended/freed; data region is invalid.
+    Empty,
+}
+
+impl FrameBuffer {
+    #[inline(always)]
+    pub(crate) fn data_ptr(&self) -> *mut JSValue {
+        match self {
+            FrameBuffer::Arena {
+                data_base,
+                buf_offset,
+            } => unsafe { data_base.add(*buf_offset as usize) },
+            FrameBuffer::Heap(b) => b.as_ptr() as *mut JSValue,
+            FrameBuffer::Empty => std::ptr::null_mut(),
+        }
+    }
+}
+
+/// One entry in the trampoline's virtual call stack.
+#[derive(Debug)]
+pub(crate) struct VirtualFrame {
+    pub(crate) frame_idx: FrameIndex,
+    pub(crate) caller_bc: Bytecode,
+    pub(crate) return_sp: usize,
+    pub(crate) caller_scope: ManuallyDrop<ScopedContext<'static>>,
+}
+
+/// Complete snapshot of a suspended async frame.
+#[derive(Debug)]
+pub(crate) struct AsyncStackFrame {
+    pub(crate) frame: StackFrame,
+}
+
+impl AsyncStackFrame {
+    #[inline(always)]
+    pub(crate) fn data(&self) -> &[JSValue] {
+        match &self.frame.buf {
+            FrameBuffer::Heap(b) => b,
+            _ => unreachable!("AsyncStackFrame must have Heap buf"),
+        }
+    }
+}
