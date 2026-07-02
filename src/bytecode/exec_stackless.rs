@@ -29,8 +29,9 @@ use crate::{
     },
     context::{ContextPtr, ScopedContext},
     error::{
-        Exception, JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
-        JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
+        Exception, is_backtrace_needed, JS_THROW_ERROR_DELETE_SUPER,
+        JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL, JS_THROW_VAR_RO,
+        JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
         JS_ThrowReferenceErrorUninitialized, JS_ThrowReferenceErrorUninitialized2,
         JS_ThrowSyntaxErrorVarRedeclaration,
     },
@@ -312,6 +313,16 @@ impl Bytecode {
 
         if throwed {
             let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
+
+            // Add backtrace before catch lookup (matching exec.rs's
+            // StackFrame::handle_exception behavior). If the error already
+            // has a backtrace, is_backtrace_needed returns false and we skip.
+            if let Exception::Error(err_val) = rt.exception()
+                && is_backtrace_needed(err_val)
+            {
+                arena.frame_mut(cur_frame_idx).cur_pc_offset = cur_pc;
+                realm_scope.build_backtrace_to(err_val, None, 0);
+            }
 
             if let Some((new_pc, new_sp)) = arena.find_catch_in_frame(cur_frame_idx, realm_scope) {
                 unsafe {
@@ -2815,10 +2826,21 @@ impl Bytecode {
                 }
 
                 State::Exception => {
-                    // Interrupt bypasses catch handling.
-                    if realm_scope.rt().interrupt_code.is_some() {
+                    // Interrupt bypasses catch handling — it is not a JS exception.
+                    if rt.interrupt_code.is_some() {
                         return ExecAction::Unwind;
                     }
+
+                    // Add backtrace before catch lookup (matching exec.rs's
+                    // StackFrame::handle_exception behavior).
+                    let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
+                    if let Exception::Error(err_val) = rt.exception()
+                        && is_backtrace_needed(err_val)
+                    {
+                        arena.frame_mut(cur_frame_idx).cur_pc_offset = cur_pc;
+                        realm_scope.build_backtrace_to(err_val, None, 0);
+                    }
+
                     if let Some((new_pc, new_sp)) =
                         arena.find_catch_in_frame(cur_frame_idx, realm_scope)
                     {
@@ -3213,6 +3235,13 @@ pub(crate) fn execute_trampoline(
                 // the outermost frame is owned by BytecodeFunction::call.
                 let is_outermost = virtual_frames.is_empty();
                 if !is_outermost {
+                    // Detach all VarRefs before freeing the frame (matching
+                    // the Return handler). VarRef raw pointers into arena.data
+                    // become dangling after the region is reused.
+                    let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                    for vr in var_refs {
+                        vr.detach();
+                    }
                     arena.free_frame(cur_frame_idx);
                 }
                 drop(cur_trampoline_scope.into_inner());
