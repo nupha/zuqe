@@ -152,6 +152,7 @@ impl<'s> JSParseState<'s> {
             {
                 // found `get...` or `set...`
                 name.replace(self.token.atom().unwrap());
+                let prev_line = self.token.line_num;
 
                 match self.next_token()? {
                     TokenKind::Char(':' | ',' | '}' | '(' | ';') => {
@@ -159,6 +160,12 @@ impl<'s> JSParseState<'s> {
                         // case ':' - w/ init value
                         // case ';' - w/o init value
                         // ,}(
+                        is_non_reserved_ident = true;
+                    }
+                    TokenKind::Char('*') if prev_line != self.token.line_num => {
+                        // ASI between `get`/`set` and `*`: treat as field name
+                        // followed by a generator method on the next line.
+                        // ECMAScript ClassElement ASI rules.
                         is_non_reserved_ident = true;
                     }
                     _ => {
