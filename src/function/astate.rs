@@ -45,7 +45,7 @@ impl AsyncFrameState {
                 let head = arena.frame(*idx);
                 match &head.buf {
                     FrameBuffer::Heap(b) => b,
-                    FrameBuffer::Arena { buf_offset } => {
+                    FrameBuffer::Arena { data_base: _, buf_offset } => {
                         let start = *buf_offset as usize;
                         let end = start + head.buf_capacity as usize;
                         &arena.data[start..end]
@@ -152,7 +152,7 @@ impl AsyncStateImpl {
             // variable region is NOT implicitly zero-initialised – fill it here.
             let data_ptr = {
                 let head = arena.frame(frame_idx);
-                head.buf.data_ptr(arena.data.as_ptr())
+                head.buf.data_ptr()
             };
             let var_start = arg_count;
             let var_end = var_start + var_count as usize;

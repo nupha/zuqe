@@ -61,9 +61,13 @@ pub(crate) enum FrameState {
 #[derive(Debug)]
 pub(crate) enum FrameBuffer {
     /// Data stored in StackFrameArena's shared fixed-capacity data slice
-    /// (bump-allocated). The buf_offset is relative to arena.data start.
+    /// (bump-allocated). `data_base` is the arena's data pointer (stable for
+    /// the lifetime of the arena — `Box<[JSValue]>` never reallocates);
+    /// `buf_offset` is the offset within that slice.
     Arena {
-        /// Start offset within arena.data, in JSValue units.
+        /// Raw pointer to the arena's data slice base.
+        data_base: *mut JSValue,
+        /// Start offset within the data slice, in JSValue units.
         buf_offset: u32,
     },
     /// Data stored in an independent heap allocation (async frames,
@@ -76,14 +80,14 @@ pub(crate) enum FrameBuffer {
 
 impl FrameBuffer {
     /// Resolve to a raw pointer into the data buffer.
-    /// `arena_data` is the base pointer of StackFrameArena's shared data slice,
-    /// needed only for the `Arena` variant.
+    /// For the `Arena` variant the base address was stored at allocation time.
     #[inline(always)]
-    pub(crate) fn data_ptr(&self, arena_data: *const JSValue) -> *mut JSValue {
+    pub(crate) fn data_ptr(&self) -> *mut JSValue {
         match self {
-            FrameBuffer::Arena { buf_offset } => unsafe {
-                arena_data.add(*buf_offset as usize) as *mut JSValue
-            },
+            FrameBuffer::Arena {
+                data_base,
+                buf_offset,
+            } => unsafe { data_base.add(*buf_offset as usize) },
             FrameBuffer::Heap(b) => b.as_ptr() as *mut JSValue,
             FrameBuffer::Empty => std::ptr::null_mut(),
         }
@@ -215,7 +219,10 @@ impl StackFrameArena {
             // Sync frame fits in arena: bump-allocate.
             let buf_offset = self.data_used as u32;
             self.data_used += buf_capacity;
-            FrameBuffer::Arena { buf_offset }
+            FrameBuffer::Arena {
+                data_base: self.data.as_mut_ptr(),
+                buf_offset,
+            }
         } else {
             // Arena full for this frame: use heap (cached or new).
             FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(buf_capacity))
@@ -360,7 +367,7 @@ impl StackFrameArena {
     pub(crate) fn stack_base_ptr(&self, head: &FrameHead) -> *mut JSValue {
         unsafe {
             head.buf
-                .data_ptr(self.data.as_ptr())
+                .data_ptr()
                 .add((head.var_base_offset + head.var_count as u32) as usize)
         }
     }
@@ -391,7 +398,7 @@ impl StackFrameArena {
         let arg_count = std::cmp::max(bc_arg_count as usize, args.len());
         let data_ptr = {
             let head = self.frame(idx);
-            head.buf.data_ptr(self.data.as_ptr())
+            head.buf.data_ptr()
         };
         let head = self.frame_mut(idx);
 
@@ -467,7 +474,7 @@ impl StackFrameArena {
     /// Get an immutable slice of the frame's data buffer.
     fn data_slice<'a>(&'a self, head: &'a FrameHead) -> &'a [JSValue] {
         match &head.buf {
-            FrameBuffer::Arena { buf_offset } => {
+            FrameBuffer::Arena { buf_offset, .. } => {
                 let start = *buf_offset as usize;
                 let end = start + head.buf_capacity as usize;
                 &self.data[start..end]
@@ -750,7 +757,7 @@ impl StackFrameArena {
         }
 
         let head = self.frame(frame_idx);
-        let data_ptr = head.buf.data_ptr(self.data.as_ptr());
+        let data_ptr = head.buf.data_ptr();
         let arg_base = data_ptr;
         let var_base = unsafe { data_ptr.add(head.var_base_offset as usize) };
         let pvalue = unsafe {
