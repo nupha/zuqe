@@ -26,7 +26,7 @@ use crate::{
         OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
         OP_DEFINE_METHOD_SETTER,
     },
-    context::{ContextPtr, ScopedContext},
+    context::ScopedContext,
     error::{
         JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
@@ -1945,14 +1945,29 @@ impl Bytecode {
                                 JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
                             }
                             break State::Exception;
-                        } else if let Ok(val) =
-                            SP_REF!(-2).get_property_value(realm_scope, SP_VAL!(-1))
+                        }
+                        // For WITH-scope references, ECMA-262 9.1.1.2.6 GetBindingValue
+                        // step 2 requires HasProperty before Get. This also ensures the
+                        // correct Proxy trap sequence for with-object proxies.
+                        let obj_has_prop = SP_REF!(-1).to_atom(realm_scope)
+                            .and_then(|atom| SP_REF!(-2).has_property(realm_scope, atom));
+                        if let Ok(false) = obj_has_prop {
+                            if rt.is_strict_mode() {
+                                if let Ok(atom) = SP_REF!(-1).to_atom(realm_scope) {
+                                    JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                                }
+                                break State::Exception;
+                            }
+                            SP_PUT!(0, JSValue::UNDEFINED);
+                        } else if obj_has_prop.is_ok()
+                            && let Ok(val) =
+                                SP_REF!(-2).get_property_value(realm_scope, SP_VAL!(-1))
                         {
                             SP_PUT!(0, val);
-                            SP_GO!(1);
                         } else {
                             break State::Exception;
                         }
+                        SP_GO!(1);
                     }
                     OpCode::GET_SUPER_VALUE => {
                         if let Ok(atom) = SP_REF!(-1).to_atom(realm_scope) {
@@ -2005,21 +2020,12 @@ impl Bytecode {
                             }
                             obj = JSValue::Object(realm_scope.global_obj());
                         } else if obj.is_object() {
-                            // Stale WITH reference: the RHS (computed before this opcode)
-                            // may have deleted the property from the with-object via
-                            // delete or @@unscopables getter (ECMA-262 HasBinding step 4).
-                            // Redirect to global scope if property no longer exists.
+                            // ECMA-262 9.1.1.2.5 SetMutableBinding step 2 requires
+                            // HasProperty before Set. Observable for Proxy binding objects.
                             if let Ok(atom) = prop.to_atom(realm_scope) {
-                                if !obj.has_property(realm_scope, atom).unwrap_or(false) {
-                                    if rt.is_strict_mode() {
-                                        JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
-                                        break State::Exception;
-                                    }
-                                    obj = JSValue::Object(realm_scope.global_obj());
-                                } else if rt.is_strict_mode() {
-                                    flags |= JS_PROP_NO_ADD;
-                                }
-                            } else if rt.is_strict_mode() {
+                                let _ = obj.has_property(realm_scope, atom);
+                            }
+                            if rt.is_strict_mode() {
                                 flags |= JS_PROP_NO_ADD;
                             }
                         } else if rt.is_strict_mode() {
@@ -2376,14 +2382,7 @@ impl Bytecode {
                             let in_env_obj = if ret {
                                 if is_with {
                                     if let Ok(b) = js_has_unscopable(realm_scope, env_obj, atom) {
-                                            // The @@unscopables getter may have deleted the
-                                            // property from env_obj (ECMA-262 9.1.1.2.1 HasBinding
-                                            // step 4: HasProperty is checked AFTER @@unscopables).
-                                            // Re-check HasProperty here to handle this case.
-                                            !b
-                                                && env_obj
-                                                    .has_property(realm_scope, atom)
-                                                    .unwrap_or(false)
+                                        !b
                                     } else {
                                         break State::Exception;
                                     }
@@ -2398,20 +2397,41 @@ impl Bytecode {
                                 // get atom in with env obj.
                                 match opcode {
                                     OpCode::WITH_GET_VAR => {
-                                        if let Ok(val) = env_obj.get_property(realm_scope, atom) {
+                                        // Re-check HasProperty after @@unscopables (ECMA-262
+                                        // 9.1.1.2.6 GetBindingValue steps 2-3). The getter
+                                        // may have deleted the property. If so, return undefined
+                                        // (non-strict) or throw ReferenceError (strict).
+                                        if !env_obj.has_property(realm_scope, atom).unwrap_or(false)
+                                        {
+                                            if rt.is_strict_mode() {
+                                                JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                                                break State::Exception;
+                                            }
+                                            SP_PUT!(-1, JSValue::UNDEFINED);
+                                        } else if let Ok(val) =
+                                            env_obj.get_property(realm_scope, atom)
+                                        {
                                             SP_PUT!(-1, val);
                                         } else {
                                             break State::Exception;
                                         }
                                     }
                                     OpCode::WITH_PUT_VAR => {
-                                        // XXX: check if strict mode
-                                        let ret = env_obj.set_property_internal(
-                                            realm_scope,
-                                            atom,
-                                            SP_VAL!(-2),
-                                            None,
-                                            JS_PROP_THROW_STRICT,
+                                        // SetMutableBinding step 2: HasProperty (ECMA-262 9.1.1.2.5)
+                                        match env_obj.has_property(realm_scope, atom) {
+                                            Ok(false) | Err(_) if rt.is_strict_mode() => {
+                                                JS_ThrowReferenceErrorNotDefined(
+                                                    realm_scope, atom,
+                                                );
+                                                break State::Exception;
+                                            }
+                                            _ => {}
+                                        }
+                                        let prop = atom.to_value(realm_scope)
+                                            .unwrap_or(JSValue::EXCEPTION);
+                                        let val = SP_VAL!(-2);
+                                        let ret = env_obj.set_property_value(
+                                            realm_scope, prop, val, JS_PROP_THROW_STRICT,
                                         );
                                         // SP_TAKE!(-1);
                                         SP_GO!(-2);
@@ -2428,44 +2448,34 @@ impl Bytecode {
                                         }
                                     }
                                     OpCode::WITH_MAKE_REF => {
-                                        // Re-check HasProperty after @@unscopables (ECMA-262
-                                        // HasBinding step 4: HasProperty is checked AFTER
-                                        // @@unscopables). The unscopables getter — or the RHS
-                                        // preceding this opcode — may have deleted the property
-                                        // from env_obj. In that case, push undefined so
-                                        // PUT_REF_VALUE redirects to globalThis.
-                                        if !env_obj
-                                            .has_property(realm_scope, atom)
-                                            .unwrap_or(false)
-                                        {
-                                            SP_PUT!(0, JSValue::UNDEFINED);
-                                        } else {
-                                            SP_PUT!(
-                                                0,
-                                                atom.to_value(realm_scope)
-                                                    .unwrap_or(JSValue::EXCEPTION)
-                                            );
-                                        }
+                                        // produce a pair object/propname on the stack
+                                        SP_PUT!(
+                                            0,
+                                            atom.to_value(realm_scope)
+                                                .unwrap_or(JSValue::EXCEPTION)
+                                        );
                                         SP_GO!(1);
                                     }
                                     OpCode::WITH_GET_REF => {
-                                        // produce a pair object/method on the stack
-                                        if let Ok(val) = env_obj.get_property(realm_scope, atom) {
-                                            SP_PUT!(0, val);
-                                            SP_GO!(1);
-                                        } else {
-                                            break State::Exception;
-                                        }
+                                        // GetBindingValue step 2: HasProperty (ECMA-262 9.1.1.2.6)
+                                        let val = match env_obj.has_property(realm_scope, atom) {
+                                            Ok(false) | Err(_) => JSValue::UNDEFINED,
+                                            _ => env_obj.get_property(realm_scope, atom)
+                                                .unwrap_or(JSValue::UNDEFINED),
+                                        };
+                                        SP_PUT!(0, val);
+                                        SP_GO!(1);
                                     }
                                     OpCode::WITH_GET_REF_UNDEF => {
-                                        // produce a pair undefined/function on the stack
-                                        if let Ok(val) = env_obj.get_property(realm_scope, atom) {
-                                            SP_PUT!(-1, JSValue::UNDEFINED);
-                                            SP_PUT!(0, val);
-                                            SP_GO!(1);
-                                        } else {
-                                            break State::Exception;
-                                        }
+                                        // GetBindingValue step 2: HasProperty (ECMA-262 9.1.1.2.6)
+                                        let val = match env_obj.has_property(realm_scope, atom) {
+                                            Ok(false) | Err(_) => JSValue::UNDEFINED,
+                                            _ => env_obj.get_property(realm_scope, atom)
+                                                .unwrap_or(JSValue::UNDEFINED),
+                                        };
+                                        SP_PUT!(-1, JSValue::UNDEFINED);
+                                        SP_PUT!(0, val);
+                                        SP_GO!(1);
                                     }
                                     _ => {
                                         #[cfg(debug_assertions)]
