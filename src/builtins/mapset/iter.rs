@@ -105,7 +105,12 @@ fn js_map_iterator_next(
             }
         }
 
-        if it.index >= ms.slots.len() {
+        // Only mark iterator as exhausted if no entry was found in the
+        // current scan. If we found an entry, keep the iterator alive so
+        // newly added entries can be visited on subsequent .next() calls
+        // (ECMA-262 24.1.5.2.1 step 11: "numEntries must be redetermined
+        // every time this method is evaluated").
+        if ret.is_none() && it.index >= ms.slots.len() {
             end = true;
         }
     }

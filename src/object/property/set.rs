@@ -257,7 +257,7 @@ impl ObjectImpl {
                     if let Some(idx) = prop.to_small_int()
                         && let Some(arr) = target.as_Array_mut()
                         && arr.is_fast_array()
-                        // && arr.class_id() == JS_CLASS_ARRAY // should exclude JS_CLASS_ARGUMENTS?
+                        && arr.class_id() == JS_CLASS_ARRAY // Array only, exclude Arguments
                         && idx == arr.fast_array_count()
                     {
                         return arr.add_fast_array_element(ctx, val, flags);

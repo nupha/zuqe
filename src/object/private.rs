@@ -80,7 +80,7 @@ impl ObjectImpl {
         }
     }
 
-    /// Private fields can be added even on non-extensible objects or Proxies
+    /// Define a private field on this object.
     pub fn define_private_field(
         &mut self,
         ctx: &mut ScopedContext,
@@ -89,6 +89,13 @@ impl ObjectImpl {
     ) -> Result<(), i32> {
         if let JSValue::Symbol(s) = name {
             let a = Atom::from_id(s.atom_info().unwrap().id());
+
+            // Per ECMAScript PrivateFieldAdd (O, P, value):
+            //   1. If O.[[Extensible]] is false, throw a TypeError exception.
+            if !self.is_extensible_obj(ctx)? {
+                ctx.throw_type_error("private field on non-extensible object");
+                return Err(-1);
+            }
 
             if self.has_shape_property(a) {
                 ctx.throw_type_error(&format!(
@@ -146,6 +153,11 @@ impl JSValue {
                 let brand_atom = brand_sym.to_atom(ctx).unwrap();
                 if ob.has_shape_property(brand_atom) {
                     ctx.throw_type_error("private method is already present");
+                    Err(-1)
+                } else if !ob.is_extensible_obj(ctx)? {
+                    ctx.throw_type_error(
+                        "cannot add private fields to non-extensible object",
+                    );
                     Err(-1)
                 } else {
                     ob.add_own_property(
