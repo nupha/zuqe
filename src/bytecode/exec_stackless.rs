@@ -3223,7 +3223,7 @@ pub(crate) fn execute_trampoline(
                         // Promote before scope pop so the value stays LOCAL
                         // in the parent scope (caller's scope).
                         promote_to_parent(actual_ret, &cur_trampoline_scope);
-                        drop(cur_trampoline_scope);
+                        drop(cur_trampoline_scope.into_inner());
 
                         // Drain virtual_frames to drop saved caller scopes.
                         while let Some(vf) = virtual_frames.pop() {
