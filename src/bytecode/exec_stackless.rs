@@ -232,7 +232,7 @@ impl Bytecode {
         // stack_base_ptr take &self on arena, while frame_mut takes &mut.
         let (arg_base_ptr, var_base_ptr, sp_base, mode, func_obj, arg_real_count) = {
             let head = arena.frame(cur_frame_idx);
-            let arg_base = arena.data_ptr(head);
+            let arg_base = head.buf.data_ptr(arena.data.as_ptr());
             let var_base = unsafe { arg_base.add(head.var_base_offset as usize) };
             let sp = arena.stack_base_ptr(head);
             (
@@ -3078,7 +3078,7 @@ pub(crate) fn execute_trampoline(
         // the top of the loop is simpler and always correct.
         {
             let head = arena.frame(cur_frame_idx);
-            let data = arena.data_ptr(head);
+            let data = head.buf.data_ptr(arena.data.as_ptr());
             args = unsafe { std::slice::from_raw_parts(data, head.arg_real_count as usize) };
         }
 

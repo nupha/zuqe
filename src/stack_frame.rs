@@ -1,20 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{
-    marker::PhantomData,
-    mem::ManuallyDrop,
-    ptr::NonNull,
-};
+use std::{mem::ManuallyDrop, ptr::NonNull};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
-use crate::{
-    Object,
-    context::ScopedContext,
-    function::{AsyncStateImpl, VarRef},
-    value::JSValue,
-};
+use crate::{Object, context::ScopedContext, function::VarRef, value::JSValue};
 
 // ============================================================================
 // Stackless Interpreter: Bump-Arena Virtual Frame Stack
@@ -68,7 +59,7 @@ pub(crate) enum FrameState {
 /// The same FrameHead type can represent arena-resident or heap-resident
 /// frames, eliminating the need for separate snapshot types.
 #[derive(Debug)]
-pub(crate) enum FrameBufLocation {
+pub(crate) enum FrameBuffer {
     /// Data stored in StackFrameArena's shared fixed-capacity data slice
     /// (bump-allocated). The buf_offset is relative to arena.data start.
     Arena {
@@ -80,7 +71,23 @@ pub(crate) enum FrameBufLocation {
     Heap(Box<[JSValue]>),
     /// Slot has been suspended/freed; data region is invalid.
     /// Accessing this variant is a logic bug.
-    None,
+    Empty,
+}
+
+impl FrameBuffer {
+    /// Resolve to a raw pointer into the data buffer.
+    /// `arena_data` is the base pointer of StackFrameArena's shared data slice,
+    /// needed only for the `Arena` variant.
+    #[inline(always)]
+    pub(crate) fn data_ptr(&self, arena_data: *const JSValue) -> *mut JSValue {
+        match self {
+            FrameBuffer::Arena { buf_offset } => unsafe {
+                arena_data.add(*buf_offset as usize) as *mut JSValue
+            },
+            FrameBuffer::Heap(b) => b.as_ptr() as *mut JSValue,
+            FrameBuffer::Empty => std::ptr::null_mut(),
+        }
+    }
 }
 
 /// Fixed-size header for every stack frame in the arena.
@@ -107,19 +114,14 @@ pub(crate) struct FrameHead {
     /// Stack pointer offset relative to stack_base_ptr.
     pub(crate) cur_sp_offset: i32,
 
-    /// Protected values: this_obj, new_target (deprecated but needed for compat).
-    #[deprecated(note = "unused")]
-    pub(crate) protected_values: [JSValue; 2],
-
     /// Variable references for closure capture.
     /// Each VarRef holds a raw pointer (pvalue) into the data buffer.
     /// After take/put operations, all pvalues must be updated to point
     /// to the correct data buffer location.
     pub(crate) var_ref_list: Vec<VarRef>,
 
-    // ── Data region descriptor ──
     /// Where the frame's data buffer lives.
-    pub(crate) buf: FrameBufLocation,
+    pub(crate) buf: FrameBuffer,
     /// Total capacity of the data buffer, in JSValue units.
     pub(crate) buf_capacity: u32,
 
@@ -133,6 +135,10 @@ pub(crate) struct FrameHead {
     pub(crate) var_base_offset: u32,
     /// Number of local variables.
     pub(crate) var_count: u16,
+
+    /// Protected values: this_obj, new_target (deprecated but needed for compat).
+    #[deprecated(note = "unused")]
+    pub(crate) protected_values: [JSValue; 2],
 }
 
 /// Bump-allocator frame storage.
@@ -157,11 +163,6 @@ pub(crate) struct StackFrameArena {
     /// Suspended tombstone slots that are NOT hot-LIFO-removable (the outer
     /// frame sits above them).  These are reclaimed by `compact()` at GC
     /// safe points.
-    ///
-    /// **Future**: Once all legacy `StackFrame` users are migrated, `frames`
-    /// plus `prev` links can replace the old `StackFrame.prev` chain for
-    /// backtrace, debugger, and stack introspection — no separate traversal
-    /// structure needed for synchronous code.
     pub(crate) frames: Vec<FrameHead>,
 
     /// Fixed-capacity buffer space for arena.
@@ -173,7 +174,6 @@ pub(crate) struct StackFrameArena {
     pub(crate) suspended_count: usize,
 
     /// Cache of heap-allocated frame data buffers recycled from freed frames.
-    /// Uses linear first-fit scan (max 8 entries; sorting overhead > scan benefit).
     pub(crate) heap_buf_cache: Vec<Box<[JSValue]>>,
 }
 
@@ -210,15 +210,15 @@ impl StackFrameArena {
 
         let buf = if mode.contains(ExecMode::ASYNC) {
             // Async frames are always use heap-allocated
-            FrameBufLocation::Heap(self.reuse_cache_or_alloc(buf_capacity))
+            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(buf_capacity))
         } else if self.data_used + buf_capacity <= self.data.len() {
             // Sync frame fits in arena: bump-allocate.
             let buf_offset = self.data_used as u32;
             self.data_used += buf_capacity;
-            FrameBufLocation::Arena { buf_offset }
+            FrameBuffer::Arena { buf_offset }
         } else {
             // Arena full for this frame: use heap (cached or new).
-            FrameBufLocation::Heap(self.reuse_cache_or_alloc(buf_capacity))
+            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(buf_capacity))
         };
 
         self.frames.push(FrameHead {
@@ -245,7 +245,7 @@ impl StackFrameArena {
     /// Find a cached heap buffer with capacity >= required, or allocate new.
     /// Uses linear first-fit scan; cache is small (max 8 entries) so the
     /// O(n) scan overhead is negligible compared to maintaining sort order.
-    fn reuse_cache_or_alloc(&mut self, required: usize) -> Box<[JSValue]> {
+    fn reuse_or_alloc_heap_buf(&mut self, required: usize) -> Box<[JSValue]> {
         if let Some(pos) = self.heap_buf_cache.iter().position(|b| b.len() >= required) {
             self.heap_buf_cache.remove(pos)
         } else {
@@ -273,12 +273,12 @@ impl StackFrameArena {
             // Hot LIFO path: pop FrameHead and rewind arena bump pointer.
             let head = self.frames.pop().unwrap();
             match head.buf {
-                FrameBufLocation::Arena { .. } => {
+                FrameBuffer::Arena { .. } => {
                     self.data_used -= head.buf_capacity as usize;
                     // Arena slots are NOT zeroed — subsequent bump allocations
                     // will naturally overwrite them.
                 }
-                FrameBufLocation::Heap(heap_buf) => {
+                FrameBuffer::Heap(heap_buf) => {
                     // Cache the heap buffer if it's too large to fit in arena
                     // (same reason it was allocated on heap originally).
                     let remaining = self.data.len() - self.data_used;
@@ -289,7 +289,7 @@ impl StackFrameArena {
                     }
                     // Otherwise arena has enough space now; drop the heap buf.
                 }
-                FrameBufLocation::None => {
+                FrameBuffer::Empty => {
                     // Suspended frame data already migrated; only FrameHead freed.
                 }
             }
@@ -306,8 +306,8 @@ impl StackFrameArena {
             // - prev pointers from remaining active frames never target a
             //   Suspended frame that is above them in the Vec (prev always
             //   points to a lower index).
-            while let Some(tail) = self.frames.last() {
-                if tail.state == FrameState::Suspended {
+            while let Some(f) = self.frames.last() {
+                if f.state == FrameState::Suspended {
                     self.frames.pop();
                     self.suspended_count -= 1;
                 } else {
@@ -318,8 +318,9 @@ impl StackFrameArena {
             // Cold path: async frame not at stack top (blocked by sibling frames).
             // Mark Suspended to preserve prev chain; heap buffer is recycled.
             let head = &mut self.frames[idx.0 as usize];
-            if let FrameBufLocation::Heap(heap_buf) =
-                std::mem::replace(&mut head.buf, FrameBufLocation::None)
+
+            if let FrameBuffer::Heap(heap_buf) =
+                std::mem::replace(&mut head.buf, FrameBuffer::Empty)
             {
                 let remaining = self.data.len() - self.data_used;
                 if heap_buf.len() > remaining
@@ -328,8 +329,11 @@ impl StackFrameArena {
                     self.heap_buf_cache.push(heap_buf);
                 }
             }
+
             head.buf_capacity = 0;
             head.state = FrameState::Suspended;
+            head.prev = FrameIndex::NULL;
+
             self.suspended_count += 1;
         }
     }
@@ -350,24 +354,13 @@ impl StackFrameArena {
         &mut self.frames[idx.0 as usize]
     }
 
-    /// Get raw pointer to a frame's data buffer (works for both Arena and Heap).
-    #[inline(always)]
-    pub(crate) fn data_ptr(&self, head: &FrameHead) -> *mut JSValue {
-        match &head.buf {
-            FrameBufLocation::Arena { buf_offset } => unsafe {
-                self.data.as_ptr().add(*buf_offset as usize) as *mut JSValue
-            },
-            FrameBufLocation::Heap(b) => b.as_ptr() as *mut JSValue,
-            FrameBufLocation::None => std::ptr::null_mut(),
-        }
-    }
-
     /// Get stack base pointer: the start of the operand stack region,
     /// immediately after the local variables area.
     #[inline(always)]
     pub(crate) fn stack_base_ptr(&self, head: &FrameHead) -> *mut JSValue {
         unsafe {
-            self.data_ptr(head)
+            head.buf
+                .data_ptr(self.data.as_ptr())
                 .add((head.var_base_offset + head.var_count as u32) as usize)
         }
     }
@@ -388,7 +381,6 @@ impl StackFrameArena {
     /// This is the single canonical path for frame argument setup – all call
     /// sites (bfun.call, inline trampoline, AsyncStateImpl::new) MUST use this
     /// to ensure consistent treatment of missing arguments and head fields.
-    #[inline(always)]
     pub(crate) fn init_frame_args(
         &mut self,
         idx: FrameIndex,
@@ -399,7 +391,7 @@ impl StackFrameArena {
         let arg_count = std::cmp::max(bc_arg_count as usize, args.len());
         let data_ptr = {
             let head = self.frame(idx);
-            self.data_ptr(head)
+            head.buf.data_ptr(self.data.as_ptr())
         };
         let head = self.frame_mut(idx);
 
@@ -475,13 +467,13 @@ impl StackFrameArena {
     /// Get an immutable slice of the frame's data buffer.
     fn data_slice<'a>(&'a self, head: &'a FrameHead) -> &'a [JSValue] {
         match &head.buf {
-            FrameBufLocation::Arena { buf_offset } => {
+            FrameBuffer::Arena { buf_offset } => {
                 let start = *buf_offset as usize;
                 let end = start + head.buf_capacity as usize;
                 &self.data[start..end]
             }
-            FrameBufLocation::Heap(b) => b,
-            FrameBufLocation::None => &[],
+            FrameBuffer::Heap(b) => b,
+            FrameBuffer::Empty => &[],
         }
     }
 }
@@ -521,13 +513,13 @@ impl StackFrameArena {
             "take_frame: only async frames can be suspended"
         );
         debug_assert!(
-            matches!(head.buf, FrameBufLocation::Heap(_)),
+            matches!(head.buf, FrameBuffer::Heap(_)),
             "take_frame: async frames must be Heap-variant"
         );
 
         // Take ownership of the Heap buffer, replace with None.
-        let heap_buf = match std::mem::replace(&mut head.buf, FrameBufLocation::None) {
-            FrameBufLocation::Heap(b) => b,
+        let heap_buf = match std::mem::replace(&mut head.buf, FrameBuffer::Empty) {
+            FrameBuffer::Heap(b) => b,
             _ => unreachable!("Async frame must be Heap"),
         };
 
@@ -551,7 +543,7 @@ impl StackFrameArena {
             cur_sp_offset: head.cur_sp_offset,
             protected_values: head.protected_values,
             var_ref_list: std::mem::take(&mut head.var_ref_list),
-            buf: FrameBufLocation::Heap(heap_buf),
+            buf: FrameBuffer::Heap(heap_buf),
             buf_capacity: head.buf_capacity,
             arg_base_offset: head.arg_base_offset,
             arg_real_count: head.arg_real_count,
@@ -758,7 +750,7 @@ impl StackFrameArena {
         }
 
         let head = self.frame(frame_idx);
-        let data_ptr = self.data_ptr(head);
+        let data_ptr = head.buf.data_ptr(self.data.as_ptr());
         let arg_base = data_ptr;
         let var_base = unsafe { data_ptr.add(head.var_base_offset as usize) };
         let pvalue = unsafe {
@@ -781,7 +773,7 @@ impl AsyncStackFrame {
     /// Get immutable slice of the snapshot's data buffer.
     pub(crate) fn data_slice(&self) -> &[JSValue] {
         match &self.head.buf {
-            FrameBufLocation::Heap(b) => b,
+            FrameBuffer::Heap(b) => b,
             _ => unreachable!("AsyncStackFrame must have Heap buf"),
         }
     }

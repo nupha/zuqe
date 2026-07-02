@@ -230,7 +230,7 @@ impl Bytecode {
             // Extract frame metadata before mutable borrow for var_ref_list.
             let (arg_base, var_base, arg_count, var_count) = {
                 let head = arena.frame(parent_frame_idx);
-                let data_ptr = arena.data_ptr(head);
+                let data_ptr = head.buf.data_ptr(arena.data.as_ptr());
                 (
                     data_ptr,
                     unsafe { data_ptr.add(head.var_base_offset as usize) },

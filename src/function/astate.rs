@@ -13,9 +13,7 @@ use crate::{
     function::BCWrapper,
     gcref_wrapper,
     runtime::js_check_stack_overflow,
-    stack_frame::{
-        AsyncStackFrame, ExecMode, FrameBufLocation, FrameHead, FrameIndex, StackFrameArena,
-    },
+    stack_frame::{AsyncStackFrame, ExecMode, FrameBuffer, FrameHead, FrameIndex, StackFrameArena},
     value::JSValue,
 };
 
@@ -46,17 +44,17 @@ impl AsyncFrameState {
             AsyncFrameState::Active(idx) => {
                 let head = arena.frame(*idx);
                 match &head.buf {
-                    FrameBufLocation::Heap(b) => b,
-                    FrameBufLocation::Arena { buf_offset } => {
+                    FrameBuffer::Heap(b) => b,
+                    FrameBuffer::Arena { buf_offset } => {
                         let start = *buf_offset as usize;
                         let end = start + head.buf_capacity as usize;
                         &arena.data[start..end]
                     }
-                    FrameBufLocation::None => &[],
+                    FrameBuffer::Empty => &[],
                 }
             }
             AsyncFrameState::Suspended(snapshot) => match &snapshot.head.buf {
-                FrameBufLocation::Heap(b) => b,
+                FrameBuffer::Heap(b) => b,
                 _ => unreachable!("Suspended frame must be Heap-variant"),
             },
         }
@@ -154,7 +152,7 @@ impl AsyncStateImpl {
             // variable region is NOT implicitly zero-initialised – fill it here.
             let data_ptr = {
                 let head = arena.frame(frame_idx);
-                arena.data_ptr(head)
+                head.buf.data_ptr(arena.data.as_ptr())
             };
             let var_start = arg_count;
             let var_end = var_start + var_count as usize;
@@ -192,7 +190,7 @@ impl AsyncStateImpl {
                 unimplemented!("arg_ptr: use frame_data_ptr with arena instead")
             }
             AsyncFrameState::Suspended(snapshot) => match &snapshot.head.buf {
-                FrameBufLocation::Heap(b) => unsafe {
+                FrameBuffer::Heap(b) => unsafe {
                     NonNull::new_unchecked(b.as_ptr() as *mut JSValue)
                 },
                 _ => unreachable!(),
@@ -294,7 +292,7 @@ impl AsyncStateImpl {
                 // Compute stack pointer directly from snapshot's Heap buffer.
                 // SAFETY: snapshot.head.buf is always Heap for async frames.
                 let ptr = match &head.buf {
-                    FrameBufLocation::Heap(b) => unsafe {
+                    FrameBuffer::Heap(b) => unsafe {
                         (b.as_ptr() as *mut JSValue)
                             .add((head.var_base_offset + head.var_count as u32) as usize)
                             .add(head.cur_sp_offset as usize)
@@ -319,7 +317,7 @@ impl AsyncStateImpl {
                 let head = &snapshot.head;
                 // Compute stack pointer directly from snapshot's Heap buffer.
                 let ptr = match &head.buf {
-                    FrameBufLocation::Heap(b) => unsafe {
+                    FrameBuffer::Heap(b) => unsafe {
                         (b.as_ptr() as *mut JSValue)
                             .add((head.var_base_offset + head.var_count as u32) as usize)
                             .add(head.cur_sp_offset as usize)

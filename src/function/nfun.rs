@@ -233,7 +233,7 @@ impl NativeFunction {
         let nargs = unsafe {
             let arena = &*arena_ptr;
             let head = arena.frame(frame_idx);
-            let ptr = arena.data_ptr(head);
+            let ptr = head.buf.data_ptr(arena.data.as_ptr());
             if head.arg_real_count > 0 {
                 std::slice::from_raw_parts(ptr, head.arg_real_count as usize)
             } else {
@@ -300,7 +300,7 @@ impl NativeFunction {
         let nargs = unsafe {
             let arena = &*arena_ptr;
             let head = arena.frame(frame_idx);
-            let ptr = arena.data_ptr(head);
+            let ptr = head.buf.data_ptr(arena.data.as_ptr());
             if head.arg_real_count > 0 {
                 std::slice::from_raw_parts(ptr, head.arg_real_count as usize)
             } else {
