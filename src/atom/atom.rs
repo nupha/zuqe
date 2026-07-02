@@ -156,12 +156,20 @@ impl Atom {
             return Ok(None);
         }
 
-        // NaN check — must be before AtomKind::String check since const atoms
-        // may not be AtomKind::String yet are canonical numeric indices per ECMA-262.
-        if let Some(b) = content.ascii()
-            && b == b"NaN"
-        {
-            return Ok(Some(IntOrFloat::Float64(f64::NAN)));
+        // ECMA-262 CanonicalNumericIndexString special values: NaN, ±Infinity.
+        if let Some(b) = content.ascii() {
+            match b {
+                b"NaN" => {
+                    return Ok(Some(IntOrFloat::Float64(f64::NAN)));
+                }
+                b"Infinity" => {
+                    return Ok(Some(IntOrFloat::Float64(f64::INFINITY)));
+                }
+                b"-Infinity" => {
+                    return Ok(Some(IntOrFloat::Float64(f64::NEG_INFINITY)));
+                }
+                _ => {}
+            }
         }
 
         if let AtomKind::String = s.atom_info().unwrap().kind() {
@@ -182,23 +190,9 @@ impl Atom {
                         }
                     }
 
+                    // For decimal numbers (digit or leading sign then digit)
                     if !ch.is_ascii_digit() {
-                        if ch == 'I' {
-                            let mut nfinity = "nfinity".chars();
-                            loop {
-                                match (chars.next(), nfinity.next()) {
-                                    (Some((_, CharCode::Char(a))), Some(b)) if a == b => {}
-                                    (None, None) => {
-                                        break; // Infinity is allowed
-                                    }
-                                    _ => {
-                                        return Ok(None);
-                                    }
-                                }
-                            }
-                        } else {
-                            return Ok(None);
-                        }
+                        return Ok(None);
                     }
                 } else {
                     return Ok(None);
@@ -395,46 +389,6 @@ impl JSValue {
         }
     }
 }
-
-// /// return a string atom containing name concatenated with str1.
-// /// Note: returned atom should be freed by caller.
-// fn js_atom_concat_str_v0(ctx: &mut ContextImpl, name: Atom, str1: *const u8) -> Result<Atom, i32> {
-//     let str_val = name.force_string(ctx)?;
-//     let astr = str_val.content().to_utf8(false);
-//     let len = astr.len();
-
-//     let str = unsafe { CStr::from_ptr(str1.cast()) };
-//     let len1 = str.count_bytes();
-//     let ttl_len = len + len1 + 1;
-
-//     let mut buf = StringBuf::with_capacity(ttl_len, str_val.is_wide()).map_err(|_| {
-//         ctx.throw_out_of_memory();
-//         -1
-//     })?;
-
-//     buf.push_content(str_val.content()).unwrap();
-//     buf.push_chars_iter(str.to_string_lossy().chars().map(CharCode::Char))
-//         .map_err(|_| {
-//             ctx.throw_out_of_memory();
-//             -1
-//         })?;
-//     let s = StringRef::new(ctx.rt(), StringData::from_buf(buf)).map_err(|_| {
-//         ctx.throw_out_of_memory();
-//         -1
-//     })?;
-//     Atom::from_string(ctx.rt(), s, AtomKind::String)
-
-//     // // FIXME: use Vec::try_reserve_exact()
-//     // if let Some(p) = js_malloc_typed::<u8>(ctx, ttl_len, false) {
-//     //     let mut new_str = Vec::from_raw_parts(p.as_ptr(), ttl_len, ttl_len);
-//     //     std::ptr::copy_nonoverlapping(astr.as_ptr().cast(), new_str.as_mut_ptr(), len);
-//     //     std::ptr::copy_nonoverlapping(str1, new_str.as_mut_ptr().offset(len as isize), len1);
-
-//     //     Atom::new(ctx.rt_ref(), std::str::from_utf8_unchecked(&new_str)).unwrap_or(Atom::NULL)
-//     // } else {
-//     //     Atom::NULL
-//     // }
-// }
 
 /// return a string atom containing name concatenated with str1.
 /// Note: returned atom should be freed by caller.
