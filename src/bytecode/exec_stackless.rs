@@ -87,57 +87,33 @@ pub(crate) enum ExecAction {
     Unwind,
 }
 
-/// A GC scope wrapper for trampoline use that encapsulates the lifetime
-/// management and eliminates direct `'static` transmute exposure.
+/// A GC scope wrapper for trampoline use.
 ///
-/// # Safety
+/// Stores the real `GcScope` (from `new_scope()`) inside `ManuallyDrop` so the
+/// scope stays alive across trampoline iterations. On yield/complete, the
+/// `ScopedContext` is taken out of `ManuallyDrop` via `into_inner()` and
+/// dropped — this triggers `GcScope::Drop` which pops from the GC heap.
+/// On CALL, the `ScopedContext` is transferred to a `VirtualFrame`'s
+/// `ManuallyDrop` and restored on RETURN.
 ///
-/// The GC scope lives on the GC heap, managed through `ContextPtr` (a `Copy`
-/// type that is just a raw pointer to `ContextImpl`). The lifetime parameter in
-/// `ScopedContext` / `GcScope` is `PhantomData<&'a ()>` — it only exists for
-/// compile-time borrow checking. The actual scope lifecycle is determined by:
+/// No `pop_scope()` is ever called explicitly — scopes are always popped by
+/// `GcScope::Drop` (the anti-forget of `ManuallyDrop::take` + `drop`).
 ///
-/// 1. Push: creating a scope via `ContextPtr::new_scope()` pushes onto the GC
-///    heap's scope stack. The returned `GcScope` holds a raw `NonNull<GcHeap>`
-///    pointer to pop from during drop.
-/// 2. Pop: dropping the `GcScope` calls `heap.pop_scope()`.
+/// # Safety of `'static` transmute
 ///
-/// The trampoline loop guarantees LIFO ordering and drops all scopes before
-/// the runtime (and thus the GC heap) is destroyed. The `'static` transmute
-/// is safe under this guarantee because:
-/// - `ContextPtr` is `Copy` — the scope's ctx reference survives independently
-/// - The GC heap maintains scope stacks via raw pointers, not Rust lifetimes
+/// The `'static` on `ScopedContext` is safe because:
+/// - `ContextPtr` is `Copy` (a raw pointer) — the ctx reference survives
+/// - `GcScope`'s lifetime is `PhantomData<&'s ()>` — zero runtime cost
 /// - `ManuallyDrop` prevents auto-drop at the wrong time
-/// - All scopes are explicitly drained before trampoline exit
+/// - All scopes are drained (into_inner + drop) before the GC heap is destroyed
 #[derive(Debug)]
-#[repr(transparent)]
 struct TrampolineScope {
-    /// The underlying scope. Wrapped in `ManuallyDrop` to prevent automatic
-    /// drop when the scope is moved across trampoline iterations (via
-    /// `std::mem::replace` in the CallBytecode handler). Manually restored
-    /// via `take()` or `into_inner()`.
-    ///
-    /// SAFETY: The `'static` lifetime is safe because:
-    /// - The actual GC scope lifecycle is runtime-managed on the GC heap
-    /// - This wrapper guarantees LIFO drop order within the trampoline
-    /// - All scopes are dropped before the runtime/GC heap is destroyed
     inner: ManuallyDrop<ScopedContext<'static>>,
 }
 
 impl TrampolineScope {
-    /// Create a new scope from a ContextPtr by pushing onto the GC scope stack.
-    ///
-    /// SAFETY:
-    /// - The returned scope must be dropped before the GC heap is destroyed.
-    /// - The trampoline loop ensures LIFO ordering of scope creation/destruction.
+    /// Push a new scope onto the GC heap and wrap it.
     unsafe fn new(ctx: &mut ContextPtr) -> Self {
-        // SAFETY: The 'static transmute erases only the phantom lifetime.
-        // The actual scope is managed on the GC heap through ContextPtr's
-        // raw NonNull<GcHeap>. This is safe because:
-        // 1. ContextPtr is Copy — it's just a raw pointer
-        // 2. GcScope's lifetime is PhantomData<&'a ()> — zero runtime cost
-        // 3. ManuallyDrop ensures we control when the scope is popped
-        // 4. The trampoline drops all scopes before the runtime is destroyed
         Self {
             inner: ManuallyDrop::new(unsafe {
                 std::mem::transmute::<ScopedContext<'_>, ScopedContext<'static>>(ctx.new_scope())
@@ -145,28 +121,23 @@ impl TrampolineScope {
         }
     }
 
-    /// Restore a `TrampolineScope` from a `ScopedContext` that was previously
-    /// extracted via `into_inner()` (e.g., from a `VirtualFrame`'s `caller_scope`).
-    ///
-    /// SAFETY: The `ScopedContext` must have been created by this trampoline
-    /// (via `TrampolineScope::new`) and must not outlive the GC heap.
+    /// Restore from a ScopedContext previously extracted via `into_inner()`.
     const unsafe fn from_ctx(inner: ScopedContext<'static>) -> Self {
         Self {
             inner: ManuallyDrop::new(inner),
         }
     }
 
+    /// Extract the inner ScopedContext, consuming this wrapper.
+    /// The caller becomes responsible for dropping it (which pops the scope).
+    fn into_inner(mut self) -> ScopedContext<'static> {
+        unsafe { ManuallyDrop::take(&mut self.inner) }
+    }
+
     /// Borrow the inner scope mutably (for passing to `execute_with_arena`).
     #[inline(always)]
     fn scope_mut(&mut self) -> &mut ScopedContext<'static> {
         &mut self.inner
-    }
-
-    /// Take ownership of the inner scope, consuming this wrapper.
-    /// The caller becomes responsible for dropping the scope.
-    #[inline(always)]
-    fn into_inner(mut self) -> ScopedContext<'static> {
-        unsafe { ManuallyDrop::take(&mut self.inner) }
     }
 }
 
@@ -3258,7 +3229,7 @@ pub(crate) fn execute_trampoline(
                         // Promote before scope pop so the value stays LOCAL
                         // in the parent scope (caller's scope).
                         promote_to_parent(actual_ret, &cur_trampoline_scope);
-                        drop(cur_trampoline_scope.into_inner());
+                        drop(cur_trampoline_scope);
 
                         // Drain virtual_frames to drop saved caller scopes.
                         while let Some(vf) = virtual_frames.pop() {
