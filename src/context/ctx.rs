@@ -225,7 +225,7 @@ impl ContextImpl {
     /// Otherwise the legacy path is active (or no execution at all).
     #[inline(always)]
     pub fn is_arena_mode(&self) -> bool {
-        !self.rt.active_trampoline_frame.is_null()
+        !self.rt.active_frame_index.is_null()
     }
 
     /// get runtime ptr

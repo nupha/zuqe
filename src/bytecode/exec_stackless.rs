@@ -3064,7 +3064,7 @@ pub(crate) fn execute_trampoline(
     'trampoline: loop {
         let arena = unsafe { &mut *arena_ptr };
 
-        rt_ptr.active_trampoline_frame = cur_frame_idx;
+        rt_ptr.active_frame_index = cur_frame_idx;
         debug_assert!(cur_trampoline_scope.is_arena_mode());
 
         // Like exec.rs's execute_with_realm_scope, we use args directly.
@@ -3229,7 +3229,7 @@ pub(crate) fn execute_trampoline(
                         while let Some(vf) = virtual_frames.pop() {
                             drop(ManuallyDrop::into_inner(vf.caller_scope));
                         }
-                        rt_ptr.active_trampoline_frame = FrameIndex::NULL;
+                        rt_ptr.active_frame_index = FrameIndex::NULL;
 
                         return (actual_ret, true);
                     }
@@ -3254,7 +3254,7 @@ pub(crate) fn execute_trampoline(
                     while let Some(vf) = virtual_frames.pop() {
                         drop(ManuallyDrop::into_inner(vf.caller_scope));
                     }
-                    rt_ptr.active_trampoline_frame = FrameIndex::NULL;
+                    rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (ret_val, false);
                 }
 
@@ -3307,7 +3307,7 @@ pub(crate) fn execute_trampoline(
                     sp_offset = caller_vf.return_sp + 1;
                     throwed = false;
                 } else {
-                    rt_ptr.active_trampoline_frame = FrameIndex::NULL;
+                    rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (ret_val, true);
                 }
             }
@@ -3371,7 +3371,7 @@ pub(crate) fn execute_trampoline(
 
                     continue 'trampoline;
                 } else {
-                    rt_ptr.active_trampoline_frame = FrameIndex::NULL;
+                    rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (JSValue::EXCEPTION, true);
                 }
             }

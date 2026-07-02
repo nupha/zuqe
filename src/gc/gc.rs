@@ -96,8 +96,8 @@ impl RuntimeImpl {
             // Double-trace active trampoline frame's func_obj (belt-and-suspenders
             // with arena trace: covers the race window between arena state update
             // and trampoline iteration when GC triggers).
-            if !self.active_trampoline_frame.is_null() {
-                let head = self.frame_arena.frame(self.active_trampoline_frame);
+            if !self.active_frame_index.is_null() {
+                let head = self.frame_arena.frame(self.active_frame_index);
                 head.func_obj.trace(&mut gcx);
             }
             // mark error value

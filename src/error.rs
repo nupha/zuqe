@@ -249,7 +249,7 @@ impl<'c> ScopedContext<'c> {
         // In stackless (arena) mode, all bytecode execution goes through the
         // trampoline — active_trampoline_frame is non-null whenever we are
         // executing JS bytecode (including native callbacks called from it).
-        rt.exception() != Exception::OutOfMemory && !rt.active_trampoline_frame.is_null()
+        rt.exception() != Exception::OutOfMemory && !rt.active_frame_index.is_null()
     }
 
     /// make error object and throw it as current exception.
@@ -363,22 +363,23 @@ impl<'c> ScopedContext<'c> {
         let rt = self.rt_ptr();
 
         // ── Arena mode: traverse FrameHead.prev chain (if active) ──
-        if !rt.active_trampoline_frame.is_null() {
+        if !rt.active_frame_index.is_null() {
             let arena = &rt.frame_arena;
-            let mut frame_idx = rt.active_trampoline_frame;
+            let mut frame_idx = rt.active_frame_index;
             let mut first = true;
             while !frame_idx.is_null() {
                 let head = arena.frame(frame_idx);
                 if backtrace_flags & JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL != 0 && first {
                     backtrace_flags &= !JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
                 } else {
-                    let str1 = get_func_name(head.func_obj).map_or(Cow::Borrowed("<anonymous>"), |x| {
-                        if x.is_empty() {
-                            Cow::Borrowed("<anonymous>")
-                        } else {
-                            Cow::Owned(x)
-                        }
-                    });
+                    let str1 =
+                        get_func_name(head.func_obj).map_or(Cow::Borrowed("<anonymous>"), |x| {
+                            if x.is_empty() {
+                                Cow::Borrowed("<anonymous>")
+                            } else {
+                                Cow::Owned(x)
+                            }
+                        });
                     dbuf.write_fmt(format_args!("    at {}", str1))
                         .map_err(|_| -1)?;
 
@@ -388,9 +389,8 @@ impl<'c> ScopedContext<'c> {
                         backtrace_barrier = bc.attrs.backtrace_barrier;
 
                         if let Some(debug) = bc.debug.as_ref() {
-                            let line_num1 = bc.find_line_num(
-                                (head.cur_pc_offset as u32).wrapping_sub(1),
-                            );
+                            let line_num1 =
+                                bc.find_line_num((head.cur_pc_offset as u32).wrapping_sub(1));
                             let atom_str = debug.filename.to_utf8(&rt);
 
                             dbuf.write_fmt(format_args!(" ({atom_str}"))

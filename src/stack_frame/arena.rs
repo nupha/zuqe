@@ -36,6 +36,15 @@ impl StackFrameArena {
         }
     }
 
+    #[inline(always)]
+    fn reuse_or_alloc_heap_buf(&mut self, count: usize) -> Box<[JSValue]> {
+        if let Some(pos) = self.heap_buf_cache.iter().position(|b| b.len() >= count) {
+            self.heap_buf_cache.remove(pos)
+        } else {
+            vec![JSValue::UNDEFINED; count].into_boxed_slice()
+        }
+    }
+
     pub(crate) fn alloc_frame(
         &mut self,
         func_obj: Object,
@@ -75,14 +84,6 @@ impl StackFrameArena {
         });
 
         idx
-    }
-
-    fn reuse_or_alloc_heap_buf(&mut self, required: usize) -> Box<[JSValue]> {
-        if let Some(pos) = self.heap_buf_cache.iter().position(|b| b.len() >= required) {
-            self.heap_buf_cache.remove(pos)
-        } else {
-            vec![JSValue::UNDEFINED; required].into_boxed_slice()
-        }
     }
 
     pub(crate) fn free_frame(&mut self, idx: FrameIndex) {

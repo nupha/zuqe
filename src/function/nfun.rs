@@ -194,36 +194,27 @@ impl NativeFunction {
             return Err(-1);
         }
 
-
         // Allocates a lightweight arena frame for argument passing, skipping the
         // trampoline loop (native functions need no bytecode dispatch). Saves and
         // restores `active_trampoline_frame` so that nested `BytecodeFunction::call`
         // builds the correct frame chain.
 
-        // ── Allocate lightweight arena frame ──
-        // `buf_cap` only covers the arg region (no var / operand stack).
-        let obj: Object = *nfunc;
-        let buf_cap = std::cmp::max(args_length, args.len());
-        let saved_active = rt.active_trampoline_frame;
-        let arena_ptr: *mut StackFrameArena = &raw mut rt.frame_arena;
-
-        let frame_idx = unsafe {
-            let arena = &mut *arena_ptr;
-            let idx = arena.alloc_frame(obj, ExecMode::empty(), buf_cap);
-            arena.frame_mut(idx).prev = saved_active;
+        let cap = std::cmp::max(args_length, args.len()); // only covers the arg region (no var / operand stack).
+        let prev_frame = rt.active_frame_index;
+        let frame_idx = {
+            let idx = rt.frame_arena.alloc_frame(*nfunc, ExecMode::empty(), cap);
+            rt.frame_arena.frame_mut(idx).prev = prev_frame;
             idx
         };
 
         // Save/restore active_trampoline_frame so nested BytecodeFunction::call
         // sees this frame in the chain. (方案 C key step)
-        rt.active_trampoline_frame = frame_idx;
+        rt.active_frame_index = frame_idx;
 
         // Copy args into arena buffer; missing slots are padded with UNDEFINED
         // by init_frame_args (var_count = 0 = no var region).
-        unsafe {
-            let arena = &mut *arena_ptr;
-            arena.init_frame_args(frame_idx, args_length as u16, 0, args);
-        }
+        rt.frame_arena
+            .init_frame_args(frame_idx, args_length as u16, 0, args);
 
         // Get arg slice from arena for native callback.
         // IMPORTANT: use arg_real_count (actual args before padding), NOT arg_count
@@ -231,11 +222,10 @@ impl NativeFunction {
         // arg_real_count — matching this ensures constructors (Array, Date, String)
         // see the correct number of arguments: 0 for `super()`, not 1 with undefined.
         let nargs = unsafe {
-            let arena = &*arena_ptr;
-            let head = arena.frame(frame_idx);
-            let ptr = head.buf.data_ptr();
-            if head.arg_real_count > 0 {
-                std::slice::from_raw_parts(ptr, head.arg_real_count as usize)
+            let f = rt.frame_arena.frame(frame_idx);
+            let ptr = f.buf.data_ptr();
+            if f.arg_real_count > 0 {
+                std::slice::from_raw_parts(ptr, f.arg_real_count as usize)
             } else {
                 &[]
             }
@@ -243,16 +233,13 @@ impl NativeFunction {
 
         let result = nfunc.payload_mut().call(this_obj, nargs, flags);
 
-        // Cleanup: restore active_trampoline_frame and free frame (on both
-        // success and error paths).
-        rt.active_trampoline_frame = saved_active;
+        // Cleanup: restore active_trampoline_frame and free frame (on both success and error paths).
+        rt.active_frame_index = prev_frame;
 
-        unsafe {
-            let arena = &mut *arena_ptr;
-            debug_assert!(arena.frame(frame_idx).var_ref_list.is_empty());
-            if arena.frame(frame_idx).state == FrameState::Active {
-                arena.free_frame(frame_idx);
-            }
+        debug_assert!(rt.frame_arena.frame(frame_idx).var_ref_list.is_empty());
+
+        if rt.frame_arena.frame(frame_idx).state == FrameState::Active {
+            rt.frame_arena.free_frame(frame_idx);
         }
 
         result
@@ -280,7 +267,7 @@ impl NativeFunction {
         // traced by StackFrameArena::trace when the native callback triggers GC.
         let obj: Object = *nfunc;
         let buf_cap = args.len();
-        let saved_active = rt.active_trampoline_frame;
+        let saved_active = rt.active_frame_index;
         let arena_ptr: *mut StackFrameArena = &raw mut rt.frame_arena;
 
         let frame_idx = unsafe {
@@ -290,7 +277,7 @@ impl NativeFunction {
             idx
         };
 
-        rt.active_trampoline_frame = frame_idx;
+        rt.active_frame_index = frame_idx;
 
         unsafe {
             let arena = &mut *arena_ptr;
@@ -310,7 +297,7 @@ impl NativeFunction {
 
         let result = nfunc.payload_mut().call(this_val, nargs, 0);
 
-        rt.active_trampoline_frame = saved_active;
+        rt.active_frame_index = saved_active;
 
         unsafe {
             let arena = &mut *arena_ptr;

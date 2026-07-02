@@ -414,8 +414,8 @@ impl BytecodeFunction {
         let bf = self.payload_mut();
         let mut rt = ctx.rt_ptr();
 
-        let parent_frame = rt.active_trampoline_frame;
-        let saved_frame = rt.active_trampoline_frame;
+        let parent_frame = rt.active_frame_index;
+        let saved_frame = rt.active_frame_index;
         let arena_ptr: *mut StackFrameArena = &raw mut rt.frame_arena;
 
         // init_frame_args uses max(bc.arg_count, actual_args.len()) as the arg region size.
@@ -454,7 +454,7 @@ impl BytecodeFunction {
             home_obj,
         );
 
-        rt.active_trampoline_frame = saved_frame;
+        rt.active_frame_index = saved_frame;
 
         debug_assert!(
             is_completed,

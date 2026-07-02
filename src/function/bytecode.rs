@@ -508,7 +508,7 @@ impl Bytecode {
         // } else { ... }
         
         let mut rt = ctx.rt_ptr();
-        let parent_frame = rt.active_trampoline_frame;
+        let parent_frame = rt.active_frame_index;
         self.make_closure_for_arena(
             ctx,
             None,

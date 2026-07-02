@@ -71,7 +71,7 @@ impl<'c> ScopedContext<'c> {
             //   callers like native eval from non-trampoline context).
             let cur_func: BCWrapper = if self.is_arena_mode() {
                 let rt = self.rt();
-                let head = rt.stack_frame_arena().frame(rt.active_trampoline_frame);
+                let head = rt.stack_frame_arena().frame(rt.active_frame_index);
                 BCWrapper::try_from(JSValue::from(head.func_obj))
                     .expect("arena frame func_obj must be a BCWrapper")
             } else {
@@ -242,7 +242,7 @@ impl<'c> ScopedContext<'c> {
                 Compiled::Direct(bc) => {
                     if self.is_arena_mode() {
                         let rt = self.rt_ptr();
-                        let idx = rt.active_trampoline_frame;
+                        let idx = rt.active_frame_index;
                         if idx.is_null() {
                             bc.run_as_function(self, this_obj, &[])
                         } else {

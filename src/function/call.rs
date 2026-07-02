@@ -141,9 +141,9 @@ impl ObjectImpl {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let saved = ctx.rt().active_trampoline_frame;
+        let saved = ctx.rt().active_frame_index;
         let result = self.do_call_internal(ctx, this_obj, new_target, args, flags);
-        ctx.rt_mut().active_trampoline_frame = saved;
+        ctx.rt_mut().active_frame_index = saved;
         result
     }
 

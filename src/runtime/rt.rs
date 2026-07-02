@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ffi::c_void, process::ExitCode, ptr::NonNull};
+use std::{ffi::c_void, process::ExitCode};
 
 use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
 
@@ -46,17 +46,19 @@ pub struct RuntimeImpl {
     pub(crate) stack_size: usize,  /* in bytes, 0 if no limit */
     pub(crate) stack_limit: usize, /* lower stack limit */
     pub(crate) stack_top: usize,
+
     /// Bump-arena frame storage for the stackless interpreter.
     /// All active frame headers and data buffers live here.
     pub(crate) frame_arena: StackFrameArena,
+    /// Current frame being executed by the trampoline, set before each
+    /// iteration. Used by GC to double-trace the active frame's func_obj.
+    pub(crate) active_frame_index: FrameIndex,
     /// Trampoline virtual call stack pointer, set before each trampoline
     /// iteration and cleared afterward. GC uses this to trace caller
     /// bytecodes that are not reachable through arena heads alone.
     /// SAFETY: Only valid during trampoline execution; null otherwise.
     pub(crate) active_trampoline_vframes: *const VirtualFrame,
-    /// Current frame being executed by the trampoline, set before each
-    /// iteration. Used by GC to double-trace the active frame's func_obj.
-    pub(crate) active_trampoline_frame: FrameIndex,
+
     /// current exception
     pub(super) cur_exception: Exception,
     /// Process-level interrupt flag
@@ -125,7 +127,7 @@ impl RuntimeImpl {
 
             frame_arena: StackFrameArena::new(),
             active_trampoline_vframes: std::ptr::null::<VirtualFrame>(),
-            active_trampoline_frame: FrameIndex::NULL,
+            active_frame_index: FrameIndex::NULL,
 
             module_load_opaque: std::ptr::null_mut(),
             sab_funcs: None,
@@ -245,8 +247,8 @@ impl RuntimeImpl {
 
     /// get current running function
     pub(crate) fn current_function(&self) -> JSValue {
-        if !self.active_trampoline_frame.is_null() {
-            let head = self.frame_arena.frame(self.active_trampoline_frame);
+        if !self.active_frame_index.is_null() {
+            let head = self.frame_arena.frame(self.active_frame_index);
             head.func_obj.into()
         } else {
             JSValue::UNDEFINED
@@ -255,8 +257,8 @@ impl RuntimeImpl {
 
     /// test if current stack-frame is in strict mode.
     pub(crate) fn is_strict_mode(&self) -> bool {
-        if !self.active_trampoline_frame.is_null() {
-            let idx = self.active_trampoline_frame.as_usize();
+        if !self.active_frame_index.is_null() {
+            let idx = self.active_frame_index.as_usize();
             self.frame_arena
                 .frames
                 .get(idx)
