@@ -2311,6 +2311,24 @@ impl Bytecode {
                                 break State::Exception;
                             }
                             obj = JSValue::Object(realm_scope.global_obj());
+                        } else if obj.is_object() {
+                            // Stale WITH reference: the RHS (computed before this opcode)
+                            // may have deleted the property from the with-object via
+                            // delete or @@unscopables getter (ECMA-262 HasBinding step 4).
+                            // Redirect to global scope if property no longer exists.
+                            if let Ok(atom) = prop.to_atom(realm_scope) {
+                                if !obj.has_property(realm_scope, atom).unwrap_or(false) {
+                                    if rt.is_strict_mode() {
+                                        JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                                        break State::Exception;
+                                    }
+                                    obj = JSValue::Object(realm_scope.global_obj());
+                                } else if rt.is_strict_mode() {
+                                    flags |= JS_PROP_NO_ADD;
+                                }
+                            } else if rt.is_strict_mode() {
+                                flags |= JS_PROP_NO_ADD;
+                            }
                         } else if rt.is_strict_mode() {
                             flags |= JS_PROP_NO_ADD;
                         }
@@ -2637,7 +2655,14 @@ impl Bytecode {
                             let in_env_obj = if ret {
                                 if is_with {
                                     if let Ok(b) = js_has_unscopable(realm_scope, env_obj, atom) {
+                                        // The @@unscopables getter may have deleted the
+                                        // property from env_obj (ECMA-262 9.1.1.2.1 HasBinding
+                                        // step 4: HasProperty is checked AFTER @@unscopables).
+                                        // Re-check HasProperty here to handle this case.
                                         !b
+                                            && env_obj
+                                                .has_property(realm_scope, atom)
+                                                .unwrap_or(false)
                                     } else {
                                         break State::Exception;
                                     }
@@ -2679,11 +2704,24 @@ impl Bytecode {
                                         }
                                     }
                                     OpCode::WITH_MAKE_REF => {
-                                        SP_PUT!(
-                                            0,
-                                            atom.to_value(realm_scope)
-                                                .unwrap_or(JSValue::EXCEPTION)
-                                        );
+                                        // Re-check HasProperty after @@unscopables (ECMA-262
+                                        // HasBinding step 4: HasProperty is checked AFTER
+                                        // @@unscopables). The unscopables getter — or the RHS
+                                        // preceding this opcode — may have deleted the property
+                                        // from env_obj. In that case, push undefined so
+                                        // PUT_REF_VALUE redirects to globalThis.
+                                        if !env_obj
+                                            .has_property(realm_scope, atom)
+                                            .unwrap_or(false)
+                                        {
+                                            SP_PUT!(0, JSValue::UNDEFINED);
+                                        } else {
+                                            SP_PUT!(
+                                                0,
+                                                atom.to_value(realm_scope)
+                                                    .unwrap_or(JSValue::EXCEPTION)
+                                            );
+                                        }
                                         SP_GO!(1);
                                     }
                                     OpCode::WITH_GET_REF => {
