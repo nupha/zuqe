@@ -113,6 +113,7 @@ struct TrampolineScope {
 
 impl TrampolineScope {
     /// Push a new scope onto the GC heap and wrap it.
+    #[inline(always)]
     unsafe fn new(ctx: &mut ContextPtr) -> Self {
         Self {
             inner: ManuallyDrop::new(unsafe {
@@ -230,26 +231,20 @@ impl Bytecode {
         //
         // Split into immutable then mutable borrows: data_ptr and
         // stack_base_ptr take &self on arena, while frame_mut takes &mut.
-        let (arg_base_ptr, var_base_ptr, sp_base, mode, func_obj, arg_real_count) = {
-            let head = arena.frame(cur_frame_idx);
-            let arg_base = head.buf.data_ptr();
-            let var_base = unsafe { arg_base.add(head.var_base_offset as usize) };
-            let sp = arena.stack_base_ptr(head);
-            (
-                arg_base,
-                var_base,
-                sp,
-                head.mode,
-                head.func_obj,
-                head.arg_real_count,
-            )
+        let (arg_base_ptr, var_base_ptr, sp_base, mode, func_obj) = {
+            let frame = arena.frame(cur_frame_idx);
+            let arg_base = frame.buf.data_ptr();
+            let var_base = unsafe { arg_base.add(frame.var_base_offset as usize) };
+            let sp = frame.stack_base_ptr();
+            (arg_base, var_base, sp, frame.mode, frame.func_obj)
         };
-        let head = arena.frame_mut(cur_frame_idx);
+
+        let frame = arena.frame_mut(cur_frame_idx);
         // Store a raw pointer to cur_sp_offset for SP_GO! macro updates.
         // SAFETY: FrameHead is in Vec<FrameHead>, its address is stable
         // for the duration of this function (no arena resizing).
-        let cur_sp_offset_ptr: *mut i32 = &mut head.cur_sp_offset;
-        let cur_pc_offset_ptr: *mut usize = &mut head.cur_pc_offset;
+        let cur_sp_offset_ptr: *mut i32 = &mut frame.cur_sp_offset;
+        let cur_pc_offset_ptr: *mut usize = &mut frame.cur_pc_offset;
 
         let cpools = self.consts();
 
@@ -3133,7 +3128,6 @@ pub(crate) fn execute_trampoline(
                     caller_bc: cur_bc,
                     return_sp,
                     caller_scope,
-                    caller_ctx_ptr: None,
                 });
 
                 cur_bc = callee_bc;
@@ -3214,7 +3208,7 @@ pub(crate) fn execute_trampoline(
                         };
                         let sp_base = {
                             let head = arena.frame(cur_frame_idx);
-                            arena.stack_base_ptr(head)
+                            head.stack_base_ptr()
                         };
                         let actual_ret =
                             unsafe { std::ptr::read(sp_base.offset(sp_offset as isize - 1)) };
@@ -3299,7 +3293,7 @@ pub(crate) fn execute_trampoline(
                     };
 
                     let caller_head = arena.frame(caller_vf.frame_idx);
-                    let sp_ptr = arena.stack_base_ptr(caller_head);
+                    let sp_ptr = caller_head.stack_base_ptr();
                     unsafe {
                         *sp_ptr.add(caller_vf.return_sp) = ret_val;
                     }
@@ -3335,7 +3329,7 @@ pub(crate) fn execute_trampoline(
                     let err_val = cur_trampoline_scope
                         .take_exception()
                         .to_value(&mut cur_trampoline_scope);
-                    let sp_base = arena.stack_base_ptr(arena.frame(cur_frame_idx));
+                    let sp_base = arena.frame(cur_frame_idx).stack_base_ptr();
                     unsafe {
                         // Write exception below the GOSUB marker position.
                         // After finally executes and RET pops the GOSUB
@@ -3409,7 +3403,6 @@ pub(crate) fn execute_trampoline(
                     caller_bc: cur_bc,
                     return_sp,
                     caller_scope,
-                    caller_ctx_ptr: Some(callee_ctx_ptr),
                 });
 
                 cur_bc = callee_bc;

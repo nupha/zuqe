@@ -159,9 +159,12 @@ impl AGenPayload {
                         //   sp[-5]=iter, sp[-4]=next, sp[-3]=catch, sp[-2]=arg, sp[-1]=type
                         {
                             let arena = ctx.rt_mut().stack_frame_arena_mut();
-                            self.async_state.stack_store(arena, -1, result);
-                            self.async_state
-                                .stack_store(arena, 0, JSValue::Int(completion_type));
+                            self.async_state.stack_store_value(arena, -1, result);
+                            self.async_state.stack_store_value(
+                                arena,
+                                0,
+                                JSValue::Int(completion_type),
+                            );
                             self.async_state.bump_sp(arena, 1);
                         }
                     }
@@ -547,7 +550,7 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
                 // set return value of await (write to SP[-1]).
                 {
                     let arena = ctx.rt_mut().stack_frame_arena_mut();
-                    s.async_state.stack_store(arena, -1, arg);
+                    s.async_state.stack_store_value(arena, -1, arg);
                 }
             }
 

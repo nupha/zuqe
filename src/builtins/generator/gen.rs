@@ -212,8 +212,9 @@ fn js_generator_next(
                         let arena = ctx.rt_mut().stack_frame_arena_mut();
                         let sp_off = g.async_state.cur_sp_offset(arena);
                         debug_assert!(sp_off > 0);
-                        let head = g.async_state.frame_head(arena);
-                        let sp_base = arena.stack_base_ptr(head);
+
+                        let head = g.async_state.frame(arena);
+                        let sp_base = head.stack_base_ptr();
                         debug_assert_eq!(
                             unsafe { *sp_base.add(sp_off as usize - 1) },
                             JSValue::UNDEFINED,
@@ -223,8 +224,9 @@ fn js_generator_next(
                     // Write val to SP[-1], magic to SP[0], then advance SP by 1.
                     {
                         let arena = ctx.rt_mut().stack_frame_arena_mut();
-                        g.async_state.stack_store(arena, -1, val);
-                        g.async_state.stack_store(arena, 0, JSValue::Int(magic));
+                        g.async_state.stack_store_value(arena, -1, val);
+                        g.async_state
+                            .stack_store_value(arena, 0, JSValue::Int(magic));
                         g.async_state.bump_sp(arena, 1);
                     }
 

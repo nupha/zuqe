@@ -7,8 +7,8 @@ use crate::{
     atom::Atom,
     context::ScopedContext,
     object::{
-        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, Object, ObjectPayload,
+        JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_WRITABLE, JSProperty,
+        ObjectPayload,
     },
     value::JSValue,
 };

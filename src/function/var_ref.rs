@@ -6,11 +6,7 @@ use std::ptr::NonNull;
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    RuntimeImpl,
-    context::ScopedContext,
-    gcref_wrapper,
-    stack_frame::FrameHead,
-    value::JSValue,
+    RuntimeImpl, context::ScopedContext, gcref_wrapper, stack_frame::StackFrame, value::JSValue,
 };
 
 #[repr(u8)]
@@ -32,11 +28,9 @@ pub enum VarRefImpl {
 impl GcTrace for VarRefImpl {
     fn trace(&self, gcx: &mut GcTraceCtx) {
         match self {
-            Self::Bind { pvalue, .. } => {
-                unsafe {
-                    pvalue.as_ref().trace(gcx);
-                }
-            }
+            Self::Bind { pvalue, .. } => unsafe {
+                pvalue.as_ref().trace(gcx);
+            },
             Self::Detached(value) => {
                 value.trace(gcx);
             }
@@ -51,7 +45,7 @@ impl VarRefImpl {
     pub(crate) fn update_pvalue_for_heap_buf_impl(
         &mut self,
         heap_buf: &Box<[JSValue]>,
-        head: &FrameHead,
+        head: &StackFrame,
     ) {
         Self::update_pvalue_for_heap_buf_offsets_impl(
             self,
@@ -149,7 +143,7 @@ impl VarRef {
     pub(crate) fn update_pvalue_for_heap_buf(
         &mut self,
         heap_buf: &Box<[JSValue]>,
-        head: &FrameHead,
+        head: &StackFrame,
     ) {
         // delegate to inner impl to avoid Rust 2024 match ergonomics issues
         // with GcRef::as_mut() indirection

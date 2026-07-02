@@ -103,15 +103,15 @@ impl FrameBuffer {
 /// - FrameIndex is a pure index; the prev chain survives Vec moves.
 /// - All external references use FrameIndex, not &FrameHead.
 #[derive(Debug)]
-pub(crate) struct FrameHead {
-    /// Previous frame in the call chain (FrameIndex::NULL for root).
+pub(crate) struct StackFrame {
+    /// Previous stack frame in the call chain (FrameIndex::NULL for root).
     pub(crate) prev: FrameIndex,
-    /// Frame lifecycle state.
     pub(crate) state: FrameState,
-    /// Associated function object (Bytecode or Native).
-    pub(crate) func_obj: Object,
     /// Execution mode flags (STRICT / STRIP / ASYNC).
     pub(crate) mode: ExecMode,
+
+    /// Associated function object (Bytecode or Native).
+    pub(crate) func_obj: Object,
 
     /// Program counter offset within the bytecode stream.
     pub(crate) cur_pc_offset: usize,
@@ -145,6 +145,26 @@ pub(crate) struct FrameHead {
     pub(crate) protected_values: [JSValue; 2],
 }
 
+impl StackFrame {
+    /// Get the stack base pointer: start of the operand stack region,
+    /// immediately after the local variables area.
+    #[inline(always)]
+    pub(crate) fn stack_base_ptr(&self) -> *mut JSValue {
+        unsafe {
+            self.buf
+                .data_ptr()
+                .add((self.var_base_offset + self.var_count as u32) as usize)
+        }
+    }
+
+    /// Get current stack top pointer (stack_base_ptr + cur_sp_offset).
+    #[inline(always)]
+    pub(crate) fn stack_cur_ptr(&self) -> *mut JSValue {
+        debug_assert!(self.cur_sp_offset >= 0);
+        unsafe { self.stack_base_ptr().add(self.cur_sp_offset as usize) }
+    }
+}
+
 /// Bump-allocator frame storage.
 ///
 /// All active FrameHead entries are stored contiguously in `frames`.
@@ -167,7 +187,7 @@ pub(crate) struct StackFrameArena {
     /// Suspended tombstone slots that are NOT hot-LIFO-removable (the outer
     /// frame sits above them).  These are reclaimed by `compact()` at GC
     /// safe points.
-    pub(crate) frames: Vec<FrameHead>,
+    pub(crate) frames: Vec<StackFrame>,
 
     /// Fixed-capacity buffer space for arena.
     pub(crate) data: Box<[JSValue]>,
@@ -228,7 +248,7 @@ impl StackFrameArena {
             FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(buf_capacity))
         };
 
-        self.frames.push(FrameHead {
+        self.frames.push(StackFrame {
             prev: FrameIndex::NULL,
             state: FrameState::Active,
             func_obj,
@@ -347,7 +367,7 @@ impl StackFrameArena {
 
     /// Get immutable reference to a frame header by index.
     #[inline(always)]
-    pub(crate) fn frame(&self, idx: FrameIndex) -> &FrameHead {
+    pub(crate) fn frame(&self, idx: FrameIndex) -> &StackFrame {
         &self.frames[idx.0 as usize]
     }
 
@@ -357,26 +377,8 @@ impl StackFrameArena {
     /// The trampoline design guarantees this: only cur_frame_idx is ever
     /// passed to frame_mut.
     #[inline(always)]
-    pub(crate) fn frame_mut(&mut self, idx: FrameIndex) -> &mut FrameHead {
+    pub(crate) fn frame_mut(&mut self, idx: FrameIndex) -> &mut StackFrame {
         &mut self.frames[idx.0 as usize]
-    }
-
-    /// Get stack base pointer: the start of the operand stack region,
-    /// immediately after the local variables area.
-    #[inline(always)]
-    pub(crate) fn stack_base_ptr(&self, head: &FrameHead) -> *mut JSValue {
-        unsafe {
-            head.buf
-                .data_ptr()
-                .add((head.var_base_offset + head.var_count as u32) as usize)
-        }
-    }
-
-    /// Get current stack top pointer (stack_base_ptr + cur_sp_offset).
-    #[inline(always)]
-    pub(crate) fn stack_cur_ptr(&self, head: &FrameHead) -> *mut JSValue {
-        debug_assert!(head.cur_sp_offset >= 0);
-        unsafe { self.stack_base_ptr(head).add(head.cur_sp_offset as usize) }
     }
 
     /// Initialize a freshly allocated frame's argument region.
@@ -438,7 +440,7 @@ impl StackFrameArena {
         // between frame_mut (&mut self) and stack_cur_ptr (&self).
         let ptr = {
             let head = self.frame(idx);
-            self.stack_cur_ptr(head)
+            head.stack_cur_ptr()
         };
         let head = self.frame_mut(idx);
         unsafe {
@@ -447,32 +449,17 @@ impl StackFrameArena {
         head.cur_sp_offset += 1;
     }
 
-    /// Safely take a value from the stack at the given offset (relative to SP)
-    /// with GC transient protection. Replaces the slot with UNDEFINED.
-    pub(crate) fn stack_take(
-        &self,
-        idx: FrameIndex,
-        offset: isize,
-        ctx: &ScopedContext,
-    ) -> JSValue {
-        let head = self.frame(idx);
-        let ptr = unsafe { self.stack_cur_ptr(head).offset(offset) };
-        let val = unsafe { std::ptr::replace(ptr, JSValue::UNDEFINED) };
-        ctx.gc_protect_transient(&val);
-        val
-    }
-
-    /// Store a value at the given stack offset without moving SP.
+    /// Store a value at the given stack frame offset without moving SP.
     #[inline(always)]
-    pub(crate) fn stack_store(&self, idx: FrameIndex, offset: isize, val: JSValue) {
-        let head = self.frame(idx);
+    pub(crate) fn frame_store_value(&self, idx: FrameIndex, offset: isize, val: JSValue) {
+        let f = self.frame(idx);
         unsafe {
-            *self.stack_cur_ptr(head).offset(offset) = val;
+            *f.stack_cur_ptr().offset(offset) = val;
         }
     }
 
     /// Get an immutable slice of the frame's data buffer.
-    fn data_slice<'a>(&'a self, head: &'a FrameHead) -> &'a [JSValue] {
+    fn data_slice<'a>(&'a self, head: &'a StackFrame) -> &'a [JSValue] {
         match &head.buf {
             FrameBuffer::Arena { buf_offset, .. } => {
                 let start = *buf_offset as usize;
@@ -496,7 +483,7 @@ impl StackFrameArena {
 /// snapshot self-contained and independent of arena state.
 #[derive(Debug)]
 pub(crate) struct AsyncStackFrame {
-    pub(crate) head: FrameHead,
+    pub(crate) frame: StackFrame,
 }
 
 impl StackFrameArena {
@@ -541,7 +528,7 @@ impl StackFrameArena {
         }
 
         // Build snapshot with full ownership of the Heap data.
-        let snapshot_head = FrameHead {
+        let snapshot_head = StackFrame {
             prev: FrameIndex::NULL, // prev is rebuilt by trampoline on resume
             state: FrameState::Active,
             func_obj: head.func_obj,
@@ -571,7 +558,7 @@ impl StackFrameArena {
         }
 
         AsyncStackFrame {
-            head: snapshot_head,
+            frame: snapshot_head,
         }
     }
 
@@ -584,10 +571,10 @@ impl StackFrameArena {
         let new_idx = FrameIndex(self.frames.len() as u32);
 
         // prev will be set by trampoline based on the call stack at resume time.
-        snapshot.head.prev = FrameIndex::NULL;
-        snapshot.head.state = FrameState::Active;
+        snapshot.frame.prev = FrameIndex::NULL;
+        snapshot.frame.state = FrameState::Active;
 
-        self.frames.push(snapshot.head);
+        self.frames.push(snapshot.frame);
         new_idx
     }
 
@@ -607,7 +594,7 @@ impl StackFrameArena {
 
         let old_len = self.frames.len();
         let mut mapping: Vec<Option<u32>> = Vec::with_capacity(old_len);
-        let mut new_frames: Vec<FrameHead> = Vec::with_capacity(old_len);
+        let mut new_frames: Vec<StackFrame> = Vec::with_capacity(old_len);
 
         // Pass 1: filter out Suspended slots, build index mapping.
         for head in self.frames.drain(..) {
@@ -644,7 +631,7 @@ impl StackFrameArena {
         ctx: &mut ScopedContext,
     ) -> Option<(usize, usize)> {
         let head = self.frame(idx);
-        let sp_base = self.stack_base_ptr(head);
+        let sp_base = head.stack_base_ptr();
         let mut sp = head.cur_sp_offset as usize;
 
         while sp > 0 {
@@ -708,29 +695,30 @@ impl StackFrameArena {
     /// 3. The scanning clears consumed intermediate values
     pub(crate) fn find_finally_in_frame(&self, idx: FrameIndex) -> Option<(usize, usize)> {
         let head = self.frame(idx);
-        let sp_base = self.stack_base_ptr(head);
+        let sp_base = head.stack_base_ptr();
         let mut sp = head.cur_sp_offset as usize;
 
         // Scan from top of stack downward, looking for JSValue::Int (GOSUB marker).
         // GOSUB return addresses are always positive PC offsets.
         while sp > 0 {
             sp -= 1;
+
             if let JSValue::Int(pos) =
                 unsafe { std::ptr::replace(sp_base.add(sp), JSValue::UNDEFINED) }
+                && pos > 0
             {
-                if pos > 0 {
-                    // Found potential GOSUB marker. Replace it to keep it on
-                    // the cleaned stack (RET reads SP[-1]).
-                    unsafe {
-                        std::ptr::write(sp_base.add(sp), JSValue::Int(pos));
-                    }
-                    // sp is now at the GOSUB marker position; increment so
-                    // the marker is at SP[-1] (stack top).
-                    sp += 1;
-                    return Some((pos as usize, sp));
+                // Found potential GOSUB marker. Replace it to keep it on
+                // the cleaned stack (RET reads SP[-1]).
+                unsafe {
+                    std::ptr::write(sp_base.add(sp), JSValue::Int(pos));
                 }
+                // sp is now at the GOSUB marker position; increment so
+                // the marker is at SP[-1] (stack top).
+                sp += 1;
+                return Some((pos as usize, sp));
             }
         }
+
         None
     }
 
@@ -778,8 +766,9 @@ impl StackFrameArena {
 
 impl AsyncStackFrame {
     /// Get immutable slice of the snapshot's data buffer.
-    pub(crate) fn data_slice(&self) -> &[JSValue] {
-        match &self.head.buf {
+    #[inline(always)]
+    pub(crate) fn data(&self) -> &[JSValue] {
+        match &self.frame.buf {
             FrameBuffer::Heap(b) => b,
             _ => unreachable!("AsyncStackFrame must have Heap buf"),
         }
@@ -804,8 +793,6 @@ pub(crate) struct VirtualFrame {
     /// Caller's GC scope, wrapped in ManuallyDrop to prevent automatic
     /// drop when switching to callee scope. Restored via into_inner on return.
     pub(crate) caller_scope: ManuallyDrop<ScopedContext<'static>>,
-    /// Caller's context pointer (only Some for cross-realm calls).
-    pub(crate) caller_ctx_ptr: Option<crate::context::ContextPtr>,
 }
 
 // ============================================================================
