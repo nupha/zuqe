@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ops::DerefMut, ptr::NonNull};
+use std::ops::DerefMut;
 
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
@@ -14,7 +14,7 @@ use crate::{
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     runtime::js_check_stack_overflow,
-    stack_frame::{ExecMode, FrameBuf, StackFrame},
+    stack_frame::{ExecMode, FrameState, StackFrameArena},
     value::JSValue,
 };
 
@@ -169,6 +169,7 @@ object_cast!(
 );
 
 impl NativeFunction {
+    /// Call native function
     pub fn class_call(
         ctx: &mut ScopedContext,
         func: JSValue,
@@ -193,65 +194,133 @@ impl NativeFunction {
             return Err(-1);
         }
 
-        // make a new stack frame to call native function.
-        // push it as current_stack_from during running, and pop to restore previouse when calling exits.
-        let mut stack_frame = StackFrame::new(
-            nfunc.into(),
-            ExecMode::empty(),
-            [this_obj, JSValue::UNDEFINED],
-        );
 
-        rt.push_stack_frame(NonNull::from_ref(&stack_frame));
-        crate::defer!({
-            rt.pop_stack_frame();
-        });
+        // Allocates a lightweight arena frame for argument passing, skipping the
+        // trampoline loop (native functions need no bytecode dispatch). Saves and
+        // restores `active_trampoline_frame` so that nested `BytecodeFunction::call`
+        // builds the correct frame chain.
 
-        if args.len() < args_length {
-            // copy arguments to frame's local buffer
-            stack_frame.local_buf = FrameBuf::new_alloc(args_length);
+        // ── Allocate lightweight arena frame ──
+        // `buf_cap` only covers the arg region (no var / operand stack).
+        let obj: Object = *nfunc;
+        let buf_cap = std::cmp::max(args_length, args.len());
+        let saved_active = rt.active_trampoline_frame;
+        let arena_ptr: *mut StackFrameArena = &raw mut rt.frame_arena;
 
-            // copy args up to `length` count
-            let copy_count = std::cmp::min(args.len(), args_length);
-            stack_frame.local_buf.write_slice(0, &args[..copy_count]);
-            // padding with undefined for missing args
-            if copy_count < args_length {
-                stack_frame.local_buf.fill_range(
-                    copy_count,
-                    args_length - copy_count,
-                    JSValue::UNDEFINED,
-                );
-            }
+        let frame_idx = unsafe {
+            let arena = &mut *arena_ptr;
+            let idx = arena.alloc_frame(obj, ExecMode::empty(), buf_cap);
+            arena.frame_mut(idx).prev = saved_active;
+            idx
+        };
 
-            stack_frame.arg_count = args_length as _;
-            stack_frame.arg_real_count = args.len() as _;
-            stack_frame.arg_base_ptr = stack_frame.local_buf.as_mut_ptr();
-        } else {
-            stack_frame.arg_count = args.len() as _;
-            stack_frame.arg_real_count = args.len() as _;
-            stack_frame.arg_base_ptr = args.as_ptr() as *mut JSValue;
+        // Save/restore active_trampoline_frame so nested BytecodeFunction::call
+        // sees this frame in the chain. (方案 C key step)
+        rt.active_trampoline_frame = frame_idx;
+
+        // Copy args into arena buffer; missing slots are padded with UNDEFINED
+        // by init_frame_args (var_count = 0 = no var region).
+        unsafe {
+            let arena = &mut *arena_ptr;
+            arena.init_frame_args(frame_idx, args_length as u16, 0, args);
         }
 
-        // Note: return value could be allocated in `stack_frame` gc scope,
-        // must promote return value and binding_data (if any) before stack_frame drop.
-        nfunc
-            .payload_mut()
-            .call(this_obj, stack_frame.arg_values(), flags)
+        // Get arg slice from arena for native callback.
+        // IMPORTANT: use arg_real_count (actual args before padding), NOT arg_count
+        // (total buffer capacity). The old legacy StackFrame::arg_values() returns
+        // arg_real_count — matching this ensures constructors (Array, Date, String)
+        // see the correct number of arguments: 0 for `super()`, not 1 with undefined.
+        let nargs = unsafe {
+            let arena = &*arena_ptr;
+            let head = arena.frame(frame_idx);
+            let ptr = arena.data_ptr(head);
+            if head.arg_real_count > 0 {
+                std::slice::from_raw_parts(ptr, head.arg_real_count as usize)
+            } else {
+                &[]
+            }
+        };
+
+        let result = nfunc.payload_mut().call(this_obj, nargs, flags);
+
+        // Cleanup: restore active_trampoline_frame and free frame (on both
+        // success and error paths).
+        rt.active_trampoline_frame = saved_active;
+
+        unsafe {
+            let arena = &mut *arena_ptr;
+            debug_assert!(arena.frame(frame_idx).var_ref_list.is_empty());
+            if arena.frame(frame_idx).state == FrameState::Active {
+                arena.free_frame(frame_idx);
+            }
+        }
+
+        result
     }
 
-    // TODO: shall we combine this with `::class_call()`?
+    /// Call native function (with binding data) via arena frame.
+    ///
+    /// Similar to `class_call` but without argument padding (init_frame_args
+    /// with bc_arg_count = 0 simply copies all provided args).
     pub fn class_call_with_data(
-        _: &mut ScopedContext,
-        func_obj: JSValue,
+        ctx: &mut ScopedContext,
+        func_val: JSValue,
         this_val: JSValue,
         args: &[JSValue],
         _flags: i32,
     ) -> JSResult {
-        let mut nfunc = NativeFunction::try_from(func_obj).unwrap();
+        let mut rt = ctx.rt_ptr();
+        let mut nfunc = NativeFunction::try_from(func_val).unwrap();
 
         debug_assert_eq!(nfunc.class_id(), JS_CLASS_C_FUNCTION_DATA);
         debug_assert!(matches!(nfunc.payload().callback, Callback::Func(_)));
 
-        nfunc.payload_mut().call(this_val, args, 0)
+        // ── Allocate lightweight arena frame for GC safety ──
+        // Even without argument padding, the arena frame ensures args are
+        // traced by StackFrameArena::trace when the native callback triggers GC.
+        let obj: Object = *nfunc;
+        let buf_cap = args.len();
+        let saved_active = rt.active_trampoline_frame;
+        let arena_ptr: *mut StackFrameArena = &raw mut rt.frame_arena;
+
+        let frame_idx = unsafe {
+            let arena = &mut *arena_ptr;
+            let idx = arena.alloc_frame(obj, ExecMode::empty(), buf_cap);
+            arena.frame_mut(idx).prev = saved_active;
+            idx
+        };
+
+        rt.active_trampoline_frame = frame_idx;
+
+        unsafe {
+            let arena = &mut *arena_ptr;
+            arena.init_frame_args(frame_idx, 0, 0, args);
+        }
+
+        let nargs = unsafe {
+            let arena = &*arena_ptr;
+            let head = arena.frame(frame_idx);
+            let ptr = arena.data_ptr(head);
+            if head.arg_real_count > 0 {
+                std::slice::from_raw_parts(ptr, head.arg_real_count as usize)
+            } else {
+                &[]
+            }
+        };
+
+        let result = nfunc.payload_mut().call(this_val, nargs, 0);
+
+        rt.active_trampoline_frame = saved_active;
+
+        unsafe {
+            let arena = &mut *arena_ptr;
+            debug_assert!(arena.frame(frame_idx).var_ref_list.is_empty());
+            if arena.frame(frame_idx).state == FrameState::Active {
+                arena.free_frame(frame_idx);
+            }
+        }
+
+        result
     }
 
     /// Create native function object.
