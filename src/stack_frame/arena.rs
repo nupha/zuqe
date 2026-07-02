@@ -40,34 +40,33 @@ impl StackFrameArena {
         &mut self,
         func_obj: Object,
         mode: ExecMode,
-        buf_capacity: usize,
+        capacity: usize,
     ) -> FrameIndex {
         let idx = FrameIndex(self.frames.len() as u32);
 
-        let buf = if mode.contains(ExecMode::ASYNC) {
-            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(buf_capacity))
-        } else if self.data_used + buf_capacity <= self.data.len() {
+        let buf = if mode.contains(ExecMode::ASYNC) || self.data_used + capacity > self.data.len() {
+            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(capacity))
+        } else {
+            // arena bump
             let buf_offset = self.data_used as u32;
-            self.data_used += buf_capacity;
+            self.data_used += capacity;
             FrameBuffer::Arena {
                 data_base: self.data.as_mut_ptr(),
                 buf_offset,
             }
-        } else {
-            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(buf_capacity))
         };
 
         self.frames.push(StackFrame {
             prev: FrameIndex::NULL,
             state: FrameState::Active,
-            func_obj,
             mode,
+            func_obj,
             cur_pc_offset: 0,
             cur_sp_offset: 0,
             protected_values: [JSValue::UNDEFINED, JSValue::UNDEFINED],
             var_ref_list: Vec::new(),
             buf,
-            buf_capacity: buf_capacity as u32,
+            buf_capacity: capacity as u32,
             arg_base_offset: 0,
             arg_real_count: 0,
             arg_count: 0,
@@ -149,42 +148,26 @@ impl StackFrameArena {
         bc_var_count: u16,
         args: &[JSValue],
     ) {
+        let frame = self.frame_mut(idx);
         let arg_count = std::cmp::max(bc_arg_count as usize, args.len());
-        let data_ptr = {
-            let head = self.frame(idx);
-            head.buf.data_ptr()
-        };
-        let head = self.frame_mut(idx);
 
-        for (i, val) in args
-            .iter()
-            .copied()
-            .chain(std::iter::repeat_n(
-                JSValue::UNDEFINED,
-                (arg_count + bc_var_count as usize) - args.len(),
-            ))
-            .enumerate()
-        {
-            unsafe { *data_ptr.add(i) = val }
+        let mut data_ptr = frame.buf.data_ptr();
+        for val in args.iter().copied().chain(std::iter::repeat_n(
+            JSValue::UNDEFINED,
+            (arg_count + bc_var_count as usize) - args.len(),
+        )) {
+            unsafe {
+                *data_ptr = val;
+                data_ptr = data_ptr.add(1);
+            }
         }
 
-        head.arg_base_offset = 0;
-        head.arg_real_count = args.len() as u16;
-        head.arg_count = arg_count as u16;
-        head.var_base_offset = arg_count as u32;
-        head.var_count = bc_var_count;
-        head.cur_sp_offset = 0;
-    }
-
-    #[inline(always)]
-    pub(crate) fn stack_push(&mut self, idx: FrameIndex, val: JSValue) {
-        let ptr = {
-            let head = self.frame(idx);
-            head.stack_cur_ptr()
-        };
-        let head = self.frame_mut(idx);
-        unsafe { *ptr = val }
-        head.cur_sp_offset += 1;
+        frame.arg_base_offset = 0;
+        frame.arg_real_count = args.len() as u16;
+        frame.arg_count = arg_count as u16;
+        frame.var_base_offset = arg_count as u32;
+        frame.var_count = bc_var_count;
+        frame.cur_sp_offset = 0;
     }
 
     #[inline(always)]
@@ -193,7 +176,7 @@ impl StackFrameArena {
         unsafe { *f.stack_cur_ptr().offset(offset) = val }
     }
 
-    fn data_slice<'a>(&'a self, head: &'a StackFrame) -> &'a [JSValue] {
+    fn data<'a>(&'a self, head: &'a StackFrame) -> &'a [JSValue] {
         match &head.buf {
             FrameBuffer::Arena { buf_offset, .. } => {
                 let start = *buf_offset as usize;
@@ -227,11 +210,12 @@ impl StackFrameArena {
 
         let arg_base = head.arg_base_offset;
         let var_base = head.var_base_offset;
+
         for vr in &mut head.var_ref_list {
             vr.update_pvalue_for_heap_buf_offsets(&heap_buf, arg_base, var_base);
         }
 
-        let snapshot = StackFrame {
+        let frame = StackFrame {
             prev: FrameIndex::NULL,
             state: FrameState::Active,
             func_obj: head.func_obj,
@@ -257,46 +241,15 @@ impl StackFrameArena {
             self.suspended_count += 1;
         }
 
-        AsyncStackFrame { frame: snapshot }
+        AsyncStackFrame { frame }
     }
 
-    pub(crate) fn put_frame(&mut self, mut snapshot: AsyncStackFrame) -> FrameIndex {
+    pub(crate) fn put_frame(&mut self, mut frame: AsyncStackFrame) -> FrameIndex {
         let new_idx = FrameIndex(self.frames.len() as u32);
-        snapshot.frame.prev = FrameIndex::NULL;
-        snapshot.frame.state = FrameState::Active;
-        self.frames.push(snapshot.frame);
+        frame.frame.prev = FrameIndex::NULL;
+        frame.frame.state = FrameState::Active;
+        self.frames.push(frame.frame);
         new_idx
-    }
-
-    pub(crate) fn compact(&mut self) {
-        if self.suspended_count == 0 {
-            return;
-        }
-
-        let old_len = self.frames.len();
-        let mut mapping: Vec<Option<u32>> = Vec::with_capacity(old_len);
-        let mut new_frames: Vec<StackFrame> = Vec::with_capacity(old_len);
-
-        for f in self.frames.drain(..) {
-            if f.state == FrameState::Suspended {
-                mapping.push(None);
-            } else {
-                mapping.push(Some(new_frames.len() as u32));
-                new_frames.push(f);
-            }
-        }
-
-        for f in &mut new_frames {
-            if !f.prev.is_null() {
-                let old_idx = f.prev.0 as usize;
-                if let Some(&Some(new_idx)) = mapping.get(old_idx) {
-                    f.prev = FrameIndex(new_idx);
-                }
-            }
-        }
-
-        self.frames = new_frames;
-        self.suspended_count = 0;
     }
 
     pub(crate) fn find_catch_in_frame(
@@ -390,33 +343,33 @@ impl StackFrameArena {
 }
 
 impl GcTrace for StackFrameArena {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        for head in &self.frames {
-            if head.state != FrameState::Active {
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        for frame in &self.frames {
+            if frame.state != FrameState::Active {
                 continue;
             }
 
-            head.func_obj.trace(tr);
-            head.protected_values[0].trace(tr);
-            head.protected_values[1].trace(tr);
+            frame.func_obj.trace(gcx);
+            frame.protected_values[0].trace(gcx);
+            frame.protected_values[1].trace(gcx);
 
-            let data = self.data_slice(head);
-            let data_end = head.buf_capacity as usize;
+            let data = self.data(frame);
+            let data_end = frame.buf_capacity as usize;
 
-            let cnt = std::cmp::max(head.arg_real_count, head.arg_count) as usize;
+            let cnt = std::cmp::max(frame.arg_real_count, frame.arg_count) as usize;
             for v in data.iter().take(cnt.min(data_end)) {
-                v.trace(tr);
+                v.trace(gcx);
             }
 
-            let var_start = head.var_base_offset as usize;
+            let var_start = frame.var_base_offset as usize;
             let total_active =
-                var_start + head.var_count as usize + head.cur_sp_offset.max(0) as usize;
+                var_start + frame.var_count as usize + frame.cur_sp_offset.max(0) as usize;
             for v in &data[var_start..std::cmp::min(total_active, data_end)] {
-                v.trace(tr);
+                v.trace(gcx);
             }
 
-            for vr in &head.var_ref_list {
-                vr.trace(tr);
+            for vr in &frame.var_ref_list {
+                vr.trace(gcx);
             }
         }
     }

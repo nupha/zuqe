@@ -154,12 +154,13 @@ impl FrameBuffer {
 pub(crate) struct VirtualFrame {
     pub(crate) frame_idx: FrameIndex,
     pub(crate) caller_bc: Bytecode,
-    pub(crate) return_sp: usize,
     pub(crate) caller_scope: ManuallyDrop<ScopedContext<'static>>,
+    pub(crate) return_sp: usize,
 }
 
 /// Complete snapshot of a suspended async frame.
 #[derive(Debug)]
+#[repr(transparent)]
 pub(crate) struct AsyncStackFrame {
     pub(crate) frame: StackFrame,
 }
