@@ -74,11 +74,7 @@ impl<'c> ScopedContext<'c> {
                         ctx.throw_type_error("invalid property access");
                         Err(-1)
                     } else {
-                        Ok(if cc.length() == 0 {
-                            JSValue::NULL // getter
-                        } else {
-                            JSValue::UNDEFINED // setter
-                        })
+                        Ok(JSValue::UNDEFINED)
                     }
                 }),
                 "",
