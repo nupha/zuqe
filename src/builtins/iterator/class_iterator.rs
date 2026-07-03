@@ -8,30 +8,22 @@ use std::cell::Cell;
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    Array, JS_CLASS_ITERATOR, JS_CLASS_ITERATOR_CONCAT, JS_CLASS_ITERATOR_HELPER,
-    JS_CLASS_ITERATOR_WRAP,
+    Array, JS_CLASS_ITERATOR,
     atom::Atom,
     class::ClassID,
     context::ScopedContext,
     error::{Exception, JSResult},
     function::{CallContext, Callback, FieldDef},
     number::MAX_SAFE_INTEGER,
-    object::{
-        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-        JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload,
-    },
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectPayload},
     value::JSValue,
 };
 
-use super::{JS_IteratorGetCompleteValue, make_iterator_next_result};
-
-// =========================================================================
-// Data structures
-// =========================================================================
+use super::make_iterator_next_result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum JSIteratorHelperKind {
+pub(crate) enum JSIteratorHelperKind {
     Drop,
     Filter,
     FlatMap,
@@ -40,9 +32,9 @@ pub enum JSIteratorHelperKind {
 }
 
 #[derive(Debug)]
-pub struct IteratorWrapData {
-    pub obj: Object,
-    pub next: JSValue,
+pub(crate) struct IteratorWrapData {
+    obj: Object,
+    next: JSValue,
 }
 
 impl GcTrace for IteratorWrapData {
@@ -53,20 +45,18 @@ impl GcTrace for IteratorWrapData {
 }
 
 #[derive(Debug)]
-pub struct IteratorHelperData {
-    pub obj: Object,
-    pub next: JSValue,
-    pub func: JSValue,
-    pub inner: Cell<JSValue>,
-    pub inner_next: Cell<JSValue>,
-    pub has_inner: Cell<bool>,
-    pub count: Cell<i64>,
-    pub kind: JSIteratorHelperKind,
-    pub executing: Cell<bool>,
-    pub done: Cell<bool>,
-    /// Whether the underlying iterator has been closed.
-    /// Used by take: when limit reached, close on first subsequent next()/return().
-    pub source_closed: Cell<bool>,
+pub(crate) struct IteratorHelperData {
+    obj: Object,
+    next: JSValue,
+    func: JSValue,
+    inner: Cell<JSValue>,
+    inner_next: Cell<JSValue>,
+    has_inner: Cell<bool>,
+    count: Cell<i64>,
+    kind: JSIteratorHelperKind,
+    executing: Cell<bool>,
+    done: Cell<bool>,
+    source_closed: Cell<bool>,
 }
 
 impl GcTrace for IteratorHelperData {
@@ -83,17 +73,12 @@ impl GcTrace for IteratorHelperData {
 
 /// Payload for `Iterator.concat` — lazily concatenates iterables.
 #[derive(Debug)]
-pub struct IteratorConcatData {
-    /// Array of (object, method) pairs — the iterables and their [Symbol.iterator] methods.
-    pub values: Vec<(JSValue, JSValue)>,
-    /// Current index in values.
-    pub index: Cell<usize>,
-    /// Cached current iterator object (None = need to get a new one).
-    pub iter: Cell<Option<Object>>,
-    /// Cached current .next method.
-    pub next: Cell<JSValue>,
-    /// Whether we're currently executing (reentrancy guard).
-    pub running: Cell<bool>,
+pub(crate) struct IteratorConcatData {
+    values: Vec<(JSValue, JSValue)>,
+    index: Cell<usize>,
+    iter: Cell<Option<Object>>,
+    next: Cell<JSValue>,
+    running: Cell<bool>,
 }
 
 impl GcTrace for IteratorConcatData {
@@ -185,16 +170,17 @@ fn get_proto_from_ctor(ctx: &mut ScopedContext, ctor: JSValue) -> Result<Option<
         .and_then(|o| o.realm(ctx.ctx_ptr).ok())
         .unwrap_or(ctx.ctx_ptr);
 
-    if let Some(ctor_obj) = ctor.as_object() {
-        if let Ok(p) = ctor_obj.get_property(ctx, Atom::CONST_prototype) {
-            if let Some(o) = p.as_object().copied() {
-                return Ok(Some(o));
-            }
-        }
+    // Check if newTarget has an object .prototype — use it directly
+    if let Some(proto) = ctor
+        .as_object()
+        .and_then(|o| o.get_property(ctx, Atom::CONST_prototype).ok())
+        .and_then(|v| v.as_object().copied())
+    {
+        Ok(Some(proto))
+    } else {
+        // Fall back to the realm's Iterator.prototype
+        Ok(realm_ctx.class_proto(JS_CLASS_ITERATOR))
     }
-
-    // Fall back to the realm's Iterator.prototype
-    Ok(realm_ctx.class_proto(JS_CLASS_ITERATOR))
 }
 
 // =========================================================================
@@ -246,13 +232,12 @@ fn js_iterator_constructor_setter(ctx: &mut ScopedContext, cc: CallContext) -> J
     }
 
     // Step 2: If this is Iterator.prototype, throw TypeError
-    if let Some(iter_proto) = ctx.class_proto(JS_CLASS_ITERATOR) {
-        if let Some(o) = this.as_object() {
-            if *o == iter_proto {
-                ctx.throw_type_error("Cannot assign to constructor on Iterator.prototype");
-                return Err(-1);
-            }
-        }
+    if ctx
+        .class_proto(JS_CLASS_ITERATOR)
+        .is_some_and(|o| this.as_object() == Some(&o))
+    {
+        ctx.throw_type_error("Cannot assign to constructor on Iterator.prototype");
+        return Err(-1);
     }
 
     // Step 3/4: Define own property
@@ -295,7 +280,10 @@ fn js_iterator_toStringTag_setter(ctx: &mut ScopedContext, cc: CallContext) -> J
 // Class init
 // =========================================================================
 
-pub fn js_iterator_class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
+pub(crate) fn js_iterator_class_init(
+    ctx: &mut ScopedContext,
+    class_id: ClassID,
+) -> Result<(), i32> {
     let mut proto = ctx.iterator_proto()?;
     proto.install_fields(ctx, js_iterator_proto_full_funcs)?;
     ctx.set_class_proto(class_id, proto);
@@ -390,7 +378,7 @@ pub fn js_iterator_class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Res
     Ok(())
 }
 
-pub fn js_iterator_helper_class_init(
+pub(crate) fn js_iterator_helper_class_init(
     ctx: &mut ScopedContext,
     class_id: ClassID,
 ) -> Result<(), i32> {
@@ -401,7 +389,10 @@ pub fn js_iterator_helper_class_init(
     Ok(())
 }
 
-pub fn js_iterator_wrap_class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
+pub(crate) fn js_iterator_wrap_class_init(
+    ctx: &mut ScopedContext,
+    class_id: ClassID,
+) -> Result<(), i32> {
     let iter_proto = ctx.iterator_proto()?;
     let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
     proto.install_fields(ctx, js_iterator_wrap_proto_funcs)?;
@@ -409,7 +400,7 @@ pub fn js_iterator_wrap_class_init(ctx: &mut ScopedContext, class_id: ClassID) -
     Ok(())
 }
 
-pub fn js_iterator_concat_class_init(
+pub(crate) fn js_iterator_concat_class_init(
     ctx: &mut ScopedContext,
     class_id: ClassID,
 ) -> Result<(), i32> {
@@ -465,13 +456,10 @@ fn js_iterator_concat_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         -1
     })?;
 
-    let cd = match this_obj.payload() {
-        ObjectPayload::ITERATOR_CONCAT(c) => c,
-        _ => {
-            ctx.throw_type_error("not an Iterator Concat");
-            return Err(-1);
-        }
-    };
+    let cd = this_obj.payload().iterator_concat().ok_or_else(|| {
+        ctx.throw_type_error("not an Iterator Concat");
+        -1
+    })?;
 
     if cd.running.get() {
         ctx.throw_type_error("Iterator Concat is already executing");
@@ -483,7 +471,7 @@ fn js_iterator_concat_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     let values = &cd.values;
     let mut idx = cd.index.get();
 
-    let result = loop {
+    loop {
         if idx >= values.len() {
             cd.running.set(false);
             break make_iterator_next_result(ctx, JSValue::UNDEFINED, true);
@@ -516,9 +504,7 @@ fn js_iterator_concat_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         idx = cd.index.get();
         cd.iter.set(None);
         cd.next.set(JSValue::UNDEFINED);
-    };
-
-    result
+    }
 }
 
 fn js_iterator_concat_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -528,13 +514,10 @@ fn js_iterator_concat_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         -1
     })?;
 
-    let cd = match this_obj.payload() {
-        ObjectPayload::ITERATOR_CONCAT(c) => c,
-        _ => {
-            ctx.throw_type_error("not an Iterator Concat");
-            return Err(-1);
-        }
-    };
+    let cd = this_obj.payload().iterator_concat().ok_or_else(|| {
+        ctx.throw_type_error("not an Iterator Concat");
+        -1
+    })?;
 
     if cd.running.get() {
         ctx.throw_type_error("Iterator Concat is already executing");
@@ -584,10 +567,10 @@ fn js_iterator_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let next = iter_obj.get_property(ctx, Atom::CONST_next)?;
 
     // Use the Iterator constructor (not its prototype) for instanceof check
-    if let Some(iter_ctor) = ctx.class_constructor(JS_CLASS_ITERATOR) {
-        if iter_obj.instance_of(ctx, iter_ctor.into())? {
-            return Ok(iter_obj.into());
-        }
+    if let Some(iter_ctor) = ctx.class_constructor(JS_CLASS_ITERATOR)
+        && iter_obj.instance_of(ctx, iter_ctor.into())?
+    {
+        return Ok(iter_obj.into());
     }
 
     let wrap = ctx
@@ -701,13 +684,10 @@ fn js_iterator_helper_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         -1
     })?;
 
-    let ip = match this_obj.payload() {
-        ObjectPayload::ITERATOR_HELPER(h) => h,
-        _ => {
-            ctx.throw_type_error("not an Iterator Helper");
-            return Err(-1);
-        }
-    };
+    let ip = this_obj.payload().iterator_helper().ok_or_else(|| {
+        ctx.throw_type_error("not an Iterator Helper");
+        -1
+    })?;
 
     if ip.executing.get() {
         ctx.throw_type_error("Iterator Helper is already executing");
@@ -936,13 +916,10 @@ fn js_iterator_wrap_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         -1
     })?;
 
-    let wrap = match this_obj.payload() {
-        ObjectPayload::ITERATOR_WRAP(w) => w,
-        _ => {
-            ctx.throw_type_error("not an Iterator Wrap");
-            return Err(-1);
-        }
-    };
+    let wrap = this_obj.payload().iterator_wrap().ok_or_else(|| {
+        ctx.throw_type_error("not an Iterator Wrap");
+        -1
+    })?;
 
     let (value, done) = call_iterator_next(ctx, wrap.obj, wrap.next)?;
     make_iterator_next_result(ctx, value, done)
@@ -955,13 +932,10 @@ fn js_iterator_wrap_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         -1
     })?;
 
-    let wrap = match this_obj.payload() {
-        ObjectPayload::ITERATOR_WRAP(w) => w,
-        _ => {
-            ctx.throw_type_error("not an Iterator Wrap");
-            return Err(-1);
-        }
-    };
+    let wrap = this_obj.payload().iterator_wrap().ok_or_else(|| {
+        ctx.throw_type_error("not an Iterator Wrap");
+        -1
+    })?;
 
     let return_method = wrap.obj.get_property(ctx, Atom::CONST_return)?;
     if !return_method.is_undefined_or_null() {
