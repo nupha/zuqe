@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::borrow::Cow;
+
 use crate::{
     ScopedContext,
     builtins::number::{js_parseFloat, js_parseInt},
@@ -41,19 +43,20 @@ pub(crate) fn js_global_isNaN_isFinite(ctx: &mut ScopedContext, cc: CallContext)
     Ok(JSValue::Bool(b))
 }
 
-/// ES spec: uriReserved (used by decodeURI — does NOT include '#')
+/// ES spec: uriReserved (used by decodeURI — includes '#')
+/// decodeURI never decodes: %23 %24 %26 %2B %2C %2F %3A %3B %3D %3F %40
 #[inline(always)]
 const fn is_uri_reserved(c: u32) -> bool {
     matches!(
         c as u8,
-        b';' | b'/' | b'?' | b':' | b'@' | b'&' | b'=' | b'+' | b'$' | b','
+        b';' | b'/' | b'?' | b':' | b'@' | b'&' | b'=' | b'+' | b'$' | b',' | b'#'
     ) && c < 128
 }
 
-/// ES spec: uriReserved + '#' (used by encodeURI)
+/// ES spec: uriReserved + (used by encodeURI)
 #[inline(always)]
 const fn is_uri_reserved_or_hash(c: u32) -> bool {
-    is_uri_reserved(c) || c == b'#' as u32
+    is_uri_reserved(c)
 }
 
 /// ES spec: uriUnescaped = ALPHA | DIGIT | "-" | "_" | "." | "!" | "~" | "*" | "'" | "(" | ")"
@@ -68,18 +71,35 @@ const fn is_uri_unescaped(c: u32) -> bool {
 
 const HEX_UPPER: &[u8; 16] = b"0123456789ABCDEF";
 
+/// Convert hex digit byte to value (0-15). Returns Err on invalid.
+#[inline(always)]
+const fn hex_byte_val(b: u8) -> Result<u8, i32> {
+    match b {
+        b'0'..=b'9' => Ok(b - b'0'),
+        b'A'..=b'F' => Ok(b - b'A' + 10),
+        b'a'..=b'f' => Ok(b - b'a' + 10),
+        _ => Err(-1),
+    }
+}
+
 fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let is_component = cc.magic() == 1;
 
     let str = cc.arg(0).to_string(ctx)?;
-    let len = str.len();
+    let content = str.content();
 
-    let mut buf = StringBuf::with_capacity(len, false).map_err(|_| {
+    // Fast path: ASCII-only content → byte scanning
+    if let Some(ascii_bytes) = content.ascii() {
+        return decode_uri_ascii(ctx, ascii_bytes, is_component);
+    }
+
+    // Slow path: non-ASCII content → char-level iteration
+    let mut buf = StringBuf::with_capacity(content.len(), false).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
 
-    let mut char_it = str.content().chars();
+    let mut char_it = content.chars();
     while let Some((_, ch)) = char_it.next() {
         match ch {
             CharCode::Char('%') => {
@@ -102,18 +122,12 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 debug_assert!(d <= 0xff);
 
                 if d < 0x80 {
-                    // ascii
                     if !is_component && is_uri_reserved(d as _) {
-                        // for non-component, reserved chars are kept in %XX format.
                         buf.push_u8_slice([b'%', hh[0], hh[1]].as_slice())
-                            .map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            })?;
+                            .map_err(|_| { ctx.throw_out_of_memory(); -1 })?;
                     } else {
                         buf.push_u8(d as u8).map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
+                            ctx.throw_out_of_memory(); -1
                         })?;
                     }
                 } else {
@@ -131,7 +145,6 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
                     for _ in 0..reminder {
                         if let Some((_, CharCode::Char('%'))) = char_it.next() {
-                            // hex %XX
                             let mut d = 0u8;
                             for _ in 0..2 {
                                 let n = match char_it.next().and_then(|(_, x)| x.char()) {
@@ -152,7 +165,6 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                             }
                             uc = (uc << 6) | (d as u32 & 0x3f);
                         } else {
-                            // expect '%'
                             ctx.throw_uri_error("malformed UTF-8");
                             return Err(-1);
                         }
@@ -161,31 +173,118 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     if unlikely(uc < c_min || uc > 0x10FFFF || (0xd800..0xe000).contains(&uc)) {
                         ctx.throw_uri_error("malformed UTF-8");
                         return Err(-1);
-                    } else {
-                        buf.push_u32(uc).map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
                     }
+                    buf.push_u32(uc).map_err(|_| {
+                        ctx.throw_out_of_memory(); -1
+                    })?;
                 }
             }
             CharCode::Char(c) => {
                 buf.push_char(c).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
+                    ctx.throw_out_of_memory(); -1
                 })?;
             }
             CharCode::Code(_) => {
                 buf.push_u16_slice(ch.encode_utf16(&mut [0; 2]))
-                    .map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    .map_err(|_| { ctx.throw_out_of_memory(); -1 })?;
             }
         }
     }
 
-    ctx.create_string_with_buf(buf).map(|s| s.into())
+    ctx.create_string_with_buf(buf).map(JSValue::from)
+}
+
+/// Fast path: decodeURI on ASCII-only input using byte scanning.
+fn decode_uri_ascii(ctx: &mut ScopedContext, bytes: &[u8], is_component: bool) -> JSResult {
+    let mut buf = StringBuf::with_capacity(bytes.len(), false).map_err(|_| {
+        ctx.throw_out_of_memory();
+        -1
+    })?;
+
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len() {
+                ctx.throw_uri_error("expecting hex digit");
+                return Err(-1);
+            }
+            let hi = hex_byte_val(bytes[i + 1]).map_err(|_| {
+                ctx.throw_uri_error("expecting hex digit");
+                -1
+            })?;
+            let lo = hex_byte_val(bytes[i + 2]).map_err(|_| {
+                ctx.throw_uri_error("expecting hex digit");
+                -1
+            })?;
+            let d = (hi << 4) | lo;
+            i += 3;
+
+            if d < 0x80 {
+                if !is_component && is_uri_reserved(d as _) {
+                    buf.push_u8_slice(&bytes[i - 3..i]).map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
+                } else {
+                    buf.push_u8(d).map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
+                }
+            } else {
+                let (reminder, c_min, mut uc) = if (0xc0..=0xdf).contains(&d) {
+                    (1, 0x80u32, (d & 0x1f) as u32)
+                } else if (0xe0..=0xef).contains(&d) {
+                    (2, 0x800u32, (d & 0xf) as u32)
+                } else if (0xf0..=0xf7).contains(&d) {
+                    (3, 0x10000u32, (d & 0x7) as u32)
+                } else {
+                    ctx.throw_uri_error("malformed UTF-8");
+                    return Err(-1);
+                };
+
+                for _ in 0..reminder {
+                    if i + 2 >= bytes.len() || bytes[i] != b'%' {
+                        ctx.throw_uri_error("malformed UTF-8");
+                        return Err(-1);
+                    }
+                    let hi = hex_byte_val(bytes[i + 1]).map_err(|_| {
+                        ctx.throw_uri_error("expecting hex digit");
+                        -1
+                    })?;
+                    let lo = hex_byte_val(bytes[i + 2]).map_err(|_| {
+                        ctx.throw_uri_error("expecting hex digit");
+                        -1
+                    })?;
+                    let cb = (hi << 4) | lo;
+                    i += 3;
+
+                    if cb & 0xc0 != 0x80 {
+                        ctx.throw_uri_error("malformed UTF-8");
+                        return Err(-1);
+                    }
+                    uc = (uc << 6) | (cb & 0x3f) as u32;
+                }
+
+                if unlikely(uc < c_min || uc > 0x10FFFF || (0xd800..0xe000).contains(&uc)) {
+                    ctx.throw_uri_error("malformed UTF-8");
+                    return Err(-1);
+                }
+                buf.push_u32(uc).map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
+            }
+        } else {
+            buf.push_u8(bytes[i]).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+            i += 1;
+        }
+    }
+
+    ctx.create_string_with_buf(buf).map(JSValue::from)
 }
 
 /// ES spec: encodeURI (19.2.6.3) / encodeURIComponent (19.2.6.4)
@@ -193,47 +292,58 @@ fn js_global_encodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let is_component = cc.magic() == 1;
 
     let str = cc.arg(0).to_string(ctx)?;
-    let len = str.len();
+    let content = str.content();
 
-    // Worst case: every code unit expands to 3 percent-encoded bytes (%XX)
-    let mut buf = StringBuf::with_capacity(len * 3, false).map_err(|_| {
+    // Check for lone surrogates (must throw URIError per spec §19.2.6.6 step 8).
+    // Valid surrogate pairs (high + low) should be combined into a supplementary
+    // character and encoded as 4 UTF-8 bytes, NOT rejected.
+    if let Some(utf16) = content.utf16() {
+        let mut i = 0;
+        while i < utf16.len() {
+            let u = utf16[i];
+            if (0xd800..0xdc00).contains(&u) {
+                // High surrogate — check if followed by a low surrogate
+                if i + 1 < utf16.len() && (0xdc00..0xe000).contains(&utf16[i + 1]) {
+                    i += 2; // Valid surrogate pair, skip
+                    continue;
+                }
+                // Lone high surrogate
+                ctx.throw_uri_error("malformed URI");
+                return Err(-1);
+            } else if (0xdc00..0xe000).contains(&u) {
+                // Lone low surrogate (not preceded by a high surrogate)
+                ctx.throw_uri_error("malformed URI");
+                return Err(-1);
+            }
+            i += 1;
+        }
+    }
+
+    let bytes: Cow<'_, [u8]> = content.encode_utf8_bytes(false);
+    let bytes = bytes.as_ref();
+
+    // Worst case: every byte expands to 3 percent-encoded bytes (%XX)
+    let mut buf = StringBuf::with_capacity(bytes.len() * 3, false).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
 
-    let mut char_it = str.content().chars();
-    while let Some((_, ch)) = char_it.next() {
-        match ch {
-            CharCode::Char(c) => {
-                let cp = c as u32;
-                // uriUnescaped is always kept; encodeURI also keeps uriReserved and '#'
-                if is_uri_unescaped(cp) || (!is_component && is_uri_reserved_or_hash(cp)) {
-                    buf.push_u8(c as u8).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
-                } else {
-                    // encode as UTF-8 percent-encoded bytes
-                    let mut utf8_buf = [0u8; 4];
-                    let bytes = c.encode_utf8(&mut utf8_buf).as_bytes();
-                    for &b in bytes {
-                        buf.push_u8_slice(&[
-                            b'%',
-                            HEX_UPPER[(b >> 4) as usize],
-                            HEX_UPPER[(b & 0xf) as usize],
-                        ])
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
-                    }
-                }
-            }
-            CharCode::Code(_) => {
-                // broken surrogate → URIError
-                ctx.throw_uri_error("malformed URI");
-                return Err(-1);
-            }
+    for &b in bytes {
+        if is_uri_unescaped(b as u32) || (!is_component && is_uri_reserved(b as u32)) {
+            buf.push_u8(b).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+        } else {
+            buf.push_u8_slice(&[
+                b'%',
+                HEX_UPPER[(b >> 4) as usize],
+                HEX_UPPER[(b & 0xf) as usize],
+            ])
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
         }
     }
 
