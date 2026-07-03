@@ -23,15 +23,26 @@ impl ModuleDefImpl {
         self.status
     }
 
-    /// set module status to `evaluated`
-    fn set_evaluated(&mut self, ctx: &mut ScopedContext) {
+    /// Set module status to EVALUATED and clear async_evaluation.
+    ///
+    /// These two fields MUST always be set together — a module that has
+    /// finished evaluating (whether normally or via rejection) cannot
+    /// have async_evaluation = true, otherwise dependent modules would
+    /// incorrectly treat it as having pending async dependencies.
+    #[inline(always)]
+    fn set_status_evaluated(&mut self) {
         debug_assert_ne!(
             self.status,
             JSModuleStatus::JS_MODULE_STATUS_EVALUATED,
             "already in evaluated state"
         );
-
         self.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
+        self.async_evaluation = false;
+    }
+
+    /// set module status to `evaluated`, resolve module promise
+    fn set_evaluated(&mut self, ctx: &mut ScopedContext) {
+        self.set_status_evaluated();
 
         if self.promise.is_some() {
             debug_assert_eq!(self.cycle_root, Some(ModuleDef::from(self.gc_ref())));
@@ -423,7 +434,6 @@ impl ModuleDef {
         debug_assert!(md.get_eval_error().is_undefined());
         debug_assert!(md.async_evaluation());
 
-        md.set_async_evaluation(false);
         md.set_evaluated(ctx);
 
         let mut exec_list = Vec::<ModuleDef>::with_capacity(8);
@@ -466,17 +476,9 @@ impl ModuleDef {
 
     /// async module execution reject callback
     fn execute_async_rejected(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-        if js_check_stack_overflow(ctx.rt(), 0) {
-            ctx.throw_stack_overflow();
-            return Err(-1);
-        }
-
-        let mut md = if let JSValue::Module(m) = cc.data(0) {
-            m
-        } else {
+        let JSValue::Module(mut md) = cc.data(0) else {
             unreachable!()
         };
-
         let err_val = cc.arg(0);
 
         if md.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
@@ -492,7 +494,7 @@ impl ModuleDef {
         debug_assert!(md.async_evaluation());
 
         md.set_eval_error(err_val);
-        md.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
+        md.set_status_evaluated();
 
         for m in md.async_parent_modules.iter() {
             Self::execute_async_rejected(

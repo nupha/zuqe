@@ -421,6 +421,24 @@ async fn run_test_script<'c>(
 
     let _ = rt.run_async().await;
 
+    // After run_async(), re-check the promise state for modules with
+    // top-level-await. The async evaluation (including dynamic import
+    // rejections, dependency module errors, etc.) is resolved during
+    // run_async(), and the module's evaluation promise should be settled.
+    if let Ok(p) = zuqe::builtins::promise::Promise::try_from(val)
+        && matches!(p.state(), zuqe::builtins::promise::PromiseState::Rejected)
+    {
+        return Err(ExceptionText {
+            message: p
+                .result()
+                .to_string(&mut ctx.root_scope())
+                .map_or(String::from("<can't get error message>"), |s| {
+                    s.content().encode_utf8(false).to_string()
+                }),
+            traceback: None,
+        });
+    }
+
     if is_async {
         let n = ASYNC_DONE.load(Ordering::SeqCst);
         if n != 1 {
