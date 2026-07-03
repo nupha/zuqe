@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::cell::Cell;
+
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
@@ -12,7 +14,7 @@ use crate::{
     },
     class::ClassID,
     context::ScopedContext,
-    error::JSResult,
+    error::{Exception, JSResult},
     function::{CallContext, FieldDef, IteratorState, NativeFunction},
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
@@ -25,6 +27,7 @@ use super::{JS_IteratorGetCompleteValue, ObjectIter, make_iterator_next_result};
 pub struct JSAsyncFromSyncIteratorData {
     pub(super) obj: Object,
     pub(super) next_method: JSValue,
+    pub(super) closed: Cell<bool>,
 }
 
 impl GcTrace for JSAsyncFromSyncIteratorData {
@@ -70,6 +73,28 @@ fn js_async_from_sync_iterator_unwrap_func_create(ctx: &mut ScopedContext, done:
     .map_or(JSValue::EXCEPTION, |x| x.into())
 }
 
+fn js_async_from_sync_iterator_close_on_reject(
+    ctx: &mut ScopedContext,
+    cc: CallContext,
+) -> JSResult {
+    // set the pending exception first, then best-effort close the iterator (forgiving: don't check return type)
+    let err = cc.arg(0);
+    let async_val = cc.data(0);
+    ctx.throw_value(err);
+
+    if let Ok(async_obj) = Object::try_from(async_val) {
+        if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = async_obj.payload() {
+            let _ = ObjectIter::close_iter_internal(ctx, p.obj);
+            p.closed.set(true);
+        }
+    }
+
+    // close_iter_internal restores the original exception (err) if return() succeeds.
+    // If return() throws, its error stays. Either way, return Err(-1)
+    // to let the promise reaction use the current exception.
+    Err(-1)
+}
+
 fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let done_resolve = |cx: &mut ScopedContext,
                         rr: [JSValue; 2],
@@ -108,6 +133,12 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
     let p = unsafe { this_val.as_object_unchecked() };
 
     if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = p.payload() {
+        if cc.magic() == GEN_MAGIC_RETURN && p.closed.get() {
+            // Already closed by onRejected handler; return {value: undefined, done: true}
+            let result = make_iterator_next_result(ctx, JSValue::UNDEFINED, true)?;
+            return Ok(done_resolve(ctx, resolving_funcs, result, 0, promise));
+        }
+
         let method = if cc.magic() == GEN_MAGIC_NEXT {
             p.next_method
         } else {
@@ -121,12 +152,21 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
             ) {
                 Ok(func_val) => {
                     if func_val.is_undefined_or_null() {
-                        let (err, is_reject) = if cc.magic() == GEN_MAGIC_RETURN {
-                            (make_iterator_next_result(ctx, cc.arg(0), true)?, 0)
-                        } else {
-                            (cc.arg(0), 1)
+                        if cc.magic() == GEN_MAGIC_RETURN {
+                            let result = make_iterator_next_result(ctx, cc.arg(0), true)?;
+                            return Ok(done_resolve(ctx, resolving_funcs, result, 0, promise));
+                        }
+
+                        // GEN_MAGIC_THROW: IteratorClose then reject with TypeError
+                        let _ = ObjectIter::close_iter_internal(ctx, p.obj);
+                        let err_val = match ctx.rt().exception() {
+                            Exception::No => {
+                                ctx.throw_type_error("IteratorClose returned non-object");
+                                ctx.take_exception().to_value(ctx)
+                            }
+                            _ => ctx.take_exception().to_value(ctx),
                         };
-                        return Ok(done_resolve(ctx, resolving_funcs, err, is_reject, promise));
+                        return Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise));
                     }
                     func_val
                 }
@@ -160,25 +200,57 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
                     _done
                 }
             };
+            let close_on_rejection = cc.magic() != GEN_MAGIC_RETURN;
 
             let mut value_wrapper_promise: Promise = {
-                if let Ok(r) = js_promise_resolve(
-                    ctx,
-                    CallContext::new_simple(
-                        ctx.promise_ctor().into(),
-                        std::slice::from_ref(&value),
-                    ),
-                ) {
+                let cc2 = CallContext::new_simple(
+                    ctx.promise_ctor().into(),
+                    std::slice::from_ref(&value),
+                );
+                if let Ok(r) = js_promise_resolve(ctx, cc2) {
                     r.try_into()?
                 } else {
                     let err_val = ctx.take_exception().to_value(ctx);
-                    return Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise));
+
+                    // AsyncFromSyncIteratorContinuation step 6:
+                    // if valueWrapper is an abrupt completion, done is false,
+                    // and closeOnRejection is true -> close the iterator
+                    return if close_on_rejection && !done {
+                        // Set pending exception first so close_iter_internal
+                        // skips return type check (forgiving close, like quickjs)
+                        ctx.throw_value(err_val);
+                        let _ = ObjectIter::close_iter_internal(ctx, p.obj);
+                        p.closed.set(true);
+                        let close_val = ctx.take_exception().to_value(ctx);
+                        Ok(done_resolve(ctx, resolving_funcs, close_val, 1, promise))
+                    } else {
+                        Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise))
+                    };
                 }
+            };
+
+            let close_on_reject_fn = if close_on_rejection && !done {
+                // AsyncFromSyncIteratorContinuation step 13-14:
+                // onRejected closes the iterator, then rejects.
+                // Pass this_val (async-from-sync iterator) as data[0]
+                // so the handler can set p.closed after closing.
+                NativeFunction::create(
+                    ctx,
+                    Callback::Func(js_async_from_sync_iterator_close_on_reject),
+                    Atom::CONST_empty_string,
+                    1,
+                    0,
+                    ctx.function_proto(),
+                    Some([this_val, resolving_funcs[1]].into()),
+                )
+                .map_or(JSValue::EXCEPTION, JSValue::from)
+            } else {
+                JSValue::UNDEFINED
             };
 
             let resolve_reject: [JSValue; 2] = [
                 js_async_from_sync_iterator_unwrap_func_create(ctx, done).err()?,
-                JSValue::UNDEFINED,
+                close_on_reject_fn,
             ];
             value_wrapper_promise.reaction(ctx, resolve_reject, resolving_funcs)?;
             Ok(promise.into())

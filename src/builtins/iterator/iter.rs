@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{marker::PhantomData, ptr::NonNull};
+use std::{cell::Cell, marker::PhantomData, ptr::NonNull};
 
 use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 
@@ -414,6 +414,7 @@ impl JSValue {
                     JSAsyncFromSyncIteratorData {
                         obj: sync_it,
                         next_method,
+                        closed: Cell::new(false),
                     },
                 )))
                 .map(Some)
@@ -495,6 +496,7 @@ impl JSValue {
                     JSAsyncFromSyncIteratorData {
                         obj: it,
                         next_method,
+                        closed: Cell::new(false),
                     },
                 )))
                 .map(Some)
