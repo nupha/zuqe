@@ -96,9 +96,6 @@ impl<'c> ScopedContext<'c> {
     /// Create an instance of a user-defined (non-builtin) class with an attached raw pointer,
     /// respecting `newTarget.prototype` for the object's prototype chain.
     ///
-    /// This is the `newTarget`-aware version of `create_class_instance_with_opaque`,
-    /// analogous to how builtin constructors use `create_instance_with_ctor`.
-    ///
     /// When called from a native constructor, pass `cc.this()` (which is `newTarget`)
     /// so that `class MySub extends NativeClass` creates instances with the correct
     /// prototype (`MySub.prototype` instead of `NativeClass.prototype`).
@@ -126,8 +123,7 @@ impl<'c> ScopedContext<'c> {
     /// Create an instance of a user-defined (non-builtin) class,
     /// respecting `newTarget.prototype` for the object's prototype chain.
     ///
-    /// This is the `newTarget`-aware version of `create_class_instance_with_opaque`,
-    /// analogous to how builtin constructors use `create_instance_with_ctor`.
+    /// Same as `create_class_instance_with_opaque` but without opaque data.
     ///
     /// When called from a native constructor, pass `cc.this()` (which is `newTarget`)
     /// so that `class MySub extends NativeClass` creates instances with the correct

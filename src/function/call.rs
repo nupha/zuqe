@@ -117,22 +117,13 @@ pub(crate) const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub(crate) const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
 impl ObjectImpl {
-    /// The unified place to dispatch a function call:
-    /// either bytecode or native execution, either normal or constructor call.
+    /// Dispatch a function call (bytecode or native, normal or constructor).
     ///
-    /// # Note:
+    /// Saves/restores `active_trampoline_frame` because nested
+    /// `execute_trampoline` (async/generator) clears it on exit.
     ///
-    /// For bytecode function, will create a new sub scope for execution,
-    /// return value is guaranteed to be valid at least in current scope.
-    ///
-    /// # Arguments
-    /// * ctx is the caller ctx.
-    /// * argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
-    /// * flags & JS_CALL_FLAG_CONSTRUCTOR !=0 indicates a constructor call
-    /// Wrapper around do_call_internal that preserves active_trampoline_frame
-    /// across the call. Nested execute_trampoline (e.g., async/generator
-    /// class_call) clears this field on exit; save/restore ensures the caller's
-    /// arena mode detection remains intact.
+    /// For bytecode functions, creates a new scope for execution.
+    /// Return value is valid within the current scope.
     fn call_internal(
         &self,
         ctx: &mut ScopedContext,
@@ -211,14 +202,11 @@ impl ObjectImpl {
 
             // ES2023 OrdinaryCreateFromConstructor: when a constructor is called
             // via super() from a derived class, newTarget determines the instance
-            // prototype. Native constructors should use
-            // `create_class_instance_with_opaque(new_target, ...)` to create
-            // instances with the correct prototype from the start.
+            // prototype. Constructors should pass `new_target` to
+            // `create_class_instance_with_opaque` to create instances with the
+            // correct prototype from the start.
             //
-            // If a native constructor used the deprecated `create_class_instance_with_opaque()`
-            // (which ignores newTarget), the instance prototype will be wrong.
-            //
-            // Debug mode: panic immediately to force the constructor author to fix it.
+            // Debug mode: panic immediately if the prototype doesn't match.
             // Release mode: silently fix the prototype as a safety net.
             //
             // Per ECMAScript spec, every built-in constructor that creates instances uses
@@ -256,24 +244,17 @@ impl ObjectImpl {
                    && let Ok(ref mut val) = result
                         && let Some(obj) = val.as_object_mut()
                         && let Ok(proto_val) = new_target.get_property(ctx, Atom::CONST_prototype)
-                        && (proto_val.is_object() || proto_val.is_null())
+                        && proto_val.is_object()
                 {
                     // Per ES OrdinaryCreateFromConstructor:
                     //   1. proto = Get(newTarget, "prototype")
-                    //   2. If proto_val is not an Object, proto = GetFunctionRealm(newTarget).intrinsicDefaultProto
+                    //   2. If Type(proto) is not Object, proto = GetFunctionRealm(newTarget).intrinsicDefaultProto
                     //
-                    // When newTarget.prototype is not an object, the fallback prototype
-                    // comes from newTarget's realm, NOT the current realm.
-                    let expected_proto = if let Some(p) = proto_val.as_object().copied() {
-                        Some(p)
-                    } else {
-                        // Fallback: GetFunctionRealm(newTarget) → realm.class_proto(class_id)
-                        let class_id = obj.class_id();
-                        new_target
-                            .as_object()
-                            .and_then(|o| o.realm(ctx.ctx_ptr).ok())
-                            .and_then(|realm| realm.class_proto(class_id))
-                    };
+                    // We only reach here when proto is an Object (line 259 guard).
+                    // Non-Object prototypes (null, undefined, etc.) trigger the
+                    // intrinsic fallback which call.rs cannot verify (e.g., EvalError
+                    // vs Error prototype both share JS_CLASS_ERROR class_id).
+                    let expected_proto = proto_val.as_object().copied();
 
                     // Debug mode behavior: panic immediately to force the constructor author to fix it
                     #[cfg(debug_assertions)]
@@ -281,12 +262,8 @@ impl ObjectImpl {
                         let actual_proto = obj.shape_proto();
                         debug_assert!(
                             actual_proto == expected_proto,
-                            "Native constructor returned object with wrong prototype. \
-                                     The constructor should use \
-                                     `create_class_instance_with_opaque(new_target, class_id, opaque)` \
-                                     instead of the deprecated \
-                                     `create_class_instance_with_opaque(class_id, opaque)` \
-                                     to respect newTarget.prototype per ES OrdinaryCreateFromConstructor."
+                            "constructor returned object with wrong prototype; \
+                             pass new_target to create_class_instance_with_opaque"
                         );
                     }
 
