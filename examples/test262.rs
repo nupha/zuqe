@@ -384,21 +384,40 @@ async fn run_test_script<'c>(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    ctx.eval(
-        script.as_bytes(),
-        filename.as_os_str().to_str().unwrap(),
-        if is_module {
-            EvalType::Module
-        } else {
-            EvalType::Global
-        },
-        if is_strict {
-            EvalFlags::STRICT
-        } else {
-            EvalFlags::empty()
-        },
-    )
-    .map_err(|_| ctx.take_exception().to_text(&mut ctx.root_scope()))?;
+    let val = ctx
+        .eval(
+            script.as_bytes(),
+            filename.as_os_str().to_str().unwrap(),
+            if is_module {
+                EvalType::Module
+            } else {
+                EvalType::Global
+            },
+            if is_strict {
+                EvalFlags::STRICT
+            } else {
+                EvalFlags::empty()
+            },
+        )
+        .map_err(|_| ctx.take_exception().to_text(&mut ctx.root_scope()))?;
+
+    // Check if the returned value is a rejected Promise.
+    // This handles module evaluations where the module function throws
+    // synchronously (the error is captured as a rejected Promise, not as an Err).
+    // Works for any eval that returns a Promise — not limited to module eval.
+    if let Ok(p) = zuqe::builtins::promise::Promise::try_from(val)
+        && matches!(p.state(), zuqe::builtins::promise::PromiseState::Rejected)
+    {
+        return Err(ExceptionText {
+            message: p
+                .result()
+                .to_string(&mut ctx.root_scope())
+                .map_or(String::from("<can't get error message>"), |s| {
+                    s.content().encode_utf8(false).to_string()
+                }),
+            traceback: None,
+        });
+    }
 
     let _ = rt.run_async().await;
 
