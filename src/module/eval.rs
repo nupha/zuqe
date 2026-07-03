@@ -496,6 +496,16 @@ impl ModuleDef {
         md.set_eval_error(err_val);
         md.set_status_evaluated();
 
+        // DON'T FOLLOWING CHANGE ORDER
+
+        // Per spec (AsyncModuleExecutionRejected):
+        // 9. Reject own TopLevelCapability first
+        if md.promise.is_some() {
+            debug_assert_eq!(md.cycle_root(), Some(md));
+            let func = md.resolving_funcs[1];
+            let _ = func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
+        }
+        // 10. Then propagate rejection to async parent modules (leaf-to-root order)
         for m in md.async_parent_modules.iter() {
             Self::execute_async_rejected(
                 ctx,
@@ -507,12 +517,6 @@ impl ModuleDef {
                 ),
             )
             .unwrap();
-        }
-
-        if md.promise.is_some() {
-            debug_assert_eq!(md.cycle_root(), Some(md));
-            let func = md.resolving_funcs[1];
-            let _ = func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
         }
 
         Ok(JSValue::UNDEFINED)
