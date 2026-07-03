@@ -174,13 +174,14 @@ impl<'s> JSParseState<'s> {
             matches!(c, '0'..='9' | 'A'..='Z' | 'a'..='z' | '_' | '$')
         } else {
             // ZWNJ and ZWJ are accepted in identifiers
+            // Also accept Other_ID_Continue characters not included in unicode-xid
             #[cfg(feature = "all_unicode")]
             {
-                unicode_xid::UnicodeXID::is_xid_continue(c) || matches!(c, '\u{200C}' | '\u{200D}')
+                unicode_xid::UnicodeXID::is_xid_continue(c) || matches!(c, '\u{200C}' | '\u{200D}' | '\u{309B}' | '\u{309C}')
             }
             #[cfg(not(feature = "all_unicode"))]
             {
-                !c.is_whitespace() || matches!(c, '\u{200C}' | '\u{200D}')
+                !c.is_whitespace() || matches!(c, '\u{200C}' | '\u{200D}' | '\u{309B}' | '\u{309C}')
             }
         }
     }
@@ -193,7 +194,8 @@ impl<'s> JSParseState<'s> {
         } else {
             #[cfg(feature = "all_unicode")]
             {
-                unicode_xid::UnicodeXID::is_xid_start(c)
+                // Also accept Other_ID_Start characters not included in unicode-xid's XID_Start
+                unicode_xid::UnicodeXID::is_xid_start(c) || matches!(c, '\u{309B}' | '\u{309C}')
             }
             #[cfg(not(feature = "all_unicode"))]
             {

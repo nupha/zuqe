@@ -86,23 +86,16 @@ fn register_atom_common(
     if let Some(kv) = a_reg.hash_lut.get(&hash) {
         for &id in kv {
             let atom_id = id as u32;
-            if is_const_atom(atom_id) {
-                if a_reg.const_atoms[atom_id as usize - 1]
-                    .atom_info()
-                    .unwrap()
-                    .kind()
-                    == atom_kind
-                {
-                    return Ok(RegisterStringResult::Existing(atom_id));
-                }
+            let ds = if is_const_atom(atom_id) {
+                &a_reg.const_atoms[atom_id as usize - 1]
             } else {
-                let ds = a_reg.user_atoms[atom_id as usize - ATOM_USER_BASE_ID as usize]
+                a_reg.user_atoms[atom_id as usize - ATOM_USER_BASE_ID as usize]
                     .as_ref()
-                    .unwrap();
-                let at = ds.atom_info().unwrap();
-                if at.kind() == atom_kind && ss.eq(ds) {
-                    return Ok(RegisterStringResult::Existing(at.id()));
-                }
+                    .unwrap()
+            };
+            let at_info = ds.atom_info().unwrap();
+            if at_info.kind() == atom_kind && ss.eq(ds) {
+                return Ok(RegisterStringResult::Existing(at_info.id()));
             }
         }
     }
