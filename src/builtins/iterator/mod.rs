@@ -7,7 +7,8 @@ mod async_iter;
 mod class_iterator;
 mod iter;
 
-pub(crate) use {a_iter::*, array_iter::*, async_iter::*, class_iterator::*, iter::*};
+pub(crate) use class_iterator::*;
+pub use {a_iter::*, array_iter::*, async_iter::*, iter::*};
 
 use crate::{Atom, ClassDef};
 
