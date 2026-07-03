@@ -136,12 +136,6 @@ fn iterator_return(ctx: &mut ScopedContext, obj: Object) -> Result<(), i32> {
     Ok(())
 }
 
-/// Silent version — ignores errors from return().
-/// Only use when standalone (not inside another return/next handler).
-fn iterator_return_silent(ctx: &mut ScopedContext, obj: Object) {
-    let _ = iterator_return(ctx, obj);
-}
-
 fn limit_to_count(ctx: &mut ScopedContext, val: JSValue, name: &str) -> Result<i64, i32> {
     let limit: f64 = val.to_number(ctx)?.to_f64();
     if limit.is_nan() {

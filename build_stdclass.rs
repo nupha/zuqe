@@ -40,6 +40,9 @@ enum PayloadKey {
     AsyncFromSyncIterator,
     AsyncGenerator,
     AsyncIterableIterator,
+    IteratorHelper,
+    IteratorWrap,
+    IteratorConcat,
 }
 
 impl PayloadKey {
@@ -77,6 +80,9 @@ impl PayloadKey {
             PayloadKey::AsyncFromSyncIterator => "async_from_sync_iterator",
             PayloadKey::AsyncGenerator => "async_generator",
             PayloadKey::AsyncIterableIterator => "async_iterator",
+            PayloadKey::IteratorHelper => "iterator_helper",
+            PayloadKey::IteratorWrap => "iterator_wrap",
+            PayloadKey::IteratorConcat => "iterator_concat",
         }
     }
 }
@@ -172,6 +178,19 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     m.insert(
         PayloadKey::AsyncIterableIterator,
         "Box<crate::builtins::iterator::AsyncIterPayload>",
+    );
+
+    m.insert(
+        PayloadKey::IteratorHelper,
+        "Box<crate::builtins::iterator::IteratorHelperData>",
+    );
+    m.insert(
+        PayloadKey::IteratorWrap,
+        "Box<crate::builtins::iterator::IteratorWrapData>",
+    );
+    m.insert(
+        PayloadKey::IteratorConcat,
+        "Box<crate::builtins::iterator::IteratorConcatData>",
     );
 
     #[cfg(feature = "builtin_date")]
@@ -496,6 +515,29 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         "ASYNC_ITERABLE_ITERATOR",
         "crate::builtins::iterator::CLASS_DEF_ASYNC_ITERABLE_ITERATOR",
         PayloadKey::AsyncIterableIterator,
+    ),
+    //
+    // ES2024+ Iterator global object
+    //
+    ClassInfo::class_def(
+        "ITERATOR",
+        "crate::builtins::iterator::CLASS_DEF_ITERATOR",
+        PayloadKey::None,
+    ),
+    ClassInfo::class_def(
+        "ITERATOR_HELPER",
+        "crate::builtins::iterator::CLASS_DEF_ITERATOR_HELPER",
+        PayloadKey::IteratorHelper,
+    ),
+    ClassInfo::class_def(
+        "ITERATOR_WRAP",
+        "crate::builtins::iterator::CLASS_DEF_ITERATOR_WRAP",
+        PayloadKey::IteratorWrap,
+    ),
+    ClassInfo::class_def(
+        "ITERATOR_CONCAT",
+        "crate::builtins::iterator::CLASS_DEF_ITERATOR_CONCAT",
+        PayloadKey::IteratorConcat,
     ),
 ];
 

@@ -221,6 +221,7 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     #[cfg(feature = "builtin_regexp")]
     "RegExp_String_Iterator",
     "Generator",
+    "Iterator",
     #[cfg(feature = "builtin_proxy")]
     "Proxy",
     "Promise",
