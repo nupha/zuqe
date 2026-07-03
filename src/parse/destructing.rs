@@ -106,19 +106,19 @@ impl<'s> JSParseState<'s> {
                     TokenKind::Char('{'),
                 )?;
 
-                /* swap ref and lvalue object if any */
+                // swap ref and lvalue object if any
                 if prop_name.is_null() {
                     match depth_lvalue1 {
                         1 => {
-                            /* source prop x -> x source prop */
+                            // source prop x -> x source prop
                             self.emit_op(OpCode::ROT3R);
                         }
                         2 => {
-                            /* source prop x y -> x y source prop */
-                            self.emit_op(OpCode::SWAP2); /* t p2 s p1 */
+                            // source prop x y -> x y source prop
+                            self.emit_op(OpCode::SWAP2); // t p2 s p1
                         }
                         3 => {
-                            /* source prop x y z -> x y z source prop */
+                            // source prop x y z -> x y z source prop
                             self.emit_op(OpCode::ROT5L);
                             self.emit_op(OpCode::ROT5L);
                         }
@@ -127,15 +127,15 @@ impl<'s> JSParseState<'s> {
                 } else {
                     match depth_lvalue1 {
                         1 => {
-                            /* source x -> x source */
+                            // source x -> x source
                             self.emit_op(OpCode::SWAP);
                         }
                         2 => {
-                            /* source x y -> x y source */
+                            // source x y -> x y source
                             self.emit_op(OpCode::ROT3L);
                         }
                         3 => {
-                            /* source x y z -> x y z source */
+                            // source x y z -> x y z source
                             self.emit_op(OpCode::ROT4L);
                         }
                         _ => {}
@@ -213,28 +213,28 @@ impl<'s> JSParseState<'s> {
                     )
                 {
                     if prop_name.is_null() {
-                        /* computed property name on stack */
+                        // computed property name on stack
                         if has_ellipsis {
-                            /* define the property in excludeList */
-                            self.emit_op(OpCode::TO_PROPKEY); /* avoid calling ToString twice */
-                            self.emit_op(OpCode::PERM3); /* TOS: src excludeList prop */
-                            self.emit_op(OpCode::NULL); /* TOS: src excludeList prop null */
-                            self.emit_op(OpCode::DEFINE_ARRAY_EL); /* TOS: src excludeList prop */
-                            self.emit_op(OpCode::PERM3); /* TOS: excludeList src prop */
+                            // define the property in excludeList
+                            self.emit_op(OpCode::TO_PROPKEY); // avoid calling ToString twice
+                            self.emit_op(OpCode::PERM3); // TOS: src excludeList prop
+                            self.emit_op(OpCode::NULL); // TOS: src excludeList prop null
+                            self.emit_op(OpCode::DEFINE_ARRAY_EL); // TOS: src excludeList prop
+                            self.emit_op(OpCode::PERM3); // TOS: excludeList src prop
                         }
-                        /* get the computed property from the source object */
+                        // get the computed property from the source object
                         self.emit_op(OpCode::GET_ARRAY_EL2);
                     } else {
-                        /* named property */
+                        // named property
                         if has_ellipsis {
-                            /* define the property in excludeList */
-                            self.emit_op(OpCode::SWAP); /* TOS: src excludeList */
-                            self.emit_op(OpCode::NULL); /* TOS: src excludeList null */
-                            self.emit_op(OpCode::DEFINE_FIELD); /* TOS: src excludeList */
+                            // define the property in excludeList
+                            self.emit_op(OpCode::SWAP); // TOS: src excludeList
+                            self.emit_op(OpCode::NULL); // TOS: src excludeList null
+                            self.emit_op(OpCode::DEFINE_FIELD); // TOS: src excludeList
                             self.emit_atom(prop_name);
-                            self.emit_op(OpCode::SWAP); /* TOS: excludeList src */
+                            self.emit_op(OpCode::SWAP); // TOS: excludeList src
                         }
-                        /* get the named property from the source object */
+                        // get the named property from the source object
                         self.emit_op(OpCode::GET_FIELD2);
                         self.emit_atom(prop_name);
                     }
@@ -253,43 +253,50 @@ impl<'s> JSParseState<'s> {
                 if prop_name.is_null() {
                     self.emit_op(OpCode::TO_PROPKEY);
                     if has_ellipsis {
-                        /* define the property in excludeList */
+                        // define the property in excludeList
                         self.emit_op(OpCode::PERM3);
                         self.emit_op(OpCode::NULL);
                         self.emit_op(OpCode::DEFINE_ARRAY_EL);
                         self.emit_op(OpCode::PERM3);
                     }
-                    /* source prop -- source source prop */
+                    // source prop -- source source prop
                     self.emit_op(OpCode::DUP1);
                 } else {
                     if has_ellipsis {
-                        /* define the property in excludeList */
+                        // define the property in excludeList
                         self.emit_op(OpCode::SWAP);
                         self.emit_op(OpCode::NULL);
                         self.emit_op(OpCode::DEFINE_FIELD);
                         self.emit_atom(prop_name);
                         self.emit_op(OpCode::SWAP);
                     }
-                    /* source -- source source */
+                    // source -- source source
                     self.emit_op(OpCode::DUP);
                 }
 
                 if tok != TokenKind::Char('\0') {
                     var_name = self.parse_destructuring_var(is_arg)?;
+                    if self.need_var_reference(tok) {
+                        // Must make a reference for proper `with` semantics
+                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                        self.emit_atom(var_name);
+                        self.emit_u16(self.cur_func().scope_level as _);
+                        lvalue!();
+                    }
                 } else {
                     self.parse_left_hand_side_expr()?;
                     lvalue!();
                 }
 
                 if prop_name.is_null() {
-                    /* computed property name on stack */
-                    /* XXX: should have OP_get_array_el2x with depth */
-                    /* source prop -- val */
+                    // computed property name on stack
+                    // XXX: should have OP_get_array_el2x with depth
+                    // source prop -- val
                     self.emit_op(OpCode::GET_ARRAY_EL);
                 } else {
-                    /* named property */
-                    /* XXX: should have OP_get_field2x with depth */
-                    /* source -- val */
+                    // named property
+                    // XXX: should have OP_get_field2x with depth
+                    // source -- val
                     self.emit_op(OpCode::GET_FIELD);
                     self.emit_atom(prop_name);
                 }
@@ -308,7 +315,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if has_ellipsis {
-                    /* define the property in excludeList */
+                    // define the property in excludeList
                     self.emit_op(OpCode::SWAP);
                     self.emit_op(OpCode::NULL);
                     self.emit_op(OpCode::DEFINE_FIELD);
@@ -319,8 +326,8 @@ impl<'s> JSParseState<'s> {
                 let mut goto_lvalue = false;
 
                 if matches!(tok, TokenKind::Char('\0') | TokenKind::VAR) {
-                    /* generate reference */
-                    /* source -- source source */
+                    // generate reference
+                    // source -- source source
                     self.emit_op(OpCode::DUP);
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
                     self.emit_atom(prop_name);
@@ -331,14 +338,14 @@ impl<'s> JSParseState<'s> {
 
                     // code after label lvalue
                     if prop_name.is_null() {
-                        /* computed property name on stack */
-                        /* XXX: should have OP_get_array_el2x with depth */
-                        /* source prop -- val */
+                        // computed property name on stack
+                        // XXX: should have OP_get_array_el2x with depth
+                        // source prop -- val
                         self.emit_op(OpCode::GET_ARRAY_EL);
                     } else {
-                        /* named property */
-                        /* XXX: should have OP_get_field2x with depth */
-                        /* source -- val */
+                        // named property
+                        // XXX: should have OP_get_field2x with depth
+                        // source -- val
                         self.emit_op(OpCode::GET_FIELD);
                         self.emit_atom(prop_name);
                     }
@@ -346,7 +353,7 @@ impl<'s> JSParseState<'s> {
 
                 if !goto_lvalue {
                     var_name = prop_name;
-                    /* source -- source val */
+                    // source -- source val
                     self.emit_op(OpCode::GET_FIELD2);
                     self.emit_atom(prop_name);
                 }
@@ -410,7 +417,7 @@ impl<'s> JSParseState<'s> {
 
             let parse_expr = match self.token.kind {
                 TokenKind::Char(',') => {
-                    // do nothing, skip the value, has_spread is false */
+                    // do nothing, skip the value, has_spread is false
                     self.emit_op(OpCode::FOR_OF_NEXT);
                     self.emit_u8(0);
                     self.emit_op(OpCode::DROP);
@@ -483,7 +490,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if self.token.kind == TokenKind::Char('=') && !has_spread {
-                    /* handle optional default value */
+                    // handle optional default value
                     self.emit_op(OpCode::DUP);
                     self.emit_op(OpCode::UNDEFINED);
                     self.emit_op(OpCode::STRICT_EQ);
@@ -502,7 +509,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_label(label_hasval);
                 }
 
-                /* store value into lvalue object */
+                // store value into lvalue object
                 self.put_lvalue(
                     opcode,
                     scope,
@@ -652,5 +659,25 @@ impl<'s> JSParseState<'s> {
         }
 
         Ok(())
+    }
+
+    /// tok = VAR, LET or CONST. Return whether a reference must be taken to
+    /// the variable for proper 'with' or global variable evaluation.
+    /// Note: this function is needed only because variable references are not
+    /// yet optimized in destructuring.
+    fn need_var_reference(&self, tok: TokenKind) -> bool {
+        if tok != TokenKind::VAR {
+            return false; // no reference for let/const
+        }
+        let fd = self.cur_func();
+        if fd.attrs.exec_mode.contains(ExecMode::STRICT) {
+            if !fd.is_global_var {
+                return false; // local definitions in strict mode
+            }
+            if self.is_module {
+                return false; // in a module, global variables are like closure variables
+            }
+        }
+        true
     }
 }
