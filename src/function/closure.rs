@@ -309,7 +309,7 @@ impl Bytecode {
                 self.func_name
             },
             self.attrs.defined_arg_count as _,
-        );
+        )?;
 
         if let Some(gen_class_id) = self.func_kind().generator_class_id() {
             debug_assert!(matches!(

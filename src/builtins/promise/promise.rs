@@ -471,7 +471,7 @@ impl Promise {
                     },
                 )
                 .map_err(|_| -1)?;
-            js_function_set_properties(ctx, func, Atom::CONST_empty_string, 1);
+            js_function_set_properties(ctx, func, Atom::CONST_empty_string, 1)?;
             resolving_funcs[i as usize] = func.into();
         }
 

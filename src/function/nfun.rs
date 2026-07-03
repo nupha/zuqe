@@ -350,7 +350,7 @@ impl NativeFunction {
         }
 
         // define `length` and `name` properties on function.
-        js_function_set_properties(ctx, func_obj, name, length as i32);
+        js_function_set_properties(ctx, func_obj, name, length as i32)?;
 
         Ok(Self(func_obj.gc_ref()))
     }

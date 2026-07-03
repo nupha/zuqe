@@ -9,7 +9,7 @@ use smallvec::SmallVec;
 use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
-    atom::Atom,
+    atom::{Atom, AtomDescKind},
     bytecode::exec_stackless::execute_trampoline,
     class::ClassID,
     context::{ContextPtr, ScopedContext},
@@ -21,6 +21,7 @@ use crate::{
     },
     object_cast,
     stack_frame::{FrameState, StackFrameArena},
+    string::JS_ConcatString3,
     value::JSValue,
 };
 
@@ -273,7 +274,7 @@ pub(crate) fn js_function_set_properties(
     mut func_obj: Object,
     name: Atom,
     len: i32,
-) {
+) -> Result<(), i32> {
     let _ = func_obj.define_property_value(
         ctx,
         Atom::CONST_length,
@@ -281,11 +282,18 @@ pub(crate) fn js_function_set_properties(
         JS_PROP_CONFIGURABLE, // ES6 feature non-compatible with ES5.1: length is configurable
     );
 
-    let name_val = name
-        .force_string(ctx)
-        .map_or(JSValue::EXCEPTION, JSValue::from);
+    let name_val = if name.desc_kind(ctx.rt()) == AtomDescKind::JS_ATOM_KIND_SYMBOL {
+        // Well-known symbol functions: name should be [Symbol.xxx]
+        let inner = name.force_string(ctx)?;
+        JS_ConcatString3(ctx, c"[", inner.into(), c"]")
+            .map(JSValue::from)?
+    } else {
+        name.force_string(ctx).map(JSValue::from)?
+    };
 
-    let _ = func_obj.define_property_value(ctx, Atom::CONST_name, name_val, JS_PROP_CONFIGURABLE);
+    func_obj
+        .define_property_value(ctx, Atom::CONST_name, name_val, JS_PROP_CONFIGURABLE)
+        .map(|_| ())
 }
 
 pub(crate) const fn js_function_proto(_: &mut ScopedContext, _: CallContext) -> JSResult {
