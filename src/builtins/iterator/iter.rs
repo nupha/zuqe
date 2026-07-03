@@ -14,7 +14,8 @@ use crate::{
     function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E,
-        JS_PROP_ENUMERABLE, JS_PROP_THROW, Object, ObjectPayload, PropertyKey,
+        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_THROW, Object, ObjectPayload,
+        PropertyKey,
     },
     value::JSValue,
 };
@@ -615,6 +616,8 @@ impl Array {
 pub(crate) const js_iterator_proto_funcs: &[FieldDef] = &[
     #[cfg(feature = "builtin_symbol")]
     FieldDef::FUNC("[Symbol.iterator]", 0, js_get_this, 0),
+    #[cfg(feature = "builtin_symbol")]
+    FieldDef::STR("[Symbol.toStringTag]", "Iterator", JS_PROP_CONFIGURABLE),
 ];
 
 #[cfg(not(feature = "builtin_symbol"))]
