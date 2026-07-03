@@ -82,11 +82,11 @@ fn js_async_from_sync_iterator_close_on_reject(
     let async_val = cc.data(0);
     ctx.throw_value(err);
 
-    if let Ok(async_obj) = Object::try_from(async_val) {
-        if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = async_obj.payload() {
-            let _ = ObjectIter::close_iter_internal(ctx, p.obj);
-            p.closed.set(true);
-        }
+    if let Ok(async_obj) = Object::try_from(async_val)
+        && let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = async_obj.payload()
+    {
+        let _ = ObjectIter::close_iter_internal(ctx, p.obj);
+        p.closed.set(true);
     }
 
     // close_iter_internal restores the original exception (err) if return() succeeds.
@@ -95,17 +95,37 @@ fn js_async_from_sync_iterator_close_on_reject(
     Err(-1)
 }
 
-fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let done_resolve = |cx: &mut ScopedContext,
-                        rr: [JSValue; 2],
-                        err: JSValue,
-                        is_reject: usize,
-                        promise: Promise|
-     -> JSValue {
-        let _ = rr[is_reject].call(cx, JSValue::UNDEFINED, &[err]);
-        promise.into()
-    };
+/// Reject the promise with the current exception on the context.
+fn reject_current(ctx: &mut ScopedContext, rr: [JSValue; 2], promise: Promise) -> JSResult {
+    let err_val = ctx.take_exception().to_value(ctx);
+    let _ = rr[1].call(ctx, JSValue::UNDEFINED, &[err_val]);
+    Ok(promise.into())
+}
 
+/// Close the iterator (forgiving), mark closed, and reject with the result exception.
+fn close_iterator_and_reject(
+    ctx: &mut ScopedContext,
+    p: &JSAsyncFromSyncIteratorData,
+    rr: [JSValue; 2],
+    promise: Promise,
+) -> JSResult {
+    let _ = ObjectIter::close_iter_internal(ctx, p.obj);
+    p.closed.set(true);
+
+    let err_val = match ctx.rt().exception() {
+        Exception::No => {
+            // throw() is undefined and IteratorClose succeeded:
+            // reject with a new TypeError per spec
+            ctx.throw_type_error("throw is not a method");
+            ctx.take_exception().to_value(ctx)
+        }
+        _ => ctx.take_exception().to_value(ctx),
+    };
+    let _ = rr[1].call(ctx, JSValue::UNDEFINED, &[err_val]);
+    Ok(promise.into())
+}
+
+fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let (promise, resolving_funcs) = Promise::create(ctx)?;
     debug_assert!(promise.gc_node().is_root_or_local());
     debug_assert!(
@@ -123,20 +143,14 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
             .is_root_or_local()
     );
 
-    // protect resolving_funcs
-    // ctx.gc_heap_mut().protect_nodes(&[
-    //     resolving_funcs[0].gc_node_ptr().unwrap(),
-    //     resolving_funcs[1].gc_node_ptr().unwrap(),
-    // ]);
-
     let this_val = cc.this();
     let p = unsafe { this_val.as_object_unchecked() };
 
     if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = p.payload() {
         if cc.magic() == GEN_MAGIC_RETURN && p.closed.get() {
-            // Already closed by onRejected handler; return {value: undefined, done: true}
             let result = make_iterator_next_result(ctx, JSValue::UNDEFINED, true)?;
-            return Ok(done_resolve(ctx, resolving_funcs, result, 0, promise));
+            let _ = resolving_funcs[0].call(ctx, JSValue::UNDEFINED, &[result]);
+            return Ok(promise.into());
         }
 
         let method = if cc.magic() == GEN_MAGIC_NEXT {
@@ -152,27 +166,19 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
             ) {
                 Ok(func_val) => {
                     if func_val.is_undefined_or_null() {
-                        if cc.magic() == GEN_MAGIC_RETURN {
+                        return if cc.magic() == GEN_MAGIC_RETURN {
                             let result = make_iterator_next_result(ctx, cc.arg(0), true)?;
-                            return Ok(done_resolve(ctx, resolving_funcs, result, 0, promise));
-                        }
-
-                        // GEN_MAGIC_THROW: IteratorClose then reject with TypeError
-                        let _ = ObjectIter::close_iter_internal(ctx, p.obj);
-                        let err_val = match ctx.rt().exception() {
-                            Exception::No => {
-                                ctx.throw_type_error("IteratorClose returned non-object");
-                                ctx.take_exception().to_value(ctx)
-                            }
-                            _ => ctx.take_exception().to_value(ctx),
+                            let _ = resolving_funcs[0].call(ctx, JSValue::UNDEFINED, &[result]);
+                            Ok(promise.into())
+                        } else {
+                            close_iterator_and_reject(ctx, p, resolving_funcs, promise)
                         };
-                        return Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise));
                     }
+
                     func_val
                 }
                 Err(_) => {
-                    let err_val = ctx.take_exception().to_value(ctx);
-                    return Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise));
+                    return reject_current(ctx, resolving_funcs, promise);
                 }
             }
         };
@@ -194,8 +200,7 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
                     let mut _done = false;
                     value = JS_IteratorGetCompleteValue(ctx, value, &mut _done);
                     if value.is_exception() {
-                        let err_val = ctx.take_exception().to_value(ctx);
-                        return Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise));
+                        return reject_current(ctx, resolving_funcs, promise);
                     }
                     _done
                 }
@@ -211,29 +216,17 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
                     r.try_into()?
                 } else {
                     let err_val = ctx.take_exception().to_value(ctx);
-
-                    // AsyncFromSyncIteratorContinuation step 6:
-                    // if valueWrapper is an abrupt completion, done is false,
-                    // and closeOnRejection is true -> close the iterator
                     return if close_on_rejection && !done {
-                        // Set pending exception first so close_iter_internal
-                        // skips return type check (forgiving close, like quickjs)
                         ctx.throw_value(err_val);
-                        let _ = ObjectIter::close_iter_internal(ctx, p.obj);
-                        p.closed.set(true);
-                        let close_val = ctx.take_exception().to_value(ctx);
-                        Ok(done_resolve(ctx, resolving_funcs, close_val, 1, promise))
+                        close_iterator_and_reject(ctx, p, resolving_funcs, promise)
                     } else {
-                        Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise))
+                        let _ = resolving_funcs[1].call(ctx, JSValue::UNDEFINED, &[err_val]);
+                        Ok(promise.into())
                     };
                 }
             };
 
             let close_on_reject_fn = if close_on_rejection && !done {
-                // AsyncFromSyncIteratorContinuation step 13-14:
-                // onRejected closes the iterator, then rejects.
-                // Pass this_val (async-from-sync iterator) as data[0]
-                // so the handler can set p.closed after closing.
                 NativeFunction::create(
                     ctx,
                     Callback::Func(js_async_from_sync_iterator_close_on_reject),
@@ -255,13 +248,11 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
             value_wrapper_promise.reaction(ctx, resolve_reject, resolving_funcs)?;
             Ok(promise.into())
         } else {
-            let err_val = ctx.take_exception().to_value(ctx);
-            Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise))
+            reject_current(ctx, resolving_funcs, promise)
         }
     } else {
         ctx.throw_type_error("not an Async-from-Sync Iterator");
-        let err_val = ctx.take_exception().to_value(ctx);
-        Ok(done_resolve(ctx, resolving_funcs, err_val, 1, promise))
+        reject_current(ctx, resolving_funcs, promise)
     }
 }
 
