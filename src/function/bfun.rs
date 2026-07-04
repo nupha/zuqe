@@ -441,22 +441,9 @@ impl BytecodeFunction {
             arena.init_frame_args(frame_idx, bc.arg_count, bc.var_count, args);
         }
 
-        // Get home_object before closure_var_refs_mut to avoid
-        // conflicting mutable borrows on bf.
-        let home_obj = bf.home_object();
-        let captured_vars = bf.closure_var_refs_mut();
-
         // execute_trampoline manages active_trampoline_frame internally,
         // save and restore the outer value.
-        let (ret_val, is_completed) = execute_trampoline(
-            bc,
-            frame_idx,
-            ctx,
-            this_obj,
-            new_target,
-            captured_vars,
-            home_obj,
-        );
+        let (ret_val, is_completed) = execute_trampoline(bc, frame_idx, ctx, this_obj, new_target);
 
         rt.active_frame_index = saved_frame;
 

@@ -220,7 +220,6 @@ impl Bytecode {
         func_home_obj: Option<Object>,
         pc_offset: usize,
         sp_offset: usize,
-        captured_vars: &mut [VarRef],
         args: &[JSValue],
         throwed: bool,
     ) -> ExecAction {
@@ -828,11 +827,11 @@ impl Bytecode {
                     }
                     OpCode::CLOSE_LOC => {
                         let idx = PC_FETCH!(u16);
-                        if let Some(var_refs) = arena.try_var_refs_mut(cur_frame_idx) {
-                            if let Some(vr) = var_refs.iter_mut().find(|v| v.is_match(idx, false))
-                            {
-                                vr.detach();
-                            }
+                        if let Some(vr) = arena
+                            .try_var_refs_mut(cur_frame_idx)
+                            .and_then(|vrs| vrs.iter_mut().find(|v| v.is_match(idx, false)))
+                        {
+                            vr.detach();
                         }
                     }
 
@@ -3040,8 +3039,6 @@ pub(crate) fn execute_trampoline(
     start_scope: &mut ScopedContext,
     mut this_obj: JSValue,
     mut new_target: JSValue,
-    captured_vars: &mut [VarRef],
-    func_home_obj: Option<Object>,
 ) -> (JSValue, bool) {
     let mut rt_ptr = start_scope.rt_ptr();
     let mut cur_bc = start_bc;
@@ -3112,7 +3109,6 @@ pub(crate) fn execute_trampoline(
             func_home_obj,
             pc_offset,
             sp_offset,
-            captured_vars,
             args,
             throwed,
         );

@@ -23,7 +23,7 @@ use crate::{
 };
 
 /// default stack size in bytes
-const DEFAULT_STACK_SIZE: usize = 720 * 1024;
+const DEFAULT_STACK_SIZE: usize = 512 * 1024;
 /// number of allocations between should_gc() checks.
 const DEFAULT_ALLOC_CHECK_INTERVAL: u32 = 32;
 
