@@ -543,6 +543,61 @@ impl FunctionDef {
                             }
                         }
 
+                        // Try 3: CALL + GOTO ⟶ label ⟶ RETURN (for ?: expressions)
+                        if !tco_ok {
+                            let goto_op = unsafe { *bc_buf_ptr.add(pos_next) };
+                            let goto_len = opcode_info_intermediate(goto_op).size as usize;
+                            if goto_op == opcodes::OP_goto
+                                && pos_next + goto_len <= bc_buf_len
+                            {
+                                let goto_label =
+                                    unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos_next + 1)) };
+                                let mut scan = pos_next + goto_len;
+                                let mut scan_line_num = line_num;
+                                let mut found = false;
+                                while scan < bc_buf_len {
+                                    let s_op = unsafe { *bc_buf_ptr.add(scan) };
+                                    let s_len = opcode_info_intermediate(s_op).size as usize;
+                                    if scan + s_len > bc_buf_len {
+                                        break;
+                                    }
+                                    if s_op == opcodes::op_label {
+                                        let label_id = unsafe {
+                                            read_from_ptr::<u32>(bc_buf_ptr.add(scan + 1))
+                                        };
+                                        if label_id == goto_label {
+                                            let after = scan + s_len;
+                                            let next = unsafe { *bc_buf_ptr.add(after) };
+                                            if next == opcodes::OP_return
+                                                || next == opcodes::OP_return_undef
+                                            {
+                                                found = true;
+                                            }
+                                            break;
+                                        }
+                                    }
+                                    if s_op == opcodes::op_line_num {
+                                        scan_line_num = unsafe {
+                                            read_from_ptr::<i32>(bc_buf_ptr.add(scan + 1))
+                                        };
+                                    }
+                                    scan += s_len;
+                                }
+                                if found {
+                                    if scan_line_num >= 0 && scan_line_num != line_num {
+                                        line_num = scan_line_num;
+                                        self.line_number_slots_cap += 1;
+                                        push_vec_u8(&mut bc_out, OpCodeTemp::LINE_NUM as u8);
+                                        push_vec_u32(&mut bc_out, line_num as u32);
+                                    }
+                                    self.add_pc2line_info(bc_out.len() as _, line_num);
+                                    push_vec_u8(&mut bc_out, op + 1);
+                                    push_vec_u16(&mut bc_out, argc);
+                                    tco_ok = true;
+                                }
+                            }
+                        }
+
                         if !tco_ok {
                             no_change!(pos, op_len);
                         }
