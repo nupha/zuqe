@@ -454,11 +454,18 @@ impl FunctionDef {
                     // Detect and transform tail calls:
                     //   call f, n  +  return/return_undef  →  tail_call f, n
                     //   call_method f, n  +  return/return_undef  →  tail_call_method f, n
+                    // Also handles labels between call and return (e.g. ??, &&, ||):
+                    //   call f, n  +  [label/line_num]*  +  return  →  tail_call f, n  +  [label]*  +  return
                     if OPTIMIZE {
                         let argc = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 1)) };
+                        // Try 1: direct match (call + return, no intervening opcodes)
+                        let mut tco_ok = false;
                         if let Some(cc) = self.code_match(
                             pos_next,
-                            &[M2(opcodes::OP_return as i32, opcodes::OP_return_undef as i32)],
+                            &[M2(
+                                opcodes::OP_return as i32,
+                                opcodes::OP_return_undef as i32,
+                            )],
                         ) {
                             if cc.line_num >= 0 && cc.line_num != line_num {
                                 line_num = cc.line_num;
@@ -467,18 +474,83 @@ impl FunctionDef {
                                 push_vec_u32(&mut bc_out, line_num as u32);
                             }
                             self.add_pc2line_info(bc_out.len() as _, line_num);
-                            // op+1 = tail_call/tail_call_method (adjacent in opcode ordering)
+
+                            // op+1 maps CALL→TAIL_CALL, CALL_METHOD→TAIL_CALL_METHOD:
+                            //   OP_call (N) + 1 = OP_tail_call (N+1)
+                            //   OP_call_method (N+1) + 1 = OP_tail_call_method (N+2)
                             push_vec_u8(&mut bc_out, op + 1);
                             push_vec_u16(&mut bc_out, argc);
+
                             pos_next = cc.pos;
-                        } else {
+                            tco_ok = true;
+                        }
+
+                        // Try 2: scan past labels/line_nums to find return.
+                        // Needed for ??, &&, ||, ?: expressions where a label
+                        // sits between the call and the final return.
+                        // Emit tail_call and let subsequent loop iterations
+                        // process the intervening labels/return normally (they
+                        // become dead code after tail_call but labels must be
+                        // registered in label_slots for jump resolution).
+                        if !tco_ok {
+                            let mut scan = pos_next;
+                            let mut scan_line_num = line_num;
+                            let mut found_return = false;
+                            while scan < bc_buf_len {
+                                let scan_op = unsafe { *bc_buf_ptr.add(scan) };
+                                let scan_len = opcode_info_intermediate(scan_op).size as usize;
+                                if scan + scan_len > bc_buf_len {
+                                    break;
+                                }
+                                match scan_op {
+                                    opcodes::op_line_num => {
+                                        scan_line_num = unsafe {
+                                            read_from_ptr::<i32>(bc_buf_ptr.add(scan + 1))
+                                        };
+                                        scan += scan_len;
+                                    }
+                                    opcodes::op_label => {
+                                        scan += scan_len;
+                                    }
+                                    opcodes::OP_return | opcodes::OP_return_undef => {
+                                        found_return = true;
+                                        break;
+                                    }
+                                    _ => break,
+                                }
+                            }
+
+                            if found_return {
+                                if scan_line_num >= 0 && scan_line_num != line_num {
+                                    line_num = scan_line_num;
+                                    self.line_number_slots_cap += 1;
+                                    push_vec_u8(&mut bc_out, OpCodeTemp::LINE_NUM as u8);
+                                    push_vec_u32(&mut bc_out, line_num as u32);
+                                }
+                                self.add_pc2line_info(bc_out.len() as _, line_num);
+
+                                // op+1 maps CALL→TAIL_CALL, CALL_METHOD→TAIL_CALL_METHOD:
+                                //   OP_call (N) + 1 = OP_tail_call (N+1)
+                                //   OP_call_method (N+1) + 1 = OP_tail_call_method (N+2)
+                                // (opcodes are adjacent in the enum ordering)
+                                push_vec_u8(&mut bc_out, op + 1);
+                                push_vec_u16(&mut bc_out, argc);
+
+                                // Do NOT skip past labels/return that follow — let the
+                                // normal dispatch handle them (labels must be registered
+                                // in label_slots for jump resolution, return is dead code).
+                                tco_ok = true;
+                            }
+                        }
+
+                        if !tco_ok {
                             no_change!(pos, op_len);
                         }
                     } else {
                         no_change!(pos, op_len);
                     }
                 }
-                opcodes::OP_nop => { /* remove erased code */ }
+                opcodes::OP_nop => {}
                 opcodes::op_set_class_name => { /* only used during parsing */ }
                 opcodes::op_get_field_opt_chain => {
                     let name = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) };
