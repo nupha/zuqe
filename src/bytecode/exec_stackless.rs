@@ -58,12 +58,15 @@ use crate::{
 #[derive(Debug)]
 pub(crate) enum ExecAction {
     /// Call a bytecode function: trampoline saves caller state and switches
-    /// to the callee frame.
+    /// to the callee frame. Carries this_obj/new_target to avoid re-reading
+    /// from the callee frame head in the trampoline handler.
     CallBytecode {
         callee_bc: Bytecode,
         callee_frame_idx: FrameIndex,
         /// SP offset in caller frame where return value should be stored.
         return_sp: usize,
+        this_obj: JSValue,
+        new_target: JSValue,
     },
     /// Cross-realm call: trampoline switches to callee's context scope.
     CallBytecodeCrossRealm {
@@ -71,6 +74,8 @@ pub(crate) enum ExecAction {
         callee_frame_idx: FrameIndex,
         callee_ctx_ptr: ContextPtr,
         return_sp: usize,
+        this_obj: JSValue,
+        new_target: JSValue,
     },
     /// Tail-call optimization: recycle current frame, switch to callee
     /// without pushing a VirtualFrame.
@@ -234,9 +239,14 @@ impl Bytecode {
         // stack_base_ptr take &self on arena, while frame_mut takes &mut.
         let (arg_base_ptr, var_base_ptr, sp_base, mode, func_obj) = {
             let frame = arena.frame(cur_frame_idx);
-            let arg_base = frame.buf.data_ptr();
+            let arg_base = frame.buf.data_ptr_unchecked();
             let var_base = unsafe { arg_base.add(frame.var_base_offset as usize) };
-            let sp = frame.stack_base_ptr();
+            let sp = unsafe {
+                frame
+                    .buf
+                    .data_ptr_unchecked()
+                    .add((frame.var_base_offset + frame.var_count as u32) as usize)
+            };
             (arg_base, var_base, sp, frame.mode, frame.func_obj)
         };
 
@@ -463,12 +473,16 @@ impl Bytecode {
                 callee_bc: Bytecode,
                 callee_frame_idx: FrameIndex,
                 return_sp: usize,
+                this_obj: JSValue,
+                new_target: JSValue,
             },
             CallBytecodeCrossRealm {
                 callee_bc: Bytecode,
                 callee_frame_idx: FrameIndex,
                 callee_ctx_ptr: ContextPtr,
                 return_sp: usize,
+                this_obj: JSValue,
+                new_target: JSValue,
             },
             TailCall {
                 callee_bc: Bytecode,
@@ -1034,12 +1048,16 @@ impl Bytecode {
                                         callee_frame_idx,
                                         callee_ctx_ptr: callee_ctx,
                                         return_sp,
+                                        this_obj,
+                                        new_target,
                                     };
                                 } else {
                                     break State::CallBytecode {
                                         callee_bc: bc,
                                         callee_frame_idx,
                                         return_sp,
+                                        this_obj,
+                                        new_target,
                                     };
                                 }
                             }
@@ -2927,6 +2945,8 @@ impl Bytecode {
                     callee_bc,
                     callee_frame_idx,
                     return_sp,
+                    this_obj,
+                    new_target,
                 } => {
                     unsafe {
                         *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
@@ -2936,6 +2956,8 @@ impl Bytecode {
                         callee_bc,
                         callee_frame_idx,
                         return_sp,
+                        this_obj,
+                        new_target,
                     };
                 }
 
@@ -2944,6 +2966,8 @@ impl Bytecode {
                     callee_frame_idx,
                     callee_ctx_ptr,
                     return_sp,
+                    this_obj,
+                    new_target,
                 } => {
                     unsafe {
                         *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
@@ -2954,6 +2978,8 @@ impl Bytecode {
                         callee_frame_idx,
                         callee_ctx_ptr,
                         return_sp,
+                        this_obj,
+                        new_target,
                     };
                 }
 
@@ -3111,6 +3137,8 @@ pub(crate) fn execute_trampoline(
                 callee_bc,
                 callee_frame_idx: callee_idx,
                 return_sp,
+                this_obj: callee_this,
+                new_target: callee_new_target,
             } => {
                 let callee_gc_kind = callee_bc.gc_scope_kind();
 
@@ -3151,17 +3179,8 @@ pub(crate) fn execute_trampoline(
                 sp_offset = 0;
                 throwed = false;
 
-                // Update this_obj and new_target from the callee frame's
-                // protected_values. For plain CALL these are UNDEFINED;
-                // for CALL_METHOD (which goes through call_internal
-                // instead of inline dispatch) the trampoline is not
-                // entered — but this read is still correct for inline cases.
-                {
-                    let arena = unsafe { &*arena_ptr };
-                    let callee_head = arena.frame(callee_idx);
-                    this_obj = callee_head.protected_values[0];
-                    new_target = callee_head.protected_values[1];
-                }
+                this_obj = callee_this;
+                new_target = callee_new_target;
             }
 
             ExecAction::TailCall {
@@ -3185,9 +3204,12 @@ pub(crate) fn execute_trampoline(
                 // before it is recycled, otherwise captured variables become
                 // dangling pointers into the arena data buffer.
                 {
-                    let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
-                    for vr in var_refs.iter_mut() {
-                        vr.detach();
+                    let head = arena.frame(cur_frame_idx);
+                    if !head.var_ref_list.is_empty() {
+                        let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                        for vr in var_refs.iter_mut() {
+                            vr.detach();
+                        }
                     }
                 }
                 arena.free_frame(cur_frame_idx);
@@ -3230,9 +3252,12 @@ pub(crate) fn execute_trampoline(
                         // Detach all VarRefs before freeing the frame. The
                         // frame may hold closure variables captured by inner
                         // arrows (e.g., `new.target` in `async () => new.target`).
-                        let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
-                        for vr in var_refs {
-                            vr.detach();
+                        let head = arena.frame(cur_frame_idx);
+                        if !head.var_ref_list.is_empty() {
+                            let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                            for vr in var_refs {
+                                vr.detach();
+                            }
                         }
                         arena.free_frame(cur_frame_idx);
                         // Promote before scope pop so the value stays LOCAL
@@ -3293,9 +3318,12 @@ pub(crate) fn execute_trampoline(
                     // the `.next()` method). Without detach, VarRef raw pointers
                     // into arena.data become dangling after the region is reused.
                     // (The same pattern is used in the generator-completed path.)
-                    let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
-                    for vr in var_refs {
-                        vr.detach();
+                    let head = arena.frame(cur_frame_idx);
+                    if !head.var_ref_list.is_empty() {
+                        let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                        for vr in var_refs {
+                            vr.detach();
+                        }
                     }
                     arena.free_frame(cur_frame_idx);
                 }
@@ -3383,9 +3411,12 @@ pub(crate) fn execute_trampoline(
                     // Detach all VarRefs before freeing the frame (matching
                     // the Return handler). VarRef raw pointers into arena.data
                     // become dangling after the region is reused.
-                    let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
-                    for vr in var_refs {
-                        vr.detach();
+                    let head = arena.frame(cur_frame_idx);
+                    if !head.var_ref_list.is_empty() {
+                        let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                        for vr in var_refs {
+                            vr.detach();
+                        }
                     }
                     arena.free_frame(cur_frame_idx);
                 }
@@ -3424,6 +3455,8 @@ pub(crate) fn execute_trampoline(
                 callee_frame_idx: callee_idx,
                 callee_ctx_ptr,
                 return_sp,
+                this_obj: callee_this,
+                new_target: callee_new_target,
             } => {
                 // ── Cross-realm call ──
                 let callee_gc_kind = callee_bc.gc_scope_kind();
@@ -3460,15 +3493,8 @@ pub(crate) fn execute_trampoline(
                 pc_offset = 0;
                 sp_offset = 0;
                 throwed = false;
-
-                // Update this_obj and new_target from the callee frame's
-                // protected_values (matching the CallBytecode handler).
-                {
-                    let arena = unsafe { &*arena_ptr };
-                    let callee_head = arena.frame(callee_idx);
-                    this_obj = callee_head.protected_values[0];
-                    new_target = callee_head.protected_values[1];
-                }
+                this_obj = callee_this;
+                new_target = callee_new_target;
             }
         }
     }

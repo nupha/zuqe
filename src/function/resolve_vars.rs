@@ -509,7 +509,9 @@ impl FunctionDef {
                                         };
                                         scan += scan_len;
                                     }
-                                    opcodes::op_label => {
+                                    opcodes::op_label
+                                    | opcodes::OP_nip_catch
+                                    | opcodes::OP_gosub => {
                                         scan += scan_len;
                                     }
                                     opcodes::OP_return | opcodes::OP_return_undef => {

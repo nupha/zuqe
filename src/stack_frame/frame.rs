@@ -147,6 +147,23 @@ impl FrameBuffer {
             FrameBuffer::Empty => std::ptr::null_mut(),
         }
     }
+
+    /// Fast path: returns data pointer without checking the Empty variant.
+    /// Caller must guarantee the buffer is not Empty (active frames always
+    /// have Arena or Heap, never Empty at access time).
+    #[inline(always)]
+    pub(crate) fn data_ptr_unchecked(&self) -> *mut JSValue {
+        match self {
+            FrameBuffer::Arena {
+                data_base,
+                buf_offset,
+            } => unsafe { data_base.add(*buf_offset as usize) },
+            FrameBuffer::Heap(b) => b.as_ptr() as *mut JSValue,
+            FrameBuffer::Empty => {
+                unreachable!("data_ptr_unchecked called on Empty FrameBuffer")
+            }
+        }
+    }
 }
 
 /// One entry in the trampoline's virtual call stack.
