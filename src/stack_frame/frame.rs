@@ -154,7 +154,11 @@ impl FrameBuffer {
 pub(crate) struct VirtualFrame {
     pub(crate) frame_idx: FrameIndex,
     pub(crate) caller_bc: Bytecode,
-    pub(crate) caller_scope: ManuallyDrop<ScopedContext<'static>>,
+    /// Saved caller GC scope. `None` means the callee was `GcScopeKind::None` —
+    /// no scope was swapped, so no scope needs to be restored on return/unwind.
+    /// `Some` means the callee was `GcScopeKind::Light` or `Full` — a new scope
+    /// was pushed and the caller's scope was saved here for later restoration.
+    pub(crate) caller_scope: Option<ManuallyDrop<ScopedContext<'static>>>,
     pub(crate) return_sp: usize,
 }
 

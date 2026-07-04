@@ -379,23 +379,39 @@ impl Drop for StackFrameArena {
             return;
         }
 
-        let bump_pct = self.stats_bump as f64 / total as f64 * 100.0;
-
-        // 非 bump alloc（async + 容量不足）超过 0.5% 则警告
-        if bump_pct < 99.5 {
-            eprintln!(
-                "[WARN] StackFrameArena bump_rate={:.1}% (bump={}, non_bump: async={}, cap={}, total={})",
-                bump_pct, self.stats_bump, self.stats_heap_async, self.stats_heap_capacity, total,
-            );
+        // async 帧固定走 heap 是设计选择（需存活跨越 suspend/resume），
+        // 不影响性能。仅检查容量不足导致的 heap fallback。
+        let cap_total = self.stats_bump + self.stats_heap_capacity;
+        if cap_total > 0 {
+            let cap_bump_pct = self.stats_bump as f64 / cap_total as f64 * 100.0;
+            if cap_bump_pct < 99.5 {
+                eprintln!(
+                    "[WARN] StackFrameArena bump_rate={:.1}% (bump={}, non_bump: async={}, cap={}, total={})",
+                    cap_bump_pct,
+                    self.stats_bump,
+                    self.stats_heap_async,
+                    self.stats_heap_capacity,
+                    total,
+                );
+            }
         }
 
-        // 非 bump alloc 超过 5% — 严重影响 call 效率，debug 下直接 panic
-        debug_assert!(
-            bump_pct >= 95.0,
-            "StackFrameArena bump_rate too low: {:.1}% (bump={}, async={}, cap={}, total={}). \
-             Non-bump path adds heap alloc overhead per function call.",
-            bump_pct, self.stats_bump, self.stats_heap_async, self.stats_heap_capacity, total,
-        );
+        // async 帧固定走 heap 是设计选择（需存活跨越 suspend/resume），
+        // 不影响性能。仅检查容量不足导致的 heap fallback。
+        let cap_total = self.stats_bump + self.stats_heap_capacity;
+        if cap_total > 0 {
+            let cap_bump_pct = self.stats_bump as f64 / cap_total as f64 * 100.0;
+            debug_assert!(
+                cap_bump_pct >= 95.0,
+                "StackFrameArena bump_rate too low (capacity fallback): {:.1}% (bump={}, cap={}). \
+                 Arena data capacity ({}) exhausted too often — each fallback adds heap alloc \
+                 overhead per function call.",
+                cap_bump_pct,
+                self.stats_bump,
+                self.stats_heap_capacity,
+                self.data.len(),
+            );
+        }
     }
 }
 

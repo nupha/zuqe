@@ -36,8 +36,8 @@ use crate::{
     },
     eval::{EvalFlags, EvalType},
     function::{
-        BCWrapper, Bytecode, CallContext, FunctionKind, JS_CALL_FLAG_CONSTRUCTOR, VarRef,
-        build_arg_list, js_build_arguments, js_function_apply,
+        BCWrapper, Bytecode, CallContext, FunctionKind, GcScopeKind, JS_CALL_FLAG_CONSTRUCTOR,
+        VarRef, build_arg_list, js_build_arguments, js_function_apply,
     },
     module::{js_dynamic_import, js_import_meta},
     object::{
@@ -203,6 +203,7 @@ impl Bytecode {
         realm_scope: &mut ScopedContext,
         arena: &mut StackFrameArena,
         cur_frame_idx: FrameIndex,
+        gc_scope_kind: GcScopeKind,
         this_obj: JSValue,
         new_target: JSValue,
         func_home_obj: Option<Object>,
@@ -2870,12 +2871,16 @@ impl Bytecode {
 
                 #[cfg(all(debug_assertions, feature = "debug_gc"))]
                 {
-                    realm_scope.clear_locals();
+                    if gc_scope_kind != GcScopeKind::None {
+                        realm_scope.clear_locals();
+                    }
                     rt.gc_collect();
                 }
                 #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
                 if rt.gc_req {
-                    realm_scope.clear_locals();
+                    if gc_scope_kind != GcScopeKind::None {
+                        realm_scope.clear_locals();
+                    }
                     rt.gc_collect();
                 }
             }; // opcodes inner loop
@@ -3090,6 +3095,7 @@ pub(crate) fn execute_trampoline(
             cur_trampoline_scope.scope_mut(),
             arena,
             cur_frame_idx,
+            cur_bc.gc_scope_kind(),
             this_obj,
             new_target,
             func_home_obj,
@@ -3106,22 +3112,31 @@ pub(crate) fn execute_trampoline(
                 callee_frame_idx: callee_idx,
                 return_sp,
             } => {
-                // Create callee's GC scope from the callee's realm, not the
-                // start function's realm — cross-realm calls (e.g., a function
-                // created by other.Function('return this')) need the callee's
-                // [[GlobalEnv]] for PUSH_THIS binding in non-strict mode.
-                let mut callee_realm_ctx = callee_bc.realm();
-                let callee_trampoline_scope =
-                    unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
+                let callee_gc_kind = callee_bc.gc_scope_kind();
 
-                // Swap: replace cur_trampoline_scope with callee's scope.
-                // The caller's scope (the old value) is extracted via
-                // into_inner() and stored in VirtualFrame's caller_scope.
-                // ManuallyDrop prevents auto-drop while stored in the Vec.
-                let caller_scope = ManuallyDrop::new(
-                    std::mem::replace(&mut cur_trampoline_scope, callee_trampoline_scope)
-                        .into_inner(),
-                );
+                // caller_scope: None if callee is NoScope (no scope swap needed),
+                // Some if callee is Light/Full (standard scope swap).
+                let caller_scope = match callee_gc_kind {
+                    GcScopeKind::None => {
+                        // NoScope: don't push a new GC scope. callee executes
+                        // within the caller's scope — safe because the
+                        // callee's bytecode allocates no LOCAL GC nodes.
+                        None
+                    }
+                    GcScopeKind::Light | GcScopeKind::Full => {
+                        let mut callee_realm_ctx = callee_bc.realm();
+                        let callee_trampoline_scope =
+                            unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
+
+                        Some(ManuallyDrop::new(
+                            std::mem::replace(
+                                &mut cur_trampoline_scope,
+                                callee_trampoline_scope,
+                            )
+                            .into_inner(),
+                        ))
+                    }
+                };
 
                 virtual_frames.push(VirtualFrame {
                     frame_idx: cur_frame_idx,
@@ -3227,7 +3242,9 @@ pub(crate) fn execute_trampoline(
 
                         // Drain virtual_frames to drop saved caller scopes.
                         while let Some(vf) = virtual_frames.pop() {
-                            drop(ManuallyDrop::into_inner(vf.caller_scope));
+                            if let Some(scope) = vf.caller_scope {
+                                drop(ManuallyDrop::into_inner(scope));
+                            }
                         }
                         rt_ptr.active_frame_index = FrameIndex::NULL;
 
@@ -3252,7 +3269,9 @@ pub(crate) fn execute_trampoline(
                     // On early return (yield/await), we must explicitly drain
                     // them to prevent GC scope stack corruption.
                     while let Some(vf) = virtual_frames.pop() {
-                        drop(ManuallyDrop::into_inner(vf.caller_scope));
+                        if let Some(scope) = vf.caller_scope {
+                            drop(ManuallyDrop::into_inner(scope));
+                        }
                     }
                     rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (ret_val, false);
@@ -3282,15 +3301,25 @@ pub(crate) fn execute_trampoline(
                 }
                 // Promote before scope pop so the value stays LOCAL
                 // in the parent scope (caller's scope, or start_scope).
-                promote_to_parent(ret_val, &cur_trampoline_scope);
-                drop(cur_trampoline_scope.into_inner());
 
                 if let Some(caller_vf) = virtual_frames.pop() {
+                    if let Some(saved_caller_scope) = caller_vf.caller_scope {
+                        // Full/Light: promote, pop callee scope, restore caller.
+                        promote_to_parent(ret_val, &cur_trampoline_scope);
+                        drop(cur_trampoline_scope.into_inner());
+                        cur_trampoline_scope = unsafe {
+                            TrampolineScope::from_ctx(ManuallyDrop::into_inner(
+                                saved_caller_scope,
+                            ))
+                        };
+                    }
+                    // NoScope: scope was never swapped —
+                    // cur_trampoline_scope is already the caller's.
+                    // No promote needed (callee had no LOCAL nodes),
+                    // no drop needed (no callee scope was created).
+
                     cur_bc = caller_vf.caller_bc;
                     cur_frame_idx = caller_vf.frame_idx;
-                    cur_trampoline_scope = unsafe {
-                        TrampolineScope::from_ctx(ManuallyDrop::into_inner(caller_vf.caller_scope))
-                    };
 
                     let caller_head = arena.frame(caller_vf.frame_idx);
                     let sp_ptr = caller_head.stack_base_ptr();
@@ -3307,6 +3336,11 @@ pub(crate) fn execute_trampoline(
                     sp_offset = caller_vf.return_sp + 1;
                     throwed = false;
                 } else {
+                    // Outermost frame: the trampoline scope was created by
+                    // TrampolineScope::new() at execute_trampoline entry —
+                    // always promote and drop, even for NoScope start functions.
+                    promote_to_parent(ret_val, &cur_trampoline_scope);
+                    drop(cur_trampoline_scope.into_inner());
                     rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (ret_val, true);
                 }
@@ -3355,12 +3389,18 @@ pub(crate) fn execute_trampoline(
                     }
                     arena.free_frame(cur_frame_idx);
                 }
-                drop(cur_trampoline_scope.into_inner());
-
                 if let Some(caller_vf) = virtual_frames.pop() {
-                    cur_trampoline_scope = unsafe {
-                        TrampolineScope::from_ctx(ManuallyDrop::into_inner(caller_vf.caller_scope))
-                    };
+                    if let Some(saved_caller_scope) = caller_vf.caller_scope {
+                        // Full/Light: drop callee scope and restore caller.
+                        drop(cur_trampoline_scope.into_inner());
+                        cur_trampoline_scope = unsafe {
+                            TrampolineScope::from_ctx(ManuallyDrop::into_inner(
+                                saved_caller_scope,
+                            ))
+                        };
+                    }
+                    // NoScope: scope was never swapped — skip drop/restore.
+
                     cur_bc = caller_vf.caller_bc;
                     cur_frame_idx = caller_vf.frame_idx;
 
@@ -3371,6 +3411,9 @@ pub(crate) fn execute_trampoline(
 
                     continue 'trampoline;
                 } else {
+                    // Outermost frame Unwind: trampoline scope must be dropped
+                    // (it was created at execute_trampoline entry).
+                    drop(cur_trampoline_scope.into_inner());
                     rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (JSValue::EXCEPTION, true);
                 }
@@ -3383,20 +3426,27 @@ pub(crate) fn execute_trampoline(
                 return_sp,
             } => {
                 // ── Cross-realm call ──
-                // Create callee's GC scope from the explicit callee_ctx_ptr.
-                // The callee has a different realm context, so we must switch
-                // to its GC scope for correct [[GlobalEnv]] bindings.
-                let mut callee_realm_ctx = callee_ctx_ptr;
-                let callee_trampoline_scope =
-                    unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
+                let callee_gc_kind = callee_bc.gc_scope_kind();
 
-                // Swap: replace cur_trampoline_scope with callee's scope.
-                // The caller's scope is extracted via into_inner() and stored
-                // in VirtualFrame's caller_scope with caller_ctx_ptr set.
-                let caller_scope = ManuallyDrop::new(
-                    std::mem::replace(&mut cur_trampoline_scope, callee_trampoline_scope)
-                        .into_inner(),
-                );
+                let caller_scope = match callee_gc_kind {
+                    GcScopeKind::None => {
+                        // NoScope: don't push a new scope (same logic as CallBytecode).
+                        None
+                    }
+                    GcScopeKind::Light | GcScopeKind::Full => {
+                        let mut callee_realm_ctx = callee_ctx_ptr;
+                        let callee_trampoline_scope =
+                            unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
+
+                        Some(ManuallyDrop::new(
+                            std::mem::replace(
+                                &mut cur_trampoline_scope,
+                                callee_trampoline_scope,
+                            )
+                            .into_inner(),
+                        ))
+                    }
+                };
 
                 virtual_frames.push(VirtualFrame {
                     frame_idx: cur_frame_idx,

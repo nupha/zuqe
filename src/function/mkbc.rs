@@ -2,14 +2,42 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    atom::Atom, context::ScopedContext, module::add_module_variables, stack_frame::ExecMode,
+    atom::Atom,
+    bytecode::{OpcodeGcAlloc, opcode_info_final},
+    context::ScopedContext,
+    module::add_module_variables,
+    stack_frame::ExecMode,
     value::JSValue,
 };
 
 use super::{
-    ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeImpl, ClosureVar, FunctionDef, JSVarDef,
-    JSVarKindEnum, is_var_in_arg_scope,
+    ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeImpl, ClosureVar, FunctionDef, GcScopeKind,
+    JSVarDef, JSVarKindEnum, is_var_in_arg_scope,
 };
+
+/// Classify a function's GC scope requirements by scanning its opcodes.
+fn compute_gc_scope_kind(opcodes: &[u8]) -> GcScopeKind {
+    let mut has_always = false;
+    let mut has_cond = false;
+    let mut pos = 0;
+    while pos < opcodes.len() {
+        let op = opcodes[pos];
+        let info = opcode_info_final(op);
+        match info.gc_alloc {
+            OpcodeGcAlloc::Always => has_always = true,
+            OpcodeGcAlloc::Conditional => has_cond = true,
+            OpcodeGcAlloc::Never => {}
+        }
+        pos += info.size as usize;
+    }
+    if has_always {
+        GcScopeKind::Full
+    } else if has_cond {
+        GcScopeKind::Light
+    } else {
+        GcScopeKind::None
+    }
+}
 
 impl FunctionDef {
     /// Compile FunctionDef to Bytecode.
@@ -253,9 +281,18 @@ impl FunctionDef {
             );
         }
 
-        // SAFEGUARD: clear bytecode, so that FunctionDef::finalize() will not free atoms in it.
+        // SAFEGUARD: clear bytecode, so that FunctionDef::drop/finalize() will
+        // not attempt to free atoms that are still referenced from byte_code.
+        // After the opcodes have been memcpy'd into `bin`, the atom IDs in
+        // `self.byte_code` are no longer "owned" by this FieldDef — they
+        // now live in the GC-managed `bin` buffer (inside BytecodeImpl).
+        // Clearing prevents double-free when the FieldDef is dropped.
         self.byte_code.clear();
         debug_assert_eq!(bin.len(), bin_size);
+
+        // Compute GC scope kind before bin is moved. Must read from the assembled
+        // binary because self.byte_code has already been cleared.
+        let gc_scope_kind = compute_gc_scope_kind(&bin[opcodes_start as usize..]);
 
         // create bytecode
         let mut bc_impl = BytecodeImpl::new(
@@ -293,6 +330,9 @@ impl FunctionDef {
             // no debug info
             bc_impl.debug.take();
         }
+
+        // Inject GC scope classification result computed before bytecode.
+        bc_impl.attrs.gc_scope_kind = gc_scope_kind;
 
         let bc = ctx.alloc_local(bc_impl).map(Bytecode::from).map_err(|_| {
             ctx.throw_out_of_memory();

@@ -5,7 +5,7 @@ use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     atom::{Atom, is_const_atom, is_small_int_atom},
-    bytecode::{OpcodeFormat, opcode_info_final},
+    bytecode::{OpcodeFormat, OpcodeGcAlloc, opcode_info_final},
     context::{ContextImpl, ContextPtr, ScopedContext},
     error::JSResult,
     eval::EvalType,
@@ -41,11 +41,34 @@ pub const PC2LINE_RANGE: i32 = 5;
 pub const PC2LINE_OP_FIRST: i32 = 1;
 pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
 
+/// Classifies whether a bytecode function needs a full GC scope during execution.
+///
+/// Derived at compile time by scanning opcodes for `OpcodeGcAlloc` markers:
+/// - `None`: function never allocates LOCAL GC nodes → trampoline skips scope push/pop.
+/// - `Light`: function only has `Never` + `Conditional` opcodes → must still push scope
+///   because `Conditional` opcodes (e.g. `ADD` invoking `valueOf`) may trigger allocations.
+/// - `Full`: function has at least one `Always` allocation opcode → standard scope path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+#[derive(Default)]
+pub(crate) enum GcScopeKind {
+    /// Has Always-allocation opcodes → standard scope push/pop/promote.
+    #[default]
+    Full = 0,
+    /// Only Never + Conditional → full scope path at runtime (same as Full),
+    /// but `Conditional` means cache is almost always empty (future optimisation
+    /// target for lazy `Option<SmallVec>`).
+    Light = 1,
+    /// Only Never opcodes → trampoline skips scope push/pop entirely.
+    None = 2,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct BytecodeAttrs {
     pub(crate) func_kind: FunctionKind,
     /// true if a prototype field is necessary
     pub(crate) has_prototype: bool,
+
     /// 是否有简单参数列表
     pub(crate) has_simple_parameter_list: bool,
     /// 是否是派生类构造函数
@@ -66,6 +89,9 @@ pub(crate) struct BytecodeAttrs {
     pub(crate) need_home_object: bool,
     /// execution mode
     pub(crate) exec_mode: ExecMode,
+    /// GC scope classification: None / Light / Full.
+    /// Set by `compute_gc_scope_kind()` during `create_bytecode`.
+    pub(crate) gc_scope_kind: GcScopeKind,
 }
 
 impl Default for BytecodeAttrs {
@@ -83,6 +109,7 @@ impl Default for BytecodeAttrs {
             defined_arg_count: 0,
             need_home_object: false,
             exec_mode: ExecMode::empty(),
+            gc_scope_kind: GcScopeKind::Full,
         }
     }
 }
@@ -227,6 +254,13 @@ impl BytecodeImpl {
     #[inline(always)]
     pub const fn has_prototype(&self) -> bool {
         self.attrs.has_prototype
+    }
+
+    /// GC scope kind: None / Light / Full.
+    /// Determines whether the trampoline skips scope push/pop for this function.
+    #[inline(always)]
+    pub(crate) const fn gc_scope_kind(&self) -> GcScopeKind {
+        self.attrs.gc_scope_kind
     }
 
     #[inline(always)]
@@ -506,7 +540,7 @@ impl Bytecode {
         //     let f = self.make_closure(ctx, None, captured_vars, parent_stack_frame)?;
         //     f.call(ctx, this_obj, &[])
         // } else { ... }
-        
+
         let mut rt = ctx.rt_ptr();
         let parent_frame = rt.active_frame_index;
         self.make_closure_for_arena(
