@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+mod a_state;
 mod afun;
 mod argument;
-mod astate;
 mod bfun;
 mod bound;
 mod bytecode;
@@ -31,4 +31,4 @@ pub use {
     optimize::*, scope::*, var::*, var_ref::*,
 };
 
-pub(crate) use {argument::*, astate::*, closure::*, emit::*};
+pub(crate) use {a_state::*, argument::*, closure::*, emit::*};
