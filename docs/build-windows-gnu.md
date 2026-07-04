@@ -153,7 +153,7 @@ This command will compile the project using the Windows GNU toolchain and build 
 
 ## Notes
 
-- The project specifically requires the GNU toolchain rather than MSVC for Windows builds
+- This guide covers the MinGW (GNU) toolchain for Windows builds; using the MSVC toolchain is also a valid option
 - The `bindgen` crate (used by `lre`) dynamically loads `libclang` at build time, which is why `mingw-w64-clang-x86_64-clang` is required alongside GCC
 - If you encounter any issues, ensure all toolchains are properly installed and configured in your PATH
 
