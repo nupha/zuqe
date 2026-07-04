@@ -402,10 +402,12 @@ async fn run_test_script<'c>(
         .map_err(|_| ctx.take_exception().to_text(&mut ctx.root_scope()))?;
 
     // Check if the returned value is a rejected Promise.
-    // This handles module evaluations where the module function throws
-    // synchronously (the error is captured as a rejected Promise, not as an Err).
-    // Works for any eval that returns a Promise — not limited to module eval.
-    if let Ok(p) = zuqe::builtins::promise::Promise::try_from(val)
+    // Only for module eval — the module function may throw synchronously
+    // and the error is captured as a rejected Promise, not as an Err.
+    // Non-module eval may return a Promise for other reasons (e.g. import()),
+    // and a rejected Promise there should NOT fail the test.
+    if is_module
+        && let Ok(p) = zuqe::builtins::promise::Promise::try_from(val)
         && matches!(p.state(), zuqe::builtins::promise::PromiseState::Rejected)
     {
         return Err(ExceptionText {
@@ -425,7 +427,8 @@ async fn run_test_script<'c>(
     // top-level-await. The async evaluation (including dynamic import
     // rejections, dependency module errors, etc.) is resolved during
     // run_async(), and the module's evaluation promise should be settled.
-    if let Ok(p) = zuqe::builtins::promise::Promise::try_from(val)
+    if is_module
+        && let Ok(p) = zuqe::builtins::promise::Promise::try_from(val)
         && matches!(p.state(), zuqe::builtins::promise::PromiseState::Rejected)
     {
         return Err(ExceptionText {
