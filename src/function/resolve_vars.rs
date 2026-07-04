@@ -450,6 +450,34 @@ impl FunctionDef {
                         no_change!(pos, op_len);
                     }
                 }
+                opcodes::OP_call | opcodes::OP_call_method => {
+                    // Detect and transform tail calls:
+                    //   call f, n  +  return/return_undef  →  tail_call f, n
+                    //   call_method f, n  +  return/return_undef  →  tail_call_method f, n
+                    if OPTIMIZE {
+                        let argc = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 1)) };
+                        if let Some(cc) = self.code_match(
+                            pos_next,
+                            &[M2(opcodes::OP_return as i32, opcodes::OP_return_undef as i32)],
+                        ) {
+                            if cc.line_num >= 0 && cc.line_num != line_num {
+                                line_num = cc.line_num;
+                                self.line_number_slots_cap += 1;
+                                push_vec_u8(&mut bc_out, OpCodeTemp::LINE_NUM as u8);
+                                push_vec_u32(&mut bc_out, line_num as u32);
+                            }
+                            self.add_pc2line_info(bc_out.len() as _, line_num);
+                            // op+1 = tail_call/tail_call_method (adjacent in opcode ordering)
+                            push_vec_u8(&mut bc_out, op + 1);
+                            push_vec_u16(&mut bc_out, argc);
+                            pos_next = cc.pos;
+                        } else {
+                            no_change!(pos, op_len);
+                        }
+                    } else {
+                        no_change!(pos, op_len);
+                    }
+                }
                 opcodes::OP_nop => { /* remove erased code */ }
                 opcodes::op_set_class_name => { /* only used during parsing */ }
                 opcodes::op_get_field_opt_chain => {
