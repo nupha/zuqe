@@ -81,7 +81,7 @@ hash-link = "0.1"
 smallvec = "1.13"
 fallible_collections = "0.5"
 gc-lite = { version = "0.6.0", path = "../gc-lite-v2" }
-lre = { version = "0.1", optional = true }
+lre = { version = "0.2", path = "../lre-rs", optional = true }
 libc = { version = "0.2", optional = true }
 unicode-xid = { version = "0.2", optional = true }
 unicode-normalization = { version = "0.1", optional = true }

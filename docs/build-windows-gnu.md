@@ -4,7 +4,7 @@ This document provides instructions for compiling this project on Windows platfo
 
 ## Prerequisites
 
-This project requires the GNU compiler toolchain for building Windows binaries. Follow the steps below to set up your Windows development environment.
+This project can be compiled on Windows using either the MSVC or the GNU (MinGW) toolchain. This document covers the MinGW approach, which uses the GNU compiler toolchain. Follow the steps below to set up your Windows development environment.
 
 ## Step 1: Install Rust
 
@@ -13,7 +13,7 @@ There are two scenarios depending on whether you already have Rust installed.
 ### Fresh Install
 
 1. Download `rustup-init.exe` from https://www.rust-lang.org/tools/install
-2. Run the installer. When prompted to choose a toolchain, **do not** select the default MSVC target 鈥?it requires Visual Studio and takes a long time to download. Instead, select the GNU option or customize the installation to use the `x86_64-pc-windows-gnu` target, which is much lighter.
+2. Run the installer. If you intend to use the MinGW toolchain (as covered in this guide), select the GNU option or customize the installation to use the `x86_64-pc-windows-gnu` target. (The default MSVC target is also a valid choice but requires Visual Studio.)
 
 ### Already Have Rustup
 
