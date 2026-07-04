@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ptr::NonNull;
+use std::{collections::HashMap, ptr::NonNull};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
@@ -20,6 +20,12 @@ pub(crate) struct StackFrameArena {
     pub(crate) data_used: usize,
     pub(crate) suspended_count: usize,
     pub(crate) heap_buf_cache: Vec<Box<[JSValue]>>,
+
+    /// Closure variable references keyed by frame index.
+    /// Only frames with closure captures have entries here;
+    /// most frames never pay the cost.
+    /// Access via `var_refs_or_default` / `try_var_refs_mut` / `has_var_refs`.
+    var_ref_map: HashMap<FrameIndex, Vec<VarRef>>,
 
     #[cfg(debug_assertions)]
     pub(crate) stats_bump: usize,
@@ -40,6 +46,7 @@ impl StackFrameArena {
             data_used: 0,
             suspended_count: 0,
             heap_buf_cache: Vec::new(),
+            var_ref_map: HashMap::new(),
 
             #[cfg(debug_assertions)]
             stats_bump: 0,
@@ -90,6 +97,7 @@ impl StackFrameArena {
             FrameBuffer::Arena {
                 data_base: self.data.as_mut_ptr(),
                 buf_offset,
+                buf_capacity: capacity as u32,
             }
         };
 
@@ -100,9 +108,7 @@ impl StackFrameArena {
             func_obj,
             cur_pc_offset: 0,
             cur_sp_offset: 0,
-            var_ref_list: Vec::new(),
             buf,
-            buf_capacity: capacity as u32,
             arg_base_offset: 0,
             arg_real_count: 0,
             arg_count: 0,
@@ -116,11 +122,14 @@ impl StackFrameArena {
     pub(crate) fn free_frame(&mut self, idx: FrameIndex) {
         debug_assert_eq!(self.frames[idx.0 as usize].state, FrameState::Active);
 
+        // Clean up any closure var refs associated with this frame.
+        self.var_ref_map.remove(&idx);
+
         if idx.0 as usize == self.frames.len() - 1 {
             let head = self.frames.pop().unwrap();
             match head.buf {
-                FrameBuffer::Arena { .. } => {
-                    self.data_used -= head.buf_capacity as usize;
+                FrameBuffer::Arena { buf_capacity, .. } => {
+                    self.data_used -= buf_capacity as usize;
                 }
                 FrameBuffer::Heap(heap_buf) => {
                     let remaining = self.data.len() - self.data_used;
@@ -152,7 +161,6 @@ impl StackFrameArena {
                     self.heap_buf_cache.push(heap_buf);
                 }
             }
-            head.buf_capacity = 0;
             head.state = FrameState::Suspended;
             head.prev = FrameIndex::NULL;
             self.suspended_count += 1;
@@ -206,9 +214,9 @@ impl StackFrameArena {
 
     fn data<'a>(&'a self, head: &'a StackFrame) -> &'a [JSValue] {
         match &head.buf {
-            FrameBuffer::Arena { buf_offset, .. } => {
+            FrameBuffer::Arena { buf_offset, buf_capacity, .. } => {
                 let start = *buf_offset as usize;
-                let end = start + head.buf_capacity as usize;
+                let end = start + *buf_capacity as usize;
                 &self.data[start..end]
             }
             FrameBuffer::Heap(b) => b,
@@ -236,10 +244,13 @@ impl StackFrameArena {
             _ => unreachable!("Async frame must be Heap"),
         };
 
+        // Migrate closure VarRefs out of the arena's map.
+        let mut var_refs = self.var_ref_map.remove(&idx).unwrap_or_default();
+
         let arg_base = head.arg_base_offset;
         let var_base = head.var_base_offset;
 
-        for vr in &mut head.var_ref_list {
+        for vr in &mut var_refs {
             vr.update_pvalue_for_heap_buf_offsets(&heap_buf, arg_base, var_base);
         }
 
@@ -250,9 +261,7 @@ impl StackFrameArena {
             mode: head.mode,
             cur_pc_offset: head.cur_pc_offset,
             cur_sp_offset: head.cur_sp_offset,
-            var_ref_list: std::mem::take(&mut head.var_ref_list),
             buf: FrameBuffer::Heap(heap_buf),
-            buf_capacity: head.buf_capacity,
             arg_base_offset: head.arg_base_offset,
             arg_real_count: head.arg_real_count,
             arg_count: head.arg_count,
@@ -263,18 +272,23 @@ impl StackFrameArena {
         if is_last {
             self.frames.pop();
         } else {
-            head.buf_capacity = 0;
             head.state = FrameState::Suspended;
             self.suspended_count += 1;
         }
 
-        AsyncStackFrame { frame }
+        AsyncStackFrame { frame, var_refs }
     }
 
     pub(crate) fn put_frame(&mut self, mut frame: AsyncStackFrame) -> FrameIndex {
         let new_idx = FrameIndex(self.frames.len() as u32);
         frame.frame.prev = FrameIndex::NULL;
         frame.frame.state = FrameState::Active;
+
+        // Re-insert closure VarRefs into the arena's map.
+        if !frame.var_refs.is_empty() {
+            self.var_ref_map.insert(new_idx, frame.var_refs);
+        }
+
         self.frames.push(frame.frame);
         new_idx
     }
@@ -337,35 +351,78 @@ impl StackFrameArena {
         frame_idx: FrameIndex,
         var_idx: u16,
         is_arg: bool,
-        var_ref_list: &mut Vec<VarRef>,
     ) -> Result<VarRef, i32> {
         debug_assert!(ctx.is_arena_mode());
 
-        if let Some(vr) = var_ref_list
-            .iter()
-            .find(|x| x.is_match(var_idx, is_arg))
-            .copied()
+        // Look up existing VarRef in the map first.
         {
-            return Ok(vr);
+            let var_refs = self.var_ref_map.entry(frame_idx).or_default();
+            if let Some(vr) = var_refs
+                .iter()
+                .find(|x| x.is_match(var_idx, is_arg))
+                .copied()
+            {
+                return Ok(vr);
+            }
         }
 
-        let head = self.frame(frame_idx);
-        let data_ptr = head.buf.data_ptr();
+        // Read frame data (immutable borrow ends before var_ref_map access below).
+        let (data_ptr, arg_count, var_count, var_base_offset) = {
+            let head = self.frame(frame_idx);
+            (
+                head.buf.data_ptr(),
+                head.arg_count,
+                head.var_count,
+                head.var_base_offset,
+            )
+        };
+
         let arg_base = data_ptr;
-        let var_base = unsafe { data_ptr.add(head.var_base_offset as usize) };
+        let var_base = unsafe { data_ptr.add(var_base_offset as usize) };
         let pvalue = unsafe {
             NonNull::new_unchecked(if is_arg {
-                debug_assert!(var_idx < head.arg_count);
+                debug_assert!(var_idx < arg_count);
                 arg_base.add(var_idx as usize)
             } else {
-                debug_assert!(var_idx < head.var_count);
+                debug_assert!(var_idx < var_count);
                 var_base.add(var_idx as usize)
             })
         };
 
         let vref = VarRef::create_bind(ctx, var_idx, is_arg, pvalue)?;
-        var_ref_list.push(vref);
+        self.var_ref_map
+            .entry(frame_idx)
+            .or_default()
+            .push(vref);
         Ok(vref)
+    }
+
+    // ── VarRef map accessors ────────────────────────────────────
+    // These are the ONLY external API for accessing `var_ref_map`.
+    // Calling code should never touch the HashMap directly — it must
+    // go through these methods to keep the ownership / lifecycle
+    // invariants centralised (free_frame cleanup, take/put migration).
+
+    /// Get-or-create the VarRef vec for `idx`.
+    /// Used by closure creation paths (get_var_ref, make_closure).
+    #[inline(always)]
+    pub(crate) fn var_refs_or_default(&mut self, idx: FrameIndex) -> &mut Vec<VarRef> {
+        self.var_ref_map.entry(idx).or_default()
+    }
+
+    /// Get mutable access to existing VarRefs without inserting.
+    /// Returns `None` when the frame has no closure variables.
+    /// Used by detach / CLOSE_LOC paths that only need to act when refs exist.
+    #[inline(always)]
+    pub(crate) fn try_var_refs_mut(&mut self, idx: FrameIndex) -> Option<&mut Vec<VarRef>> {
+        self.var_ref_map.get_mut(&idx)
+    }
+
+    /// Check whether `idx` has at least one live closure variable reference.
+    /// Used by debug assertions.
+    #[inline(always)]
+    pub(crate) fn has_var_refs(&self, idx: FrameIndex) -> bool {
+        self.var_ref_map.get(&idx).map_or(false, |v| !v.is_empty())
     }
 }
 
@@ -415,7 +472,7 @@ impl Drop for StackFrameArena {
 
 impl GcTrace for StackFrameArena {
     fn trace(&self, gcx: &mut GcTraceCtx) {
-        for frame in &self.frames {
+        for (i, frame) in self.frames.iter().enumerate() {
             if frame.state != FrameState::Active {
                 continue;
             }
@@ -423,7 +480,7 @@ impl GcTrace for StackFrameArena {
             frame.func_obj.trace(gcx);
 
             let data = self.data(frame);
-            let data_end = frame.buf_capacity as usize;
+            let data_end = frame.buf.capacity() as usize;
 
             let cnt = std::cmp::max(frame.arg_real_count, frame.arg_count) as usize;
             for v in data.iter().take(cnt.min(data_end)) {
@@ -437,8 +494,11 @@ impl GcTrace for StackFrameArena {
                 v.trace(gcx);
             }
 
-            for vr in &frame.var_ref_list {
-                vr.trace(gcx);
+            let idx = FrameIndex(i as u32);
+            if let Some(var_refs) = self.var_ref_map.get(&idx) {
+                for vr in var_refs {
+                    vr.trace(gcx);
+                }
             }
         }
     }

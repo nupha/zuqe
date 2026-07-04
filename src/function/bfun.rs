@@ -473,9 +473,10 @@ impl BytecodeFunction {
         // the non-LIFO path).
         unsafe {
             let arena = &mut *arena_ptr;
-            let var_refs = &mut arena.frame_mut(frame_idx).var_ref_list;
-            for vr in var_refs.iter_mut() {
-                vr.detach();
+            if let Some(var_refs) = arena.try_var_refs_mut(frame_idx) {
+                for vr in var_refs.iter_mut() {
+                    vr.detach();
+                }
             }
             if arena.frame(frame_idx).state == FrameState::Active {
                 arena.free_frame(frame_idx);

@@ -91,7 +91,7 @@ impl GcTrace for AsyncStateImpl {
                 v.trace(gcx);
             }
 
-            for vr in &head.var_ref_list {
+            for vr in &snapshot.var_refs {
                 vr.trace(gcx);
             }
         }

@@ -171,13 +171,15 @@ fn get_var_ref(
     is_arg: bool,
     arg_base_ptr: *mut JSValue,
     var_base_ptr: *mut JSValue,
-    var_ref_list: &mut Vec<VarRef>,
+    arena: &mut StackFrameArena,
+    cur_frame_idx: FrameIndex,
     arg_count: u16,
     var_count: u16,
 ) -> Result<VarRef, i32> {
     debug_assert!(ctx.is_arena_mode());
 
-    if let Some(vr) = var_ref_list
+    let var_refs = arena.var_refs_or_default(cur_frame_idx);
+    if let Some(vr) = var_refs
         .iter()
         .find(|x| x.is_match(var_idx, is_arg))
         .copied()
@@ -194,7 +196,7 @@ fn get_var_ref(
         })
     };
     let vref = VarRef::create_bind(ctx, var_idx, is_arg, pvalue)?;
-    var_ref_list.push(vref);
+    var_refs.push(vref);
     Ok(vref)
 }
 
@@ -601,7 +603,8 @@ impl Bytecode {
                                         true,
                                         arg_base_ptr,
                                         var_base_ptr,
-                                        &mut arena.frame_mut(cur_frame_idx).var_ref_list,
+                                        arena,
+                                        cur_frame_idx,
                                         self.arg_count,
                                         self.var_count,
                                     ) {
@@ -825,13 +828,11 @@ impl Bytecode {
                     }
                     OpCode::CLOSE_LOC => {
                         let idx = PC_FETCH!(u16);
-                        let head = arena.frame_mut(cur_frame_idx);
-                        if let Some(vr) = head
-                            .var_ref_list
-                            .iter_mut()
-                            .find(|v| v.is_match(idx, false))
-                        {
-                            vr.detach();
+                        if let Some(var_refs) = arena.try_var_refs_mut(cur_frame_idx) {
+                            if let Some(vr) = var_refs.iter_mut().find(|v| v.is_match(idx, false))
+                            {
+                                vr.detach();
+                            }
                         }
                     }
 
@@ -878,7 +879,8 @@ impl Bytecode {
                                 opcode == OpCode::MAKE_ARG_REF,
                                 arg_base_ptr,
                                 var_base_ptr,
-                                &mut arena.frame_mut(cur_frame_idx).var_ref_list,
+                                arena,
+                                cur_frame_idx,
                                 self.arg_count,
                                 self.var_count,
                             )
@@ -3190,9 +3192,7 @@ pub(crate) fn execute_trampoline(
                 // before it is recycled, otherwise captured variables become
                 // dangling pointers into the arena data buffer.
                 {
-                    let head = arena.frame(cur_frame_idx);
-                    if !head.var_ref_list.is_empty() {
-                        let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                    if let Some(var_refs) = arena.try_var_refs_mut(cur_frame_idx) {
                         for vr in var_refs.iter_mut() {
                             vr.detach();
                         }
@@ -3238,9 +3238,7 @@ pub(crate) fn execute_trampoline(
                         // Detach all VarRefs before freeing the frame. The
                         // frame may hold closure variables captured by inner
                         // arrows (e.g., `new.target` in `async () => new.target`).
-                        let head = arena.frame(cur_frame_idx);
-                        if !head.var_ref_list.is_empty() {
-                            let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                        if let Some(var_refs) = arena.try_var_refs_mut(cur_frame_idx) {
                             for vr in var_refs {
                                 vr.detach();
                             }
@@ -3304,9 +3302,7 @@ pub(crate) fn execute_trampoline(
                     // the `.next()` method). Without detach, VarRef raw pointers
                     // into arena.data become dangling after the region is reused.
                     // (The same pattern is used in the generator-completed path.)
-                    let head = arena.frame(cur_frame_idx);
-                    if !head.var_ref_list.is_empty() {
-                        let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                    if let Some(var_refs) = arena.try_var_refs_mut(cur_frame_idx) {
                         for vr in var_refs {
                             vr.detach();
                         }
@@ -3395,9 +3391,7 @@ pub(crate) fn execute_trampoline(
                     // Detach all VarRefs before freeing the frame (matching
                     // the Return handler). VarRef raw pointers into arena.data
                     // become dangling after the region is reused.
-                    let head = arena.frame(cur_frame_idx);
-                    if !head.var_ref_list.is_empty() {
-                        let var_refs = &mut arena.frame_mut(cur_frame_idx).var_ref_list;
+                    if let Some(var_refs) = arena.try_var_refs_mut(cur_frame_idx) {
                         for vr in var_refs {
                             vr.detach();
                         }

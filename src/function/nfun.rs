@@ -236,7 +236,7 @@ impl NativeFunction {
         // Cleanup: restore active_trampoline_frame and free frame (on both success and error paths).
         rt.active_frame_index = prev_frame;
 
-        debug_assert!(rt.frame_arena.frame(frame_idx).var_ref_list.is_empty());
+        debug_assert!(!rt.frame_arena.has_var_refs(frame_idx));
 
         if rt.frame_arena.frame(frame_idx).state == FrameState::Active {
             rt.frame_arena.free_frame(frame_idx);
@@ -301,7 +301,7 @@ impl NativeFunction {
 
         unsafe {
             let arena = &mut *arena_ptr;
-            debug_assert!(arena.frame(frame_idx).var_ref_list.is_empty());
+            debug_assert!(!arena.has_var_refs(frame_idx));
             if arena.frame(frame_idx).state == FrameState::Active {
                 arena.free_frame(frame_idx);
             }

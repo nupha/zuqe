@@ -238,7 +238,7 @@ impl Bytecode {
                     head.var_count,
                 )
             };
-            let parent_var_refs = &mut arena.frame_mut(parent_frame_idx).var_ref_list;
+            let parent_var_refs = arena.var_refs_or_default(parent_frame_idx);
 
             let mut lst = Vec::new();
             lst.try_reserve_exact(self.closure_var_count as usize)

@@ -11,7 +11,7 @@ use crate::{
 
 /// Index into StackFrameArena::frames, equivalent to a pointer but not
 /// constrained by Rust's borrow rules.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct FrameIndex(pub(super) u32);
 
 impl FrameIndex {
@@ -74,13 +74,8 @@ pub(crate) struct StackFrame {
     /// Stack pointer offset relative to stack_base_ptr.
     pub(crate) cur_sp_offset: i32,
 
-    /// Variable references for closure capture.
-    pub(crate) var_ref_list: Vec<VarRef>,
-
     /// Where the frame's data buffer lives.
     pub(crate) buf: FrameBuffer,
-    /// Total capacity of the data buffer, in JSValue units.
-    pub(crate) buf_capacity: u32,
 
     /// Offsets relative to the data buffer start (buf).
     pub(crate) arg_base_offset: u32,
@@ -120,10 +115,12 @@ pub(crate) enum FrameBuffer {
     /// Data stored in StackFrameArena's shared fixed-capacity data slice
     /// (bump-allocated). `data_base` is the arena's data pointer (stable for
     /// the lifetime of the arena — `Box<[JSValue]>` never reallocates);
-    /// `buf_offset` is the offset within that slice.
+    /// `buf_offset` is the offset within that slice;
+    /// `buf_capacity` is the allocated size in JSValue units.
     Arena {
         data_base: *mut JSValue,
         buf_offset: u32,
+        buf_capacity: u32,
     },
     /// Data stored in an independent heap allocation.
     Heap(Box<[JSValue]>),
@@ -138,6 +135,7 @@ impl FrameBuffer {
             FrameBuffer::Arena {
                 data_base,
                 buf_offset,
+                ..
             } => unsafe { data_base.add(*buf_offset as usize) },
             FrameBuffer::Heap(b) => b.as_ptr() as *mut JSValue,
             FrameBuffer::Empty => std::ptr::null_mut(),
@@ -153,11 +151,22 @@ impl FrameBuffer {
             FrameBuffer::Arena {
                 data_base,
                 buf_offset,
+                ..
             } => unsafe { data_base.add(*buf_offset as usize) },
             FrameBuffer::Heap(b) => b.as_ptr() as *mut JSValue,
             FrameBuffer::Empty => {
                 unreachable!("data_ptr_unchecked called on Empty FrameBuffer")
             }
+        }
+    }
+
+    /// Returns the data buffer capacity in JSValue units.
+    #[inline(always)]
+    pub(crate) fn capacity(&self) -> u32 {
+        match self {
+            FrameBuffer::Arena { buf_capacity, .. } => *buf_capacity,
+            FrameBuffer::Heap(b) => b.len() as u32,
+            FrameBuffer::Empty => 0,
         }
     }
 }
@@ -177,9 +186,11 @@ pub(crate) struct VirtualFrame {
 
 /// Complete snapshot of a suspended async frame.
 #[derive(Debug)]
-#[repr(transparent)]
 pub(crate) struct AsyncStackFrame {
     pub(crate) frame: StackFrame,
+    /// Variable references for closure capture, migrated from the arena's
+    /// var_ref_map when the frame is taken.
+    pub(crate) var_refs: Vec<VarRef>,
 }
 
 impl AsyncStackFrame {
