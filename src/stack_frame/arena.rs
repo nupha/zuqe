@@ -39,10 +39,10 @@ impl StackFrameArena {
     pub(crate) const STACK_FRAME_ARENA_CAP: usize = 512 * 1024 / std::mem::size_of::<JSValue>();
     const HEAP_BUF_CACHE_MAX: usize = 8;
 
-    pub(crate) fn new() -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             frames: Vec::with_capacity(256),
-            data: vec![JSValue::UNDEFINED; Self::STACK_FRAME_ARENA_CAP].into_boxed_slice(),
+            data: vec![JSValue::UNDEFINED; capacity].into_boxed_slice(),
             data_used: 0,
             suspended_count: 0,
             heap_buf_cache: Vec::new(),
@@ -214,7 +214,11 @@ impl StackFrameArena {
 
     fn data<'a>(&'a self, head: &'a StackFrame) -> &'a [JSValue] {
         match &head.buf {
-            FrameBuffer::Arena { buf_offset, buf_capacity, .. } => {
+            FrameBuffer::Arena {
+                buf_offset,
+                buf_capacity,
+                ..
+            } => {
                 let start = *buf_offset as usize;
                 let end = start + *buf_capacity as usize;
                 &self.data[start..end]
@@ -390,10 +394,7 @@ impl StackFrameArena {
         };
 
         let vref = VarRef::create_bind(ctx, var_idx, is_arg, pvalue)?;
-        self.var_ref_map
-            .entry(frame_idx)
-            .or_default()
-            .push(vref);
+        self.var_ref_map.entry(frame_idx).or_default().push(vref);
         Ok(vref)
     }
 

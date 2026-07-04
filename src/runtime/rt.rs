@@ -112,6 +112,8 @@ impl Drop for RuntimeImpl {
 
 impl RuntimeImpl {
     pub(super) fn new() -> Result<Self, i32> {
+        const STACK_FRAME_ARENA_CAP: usize = 512 * 1024 / std::mem::size_of::<JSValue>();
+
         // create gc heap and partition for this runtime
         let mut gc_heap = GcHeap::new(&GC_TYPE_REGISTRY);
         gc_heap.set_memory_limit(0); // no memory limit
@@ -125,7 +127,7 @@ impl RuntimeImpl {
             user_class_id_serial: USER_CLASS_ID_START,
             shape_registry: ShapeRegistry::new(),
 
-            frame_arena: StackFrameArena::new(),
+            frame_arena: StackFrameArena::with_capacity(STACK_FRAME_ARENA_CAP),
             active_trampoline_vframes: std::ptr::null::<VirtualFrame>(),
             active_frame_index: FrameIndex::NULL,
 
