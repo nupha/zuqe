@@ -11,7 +11,7 @@ use crate::{ScopedContext, atom::Atom, context::ContextImpl, object::ShapeProper
 use super::super::{obj::Object, property::JS_PROP_LENGTH};
 
 pub(crate) struct ShapeImpl {
-    pub(crate) use_count: u16,
+    pub(crate) use_count: u32,
     /// cached shape hash value
     pub(crate) hash: u32,
     /// prototype object
