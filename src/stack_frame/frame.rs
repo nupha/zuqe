@@ -92,10 +92,6 @@ pub(crate) struct StackFrame {
     pub(crate) var_base_offset: u32,
     /// Number of local variables.
     pub(crate) var_count: u16,
-
-    /// Protected values: this_obj, new_target (deprecated but needed for compat).
-    #[deprecated(note = "unused")]
-    pub(crate) protected_values: [JSValue; 2],
 }
 
 impl StackFrame {

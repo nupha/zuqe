@@ -3014,10 +3014,9 @@ fn build_callee_frame(
     bc: Bytecode,
     args: &[JSValue],
 ) -> FrameIndex {
-    let buf_cap = std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
-    let idx = arena.alloc_frame(func_obj, bc.mode(), buf_cap);
+    let cap = std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
+    let idx = arena.alloc_frame(func_obj, bc.mode(), cap);
     arena.init_frame_args(idx, bc.arg_count, bc.var_count, args);
-    arena.frame_mut(idx).protected_values = [JSValue::UNDEFINED, JSValue::UNDEFINED];
     idx
 }
 

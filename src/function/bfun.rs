@@ -285,8 +285,7 @@ pub(crate) fn js_function_set_properties(
     let name_val = if name.desc_kind(ctx.rt()) == AtomDescKind::JS_ATOM_KIND_SYMBOL {
         // Well-known symbol functions: name should be [Symbol.xxx]
         let inner = name.force_string(ctx)?;
-        JS_ConcatString3(ctx, c"[", inner.into(), c"]")
-            .map(JSValue::from)?
+        JS_ConcatString3(ctx, c"[", inner.into(), c"]").map(JSValue::from)?
     } else {
         name.force_string(ctx).map(JSValue::from)?
     };
@@ -428,8 +427,7 @@ impl BytecodeFunction {
 
         // init_frame_args uses max(bc.arg_count, actual_args.len()) as the arg region size.
         // Allocate accordingly.
-        let buf_cap =
-            std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
+        let buf_cap = std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
         let frame_idx = unsafe {
             let arena = &mut *arena_ptr;
             let idx = arena.alloc_frame(func_obj, bc.mode(), buf_cap);
@@ -441,8 +439,6 @@ impl BytecodeFunction {
         unsafe {
             let arena = &mut *arena_ptr;
             arena.init_frame_args(frame_idx, bc.arg_count, bc.var_count, args);
-            let head = arena.frame_mut(frame_idx);
-            head.protected_values = [this_obj, new_target];
         }
 
         // Get home_object before closure_var_refs_mut to avoid

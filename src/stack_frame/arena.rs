@@ -100,7 +100,6 @@ impl StackFrameArena {
             func_obj,
             cur_pc_offset: 0,
             cur_sp_offset: 0,
-            protected_values: [JSValue::UNDEFINED, JSValue::UNDEFINED],
             var_ref_list: Vec::new(),
             buf,
             buf_capacity: capacity as u32,
@@ -251,7 +250,6 @@ impl StackFrameArena {
             mode: head.mode,
             cur_pc_offset: head.cur_pc_offset,
             cur_sp_offset: head.cur_sp_offset,
-            protected_values: head.protected_values,
             var_ref_list: std::mem::take(&mut head.var_ref_list),
             buf: FrameBuffer::Heap(heap_buf),
             buf_capacity: head.buf_capacity,
@@ -423,8 +421,6 @@ impl GcTrace for StackFrameArena {
             }
 
             frame.func_obj.trace(gcx);
-            frame.protected_values[0].trace(gcx);
-            frame.protected_values[1].trace(gcx);
 
             let data = self.data(frame);
             let data_end = frame.buf_capacity as usize;

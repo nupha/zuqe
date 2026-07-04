@@ -78,8 +78,6 @@ impl GcTrace for AsyncStateImpl {
             let head = &snapshot.frame;
 
             head.func_obj.trace(gcx);
-            head.protected_values[0].trace(gcx);
-            head.protected_values[1].trace(gcx);
 
             // Trace data buffer (args + vars + stack) via snapshot's data_slice.
             let data = snapshot.data();
