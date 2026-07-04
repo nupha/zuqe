@@ -20,6 +20,13 @@ pub(crate) struct StackFrameArena {
     pub(crate) data_used: usize,
     pub(crate) suspended_count: usize,
     pub(crate) heap_buf_cache: Vec<Box<[JSValue]>>,
+
+    #[cfg(debug_assertions)]
+    pub(crate) stats_bump: usize,
+    #[cfg(debug_assertions)]
+    pub(crate) stats_heap_async: usize,
+    #[cfg(debug_assertions)]
+    pub(crate) stats_heap_capacity: usize,
 }
 
 impl StackFrameArena {
@@ -33,6 +40,13 @@ impl StackFrameArena {
             data_used: 0,
             suspended_count: 0,
             heap_buf_cache: Vec::new(),
+
+            #[cfg(debug_assertions)]
+            stats_bump: 0,
+            #[cfg(debug_assertions)]
+            stats_heap_async: 0,
+            #[cfg(debug_assertions)]
+            stats_heap_capacity: 0,
         }
     }
 
@@ -53,9 +67,23 @@ impl StackFrameArena {
     ) -> FrameIndex {
         let idx = FrameIndex(self.frames.len() as u32);
 
-        let buf = if mode.contains(ExecMode::ASYNC) || self.data_used + capacity > self.data.len() {
+        let buf = if mode.contains(ExecMode::ASYNC) {
+            #[cfg(debug_assertions)]
+            {
+                self.stats_heap_async += 1;
+            }
+            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(capacity))
+        } else if self.data_used + capacity > self.data.len() {
+            #[cfg(debug_assertions)]
+            {
+                self.stats_heap_capacity += 1;
+            }
             FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(capacity))
         } else {
+            #[cfg(debug_assertions)]
+            {
+                self.stats_bump += 1;
+            }
             // arena bump
             let buf_offset = self.data_used as u32;
             self.data_used += capacity;
@@ -340,6 +368,34 @@ impl StackFrameArena {
         let vref = VarRef::create_bind(ctx, var_idx, is_arg, pvalue)?;
         var_ref_list.push(vref);
         Ok(vref)
+    }
+}
+
+#[cfg(debug_assertions)]
+impl Drop for StackFrameArena {
+    fn drop(&mut self) {
+        let total = self.stats_bump + self.stats_heap_async + self.stats_heap_capacity;
+        if total == 0 {
+            return;
+        }
+
+        let bump_pct = self.stats_bump as f64 / total as f64 * 100.0;
+
+        // 非 bump alloc（async + 容量不足）超过 0.5% 则警告
+        if bump_pct < 99.5 {
+            eprintln!(
+                "[WARN] StackFrameArena bump_rate={:.1}% (bump={}, non_bump: async={}, cap={}, total={})",
+                bump_pct, self.stats_bump, self.stats_heap_async, self.stats_heap_capacity, total,
+            );
+        }
+
+        // 非 bump alloc 超过 5% — 严重影响 call 效率，debug 下直接 panic
+        debug_assert!(
+            bump_pct >= 95.0,
+            "StackFrameArena bump_rate too low: {:.1}% (bump={}, async={}, cap={}, total={}). \
+             Non-bump path adds heap alloc overhead per function call.",
+            bump_pct, self.stats_bump, self.stats_heap_async, self.stats_heap_capacity, total,
+        );
     }
 }
 
