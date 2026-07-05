@@ -41,7 +41,7 @@ impl<'s> JSParseState<'s> {
                     self.optional_chain_test(optional_chaining_label, 1);
                 }
                 let atom = self.token.atom().unwrap();
-                self.emit_field_get(atom);
+                self.emit_get_field(atom);
             }
         }
 

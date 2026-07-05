@@ -164,7 +164,7 @@ impl<'s> JSParseState<'s> {
                     opcode = OpCode::GET_REF_VALUE as _;
                 }
                 opcodes::OP_get_field | opcodes::OP_get_field_ic => {
-                    self.emit_field_get2(name);
+                    self.emit_get_field2(name);
                 }
                 opcodes::op_scope_get_private_field => {
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD2);
