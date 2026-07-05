@@ -320,17 +320,9 @@ impl FunctionDef {
         {
             let ic_count = self.inline_cache_count as usize;
             if ic_count > 0 {
-                // SAFETY: InlineCacheEntry is zero-initializable (all fields are
-                // scalars). Zero-initialized entries naturally read as "empty"
-                // because shape_ptr will be null, which never matches any live shape.
-                let mut ic = Vec::<InlineCacheEntry>::with_capacity(ic_count);
-                // SAFETY: transmute from zeroed memory is valid for repr(C) scalars.
-                unsafe {
-                    ic.set_len(ic_count);
-                }
+                let ic = vec![InlineCacheEntry::default(); ic_count];
                 *bc_impl.inline_cache.get_mut() = ic.into_boxed_slice();
             }
-            // ic_count == 0 → keep the empty Box::new([]) from new()
         }
 
         if !self.attrs.exec_mode.contains(ExecMode::STRIP) {

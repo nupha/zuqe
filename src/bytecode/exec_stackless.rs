@@ -1761,7 +1761,15 @@ impl Bytecode {
 
                         // ── IC fast path ──
                         let sp_obj = SP_REF!(-1);
-                        // SAFETY: single-threaded interpreter — no concurrent writes.
+                        // SAFETY:
+                        // - Single-threaded interpreter — no concurrent writes.
+                        // - The raw `*const ShapeImpl` is only compared against the
+                        //   object's current shape pointer (never dereferenced on
+                        //   miss). On hit the shape is alive because the object
+                        //   confirming the match holds a GcRef to it.
+                        // - Non-moving GC: addresses don't change.
+                        // - ABA is prevented by the `shape_uid` field.
+                        //   See BytecodeImpl::inline_cache doc for full safety model.
                         let ic_cache = unsafe { &*self.inline_cache.get() };
                         if ic_idx < ic_cache.len()
                             && let Some(obj) = sp_obj.as_object()
@@ -1774,8 +1782,7 @@ impl Bytecode {
                                 // delete marks slot Deleted without changing shape
                                 if !matches!(obj.prop_slot(slot), JSProperty::Deleted) {
                                     let obj_val = JSValue::Object(*obj);
-                                    if let Ok(val) =
-                                        obj.prop_slot(slot).value(realm_scope, obj_val)
+                                    if let Ok(val) = obj.prop_slot(slot).value(realm_scope, obj_val)
                                     {
                                         if opcode == OpCode::GET_FIELD_IC {
                                             SP_PUT!(-1, val);
@@ -1797,18 +1804,17 @@ impl Bytecode {
                             // Populate / refresh the cache entry.
                             if let Some(o) = obj.as_object()
                                 && let Some(shape) = o.shape()
+                                && let Some((slot, flags)) = o.find_shape_property(atom)
                             {
-                                if let Some((slot, flags)) = o.find_shape_property(atom) {
-                                    // SAFETY: single-threaded.
-                                    let ic_cache = unsafe { &mut *self.inline_cache.get() };
-                                    if ic_idx < ic_cache.len() {
-                                        ic_cache[ic_idx] = InlineCacheEntry {
-                                            shape_ptr: &**shape as *const ShapeImpl,
-                                            shape_uid: shape.uid,
-                                            slot: slot as u32,
-                                            flags,
-                                        };
-                                    }
+                                // SAFETY: single-threaded.
+                                let ic_cache = unsafe { &mut *self.inline_cache.get() };
+                                if ic_idx < ic_cache.len() {
+                                    ic_cache[ic_idx] = InlineCacheEntry {
+                                        shape_ptr: &**shape as *const ShapeImpl,
+                                        shape_uid: shape.uid,
+                                        slot: slot as u32,
+                                        flags,
+                                    };
                                 }
                             }
                             if opcode == OpCode::GET_FIELD_IC {

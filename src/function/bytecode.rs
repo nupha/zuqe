@@ -30,7 +30,7 @@ use super::{FunctionKind, closure::ClosureVar, var::JSVarDef};
 /// freed shape's memory is reused by a new shape at the same address, the uid
 /// will differ, preventing a stale cache hit.
 #[cfg(feature = "inline_cache")]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 #[repr(C)]
 pub(crate) struct InlineCacheEntry {
     /// ShapeImpl pointer from the last successful lookup. null = uninitialized.
@@ -178,16 +178,39 @@ pub struct BytecodeImpl {
     ///
     /// Wrapped in UnsafeCell for interior mutability: the interpreter owns the
     /// bytecode via &self but must be able to populate/update cache entries.
+    ///
+    /// # GC Safety (inline_cache feature)
+    ///
+    /// Each entry stores a `*const ShapeImpl` raw pointer. This is safe because:
+    ///
+    /// 1. **Non-moving GC**: gc-lite never compacts — object addresses are
+    ///    stable for their entire lifetime.
+    ///
+    /// 2. **Shape lifetime**: The `ShapeRegistry` holds `GcRef<ShapeImpl>` for
+    ///    every shape with `use_count > 0`. GC traces the registry, so all
+    ///    resident shapes are kept alive. A shape is only freed after
+    ///    `use_count` drops to 0 **and** it is unregistered.
+    ///
+    /// 3. **No dangling dereference**: The cached `shape_ptr` is only used for
+    ///    address comparison against the object's current shape pointer. On
+    ///    cache miss (shape changed) the entry is overwritten before any
+    ///    dereference. On cache hit, the shape is guaranteed alive because the
+    ///    object that just confirmed the match holds a `GcRef` to it.
+    ///
+    /// 4. **ABA prevention via uid**: Even if a freed shape's address is
+    ///    immediately reused by a new shape, the `shape_uid` field (global
+    ///    monotonically increasing counter) differs, so the cache misses
+    ///    correctly.
     #[cfg(feature = "inline_cache")]
     pub(crate) inline_cache: UnsafeCell<Box<[InlineCacheEntry]>>,
 }
 
 impl GcTrace for BytecodeImpl {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.func_name.trace(tr);
-        self.consts().iter().for_each(|x| x.trace(tr));
-        self.var_defs().iter().for_each(|x| x.trace(tr));
-        self.closure_vars().iter().for_each(|x| x.trace(tr));
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        self.func_name.trace(gcx);
+        self.consts().iter().for_each(|x| x.trace(gcx));
+        self.var_defs().iter().for_each(|x| x.trace(gcx));
+        self.closure_vars().iter().for_each(|x| x.trace(gcx));
 
         // trace atoms in opcodes
         let bc = self.opcodes();
@@ -206,7 +229,7 @@ impl GcTrace for BytecodeImpl {
             ) {
                 let id = unsafe { read_from_ptr::<u32>(bc.as_ptr().add(pos + 1)) };
                 if !is_const_atom(id) && !is_small_int_atom(id) {
-                    Atom::from_id(id).trace(tr);
+                    Atom::from_id(id).trace(gcx);
                 }
             }
 
@@ -214,7 +237,7 @@ impl GcTrace for BytecodeImpl {
         }
 
         if let Some(x) = self.debug.as_ref() {
-            x.trace(tr)
+            x.trace(gcx)
         }
     }
 }
