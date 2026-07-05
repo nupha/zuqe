@@ -95,7 +95,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
             }
-            opcodes::OP_get_field => {
+            opcodes::OP_get_field | opcodes::OP_get_field_ic => {
                 let last_opcode_pos = self.cur_func().last_opcode_pos;
                 name = unsafe {
                     Atom::from_id(read_from_ptr::<u32>(
@@ -163,9 +163,8 @@ impl<'s> JSParseState<'s> {
 
                     opcode = OpCode::GET_REF_VALUE as _;
                 }
-                opcodes::OP_get_field => {
-                    self.emit_op(OpCode::GET_FIELD2);
-                    self.emit_atom(name);
+                opcodes::OP_get_field | opcodes::OP_get_field_ic => {
+                    self.emit_get_field2(name);
                 }
                 opcodes::op_scope_get_private_field => {
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD2);
@@ -227,7 +226,7 @@ impl<'s> JSParseState<'s> {
         is_let: bool,
     ) {
         match opcode as u8 {
-            opcodes::OP_get_field | opcodes::op_scope_get_private_field => {
+            opcodes::OP_get_field | opcodes::OP_get_field_ic | opcodes::op_scope_get_private_field => {
                 // depth = 1
                 match special {
                     PutLValueEnum::PUT_LVALUE_NOKEEP | PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH => {}
@@ -296,7 +295,7 @@ impl<'s> JSParseState<'s> {
                 self.emit_atom(name);
                 self.emit_u16(scope as _);
             }
-            opcodes::OP_get_field => {
+            opcodes::OP_get_field | opcodes::OP_get_field_ic => {
                 self.emit_op(OpCode::PUT_FIELD);
                 self.emit_atom(name);
             }

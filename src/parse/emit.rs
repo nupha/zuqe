@@ -61,6 +61,22 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_op(op, ln);
     }
 
+    /// Emit a named-property-get, conditionally selecting GET_FIELD_IC when
+    /// the inline_cache feature is active.
+    #[inline(always)]
+    pub fn emit_get_field(&mut self, atom: Atom) {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_get_field(atom, ln);
+    }
+
+    /// Emit a named-property-get that preserves the object on the stack,
+    /// conditionally selecting GET_FIELD2_IC.
+    #[inline(always)]
+    pub fn emit_get_field2(&mut self, atom: Atom) {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_get_field2(atom, ln);
+    }
+
     /// emit on current function def.
     /// return label or -1 if dead code.
     pub fn emit_goto(&mut self, opcode: OpCode, label: i32) -> i32 {
