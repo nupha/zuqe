@@ -492,19 +492,9 @@ impl ObjectImpl {
         }
     }
 
-    #[deprecated(note = "renamed to ::is_callable()")]
-    pub fn is_function(&self) -> bool {
-        self.is_callable()
-    }
-
     #[inline(always)]
     pub(crate) const fn shape(&self) -> Option<&Shape> {
         self.shape.as_ref()
-    }
-
-    #[inline(always)]
-    pub(crate) fn shape_mut(&mut self) -> Option<&mut Shape> {
-        self.shape.as_mut()
     }
 
     #[inline(always)]
@@ -530,6 +520,7 @@ impl ObjectImpl {
 
         self.shape.replace(shape);
     }
+
 
     /// only Proxy may return Err(-1)
     pub fn prevent_extensions(&mut self, ctx: &mut ScopedContext) -> Result<bool, i32> {
