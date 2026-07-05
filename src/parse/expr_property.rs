@@ -40,8 +40,8 @@ impl<'s> JSParseState<'s> {
                 if has_optional_chain {
                     self.optional_chain_test(optional_chaining_label, 1);
                 }
-                self.emit_op(OpCode::GET_FIELD);
-                self.emit_atom(self.token.atom().unwrap());
+                let atom = self.token.atom().unwrap();
+                self.emit_field_get(atom);
             }
         }
 

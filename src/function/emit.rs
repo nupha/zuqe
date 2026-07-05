@@ -57,6 +57,42 @@ impl FunctionDef {
         self.emit_op_u8(op as u8, last_line_num);
     }
 
+    /// Emit a named-property-get — either GET_FIELD_IC (with inline_cache
+    /// feature) or plain GET_FIELD.
+    pub fn emit_field_get(&mut self, atom: Atom, last_line_num: i32) {
+        #[cfg(feature = "inline_cache")]
+        {
+            self.emit_op(OpCode::GET_FIELD_IC, last_line_num);
+            self.emit_atom(atom);
+            self.emit_u16(self.inline_cache_count);
+            self.inline_cache_count += 1;
+        }
+        #[cfg(not(feature = "inline_cache"))]
+        {
+            let _ = last_line_num;
+            self.emit_op(OpCode::GET_FIELD, last_line_num);
+            self.emit_atom(atom);
+        }
+    }
+
+    /// Emit a named-property-get that preserves the object on the stack
+    /// (GET_FIELD2_IC or plain GET_FIELD2).
+    pub fn emit_field_get2(&mut self, atom: Atom, last_line_num: i32) {
+        #[cfg(feature = "inline_cache")]
+        {
+            self.emit_op(OpCode::GET_FIELD2_IC, last_line_num);
+            self.emit_atom(atom);
+            self.emit_u16(self.inline_cache_count);
+            self.inline_cache_count += 1;
+        }
+        #[cfg(not(feature = "inline_cache"))]
+        {
+            let _ = last_line_num;
+            self.emit_op(OpCode::GET_FIELD2, last_line_num);
+            self.emit_atom(atom);
+        }
+    }
+
     pub fn emit_return(&mut self, mut hasval: bool, last_line_num: i32) {
         // execute the finally blocks before return
         if self.attrs.func_kind != FunctionKind::Normal {

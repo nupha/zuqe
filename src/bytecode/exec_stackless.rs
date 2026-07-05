@@ -5,6 +5,9 @@ use std::{cmp, mem::ManuallyDrop, ptr::NonNull};
 
 use fallible_collections::TryCollect;
 
+#[cfg(feature = "inline_cache")]
+use crate::function::InlineCacheEntry;
+
 use crate::{
     Array, JS_CLASS_OBJECT,
     array::alloc_fast_array_slots,
@@ -44,7 +47,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, Object, ObjectPayload,
+        JS_PROP_WRITABLE, JSProperty, Object, ObjectPayload, ShapeImpl,
     },
     stack_frame::{ExecMode, FrameIndex, StackFrameArena, VirtualFrame},
     utils::{read_from_ptr, unlikely},
@@ -1750,6 +1753,80 @@ impl Bytecode {
                         } else {
                             break ExecAction::Exception;
                         }
+                    }
+                    #[cfg(feature = "inline_cache")]
+                    OpCode::GET_FIELD_IC | OpCode::GET_FIELD2_IC => {
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        let ic_idx = PC_FETCH!(u16) as usize;
+
+                        // ── IC fast path ──
+                        let sp_obj = SP_REF!(-1);
+                        // SAFETY: single-threaded interpreter — no concurrent writes.
+                        let ic_cache = unsafe { &*self.inline_cache.get() };
+                        if ic_idx < ic_cache.len()
+                            && let Some(obj) = sp_obj.as_object()
+                            && let Some(shape) = obj.shape()
+                        {
+                            let entry = &ic_cache[ic_idx];
+                            let shape_ptr: *const ShapeImpl = &**shape as *const ShapeImpl;
+                            if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
+                                let slot = entry.slot as usize;
+                                // delete marks slot Deleted without changing shape
+                                if !matches!(obj.prop_slot(slot), JSProperty::Deleted) {
+                                    let obj_val = JSValue::Object(*obj);
+                                    if let Ok(val) =
+                                        obj.prop_slot(slot).value(realm_scope, obj_val)
+                                    {
+                                        if opcode == OpCode::GET_FIELD_IC {
+                                            SP_PUT!(-1, val);
+                                        } else {
+                                            SP_PUT!(0, val);
+                                            SP_GO!(1);
+                                        }
+                                        continue;
+                                    } else {
+                                        break ExecAction::Exception;
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── miss: full lookup + update cache ──
+                        let obj = SP_VAL!(-1);
+                        if let Ok(val) = obj.get_property(realm_scope, atom) {
+                            // Populate / refresh the cache entry.
+                            if let Some(o) = obj.as_object()
+                                && let Some(shape) = o.shape()
+                            {
+                                if let Some((slot, flags)) = o.find_shape_property(atom) {
+                                    // SAFETY: single-threaded.
+                                    let ic_cache = unsafe { &mut *self.inline_cache.get() };
+                                    if ic_idx < ic_cache.len() {
+                                        ic_cache[ic_idx] = InlineCacheEntry {
+                                            shape_ptr: &**shape as *const ShapeImpl,
+                                            shape_uid: shape.uid,
+                                            slot: slot as u32,
+                                            flags,
+                                        };
+                                    }
+                                }
+                            }
+                            if opcode == OpCode::GET_FIELD_IC {
+                                SP_PUT!(-1, val);
+                            } else {
+                                SP_PUT!(0, val);
+                                SP_GO!(1);
+                            }
+                        } else {
+                            break ExecAction::Exception;
+                        }
+                    }
+                    #[cfg(not(feature = "inline_cache"))]
+                    OpCode::GET_FIELD_IC | OpCode::GET_FIELD2_IC => {
+                        // These opcodes are only emitted when the feature is active.
+                        let _ = PC_FETCH!(u32); // skip atom
+                        let _ = PC_FETCH!(u16); // skip ic_index
+                        unreachable!()
                     }
                     OpCode::PUT_FIELD => {
                         // [obj, value, ^] -> [^]

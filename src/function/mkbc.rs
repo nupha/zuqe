@@ -15,6 +15,9 @@ use super::{
     JSVarDef, JSVarKindEnum, is_var_in_arg_scope,
 };
 
+#[cfg(feature = "inline_cache")]
+use super::InlineCacheEntry;
+
 /// Classify a function's GC scope requirements by scanning its opcodes.
 fn compute_gc_scope_kind(opcodes: &[u8]) -> GcScopeKind {
     let mut has_always = false;
@@ -312,6 +315,23 @@ impl FunctionDef {
             opcodes_start,
             stack_size,
         );
+
+        #[cfg(feature = "inline_cache")]
+        {
+            let ic_count = self.inline_cache_count as usize;
+            if ic_count > 0 {
+                // SAFETY: InlineCacheEntry is zero-initializable (all fields are
+                // scalars). Zero-initialized entries naturally read as "empty"
+                // because shape_ptr will be null, which never matches any live shape.
+                let mut ic = Vec::<InlineCacheEntry>::with_capacity(ic_count);
+                // SAFETY: transmute from zeroed memory is valid for repr(C) scalars.
+                unsafe {
+                    ic.set_len(ic_count);
+                }
+                *bc_impl.inline_cache.get_mut() = ic.into_boxed_slice();
+            }
+            // ic_count == 0 → keep the empty Box::new([]) from new()
+        }
 
         if !self.attrs.exec_mode.contains(ExecMode::STRIP) {
             // setup debug info
