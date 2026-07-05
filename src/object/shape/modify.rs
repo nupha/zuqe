@@ -60,10 +60,14 @@ impl ObjectImpl {
         debug_assert_eq!(self.prop_values.len(), old_len);
         let new_len = old_len + 1;
 
-        // Always try registry lookup first (dedup across objects).
-        if let Some(found) =
-            ctx.rt()
-                .find_shape_with_extend_prop(self.shape().unwrap(), prop, prop_flags)
+        // Registry dedup: only meaningful when the source shape is shared
+        // (use_count != 1). An exclusive shape cannot have a pre-existing
+        // target because no other object shares the same source — the lookup
+        // would always miss, so skip it.
+        if use_count != 1
+            && let Some(found) =
+                ctx.rt()
+                    .find_shape_with_extend_prop(self.shape().unwrap(), prop, prop_flags)
         {
             debug_assert_eq!(new_len, found.len());
             self.try_extend_prop_slot(1).map_err(|_| {
@@ -75,28 +79,13 @@ impl ObjectImpl {
             return Ok(new_len);
         }
 
-        // Not found. Extend slot first, then branch by exclusivity.
+        // Not found (or exclusive shape — lookup skipped above).
+        // Extend slot first, then branch by exclusivity.
         self.try_extend_prop_slot(1).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
         debug_assert_eq!(self.prop_values.len(), new_len);
-
-        // find shape registry
-        // ★ use_count == 1: exclusive shape — no other object could have created the target shape,
-        // so global lookup would always miss. Skip the expensive HashMap GET entirely.
-
-        // avoid perform ::find_shape_with_extend_prop() for use_count==1 case.
-        if use_count != 1
-            && let Some(found) =
-                ctx.rt()
-                    .find_shape_with_extend_prop(self.shape().unwrap(), prop, prop_flags)
-        {
-            // found existing shape
-            debug_assert_eq!(new_len, found.len());
-            self.set_shape(found);
-            return Ok(new_len);
-        }
 
         let mut use_shape = if use_count != 1 {
             // current shape is shared, dup to new without register.
