@@ -130,6 +130,7 @@ impl<'s> JSParseState<'s> {
             // apply function call
             match opcode {
                 opcodes::OP_get_field
+                | opcodes::OP_get_field_ic
                 | opcodes::op_scope_get_private_field
                 | opcodes::OP_get_array_el
                 | opcodes::op_scope_get_ref => {
@@ -186,10 +187,15 @@ impl<'s> JSParseState<'s> {
         let drop_count: i32;
 
         match opcode {
-            opcodes::OP_get_field => {
+            opcodes::OP_get_field | opcodes::OP_get_field_ic => {
                 // keep the object on the stack
                 let fd = self.cur_func_mut();
-                fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_field2;
+                let target = if opcode == opcodes::OP_get_field_ic {
+                    opcodes::OP_get_field2_ic
+                } else {
+                    opcodes::OP_get_field2
+                };
+                fd.byte_code[fd.last_opcode_pos as usize] = target;
                 drop_count = 2;
             }
             opcodes::op_get_field_opt_chain => {
@@ -318,6 +324,7 @@ impl<'s> JSParseState<'s> {
     ) {
         match opcode {
             opcodes::OP_get_field
+            | opcodes::OP_get_field_ic
             | opcodes::op_scope_get_private_field
             | opcodes::OP_get_array_el
             | opcodes::op_scope_get_ref => {

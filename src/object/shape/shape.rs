@@ -11,6 +11,10 @@ use crate::{ScopedContext, atom::Atom, context::ContextImpl, object::ShapeProper
 use super::super::{obj::Object, property::JS_PROP_LENGTH};
 
 pub(crate) struct ShapeImpl {
+    /// Monotonically increasing unique ID. Used by inline cache (inline_cache
+    /// feature) to detect ABA reuse of shape memory addresses — a cached
+    /// (shape_ptr, uid) pair can never collide with a different shape.
+    pub(crate) uid: u32,
     pub(crate) use_count: u32,
     /// cached shape hash value
     pub(crate) hash: u32,
@@ -53,7 +57,7 @@ impl GcTrace for ShapeImpl {
 
 impl ShapeImpl {
     /// create an empty shape with prototype 'proto'.
-    fn new(proto: Option<Object>, props: HashList<ShapeProperty>) -> Result<Self, i32> {
+    fn new(uid: u32, proto: Option<Object>, props: HashList<ShapeProperty>) -> Result<Self, i32> {
         //calc shape hash
         let mut hash = shape_initial_hash(proto.map_or(0, |p| p.id()));
         for (_, prs) in props.iter() {
@@ -61,6 +65,7 @@ impl ShapeImpl {
         }
 
         Ok(Self {
+            uid,
             use_count: 1,
             proto,
             prop_defs: props,
@@ -219,7 +224,9 @@ impl Shape {
         proto: Option<Object>,
         prop_defs: HashList<ShapeProperty>,
     ) -> Result<Self, i32> {
-        ctx.alloc_local(ShapeImpl::new(proto, prop_defs)?)
+        let uid = ctx.rt_mut().next_shape_uid.get();
+        ctx.rt_mut().next_shape_uid.set(uid.wrapping_add(1));
+        ctx.alloc_local(ShapeImpl::new(uid, proto, prop_defs)?)
             .map(|s| {
                 debug_assert_eq!(unsafe { s.as_ref() }.use_count, 1);
                 Self(s)

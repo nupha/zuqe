@@ -24,6 +24,7 @@ builtin_json = []
 builtin_date = ["libc"]
 builtin_math = []
 
+inline_cache = []
 dump_bytecode = []
 debug_gc = []
 
@@ -36,6 +37,7 @@ debug_gc = []
 gc_protect_transient = []
 
 default = [
+    "inline_cache",
     "all_unicode",
     "async_support",
 
