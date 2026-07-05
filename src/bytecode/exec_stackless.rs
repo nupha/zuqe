@@ -1756,33 +1756,28 @@ impl Bytecode {
                     }
                     #[cfg(feature = "inline_cache")]
                     OpCode::GET_FIELD_IC | OpCode::GET_FIELD2_IC => {
+                        // get_field: [target, ^] -> [value, ^]
+                        // get_field2: [target, ^] -> [target, value, ^]
                         let atom = Atom::from_id(PC_FETCH!(u32));
                         let ic_idx = PC_FETCH!(u16) as usize;
 
-                        // ── IC fast path ──
-                        let sp_obj = SP_REF!(-1);
-                        // SAFETY:
-                        // - Single-threaded interpreter — no concurrent writes.
-                        // - The raw `*const ShapeImpl` is only compared against the
-                        //   object's current shape pointer (never dereferenced on
-                        //   miss). On hit the shape is alive because the object
-                        //   confirming the match holds a GcRef to it.
-                        // - Non-moving GC: addresses don't change.
-                        // - ABA is prevented by the `shape_uid` field.
-                        //   See BytecodeImpl::inline_cache doc for full safety model.
+                        let target = SP_VAL!(-1);
+
+                        // IC fast path
                         let ic_cache = unsafe { &*self.inline_cache.get() };
                         if ic_idx < ic_cache.len()
-                            && let Some(obj) = sp_obj.as_object()
-                            && let Some(shape) = obj.shape()
+                            && let Some(o) = target.as_object()
+                            && let Some(shape) = o.shape()
                         {
                             let entry = &ic_cache[ic_idx];
                             let shape_ptr: *const ShapeImpl = &**shape as *const ShapeImpl;
+
                             if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
                                 let slot = entry.slot as usize;
                                 // delete marks slot Deleted without changing shape
-                                if !matches!(obj.prop_slot(slot), JSProperty::Deleted) {
-                                    let obj_val = JSValue::Object(*obj);
-                                    if let Ok(val) = obj.prop_slot(slot).value(realm_scope, obj_val)
+                                if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
+                                    if let Ok(val) =
+                                        o.prop_slot(slot).value(realm_scope, JSValue::Object(*o))
                                     {
                                         if opcode == OpCode::GET_FIELD_IC {
                                             SP_PUT!(-1, val);
@@ -1798,16 +1793,14 @@ impl Bytecode {
                             }
                         }
 
-                        // ── miss: full lookup + update cache ──
-                        let obj = SP_VAL!(-1);
-                        if let Ok(val) = obj.get_property(realm_scope, atom) {
-                            // Populate / refresh the cache entry.
-                            if let Some(o) = obj.as_object()
+                        // full lookup property
+                        if let Ok(val) = target.get_property(realm_scope, atom) {
+                            if let Some(o) = target.as_object()
                                 && let Some(shape) = o.shape()
                                 && let Some((slot, flags)) = o.find_shape_property(atom)
                             {
-                                // SAFETY: single-threaded.
-                                let ic_cache = unsafe { &mut *self.inline_cache.get() };
+                                // update inline cache
+                                let ic_cache = unsafe { &mut *self.inline_cache.get() }; // SAFETY: single-threaded.
                                 if ic_idx < ic_cache.len() {
                                     ic_cache[ic_idx] = InlineCacheEntry {
                                         shape_ptr: &**shape as *const ShapeImpl,
@@ -1817,15 +1810,43 @@ impl Bytecode {
                                     };
                                 }
                             }
+
                             if opcode == OpCode::GET_FIELD_IC {
                                 SP_PUT!(-1, val);
                             } else {
                                 SP_PUT!(0, val);
-                                SP_GO!(1);
+                                SP_GO!(1)
                             }
                         } else {
                             break ExecAction::Exception;
                         }
+
+                        // if let Ok(val) = obj.get_property(realm_scope, atom) {
+                        //     // Populate / refresh the cache entry.
+                        //     if let Some(o) = obj.as_object()
+                        //         && let Some(shape) = o.shape()
+                        //         && let Some((slot, flags)) = o.find_shape_property(atom)
+                        //     {
+                        //         // SAFETY: single-threaded.
+                        //         let ic_cache = unsafe { &mut *self.inline_cache.get() };
+                        //         if ic_idx < ic_cache.len() {
+                        //             ic_cache[ic_idx] = InlineCacheEntry {
+                        //                 shape_ptr: &**shape as *const ShapeImpl,
+                        //                 shape_uid: shape.uid,
+                        //                 slot: slot as u32,
+                        //                 flags,
+                        //             };
+                        //         }
+                        //     }
+                        //     if opcode == OpCode::GET_FIELD_IC {
+                        //         SP_PUT!(-1, val);
+                        //     } else {
+                        //         SP_PUT!(0, val);
+                        //         SP_GO!(1);
+                        //     }
+                        // } else {
+                        //     break ExecAction::Exception;
+                        // }
                     }
                     #[cfg(not(feature = "inline_cache"))]
                     OpCode::GET_FIELD_IC | OpCode::GET_FIELD2_IC => {

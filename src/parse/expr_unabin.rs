@@ -287,7 +287,7 @@ impl<'s> JSParseState<'s> {
         let fd = unsafe { fd0.as_mut().unwrap() };
 
         match fd.get_prev_opcode() {
-            opcode @ (opcodes::OP_get_field | opcodes::op_get_field_opt_chain) => {
+            opcode @ (opcodes::OP_get_field | opcodes::OP_get_field_ic | opcodes::op_get_field_opt_chain) => {
                 let opt_chain_label: i32 = if opcode == opcodes::op_get_field_opt_chain {
                     unsafe {
                         read_from_ptr::<i32>(
