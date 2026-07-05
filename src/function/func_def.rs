@@ -128,6 +128,11 @@ pub(crate) struct FunctionDef {
     pub byte_code: Vec<u8>,
     /// 最后操作码位置. -1 if no last opcode
     pub last_opcode_pos: i32,
+
+    /// Number of inline-cache sites (GET_FIELD_IC / GET_FIELD2_IC) emitted.
+    /// Used at bytecode finalization (create_bytecode) to size the cache array.
+    #[cfg(feature = "inline_cache")]
+    pub(crate) inline_cache_count: u16,
     /// 最后操作码行号
     pub last_opcode_line_num: i32,
     /// 是否使用短操作码
@@ -251,6 +256,9 @@ impl FunctionDef {
             byte_code: Vec::with_capacity(128),
             last_opcode_pos: -1,
             last_opcode_line_num: line_num,
+
+            #[cfg(feature = "inline_cache")]
+            inline_cache_count: 0,
             use_short_opcodes: false,
 
             label_slots: Vec::new(),

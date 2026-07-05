@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::cell::Cell;
 use std::{ffi::c_void, process::ExitCode};
 
 use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
@@ -102,6 +103,11 @@ pub struct RuntimeImpl {
     pub(crate) host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
     #[deprecated]
     pub(crate) host_promise_rejection_tracker_opaque: *mut c_void,
+
+    /// Monotonically increasing counter for ShapeImpl::uid.
+    /// Incremented on every shape allocation to guarantee unique shape IDs.
+    /// Used by inline cache to detect ABA reuse of shape memory addresses.
+    pub(crate) next_shape_uid: Cell<u32>,
 }
 
 impl Drop for RuntimeImpl {
@@ -162,6 +168,7 @@ impl RuntimeImpl {
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,
+            next_shape_uid: Cell::new(1),
         };
 
         rt.init_const_atoms();

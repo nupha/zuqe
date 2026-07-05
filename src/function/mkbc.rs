@@ -15,6 +15,9 @@ use super::{
     JSVarDef, JSVarKindEnum, is_var_in_arg_scope,
 };
 
+#[cfg(feature = "inline_cache")]
+use super::InlineCacheEntry;
+
 /// Classify a function's GC scope requirements by scanning its opcodes.
 fn compute_gc_scope_kind(opcodes: &[u8]) -> GcScopeKind {
     let mut has_always = false;
@@ -312,6 +315,15 @@ impl FunctionDef {
             opcodes_start,
             stack_size,
         );
+
+        #[cfg(feature = "inline_cache")]
+        {
+            let ic_count = self.inline_cache_count as usize;
+            if ic_count > 0 {
+                let ic = vec![InlineCacheEntry::default(); ic_count];
+                *bc_impl.inline_cache.get_mut() = ic.into_boxed_slice();
+            }
+        }
 
         if !self.attrs.exec_mode.contains(ExecMode::STRIP) {
             // setup debug info

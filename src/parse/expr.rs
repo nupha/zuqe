@@ -577,9 +577,30 @@ impl<'s> JSParseState<'s> {
         } // loop
 
         if optional_chaining_label >= 0 {
+            // When inline_cache is on, GET_FIELD_IC was emitted instead of
+            // GET_FIELD.  It is 7 bytes (opcode + atom + ic_index) but the
+            // optional-chain temp opcodes expect the 5-byte format. Patch
+            // the instruction down to plain GET_FIELD first, then let the
+            // normal get_field → opt_chain conversion handle it.
+            //
+            // The label emitted by emit_label_raw() comes AFTER the IC
+            // instruction in the bytecode buffer, so we remove the 2
+            // ic_index bytes from the middle by shifting everything after
+            // them forward.
+            #[cfg(feature = "inline_cache")]
+            if self.cur_func().get_prev_opcode() == opcodes::OP_get_field_ic {
+                let fd = self.cur_func_mut();
+                // 1) Rewrite opcode from GET_FIELD_IC → GET_FIELD
+                fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_field;
+                // 2) Remove the 2 ic_index bytes after atom
+                let keep_atom = fd.last_opcode_pos as usize + 5;
+                let remove_len = 2;
+                fd.byte_code.copy_within(keep_atom + remove_len.., keep_atom);
+                fd.byte_code.truncate(fd.byte_code.len() - remove_len);
+            }
+
             self.emit_label_raw(optional_chaining_label);
 
-            /* modify the last opcode to indicate optional chain */
             match self.cur_func().get_prev_opcode() {
                 op @ (opcodes::OP_get_field | opcodes::OP_get_array_el) => {
                     let last_opcode_pos = self.cur_func().last_opcode_pos;
