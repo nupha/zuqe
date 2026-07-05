@@ -40,7 +40,10 @@ pub(crate) struct InlineCacheEntry {
     /// Cached slot index into the object's prop_values array.
     pub(crate) slot: u32,
     /// Cached property flags (e.g. Writable, Configurable, GetSet …).
-    pub(crate) flags: u32,
+    /// Only the low 6 bits are used (JS_PROP_*); stored as u8 for clarity.
+    /// Does not reduce struct size (24 bytes with padding) but documents
+    /// the actual domain.
+    pub(crate) flags: u8,
 }
 
 #[derive(Debug)]
