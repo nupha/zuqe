@@ -1806,7 +1806,7 @@ impl Bytecode {
                                         shape_ptr: &**shape as *const ShapeImpl,
                                         shape_uid: shape.uid,
                                         slot: slot as u32,
-                                        flags,
+                                        flags: flags as u8,
                                     };
                                 }
                             }
