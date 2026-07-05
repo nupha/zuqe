@@ -59,7 +59,7 @@ impl FunctionDef {
 
     /// Emit a named-property-get — either GET_FIELD_IC (with inline_cache
     /// feature) or plain GET_FIELD.
-    pub fn emit_field_get(&mut self, atom: Atom, last_line_num: i32) {
+    pub fn emit_get_field(&mut self, atom: Atom, last_line_num: i32) {
         #[cfg(feature = "inline_cache")]
         {
             self.emit_op(OpCode::GET_FIELD_IC, last_line_num);
@@ -77,7 +77,7 @@ impl FunctionDef {
 
     /// Emit a named-property-get that preserves the object on the stack
     /// (GET_FIELD2_IC or plain GET_FIELD2).
-    pub fn emit_field_get2(&mut self, atom: Atom, last_line_num: i32) {
+    pub fn emit_get_field2(&mut self, atom: Atom, last_line_num: i32) {
         #[cfg(feature = "inline_cache")]
         {
             self.emit_op(OpCode::GET_FIELD2_IC, last_line_num);

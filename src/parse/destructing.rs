@@ -235,8 +235,7 @@ impl<'s> JSParseState<'s> {
                             self.emit_op(OpCode::SWAP); // TOS: excludeList src
                         }
                         // get the named property from the source object
-                        self.emit_op(OpCode::GET_FIELD2);
-                        self.emit_atom(prop_name);
+                        self.emit_get_field2(prop_name);
                     }
 
                     self.parse_destructuring_element(tok, is_arg, true, -1, true, export)?;
@@ -297,7 +296,7 @@ impl<'s> JSParseState<'s> {
                     // named property
                     // XXX: should have OP_get_field2x with depth
                     // source -- val
-                    self.emit_field_get(prop_name);
+                    self.emit_get_field(prop_name);
                 }
             } else {
                 // prop_type = PROP_TYPE_VAR, cannot be a computed property
@@ -345,14 +344,14 @@ impl<'s> JSParseState<'s> {
                         // named property
                         // XXX: should have OP_get_field2x with depth
                         // source -- val
-                        self.emit_field_get(prop_name);
+                        self.emit_get_field(prop_name);
                     }
                 }
 
                 if !goto_lvalue {
                     var_name = prop_name;
                     // source -- source val
-                    self.emit_field_get2(prop_name);
+                    self.emit_get_field2(prop_name);
                 }
             }
 
