@@ -421,18 +421,17 @@ impl ModuleDef {
                     }
                     ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
                         debug_assert_ne!(local_name, Atom::CONST__star_);
-
                         export.export_type =
                             ExportedNameKind::EXPORTED_NAME_NORMAL(if let Some(vr) = var_ref {
                                 vr
                             } else {
                                 debug_assert_ne!(var_idx, u16::MAX);
-                                let p1 = module
+                                module
                                     .bytecode
                                     .as_object_BCWrapper()
-                                    .copied()
-                                    .expect("BCWrapper expected");
-                                p1.payload().get_closure_var_ref(var_idx as usize)
+                                    .unwrap()
+                                    .payload()
+                                    .get_closure(var_idx as usize)
                             });
                     }
                 },
