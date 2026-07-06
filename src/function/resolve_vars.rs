@@ -554,12 +554,23 @@ impl FunctionDef {
 
                         // Try 3: CALL + GOTO ⟶ label ⟶ RETURN (for ?: expressions)
                         if !tco_ok {
-                            let goto_op = unsafe { *bc_buf_ptr.add(pos_next) };
+                            // Scan past any intervening op_line_num between call and goto
+                            let mut goto_pos = pos_next;
+                            loop {
+                                let skip_op = unsafe { *bc_buf_ptr.add(goto_pos) };
+                                let skip_len = opcode_info_intermediate(skip_op).size as usize;
+                                if skip_op == opcodes::op_line_num {
+                                    goto_pos += skip_len;
+                                } else {
+                                    break;
+                                }
+                            }
+                            let goto_op = unsafe { *bc_buf_ptr.add(goto_pos) };
                             let goto_len = opcode_info_intermediate(goto_op).size as usize;
-                            if goto_op == opcodes::OP_goto && pos_next + goto_len <= bc_buf_len {
+                            if goto_op == opcodes::OP_goto && goto_pos + goto_len <= bc_buf_len {
                                 let goto_label =
-                                    unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos_next + 1)) };
-                                let mut scan = pos_next + goto_len;
+                                    unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(goto_pos + 1)) };
+                                let mut scan = goto_pos + goto_len;
                                 let mut scan_line_num = line_num;
                                 let mut found = false;
                                 while scan < bc_buf_len {
@@ -568,28 +579,37 @@ impl FunctionDef {
                                     if scan + s_len > bc_buf_len {
                                         break;
                                     }
-                                    if s_op == opcodes::op_label {
-                                        let label_id = unsafe {
-                                            read_from_ptr::<u32>(bc_buf_ptr.add(scan + 1))
-                                        };
-                                        if label_id == goto_label {
-                                            let after = scan + s_len;
-                                            let next = unsafe { *bc_buf_ptr.add(after) };
-                                            if next == opcodes::OP_return
-                                                || next == opcodes::OP_return_undef
-                                            {
-                                                found = true;
+
+                                    match s_op {
+                                        opcodes::op_label => {
+                                            let label_id = unsafe {
+                                                read_from_ptr::<u32>(bc_buf_ptr.add(scan + 1))
+                                            };
+                                            if label_id == goto_label {
+                                                let after = scan + s_len;
+                                                let next = unsafe { *bc_buf_ptr.add(after) };
+                                                if matches!(
+                                                    next,
+                                                    opcodes::OP_return | opcodes::OP_return_undef
+                                                ) {
+                                                    found = true;
+                                                }
+                                                break;
                                             }
-                                            break;
+                                            // Not the target label (e.g. L_else in ?:) —
+                                            // continue scanning for the right one.
                                         }
+                                        opcodes::op_line_num => {
+                                            scan_line_num = unsafe {
+                                                read_from_ptr::<i32>(bc_buf_ptr.add(scan + 1))
+                                            };
+                                        }
+                                        _ => {}
                                     }
-                                    if s_op == opcodes::op_line_num {
-                                        scan_line_num = unsafe {
-                                            read_from_ptr::<i32>(bc_buf_ptr.add(scan + 1))
-                                        };
-                                    }
+
                                     scan += s_len;
                                 }
+
                                 if found {
                                     if scan_line_num >= 0 && scan_line_num != line_num {
                                         line_num = scan_line_num;
