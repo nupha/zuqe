@@ -250,7 +250,9 @@ impl ModuleDef {
                         if cur_module.import_entries[i].import_name == Atom::CONST__star_ {
                             // name space import
                             let val = reqm.ns(ctx)?;
-                            md_func.payload_mut().closure_var_refs_mut()[import_var_idx as usize]
+                            let gvc = md_func.payload().global_var_count as usize;
+                            md_func.payload_mut().closure_var_refs_mut()
+                                [gvc + import_var_idx as usize]
                                 .set_value(&mut ctx.rt_ptr(), val.into());
                         } else {
                             match reqm.resolve_export(
@@ -279,8 +281,10 @@ impl ModuleDef {
                                                     vr.set_value(&mut ctx.rt_ptr(), val.into());
                                                     vr
                                                 };
+                                                let gvc = md_func.payload().global_var_count as usize;
                                                 md_func.payload_mut().closure_var_refs_mut()
-                                                    [import_var_idx as usize] = vref;
+                                                    [gvc + import_var_idx as usize]
+                                                    = vref;
                                             }
                                         }
                                         ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
@@ -298,8 +302,10 @@ impl ModuleDef {
                                                 dep_payload.closure_var_refs()
                                                     [dep_payload.global_var_count as usize + var_idx as usize]
                                             });
+                                            let gvc = md_func.payload().global_var_count as usize;
                                             md_func.payload_mut().closure_var_refs_mut()
-                                                [import_var_idx as usize] = vr;
+                                                [gvc + import_var_idx as usize]
+                                                = vr;
                                         }
                                     }
                                 }
