@@ -523,7 +523,6 @@ impl BytecodeImpl {
                 p = p.offset(1);
 
                 let new_line_num: i32;
-                let new_line_pos: u32;
 
                 if op == 0 {
                     let mut val = 0;
@@ -533,7 +532,7 @@ impl BytecodeImpl {
                     ) {
                         n
                     } else {
-                        return Some((debug.line_num, 0));
+                        return Some((debug.line_num, line_pos));
                     };
                     pc += val as i32;
                     p = p.add(ret);
@@ -545,29 +544,28 @@ impl BytecodeImpl {
                     ) {
                         n
                     } else {
-                        return Some((debug.line_num, 0));
-                    };
-                    p = p.add(ret);
-                    new_line_num = line_num + v;
-
-                    // Decode line_pos delta
-                    let mut vp = 0_i32;
-                    let ret = if let Ok(n) = get_sleb128(
-                        &mut vp,
-                        std::slice::from_raw_parts(p, Self::LEB128_U32_MAX_BYTES),
-                    ) {
-                        n
-                    } else {
                         return Some((debug.line_num, line_pos));
                     };
                     p = p.add(ret);
-                    new_line_pos = (line_pos as i32 + vp) as u32;
+                    new_line_num = line_num + v;
                 } else {
                     op -= PC2LINE_OP_FIRST;
                     pc += op / PC2LINE_RANGE;
                     new_line_num = line_num + (op % PC2LINE_RANGE) + PC2LINE_BASE;
-                    new_line_pos = line_pos; // short encoding: column unchanged
                 }
+
+                // Column delta always follows — both short and long encoding
+                let mut vp = 0_i32;
+                let ret = if let Ok(n) = get_sleb128(
+                    &mut vp,
+                    std::slice::from_raw_parts(p, Self::LEB128_U32_MAX_BYTES),
+                ) {
+                    n
+                } else {
+                    return Some((debug.line_num, line_pos));
+                };
+                p = p.add(ret);
+                let new_line_pos = (line_pos as i32 + vp) as u32;
 
                 if pc_value < pc as u32 {
                     return Some((line_num, line_pos));
