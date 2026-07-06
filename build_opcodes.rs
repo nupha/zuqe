@@ -290,7 +290,7 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("push_bigint_i32", 5, 0, 1, "I32", false, Never),
         DEF!("nop", 1, 0, 0, "NONE", false, Never),
         //
-        // intermediate
+        // ---- intermediate ----
         //
         def!("enter_scope", 3, 0, 0, "U16", Never),
         def!("leave_scope", 3, 0, 0, "U16", Never),

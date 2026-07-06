@@ -432,7 +432,9 @@ impl ModuleDef {
                                     .as_object_BCWrapper()
                                     .copied()
                                     .expect("BCWrapper expected");
-                                p1.payload().closure_var_refs()[var_idx as usize]
+                                let p1_payload = p1.payload();
+                                p1_payload.closure_var_refs()
+                                    [p1_payload.global_var_count as usize + var_idx as usize]
                             });
                     }
                 },

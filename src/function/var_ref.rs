@@ -62,9 +62,9 @@ impl GcTrace for VarRefImpl {
 }
 
 impl VarRefImpl {
-    pub(crate) fn update_pvalue_for_heap_buf_offsets_impl(
+    fn update_pvalue_for_heap_buf_offsets_impl(
         &mut self,
-        heap_buf: &Box<[JSValue]>,
+        heap_buf: &[JSValue],
         arg_base_offset: u32,
         var_base_offset: u32,
     ) {
@@ -85,7 +85,7 @@ impl VarRefImpl {
             #[cfg(debug_assertions)]
             {
                 let ptr: *const JSValue = pvalue.as_ptr() as *const JSValue;
-                let buf_start: *const JSValue = heap_buf.as_ptr() as *const JSValue;
+                let buf_start: *const JSValue = heap_buf.as_ptr();
                 let buf_end = unsafe { buf_start.add(heap_buf.len()) };
                 debug_assert!(
                     ptr >= buf_start && ptr < buf_end,
@@ -161,7 +161,7 @@ impl VarRefImpl {
         }
     }
 
-    pub(crate) fn detach(&mut self) {
+    pub(crate) const fn detach(&mut self) {
         if let Self::Bind { pvalue, .. } = self {
             *self = Self::Detached(unsafe { *pvalue.as_ref() });
         }
@@ -189,7 +189,7 @@ gcref_wrapper!(VarRef, VarRefImpl);
 impl VarRef {
     pub(crate) fn update_pvalue_for_heap_buf_offsets(
         &mut self,
-        heap_buf: &Box<[JSValue]>,
+        heap_buf: &[JSValue],
         arg_base_offset: u32,
         var_base_offset: u32,
     ) {
