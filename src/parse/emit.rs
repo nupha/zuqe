@@ -69,6 +69,14 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_get_field(atom, ln);
     }
 
+    /// Emit a named-property-put, conditionally selecting PUT_FIELD_IC when
+    /// the inline_cache feature is active.
+    #[inline(always)]
+    pub fn emit_put_field(&mut self, atom: Atom) {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_put_field(atom, ln);
+    }
+
     /// Emit a named-property-get that preserves the object on the stack,
     /// conditionally selecting GET_FIELD2_IC.
     #[inline(always)]

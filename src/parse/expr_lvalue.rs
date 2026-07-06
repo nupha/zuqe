@@ -295,9 +295,12 @@ impl<'s> JSParseState<'s> {
                 self.emit_atom(name);
                 self.emit_u16(scope as _);
             }
-            opcodes::OP_get_field | opcodes::OP_get_field_ic => {
+            opcodes::OP_get_field => {
                 self.emit_op(OpCode::PUT_FIELD);
                 self.emit_atom(name);
+            }
+            opcodes::OP_get_field_ic => {
+                self.emit_put_field(name);
             }
             opcodes::op_scope_get_private_field => {
                 self.emit_op_temp(OpCodeTemp::SCOPE_PUT_PRIVATE_FIELD);
