@@ -122,7 +122,7 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("apply_eval", 3, 2, 1, "U16", false, Always),
         DEF!("regexp", 1, 2, 1, "NONE", false, Always),
         DEF!("get_super", 1, 1, 1, "NONE", false, Never),
-        DEF!("import", 1, 1, 1, "NONE", false, Always),
+        DEF!("import", 1, 2, 1, "NONE", false, Always),
         DEF!("check_var", 5, 0, 1, "ATOM", false, Never),
         DEF!("get_var_undef", 5, 0, 1, "ATOM", false, Never),
         DEF!("get_var", 5, 0, 1, "ATOM", false, Never),
@@ -281,7 +281,7 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         def!("get_field_opt_chain", 5, 1, 1, "ATOM", Never),
         def!("get_array_el_opt_chain", 1, 2, 1, "NONE", Never),
         def!("set_class_name", 5, 1, 1, "U32", Never),
-        def!("line_num", 5, 0, 0, "U32", Never),
+        def!("line_num", 9, 0, 0, "U32_U32", Never),
     ];
 
     // // short opcodes
@@ -390,6 +390,7 @@ pub fn gen_opcodes(outfile: &Path) {
         "ARG",
         "VAR_REF",
         "U32",
+        "U32_U32",
         "I32",
         "CONST",
         "LABEL",

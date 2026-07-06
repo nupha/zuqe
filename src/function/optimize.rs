@@ -161,7 +161,7 @@ impl FunctionDef {
         &mut self,
         pos: usize,
         pos_next: &mut usize,
-        line_num: &mut i32,
+        line_num: &mut i32, line_pos: &mut u32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         // transformation:
@@ -202,7 +202,7 @@ impl FunctionDef {
                 if cc.line_num >= 0 {
                     *line_num = cc.line_num;
                 }
-                self.add_pc2line_info(bc_out.len() as _, *line_num);
+                self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
                 push_vec_u8(
                     bc_out,
                     if matches!(cc.op as u8, opcodes::OP_inc | opcodes::OP_post_inc) {
@@ -229,7 +229,7 @@ impl FunctionDef {
                 if cc.line_num >= 0 {
                     *line_num = cc.line_num as _;
                 }
-                self.add_pc2line_info(bc_out.len() as _, *line_num);
+                self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
 
                 #[cfg(feature = "short_opcode")]
                 {
@@ -266,7 +266,7 @@ impl FunctionDef {
                 if cc.line_num >= 0 {
                     *line_num = cc.line_num as _;
                 }
-                self.add_pc2line_info(bc_out.len() as _, *line_num);
+                self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
                 push_vec_short_int(bc_out, cc.label);
                 push_vec_u8(bc_out, opcodes::OP_add_loc);
                 push_vec_u8(bc_out, idx as u8);
@@ -296,13 +296,13 @@ impl FunctionDef {
                 if cc.line_num >= 0 {
                     *line_num = cc.line_num as _;
                 }
-                self.add_pc2line_info(bc_out.len() as _, *line_num);
+                self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
                 push_vec_short_code(bc_out, cc.op as _, cc.idx as _);
                 push_vec_u8(bc_out, opcodes::OP_add_loc);
                 push_vec_u8(bc_out, idx as u8);
                 *pos_next = cc.pos;
             } else {
-                self.add_pc2line_info(bc_out.len() as _, *line_num);
+                self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
                 push_vec_short_code(bc_out, OpCode::GET_LOC as u8, idx);
             }
 
@@ -315,7 +315,7 @@ impl FunctionDef {
         op: u8,
         pos: usize,
         pos_next: &mut usize,
-        line_num: &mut i32,
+        line_num: &mut i32, line_pos: &mut u32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         debug_assert!(matches!(
@@ -331,11 +331,11 @@ impl FunctionDef {
             if cc.line_num >= 0 {
                 *line_num = cc.line_num;
             }
-            self.add_pc2line_info(bc_out.len() as _, *line_num);
+            self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
             push_vec_short_code(bc_out, op + 1, idx);
             *pos_next = cc.pos;
         } else {
-            self.add_pc2line_info(bc_out.len() as _, *line_num);
+            self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
             push_vec_short_code(bc_out, op, idx);
         }
 
@@ -347,7 +347,7 @@ impl FunctionDef {
         op: u8,
         _pos: usize,
         pos_next: &mut usize,
-        line_num: &mut i32,
+        line_num: &mut i32, line_pos: &mut u32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         debug_assert!(matches!(op, opcodes::OP_post_dec | opcodes::OP_post_inc,));
@@ -383,7 +383,7 @@ impl FunctionDef {
                 op1 += 1; // put_x(n) get_x(n) -> set_x(n)
                 *pos_next = m.pos;
             }
-            self.add_pc2line_info(bc_out.len() as _, *line_num);
+            self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
             push_vec_u8(bc_out, OpCode::DEC as u8 + (op - OpCode::POST_DEC as u8));
             push_vec_short_code(bc_out, op1 as u8, idx as u16);
             return true;
@@ -400,7 +400,7 @@ impl FunctionDef {
             if cc.line_num >= 0 {
                 *line_num = cc.line_num as _;
             }
-            self.add_pc2line_info(bc_out.len() as _, *line_num);
+            self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
             push_vec_u8(bc_out, OpCode::DEC as u8 + (op - OpCode::POST_DEC as u8));
             push_vec_u8(bc_out, cc.op as u8);
             push_vec_atom(bc_out, cc.atom);
@@ -419,7 +419,7 @@ impl FunctionDef {
             if cc.line_num >= 0 {
                 *line_num = cc.line_num as _;
             }
-            self.add_pc2line_info(bc_out.len() as _, *line_num);
+            self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
             push_vec_u8(bc_out, OpCode::DEC as u8 + (op - OpCode::POST_DEC as u8));
             push_vec_u8(bc_out, OpCode::PUT_ARRAY_EL as u8);
             *pos_next = cc.pos;
@@ -434,7 +434,7 @@ impl FunctionDef {
         mut op: u8,
         pos: usize,
         pos_next: &mut usize,
-        line_num: &mut i32,
+        line_num: &mut i32, line_pos: &mut u32,
         bc_out: &mut Vec<u8>,
     ) -> Option<(u8, u32)> {
         debug_assert!(matches!(op, opcodes::OP_if_true | opcodes::OP_if_false));
@@ -474,7 +474,7 @@ impl FunctionDef {
         &mut self,
         _pos: usize,
         pos_next: &mut usize,
-        line_num: &mut i32,
+        line_num: &mut i32, line_pos: &mut u32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         // Transformation: dup put_x(n) drop -> put_x(n)
@@ -510,7 +510,7 @@ impl FunctionDef {
                 }
             }
 
-            self.add_pc2line_info(bc_out.len() as _, *line_num);
+            self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
             push_vec_short_code(bc_out, op1 as u8, cc.idx as _);
             if line2 >= 0 {
                 *line_num = line2;

@@ -33,7 +33,11 @@ impl GcTrace for ImportEntry {
     }
 }
 
-pub(crate) fn js_dynamic_import(ctx: &mut ScopedContext, specifier: JSValue) -> JSResult {
+pub(crate) fn js_dynamic_import(
+    ctx: &mut ScopedContext,
+    specifier: JSValue,
+    _options: JSValue,
+) -> JSResult {
     let basename_val: JSValue = if let Some(a) = get_script_or_module_name(ctx, 0) {
         a.to_value(ctx)?
     } else {

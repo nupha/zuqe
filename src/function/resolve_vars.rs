@@ -94,6 +94,7 @@ impl FunctionDef {
         }
 
         let mut line_num = 0_i32;
+        let mut line_pos = 0_u32;
         let mut pos = 0_usize;
         let mut pos_next: usize;
 
@@ -107,6 +108,7 @@ impl FunctionDef {
             match op {
                 opcodes::op_line_num => {
                     line_num = unsafe { read_from_ptr::<i32>(bc_buf_ptr.add(pos + 1)) };
+                    line_pos = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 5)) };
                     self.line_number_slots_cap += 1;
                     no_change!(pos, op_len);
                 }
@@ -282,6 +284,7 @@ impl FunctionDef {
                             self.line_number_slots_cap += 1;
                             push_vec_u8(&mut bc_out, OpCodeTemp::LINE_NUM as u8);
                             push_vec_u32(&mut bc_out, line_num as u32);
+                            push_vec_u32(&mut bc_out, 0); // line_pos: not available in resolve
                         }
                     } else {
                         no_change!(pos, op_len);
@@ -313,6 +316,7 @@ impl FunctionDef {
                             self.line_number_slots_cap += 1;
                             push_vec_u8(&mut bc_out, OpCodeTemp::LINE_NUM as u8);
                             push_vec_u32(&mut bc_out, line_num as u32);
+                            push_vec_u32(&mut bc_out, 0); // line_pos: not available in resolve
                         }
                     } else {
                         no_change!(pos, op_len);
@@ -442,6 +446,7 @@ impl FunctionDef {
 
                                 push_vec_u8(&mut bc_out, opcodes::op_line_num);
                                 push_vec_u32(&mut bc_out, line_num as u32);
+                                push_vec_u32(&mut bc_out, 0); // line_pos: not available in resolve
                             }
                         } else {
                             no_change!(pos, op_len);
@@ -472,8 +477,9 @@ impl FunctionDef {
                                 self.line_number_slots_cap += 1;
                                 push_vec_u8(&mut bc_out, OpCodeTemp::LINE_NUM as u8);
                                 push_vec_u32(&mut bc_out, line_num as u32);
+                                push_vec_u32(&mut bc_out, 0); // line_pos: not available in resolve
                             }
-                            self.add_pc2line_info(bc_out.len() as _, line_num);
+                            self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
 
                             // op+1 maps CALL→TAIL_CALL, CALL_METHOD→TAIL_CALL_METHOD:
                             //   OP_call (N) + 1 = OP_tail_call (N+1)
@@ -528,8 +534,9 @@ impl FunctionDef {
                                     self.line_number_slots_cap += 1;
                                     push_vec_u8(&mut bc_out, OpCodeTemp::LINE_NUM as u8);
                                     push_vec_u32(&mut bc_out, line_num as u32);
+                                    push_vec_u32(&mut bc_out, 0); // line_pos: not available in resolve
                                 }
-                                self.add_pc2line_info(bc_out.len() as _, line_num);
+                                self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
 
                                 // op+1 maps CALL→TAIL_CALL, CALL_METHOD→TAIL_CALL_METHOD:
                                 //   OP_call (N) + 1 = OP_tail_call (N+1)
@@ -591,8 +598,9 @@ impl FunctionDef {
                                         self.line_number_slots_cap += 1;
                                         push_vec_u8(&mut bc_out, OpCodeTemp::LINE_NUM as u8);
                                         push_vec_u32(&mut bc_out, line_num as u32);
+                                        push_vec_u32(&mut bc_out, 0); // line_pos: not available in resolve
                                     }
-                                    self.add_pc2line_info(bc_out.len() as _, line_num);
+                                    self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
                                     push_vec_u8(&mut bc_out, op + 1);
                                     push_vec_u16(&mut bc_out, argc);
                                     tco_ok = true;

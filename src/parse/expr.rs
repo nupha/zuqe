@@ -486,6 +486,8 @@ impl<'s> JSParseState<'s> {
                     }
                     self.parse_assign_expr()?;
                     self.parse_expect(TokenKind::Char(')'))?;
+
+                    self.emit_op(OpCode::UNDEFINED); // Push undefined as the options argument
                     self.emit_op(OpCode::IMPORT);
                 }
             }
@@ -595,7 +597,8 @@ impl<'s> JSParseState<'s> {
                 // 2) Remove the 2 ic_index bytes after atom
                 let keep_atom = fd.last_opcode_pos as usize + 5;
                 let remove_len = 2;
-                fd.byte_code.copy_within(keep_atom + remove_len.., keep_atom);
+                fd.byte_code
+                    .copy_within(keep_atom + remove_len.., keep_atom);
                 fd.byte_code.truncate(fd.byte_code.len() - remove_len);
             }
 

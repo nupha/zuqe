@@ -18,17 +18,17 @@ impl<'s> JSParseState<'s> {
             self.next_token()?;
 
             self.with_cur_func_mut(|s, fd| -> Result<(), i32> {
-                let label1 = fd.emit_goto(OpCode::IF_FALSE, -1, s.last_line_num);
+                let label1 = fd.emit_goto(OpCode::IF_FALSE, -1, s.last_line_num, s.last_line_pos);
 
                 s.parse_assign_expr()?;
                 s.parse_expect(TokenKind::Char(':'))?;
 
-                let label2 = fd.emit_goto(OpCode::GOTO, -1, s.last_line_num);
-                fd.emit_label(label1, s.last_line_num);
+                let label2 = fd.emit_goto(OpCode::GOTO, -1, s.last_line_num, s.last_line_pos);
+                fd.emit_label(label1, s.last_line_num, s.last_line_pos);
 
                 s.parse_assign_expr2(parse_flags & PF_IN_ACCEPTED)?;
 
-                fd.emit_label(label2, s.last_line_num);
+                fd.emit_label(label2, s.last_line_num, s.last_line_pos);
                 Ok(())
             })
             .unwrap()?;
@@ -48,10 +48,11 @@ impl<'s> JSParseState<'s> {
                     s.next_token()?;
 
                     let last_line_num = s.last_line_num;
-                    fd.emit_op(OpCode::DUP, last_line_num);
-                    fd.emit_op(OpCode::IS_UNDEFINED_OR_NULL, last_line_num);
-                    fd.emit_goto(OpCode::IF_FALSE, label1, last_line_num);
-                    fd.emit_op(OpCode::DROP, last_line_num);
+                    let last_line_pos = s.last_line_pos;
+                    fd.emit_op(OpCode::DUP, last_line_num, last_line_pos);
+                    fd.emit_op(OpCode::IS_UNDEFINED_OR_NULL, last_line_num, last_line_pos);
+                    fd.emit_goto(OpCode::IF_FALSE, label1, last_line_num, last_line_pos);
+                    fd.emit_op(OpCode::DROP, last_line_num, last_line_pos);
 
                     s.parse_expr_binary(8, parse_flags & !PF_ARROW_FUNC)?;
 
@@ -60,7 +61,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
 
-                fd.emit_label(label1, s.last_line_num);
+                fd.emit_label(label1, s.last_line_num, s.last_line_pos);
                 Ok(())
             })
             .unwrap()?;

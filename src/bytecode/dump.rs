@@ -265,6 +265,13 @@ pub(crate) fn dump_opcodes(
                     read_from_ptr::<u32>(bin.as_ptr().add(pos))
                 });
             }
+            OpcodeFormat::U32_U32 => {
+                print!(
+                    " line {} col {}",
+                    unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) },
+                    unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos + 4)) },
+                );
+            }
 
             #[cfg(feature = "short_opcode")]
             OpcodeFormat::LABEL8 => {
@@ -659,6 +666,13 @@ pub(super) fn dump_run_instruction(
             print!(" {}", unsafe {
                 read_from_ptr::<u32>(tab.as_ptr().add(pos))
             });
+        }
+        OpcodeFormat::U32_U32 => {
+            print!(
+                " line {} col {}",
+                unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) },
+                unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos + 4)) },
+            );
         }
 
         #[cfg(feature = "short_opcode")]

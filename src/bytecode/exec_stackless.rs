@@ -2103,8 +2103,13 @@ impl Bytecode {
                         }
                     }
                     OpCode::IMPORT => {
-                        if let Ok(res) = js_dynamic_import(realm_scope, SP_VAL!(-1)) {
-                            SP_PUT!(-1, res);
+                        // Stack: ... specifier options
+                        // Pop options, use specifier; push result Promise
+                        let options = SP_VAL!(-1);
+                        let specifier = SP_VAL!(-2);
+                        if let Ok(res) = js_dynamic_import(realm_scope, specifier, options) {
+                            SP_PUT!(-2, res);
+                            SP_GO!(-1);
                         } else {
                             break ExecAction::Exception;
                         }

@@ -139,7 +139,7 @@ impl<'c> ScopedContext<'c> {
         // add fd body scope.
         // initially there are scope level 0 {-1, -1},
         // so body scope will be level 1.
-        fd.body_scope = fd.push_scope(0)? as i32;
+        fd.body_scope = fd.push_scope(0, 0)? as i32;
         debug_assert_eq!(fd.body_scope, 1);
 
         // parse source in a dedicated scope, then compile to bytecode.
