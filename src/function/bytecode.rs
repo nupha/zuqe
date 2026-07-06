@@ -7,7 +7,7 @@ use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     atom::{Atom, is_const_atom, is_small_int_atom},
-    bytecode::{OpcodeFormat, OpcodeGcAlloc, opcode_info_final},
+    bytecode::{OpcodeFormat, opcode_info_final},
     context::{ContextImpl, ContextPtr, ScopedContext},
     error::JSResult,
     eval::EvalType,

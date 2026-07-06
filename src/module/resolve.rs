@@ -291,12 +291,12 @@ impl ModuleDef {
                                                     dep.func_created,
                                                     "module function must have been created"
                                                 );
-                                                dep.bytecode
+                                                let dep_func = dep.bytecode
                                                     .as_object_BCWrapper()
-                                                    .unwrap()
-                                                    .payload()
-                                                    .closure_var_refs()
-                                                    [var_idx as usize]
+                                                    .unwrap();
+                                                let dep_payload = dep_func.payload();
+                                                dep_payload.closure_var_refs()
+                                                    [dep_payload.global_var_count as usize + var_idx as usize]
                                             });
                                             md_func.payload_mut().closure_var_refs_mut()
                                                 [import_var_idx as usize] = vr;
@@ -327,7 +327,9 @@ impl ModuleDef {
                                 &mut cur_module.export_entries[i].export_type
                             {
                                 debug_assert_ne!(*var_idx, u16::MAX);
-                                let vr = md_func.payload().closure_var_refs()[*var_idx as usize];
+                                let payload = md_func.payload();
+                                let vr = payload.closure_var_refs()
+                                    [payload.global_var_count as usize + *var_idx as usize];
                                 var_ref.replace(vr);
                             }
                         }
