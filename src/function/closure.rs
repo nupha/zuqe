@@ -247,6 +247,15 @@ impl Bytecode {
         let total_count = global_ref_count + closure_count;
 
         let captures: Vec<VarRef> = if total_count != 0 {
+            // Extract frame buffer range before any mutable borrow on arena.
+            #[cfg(debug_assertions)]
+            let buf_range = if closure_count != 0 {
+                let head = arena.frame(parent_frame_idx);
+                (head.buf.data_ptr(), head.buf.capacity())
+            } else {
+                (std::ptr::null_mut(), 0)
+            };
+
             let parent_var_refs = if closure_count != 0 {
                 debug_assert!(
                     ctx.is_arena_mode(),
@@ -327,6 +336,20 @@ impl Bytecode {
                                 })
                             };
                             let vref = VarRef::create_bind(ctx, cv.var_idx, cv.is_arg(), pvalue)?;
+
+                            #[cfg(debug_assertions)]
+                            {
+                                let (buf_start, buf_cap) = buf_range;
+                                let buf_start: *const JSValue = buf_start as *const JSValue;
+                                let buf_end = unsafe { buf_start.add(buf_cap as usize) };
+                                let ptr: *const JSValue = pvalue.as_ptr() as *const JSValue;
+                                debug_assert!(
+                                    ptr >= buf_start && ptr < buf_end,
+                                    "make_closure_for_arena: VarRef::Bind pvalue {:p} out of frame buf [{:p}, {:p})",
+                                    ptr, buf_start, buf_end
+                                );
+                            }
+
                             parent_var_refs.push(vref);
                             vref
                         }

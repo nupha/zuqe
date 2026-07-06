@@ -182,6 +182,13 @@ fn get_var_ref(
 ) -> Result<VarRef, i32> {
     debug_assert!(ctx.is_arena_mode());
 
+    // Extract frame buffer range before any mutable borrow of arena.
+    #[cfg(debug_assertions)]
+    let frame_buf_range = {
+        let head = arena.frame(cur_frame_idx);
+        (head.buf.data_ptr(), head.buf.capacity())
+    };
+
     let var_refs = arena.var_refs_or_default(cur_frame_idx);
     if let Some(vr) = var_refs
         .iter()
@@ -200,6 +207,22 @@ fn get_var_ref(
         })
     };
     let vref = VarRef::create_bind(ctx, var_idx, is_arg, pvalue)?;
+
+    #[cfg(debug_assertions)]
+    {
+        let (buf_start, buf_cap) = frame_buf_range;
+        let buf_start: *const JSValue = buf_start as *const JSValue;
+        let buf_end = unsafe { buf_start.add(buf_cap as usize) };
+        let ptr: *const JSValue = pvalue.as_ptr() as *const JSValue;
+        debug_assert!(
+            ptr >= buf_start && ptr < buf_end,
+            "get_var_ref: VarRef::Bind pvalue {:p} out of frame buf [{:p}, {:p})",
+            ptr,
+            buf_start,
+            buf_end
+        );
+    }
+
     var_refs.push(vref);
     Ok(vref)
 }

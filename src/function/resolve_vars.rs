@@ -556,9 +556,7 @@ impl FunctionDef {
                         if !tco_ok {
                             let goto_op = unsafe { *bc_buf_ptr.add(pos_next) };
                             let goto_len = opcode_info_intermediate(goto_op).size as usize;
-                            if goto_op == opcodes::OP_goto
-                                && pos_next + goto_len <= bc_buf_len
-                            {
+                            if goto_op == opcodes::OP_goto && pos_next + goto_len <= bc_buf_len {
                                 let goto_label =
                                     unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos_next + 1)) };
                                 let mut scan = pos_next + goto_len;

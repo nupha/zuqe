@@ -81,6 +81,21 @@ impl VarRefImpl {
                 var_base_offset as usize + *var_idx as usize
             };
             *pvalue = NonNull::from(&heap_buf[off]);
+
+            #[cfg(debug_assertions)]
+            {
+                let ptr: *const JSValue = pvalue.as_ptr() as *const JSValue;
+                let buf_start: *const JSValue = heap_buf.as_ptr() as *const JSValue;
+                let buf_end = unsafe { buf_start.add(heap_buf.len()) };
+                debug_assert!(
+                    ptr >= buf_start && ptr < buf_end,
+                    "VarRef::Bind update pvalue {:p} out of heap_buf [{:p}, {:p}) off={}",
+                    ptr,
+                    buf_start,
+                    buf_end,
+                    off
+                );
+            }
         }
     }
 
