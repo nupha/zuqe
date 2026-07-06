@@ -6,6 +6,7 @@ use crate::{
     bytecode::{OpCode, opcodes},
     context::ScopedContext,
     error::JS_THROW_VAR_RO,
+    stack_frame::ExecMode,
 };
 
 use super::{
@@ -689,17 +690,37 @@ impl FunctionDef {
     ) -> usize {
         match op {
             opcodes::op_scope_make_ref => {
-                let _var_ref_idx = self.get_or_add_global_var_ref(var_name);
+                let _ = self.get_or_add_global_var_ref(var_name);
                 let label = label
                     .and_then(|l| self.label_slots.get_mut(l as usize))
                     .unwrap();
 
-                // FIXME(P3): optimize_scope_make_global_ref writes into bc_orig,
-                // and the nop-padding after put_var can overlap label data when
-                // VAR_REF (3B) replaces ATOM (5B). Disabled until the bc_orig
-                // layout is adjusted for the new format.
-                push_vec_u8(bc, OpCode::MAKE_VAR_REF as _);
-                push_vec_atom(bc, var_name);
+                if label_done.is_none()
+                    && can_optimize_put_global_ref_value(bc_buf as *const u8, label.pos)
+                {
+                    let js_mode = if self.has_use_strict {
+                        ExecMode::STRICT
+                    } else {
+                        ExecMode::empty()
+                    };
+                    pos_next = optimize_scope_make_global_ref(
+                        js_mode,
+                        bc,
+                        bc_buf,
+                        label,
+                        pos_next as _,
+                        var_name,
+                    ) as _;
+                    if let Some(l) = label_done {
+                        push_vec_u8(bc, opcodes::op_label);
+                        push_vec_u32(bc, l);
+                        self.label_slots[l as usize].pos2 = bc.len() as i32;
+                    }
+                    return pos_next;
+                } else {
+                    push_vec_u8(bc, OpCode::MAKE_VAR_REF as _);
+                    push_vec_atom(bc, var_name);
+                }
             }
             opcodes::op_scope_get_ref => {
                 // XXX: should create a dummy object with a named slot that is

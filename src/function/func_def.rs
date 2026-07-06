@@ -472,9 +472,10 @@ pub(super) fn get_label_pos(s: &FunctionDef, mut label: i32) -> i32 {
     for _ in 0..20 {
         pos = s.label_slots[label as usize].pos;
         loop {
-            match s.byte_code[pos as usize] {
+            let op = s.byte_code[pos as usize];
+            match op {
                 opcodes::op_line_num | opcodes::op_label => {
-                    pos += 5;
+                    pos += opcode_info_intermediate(op).size as i32;
                     continue;
                 }
                 opcodes::OP_goto => {

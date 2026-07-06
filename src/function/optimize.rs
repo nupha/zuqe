@@ -3,7 +3,7 @@
 
 use crate::{
     atom::Atom,
-    bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
+    bytecode::{OpCode, OpcodeFormat, opcode_info_final, opcode_info_intermediate, opcodes},
     function::{
         FunctionDef, Label, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_u8,
         push_vec_u16,
@@ -161,7 +161,8 @@ impl FunctionDef {
         &mut self,
         pos: usize,
         pos_next: &mut usize,
-        line_num: &mut i32, line_pos: &mut u32,
+        line_num: &mut i32,
+        line_pos: &mut u32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         // transformation:
@@ -315,7 +316,8 @@ impl FunctionDef {
         op: u8,
         pos: usize,
         pos_next: &mut usize,
-        line_num: &mut i32, line_pos: &mut u32,
+        line_num: &mut i32,
+        line_pos: &mut u32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         debug_assert!(matches!(
@@ -347,7 +349,8 @@ impl FunctionDef {
         op: u8,
         _pos: usize,
         pos_next: &mut usize,
-        line_num: &mut i32, line_pos: &mut u32,
+        line_num: &mut i32,
+        line_pos: &mut u32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         debug_assert!(matches!(op, opcodes::OP_post_dec | opcodes::OP_post_inc,));
@@ -434,7 +437,8 @@ impl FunctionDef {
         mut op: u8,
         pos: usize,
         pos_next: &mut usize,
-        line_num: &mut i32, line_pos: &mut u32,
+        line_num: &mut i32,
+        line_pos: &mut u32,
         bc_out: &mut Vec<u8>,
     ) -> Option<(u8, u32)> {
         debug_assert!(matches!(op, opcodes::OP_if_true | opcodes::OP_if_false));
@@ -474,7 +478,8 @@ impl FunctionDef {
         &mut self,
         _pos: usize,
         pos_next: &mut usize,
-        line_num: &mut i32, line_pos: &mut u32,
+        line_num: &mut i32,
+        line_pos: &mut u32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         // Transformation: dup put_x(n) drop -> put_x(n)
@@ -552,6 +557,18 @@ pub(super) fn optimize_scope_make_ref(
 ) -> usize {
     debug_assert!(label.pos >= 0);
 
+    // ── Derived opcode sizes (self-documenting, auto-adjust to format changes) ──
+    const label_op_size: usize = opcode_info_intermediate(opcodes::op_label).size as usize; // op_label(1) + u32(4)
+    const stack_op_size: usize = opcode_info_final(opcodes::OP_insert3).size as usize; // 1B
+    const put_ref_size: usize = opcode_info_final(opcodes::OP_put_ref_value).size as usize; // 1B
+    const get_ref_size: usize = opcode_info_final(opcodes::OP_get_ref_value).size as usize; // 1B
+
+    // bc_buf in-place write: `put_op(1B) + u16(2B)` = VAR_REF format.
+    // Derived from put_op's own opcode table entry so it auto-adjusts if
+    // VAR_REF ever changes encoding (currently 3B: 1 opcode + 2 index).
+    let put_op: u8 = get_op as u8 + 1;
+    let var_ref_inst_size: usize = opcode_info_final(put_op).size as usize;
+
     /* XXX: should optimize `loc(a) += expr` as `expr add_loc(a)`
       but only if expr does not modify `a`.
       should scan the code between pos_next and label_pos
@@ -562,11 +579,14 @@ pub(super) fn optimize_scope_make_ref(
     if unsafe { *bc_orig.add(pos_next) } == opcodes::OP_get_ref_value {
         push_vec_u8(bc, get_op as u8);
         push_vec_u16(bc, var_idx as u16);
-        pos_next += 1;
+        pos_next += get_ref_size;
     }
 
     let label_pos = label.pos as usize;
-    let mut pos = label_pos - 5;
+    // The region being replaced spans from the op_label temp opcode
+    // (at `label_pos - label_op_size`) through the stack-op pair
+    // (stack_op at `label_pos`, put_ref_value at `label_pos + 1`).
+    let mut pos = label_pos - label_op_size;
     debug_assert_eq!(unsafe { *bc_orig.add(pos) }, opcodes::op_label);
 
     /* label points to an instruction pair:
@@ -575,19 +595,19 @@ pub(super) fn optimize_scope_make_ref(
       - rot3l / put_ref_value
       - nop / put_ref_value
     */
-    let end_pos = label_pos + 2;
+    let end_pos = label_pos + stack_op_size + put_ref_size;
 
     unsafe {
         if *bc_orig.add(label_pos) == opcodes::OP_insert3 {
             *bc_orig.add(pos) = opcodes::OP_dup;
-            pos += 1;
+            pos += stack_op_size;
         }
 
         *bc_orig.add(pos) = get_op as u8 + 1;
         write_to_ptr::<u16>(bc_orig.add(pos + 1), var_idx as u16);
     }
 
-    pos += 3;
+    pos += var_ref_inst_size;
     // pad with OP_nop
     while pos < end_pos {
         unsafe {
@@ -607,6 +627,12 @@ pub(super) fn optimize_scope_make_global_ref(
     mut pos_next: u32,
     var_name: Atom,
 ) -> u32 {
+    // ── Derived opcode sizes ──
+    const label_op_size: usize = opcode_info_intermediate(opcodes::op_label).size as usize;
+    const stack_op_size: usize = opcode_info_final(opcodes::OP_insert3).size as usize;
+    const put_ref_size: usize = opcode_info_final(opcodes::OP_put_ref_value).size as usize;
+    const get_ref_size: usize = opcode_info_final(opcodes::OP_get_ref_value).size as usize;
+
     let is_strict = js_mode.contains(ExecMode::STRICT);
     if is_strict {
         push_vec_u8(bc, opcodes::OP_check_var);
@@ -618,12 +644,12 @@ pub(super) fn optimize_scope_make_global_ref(
     if unsafe { *bc_buf.add(pos_next as usize) } == opcodes::OP_get_ref_value {
         push_vec_u8(bc, opcodes::OP_get_var);
         push_vec_atom(bc, var_name);
-        pos_next += 1;
+        pos_next += get_ref_size as u32;
     }
 
     let label_pos = label.pos as usize;
-    let end_pos = label_pos + 2;
-    let mut pos = label_pos - 5;
+    let end_pos = label_pos + stack_op_size + put_ref_size;
+    let mut pos = label_pos - label_op_size;
     debug_assert_eq!(unsafe { *bc_buf.add(pos) }, opcodes::op_label);
 
     let op = unsafe { *bc_buf.add(label_pos) };
@@ -637,15 +663,21 @@ pub(super) fn optimize_scope_make_global_ref(
                     _ => unreachable!(),
                 };
             }
-            pos += 1;
+            pos += stack_op_size;
         }
     } else if op == opcodes::OP_insert3 {
         unsafe {
             *bc_buf.add(pos) = opcodes::OP_dup;
         }
-        pos += 1;
+        pos += stack_op_size;
     }
 
+    // ── Write put_var / put_var_strict with atom ──
+    // bc_buf in-place write: 1B opcode + 4B u32 atom.
+    // Size is hardcoded because the bc_buf sequence is a raw overwrite,
+    // not a formal opcode table entry (OP_put_var is formally VAR_REF/3B
+    // but the bc_buf write uses ATOM/5B for both strict and non-strict).
+    let atom_inst_size = 1 + std::mem::size_of::<u32>();
     unsafe {
         *bc_buf.add(pos) = if is_strict {
             opcodes::OP_put_var_strict
@@ -654,10 +686,10 @@ pub(super) fn optimize_scope_make_global_ref(
         };
         write_to_ptr::<u32>(bc_buf.add(pos + 1), var_name.id());
     }
-    pos += 5;
+    pos += atom_inst_size;
 
+    // pad with OP_nop
     while pos < end_pos {
-        // fill with nop as placeholder
         unsafe {
             *bc_buf.add(pos) = opcodes::OP_nop;
         }

@@ -394,6 +394,22 @@ impl StackFrameArena {
         };
 
         let vref = VarRef::create_bind(ctx, var_idx, is_arg, pvalue)?;
+
+        #[cfg(debug_assertions)]
+        {
+            let head = self.frame(frame_idx);
+            let buf_start: *const JSValue = head.buf.data_ptr() as *const JSValue;
+            let buf_end = unsafe { buf_start.add(head.buf.capacity() as usize) };
+            let ptr: *const JSValue = pvalue.as_ptr() as *const JSValue;
+            debug_assert!(
+                ptr >= buf_start && ptr < buf_end,
+                "get_var_ref_frame: VarRef::Bind pvalue {:p} out of frame buf [{:p}, {:p})",
+                ptr,
+                buf_start,
+                buf_end
+            );
+        }
+
         self.var_ref_map.entry(frame_idx).or_default().push(vref);
         Ok(vref)
     }
