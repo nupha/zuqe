@@ -202,27 +202,29 @@ impl FunctionDef {
                 let diff_pc = pc.wrapping_sub(last_pc) as i32;
                 let diff_line = line_num - last_line_num;
                 let diff_line_pos = line_pos as i32 - last_line_pos as i32;
-                if diff_line == 0 || diff_pc < 0 {
+
+                // Skip only when neither line nor column changed (align with QuickJS)
+                if (diff_line == 0 && diff_line_pos == 0) || diff_pc < 0 {
                     continue;
                 }
 
-                // Use short encoding only when column hasn't changed
-                if diff_line_pos == 0
-                    && (PC2LINE_BASE..PC2LINE_BASE + PC2LINE_RANGE).contains(&diff_line)
+                if (PC2LINE_BASE..PC2LINE_BASE + PC2LINE_RANGE).contains(&diff_line)
                     && diff_pc <= PC2LINE_DIFF_PC_MAX
                 {
+                    // short encoding: 1 byte for diff_pc + diff_line
                     push_vec_u8(
                         lst,
                         ((diff_line - PC2LINE_BASE) + diff_pc * PC2LINE_RANGE + PC2LINE_OP_FIRST)
                             as u8,
                     );
                 } else {
-                    // longer encoding: includes column delta
+                    // longer encoding
                     push_vec_u8(lst, 0);
                     push_vec_leb128(lst, diff_pc as u32);
                     push_vec_sleb128(lst, diff_line);
-                    push_vec_sleb128(lst, diff_line_pos);
                 }
+                // Column delta always written — after both short and long encoding
+                push_vec_sleb128(lst, diff_line_pos);
 
                 last_pc = pc;
                 last_line_num = line_num;

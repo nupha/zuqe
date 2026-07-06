@@ -555,6 +555,9 @@ pub(crate) fn push_vec_leb128(buf: &mut Vec<u8>, val: u32) {
 }
 
 pub(crate) fn push_vec_sleb128(s: &mut Vec<u8>, val: i32) {
-    let v = if val < 0 { 2 * val + 1 } else { 2 * val } as u32;
+    // Standard ZigZag encoding: compatible with get_sleb128 decoder.
+    // For positive values this is identical to 2*val; for negative
+    // values it uses (val << 1) ^ (val >> 31) to interleave sign bit.
+    let v = ((val << 1) ^ (val >> 31)) as u32;
     push_vec_leb128(s, v);
 }
