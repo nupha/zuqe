@@ -352,7 +352,11 @@ impl FunctionDef {
             && pc >= self.line_number_last_pc
             && line_num != self.line_number_last
         {
-            self.line_number_slots.push(LineNumberSlot { pc, line_num, line_pos });
+            self.line_number_slots.push(LineNumberSlot {
+                pc,
+                line_num,
+                line_pos,
+            });
             self.line_number_last_pc = pc;
             self.line_number_last = line_num;
         }
