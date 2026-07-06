@@ -522,7 +522,7 @@ pub(crate) fn add_closure_variables(
     for (i, cv0) in bc.closure_vars().iter().enumerate() {
         let mut cv = ClosureVar {
             flags: 0,
-            var_idx: i as _,
+            var_idx: (i + bc.global_var_ref_count as usize) as u16,
             var_name: cv0.var_name,
         };
         cv.set_local(false);
@@ -535,5 +535,6 @@ pub(crate) fn add_closure_variables(
     }
 
     s.closure_vars.replace(cvars);
+
     Ok(())
 }

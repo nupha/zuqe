@@ -807,6 +807,13 @@ impl<'s> JSParseState<'s> {
 
         // Note: calling graph: next_token -> parse_function_decl2 -> seek_token
         let ret = self.next_token().and_then(|_| {
+            // After switching to fake source, next_token() computed
+            // last_line_num/last_line_pos from the cleared token
+            // (std::mem::take). Reset them to avoid emitting a spurious
+            // LINE_NUM with line=0 into the constructor.
+            self.last_line_num = self.token.line_num;
+            self.last_line_pos = 0;
+
             self.parse_function_decl_ex(
                 func_type,
                 FunctionKind::Normal,
