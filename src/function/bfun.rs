@@ -150,7 +150,7 @@ impl BFuncPayload {
     /// Get a closure variable reference by its closure-var index.
     /// Automatically offsets by `global_var_count`.
     #[inline(always)]
-    pub(crate) fn get_closure_var_ref(&self, nth: usize) -> VarRef {
+    pub(crate) fn get_closure(&self, nth: usize) -> VarRef {
         self.closure_var_refs[self.global_var_count as usize + nth]
     }
 
@@ -158,7 +158,7 @@ impl BFuncPayload {
     /// relative to the end of global var refs). Automatically offsets by
     /// `global_var_count` so callers don't need to worry about the layout.
     #[inline(always)]
-    pub(crate) fn set_closure_var_ref(&mut self, nth: usize, vref: VarRef) {
+    pub(crate) fn set_closure(&mut self, nth: usize, vref: VarRef) {
         let idx = self.global_var_count as usize + nth;
         self.closure_var_refs[idx] = vref;
     }

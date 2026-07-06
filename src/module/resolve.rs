@@ -287,15 +287,13 @@ impl ModuleDef {
                                                     vr.set_value(&mut ctx.rt_ptr(), val.into());
                                                     vr
                                                 };
-                                                md_func.payload_mut().set_closure_var_ref(
-                                                    import_var_idx as usize,
-                                                    vref,
-                                                );
+                                                md_func
+                                                    .payload_mut()
+                                                    .set_closure(import_var_idx as usize, vref);
                                             }
                                         }
                                         ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
                                             debug_assert_ne!(local_name, Atom::CONST__star_);
-
                                             let vr = var_ref.unwrap_or_else(|| {
                                                 debug_assert!(
                                                     dep.func_created,
@@ -305,11 +303,11 @@ impl ModuleDef {
                                                     .as_object_BCWrapper()
                                                     .unwrap()
                                                     .payload()
-                                                    .get_closure_var_ref(var_idx as usize)
+                                                    .get_closure(var_idx as usize)
                                             });
                                             md_func
                                                 .payload_mut()
-                                                .set_closure_var_ref(import_var_idx as usize, vr);
+                                                .set_closure(import_var_idx as usize, vr);
                                         }
                                     }
                                 }
@@ -337,7 +335,7 @@ impl ModuleDef {
                                 &mut cur_module.export_entries[i].export_type
                             {
                                 debug_assert_ne!(*var_idx, u16::MAX);
-                                let vr = md_func.payload().get_closure_var_ref(*var_idx as usize);
+                                let vr = md_func.payload().get_closure(*var_idx as usize);
                                 var_ref.replace(vr);
                             }
                         }
