@@ -1431,6 +1431,11 @@ impl Bytecode {
                             SP_GO!(-1);
                         }
                     }
+                    OpCode::SET_LOC_CHECK => {
+                        // P2 stub: will be implemented in P4.2
+                        // Sets a local variable with initialization check.
+                        unreachable!("SET_LOC_CHECK not yet implemented");
+                    }
                     OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                         let idx = PC_FETCH!(u16);
                         let val = captured_vars[idx as usize].value();
@@ -1501,6 +1506,11 @@ impl Bytecode {
                                 .throw_type_error("class constructors must be invoked with 'new'");
                             break ExecAction::Exception;
                         }
+                    }
+                    OpCode::INIT_CTOR => {
+                        // P2 stub: will be implemented in P4.1
+                        // Initializes constructor `this` after super() call.
+                        unreachable!("INIT_CTOR not yet implemented");
                     }
                     OpCode::CHECK_BRAND => {
                         #[cfg(feature = "builtin_symbol")]
@@ -2135,6 +2145,11 @@ impl Bytecode {
                             break ExecAction::Exception;
                         }
                     }
+                    OpCode::PUSH_BIGINT_I32 => {
+                        // P2 stub: will be implemented alongside BigInt support.
+                        // Push a BigInt constant from an i32 value.
+                        unreachable!("PUSH_BIGINT_I32 not yet implemented");
+                    }
                     OpCode::NOP => {}
 
                     // ═══════════════════════════════════════════════════
@@ -2197,6 +2212,11 @@ impl Bytecode {
                             break ExecAction::Exception;
                         }
                         SP_GO!(2);
+                    }
+                    OpCode::FOR_AWAIT_OF_NEXT => {
+                        // P2 stub: will be implemented in P4.3
+                        // Async iterator next step.
+                        unreachable!("FOR_AWAIT_OF_NEXT not yet implemented");
                     }
                     OpCode::ITERATOR_GET_VALUE_DONE => {
                         if unsafe { js_iterator_get_value_done(realm_scope, sp) } != 0 {

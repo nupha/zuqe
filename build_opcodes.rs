@@ -113,6 +113,7 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("return_undef", 1, 0, 0, "NONE", false, Never),
         DEF!("check_ctor_return", 1, 1, 2, "NONE", false, Never),
         DEF!("check_ctor", 1, 0, 0, "NONE", false, Never),
+        DEF!("init_ctor", 1, 0, 1, "NONE", false, Never),
         DEF!("check_brand", 1, 2, 2, "NONE", false, Never),
         DEF!("add_brand", 1, 2, 0, "NONE", false, Never),
         DEF!("return_async", 1, 1, 0, "NONE", false, Never),
@@ -124,9 +125,13 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("get_super", 1, 1, 1, "NONE", false, Never),
         DEF!("import", 1, 2, 1, "NONE", false, Always),
         DEF!("check_var", 5, 0, 1, "ATOM", false, Never),
+        //
+        // START OF BYTECODE GROUP: VAR_ACCESS — `GET_VAR_UNDEF + (op - scope_get_var_undef)` in resolve_scoped_vars.rs
         DEF!("get_var_undef", 5, 0, 1, "ATOM", false, Never),
         DEF!("get_var", 5, 0, 1, "ATOM", false, Never),
         DEF!("put_var", 5, 1, 0, "ATOM", false, Never),
+        // END OF BYTECODE GROUP: VAR_ACCESS
+        //
         DEF!("put_var_init", 5, 1, 0, "ATOM", false, Never),
         DEF!("put_var_strict", 5, 2, 0, "ATOM", false, Never),
         DEF!("get_ref_value", 1, 2, 3, "NONE", false, Never),
@@ -161,6 +166,8 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("define_method_computed", 2, 3, 1, "U8", false, Never),
         DEF!("define_class", 6, 2, 2, "ATOM_U8", false, Always),
         DEF!("define_class_computed", 6, 3, 3, "ATOM_U8", false, Always),
+        //
+        // START OF BYTECODE GROUP: VARIABLE_TRIPLE — `get_op as u8 + 1` pattern in optimize.rs:586
         DEF!("get_loc", 3, 0, 1, "LOC", false, Never),
         DEF!("put_loc", 3, 1, 0, "LOC", false, Never),
         DEF!("set_loc", 3, 1, 1, "LOC", false, Never),
@@ -170,29 +177,43 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("get_var_ref", 3, 0, 1, "VAR_REF", false, Never),
         DEF!("put_var_ref", 3, 1, 0, "VAR_REF", false, Never),
         DEF!("set_var_ref", 3, 1, 1, "VAR_REF", false, Never),
+        // END OF BYTECODE GROUP: VARIABLE_TRIPLE
+        //
         DEF!("set_loc_uninitialized", 3, 0, 0, "LOC", false, Never),
         DEF!("get_loc_check", 3, 0, 1, "LOC", false, Never),
         DEF!("put_loc_check", 3, 1, 0, "LOC", false, Never),
         DEF!("put_loc_check_init", 3, 1, 0, "LOC", false, Never),
+        DEF!("set_loc_check", 3, 1, 1, "LOC", false, Never),
         DEF!("get_loc_checkthis", 3, 0, 1, "LOC", false, Never),
+        //
+        // START OF BYTECODE GROUP: VAR_REF_CHECK_TRIPLE — `optimize_scope_make_ref(get_op=GET_VAR_REF_CHECK)`
         DEF!("get_var_ref_check", 3, 0, 1, "VAR_REF", false, Never),
         DEF!("put_var_ref_check", 3, 1, 0, "VAR_REF", false, Never),
         DEF!("put_var_ref_check_init", 3, 1, 0, "VAR_REF", false, Never),
+        // END OF BYTECODE GROUP: VAR_REF_CHECK_TRIPLE
+        //
         DEF!("close_loc", 3, 0, 0, "LOC", false, Never),
+        //
+        // START OF BYTECODE GROUP: BRANCH — `if_false8 + (label_op - if_false)` in resolve_labels.rs
         DEF!("if_false", 5, 1, 0, "LABEL", false, Never),
         DEF!("if_true", 5, 1, 0, "LABEL", false, Never),
         DEF!("goto", 5, 0, 0, "LABEL", false, Never),
+        // END OF BYTECODE GROUP: BRANCH
+        //
         DEF!("catch", 5, 0, 1, "LABEL", false, Never),
         DEF!("gosub", 5, 0, 0, "LABEL", false, Never),
         DEF!("ret", 1, 1, 0, "NONE", false, Never),
         DEF!("nip_catch", 1, 2, 1, "NONE", false, Never),
         DEF!("to_object", 1, 1, 1, "NONE", false, Conditional),
         DEF!("to_propkey", 1, 1, 1, "NONE", false, Conditional),
-        DEF!("with_get_var", 10, 1, 0, "ATOM_LABEL_U8", false, Never), // must be in the same order as scope_xxx
-        DEF!("with_put_var", 10, 2, 1, "ATOM_LABEL_U8", false, Never), // must be in the same order as scope_xxx
-        DEF!("with_delete_var", 10, 1, 0, "ATOM_LABEL_U8", false, Never), // must be in the same order as scope_xxx
-        DEF!("with_make_ref", 10, 1, 0, "ATOM_LABEL_U8", false, Never), // must be in the same order as scope_xxx
-        DEF!("with_get_ref", 10, 1, 0, "ATOM_LABEL_U8", false, Never), // must be in the same order as scope_xxx
+        //
+        // START OF BYTECODE GROUP: WITH_VAR — must be in the same order as the SCOPE_VAR temp group;
+        // `WITH_GET_VAR as u8 + (op - scope_get_var)` in resolve_scoped_vars.rs:806
+        DEF!("with_get_var", 10, 1, 0, "ATOM_LABEL_U8", false, Never),
+        DEF!("with_put_var", 10, 2, 1, "ATOM_LABEL_U8", false, Never),
+        DEF!("with_delete_var", 10, 1, 0, "ATOM_LABEL_U8", false, Never),
+        DEF!("with_make_ref", 10, 1, 0, "ATOM_LABEL_U8", false, Never),
+        DEF!("with_get_ref", 10, 1, 0, "ATOM_LABEL_U8", false, Never),
         DEF!(
             "with_get_ref_undef",
             10,
@@ -201,7 +222,9 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
             "ATOM_LABEL_U8",
             false,
             Never
-        ), // must be in the same order as scope_xxx
+        ),
+        // END OF BYTECODE GROUP: WITH_VAR
+        //
         DEF!("make_loc_ref", 7, 0, 2, "ATOM_U16", false, Always),
         DEF!("make_arg_ref", 7, 0, 2, "ATOM_U16", false, Always),
         DEF!("make_var_ref_ref", 7, 0, 2, "ATOM_U16", false, Always),
@@ -211,6 +234,7 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("for_await_of_start", 1, 1, 3, "NONE", false, Always),
         DEF!("for_in_next", 1, 1, 3, "NONE", false, Never),
         DEF!("for_of_next", 2, 3, 5, "U8", false, Never),
+        DEF!("for_await_of_next", 1, 3, 4, "NONE", false, Never),
         DEF!("iterator_check_object", 1, 1, 1, "NONE", false, Never),
         DEF!("iterator_get_value_done", 1, 1, 2, "NONE", false, Never),
         DEF!("iterator_close", 1, 3, 0, "NONE", false, Never),
@@ -223,10 +247,14 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("await", 1, 1, 1, "NONE", false, Never),
         DEF!("neg", 1, 1, 1, "NONE", false, Conditional),
         DEF!("plus", 1, 1, 1, "NONE", false, Conditional),
+        //
+        // START OF BYTECODE GROUP: INC_DEC — `DEC as u8 + (op - POST_DEC as u8)` in optimize.rs:387
         DEF!("dec", 1, 1, 1, "NONE", false, Conditional),
         DEF!("inc", 1, 1, 1, "NONE", false, Conditional),
         DEF!("post_dec", 1, 1, 2, "NONE", false, Conditional),
         DEF!("post_inc", 1, 1, 2, "NONE", false, Conditional),
+        // END OF BYTECODE GROUP: INC_DEC
+        //
         DEF!("dec_loc", 2, 0, 0, "LOC8", false, Conditional),
         DEF!("inc_loc", 2, 0, 0, "LOC8", false, Conditional),
         DEF!("add_loc", 2, 1, 0, "LOC8", false, Conditional),
@@ -259,6 +287,7 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("or", 1, 2, 1, "NONE", false, Never),
         DEF!("is_undefined_or_null", 1, 1, 1, "NONE", false, Never),
         DEF!("private_in", 1, 2, 1, "NONE", false, Never),
+        DEF!("push_bigint_i32", 5, 0, 1, "I32", false, Never),
         DEF!("nop", 1, 0, 0, "NONE", false, Never),
         //
         // intermediate
@@ -266,9 +295,13 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         def!("enter_scope", 3, 0, 0, "U16", Never),
         def!("leave_scope", 3, 0, 0, "U16", Never),
         def!("label", 5, 0, 0, "LABEL", Never),
+        //
+        // START OF BYTECODE GROUP: SCOPE_VAR — temp group; offset basis for VAR_ACCESS and WITH_VAR final groups
         def!("scope_get_var_undef", 7, 0, 1, "ATOM_U16", Never),
         def!("scope_get_var", 7, 0, 1, "ATOM_U16", Never),
         def!("scope_put_var", 7, 1, 0, "ATOM_U16", Never),
+        // END OF BYTECODE GROUP: SCOPE_VAR
+        //
         def!("scope_delete_var", 7, 0, 1, "ATOM_U16", Never),
         def!("scope_make_ref", 11, 0, 2, "ATOM_LABEL_U16", Never),
         def!("scope_get_ref", 7, 0, 2, "ATOM_U16", Never),
