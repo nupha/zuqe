@@ -250,26 +250,11 @@ impl<'c> ScopedContext<'c> {
                             let head = rt.stack_frame_arena().frame(idx);
                             let bfun = BCWrapper::try_from(JSValue::from(head.func_obj))
                                 .expect("eval: caller must be bytecode function");
-                            let captured_vars = bfun.payload().closure_var_refs();
+                            let captured_vars = bfun.payload().captured_vars();
 
                             bc.run_as_function(self, this_obj, captured_vars)
                         }
                     } else {
-                        // Legacy fallback (preserved for reference):
-                        // let mut rt = self.rt_ptr();
-                        // let sf_raw: *mut StackFrame = match rt.current_stack_frame_mut() {
-                        //     Some(sf) => sf as *mut StackFrame,
-                        //     None => std::ptr::null_mut(),
-                        // };
-                        // if !sf_raw.is_null() {
-                        //     let sf = unsafe { &mut *sf_raw };
-                        //     if let Some(bf) = sf.func_obj.as_BCWrapper_mut() {
-                        //         let cv_ptr: *const [VarRef] = bf.payload().closure_var_refs();
-                        //         let captured_vars = unsafe { &*cv_ptr };
-                        //         return bc.run_as_function(self, this_obj, captured_vars, Some(unsafe { &mut *sf_raw }));
-                        //     }
-                        // }
-                        // bc.run_as_function(self, this_obj, &[], None)
                         unreachable!(
                             "eval: BytecodeFunction::call always uses arena mode; \
                             legacy captured_vars from StackFrame should not be reachable"

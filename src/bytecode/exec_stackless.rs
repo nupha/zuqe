@@ -308,7 +308,7 @@ impl Bytecode {
             if let Ok(mut bfun) = BCWrapper::try_from(JSValue::from(func_obj)) {
                 // SAFETY: bfun is a Copy (GcRef), so payload_mut borrows GC-managed
                 // memory that outlives this function call. No GC runs during execution.
-                let cv: *mut [VarRef] = bfun.payload_mut().closure_var_refs_mut();
+                let cv: *mut [VarRef] = bfun.payload_mut().captured_vars_mut();
                 unsafe { &mut *cv }
             } else {
                 // Non-bytecode functions have no closure_var_refs.
@@ -1344,10 +1344,9 @@ impl Bytecode {
                         } else {
                             // Detached placeholder (var not yet defined in scope).
                             let var_name = self.global_var_refs()[idx].var_name;
-                            if let Ok(v) = realm_scope.get_global_var(
-                                var_name,
-                                opcode == OpCode::GET_VAR,
-                            ) {
+                            if let Ok(v) =
+                                realm_scope.get_global_var(var_name, opcode == OpCode::GET_VAR)
+                            {
                                 SP_PUT!(0, v);
                                 SP_GO!(1);
                             } else {
@@ -1366,11 +1365,8 @@ impl Bytecode {
                             // Detached placeholder fallback.
                             let init_flags = (opcode as u8 - OpCode::PUT_VAR as u8) as u32;
                             let var_name = self.global_var_refs()[idx].var_name;
-                            let res = realm_scope.set_global_var(
-                                var_name,
-                                SP_VAL!(-1),
-                                init_flags as u8,
-                            );
+                            let res =
+                                realm_scope.set_global_var(var_name, SP_VAL!(-1), init_flags as u8);
                             SP_GO!(-1);
                             if res.is_err() {
                                 break ExecAction::Exception;
