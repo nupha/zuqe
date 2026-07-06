@@ -157,6 +157,7 @@ pub struct BytecodeImpl {
 
     pub(crate) arg_count: u16,
     pub(crate) var_count: u16,
+    pub(crate) global_var_ref_count: u16,
     pub(crate) closure_var_count: u16,
 
     /// binary image.
@@ -213,6 +214,7 @@ impl GcTrace for BytecodeImpl {
         self.func_name.trace(gcx);
         self.consts().iter().for_each(|x| x.trace(gcx));
         self.var_defs().iter().for_each(|x| x.trace(gcx));
+        self.global_var_refs().iter().for_each(|x| x.trace(gcx));
         self.closure_vars().iter().for_each(|x| x.trace(gcx));
 
         // trace atoms in opcodes
@@ -255,6 +257,7 @@ impl BytecodeImpl {
         vardefs_start: i32,
         arg_count: u16,
         var_count: u16,
+        global_var_ref_count: u16,
         closure_var_start: i32,
         closure_var_count: u16,
         opcodes_start: u32,
@@ -280,6 +283,7 @@ impl BytecodeImpl {
             vardefs_start,
             arg_count,
             var_count,
+            global_var_ref_count,
             closure_var_start,
             closure_var_count,
             opcodes_start,
@@ -457,7 +461,24 @@ impl BytecodeImpl {
         }
     }
 
-    /// get closure vars slice
+    /// get global var refs slice (first N entries in the closure-vars binary section)
+    pub(crate) fn global_var_refs(&self) -> &[ClosureVar] {
+        if self.global_var_ref_count > 0 && self.closure_var_start >= 0 {
+            unsafe {
+                std::slice::from_raw_parts(
+                    self.binary
+                        .as_ptr()
+                        .add(self.closure_var_start as usize)
+                        .cast::<ClosureVar>(),
+                    self.global_var_ref_count as usize,
+                )
+            }
+        } else {
+            &[]
+        }
+    }
+
+    /// get closure vars slice (after global var refs in the closure-vars binary section)
     pub(crate) fn closure_vars(&self) -> &[ClosureVar] {
         if self.closure_var_count > 0 {
             debug_assert!(self.closure_var_start >= 0);
@@ -467,7 +488,8 @@ impl BytecodeImpl {
                     self.binary
                         .as_ptr()
                         .add(self.closure_var_start as usize)
-                        .cast::<ClosureVar>(),
+                        .cast::<ClosureVar>()
+                        .add(self.global_var_ref_count as usize),
                     self.closure_var_count as usize,
                 )
             }

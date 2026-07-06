@@ -236,17 +236,25 @@ impl ModuleDefImpl {
             JSValue::Bytecode(bc) => {
                 // create BytecodeFunction object embedding Bytecode
                 let mut var_refs = Vec::<VarRef>::new();
+                let gvar_count = bc.global_var_ref_count;
                 let cvar_count = bc.closure_var_count;
-                if cvar_count != 0 {
+                let total_count = gvar_count as usize + cvar_count as usize;
+                if total_count != 0 {
                     var_refs
-                        .try_reserve_exact(cvar_count as usize)
+                        .try_reserve_exact(total_count)
                         .map_err(|_| {
                             ctx.throw_out_of_memory();
                             -1
                         })?;
 
-                    // create the global variables.
-                    // other variables are imported from other modules
+                    // First: global variable refs (initialized via realm_scope fallback)
+                    for cv in bc.global_var_refs() {
+                        let _ = cv; // global var ref names are used for fallback
+                        var_refs.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
+                    }
+
+                    // Then: closure variables
+                    // (module's own variables + variables imported from other modules)
                     for cv in bc.closure_vars() {
                         var_refs.push(if cv.is_local() {
                             js_create_module_var(ctx, cv.is_lexical())?

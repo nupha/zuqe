@@ -127,12 +127,12 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("check_var", 5, 0, 1, "ATOM", false, Never),
         //
         // START OF BYTECODE GROUP: VAR_ACCESS — `GET_VAR_UNDEF + (op - scope_get_var_undef)` in resolve_scoped_vars.rs
-        DEF!("get_var_undef", 5, 0, 1, "ATOM", false, Never),
-        DEF!("get_var", 5, 0, 1, "ATOM", false, Never),
-        DEF!("put_var", 5, 1, 0, "ATOM", false, Never),
+        DEF!("get_var_undef", 3, 0, 1, "VAR_REF", false, Never),
+        DEF!("get_var", 3, 0, 1, "VAR_REF", false, Never),
+        DEF!("put_var", 3, 1, 0, "VAR_REF", false, Never),
         // END OF BYTECODE GROUP: VAR_ACCESS
         //
-        DEF!("put_var_init", 5, 1, 0, "ATOM", false, Never),
+        DEF!("put_var_init", 3, 1, 0, "VAR_REF", false, Never),
         DEF!("put_var_strict", 5, 2, 0, "ATOM", false, Never),
         DEF!("get_ref_value", 1, 2, 3, "NONE", false, Never),
         DEF!("put_ref_value", 1, 3, 0, "NONE", false, Never),

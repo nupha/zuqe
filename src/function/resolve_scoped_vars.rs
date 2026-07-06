@@ -689,43 +689,40 @@ impl FunctionDef {
     ) -> usize {
         match op {
             opcodes::op_scope_make_ref => {
+                let _var_ref_idx = self.get_or_add_global_var_ref(var_name);
                 let label = label
                     .and_then(|l| self.label_slots.get_mut(l as usize))
                     .unwrap();
 
-                if label_done.is_none() && can_optimize_put_global_ref_value(bc_buf, label.pos) {
-                    pos_next = optimize_scope_make_global_ref(
-                        self.attrs.exec_mode,
-                        bc,
-                        bc_buf,
-                        label,
-                        pos_next as _,
-                        var_name,
-                    ) as _;
-                } else {
-                    push_vec_u8(bc, OpCode::MAKE_VAR_REF as _);
-                    push_vec_atom(bc, var_name);
-                }
+                // FIXME(P3): optimize_scope_make_global_ref writes into bc_orig,
+                // and the nop-padding after put_var can overlap label data when
+                // VAR_REF (3B) replaces ATOM (5B). Disabled until the bc_orig
+                // layout is adjusted for the new format.
+                push_vec_u8(bc, OpCode::MAKE_VAR_REF as _);
+                push_vec_atom(bc, var_name);
             }
             opcodes::op_scope_get_ref => {
                 // XXX: should create a dummy object with a named slot that is
                 // a reference to the global variable
+                let var_ref_idx = self.get_or_add_global_var_ref(var_name);
                 push_vec_u8(bc, OpCode::UNDEFINED as _);
                 push_vec_u8(bc, OpCode::GET_VAR as _);
-                push_vec_atom(bc, var_name);
+                push_vec_u16(bc, var_ref_idx);
             }
             opcodes::op_scope_get_var_undef
             | opcodes::op_scope_get_var
             | opcodes::op_scope_put_var => {
+                let var_ref_idx = self.get_or_add_global_var_ref(var_name);
                 push_vec_u8(
                     bc,
                     OpCode::GET_VAR_UNDEF as u8 + (op - opcodes::op_scope_get_var_undef),
                 );
-                push_vec_atom(bc, var_name);
+                push_vec_u16(bc, var_ref_idx);
             }
             opcodes::op_scope_put_var_init => {
+                let var_ref_idx = self.get_or_add_global_var_ref(var_name);
                 push_vec_u8(bc, OpCode::PUT_VAR_INIT as _);
-                push_vec_atom(bc, var_name);
+                push_vec_u16(bc, var_ref_idx);
             }
             opcodes::op_scope_delete_var => {
                 push_vec_u8(bc, OpCode::DELETE_VAR as _);

@@ -166,10 +166,12 @@ impl FunctionDef {
             }
         }
 
-        // closure vars
-        let mut closure_var_start = -1;
+        // global var refs + closure vars (combined section)
+        let global_var_ref_count = self.global_var_refs.len();
         let closure_var_count = self.closure_vars.as_ref().map_or(0, |x| x.len());
-        if closure_var_count != 0 {
+        let total_var_ref_count = global_var_ref_count + closure_var_count;
+        let mut closure_var_start = -1;
+        if total_var_ref_count != 0 {
             const ly: std::alloc::Layout = std::alloc::Layout::new::<ClosureVar>();
             let mut i = bin_size;
             let m = i % ly.align();
@@ -178,7 +180,7 @@ impl FunctionDef {
                 i += gap;
                 bin_size += gap;
             }
-            bin_size += closure_var_count * ly.size();
+            bin_size += total_var_ref_count * ly.size();
             closure_var_start = i as i32;
         }
 
@@ -256,20 +258,28 @@ impl FunctionDef {
             // }
         }
 
-        // 3. closure vars section
+        // 3. global var refs + closure vars section
         if closure_var_start >= 0 {
-            debug_assert!(closure_var_count < u16::MAX as _);
+            debug_assert!(total_var_ref_count < u16::MAX as _);
 
-            let cvars = self.closure_vars.take().unwrap();
             unsafe {
                 let mut ptr = bin
                     .as_mut_ptr()
                     .add(closure_var_start as usize)
                     .cast::<ClosureVar>();
 
-                for cv in cvars {
+                // Write global var refs first
+                for cv in self.global_var_refs.drain(..) {
                     ptr.write(cv);
                     ptr = ptr.add(1);
+                }
+
+                // Then write closure vars
+                if let Some(cvars) = self.closure_vars.take() {
+                    for cv in cvars {
+                        ptr.write(cv);
+                        ptr = ptr.add(1);
+                    }
                 }
             }
         }
@@ -310,6 +320,7 @@ impl FunctionDef {
             vardefs_start,
             args_count as _,
             vars_count as _,
+            global_var_ref_count as _,
             closure_var_start,
             closure_var_count as _,
             opcodes_start,
