@@ -389,14 +389,14 @@ impl<'c> ScopedContext<'c> {
                         backtrace_barrier = bc.attrs.backtrace_barrier;
 
                         if let Some(debug) = bc.debug.as_ref() {
-                            let line_num1 =
-                                bc.find_line_num((head.cur_pc_offset as u32).wrapping_sub(1));
+                            let line_col =
+                                bc.find_line_num_col((head.cur_pc_offset as u32).wrapping_sub(1));
                             let atom_str = debug.filename.to_utf8(&rt);
 
                             dbuf.write_fmt(format_args!(" ({atom_str}"))
                                 .map_err(|_| -1)?;
-                            if let Some(n) = line_num1 {
-                                dbuf.write_fmt(format_args!(":{n}")).map_err(|_| -1)?;
+                            if let Some((ln, col)) = line_col {
+                                dbuf.write_fmt(format_args!(":{ln}:{col}")).map_err(|_| -1)?;
                             }
                             dbuf.write_all(b")").map_err(|_| -1)?;
                         }

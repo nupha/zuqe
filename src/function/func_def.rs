@@ -135,6 +135,8 @@ pub(crate) struct FunctionDef {
     pub(crate) inline_cache_count: u16,
     /// 最后操作码行号
     pub last_opcode_line_num: i32,
+    /// 最后操作码列号（字节列）
+    pub last_opcode_line_pos: u32,
     /// 是否使用短操作码
     pub use_short_opcodes: bool,
 
@@ -256,6 +258,7 @@ impl FunctionDef {
             byte_code: Vec::with_capacity(128),
             last_opcode_pos: -1,
             last_opcode_line_num: line_num,
+            last_opcode_line_pos: 0,
 
             #[cfg(feature = "inline_cache")]
             inline_cache_count: 0,
@@ -340,12 +343,12 @@ impl FunctionDef {
     }
 
     /// the pc2line table gives a line number for each PC value
-    pub fn add_pc2line_info(&mut self, pc: u32, line_num: i32) {
+    pub fn add_pc2line_info(&mut self, pc: u32, line_num: i32, line_pos: u32) {
         if self.line_number_slots.len() < self.line_number_slots_cap
             && pc >= self.line_number_last_pc
             && line_num != self.line_number_last
         {
-            self.line_number_slots.push(LineNumberSlot { pc, line_num });
+            self.line_number_slots.push(LineNumberSlot { pc, line_num, line_pos });
             self.line_number_last_pc = pc;
             self.line_number_last = line_num;
         }
@@ -409,6 +412,7 @@ impl FunctionDef {
 pub struct LineNumberSlot {
     pub pc: u32,
     pub line_num: i32,
+    pub line_pos: u32,
 }
 
 pub struct BlockEnv {

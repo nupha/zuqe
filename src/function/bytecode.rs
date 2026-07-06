@@ -498,7 +498,12 @@ impl BytecodeImpl {
         }
     }
 
-    pub(crate) fn find_line_num(&self, pc_value: u32) -> Option<i32> {
+    /// Max bytes for a LEB128-encoded u32.
+    const LEB128_U32_MAX_BYTES: usize = 5;
+
+    /// Find the source line and column for a given PC value.
+    /// Returns `(line_num, line_pos)` or None if the function was stripped.
+    pub(crate) fn find_line_num_col(&self, pc_value: u32) -> Option<(i32, u32)> {
         if self.debug.as_ref().is_none_or(|d| d.pc2line_buf.is_none()) {
             // function was stripped
             return None;
@@ -510,6 +515,7 @@ impl BytecodeImpl {
 
         let mut pc = 0;
         let mut line_num = debug.line_num;
+        let mut line_pos = 0_u32;
 
         while p < p_end {
             unsafe {
@@ -517,42 +523,65 @@ impl BytecodeImpl {
                 p = p.offset(1);
 
                 let new_line_num: i32;
+                let new_line_pos: u32;
 
                 if op == 0 {
                     let mut val = 0;
-                    // FIXME: hard coded len 5
-                    let ret = if let Ok(n) = get_leb128(&mut val, std::slice::from_raw_parts(p, 5))
-                    {
+                    let ret = if let Ok(n) = get_leb128(
+                        &mut val,
+                        std::slice::from_raw_parts(p, Self::LEB128_U32_MAX_BYTES),
+                    ) {
                         n
                     } else {
-                        return Some(debug.line_num);
+                        return Some((debug.line_num, 0));
                     };
                     pc += val as i32;
                     p = p.add(ret);
 
                     let mut v = 0_i32;
-                    // FIXME: hard coded len 5
-                    let ret = if let Ok(n) = get_sleb128(&mut v, std::slice::from_raw_parts(p, 5)) {
+                    let ret = if let Ok(n) = get_sleb128(
+                        &mut v,
+                        std::slice::from_raw_parts(p, Self::LEB128_U32_MAX_BYTES),
+                    ) {
                         n
                     } else {
-                        return Some(debug.line_num);
+                        return Some((debug.line_num, 0));
                     };
                     p = p.add(ret);
                     new_line_num = line_num + v;
+
+                    // Decode line_pos delta
+                    let mut vp = 0_i32;
+                    let ret = if let Ok(n) = get_sleb128(
+                        &mut vp,
+                        std::slice::from_raw_parts(p, Self::LEB128_U32_MAX_BYTES),
+                    ) {
+                        n
+                    } else {
+                        return Some((debug.line_num, line_pos));
+                    };
+                    p = p.add(ret);
+                    new_line_pos = (line_pos as i32 + vp) as u32;
                 } else {
                     op -= PC2LINE_OP_FIRST;
                     pc += op / PC2LINE_RANGE;
                     new_line_num = line_num + (op % PC2LINE_RANGE) + PC2LINE_BASE;
+                    new_line_pos = line_pos; // short encoding: column unchanged
                 }
 
                 if pc_value < pc as u32 {
-                    return Some(line_num);
+                    return Some((line_num, line_pos));
                 }
                 line_num = new_line_num;
+                line_pos = new_line_pos;
             }
         }
 
-        Some(line_num)
+        Some((line_num, line_pos))
+    }
+
+    pub(crate) fn find_line_num(&self, pc_value: u32) -> Option<i32> {
+        self.find_line_num_col(pc_value).map(|(ln, _)| ln)
     }
 }
 

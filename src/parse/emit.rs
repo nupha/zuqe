@@ -38,7 +38,8 @@ impl<'s> JSParseState<'s> {
     /// emit on current function def
     pub fn emit_op_u8(&mut self, op: u8) {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_op_u8(op, ln);
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_op_u8(op, ln, lp);
     }
 
     /// don't update the last opcode and don't emit line number info
@@ -52,13 +53,15 @@ impl<'s> JSParseState<'s> {
     /// emit on current function def
     pub fn emit_label(&mut self, label: i32) -> i32 {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_label(label, ln)
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_label(label, ln, lp)
     }
 
     /// emit on current function def
     pub fn emit_op(&mut self, op: OpCode) {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_op(op, ln);
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_op(op, ln, lp);
     }
 
     /// Emit a named-property-get, conditionally selecting GET_FIELD_IC when
@@ -66,7 +69,8 @@ impl<'s> JSParseState<'s> {
     #[inline(always)]
     pub fn emit_get_field(&mut self, atom: Atom) {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_get_field(atom, ln);
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_get_field(atom, ln, lp);
     }
 
     /// Emit a named-property-put, conditionally selecting PUT_FIELD_IC when
@@ -74,7 +78,8 @@ impl<'s> JSParseState<'s> {
     #[inline(always)]
     pub fn emit_put_field(&mut self, atom: Atom) {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_put_field(atom, ln);
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_put_field(atom, ln, lp);
     }
 
     /// Emit a named-property-get that preserves the object on the stack,
@@ -82,40 +87,46 @@ impl<'s> JSParseState<'s> {
     #[inline(always)]
     pub fn emit_get_field2(&mut self, atom: Atom) {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_get_field2(atom, ln);
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_get_field2(atom, ln, lp);
     }
 
     /// emit on current function def.
     /// return label or -1 if dead code.
     pub fn emit_goto(&mut self, opcode: OpCode, label: i32) -> i32 {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_goto(opcode, label, ln)
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_goto(opcode, label, ln, lp)
     }
 
     /// emit on current function def
     pub fn emit_push_const(&mut self, val: JSValue, as_atom: bool) -> Result<(), i32> {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_push_const(val, as_atom, ln)
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_push_const(val, as_atom, ln, lp)
     }
 
     /// emit on current function def
     pub fn emit_op_temp(&mut self, op: OpCodeTemp) {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_op_temp(op, ln);
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_op_temp(op, ln, lp);
     }
 
     /// emit on current function def
     pub fn emit_return(&mut self, hasval: bool) {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_return(hasval, ln);
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_return(hasval, ln, lp);
     }
 
     /// emit on current function def. `label` is the label name, JS_ATOM_NULL for none.
     pub fn emit_break(&mut self, label: Atom, is_continue: bool) -> Result<(), i32> {
         let ln = self.last_line_num;
+        let lp = self.last_line_pos;
 
         self.cur_func_mut()
-            .emit_break(label, is_continue, ln)
+            .emit_break(label, is_continue, ln, lp)
             .inspect_err(|_| {
                 self.throw_syntax_error(if label.is_null() {
                     if is_continue {
@@ -131,7 +142,8 @@ impl<'s> JSParseState<'s> {
 
     pub fn emit_spread_code(&mut self, depth: i32) {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_spread_code(depth, ln);
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_spread_code(depth, ln, lp);
     }
 
     /* initialize the class fields, called by the constructor. Note:
@@ -140,7 +152,8 @@ impl<'s> JSParseState<'s> {
     /// emit on current function def
     pub fn emit_class_field_init(&mut self) {
         let ln = self.last_line_num;
-        self.cur_func_mut().emit_class_field_init(ln);
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_class_field_init(ln, lp);
     }
 
     pub(super) fn emit_class_init_start(&mut self, cd: &mut ClassFieldsParse) -> Result<(), i32> {

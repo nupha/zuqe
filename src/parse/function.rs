@@ -140,11 +140,11 @@ impl<'s> JSParseState<'s> {
                 | JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
         ) {
             // error if not invoked as a constructor
-            fd1.emit_op(OpCode::CHECK_CTOR, self.last_line_num);
+            fd1.emit_op(OpCode::CHECK_CTOR, self.last_line_num, self.last_line_pos);
         }
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR {
-            fd1.emit_class_field_init(self.last_line_num);
+            fd1.emit_class_field_init(self.last_line_num, self.last_line_pos);
         }
 
         // parse arguments
@@ -195,12 +195,12 @@ impl<'s> JSParseState<'s> {
                 if matches!(self.token.kind, TokenKind::Char('[' | '{')) {
                     fd1.attrs.has_simple_parameter_list = false;
                     if rest {
-                        fd1.emit_op(OpCode::REST, self.last_line_num);
+                        fd1.emit_op(OpCode::REST, self.last_line_num, self.last_line_pos);
                         fd1.emit_u16(fd1.args.len() as _);
                     } else {
                         // unnamed arg for destructuring
                         let idx = fd1.add_arg(self.ctx(), Atom::NULL)? as i32;
-                        fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
+                        fd1.emit_op(OpCode::GET_ARG, self.last_line_num, self.last_line_pos);
                         fd1.emit_u16(idx as _);
                     }
 
@@ -244,16 +244,16 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     if rest {
-                        fd1.emit_op(OpCode::REST, self.last_line_num);
+                        fd1.emit_op(OpCode::REST, self.last_line_num, self.last_line_pos);
                         fd1.emit_u16(idx as _);
 
                         if fd1.has_parameter_expressions {
-                            fd1.emit_op(OpCode::DUP, self.last_line_num);
-                            fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
+                            fd1.emit_op(OpCode::DUP, self.last_line_num, self.last_line_pos);
+                            fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num, self.last_line_pos);
                             fd1.emit_atom(name);
                             fd1.emit_u16(fd1.scope_level as _);
                         }
-                        fd1.emit_op(OpCode::PUT_ARG, self.last_line_num);
+                        fd1.emit_op(OpCode::PUT_ARG, self.last_line_num, self.last_line_pos);
                         fd1.emit_u16(idx as _);
 
                         fd1.attrs.has_simple_parameter_list = false;
@@ -266,24 +266,24 @@ impl<'s> JSParseState<'s> {
 
                         let label = fd1.add_label()? as i32;
 
-                        fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
+                        fd1.emit_op(OpCode::GET_ARG, self.last_line_num, self.last_line_pos);
                         fd1.emit_u16(idx as _);
-                        fd1.emit_op(OpCode::DUP, self.last_line_num);
-                        fd1.emit_op(OpCode::UNDEFINED, self.last_line_num);
-                        fd1.emit_op(OpCode::STRICT_EQ, self.last_line_num);
-                        fd1.emit_goto(OpCode::IF_FALSE, label, self.last_line_num);
-                        fd1.emit_op(OpCode::DROP, self.last_line_num);
+                        fd1.emit_op(OpCode::DUP, self.last_line_num, self.last_line_pos);
+                        fd1.emit_op(OpCode::UNDEFINED, self.last_line_num, self.last_line_pos);
+                        fd1.emit_op(OpCode::STRICT_EQ, self.last_line_num, self.last_line_pos);
+                        fd1.emit_goto(OpCode::IF_FALSE, label, self.last_line_num, self.last_line_pos);
+                        fd1.emit_op(OpCode::DROP, self.last_line_num, self.last_line_pos);
 
                         self.parse_assign_expr()?;
 
                         self.set_object_name(name);
 
-                        fd1.emit_op(OpCode::DUP, self.last_line_num);
-                        fd1.emit_op(OpCode::PUT_ARG, self.last_line_num);
+                        fd1.emit_op(OpCode::DUP, self.last_line_num, self.last_line_pos);
+                        fd1.emit_op(OpCode::PUT_ARG, self.last_line_num, self.last_line_pos);
                         fd1.emit_u16(idx as _);
 
-                        fd1.emit_label(label, self.last_line_num);
-                        fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
+                        fd1.emit_label(label, self.last_line_num, self.last_line_pos);
+                        fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num, self.last_line_pos);
                         fd1.emit_atom(name);
                         fd1.emit_u16(fd1.scope_level as _);
                     } else {
@@ -292,9 +292,9 @@ impl<'s> JSParseState<'s> {
                         }
                         if fd1.has_parameter_expressions {
                             // copy the argument to the argument scope
-                            fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
+                            fd1.emit_op(OpCode::GET_ARG, self.last_line_num, self.last_line_pos);
                             fd1.emit_u16(idx as _);
-                            fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
+                            fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num, self.last_line_pos);
                             fd1.emit_atom(name);
                             fd1.emit_u16(fd1.scope_level as _);
                         }
@@ -344,11 +344,11 @@ impl<'s> JSParseState<'s> {
 
                     let vname = fd1.vars.get(idx as usize).unwrap().var_name;
 
-                    fd1.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, self.last_line_num);
+                    fd1.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, self.last_line_num, self.last_line_pos);
                     fd1.emit_atom(vname);
                     fd1.emit_u16(fd1.scope_level as _);
 
-                    fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR, self.last_line_num);
+                    fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR, self.last_line_num, self.last_line_pos);
                     fd1.emit_atom(vname);
                     fd1.emit_u16(0);
                 }
@@ -357,7 +357,7 @@ impl<'s> JSParseState<'s> {
             }
 
             /* the argument scope has no parent, hence we don't use pop_scope(s) */
-            fd1.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, self.last_line_num);
+            fd1.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, self.last_line_num, self.last_line_pos);
             fd1.emit_u16(fd1.scope_level as _);
 
             /* set the variable scope as the current scope */
@@ -372,7 +372,7 @@ impl<'s> JSParseState<'s> {
             func_kind,
             FunctionKind::Generator | FunctionKind::AsyncGenerator
         ) {
-            fd1.emit_op(OpCode::INITIAL_YIELD, self.last_line_num);
+            fd1.emit_op(OpCode::INITIAL_YIELD, self.last_line_num, self.last_line_pos);
         }
 
         // in generators, yield expression is forbidden during the parsing of the arguments
@@ -393,6 +393,7 @@ impl<'s> JSParseState<'s> {
                         OpCode::RETURN
                     },
                     self.last_line_num,
+                    self.last_line_pos,
                 );
 
                 if !fd1.attrs.exec_mode.contains(ExecMode::STRIP) {
@@ -457,7 +458,7 @@ impl<'s> JSParseState<'s> {
 
         // in case there is no return, add one
         if self.cur_func().is_live_code() {
-            fd1.emit_return(false, self.last_line_num);
+            fd1.emit_return(false, self.last_line_num, self.last_line_pos);
         }
 
         // restore cur_func: this is done in defer!()

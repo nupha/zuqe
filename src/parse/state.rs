@@ -53,6 +53,10 @@ pub struct JSParseState<'s> {
     pub(super) got_lf: bool,
     /// Line number of the previously processed token
     pub(super) last_line_num: i32,
+    /// Byte column position of the previously processed token (within its line)
+    pub(super) last_line_pos: u32,
+    /// Byte offset into input where the current line starts
+    pub(super) line_start_offset: usize,
     /// Current line number being processed
     pub(super) line_num: i32,
 
@@ -100,6 +104,8 @@ impl<'s> JSParseState<'s> {
             buf_ptr: ptr,
 
             last_line_num: 0,
+            last_line_pos: 0,
+            line_start_offset: 0,
             line_num: 1,
             filename,
             token: Token {
@@ -193,7 +199,7 @@ impl<'s> JSParseState<'s> {
     /// * `Err(-1)` - If scope creation fails
     pub(super) fn push_scope(&mut self) -> Result<u16, i32> {
         if !self.cur_func_def.is_null() {
-            unsafe { (*self.cur_func_def).push_scope(self.last_line_num) }
+            unsafe { (*self.cur_func_def).push_scope(self.last_line_num, self.last_line_pos) }
         } else {
             #[cfg(debug_assertions)]
             unreachable!("empty current function def");
@@ -206,8 +212,9 @@ impl<'s> JSParseState<'s> {
     pub(super) fn pop_scope(&mut self) {
         if !self.cur_func_def.is_null() {
             let last_line_num = self.last_line_num;
+            let last_line_pos = self.last_line_pos;
             unsafe {
-                (*self.cur_func_def).pop_scope(last_line_num);
+                (*self.cur_func_def).pop_scope(last_line_num, last_line_pos);
             }
         } else {
             #[cfg(debug_assertions)]
@@ -218,13 +225,15 @@ impl<'s> JSParseState<'s> {
     /// Perform close scopes on current function def. For detail, see FunctionDef::close_scopes()
     pub(super) fn close_scopes(&mut self, scope: i32, scope_stop: i32) {
         self.cur_func_mut()
-            .close_scopes(scope as _, scope_stop as _, self.last_line_num);
+            .close_scopes(scope as _, scope_stop as _, self.last_line_num, self.last_line_pos);
     }
 
     /// get parse pos
     pub(super) const fn get_pos(&self) -> JSParsePos {
         JSParsePos {
             last_line_num: self.last_line_num,
+            last_line_pos: self.last_line_pos,
+            line_start_offset: self.line_start_offset,
             line_num: self.token.line_num,
             ptr: self.token.ptr,
             got_lf: self.got_lf,
@@ -239,6 +248,10 @@ impl<'s> JSParseState<'s> {
 pub(super) struct JSParsePos {
     /// Line number of the last processed token
     pub last_line_num: i32,
+    /// Byte column position of the last processed token
+    pub last_line_pos: u32,
+    /// Byte offset into input where the current line starts
+    pub line_start_offset: usize,
     /// Current line number
     pub line_num: i32,
     /// Indicates if a line feed was encountered

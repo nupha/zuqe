@@ -31,7 +31,7 @@ impl FunctionDef {
     ///
     ///  * The new scope id.
     /// * Err(-1) when alloc fail, in this case, current_exception has the exception.
-    pub(crate) fn push_scope(&mut self, last_line_num: i32) -> Result<u16, i32> {
+    pub(crate) fn push_scope(&mut self, last_line_num: i32, last_line_pos: u32) -> Result<u16, i32> {
         let scope_id = self.scopes.len(); // new scope id
 
         if self.scopes.len() == self.scopes.capacity() {
@@ -47,7 +47,7 @@ impl FunctionDef {
         });
         self.scope_level = scope_id as i32;
 
-        self.emit_op_temp(OpCodeTemp::ENTER_SCOPE, last_line_num);
+        self.emit_op_temp(OpCodeTemp::ENTER_SCOPE, last_line_num, last_line_pos);
         self.emit_u16(scope_id as u16);
 
         Ok(scope_id as _)
@@ -57,7 +57,7 @@ impl FunctionDef {
     ///
     /// Restores the parent scope and updates variable accessibility.
     /// Emits bytecode for scope cleanup.
-    pub(crate) fn pop_scope(&mut self, last_line_num: i32) {
+    pub(crate) fn pop_scope(&mut self, last_line_num: i32, last_line_pos: u32) {
         // disable scoped variables
         let scope = self.scope_level;
         self.scope_level = self.scopes[scope as usize].parent;
@@ -65,7 +65,7 @@ impl FunctionDef {
             .get_first_lexical_var(self.scope_level)
             .map_or(-1, |x| x as i32);
 
-        self.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num);
+        self.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num, last_line_pos);
         self.emit_u16(scope as _);
     }
 
@@ -77,11 +77,11 @@ impl FunctionDef {
     /// # Arguments
     /// * `scope_from` - Starting scope ID to close from
     /// * `scope_stop` - Stop closing scopes at this ID
-    pub(crate) fn close_scopes(&mut self, scope_from: u16, scope_stop: u16, last_line_num: i32) {
+    pub(crate) fn close_scopes(&mut self, scope_from: u16, scope_stop: u16, last_line_num: i32, last_line_pos: u32) {
         let mut scope = scope_from as i32;
 
         while scope > scope_stop as i32 {
-            self.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num);
+            self.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num, last_line_pos);
             self.emit_u16(scope as _);
 
             scope = self.scopes[scope as usize].parent; // -1 means no parent

@@ -74,22 +74,23 @@ impl FunctionDef {
     }
 
     /// check if a specified `label` exists in bytecode, since `pos`.
-    pub(super) const fn code_has_label(&self, mut pos: usize, label: u32) -> bool {
+    pub(super) fn code_has_label(&self, mut pos: usize, label: u32) -> bool {
         let bc_buf = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();
 
         while pos < bc_len {
-            match unsafe { *bc_buf.add(pos) } {
-                opcodes::op_line_num => {
-                    pos += 5;
-                    continue;
-                }
-                opcodes::op_label => {
-                    let lab = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
-                    if lab == label {
-                        return true;
+            let op = unsafe { *bc_buf.add(pos) };
+            let op_size = opcode_info_intermediate(op).size as usize;
+
+            match op {
+                opcodes::op_line_num | opcodes::op_label => {
+                    if op == opcodes::op_label {
+                        let lab = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
+                        if lab == label {
+                            return true;
+                        }
                     }
-                    pos += 5;
+                    pos += op_size;
                     continue;
                 }
                 opcodes::OP_goto => {
@@ -181,6 +182,7 @@ impl FunctionDef {
     pub fn compute_pc2line_info(&mut self) {
         if !self.attrs.exec_mode.contains(ExecMode::STRIP) && !self.line_number_slots.is_empty() {
             let mut last_line_num = self.line_num;
+            let mut last_line_pos = 0_u32;
             let mut last_pc: u32 = 0;
 
             if self.pc2line.is_none() {
@@ -192,17 +194,21 @@ impl FunctionDef {
             for ln in self.line_number_slots.iter() {
                 let pc = ln.pc;
                 let line_num = ln.line_num;
+                let line_pos = ln.line_pos;
                 if line_num < 0 {
                     continue;
                 }
 
                 let diff_pc = pc.wrapping_sub(last_pc) as i32;
                 let diff_line = line_num - last_line_num;
+                let diff_line_pos = line_pos as i32 - last_line_pos as i32;
                 if diff_line == 0 || diff_pc < 0 {
                     continue;
                 }
 
-                if (PC2LINE_BASE..PC2LINE_BASE + PC2LINE_RANGE).contains(&diff_line)
+                // Use short encoding only when column hasn't changed
+                if diff_line_pos == 0
+                    && (PC2LINE_BASE..PC2LINE_BASE + PC2LINE_RANGE).contains(&diff_line)
                     && diff_pc <= PC2LINE_DIFF_PC_MAX
                 {
                     push_vec_u8(
@@ -211,14 +217,16 @@ impl FunctionDef {
                             as u8,
                     );
                 } else {
-                    // longer encoding
+                    // longer encoding: includes column delta
                     push_vec_u8(lst, 0);
                     push_vec_leb128(lst, diff_pc as u32);
                     push_vec_sleb128(lst, diff_line);
+                    push_vec_sleb128(lst, diff_line_pos);
                 }
 
                 last_pc = pc;
                 last_line_num = line_num;
+                last_line_pos = line_pos;
             }
         }
     }

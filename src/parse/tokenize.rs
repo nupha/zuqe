@@ -234,6 +234,11 @@ impl<'s> JSParseState<'s> {
         self.last_ptr = self.buf_ptr;
         self.got_lf = false;
         self.last_line_num = self.token.line_num;
+        // Compute byte column position of the previous token within its line
+        self.last_line_pos = unsafe {
+            let offset = self.token.ptr.offset_from(self.input.as_ptr()) as usize;
+            offset.wrapping_sub(self.line_start_offset) as u32
+        };
 
         let mut input = if self.buf_ptr < self.input_end {
             let pos = unsafe { self.buf_ptr.offset_from(self.input.as_ptr()) as usize };
@@ -262,13 +267,20 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char(c @ ('\r' | '\n')) => {
-                    if c == '\r'
+                    let advance: usize = if c == '\r'
                         && let Some(b'\n') = input.peek()
                     {
                         input.seek_relative(1);
-                    }
+                        2
+                    } else {
+                        1
+                    };
                     self.got_lf = true;
                     self.line_num += 1;
+                    // Track where the next line starts (byte offset into source)
+                    self.line_start_offset = unsafe {
+                        self.buf_ptr.offset_from(self.input.as_ptr()) as usize
+                    } + span.start + advance;
                     continue;
                 }
                 // 0x0c='\f', 0x0b='\v'
@@ -715,6 +727,10 @@ impl<'s> JSParseState<'s> {
                     // XXX: should avoid incrementing line_number, but needed to handle HTML comments
                     self.got_lf = true;
                     self.line_num += 1;
+                    // 3-byte UTF-8 line separator
+                    self.line_start_offset = unsafe {
+                        self.buf_ptr.offset_from(self.input.as_ptr()) as usize
+                    } + span.start + span.len();
                     continue;
                 }
                 CharCode::Char(ch) => {
@@ -879,6 +895,8 @@ impl<'s> JSParseState<'s> {
     /// start to seek token from `pos`
     pub(super) fn seek_token(&mut self, pos: &JSParsePos) -> Result<TokenKind, i32> {
         self.token.line_num = pos.last_line_num;
+        self.last_line_pos = pos.last_line_pos;
+        self.line_start_offset = pos.line_start_offset;
         self.line_num = pos.line_num;
         self.buf_ptr = pos.ptr;
         self.got_lf = pos.got_lf;
