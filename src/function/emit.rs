@@ -93,6 +93,24 @@ impl FunctionDef {
         }
     }
 
+    /// Emit a named-property-put — either PUT_FIELD_IC (with inline_cache
+    /// feature) or plain PUT_FIELD.
+    pub fn emit_put_field(&mut self, atom: Atom, last_line_num: i32) {
+        #[cfg(feature = "inline_cache")]
+        {
+            self.emit_op(OpCode::PUT_FIELD_IC, last_line_num);
+            self.emit_atom(atom);
+            self.emit_u16(self.inline_cache_count);
+            self.inline_cache_count += 1;
+        }
+        #[cfg(not(feature = "inline_cache"))]
+        {
+            let _ = last_line_num;
+            self.emit_op(OpCode::PUT_FIELD, last_line_num);
+            self.emit_atom(atom);
+        }
+    }
+
     pub fn emit_return(&mut self, mut hasval: bool, last_line_num: i32) {
         // execute the finally blocks before return
         if self.attrs.func_kind != FunctionKind::Normal {
