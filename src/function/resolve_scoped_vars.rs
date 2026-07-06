@@ -690,7 +690,7 @@ impl FunctionDef {
     ) -> usize {
         match op {
             opcodes::op_scope_make_ref => {
-                let _ = self.get_or_add_global_var_ref(var_name);
+                let var_ref_idx = self.get_or_add_global_var_ref(var_name);
                 let label = label
                     .and_then(|l| self.label_slots.get_mut(l as usize))
                     .unwrap();
@@ -710,6 +710,7 @@ impl FunctionDef {
                         label,
                         pos_next as _,
                         var_name,
+                        var_ref_idx,
                     ) as _;
                     if let Some(l) = label_done {
                         push_vec_u8(bc, opcodes::op_label);

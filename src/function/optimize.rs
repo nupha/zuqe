@@ -626,6 +626,7 @@ pub(super) fn optimize_scope_make_global_ref(
     label: &Label,
     mut pos_next: u32,
     var_name: Atom,
+    var_ref_idx: u16,
 ) -> u32 {
     // ── Derived opcode sizes ──
     const label_op_size: usize = opcode_info_intermediate(opcodes::op_label).size as usize;
@@ -643,7 +644,7 @@ pub(super) fn optimize_scope_make_global_ref(
 
     if unsafe { *bc_buf.add(pos_next as usize) } == opcodes::OP_get_ref_value {
         push_vec_u8(bc, opcodes::OP_get_var);
-        push_vec_atom(bc, var_name);
+        push_vec_u16(bc, var_ref_idx);
         pos_next += get_ref_size as u32;
     }
 
@@ -672,19 +673,28 @@ pub(super) fn optimize_scope_make_global_ref(
         pos += stack_op_size;
     }
 
-    // ── Write put_var / put_var_strict with atom ──
-    // bc_buf in-place write: 1B opcode + 4B u32 atom.
-    // Size is hardcoded because the bc_buf sequence is a raw overwrite,
-    // not a formal opcode table entry (OP_put_var is formally VAR_REF/3B
-    // but the bc_buf write uses ATOM/5B for both strict and non-strict).
-    let atom_inst_size = 1 + std::mem::size_of::<u32>();
+    // ── Write put_var / put_var_strict ──
+    // For strict: bc_buf in-place write of put_var_strict (1B opcode + 4B u32 atom = 5B).
+    // For non-strict: bc_buf in-place write of put_var (1B opcode + 2B u16 VAR_REF = 3B),
+    // then pad with NOP to fill the original slot.
+    let atom_inst_size: usize;
     unsafe {
         *bc_buf.add(pos) = if is_strict {
+            atom_inst_size = 1 + std::mem::size_of::<u32>();
             opcodes::OP_put_var_strict
         } else {
+            atom_inst_size = 1 + std::mem::size_of::<u16>();
             opcodes::OP_put_var
         };
-        write_to_ptr::<u32>(bc_buf.add(pos + 1), var_name.id());
+    }
+    if is_strict {
+        unsafe {
+            write_to_ptr::<u32>(bc_buf.add(pos + 1), var_name.id());
+        }
+    } else {
+        unsafe {
+            write_to_ptr::<u16>(bc_buf.add(pos + 1), var_ref_idx);
+        }
     }
     pos += atom_inst_size;
 
