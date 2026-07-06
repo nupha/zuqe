@@ -250,10 +250,16 @@ impl ModuleDef {
                         if cur_module.import_entries[i].import_name == Atom::CONST__star_ {
                             // name space import
                             let val = reqm.ns(ctx)?;
-                            let gvc = md_func.payload().global_var_count as usize;
-                            md_func.payload_mut().closure_var_refs_mut()
-                                [gvc + import_var_idx as usize]
-                                .set_value(&mut ctx.rt_ptr(), val.into());
+                            md_func.payload_mut().store_closure_value(
+                                import_var_idx as _,
+                                ctx,
+                                val.into(),
+                            );
+
+                            // let gvc = md_func.payload().global_var_count as usize;
+                            // md_func.payload_mut().closure_var_refs_mut()
+                            //     [gvc + import_var_idx as usize]
+                            //     .set_value(&mut ctx.rt_ptr(), val.into());
                         } else {
                             match reqm.resolve_export(
                                 ctx,
@@ -281,10 +287,10 @@ impl ModuleDef {
                                                     vr.set_value(&mut ctx.rt_ptr(), val.into());
                                                     vr
                                                 };
-                                                let gvc = md_func.payload().global_var_count as usize;
-                                                md_func.payload_mut().closure_var_refs_mut()
-                                                    [gvc + import_var_idx as usize]
-                                                    = vref;
+                                                md_func.payload_mut().set_closure_var_ref(
+                                                    import_var_idx as usize,
+                                                    vref,
+                                                );
                                             }
                                         }
                                         ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
@@ -295,17 +301,15 @@ impl ModuleDef {
                                                     dep.func_created,
                                                     "module function must have been created"
                                                 );
-                                                let dep_func = dep.bytecode
+                                                dep.bytecode
                                                     .as_object_BCWrapper()
-                                                    .unwrap();
-                                                let dep_payload = dep_func.payload();
-                                                dep_payload.closure_var_refs()
-                                                    [dep_payload.global_var_count as usize + var_idx as usize]
+                                                    .unwrap()
+                                                    .payload()
+                                                    .get_closure_var_ref(var_idx as usize)
                                             });
-                                            let gvc = md_func.payload().global_var_count as usize;
-                                            md_func.payload_mut().closure_var_refs_mut()
-                                                [gvc + import_var_idx as usize]
-                                                = vr;
+                                            md_func
+                                                .payload_mut()
+                                                .set_closure_var_ref(import_var_idx as usize, vr);
                                         }
                                     }
                                 }
@@ -333,9 +337,7 @@ impl ModuleDef {
                                 &mut cur_module.export_entries[i].export_type
                             {
                                 debug_assert_ne!(*var_idx, u16::MAX);
-                                let payload = md_func.payload();
-                                let vr = payload.closure_var_refs()
-                                    [payload.global_var_count as usize + *var_idx as usize];
+                                let vr = md_func.payload().get_closure_var_ref(*var_idx as usize);
                                 var_ref.replace(vr);
                             }
                         }

@@ -147,15 +147,43 @@ impl BFuncPayload {
         self.home_object = obj;
     }
 
-    /// captured variables
+    /// Get a closure variable reference by its closure-var index.
+    /// Automatically offsets by `global_var_count`.
     #[inline(always)]
-    pub(crate) fn closure_var_refs(&self) -> &[VarRef] {
+    pub(crate) fn get_closure_var_ref(&self, nth: usize) -> VarRef {
+        self.closure_var_refs[self.global_var_count as usize + nth]
+    }
+
+    /// Set a closure variable reference by its closure-var index (0-based,
+    /// relative to the end of global var refs). Automatically offsets by
+    /// `global_var_count` so callers don't need to worry about the layout.
+    #[inline(always)]
+    pub(crate) fn set_closure_var_ref(&mut self, nth: usize, vref: VarRef) {
+        let idx = self.global_var_count as usize + nth;
+        self.closure_var_refs[idx] = vref;
+    }
+
+    /// Set value of closure its closure-var index (0-based,
+    /// relative to the end of global var refs). Automatically offsets by
+    /// `global_var_count` so callers don't need to worry about the layout.
+    #[inline(always)]
+    pub(crate) fn store_closure_value(
+        &mut self,
+        nth: usize,
+        ctx: &mut ScopedContext,
+        value: JSValue,
+    ) {
+        let idx = self.global_var_count as usize + nth;
+        self.closure_var_refs[idx].set_value(&mut ctx.rt_ptr(), value);
+    }
+
+    #[inline(always)]
+    pub(crate) fn captured_vars(&self) -> &[VarRef] {
         &self.closure_var_refs
     }
 
-    /// captured variables
     #[inline(always)]
-    pub(crate) fn closure_var_refs_mut(&mut self) -> &mut [VarRef] {
+    pub(crate) fn captured_vars_mut(&mut self) -> &mut [VarRef] {
         &mut self.closure_var_refs
     }
 }
