@@ -86,6 +86,9 @@ pub(crate) struct FunctionDef {
     pub(crate) global_vars: Vec<JSGlobalVar>,
     /// closure vars list
     pub(crate) closure_vars: Option<Vec<ClosureVar>>,
+    /// global variable references (recorded at resolve time for var_ref encoding).
+    /// These become the first N entries in BFuncPayload::closure_var_refs.
+    pub(crate) global_var_refs: Vec<ClosureVar>,
 
     // 当前函数的变量索引
     pub(super) func_var_idx: Option<u16>,
@@ -268,6 +271,7 @@ impl FunctionDef {
 
             top_break: std::ptr::null_mut(),
             closure_vars: None,
+            global_var_refs: Vec::new(),
 
             #[cfg(feature = "short_opcode")]
             jump_slots: Vec::new(),

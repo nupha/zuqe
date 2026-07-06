@@ -294,6 +294,21 @@ impl Bytecode {
             }
         };
 
+        // Split captured_vars: first N are global VarRefs, rest are closure VarRefs.
+        // GET_VAR/PUT_VAR use global_var_refs[idx]; GET_VAR_REF/PUT_VAR_REF use
+        // closure_var_refs[idx] with zero offset change.
+        let global_var_count = {
+            if let Ok(bfun) = BCWrapper::try_from(JSValue::from(func_obj)) {
+                bfun.payload().global_var_count as usize
+            } else {
+                0
+            }
+        };
+        let (global_var_refs, closure_var_refs) = captured_vars.split_at_mut(global_var_count);
+        // Rebind captured_vars to the closure-var-only slice so existing GET_VAR_REF
+        // handlers (which use captured_vars[idx]) index from 0 correctly.
+        let captured_vars: &mut [VarRef] = closure_var_refs;
+
         if throwed {
             let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
 
@@ -1284,7 +1299,7 @@ impl Bytecode {
                     }
 
                     // ═══════════════════════════════════════════════════
-                    // Global variable access
+                    // Global variable access (var_ref indirect via captured_vars)
                     // ═══════════════════════════════════════════════════
                     OpCode::CHECK_VAR => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
@@ -1296,28 +1311,51 @@ impl Bytecode {
                         }
                     }
                     OpCode::GET_VAR_UNDEF | OpCode::GET_VAR => {
-                        let atom = Atom::from_id(PC_FETCH!(u32));
-                        if let Ok(val) = realm_scope.get_global_var(atom, opcode == OpCode::GET_VAR)
-                        {
+                        let idx = PC_FETCH!(u16) as usize;
+                        // PropValue uses inline cache: shape_uid match → O(1) slot,
+                        // shape changed → self-healing find_shape_property fallback.
+                        let val = global_var_refs[idx].value();
+                        if !val.is_uninitialized() {
                             SP_PUT!(0, val);
                             SP_GO!(1);
                         } else {
-                            break ExecAction::Exception;
+                            // Detached placeholder (var not yet defined in scope).
+                            let var_name = self.global_var_refs()[idx].var_name;
+                            if let Ok(v) = realm_scope.get_global_var(
+                                var_name,
+                                opcode == OpCode::GET_VAR,
+                            ) {
+                                SP_PUT!(0, v);
+                                SP_GO!(1);
+                            } else {
+                                break ExecAction::Exception;
+                            }
                         }
                     }
                     OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
-                        let atom = Atom::from_id(PC_FETCH!(u32));
-                        let res = realm_scope.set_global_var(
-                            atom,
-                            SP_VAL!(-1),
-                            (opcode as u8 - OpCode::PUT_VAR as u8) as _,
-                        );
-                        SP_GO!(-1);
-                        if res.is_err() {
-                            break ExecAction::Exception;
+                        let idx = PC_FETCH!(u16) as usize;
+                        // PropValue self-heals on shape change; write directly.
+                        let val = global_var_refs[idx].value();
+                        if !val.is_uninitialized() {
+                            global_var_refs[idx].set_value(&mut rt, SP_VAL!(-1));
+                            SP_GO!(-1);
+                        } else {
+                            // Detached placeholder fallback.
+                            let init_flags = (opcode as u8 - OpCode::PUT_VAR as u8) as u32;
+                            let var_name = self.global_var_refs()[idx].var_name;
+                            let res = realm_scope.set_global_var(
+                                var_name,
+                                SP_VAL!(-1),
+                                init_flags as u8,
+                            );
+                            SP_GO!(-1);
+                            if res.is_err() {
+                                break ExecAction::Exception;
+                            }
                         }
                     }
                     OpCode::PUT_VAR_STRICT => {
+                        // PUT_VAR_STRICT keeps ATOM format (not migrated; deprecated in P5)
                         let atom = Atom::from_id(PC_FETCH!(u32));
                         if let JSValue::Bool(false) = SP_VAL!(-2) {
                             JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
@@ -3060,10 +3098,10 @@ impl Bytecode {
                     }
 
                     _ => {
+                        let err_pc = unsafe { pc.offset_from(pc_base) - 1 } as usize;
                         realm_scope.throw_internal_error(&format!(
-                            "invalid opcode: 0x{:02x}, pc={}",
+                            "invalid opcode: 0x{:02x}, pc={err_pc}",
                             opcode as u8,
-                            unsafe { pc.offset_from(pc_base) - 1 },
                         ));
                         break ExecAction::Exception;
                     }

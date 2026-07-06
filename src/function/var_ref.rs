@@ -1,27 +1,46 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ptr::NonNull;
+use std::{cell::Cell, ptr::NonNull};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    RuntimeImpl, context::ScopedContext, gcref_wrapper, stack_frame::StackFrame, value::JSValue,
+    RuntimeImpl, atom::Atom, context::ScopedContext, gcref_wrapper, object::JSProperty,
+    object::Object, value::JSValue,
 };
 
 #[repr(u8)]
 #[derive(Debug)]
 pub enum VarRefImpl {
-    /// var ref is detached, point to nowhere.
+    /// A detached copy of a variable value. Used when a closure captures a
+    /// local variable and the parent frame is taken (async suspension,
+    /// generator yield, exception unwinding).
     Detached(JSValue),
-    /// reference to a var slot in stack frame
+
+    /// Reference to a local variable slot in an arena stack frame.
+    ///
+    /// `pvalue` is a raw pointer into the arena frame's data buffer:
+    ///   - For arguments: arg_base_ptr[var_idx]
+    ///   - For locals:   var_base_ptr[var_idx]
     Bind {
         is_arg: bool,
         var_idx: u16,
-        /// Raw pointer to var value, equivelent to
-        /// StackFrame::arg_base_ptr[var_idx] or StackFrame::var_base_ptr[var_idx],
-        /// for speed access only
         pvalue: NonNull<JSValue>,
+    },
+
+    /// Reference to a property slot in a global scope object, with inline-cache
+    /// self-healing via ABA-safe `(shape_ptr, shape_uid)` pair (same pattern as
+    /// `GET_FIELD_IC`'s `InlineCacheEntry`).
+    ///
+    /// Fast path (shape unchanged, >99.9%): `obj.prop_slot(slot_idx)` → O(1)
+    /// Slow path (Shape changed): `obj.find_shape_property(name)` → re-cache → O(n)
+    PropValue {
+        obj: Object,
+        name: Atom,
+        shape_ptr: Cell<*const ()>,
+        shape_uid: Cell<u32>,
+        slot_idx: Cell<u16>,
     },
 }
 
@@ -34,79 +53,100 @@ impl GcTrace for VarRefImpl {
             Self::Detached(value) => {
                 value.trace(gcx);
             }
+            Self::PropValue { obj, name, .. } => {
+                obj.trace(gcx);
+                name.trace(gcx);
+            }
         }
     }
 }
 
 impl VarRefImpl {
-    /// Internal helper that updates pvalue for a heap buffer transfer.
-    /// Defined on VarRefImpl (&mut self) to avoid Rust 2024 match ergonomics
-    /// issues when matching through GcRef::as_mut() indirection.
-    pub(crate) fn update_pvalue_for_heap_buf_impl(
-        &mut self,
-        heap_buf: &Box<[JSValue]>,
-        head: &StackFrame,
-    ) {
-        Self::update_pvalue_for_heap_buf_offsets_impl(
-            self,
-            heap_buf,
-            head.arg_base_offset,
-            head.var_base_offset,
-        )
-    }
-
-    /// Same as update_pvalue_for_heap_buf_impl but takes offsets directly
-    /// to avoid borrow-checker conflicts with FrameHead field access.
     pub(crate) fn update_pvalue_for_heap_buf_offsets_impl(
         &mut self,
         heap_buf: &Box<[JSValue]>,
         arg_base_offset: u32,
         var_base_offset: u32,
     ) {
-        match self {
-            Self::Bind {
-                pvalue,
-                is_arg,
-                var_idx,
-                ..
-            } => {
-                let off = if *is_arg {
-                    arg_base_offset as usize + *var_idx as usize
-                } else {
-                    var_base_offset as usize + *var_idx as usize
-                };
-                *pvalue = NonNull::from(&heap_buf[off]);
-            }
-            _ => {}
+        if let Self::Bind {
+            pvalue,
+            is_arg,
+            var_idx,
+            ..
+        } = self
+        {
+            let off = if *is_arg {
+                arg_base_offset as usize + *var_idx as usize
+            } else {
+                var_base_offset as usize + *var_idx as usize
+            };
+            *pvalue = NonNull::from(&heap_buf[off]);
         }
     }
 
-    /// get variable value
     #[inline(always)]
-    pub(crate) const fn value(&self) -> JSValue {
+    pub(crate) fn value(&self) -> JSValue {
         match self {
             Self::Bind { pvalue, .. } => unsafe { *pvalue.as_ref() },
             Self::Detached(value) => *value,
-        }
-    }
-
-    /// update variable value
-    const fn set_value_internal(&mut self, new_value: JSValue) {
-        match self {
-            Self::Bind { pvalue, .. } => unsafe {
-                *pvalue.as_mut() = new_value;
-            },
-            Self::Detached(value) => {
-                *value = new_value;
+            Self::PropValue {
+                obj,
+                name,
+                shape_ptr,
+                shape_uid,
+                slot_idx,
+            } => {
+                if let Some(sh) = obj.shape() {
+                    let current_ptr: *const () = (&**sh) as *const _ as *const ();
+                    if current_ptr == shape_ptr.get() && sh.uid == shape_uid.get() {
+                        let idx = slot_idx.get() as usize;
+                        if let JSProperty::Normal(v) = obj.prop_slot(idx) {
+                            return *v;
+                        }
+                    }
+                    if let Some((idx, _)) = obj.find_shape_property(*name) {
+                        shape_ptr.set(current_ptr);
+                        shape_uid.set(sh.uid);
+                        slot_idx.set(idx as u16);
+                        if let JSProperty::Normal(v) = obj.prop_slot(idx) {
+                            return *v;
+                        }
+                    }
+                }
+                JSValue::UNDEFINED
             }
         }
     }
 
-    /// detach bind var ref as detached var ref, duplicate var value as detached value.
-    /// this makes var ref no longer refer to a local variable.
-    /// if has async funtion, free it too.
-    /// if `self` is already detached, do nothing.
-    pub(crate) const fn detach(&mut self) {
+    fn set_value_internal(&mut self, new_value: JSValue) {
+        match self {
+            Self::Bind { pvalue, .. } => unsafe { *pvalue.as_mut() = new_value },
+            Self::Detached(value) => *value = new_value,
+            Self::PropValue {
+                obj,
+                name,
+                shape_ptr,
+                shape_uid,
+                slot_idx,
+            } => {
+                if let Some(sh) = obj.shape() {
+                    let current_ptr: *const () = (&**sh) as *const _ as *const ();
+                    if current_ptr == shape_ptr.get() && sh.uid == shape_uid.get() {
+                        obj.set_prop_slot(slot_idx.get() as usize, JSProperty::Normal(new_value));
+                        return;
+                    }
+                    if let Some((idx, _)) = obj.find_shape_property(*name) {
+                        shape_ptr.set(current_ptr);
+                        shape_uid.set(sh.uid);
+                        slot_idx.set(idx as u16);
+                        obj.set_prop_slot(idx, JSProperty::Normal(new_value));
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn detach(&mut self) {
         if let Self::Bind { pvalue, .. } = self {
             *self = Self::Detached(unsafe { *pvalue.as_ref() });
         }
@@ -126,36 +166,12 @@ impl VarRefImpl {
     }
 }
 
-// TODO: how about VarRef not to be a gc node?
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct VarRef(GcRef<VarRefImpl>);
-
 gcref_wrapper!(VarRef, VarRefImpl);
 
 impl VarRef {
-    /// Update the raw pointer (pvalue) of a Bind VarRef to point into a new
-    /// heap-allocated buffer. Called during take_frame when an async frame's
-    /// data is transferred from the arena to an independent Heap Box.
-    ///
-    /// The offset within the data region is computed from the frame header's
-    /// arg_base_offset or var_base_offset plus the variable index.
-    pub(crate) fn update_pvalue_for_heap_buf(
-        &mut self,
-        heap_buf: &Box<[JSValue]>,
-        head: &StackFrame,
-    ) {
-        // delegate to inner impl to avoid Rust 2024 match ergonomics issues
-        // with GcRef::as_mut() indirection
-        unsafe {
-            VarRefImpl::update_pvalue_for_heap_buf_impl(self.0.as_mut(), heap_buf, head);
-        }
-    }
-
-    /// Variant of update_pvalue_for_heap_buf that takes the base offsets
-    /// directly instead of a &FrameHead reference. This avoids borrow-checker
-    /// conflicts when the caller needs to mutably borrow FrameHead.var_ref_list
-    /// while simultaneously reading FrameHead offset fields.
     pub(crate) fn update_pvalue_for_heap_buf_offsets(
         &mut self,
         heap_buf: &Box<[JSValue]>,
@@ -172,7 +188,6 @@ impl VarRef {
         }
     }
 
-    /// update variable value
     pub(crate) fn set_value(&mut self, rt: &mut RuntimeImpl, new_value: JSValue) {
         self.set_value_internal(new_value);
         if let Some(n) = new_value.gc_node_ptr() {
@@ -180,7 +195,6 @@ impl VarRef {
         }
     }
 
-    /// create a detached var ref
     pub(crate) fn create(ctx: &mut ScopedContext, value: JSValue) -> Result<Self, i32> {
         ctx.alloc_local(VarRefImpl::Detached(value))
             .map(Self)
@@ -190,7 +204,6 @@ impl VarRef {
             })
     }
 
-    /// create a bind var ref
     pub(crate) fn create_bind(
         ctx: &mut ScopedContext,
         var_idx: u16,
@@ -201,6 +214,28 @@ impl VarRef {
             is_arg,
             var_idx,
             pvalue,
+        })
+        .map(Self)
+        .map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })
+    }
+
+    pub(crate) fn create_prop_value(
+        ctx: &mut ScopedContext,
+        obj: Object,
+        name: Atom,
+        shape_ptr: *const (),
+        shape_uid: u32,
+        slot_idx: u16,
+    ) -> Result<Self, i32> {
+        ctx.alloc_local(VarRefImpl::PropValue {
+            obj,
+            name,
+            shape_ptr: Cell::new(shape_ptr),
+            shape_uid: Cell::new(shape_uid),
+            slot_idx: Cell::new(slot_idx),
         })
         .map(Self)
         .map_err(|_| {
