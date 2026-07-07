@@ -8,7 +8,6 @@ use crate::{
         FunctionDef, Label, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_u8,
         push_vec_u16,
     },
-    stack_frame::ExecMode,
     utils::{M2, M3, read_from_ptr, write_to_ptr},
 };
 
@@ -681,6 +680,13 @@ pub(super) fn optimize_scope_make_ref(
                     *bc_orig.add(pos) = OpCode::PUT_VAR_REF_CHECK as u8;
                     op_size = opcode_info_final(OpCode::PUT_VAR_REF_CHECK as u8).size as usize;
                 }
+                OpCode::GET_VAR => {
+                    // dup + put_var for global var assignment
+                    *bc_orig.add(pos) = opcodes::OP_dup;
+                    pos += stack_op_size;
+                    *bc_orig.add(pos) = OpCode::PUT_VAR as u8;
+                    op_size = opcode_info_final(OpCode::PUT_VAR as u8).size as usize;
+                }
                 _ => unreachable!(),
             }
             write_to_ptr::<u16>(bc_orig.add(pos + 1), var_idx as u16);
@@ -707,6 +713,11 @@ pub(super) fn optimize_scope_make_ref(
                     *bc_orig.add(pos) = OpCode::PUT_VAR_REF_CHECK as u8;
                     op_size = opcode_info_final(OpCode::PUT_VAR_REF_CHECK as u8).size as usize;
                 }
+                OpCode::GET_VAR => {
+                    // Like QuickJS: put_var for global var assignment (nokeep)
+                    *bc_orig.add(pos) = OpCode::PUT_VAR as u8;
+                    op_size = opcode_info_final(OpCode::PUT_VAR as u8).size as usize;
+                }
                 _ => unreachable!(),
             }
             write_to_ptr::<u16>(bc_orig.add(pos + 1), var_idx as u16);
@@ -714,99 +725,11 @@ pub(super) fn optimize_scope_make_ref(
     }
 
     pos += op_size;
+
     // pad with OP_nop
     while pos < end_pos {
         unsafe {
             *bc_orig.add(pos) = opcodes::OP_nop;
-        }
-        pos += 1;
-    }
-
-    pos_next
-}
-
-pub(super) fn optimize_scope_make_global_ref(
-    js_mode: ExecMode,
-    bc: &mut Vec<u8>,
-    bc_buf: *mut u8,
-    label: &Label,
-    mut pos_next: u32,
-    var_name: Atom,
-    var_ref_idx: u16,
-) -> u32 {
-    const label_op_size: usize = opcode_info_intermediate(opcodes::op_label).size as usize;
-    const stack_op_size: usize = opcode_info_final(opcodes::OP_insert3).size as usize;
-    const put_ref_size: usize = opcode_info_final(opcodes::OP_put_ref_value).size as usize;
-    const get_ref_size: usize = opcode_info_final(opcodes::OP_get_ref_value).size as usize;
-
-    let is_strict = js_mode.contains(ExecMode::STRICT);
-    if is_strict {
-        push_vec_u8(bc, opcodes::OP_check_var);
-        push_vec_atom(bc, var_name);
-    } else {
-        // XXX: need 2 extra OP_true if destructuring an array
-    }
-
-    if unsafe { *bc_buf.add(pos_next as usize) } == opcodes::OP_get_ref_value {
-        push_vec_u8(bc, opcodes::OP_get_var);
-        push_vec_u16(bc, var_ref_idx);
-        pos_next += get_ref_size as u32;
-    }
-
-    let label_pos = label.pos as usize;
-    let end_pos = label_pos + stack_op_size + put_ref_size;
-    let mut pos = label_pos - label_op_size;
-    debug_assert_eq!(unsafe { *bc_buf.add(pos) }, opcodes::op_label);
-
-    let op = unsafe { *bc_buf.add(label_pos) };
-    if is_strict {
-        if op != opcodes::OP_nop {
-            unsafe {
-                *bc_buf.add(pos) = match op {
-                    opcodes::OP_insert3 => opcodes::OP_insert2,
-                    opcodes::OP_perm4 => opcodes::OP_perm3,
-                    opcodes::OP_rot3l => opcodes::OP_swap,
-                    _ => unreachable!(),
-                };
-            }
-            pos += stack_op_size;
-        }
-    } else if op == opcodes::OP_insert3 {
-        unsafe {
-            *bc_buf.add(pos) = opcodes::OP_dup;
-        }
-        pos += stack_op_size;
-    }
-
-    // ── Write put_var / put_var_strict ──
-    // For strict: bc_buf in-place write of put_var_strict (1B opcode + 4B u32 atom = 5B).
-    // For non-strict: bc_buf in-place write of put_var (1B opcode + 2B u16 VAR_REF = 3B),
-    // then pad with NOP to fill the original slot.
-    let atom_inst_size: usize;
-    unsafe {
-        *bc_buf.add(pos) = if is_strict {
-            atom_inst_size = 1 + std::mem::size_of::<u32>();
-            opcodes::OP_put_var_strict
-        } else {
-            atom_inst_size = 1 + std::mem::size_of::<u16>();
-            opcodes::OP_put_var
-        };
-    }
-    if is_strict {
-        unsafe {
-            write_to_ptr::<u32>(bc_buf.add(pos + 1), var_name.id());
-        }
-    } else {
-        unsafe {
-            write_to_ptr::<u16>(bc_buf.add(pos + 1), var_ref_idx);
-        }
-    }
-    pos += atom_inst_size;
-
-    // pad with OP_nop
-    while pos < end_pos {
-        unsafe {
-            *bc_buf.add(pos) = opcodes::OP_nop;
         }
         pos += 1;
     }
