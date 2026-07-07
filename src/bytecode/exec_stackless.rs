@@ -2313,8 +2313,13 @@ impl Bytecode {
                         // Calls next() on iter_obj and pushes the promise result.
                         // After: [iter_obj, next, catch_offset, promise]
                         // n_pop=3, n_push=4, net SP_GO!(1)
+
+                        // disable the catch offset before calling next()
+                        // so that exceptions from next() do NOT close the iterator.
                         let iter = SP_VAL!(-3);
                         let next = SP_VAL!(-2);
+                        SP_PUT!(-1, JSValue::UNDEFINED);
+
                         let result =
                             next.call_internal(realm_scope, iter, JSValue::UNDEFINED, &[], 0);
                         if let Ok(obj) = result {
