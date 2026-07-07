@@ -5,63 +5,16 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     context::ScopedContext,
-    error::JS_THROW_VAR_REDECL,
     eval::EvalType,
     utils::{M2, read_from_ptr},
 };
 
 use super::{
-    DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR, FunctionDef, JSVarKindEnum, get_label_pos,
-    instantiate_hoisted_definitions, optimize::OPTIMIZE, push_vec_atom, push_vec_slice,
-    push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
+    FunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions, optimize::OPTIMIZE,
+    push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
 };
 
 impl FunctionDef {
-    /// Performs initial runtime checks for global variables
-    /// This must be executed before creating any variables
-    /// Checks for potential conflicts between global and closure variables
-    fn resolve_variables_check_global_vars(&self, bc_buf: &mut Vec<u8>) {
-        'g_var: for hf in self.global_vars.iter() {
-            // check if global variable (XXX: simplify)
-            if let Some(cvars) = self.closure_vars.as_ref() {
-                for cv in cvars {
-                    match cv.var_name {
-                        Atom::CONST__var_ | Atom::CONST__arg_var_ => {
-                            continue 'g_var;
-                        }
-                        name if name == hf.var_name => {
-                            if self.eval_type == EvalType::Direct && cv.is_lexical() {
-                                // Check if a lexical variable is
-                                // redefined as 'var'. XXX: Could abort
-                                // compilation here, but for consistency
-                                // with the other checks, we delay the
-                                // error generation.
-                                push_vec_u8(bc_buf, OpCode::THROW_ERROR as u8);
-                                push_vec_atom(bc_buf, hf.var_name);
-                                push_vec_u8(bc_buf, JS_THROW_VAR_REDECL);
-                            }
-                            continue 'g_var;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            push_vec_u8(bc_buf, OpCode::CHECK_DEFINE_VAR as u8);
-            push_vec_atom(bc_buf, hf.var_name);
-            push_vec_u8(bc_buf, {
-                let mut flags = 0;
-                if hf.is_lexical() {
-                    flags |= DEFINE_GLOBAL_LEX_VAR;
-                }
-                if hf.cpool_idx >= 0 {
-                    flags |= DEFINE_GLOBAL_FUNC_VAR;
-                }
-                flags
-            });
-        }
-    }
-
     /// Resolves variable references in the function definition
     /// Converts global variable accesses to local/closure variables when needed
     /// This is the second pass of bytecode generation
@@ -79,8 +32,7 @@ impl FunctionDef {
             return Err(-1);
         };
 
-        // first pass for runtime checks (must be done before the variables are created)
-        self.resolve_variables_check_global_vars(&mut bc_out);
+        let mut line_num = 0_i32;
 
         macro_rules! no_change {
             ($pos:expr, $len:expr) => {
@@ -93,7 +45,6 @@ impl FunctionDef {
             };
         }
 
-        let mut line_num = 0_i32;
         let mut line_pos = 0_u32;
         let mut pos = 0_usize;
         let mut pos_next: usize;
@@ -242,27 +193,6 @@ impl FunctionDef {
                     }
                 }
                 opcodes::OP_drop => {
-                    // if (0) {
-                    //     /* remove drops before return_undef */
-                    //     /* do not perform this optimization in pass2 because
-                    //        it breaks patterns recognised in resolve_labels */
-                    //     int pos1 = pos_next;
-                    //     int line1 = line_num;
-                    //     while (code_match(&cc, pos1, OP_drop, -1)) {
-                    //         if (cc.line_num >= 0) line1 = cc.line_num;
-                    //         pos1 = cc.pos;
-                    //     }
-                    //     if (code_match(&cc, pos1, OP_return_undef, -1)) {
-                    //         pos_next = pos1;
-                    //         if (line1 != -1 && line1 != line_num) {
-                    //             line_num = line1;
-                    //             s->line_number_size++;
-                    //             dbuf_putc(&bc_out, op_line_num);
-                    //             dbuf_put_u32(&bc_out, line_num);
-                    //         }
-                    //         break;
-                    //     }
-                    // }
                     no_change!(pos, op_len);
                 }
                 opcodes::OP_insert3 => {
@@ -334,7 +264,24 @@ impl FunctionDef {
                 opcodes::op_enter_scope => {
                     let scope = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 1)) } as i32;
                     if scope == self.body_scope {
-                        instantiate_hoisted_definitions(self, &mut bc_out);
+                        // Annex B.3.5: non-strict direct eval var declaration cannot shadow
+                        // a lexical declaration in the enclosing scope.
+                        if self.eval_type == EvalType::Direct
+                            && let Some(cvars) = self.closure_vars.as_ref()
+                        {
+                            for hf in &self.global_vars {
+                                for cv in cvars {
+                                    if cv.var_name == hf.var_name && cv.is_lexical() {
+                                        ctx.throw_syntax_error(
+                                            "invalid redefinition of lexical identifier",
+                                        );
+                                        return Err(-1);
+                                    }
+                                }
+                            }
+                        }
+
+                        instantiate_hoisted_definitions(ctx, self, &mut bc_out)?;
                     }
 
                     let mut scope_idx = self.scopes[scope as usize].first;

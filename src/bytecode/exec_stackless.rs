@@ -1356,9 +1356,32 @@ impl Bytecode {
                     }
                     OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
                         let idx = PC_FETCH!(u16) as usize;
+
                         // PropValue self-heals on shape change; write directly.
                         let val = global_var_refs[idx].value();
                         if !val.is_uninitialized() {
+                            // Const/readonly writability check for non-initialization writes.
+                            // throws TypeError on assignment to non-writable global.
+                            if opcode == OpCode::PUT_VAR {
+                                let cv = &self.global_var_refs()[idx];
+                                // Check both global_var_obj (let/const) and global_obj (var)
+                                // for writability before fast-path assignment.
+                                // Uses `or_else` so we find the property on whichever object
+                                // actually stores it.
+                                let is_writable = realm_scope
+                                    .global_var_obj()
+                                    .find_shape_property(cv.var_name)
+                                    .or_else(|| {
+                                        realm_scope.global_obj().find_shape_property(cv.var_name)
+                                    })
+                                    .is_none_or(|(_, f)| f & JS_PROP_WRITABLE != 0);
+
+                                if !is_writable {
+                                    realm_scope.throw_type_error_read_only(cv.var_name);
+                                    break ExecAction::Exception;
+                                }
+                            }
+
                             global_var_refs[idx].set_value(&mut rt, SP_VAL!(-1));
                             SP_GO!(-1);
                         } else {
@@ -1389,32 +1412,6 @@ impl Bytecode {
                             if unlikely(ret.is_err()) {
                                 break ExecAction::Exception;
                             }
-                        }
-                    }
-                    OpCode::DEFINE_VAR => {
-                        let atom = Atom::from_id(PC_FETCH!(u32));
-                        let flags = PC_FETCH!(u8);
-                        let r = realm_scope.define_global_var(atom, flags as _);
-                        if unlikely(r.is_err()) {
-                            break ExecAction::Exception;
-                        }
-                    }
-                    OpCode::CHECK_DEFINE_VAR => {
-                        let atom = Atom::from_id(PC_FETCH!(u32));
-                        let flags = PC_FETCH!(u8);
-                        let r = realm_scope.define_global_var_checked(atom, flags as _);
-                        if unlikely(r.is_err()) {
-                            break ExecAction::Exception;
-                        }
-                    }
-                    OpCode::DEFINE_FUNC => {
-                        let atom = Atom::from_id(PC_FETCH!(u32));
-                        let flags = PC_FETCH!(u8);
-                        let func = SP_VAL!(-1);
-                        SP_GO!(-1);
-                        let r = realm_scope.define_global_function(atom, func, flags as _);
-                        if unlikely(r.is_err()) {
-                            break ExecAction::Exception;
                         }
                     }
                     OpCode::DELETE_VAR => {
