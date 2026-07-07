@@ -9,14 +9,19 @@ use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
     atom::Atom,
     context::ScopedContext,
-    object::{JS_PROP_WRITABLE, LazyInit, Object, ObjectPayload},
+    object::{
+        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
+        JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE, LazyInit, Object,
+        ObjectPayload,
+    },
     stack_frame::{FrameIndex, StackFrameArena},
     value::JSValue,
 };
 
 use super::{
-    ARG_SCOPE_END, BCWrapper, BFuncPayload, Bytecode, FunctionDef, FunctionKind, JS_MAX_LOCAL_VARS,
-    JSVarKindEnum, VarRef, is_var_in_arg_scope, js_function_set_properties,
+    ARG_SCOPE_END, BCWrapper, BFuncPayload, Bytecode, DEFINE_GLOBAL_FUNC_VAR,
+    DEFINE_GLOBAL_LEX_VAR, FunctionDef, FunctionKind, JS_MAX_LOCAL_VARS, JSVarKindEnum, VarRef,
+    is_var_in_arg_scope, js_function_set_properties,
 };
 
 #[derive(Debug)]
@@ -69,6 +74,21 @@ impl ClosureVar {
         }
     }
 
+    /// For global_var_refs entries: marks this as a declaration (not just a reference).
+    /// Uses bit 1 (same position as is_arg) — safe because global_var_refs never use is_arg.
+    #[inline(always)]
+    pub(crate) const fn is_global_decl(&self) -> bool {
+        (self.flags >> 1) & 0x01 != 0
+    }
+
+    pub(crate) const fn set_global_decl(&mut self, value: bool) {
+        if value {
+            self.flags |= 0x02;
+        } else {
+            self.flags &= !0x02;
+        }
+    }
+
     #[inline(always)]
     pub const fn is_const(&self) -> bool {
         (self.flags >> 2) & 0x01 != 0
@@ -87,8 +107,9 @@ impl ClosureVar {
         (self.flags >> 3) & 0x01 != 0
     }
 
-    pub const fn set_lexical(&mut self, value: bool) {
-        if value {
+    #[inline(always)]
+    pub const fn set_lexical(&mut self, b: bool) {
+        if b {
             self.flags |= 0x08;
         } else {
             self.flags &= !0x08;
@@ -96,10 +117,11 @@ impl ClosureVar {
     }
 
     #[inline(always)]
-    pub fn var_kind(&self) -> JSVarKindEnum {
+    pub const fn var_kind(&self) -> JSVarKindEnum {
         unsafe { std::mem::transmute::<u8, JSVarKindEnum>((self.flags >> 4) & 0x0F) }
     }
 
+    #[inline(always)]
     pub const fn set_var_kind(&mut self, value: JSVarKindEnum) {
         self.flags = (self.flags & 0x0F) | ((value as u8) << 4);
     }
@@ -228,6 +250,28 @@ impl FunctionDef {
         self.global_var_refs.push(cv);
         (self.global_var_refs.len() - 1) as u16
     }
+
+    /// Register a global variable declaration entry.
+    /// Like `get_or_add_global_var_ref` but marks the entry with is_global_decl flag,
+    /// so that closure creation will call define_global_var before creating the VarRef.
+    /// `is_lexical`: true for let/const declarations
+    /// `is_func_decl`: true for function declarations (sets var_kind to FUNCTION_DECL)
+    pub fn get_or_add_global_var_ref_decl(
+        &mut self,
+        var_name: Atom,
+        is_lexical: bool,
+        is_const: bool,
+        is_func_decl: bool,
+    ) -> u16 {
+        let idx = self.get_or_add_global_var_ref(var_name) as usize;
+        self.global_var_refs[idx].set_global_decl(true);
+        self.global_var_refs[idx].set_lexical(is_lexical);
+        self.global_var_refs[idx].set_const(is_const);
+        if is_func_decl {
+            self.global_var_refs[idx].set_var_kind(JSVarKindEnum::JS_VAR_FUNCTION_DECL);
+        }
+        idx as u16
+    }
 }
 
 impl Bytecode {
@@ -296,8 +340,85 @@ impl Bytecode {
                 let ptr: *const () = (&**sh) as *const _ as *const ();
                 (ptr, sh.uid)
             });
+
+            // === Phase 1: validate all global declarations BEFORE creating any bindings ===
+            // This mirrors QuickJS's two-phase approach in js_closure2: first check
+            // (JS_CheckDefineGlobalVar), then create (js_closure_define_global_var).
+            // Without this pre-validation, a failure in a later declaration would leave
+            // bindings from earlier declarations leaked on global_obj/global_var_obj.
             for cv in self.global_var_refs() {
-                if let Some((idx, _)) = gvobj.find_shape_property(cv.var_name) {
+                if cv.is_global_decl() {
+                    let mut check_flags = 0u32;
+                    if cv.is_lexical() {
+                        check_flags |= DEFINE_GLOBAL_LEX_VAR as u32;
+                    }
+                    if cv.var_kind() == JSVarKindEnum::JS_VAR_FUNCTION_DECL {
+                        check_flags |= DEFINE_GLOBAL_FUNC_VAR as u32;
+                    }
+                    ctx.define_global_var_checked(cv.var_name, check_flags)?;
+                }
+            }
+
+            // === Phase 2: create all bindings ===
+            for cv in self.global_var_refs() {
+                if cv.is_global_decl() {
+                    // QuickJS alignment: global variable declarations are
+                    // materialized at closure-creation time (not via inline
+                    // DEFINE_VAR/DEFINE_FUNC opcodes). Define the property
+                    // on the global object first, then create a PropValue VarRef.
+                    let def_flags = if cv.is_lexical() {
+                        (DEFINE_GLOBAL_LEX_VAR as u32)
+                            | if !cv.is_const() { JS_PROP_WRITABLE } else { 0 }
+                    } else {
+                        // var/func decl adds JS_PROP_CONFIGURABLE only for eval code.
+                        if self.is_direct_or_indirect_eval {
+                            JS_PROP_CONFIGURABLE
+                        } else {
+                            0
+                        }
+                    };
+                    ctx.define_global_var(cv.var_name, def_flags)?;
+
+                    // For function declarations on existing configurable properties,
+                    // update the property flags (writable, enumerable, non-configurable).
+                    // This mimics QuickJS's special handling in js_closure_define_global_var
+                    // for JS_VAR_GLOBAL_FUNCTION_DECL.
+                    if !cv.is_lexical() && cv.var_kind() == JSVarKindEnum::JS_VAR_FUNCTION_DECL {
+                        let mut gobj = ctx.global_obj();
+                        if let Some((_, existing_flags)) = gobj.find_shape_property(cv.var_name)
+                            && existing_flags & JS_PROP_CONFIGURABLE != 0
+                        {
+                            gobj.define_property(
+                                ctx,
+                                cv.var_name,
+                                JSValue::UNDEFINED,
+                                JSValue::UNDEFINED,
+                                JSValue::UNDEFINED,
+                                JS_PROP_HAS_VALUE
+                                    | JS_PROP_THROW
+                                    | JS_PROP_ENUMERABLE
+                                    | JS_PROP_WRITABLE
+                                    | def_flags
+                                    | JS_PROP_HAS_CONFIGURABLE
+                                    | JS_PROP_HAS_WRITABLE
+                                    | JS_PROP_HAS_ENUMERABLE,
+                            )?;
+                        }
+                    }
+
+                    if let Some((idx, _)) = gvobj.find_shape_property(cv.var_name) {
+                        lst.push(VarRef::create_prop_value(
+                            ctx,
+                            gvobj,
+                            cv.var_name,
+                            shape_ptr,
+                            shape_uid,
+                            idx as u16,
+                        )?);
+                    } else {
+                        lst.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
+                    }
+                } else if let Some((idx, _)) = gvobj.find_shape_property(cv.var_name) {
                     lst.push(VarRef::create_prop_value(
                         ctx,
                         gvobj,

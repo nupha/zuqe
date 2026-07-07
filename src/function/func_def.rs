@@ -10,11 +10,10 @@ use crate::{
     context::ContextPtr,
     eval::EvalType,
     function::{
-        BytecodeAttrs, ClosureVar, DEFINE_GLOBAL_LEX_VAR, JSGlobalVar, JSVarDef, JSVarScope,
-        push_vec_atom, push_vec_u8, push_vec_u16, push_vec_u32,
+        BytecodeAttrs, ClosureVar, JSGlobalVar, JSVarDef, JSVarScope, push_vec_atom, push_vec_u8,
+        push_vec_u16, push_vec_u32,
     },
     module::ModuleDef,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     parse::JSParseFunctionEnum,
     utils::read_from_ptr,
     value::JSValue,
@@ -589,7 +588,19 @@ pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: u16) {
     push_vec_u16(bc, idx);
 }
 
-pub(super) fn instantiate_hoisted_definitions(s: &mut FunctionDef, bc: &mut Vec<u8>) {
+pub(super) fn instantiate_hoisted_definitions(
+    ctx: &mut ScopedContext,
+    s: &mut FunctionDef,
+    bc: &mut Vec<u8>,
+) -> Result<(), i32> {
+    // For direct eval: closure_vars must exist when global_vars is non-empty.
+    // This is guaranteed by add_closure_variables (eval.rs) which populates
+    // closure_vars for all direct evals during compilation.
+    debug_assert!(
+        s.eval_type != EvalType::Direct || s.global_vars.is_empty() || s.closure_vars.is_some(),
+        "direct eval with global_vars requires closure_vars for variable matching"
+    );
+
     // add the hoisted functions in arguments and local variables
     for (i, vd) in s.args.iter().enumerate() {
         if vd.func_pool_idx >= 0 {
@@ -636,7 +647,8 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut FunctionDef, bc: &mut Vec<
     }
 
     // add the global variables (only happens if FunctionDef::is_global_var is true)
-    for mut hf in s.global_vars.drain(..) {
+    let global_vars: Vec<_> = s.global_vars.drain(..).collect();
+    for hf in global_vars {
         #[derive(Debug, Clone, Copy, PartialEq)]
         enum ClosureKind {
             PutVar,
@@ -647,6 +659,7 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut FunctionDef, bc: &mut Vec<
         let mut closure_kind = ClosureKind::PutVar;
         let mut force_init = hf.force_init();
         let mut idx = 0;
+        let mut var_ref_idx: u16 = 0; // for PutVar global var ref (VAR_REF operand)
 
         // we are in an eval, so the closure contains all the enclosing variables.
         // If the outer function has a variable environment, create a property for the variable there
@@ -669,34 +682,38 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut FunctionDef, bc: &mut Vec<
                     _ => {}
                 }
             }
+
+            // Note: not all global vars have a matching closure var.
+            // For example, `var static` in eval introduces a NEW variable
+            // that doesn't exist in the enclosing scope. In that case,
+            // closure_kind stays as PutVar and the code falls through
+            // to the global var declaration path below.
         }
 
         if closure_kind == ClosureKind::PutVar {
-            let mut flags: u32 = 0;
-            if s.eval_type != EvalType::Global {
-                flags |= JS_PROP_CONFIGURABLE;
-            }
+            let is_func = hf.cpool_idx >= 0 && !hf.is_lexical();
+            // Register a global variable declaration that will be
+            // materialized at closure-creation time
+            var_ref_idx = s.get_or_add_global_var_ref_decl(
+                hf.var_name,
+                hf.is_lexical(),
+                hf.is_const(),
+                is_func,
+            );
 
-            if hf.cpool_idx >= 0 && !hf.is_lexical() {
-                // global function definitions need a specific handling
+            if is_func {
+                // Function declaration: create function object and store via PUT_VAR.
+                // The property on the global object is created at closure-creation time.
                 push_vec_u8(bc, OpCode::FCLOSURE as u8);
                 push_vec_u32(bc, hf.cpool_idx as u32);
 
-                push_vec_u8(bc, OpCode::DEFINE_FUNC as u8);
-                push_vec_atom(bc, std::mem::replace(&mut hf.var_name, Atom::NULL));
-                push_vec_u8(bc, flags as u8);
+                push_vec_u8(bc, OpCode::PUT_VAR as u8);
+                push_vec_u16(bc, var_ref_idx);
 
                 continue; // next global var
             } else {
-                if hf.is_lexical() {
-                    flags |= DEFINE_GLOBAL_LEX_VAR as u32;
-                    if !hf.is_const() {
-                        flags |= JS_PROP_WRITABLE;
-                    }
-                }
-                push_vec_u8(bc, OpCode::DEFINE_VAR as u8);
-                push_vec_atom(bc, hf.var_name);
-                push_vec_u8(bc, flags as u8);
+                // Var/let/const: no inline opcode needed — declaration
+                // happens at closure-creation time via is_global_decl flag.
             }
         }
 
@@ -717,7 +734,7 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut FunctionDef, bc: &mut Vec<
                 ClosureKind::PutVar => {
                     // XXX: Check if variable is writable and enumerable
                     push_vec_u8(bc, OpCode::PUT_VAR as u8);
-                    push_vec_atom(bc, hf.var_name);
+                    push_vec_u16(bc, var_ref_idx);
                 }
                 ClosureKind::DefineField => {
                     push_vec_u8(bc, OpCode::DEFINE_FIELD as u8);
@@ -741,6 +758,7 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut FunctionDef, bc: &mut Vec<
     }
 
     debug_assert!(s.global_vars.is_empty());
+    Ok(())
 }
 
 pub(crate) struct FunctionDefParentIter<'a> {

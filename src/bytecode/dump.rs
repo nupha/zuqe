@@ -405,18 +405,21 @@ pub(crate) fn dump_opcodes(
 
             OpcodeFormat::VAR_REF => {
                 let idx = unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize };
-                if idx < closure_vars.len() {
-                    print!(
-                        " {idx}  ; {}",
-                        closure_vars[idx].var_name.to_utf8(ctx.rt_ref())
-                    );
-                } else if idx < global_var_refs.len() {
+                if idx < global_var_refs.len() {
                     print!(
                         " {idx}  ; {}",
                         global_var_refs[idx].var_name.to_utf8(ctx.rt_ref())
                     );
                 } else {
-                    print!(" {idx}");
+                    let cv_idx = idx - global_var_refs.len();
+                    if cv_idx < closure_vars.len() {
+                        print!(
+                            " {idx}  ; {}",
+                            closure_vars[cv_idx].var_name.to_utf8(ctx.rt_ref())
+                        );
+                    } else {
+                        print!(" {idx}");
+                    }
                 }
             }
 
@@ -510,28 +513,63 @@ impl Bytecode {
             }
         }
 
+        let gvars = self.global_var_refs();
         let cvars = self.closure_vars();
-        if !cvars.is_empty() {
+        if !gvars.is_empty() || !cvars.is_empty() {
             println!("  closure vars:");
-            for (i, cv) in cvars.iter().enumerate() {
-                let var_type = if cv.is_local() { "local" } else { "parent" };
-                let loc_type = if cv.is_arg() { "arg" } else { "loc" };
-                let const_str = if cv.is_const() {
+            let mut idx = 0;
+
+            // global var refs first (they come first in the combined VarRef array)
+            for cv in gvars.iter() {
+                let kind_str = if cv.is_const() {
                     "const"
                 } else if cv.is_lexical() {
                     "let"
                 } else {
                     "var"
                 };
-
+                let marker = if cv.is_global_decl() {
+                    "[global_decl]"
+                } else {
+                    "[global]"
+                };
                 println!(
-                    "{i:5}: {} {var_type}:{loc_type}{} {const_str}",
+                    "{idx:5}: {kind_str} {} {marker}",
                     cv.var_name.to_utf8(ctx.rt_ref()),
-                    cv.var_index()
                 );
+                idx += 1;
+            }
+
+            // closure vars (captured from parent functions)
+            for cv in cvars.iter() {
+                let kind_str = if cv.is_const() {
+                    "const"
+                } else if cv.is_lexical() {
+                    "let"
+                } else {
+                    "var"
+                };
+                let marker = if cv.is_local() {
+                    if cv.is_arg() {
+                        format!("[arg{}]", cv.var_index())
+                    } else {
+                        format!("[loc{}]", cv.var_index())
+                    }
+                } else {
+                    format!("[ref{}]", cv.var_index())
+                };
+                println!(
+                    "{idx:5}: {kind_str} {} {marker}",
+                    cv.var_name.to_utf8(ctx.rt_ref()),
+                );
+                idx += 1;
             }
         }
 
+        println!(
+            "  var_ref_count: {}",
+            self.global_var_ref_count + self.closure_var_count
+        );
         println!("  stack_size: {}", self.stack_size);
         println!("  opcodes:");
 

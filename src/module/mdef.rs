@@ -8,10 +8,13 @@ use crate::{
     builtins::promise::Promise,
     class::ClassExoticMethods,
     context::{ContextImpl, ScopedContext},
-    function::{BFuncPayload, FieldDef, FunctionDef, JSVarKindEnum, VarRef, prop_str_to_atom},
+    function::{
+        BFuncPayload, DEFINE_GLOBAL_LEX_VAR, FieldDef, FunctionDef, JSVarKindEnum, VarRef,
+        prop_str_to_atom,
+    },
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
-    object::{JS_PROP_C_W_E, Object, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_WRITABLE, Object, ObjectPayload},
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -239,18 +242,41 @@ impl ModuleDefImpl {
                 let gvar_count = bc.global_var_ref_count;
                 let cvar_count = bc.closure_var_count;
                 let total_count = gvar_count as usize + cvar_count as usize;
+
                 if total_count != 0 {
-                    var_refs
-                        .try_reserve_exact(total_count)
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
+                    var_refs.try_reserve_exact(total_count).map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
 
                     // First: global variable refs (initialized via realm_scope fallback)
                     for cv in bc.global_var_refs() {
-                        let _ = cv; // global var ref names are used for fallback
-                        var_refs.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
+                        if cv.is_global_decl() {
+                            // define the global property at closure-creation time, matching declare_global_var.
+                            let def_flags = if cv.is_lexical() {
+                                (DEFINE_GLOBAL_LEX_VAR as u32)
+                                    | if !cv.is_const() { JS_PROP_WRITABLE } else { 0 }
+                            } else {
+                                0 // Module code is never eval; var/func decl is non-configurable.
+                            };
+                            ctx.define_global_var(cv.var_name, def_flags)?;
+                            if let Some((idx, _)) =
+                                ctx.global_var_obj().find_shape_property(cv.var_name)
+                            {
+                                var_refs.push(VarRef::create_prop_value(
+                                    ctx,
+                                    ctx.global_var_obj(),
+                                    cv.var_name,
+                                    std::ptr::null(),
+                                    0,
+                                    idx as u16,
+                                )?);
+                            } else {
+                                var_refs.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
+                            }
+                        } else {
+                            var_refs.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
+                        }
                     }
 
                     // Then: closure variables

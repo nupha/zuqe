@@ -86,68 +86,123 @@ impl<'c> ScopedContext<'c> {
         )
     }
 
-    /// def_flags is (0, DEFINE_GLOBAL_LEX_VAR) |
-    ///   JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE
-    // XXX: could support exotic global object.
+    /// Define a global variable property.
+    ///
+    /// `def_flags` semantics:
+    /// - `DEFINE_GLOBAL_LEX_VAR` (bit 7): lexical declaration (let/const)
+    /// - `JS_PROP_WRITABLE` (bit 1): writable (for lexical: let=writable, const=readonly)
+    /// - `JS_PROP_CONFIGURABLE` (bit 0): configurable (for var: eval=configurable, script=non-configurable)
     pub(crate) fn define_global_var(&mut self, prop: Atom, def_flags: u32) -> Result<(), i32> {
-        let (mut ob, flags, val) = if def_flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
-            (
-                self.global_var_obj(),
-                JS_PROP_ENUMERABLE | (def_flags & JS_PROP_WRITABLE) | JS_PROP_CONFIGURABLE,
-                JSValue::UNINITIALIZED,
-            )
-        } else {
-            (
-                self.global_obj(),
-                JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | (def_flags & JS_PROP_CONFIGURABLE),
-                JSValue::UNDEFINED,
-            )
-        };
+        if def_flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
+            // Lexical declaration (let/const): property goes on global_var_obj.
+            let mut gvobj = self.global_var_obj();
+            let gv_flags =
+                JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE | (def_flags & JS_PROP_WRITABLE);
 
-        if !ob.flags().extensible() || ob.has_shape_property(prop) {
-            Ok(())
+            // Check if already declared on global_var_obj (e.g. double `let x; let x;`).
+            if gvobj.has_shape_property(prop) {
+                JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
+                return Err(-1);
+            }
+
+            // Check for non-configurable property on global_obj.
+            // e.g. `let NaN` or `let undefined` → SyntaxError.
+            let gobj = self.global_obj();
+            if let Some((_, prs_flags)) = gobj.find_shape_property(prop) {
+                if prs_flags & JS_PROP_CONFIGURABLE == 0 {
+                    JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
+                    return Err(-1);
+                }
+            }
+
+            gvobj.add_own_property(
+                self,
+                prop,
+                gv_flags,
+                JSProperty::Normal(JSValue::UNINITIALIZED),
+            )
         } else {
-            ob.add_own_property(self, prop, flags, JSProperty::Normal(val))
+            // Var / function declaration: property goes on global_obj.
+            let mut gobj = self.global_obj();
+            let gv_flags =
+                JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | (def_flags & JS_PROP_CONFIGURABLE);
+
+            if gobj.has_shape_property(prop) {
+                // Property already exists on global_obj → no-op (QuickJS creates a VarRef
+                // but doesn't modify property flags for an existing property).
+                Ok(())
+            } else if !gobj.flags().extensible() {
+                // Non-extensible global object: throw TypeError (CanDeclareGlobalVar).
+                self.throw_type_error(&format!(
+                    "cannot define variable '{}'",
+                    prop.to_utf8(self.rt())
+                ));
+                Err(-1)
+            } else {
+                // Check for existing lexical declaration on global_var_obj.
+                // e.g. `let x; var x;` → SyntaxError.
+                if self.global_var_obj().has_shape_property(prop) {
+                    JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
+                    return Err(-1);
+                }
+                gobj.add_own_property(self, prop, gv_flags, JSProperty::Normal(JSValue::UNDEFINED))
+            }
         }
     }
 
-    /// flags is 0, DEFINE_GLOBAL_LEX_VAR or DEFINE_GLOBAL_FUNC_VAR
-    /// XXX: could support exotic global object.
+    /// Pre-validation for global variable declarations.
+    ///
+    /// All checks are done BEFORE any bindings are created, 
+    /// so that partial bindings don't leak on failure.
+    ///
+    /// `flags` is 0 (var), `DEFINE_GLOBAL_LEX_VAR` (let/const), or
+    /// `DEFINE_GLOBAL_LEX_VAR | DEFINE_GLOBAL_FUNC_VAR` (function decl).
+    ///
+    /// Returns `Ok(())` if the declaration is valid, `Err(-1)` with an exception
+    /// set otherwise.
     pub(crate) fn define_global_var_checked(&mut self, prop: Atom, flags: u32) -> Result<(), i32> {
         let gobj = self.global_obj();
-        let prs = gobj.find_shape_property(prop).map(|(_, flags)| flags);
+        let prs = gobj
+            .find_shape_property(prop)
+            .map(|(_, prs_flags)| prs_flags);
 
-        // XXX: should handle JS_PROP_LAZYINIT
         if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
+            // HasRestrictedGlobalProperty check: non-configurable global → SyntaxError
             if prs.is_some_and(|f| f & JS_PROP_CONFIGURABLE == 0) {
                 JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
                 return Err(-1);
             }
         } else {
+            // CanDeclareGlobalVar check: non-extensible + no existing prop → TypeError
             if prs.is_none() && !gobj.flags().extensible() {
-                self.throw_type_error(&format!(
-                    "cannot define variable '{}' ",
-                    prop.to_utf8(self.rt())
-                ));
-                return Err(-1);
-            }
-
-            if flags & DEFINE_GLOBAL_FUNC_VAR as u32 != 0
-                && let Some(prs_flags) = prs
-                && prs_flags & JS_PROP_CONFIGURABLE == 0
-                && (prs_flags & JS_PROP_TMASK == JS_PROP_GETSET
-                    || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
-                        != JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
-            {
                 self.throw_type_error(&format!(
                     "cannot define variable '{}'",
                     prop.to_utf8(self.rt())
                 ));
                 return Err(-1);
             }
+
+            // CanDeclareGlobalFunction check (DEFINE_GLOBAL_FUNC_VAR)
+            if flags & DEFINE_GLOBAL_FUNC_VAR as u32 != 0 {
+                if let Some(prs_flags) = prs {
+                    // Property exists and is non-configurable:
+                    //   → only writable + enumerable data properties are OK.
+                    if prs_flags & JS_PROP_CONFIGURABLE == 0
+                        && (prs_flags & JS_PROP_TMASK == JS_PROP_GETSET
+                            || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
+                                != (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE))
+                    {
+                        self.throw_type_error(&format!(
+                            "cannot define variable '{}'",
+                            prop.to_utf8(self.rt())
+                        ));
+                        return Err(-1);
+                    }
+                }
+            }
         }
 
-        // check if there already is a lexical declaration
+        // HasLexicalDeclaration check: already declared on global_var_obj → SyntaxError
         if self.global_var_obj().has_shape_property(prop) {
             JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
             return Err(-1);
