@@ -201,7 +201,13 @@ impl FunctionDef {
                             line_num = m.line_num as _;
                         }
                         self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
-                        push_vec_short_code(&mut bc_out, op + 1, argc);
+
+                        let tail_op = match op {
+                            opcodes::OP_call => opcodes::OP_tail_call,
+                            opcodes::OP_call_method => opcodes::OP_tail_call_method,
+                            _ => unreachable!(),
+                        };
+                        push_vec_short_code(&mut bc_out, tail_op, argc);
                         pos_next = skip_dead_code(self, bc_ptr, bc_len, m.pos, &mut line_num);
                     } else {
                         self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
@@ -609,7 +615,14 @@ impl FunctionDef {
                     goto
                 }
                 opcodes::OP_dup => {
-                    if OPTIMIZE && self.optimize_dup(pos, &mut pos_next, &mut line_num, &mut line_pos, &mut bc_out)
+                    if OPTIMIZE
+                        && self.optimize_dup(
+                            pos,
+                            &mut pos_next,
+                            &mut line_num,
+                            &mut line_pos,
+                            &mut bc_out,
+                        )
                     {
                         None
                     } else {
@@ -618,7 +631,13 @@ impl FunctionDef {
                 }
                 opcodes::OP_get_loc => {
                     if OPTIMIZE
-                        && self.optimize_get_loc(pos, &mut pos_next, &mut line_num, &mut line_pos, &mut bc_out)
+                        && self.optimize_get_loc(
+                            pos,
+                            &mut pos_next,
+                            &mut line_num,
+                            &mut line_pos,
+                            &mut bc_out,
+                        )
                     {
                         None
                     } else {
@@ -633,7 +652,14 @@ impl FunctionDef {
 
                 opcodes::OP_put_loc | opcodes::OP_put_arg | opcodes::OP_put_var_ref => {
                     if OPTIMIZE {
-                        self.optimize_put_loc(op, pos, &mut pos_next, &mut line_num, &mut line_pos, &mut bc_out);
+                        self.optimize_put_loc(
+                            op,
+                            pos,
+                            &mut pos_next,
+                            &mut line_num,
+                            &mut line_pos,
+                            &mut bc_out,
+                        );
                         None
                     } else {
                         Some(ResolveLabelsState::NoChange)

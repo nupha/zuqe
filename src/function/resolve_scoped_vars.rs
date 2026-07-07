@@ -737,10 +737,13 @@ impl FunctionDef {
             | opcodes::op_scope_get_var
             | opcodes::op_scope_put_var => {
                 let var_ref_idx = self.get_or_add_global_var_ref(var_name);
-                push_vec_u8(
-                    bc,
-                    OpCode::GET_VAR_UNDEF as u8 + (op - opcodes::op_scope_get_var_undef),
-                );
+                let final_op = match op {
+                    opcodes::op_scope_get_var_undef => OpCode::GET_VAR_UNDEF as u8,
+                    opcodes::op_scope_get_var => OpCode::GET_VAR as u8,
+                    opcodes::op_scope_put_var => OpCode::PUT_VAR as u8,
+                    _ => unreachable!(),
+                };
+                push_vec_u8(bc, final_op);
                 push_vec_u16(bc, var_ref_idx);
             }
             opcodes::op_scope_put_var_init => {
