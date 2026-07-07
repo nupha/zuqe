@@ -599,9 +599,25 @@ pub(super) fn optimize_scope_make_ref(
 
     unsafe {
         if *bc_orig.add(label_pos) == opcodes::OP_insert3 {
-            // KEEP_TOP: use get_op+2 (SET_LOC or SET_VAR_REF) to
-            // keep value on stack as assignment expression result.
-            *bc_orig.add(pos) = get_op as u8 + 2;
+            // KEEP_TOP: keep value on stack as assignment expression result.
+            // For CHECK variants the encoding is GET/PUT/PUT_INIT/SET (4-wide),
+            // so get_op+2 gives PUT_INIT (n_pop=1,n_push=0) not SET (n_pop=1,n_push=1).
+            // Handle CHECK variants explicitly, then fall back to get_op+2 for regular ops.
+            match get_op {
+                OpCode::GET_VAR_REF_CHECK => {
+                    // No SET_VAR_REF_CHECK opcode exists; fall back to dup + put_var_ref_check.
+                    *bc_orig.add(pos) = opcodes::OP_dup;
+                    pos += stack_op_size;
+                    *bc_orig.add(pos) = OpCode::PUT_VAR_REF_CHECK as u8;
+                }
+                OpCode::GET_LOC_CHECK => {
+                    *bc_orig.add(pos) = OpCode::SET_LOC_CHECK as u8;
+                }
+                _ => {
+                    // Regular (non-CHECK): GET+2 = SET (n_pop=1, n_push=1)
+                    *bc_orig.add(pos) = get_op as u8 + 2;
+                }
+            }
             write_to_ptr::<u16>(bc_orig.add(pos + 1), var_idx as u16);
         } else {
             // NOKEEP: use PUT_LOC_CHECK (n_pop=1, n_push=0), the
