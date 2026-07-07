@@ -6,14 +6,12 @@ use crate::{
     bytecode::{OpCode, opcodes},
     context::ScopedContext,
     error::JS_THROW_VAR_RO,
-    stack_frame::ExecMode,
 };
 
 use super::{
     ARG_SCOPE_END, ARGUMENT_VAR_OFFSET, FunctionDef, JSVarKindEnum,
     optimize::{
-        can_optimize_put_global_ref_value, can_optimize_put_ref_value,
-        optimize_scope_make_global_ref, optimize_scope_make_ref,
+        can_optimize_put_global_ref_value, can_optimize_put_ref_value, optimize_scope_make_ref,
     },
     push_vec_atom, push_vec_u8, push_vec_u16, push_vec_u32,
 };
@@ -700,20 +698,14 @@ impl FunctionDef {
                 if label_done.is_none()
                     && can_optimize_put_global_ref_value(bc_buf as *const u8, label.pos)
                 {
-                    let js_mode = if self.has_use_strict {
-                        ExecMode::STRICT
-                    } else {
-                        ExecMode::empty()
-                    };
-                    pos_next = optimize_scope_make_global_ref(
-                        js_mode,
+                    pos_next = optimize_scope_make_ref(
                         bc,
                         bc_buf,
                         label,
-                        pos_next as _,
-                        var_name,
-                        var_ref_idx,
-                    ) as _;
+                        pos_next,
+                        OpCode::GET_VAR,
+                        var_ref_idx as i32,
+                    );
                     if let Some(l) = label_done {
                         push_vec_u8(bc, opcodes::op_label);
                         push_vec_u32(bc, l);
