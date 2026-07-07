@@ -25,6 +25,7 @@ pub(crate) fn dump_opcodes(
     args: &[JSVarDef],
     vars: &[JSVarDef],
     closure_vars: &[ClosureVar],
+    global_var_refs: &[ClosureVar],
     consts: &[JSValue],
     source: Option<&str>,
     line_num: i32,
@@ -404,10 +405,19 @@ pub(crate) fn dump_opcodes(
 
             OpcodeFormat::VAR_REF => {
                 let idx = unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize };
-                print!(
-                    " {idx}  ; {}",
-                    closure_vars[idx].var_name.to_utf8(ctx.rt_ref())
-                );
+                if idx < closure_vars.len() {
+                    print!(
+                        " {idx}  ; {}",
+                        closure_vars[idx].var_name.to_utf8(ctx.rt_ref())
+                    );
+                } else if idx < global_var_refs.len() {
+                    print!(
+                        " {idx}  ; {}",
+                        global_var_refs[idx].var_name.to_utf8(ctx.rt_ref())
+                    );
+                } else {
+                    print!(" {idx}");
+                }
             }
 
             _ => {}
@@ -532,6 +542,7 @@ impl Bytecode {
             self.arguments(),
             self.local_vars(),
             self.closure_vars(),
+            self.global_var_refs(),
             self.consts(),
             self.debug.as_ref().and_then(|d| d.source.as_deref()),
             self.debug.as_ref().map_or(-1, |x| x.line_num),

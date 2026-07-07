@@ -1197,10 +1197,7 @@ fn parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Re
         if is_async {
             // call the next method
             // stack: iter_obj next catch_offset
-            s.emit_op(OpCode::DUP3);
-            s.emit_op(OpCode::DROP);
-            s.emit_op(OpCode::CALL_METHOD);
-            s.emit_u16(0);
+            s.emit_op(OpCode::FOR_AWAIT_OF_NEXT);
             // get the result of the promise
             s.emit_op(OpCode::AWAIT);
             // unwrap the value and done values

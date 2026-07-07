@@ -188,32 +188,28 @@ impl<'s> JSParseState<'s> {
             }
             TokenKind::FUNCTION => {
                 // export function ...
-                return {
-                    self.parse_function_decl_ex(
-                        JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                        FunctionKind::Normal,
-                        self.token.ptr,
-                        self.token.line_num,
-                        JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
-                        std::ptr::null_mut(),
-                    )
-                };
+                return self.parse_function_decl_ex(
+                    JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
+                    FunctionKind::Normal,
+                    self.token.ptr,
+                    self.token.line_num,
+                    JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
+                    std::ptr::null_mut(),
+                );
             }
             TokenKind::IDENT
                 if (self.token_is_pseudo_keyword(Atom::CONST_async)
                     && self.peek_token(true) == TokenKind::FUNCTION) =>
             {
                 // export async function ...
-                return {
-                    self.parse_function_decl_ex(
-                        JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                        FunctionKind::Normal,
-                        self.token.ptr,
-                        self.token.line_num,
-                        JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
-                        std::ptr::null_mut(),
-                    )
-                };
+                return self.parse_function_decl_ex(
+                    JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
+                    FunctionKind::Normal,
+                    self.token.ptr,
+                    self.token.line_num,
+                    JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
+                    std::ptr::null_mut(),
+                );
             }
             TokenKind::VAR | TokenKind::LET | TokenKind::CONST => {
                 // export var, export let, export const
@@ -484,26 +480,6 @@ impl<'s> JSParseState<'s> {
 
         Ok(())
     }
-
-    // /// return true if script `buf` is module.
-    // pub fn detect_module(buf: &[u8]) -> bool {
-    //     // skip comments and expect:
-    //     // * 'import' keyword not followed by '(' or '.' char;
-    //     // * 'export' keyword;
-
-    //     let n = skip_shebang(buf);
-
-    //     let mut inp = Utf8Stream::new(&buf[n..]);
-
-    //     match Self::peek_token_internal(&mut inp, false) {
-    //         TokenKind::IMPORT => !matches!(
-    //             Self::peek_token_internal(&mut inp, false),
-    //             TokenKind::Char('(' | '.')
-    //         ),
-    //         TokenKind::EXPORT => true,
-    //         _ => false,
-    //     }
-    // }
 }
 
 impl ModuleDef {

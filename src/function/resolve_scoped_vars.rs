@@ -512,7 +512,9 @@ impl FunctionDef {
                                         } as u8,
                                     );
                                 } else {
-                                    push_vec_u8(bc, OpCode::PUT_LOC_CHECK as u8);
+                                    // scope_put_var → SET_LOC_CHECK (keeps value on
+                                    // stack as assignment expression result)
+                                    push_vec_u8(bc, OpCode::SET_LOC_CHECK as u8);
                                 }
                             } else {
                                 push_vec_u8(bc, OpCode::PUT_LOC as u8);

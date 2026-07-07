@@ -783,9 +783,12 @@ impl<'s> JSParseState<'s> {
         let pos = self.get_pos();
 
         let (src, func_type) = if has_super {
-            // spec change: no argument evaluation
+            // For derived class default constructor, QuickJS emits INIT_CTOR +
+            // SCOPE_PUT_VAR_INIT(this) directly instead of parsing
+            // `super(...arguments)` from source. We use `(){}` (empty body)
+            // and prepend INIT_CTOR + SCOPE_PUT_VAR_INIT(this) to the bytecode.
             (
-                "(){super(...arguments);}",
+                "(){}",
                 JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR,
             )
         } else {
@@ -832,6 +835,51 @@ impl<'s> JSParseState<'s> {
 
         if ret.is_err() {
             Err(-1)
+        } else if has_super {
+            let fd = unsafe { &mut *fd };
+
+            // Difference from parse_function_decl_ex:
+            //   - No CHECK_CTOR emitted (INIT_CTOR already checks new.target)
+            //   - INIT_CTOR is the FIRST opcode (not spliced in after)
+            //
+            // Bytecode order:
+            //   INIT_CTOR                          // super(...arguments)
+            //   SCOPE_PUT_VAR_INIT(this)           // bind `this`
+            //   emit_class_field_init() →          // <class_fields_init>?.call(this)
+            //   SCOPE_GET_VAR_CHECKTHIS(this)      // push `this` for return
+            //   RETURN
+            fd.byte_code.clear();
+
+            // 1) INIT_CTOR: call super(...arguments) — with built-in new.target check
+            fd.emit_op(OpCode::INIT_CTOR, self.last_line_num, self.last_line_pos);
+
+            // 2) SCOPE_PUT_VAR_INIT(this): bind `this` to super() result
+            fd.emit_op_temp(
+                OpCodeTemp::SCOPE_PUT_VAR_INIT,
+                self.last_line_num,
+                self.last_line_pos,
+            );
+            fd.emit_atom(Atom::CONST_this);
+            fd.emit_u16(0);
+
+            // 3) Initialize class fields if any
+            fd.emit_class_field_init(self.last_line_num, self.last_line_pos);
+
+            // 4) SCOPE_GET_VAR_CHECKTHIS(this): check `this` is initialized, push for return
+            //    (from emit_return in parse_function_decl_ex, but re-emitted here)
+            fd.emit_op_temp(
+                OpCodeTemp::SCOPE_GET_VAR_CHECKTHIS,
+                self.last_line_num,
+                self.last_line_pos,
+            );
+            fd.emit_atom(Atom::CONST_this);
+            fd.emit_u16(0);
+
+            // 5) RETURN
+            fd.emit_op(OpCode::RETURN, self.last_line_num, self.last_line_pos);
+
+            self.seek_token(&pos)?;
+            Ok(fd)
         } else {
             self.seek_token(&pos)?;
             Ok(fd)
