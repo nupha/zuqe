@@ -1489,9 +1489,18 @@ impl Bytecode {
                         }
                     }
                     OpCode::SET_LOC_CHECK => {
-                        // P2 stub: will be implemented in P4.2
                         // Sets a local variable with initialization check.
-                        unreachable!("SET_LOC_CHECK not yet implemented");
+                        // Unlike PUT_LOC_CHECK (n_pop=1, n_push=0), this keeps the
+                        // value on the stack (n_pop=1, n_push=1) so the assignment
+                        // expression result is available as a value.
+                        let idx = PC_FETCH!(u16);
+                        let pval = VAR_REF![idx];
+                        if unlikely(pval.is_uninitialized()) {
+                            JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, false);
+                            break ExecAction::Exception;
+                        }
+                        *pval = SP_VAL!(-1);
+                        // Value stays on the stack for assignment expression result
                     }
                     OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                         let idx = PC_FETCH!(u16);
@@ -1565,9 +1574,34 @@ impl Bytecode {
                         }
                     }
                     OpCode::INIT_CTOR => {
-                        // P2 stub: will be implemented in P4.1
-                        // Initializes constructor `this` after super() call.
-                        unreachable!("INIT_CTOR not yet implemented");
+                        // Calls the super constructor and pushes the `this` object.
+                        // Used at the start of derived class constructors,
+                        // equivalent to `super(...arguments)`.
+                        if new_target.is_undefined() {
+                            realm_scope
+                                .throw_type_error("class constructors must be invoked with 'new'");
+                            break ExecAction::Exception;
+                        }
+                        // Get the super constructor from func_obj's prototype
+                        let func_obj_val = JSValue::from(func_obj);
+                        if let Ok(super_ctor) = func_obj_val.prototype(realm_scope) {
+                            // Call the super constructor with all current args
+                            let ret_val = super_ctor.call_internal(
+                                realm_scope,
+                                JSValue::UNDEFINED,
+                                new_target,
+                                args,
+                                JS_CALL_FLAG_CONSTRUCTOR,
+                            );
+                            if let Ok(val) = ret_val {
+                                SP_PUT!(0, val);
+                                SP_GO!(1);
+                            } else {
+                                break ExecAction::Exception;
+                            }
+                        } else {
+                            break ExecAction::Exception;
+                        }
                     }
                     OpCode::CHECK_BRAND => {
                         #[cfg(feature = "builtin_symbol")]
@@ -2271,9 +2305,21 @@ impl Bytecode {
                         SP_GO!(2);
                     }
                     OpCode::FOR_AWAIT_OF_NEXT => {
-                        // P2 stub: will be implemented in P4.3
-                        // Async iterator next step.
-                        unreachable!("FOR_AWAIT_OF_NEXT not yet implemented");
+                        // Stack: [iter_obj, next, catch_offset]
+                        // Calls next() on iter_obj and pushes the promise result.
+                        // After: [iter_obj, next, catch_offset, promise]
+                        // n_pop=3, n_push=4, net SP_GO!(1)
+                        let iter = SP_VAL!(-3);
+                        let next = SP_VAL!(-2);
+                        let result =
+                            next.call_internal(realm_scope, iter, JSValue::UNDEFINED, &[], 0);
+                        if let Ok(obj) = result {
+                            // Push promise at free slot above catch_offset
+                            SP_PUT!(0, obj);
+                            SP_GO!(1);
+                        } else {
+                            break ExecAction::Exception;
+                        }
                     }
                     OpCode::ITERATOR_GET_VALUE_DONE => {
                         if unsafe { js_iterator_get_value_done(realm_scope, sp) } != 0 {

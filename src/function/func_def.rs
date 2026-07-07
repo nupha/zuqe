@@ -383,6 +383,7 @@ impl FunctionDef {
                 self.args.as_slice(),
                 self.vars.as_slice(),
                 self.closure_vars.as_deref().unwrap_or(&[]),
+                self.global_var_refs.as_slice(),
                 self.cpool.as_slice(),
                 self.source.as_deref(),
                 self.line_num as _,

@@ -599,12 +599,17 @@ pub(super) fn optimize_scope_make_ref(
 
     unsafe {
         if *bc_orig.add(label_pos) == opcodes::OP_insert3 {
-            *bc_orig.add(pos) = opcodes::OP_dup;
-            pos += stack_op_size;
+            // KEEP_TOP: use SET_LOC_CHECK (n_pop=1, n_push=1) to keep
+            // value on stack as assignment expression result, no dup needed.
+            // Matches QuickJS set_loc_check emission for lexical assignments.
+            *bc_orig.add(pos) = OpCode::SET_LOC_CHECK as u8;
+            write_to_ptr::<u16>(bc_orig.add(pos + 1), var_idx as u16);
+        } else {
+            // NOKEEP: use PUT_LOC_CHECK (n_pop=1, n_push=0), the
+            // value is not needed as expression result.
+            *bc_orig.add(pos) = get_op as u8 + 1;
+            write_to_ptr::<u16>(bc_orig.add(pos + 1), var_idx as u16);
         }
-
-        *bc_orig.add(pos) = get_op as u8 + 1;
-        write_to_ptr::<u16>(bc_orig.add(pos + 1), var_idx as u16);
     }
 
     pos += var_ref_inst_size;
