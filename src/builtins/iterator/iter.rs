@@ -295,7 +295,8 @@ impl<'a> ObjectIter<'a> {
         }
 
         // generic case: call `method` - must return an object.
-        if let JSValue::Object(o) = method.call(ctx, enum_obj.into(), args)? {
+        let call_result = method.call(ctx, enum_obj.into(), args)?;
+        if let JSValue::Object(o) = call_result {
             Ok((o.into(), IteratorState::NotParsed))
         } else {
             ctx.throw_type_error("iterator must return an object");
@@ -316,11 +317,8 @@ impl<'a> ObjectIter<'a> {
                 Ok((ret, state == IteratorState::Done))
             }
             (ret, IteratorState::NotParsed) => {
-                let done = ret
-                    .get_property(ctx, Atom::CONST_done)?
-                    .to_bool()
-                    .unwrap_or(false);
-
+                let done_val = ret.get_property(ctx, Atom::CONST_done)?;
+                let done = done_val.to_bool().unwrap_or(false);
                 Ok((
                     if !done {
                         ret.get_property(ctx, Atom::CONST_value)?

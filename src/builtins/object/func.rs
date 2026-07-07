@@ -340,10 +340,14 @@ pub(crate) fn js_object_getOwnPropertyDescriptors(
     let mut obj = cc.arg(0).objectify(ctx)?;
 
     let mut keys = SmallVec::<[Atom; 8]>::new();
-    obj.own_property_names_foreach(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK, |_, pkey| {
-        keys.push(pkey.atom);
-        Ok(())
-    })?;
+    obj.own_property_names_foreach(
+        ctx,
+        JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK,
+        |_, pkey| {
+            keys.push(pkey.atom);
+            Ok(())
+        },
+    )?;
 
     let mut res_obj = ctx.create_base_object()?;
     for atom in keys {
@@ -403,7 +407,6 @@ pub(crate) fn js_object_fromEntries(ctx: &mut ScopedContext, cc: CallContext) ->
             Ok(JSValue::Object(o)) => {
                 let key = o.get_property_u32(ctx, 0)?;
                 let value = o.get_property_u32(ctx, 1)?;
-
                 let atom = key.to_atom(ctx)?;
                 ret.define_property_value(ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
             }
