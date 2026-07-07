@@ -1363,7 +1363,11 @@ impl Bytecode {
                             SP_GO!(-1);
                         } else {
                             // Detached placeholder fallback.
-                            let init_flags = (opcode as u8 - OpCode::PUT_VAR as u8) as u32;
+                            let init_flags = match opcode {
+                                OpCode::PUT_VAR => 0u32,
+                                OpCode::PUT_VAR_INIT => 1u32,
+                                _ => unreachable!(),
+                            };
                             let var_name = self.global_var_refs()[idx].var_name;
                             let res =
                                 realm_scope.set_global_var(var_name, SP_VAL!(-1), init_flags as u8);

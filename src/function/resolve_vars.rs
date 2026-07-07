@@ -484,7 +484,12 @@ impl FunctionDef {
                             // op+1 maps CALL→TAIL_CALL, CALL_METHOD→TAIL_CALL_METHOD:
                             //   OP_call (N) + 1 = OP_tail_call (N+1)
                             //   OP_call_method (N+1) + 1 = OP_tail_call_method (N+2)
-                            push_vec_u8(&mut bc_out, op + 1);
+                            let tail_op = match op {
+                                opcodes::OP_call => opcodes::OP_tail_call,
+                                opcodes::OP_call_method => opcodes::OP_tail_call_method,
+                                _ => unreachable!(),
+                            };
+                            push_vec_u8(&mut bc_out, tail_op);
                             push_vec_u16(&mut bc_out, argc);
 
                             pos_next = cc.pos;
@@ -542,7 +547,12 @@ impl FunctionDef {
                                 //   OP_call (N) + 1 = OP_tail_call (N+1)
                                 //   OP_call_method (N+1) + 1 = OP_tail_call_method (N+2)
                                 // (opcodes are adjacent in the enum ordering)
-                                push_vec_u8(&mut bc_out, op + 1);
+                                let tail_op = match op {
+                                    opcodes::OP_call => opcodes::OP_tail_call,
+                                    opcodes::OP_call_method => opcodes::OP_tail_call_method,
+                                    _ => unreachable!(),
+                                };
+                                push_vec_u8(&mut bc_out, tail_op);
                                 push_vec_u16(&mut bc_out, argc);
 
                                 // Do NOT skip past labels/return that follow — let the
@@ -619,7 +629,12 @@ impl FunctionDef {
                                         push_vec_u32(&mut bc_out, 0); // line_pos: not available in resolve
                                     }
                                     self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
-                                    push_vec_u8(&mut bc_out, op + 1);
+                                    let tail_op = match op {
+                                        opcodes::OP_call => opcodes::OP_tail_call,
+                                        opcodes::OP_call_method => opcodes::OP_tail_call_method,
+                                        _ => unreachable!(),
+                                    };
+                                    push_vec_u8(&mut bc_out, tail_op);
                                     push_vec_u16(&mut bc_out, argc);
                                     tco_ok = true;
                                 }

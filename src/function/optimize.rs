@@ -329,12 +329,25 @@ impl FunctionDef {
 
         // transformation: put_x(n) get_x(n) -> set_x(n)
         let idx = unsafe { read_from_ptr::<u16>(bc_buf.add(pos + 1)) };
-        if let Some(cc) = self.code_match(*pos_next, &[op as i32 - 1, idx as _]) {
+        let get_op = match op {
+            opcodes::OP_put_loc => opcodes::OP_get_loc as i32,
+            opcodes::OP_put_arg => opcodes::OP_get_arg as i32,
+            opcodes::OP_put_var_ref => opcodes::OP_get_var_ref as i32,
+            _ => unreachable!(),
+        };
+        if let Some(cc) = self.code_match(*pos_next, &[get_op, idx as _]) {
             if cc.line_num >= 0 {
                 *line_num = cc.line_num;
             }
             self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
-            push_vec_short_code(bc_out, op + 1, idx);
+
+            let set_op = match op {
+                opcodes::OP_put_loc => opcodes::OP_set_loc,
+                opcodes::OP_put_arg => opcodes::OP_set_arg,
+                opcodes::OP_put_var_ref => opcodes::OP_set_var_ref,
+                _ => unreachable!(),
+            };
+            push_vec_short_code(bc_out, set_op, idx);
             *pos_next = cc.pos;
         } else {
             self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
@@ -357,6 +370,7 @@ impl FunctionDef {
 
         // transformation:
         // post_inc put_x drop -> inc put_x
+        // post_inc put_x(n) get_x(n) drop -> inc set_x(n)  (compound assignment)
         // post_inc perm3 put_field drop -> inc put_field
         // post_inc perm3 put_var_strict drop -> inc put_var_strict
         // post_inc perm4 put_array_el drop -> inc put_array_el
@@ -375,20 +389,38 @@ impl FunctionDef {
             if cc.line_num >= 0 {
                 *line_num = cc.line_num as _;
             }
-            let mut op1 = cc.op;
+            let put_op = cc.op as u8;
             let idx = cc.idx;
             *pos_next = cc.pos;
 
-            if let Some(m) = self.code_match(cc.pos, &[op1 - 1, idx]) {
+            let get_op = match put_op {
+                opcodes::OP_put_loc => OpCode::GET_LOC as i32,
+                opcodes::OP_put_arg => OpCode::GET_ARG as i32,
+                opcodes::OP_put_var_ref => OpCode::GET_VAR_REF as i32,
+                _ => unreachable!(),
+            };
+            let set_op = match put_op {
+                opcodes::OP_put_loc => OpCode::SET_LOC as u8,
+                opcodes::OP_put_arg => OpCode::SET_ARG as u8,
+                opcodes::OP_put_var_ref => OpCode::SET_VAR_REF as u8,
+                _ => unreachable!(),
+            };
+            let mut final_op = put_op;
+            if let Some(m) = self.code_match(cc.pos, &[get_op, idx]) {
                 if m.line_num >= 0 {
                     *line_num = m.line_num as _;
                 }
-                op1 += 1; // put_x(n) get_x(n) -> set_x(n)
+                final_op = set_op; // put_x(n) get_x(n) -> set_x(n)
                 *pos_next = m.pos;
             }
             self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
-            push_vec_u8(bc_out, OpCode::DEC as u8 + (op - OpCode::POST_DEC as u8));
-            push_vec_short_code(bc_out, op1 as u8, idx as u16);
+            let dec_inc = match op {
+                opcodes::OP_post_dec => OpCode::DEC as u8,
+                opcodes::OP_post_inc => OpCode::INC as u8,
+                _ => unreachable!(),
+            };
+            push_vec_u8(bc_out, dec_inc);
+            push_vec_short_code(bc_out, final_op, idx as u16);
             return true;
         }
 
@@ -404,7 +436,12 @@ impl FunctionDef {
                 *line_num = cc.line_num as _;
             }
             self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
-            push_vec_u8(bc_out, OpCode::DEC as u8 + (op - OpCode::POST_DEC as u8));
+            let dec_inc = match op {
+                opcodes::OP_post_dec => OpCode::DEC as u8,
+                opcodes::OP_post_inc => OpCode::INC as u8,
+                _ => unreachable!(),
+            };
+            push_vec_u8(bc_out, dec_inc);
             push_vec_u8(bc_out, cc.op as u8);
             push_vec_atom(bc_out, cc.atom);
             *pos_next = cc.pos;
@@ -423,7 +460,12 @@ impl FunctionDef {
                 *line_num = cc.line_num as _;
             }
             self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
-            push_vec_u8(bc_out, OpCode::DEC as u8 + (op - OpCode::POST_DEC as u8));
+            let dec_inc = match op {
+                opcodes::OP_post_dec => OpCode::DEC as u8,
+                opcodes::OP_post_inc => OpCode::INC as u8,
+                _ => unreachable!(),
+            };
+            push_vec_u8(bc_out, dec_inc);
             push_vec_u8(bc_out, OpCode::PUT_ARRAY_EL as u8);
             *pos_next = cc.pos;
             return true;
@@ -467,7 +509,11 @@ impl FunctionDef {
                 self.update_label_ref_count(label, -1);
 
                 label = cc.label as _;
-                op ^= opcodes::OP_if_true ^ opcodes::OP_if_false; // true->false, false->true
+                op = if op == opcodes::OP_if_true {
+                    opcodes::OP_if_false
+                } else {
+                    opcodes::OP_if_true
+                }; // true->false, false->true
             }
         }
 
@@ -484,7 +530,6 @@ impl FunctionDef {
     ) -> bool {
         // Transformation: dup put_x(n) drop -> put_x(n)
         // Transformation: dup put_x(n) -> set_x(n)
-        let mut op1: i32;
         let mut line2: i32 = -1;
 
         if let Some(cc) = self.code_match(
@@ -498,25 +543,40 @@ impl FunctionDef {
             if cc.line_num >= 0 {
                 *line_num = cc.line_num;
             }
-            op1 = cc.op + 1; // put_x -> set_x
+            let put_op = cc.op as u8;
+            let idx = cc.idx;
             *pos_next = cc.pos;
+
+            let set_op = match put_op {
+                opcodes::OP_put_loc => OpCode::SET_LOC as u8,
+                opcodes::OP_put_arg => OpCode::SET_ARG as u8,
+                opcodes::OP_put_var_ref => OpCode::SET_VAR_REF as u8,
+                _ => unreachable!(),
+            };
+            let get_op = match put_op {
+                opcodes::OP_put_loc => OpCode::GET_LOC as i32,
+                opcodes::OP_put_arg => OpCode::GET_ARG as i32,
+                opcodes::OP_put_var_ref => OpCode::GET_VAR_REF as i32,
+                _ => unreachable!(),
+            };
+            let mut final_op = set_op;
 
             if let Some(cc1) = self.code_match(cc.pos, &[OpCode::DROP as i32]) {
                 if cc1.line_num >= 0 {
                     *line_num = cc1.line_num;
                 }
-                op1 -= 1; // set_x drop -> put_x
+                final_op = put_op; // set_x drop -> put_x
                 *pos_next = cc1.pos;
 
-                if let Some(cc2) = self.code_match(cc1.pos, &[op1 - 1, cc.idx]) {
+                if let Some(cc2) = self.code_match(cc1.pos, &[get_op, idx]) {
                     line2 = cc2.line_num; // delay line number update
-                    op1 += 1; // put_x(n) get_x(n) -> set_x(n)
+                    final_op = set_op; // put_x(n) get_x(n) -> set_x(n)
                     *pos_next = cc2.pos;
                 }
             }
 
             self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
-            push_vec_short_code(bc_out, op1 as u8, cc.idx as _);
+            push_vec_short_code(bc_out, final_op, idx as u16);
             if line2 >= 0 {
                 *line_num = line2;
             }
@@ -557,17 +617,11 @@ pub(super) fn optimize_scope_make_ref(
 ) -> usize {
     debug_assert!(label.pos >= 0);
 
-    // ── Derived opcode sizes (self-documenting, auto-adjust to format changes) ──
+    // ── Derived opcode sizes ──
     const label_op_size: usize = opcode_info_intermediate(opcodes::op_label).size as usize; // op_label(1) + u32(4)
     const stack_op_size: usize = opcode_info_final(opcodes::OP_insert3).size as usize; // 1B
     const put_ref_size: usize = opcode_info_final(opcodes::OP_put_ref_value).size as usize; // 1B
     const get_ref_size: usize = opcode_info_final(opcodes::OP_get_ref_value).size as usize; // 1B
-
-    // bc_buf in-place write: `put_op(1B) + u16(2B)` = VAR_REF format.
-    // Derived from put_op's own opcode table entry so it auto-adjusts if
-    // VAR_REF ever changes encoding (currently 3B: 1 opcode + 2 index).
-    let put_op: u8 = get_op as u8 + 1;
-    let var_ref_inst_size: usize = opcode_info_final(put_op).size as usize;
 
     /* XXX: should optimize `loc(a) += expr` as `expr add_loc(a)`
       but only if expr does not modify `a`.
@@ -597,37 +651,69 @@ pub(super) fn optimize_scope_make_ref(
     */
     let end_pos = label_pos + stack_op_size + put_ref_size;
 
+    let op_size: usize;
     unsafe {
         if *bc_orig.add(label_pos) == opcodes::OP_insert3 {
             // KEEP_TOP: keep value on stack as assignment expression result.
-            // For CHECK variants the encoding is GET/PUT/PUT_INIT/SET (4-wide),
-            // so get_op+2 gives PUT_INIT (n_pop=1,n_push=0) not SET (n_pop=1,n_push=1).
-            // Handle CHECK variants explicitly, then fall back to get_op+2 for regular ops.
+            // Use explicit opcodes (no get_op arithmetic) since CHECK variants
+            // have a different encoding layout (GET/PUT/PUT_INIT/SET vs GET/PUT/SET).
             match get_op {
-                OpCode::GET_VAR_REF_CHECK => {
-                    // No SET_VAR_REF_CHECK opcode exists; fall back to dup + put_var_ref_check.
-                    *bc_orig.add(pos) = opcodes::OP_dup;
-                    pos += stack_op_size;
-                    *bc_orig.add(pos) = OpCode::PUT_VAR_REF_CHECK as u8;
+                OpCode::GET_ARG => {
+                    *bc_orig.add(pos) = OpCode::SET_ARG as u8;
+                    op_size = opcode_info_final(OpCode::SET_ARG as u8).size as usize;
+                }
+                OpCode::GET_LOC => {
+                    *bc_orig.add(pos) = OpCode::SET_LOC as u8;
+                    op_size = opcode_info_final(OpCode::SET_LOC as u8).size as usize;
+                }
+                OpCode::GET_VAR_REF => {
+                    *bc_orig.add(pos) = OpCode::SET_VAR_REF as u8;
+                    op_size = opcode_info_final(OpCode::SET_VAR_REF as u8).size as usize;
                 }
                 OpCode::GET_LOC_CHECK => {
                     *bc_orig.add(pos) = OpCode::SET_LOC_CHECK as u8;
+                    op_size = opcode_info_final(OpCode::SET_LOC_CHECK as u8).size as usize;
                 }
-                _ => {
-                    // Regular (non-CHECK): GET+2 = SET (n_pop=1, n_push=1)
-                    *bc_orig.add(pos) = get_op as u8 + 2;
+                OpCode::GET_VAR_REF_CHECK => {
+                    // No SET_VAR_REF_CHECK opcode; fall back to dup + put_var_ref_check.
+                    *bc_orig.add(pos) = opcodes::OP_dup;
+                    pos += stack_op_size;
+                    *bc_orig.add(pos) = OpCode::PUT_VAR_REF_CHECK as u8;
+                    op_size = opcode_info_final(OpCode::PUT_VAR_REF_CHECK as u8).size as usize;
                 }
+                _ => unreachable!(),
             }
             write_to_ptr::<u16>(bc_orig.add(pos + 1), var_idx as u16);
         } else {
-            // NOKEEP: use PUT_LOC_CHECK (n_pop=1, n_push=0), the
-            // value is not needed as expression result.
-            *bc_orig.add(pos) = get_op as u8 + 1;
+            // NOKEEP: value consumed from stack (n_pop=1, n_push=0).
+            match get_op {
+                OpCode::GET_ARG => {
+                    *bc_orig.add(pos) = OpCode::PUT_ARG as u8;
+                    op_size = opcode_info_final(OpCode::PUT_ARG as u8).size as usize;
+                }
+                OpCode::GET_LOC => {
+                    *bc_orig.add(pos) = OpCode::PUT_LOC as u8;
+                    op_size = opcode_info_final(OpCode::PUT_LOC as u8).size as usize;
+                }
+                OpCode::GET_VAR_REF => {
+                    *bc_orig.add(pos) = OpCode::PUT_VAR_REF as u8;
+                    op_size = opcode_info_final(OpCode::PUT_VAR_REF as u8).size as usize;
+                }
+                OpCode::GET_LOC_CHECK => {
+                    *bc_orig.add(pos) = OpCode::PUT_LOC_CHECK as u8;
+                    op_size = opcode_info_final(OpCode::PUT_LOC_CHECK as u8).size as usize;
+                }
+                OpCode::GET_VAR_REF_CHECK => {
+                    *bc_orig.add(pos) = OpCode::PUT_VAR_REF_CHECK as u8;
+                    op_size = opcode_info_final(OpCode::PUT_VAR_REF_CHECK as u8).size as usize;
+                }
+                _ => unreachable!(),
+            }
             write_to_ptr::<u16>(bc_orig.add(pos + 1), var_idx as u16);
         }
     }
 
-    pos += var_ref_inst_size;
+    pos += op_size;
     // pad with OP_nop
     while pos < end_pos {
         unsafe {
