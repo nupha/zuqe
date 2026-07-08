@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cell::Cell;
-use std::{ffi::c_void, process::ExitCode};
+use std::{cell::Cell, ffi::c_void, process::ExitCode};
 
 use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
+
+#[cfg(feature = "builtin_weakref")]
+use gc_lite::GcTrace;
 
 use crate::{
     BUILTIN_CLASS_DEFS, Context, JS_CLASS_OBJECT, ScopedContext, USER_CLASS_ID_START,
@@ -108,6 +110,11 @@ pub struct RuntimeImpl {
     /// Incremented on every shape allocation to guarantee unique shape IDs.
     /// Used by inline cache to detect ABA reuse of shape memory addresses.
     pub(crate) next_shape_uid: Cell<u32>,
+
+    /// Pending FinalizationRegistry cleanups collected during GC.
+    /// Each entry is (callback, held_value, context).
+    #[cfg(feature = "builtin_weakref")]
+    pub(crate) finrec_pending_cleanups: Vec<(JSValue, JSValue, ContextPtr)>,
 }
 
 impl Drop for RuntimeImpl {
@@ -169,6 +176,8 @@ impl RuntimeImpl {
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,
             next_shape_uid: Cell::new(1),
+            #[cfg(feature = "builtin_weakref")]
+            finrec_pending_cleanups: Vec::new(),
         };
 
         rt.init_const_atoms();
@@ -290,6 +299,10 @@ impl RuntimeImpl {
 
         self.interrupt_code = None;
 
+        // clear pending FinalizationRegistry cleanups (no context to queue them)
+        #[cfg(feature = "builtin_weakref")]
+        self.finrec_pending_cleanups.clear();
+
         // Two-phase partition release.
         //
         // Phase 1 (finalize, &self): Drop GC node payloads without freeing
@@ -329,6 +342,40 @@ impl RuntimeImpl {
             if let Some(f) = c.on_unregister {
                 f(self); // Note: class_registry is already cleared; do NOT reference other ClassDef entries.
             }
+        }
+    }
+    /// Process pending FinalizationRegistry cleanups.
+    /// Called after GC to queue oneshot jobs for collected targets.
+    #[cfg(feature = "builtin_weakref")]
+    pub(crate) fn process_finrec_cleanups(&mut self) {
+        use crate::microtask::OneshotJob;
+        use std::ops::DerefMut;
+
+        let pending = std::mem::take(&mut self.finrec_pending_cleanups);
+        if pending.is_empty() {
+            return;
+        }
+
+        for (callback, held_value, mut ctx_ptr) in pending {
+            // Check if the context is still alive
+            if !self.context_list.iter().any(|cp| *cp == ctx_ptr) {
+                continue;
+            }
+
+            let job = OneshotJob {
+                runnable: Box::new(move |cx| {
+                    callback.call(cx, JSValue::UNDEFINED, &[held_value])?;
+                    Ok(())
+                }),
+                gc_trace: Some(Box::new(move |gcx| {
+                    callback.trace(gcx);
+                    held_value.trace(gcx);
+                })),
+            };
+
+            // Push the job directly to the context's oneshot queue
+            let ctx_impl: &mut crate::context::ContextImpl = DerefMut::deref_mut(&mut ctx_ptr);
+            ctx_impl.oneshot_jobs.push_back(job);
         }
     }
 }

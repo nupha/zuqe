@@ -43,6 +43,10 @@ enum PayloadKey {
     IteratorHelper,
     IteratorWrap,
     IteratorConcat,
+    #[cfg(feature = "builtin_weakref")]
+    WeakRef,
+    #[cfg(feature = "builtin_weakref")]
+    FinalizationRegistry,
 }
 
 impl PayloadKey {
@@ -83,6 +87,10 @@ impl PayloadKey {
             PayloadKey::IteratorHelper => "iterator_helper",
             PayloadKey::IteratorWrap => "iterator_wrap",
             PayloadKey::IteratorConcat => "iterator_concat",
+            #[cfg(feature = "builtin_weakref")]
+            PayloadKey::WeakRef => "weak_ref",
+            #[cfg(feature = "builtin_weakref")]
+            PayloadKey::FinalizationRegistry => "finalization_registry",
         }
     }
 }
@@ -195,6 +203,17 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
 
     #[cfg(feature = "builtin_date")]
     m.insert(PayloadKey::Datetime, "crate::builtins::date::Datetime");
+
+    #[cfg(feature = "builtin_weakref")]
+    m.insert(
+        PayloadKey::WeakRef,
+        "Box<crate::builtins::weakref::WeakRefData>",
+    );
+    #[cfg(feature = "builtin_weakref")]
+    m.insert(
+        PayloadKey::FinalizationRegistry,
+        "Box<crate::builtins::weakref::FinalizationRegistryData>",
+    );
 
     m
 });
@@ -543,6 +562,18 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         "ITERATOR_CONCAT",
         "crate::builtins::iterator::CLASS_DEF_ITERATOR_CONCAT",
         PayloadKey::IteratorConcat,
+    ),
+    #[cfg(feature = "builtin_weakref")]
+    ClassInfo::class_def(
+        "WEAKREF",
+        "crate::builtins::weakref::CLASS_DEF_WEAKREF",
+        PayloadKey::WeakRef,
+    ),
+    #[cfg(feature = "builtin_weakref")]
+    ClassInfo::class_def(
+        "FINALIZATION_REGISTRY",
+        "crate::builtins::weakref::CLASS_DEF_FINALIZATION_REGISTRY",
+        PayloadKey::FinalizationRegistry,
     ),
 ];
 

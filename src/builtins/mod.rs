@@ -32,6 +32,8 @@ pub mod reflect;
 pub mod regexp;
 #[cfg(feature = "builtin_symbol")]
 pub mod symbol;
+#[cfg(feature = "builtin_weakref")]
+pub mod weakref;
 
 use crate::{
     Atom, class::ClassDef, context::ScopedContext, error::JSResult, function::CallContext,
