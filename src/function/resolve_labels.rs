@@ -264,8 +264,7 @@ impl FunctionDef {
                 | opcodes::OP_with_put_var
                 | opcodes::OP_with_delete_var
                 | opcodes::OP_with_make_ref
-                | opcodes::OP_with_get_ref
-                | opcodes::OP_with_get_ref_undef => {
+                | opcodes::OP_with_get_ref => {
                     let atom = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 1)) };
                     label = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 5)) };
                     let is_with = unsafe { *bc_ptr.add(pos + 9) };
@@ -594,14 +593,9 @@ impl FunctionDef {
                     if OPTIMIZE {
                         // Transformation:
                         // insert2 put_field(a) drop -> put_field(a)
-                        // insert2 put_var_strict(a) drop -> put_var_strict(a)
-                        if let Some(cc) = self.code_match(
-                            pos_next,
-                            &[
-                                M2(OpCode::PUT_FIELD as _, OpCode::PUT_VAR_STRICT as _),
-                                OpCode::DROP as _,
-                            ],
-                        ) {
+                        if let Some(cc) =
+                            self.code_match(pos_next, &[OpCode::PUT_FIELD as _, OpCode::DROP as _])
+                        {
                             if cc.line_num >= 0 {
                                 line_num = cc.line_num as _;
                             }

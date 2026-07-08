@@ -124,7 +124,6 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("regexp", 1, 2, 1, "NONE", false, Always),
         DEF!("get_super", 1, 1, 1, "NONE", false, Never),
         DEF!("import", 1, 2, 1, "NONE", false, Always),
-        DEF!("check_var", 5, 0, 1, "ATOM", false, Never),
         //
         // START OF BYTECODE GROUP: VAR_ACCESS — `GET_VAR_UNDEF + (op - scope_get_var_undef)` in resolve_scoped_vars.rs
         DEF!("get_var_undef", 3, 0, 1, "VAR_REF", false, Never),
@@ -133,12 +132,8 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         // END OF BYTECODE GROUP: VAR_ACCESS
         //
         DEF!("put_var_init", 3, 1, 0, "VAR_REF", false, Never),
-        DEF!("put_var_strict", 5, 2, 0, "ATOM", false, Never),
         DEF!("get_ref_value", 1, 2, 3, "NONE", false, Never),
         DEF!("put_ref_value", 1, 3, 0, "NONE", false, Never),
-        DEF!("define_var", 6, 0, 0, "ATOM_U8", false, Never),
-        DEF!("check_define_var", 6, 0, 0, "ATOM_U8", false, Never),
-        DEF!("define_func", 6, 1, 0, "ATOM_U8", false, Never),
         DEF!("get_field", 5, 1, 1, "ATOM", false, Never),
         DEF!("get_field2", 5, 1, 2, "ATOM", false, Never),
         DEF!("get_field_ic", 7, 1, 1, "ATOM_U16", false, Never),
@@ -214,15 +209,7 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("with_delete_var", 10, 1, 0, "ATOM_LABEL_U8", false, Never),
         DEF!("with_make_ref", 10, 1, 0, "ATOM_LABEL_U8", false, Never),
         DEF!("with_get_ref", 10, 1, 0, "ATOM_LABEL_U8", false, Never),
-        DEF!(
-            "with_get_ref_undef",
-            10,
-            1,
-            0,
-            "ATOM_LABEL_U8",
-            false,
-            Never
-        ),
+        //
         // END OF BYTECODE GROUP: WITH_VAR
         //
         DEF!("make_loc_ref", 7, 0, 2, "ATOM_U16", false, Always),

@@ -1324,15 +1324,6 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     // Global variable access (var_ref indirect via captured_vars)
                     // ═══════════════════════════════════════════════════
-                    OpCode::CHECK_VAR => {
-                        let atom = Atom::from_id(PC_FETCH!(u32));
-                        if let Ok(b) = realm_scope.check_global_var(atom) {
-                            SP_PUT!(0, JSValue::Bool(b));
-                            SP_GO!(1);
-                        } else {
-                            break ExecAction::Exception;
-                        }
-                    }
                     OpCode::GET_VAR_UNDEF | OpCode::GET_VAR => {
                         let idx = PC_FETCH!(u16) as usize;
                         // PropValue uses inline cache: shape_uid match → O(1) slot,
@@ -1396,20 +1387,6 @@ impl Bytecode {
                                 realm_scope.set_global_var(var_name, SP_VAL!(-1), init_flags as u8);
                             SP_GO!(-1);
                             if res.is_err() {
-                                break ExecAction::Exception;
-                            }
-                        }
-                    }
-                    OpCode::PUT_VAR_STRICT => {
-                        // PUT_VAR_STRICT keeps ATOM format (not migrated; deprecated in P5)
-                        let atom = Atom::from_id(PC_FETCH!(u32));
-                        if let JSValue::Bool(false) = SP_VAL!(-2) {
-                            JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
-                            break ExecAction::Exception;
-                        } else {
-                            let ret = realm_scope.set_global_var(atom, SP_VAL!(-1), 2);
-                            SP_GO!(-2);
-                            if unlikely(ret.is_err()) {
                                 break ExecAction::Exception;
                             }
                         }
@@ -2315,12 +2292,16 @@ impl Bytecode {
                         // so that exceptions from next() do NOT close the iterator.
                         let iter = SP_VAL!(-3);
                         let next = SP_VAL!(-2);
+                        let saved_catch = SP_VAL!(-1);
                         SP_PUT!(-1, JSValue::UNDEFINED);
 
                         let result =
                             next.call_internal(realm_scope, iter, JSValue::UNDEFINED, &[], 0);
                         if let Ok(obj) = result {
-                            // Push promise at free slot above catch_offset
+                            // Restore the catch offset so that NIP_CATCH
+                            // (emitted for `return` inside the loop body)
+                            // can find it.  See P5 nip_catch bug.
+                            SP_PUT!(-1, saved_catch);
                             SP_PUT!(0, obj);
                             SP_GO!(1);
                         } else {
@@ -2968,8 +2949,7 @@ impl Bytecode {
                     | OpCode::WITH_PUT_VAR
                     | OpCode::WITH_DELETE_VAR
                     | OpCode::WITH_MAKE_REF
-                    | OpCode::WITH_GET_REF
-                    | OpCode::WITH_GET_REF_UNDEF => {
+                    | OpCode::WITH_GET_REF => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
                         let diff = PC_FETCH!(i32);
                         let is_with = PC_FETCH!(u8) != 0;
@@ -3062,18 +3042,6 @@ impl Bytecode {
                                                 .get_property(realm_scope, atom)
                                                 .unwrap_or(JSValue::UNDEFINED),
                                         };
-                                        SP_PUT!(0, val);
-                                        SP_GO!(1);
-                                    }
-                                    OpCode::WITH_GET_REF_UNDEF => {
-                                        // GetBindingValue step 2: HasProperty (ECMA-262 9.1.1.2.6)
-                                        let val = match env_obj.has_property(realm_scope, atom) {
-                                            Ok(false) | Err(_) => JSValue::UNDEFINED,
-                                            _ => env_obj
-                                                .get_property(realm_scope, atom)
-                                                .unwrap_or(JSValue::UNDEFINED),
-                                        };
-                                        SP_PUT!(-1, JSValue::UNDEFINED);
                                         SP_PUT!(0, val);
                                         SP_GO!(1);
                                     }

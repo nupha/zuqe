@@ -221,8 +221,7 @@ impl FunctionDef {
                     )?;
                 }
                 opcodes::OP_with_make_ref
-                | opcodes::OP_with_get_ref
-                | opcodes::OP_with_get_ref_undef => {
+                | opcodes::OP_with_get_ref => {
                     let diff = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 5)) };
                     ss_check(
                         ctx,
