@@ -172,7 +172,7 @@ pub struct ObjectImpl {
     pub(super) deleted_slot_count: u16,
 
     /// where this object is weak referenced
-    #[cfg(feature = "builtin_mapset")]
+    #[cfg(any(feature = "builtin_mapset", feature = "builtin_weakref"))]
     weak_refs: Vec<GcWeak<ObjectImpl>>,
 
     /// object payload.
@@ -521,7 +521,6 @@ impl ObjectImpl {
         self.shape.replace(shape);
     }
 
-
     /// only Proxy may return Err(-1)
     pub fn prevent_extensions(&mut self, ctx: &mut ScopedContext) -> Result<bool, i32> {
         #[cfg(feature = "builtin_proxy")]
@@ -542,10 +541,12 @@ impl ObjectImpl {
     }
 
     #[inline(always)]
+    #[cfg(any(feature = "builtin_mapset", feature = "builtin_weakref"))]
     pub(crate) fn add_back_ref(&mut self, w: GcWeak<ObjectImpl>) {
         self.weak_refs.push(w);
     }
 
+    #[cfg(any(feature = "builtin_mapset", feature = "builtin_weakref"))]
     pub(crate) fn remove_back_ref(&mut self, rt: &RuntimeImpl, eliminate: Object) {
         let heap = rt.gc_heap();
         self.weak_refs
@@ -575,6 +576,37 @@ impl ObjectImpl {
                     ms.remove_weak_obj(this);
                 }
             }
+        }
+
+        // FinalizationRegistry cleanup
+        #[cfg(feature = "builtin_weakref")]
+        {
+            let heap = rt.gc_heap();
+            let this = Object::from(self.gc_ref());
+            let mut held_pending: Vec<(
+                crate::value::JSValue,
+                crate::value::JSValue,
+                crate::context::ContextPtr,
+            )> = Vec::new();
+
+            for o in self.weak_refs.drain(..).filter_map(|w| w.upgrade(heap)) {
+                let mut o = Object::from(o.into_raw());
+                if o.class_id() != crate::JS_CLASS_FINALIZATION_REGISTRY {
+                    continue;
+                }
+
+                if let Some(frd) = o.payload_mut().finalization_registry_mut() {
+                    let held_values = frd.remove_entries_for_target(this, heap);
+                    let callback = frd.callback;
+                    let context = frd.realm;
+                    for hv in held_values {
+                        held_pending.push((callback, hv, context));
+                    }
+                }
+            }
+
+            // Push pending cleanups to runtime (NLL: 'heap' is no longer used)
+            rt.finrec_pending_cleanups.extend(held_pending);
         }
 
         // call class finalize handler.

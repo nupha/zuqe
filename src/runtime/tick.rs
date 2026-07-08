@@ -137,6 +137,10 @@ impl RuntimeImpl {
             self.gc_collect();
         }
 
+        // Process FinalizationRegistry cleanups collected during GC
+        #[cfg(feature = "builtin_weakref")]
+        self.process_finrec_cleanups();
+
         if more_ticks {
             TickStatus::Continue
         } else {

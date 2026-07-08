@@ -432,17 +432,21 @@ impl<'c> ScopedContext<'c> {
                 JS_CLASS_SHARED_ARRAY_BUFFER,
                 JS_CLASS_DATAVIEW,
             ];
+
             // TypedArray
             use_classes.extend(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY);
+
             // Proxy
             #[cfg(feature = "builtin_proxy")]
             use_classes.push(crate::JS_CLASS_PROXY);
+
             // RegExp
             #[cfg(feature = "builtin_regexp")]
             use_classes.extend_from_slice(&[
                 crate::JS_CLASS_REGEXP,
                 crate::JS_CLASS_REGEXP_STRING_ITERATOR,
             ]);
+
             // Map/Set
             #[cfg(feature = "builtin_mapset")]
             use_classes.extend_from_slice(&[
@@ -453,9 +457,17 @@ impl<'c> ScopedContext<'c> {
                 crate::JS_CLASS_MAP_ITERATOR,
                 crate::JS_CLASS_SET_ITERATOR,
             ]);
+
             // Date
             #[cfg(feature = "builtin_date")]
             use_classes.push(crate::JS_CLASS_DATE);
+
+            // WeakRef & FinalizationRegistry
+            #[cfg(feature = "builtin_weakref")]
+            use_classes.extend_from_slice(&[
+                crate::JS_CLASS_WEAKREF,
+                crate::JS_CLASS_FINALIZATION_REGISTRY,
+            ]);
 
             ctx.use_classes(&use_classes)?;
 

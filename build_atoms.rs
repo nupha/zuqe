@@ -242,6 +242,10 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     "URIError",
     "InternalError",
     "AggregateError",
+    #[cfg(feature = "builtin_weakref")]
+    "WeakRef",
+    #[cfg(feature = "builtin_weakref")]
+    "FinalizationRegistry",
     //
     // privates
     //

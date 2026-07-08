@@ -23,6 +23,7 @@ builtin_reflect = []
 builtin_json = []
 builtin_date = ["libc"]
 builtin_math = []
+builtin_weakref = []
 
 inline_cache = []
 dump_bytecode = []
@@ -49,6 +50,7 @@ default = [
     "builtin_json",
     "builtin_date",
     "builtin_math",
+    "builtin_weakref",
 ]
 
 [profile.release]
