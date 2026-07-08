@@ -485,9 +485,26 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
                     self.parse_assign_expr()?;
+
+                    // optional second argument: import(specifier, options)
+                    if self.token.kind == TokenKind::Char(',') {
+                        self.next_token()?;
+                        if self.token.kind != TokenKind::Char(')') {
+                            self.parse_assign_expr()?;
+                            // accept trailing comma
+                            if self.token.kind == TokenKind::Char(',') {
+                                self.next_token()?;
+                            }
+                        } else {
+                            // import(specifier,) — no options, push undefined
+                            self.emit_op(OpCode::UNDEFINED);
+                        }
+                    } else {
+                        // import(specifier) — no options, push undefined
+                        self.emit_op(OpCode::UNDEFINED);
+                    }
                     self.parse_expect(TokenKind::Char(')'))?;
 
-                    self.emit_op(OpCode::UNDEFINED); // Push undefined as the options argument
                     self.emit_op(OpCode::IMPORT);
                 }
             }
