@@ -4,9 +4,9 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    Callback, JobGcTrace,
+    Callback,
     atom::Atom,
-    builtins::promise::Promise,
+    builtins::promise::{JobGcTrace5, Promise},
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, NativeFunction},
@@ -14,28 +14,9 @@ use crate::{
         JSFreeModuleEnum, get_script_or_module_name, js_free_modules,
         js_host_resolve_imported_module,
     },
+    object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, Object, PropertyKeyKind},
     value::JSValue,
 };
-
-/// JobGcTrace wrapper for 5 values (used by js_dynamic_import).
-struct JobGcTrace5<A, B, C, D, E> {
-    a: A,
-    b: B,
-    c: C,
-    d: D,
-    e: E,
-}
-impl<A: JobGcTrace, B: JobGcTrace, C: JobGcTrace, D: JobGcTrace, E: JobGcTrace> JobGcTrace
-    for JobGcTrace5<A, B, C, D, E>
-{
-    fn job_trace_values(&self, gcx: &mut GcTraceCtx) {
-        self.a.job_trace_values(gcx);
-        self.b.job_trace_values(gcx);
-        self.c.job_trace_values(gcx);
-        self.d.job_trace_values(gcx);
-        self.e.job_trace_values(gcx);
-    }
-}
 
 #[derive(Debug)]
 pub struct ImportEntry {
@@ -53,6 +34,51 @@ impl GcTrace for ImportEntry {
     }
 }
 
+/// Synchronously extract import attributes from `options.with`.
+///
+/// Per spec, this must happen synchronously during `import()` evaluation
+/// so that Proxy traps (ownKeys, get, getOwnPropertyDescriptor) fire
+/// before the call returns.
+fn extract_import_attrs(ctx: &mut ScopedContext, options: JSValue) -> JSResult {
+    if !options.is_object() {
+        return Ok(JSValue::UNDEFINED);
+    }
+
+    let attrs = match options.get_property_str(ctx, "with") {
+        Ok(v) if v.is_object() => v,
+        Ok(JSValue::UNDEFINED) | Ok(JSValue::NULL) => return Ok(JSValue::UNDEFINED),
+        Ok(_) => {
+            ctx.throw_type_error("import() options.with must be an object");
+            return Err(-1);
+        }
+        Err(_) => return Err(-1),
+    };
+
+    let mut obj = Object::try_from(attrs).map_err(|_| {
+        ctx.throw_type_error("import() options.with must be an object");
+        -1
+    })?;
+
+    let keys = obj.get_own_property_names(ctx, JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK)?;
+
+    if keys.is_empty() {
+        return Ok(JSValue::UNDEFINED);
+    }
+
+    let mut plain_obj = ctx.create_base_object()?;
+    for pk in keys.iter() {
+        // Only include string keys (import attribute keys must be strings)
+        if !matches!(pk.kind, PropertyKeyKind::String) {
+            continue;
+        }
+        // Get the value (triggers Proxy get trap, may throw)
+        let val = obj.get_property(ctx, pk.atom)?;
+        plain_obj.define_property_value(ctx, pk.atom, val, JS_PROP_C_W_E)?;
+    }
+
+    Ok(JSValue::from(plain_obj))
+}
+
 pub(crate) fn js_dynamic_import(
     ctx: &mut ScopedContext,
     specifier: JSValue,
@@ -66,20 +92,30 @@ pub(crate) fn js_dynamic_import(
 
     let (promise, resolving_funcs) = Promise::create(ctx)?;
 
+    // Extract attributes synchronously (triggers Proxy traps per spec)
+    let attrs = match extract_import_attrs(ctx, options) {
+        Ok(a) => a,
+        Err(_) => {
+            let err_val = ctx.take_exception().to_value(ctx);
+            let _ =
+                resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
+            return Ok(promise.into());
+        }
+    };
+
     // cannot run js_dynamic_import_job synchronously because it would
     // cause an unexpected recursion in js_evaluate_module()
-    let rr = resolving_funcs;
     ctx.queue_oneshot_job(
         move |cx| {
-            js_dynamic_import_job(cx, resolving_funcs, basename_val, specifier, options);
+            js_dynamic_import_job(cx, resolving_funcs, basename_val, specifier, attrs);
             Ok(())
         },
         JobGcTrace5 {
             a: basename_val,
             b: specifier,
-            c: options,
-            d: rr[0],
-            e: rr[1],
+            c: attrs,
+            d: resolving_funcs[0],
+            e: resolving_funcs[1],
         },
     );
 
@@ -91,37 +127,8 @@ fn js_dynamic_import_job(
     resolving_funcs: [JSValue; 2],
     basename: JSValue,
     name: JSValue,
-    options: JSValue,
+    attrs: JSValue,
 ) {
-    // Extract import attributes from options.with
-    let attrs = if options.is_object() {
-        match options.get_property_str(ctx, "with") {
-            Ok(v) if v.is_object() => v,
-            Ok(JSValue::UNDEFINED) | Ok(JSValue::NULL) => JSValue::UNDEFINED,
-            Ok(_) => {
-                ctx.throw_type_error("import() options.with must be an object");
-                let err_val = ctx.take_exception().to_value(ctx);
-                let _ = resolving_funcs[1].call(
-                    ctx,
-                    JSValue::UNDEFINED,
-                    std::slice::from_ref(&err_val),
-                );
-                return;
-            }
-            Err(_) => {
-                let err_val = ctx.take_exception().to_value(ctx);
-                let _ = resolving_funcs[1].call(
-                    ctx,
-                    JSValue::UNDEFINED,
-                    std::slice::from_ref(&err_val),
-                );
-                return;
-            }
-        }
-    } else {
-        JSValue::UNDEFINED
-    };
-
     let r = if let JSValue::String(base) = basename {
         name.to_string(ctx).map(|nm| {
             js_load_module_internal(

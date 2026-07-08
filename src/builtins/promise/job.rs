@@ -81,6 +81,27 @@ where
     }
 }
 
+/// JobGcTrace wrapper for 5 values (used by js_dynamic_import).
+pub(crate) struct JobGcTrace5<A, B, C, D, E> {
+    pub a: A,
+    pub b: B,
+    pub c: C,
+    pub d: D,
+    pub e: E,
+}
+
+impl<A: JobGcTrace, B: JobGcTrace, C: JobGcTrace, D: JobGcTrace, E: JobGcTrace> JobGcTrace
+    for JobGcTrace5<A, B, C, D, E>
+{
+    fn job_trace_values(&self, gcx: &mut GcTraceCtx) {
+        self.a.job_trace_values(gcx);
+        self.b.job_trace_values(gcx);
+        self.c.job_trace_values(gcx);
+        self.d.job_trace_values(gcx);
+        self.e.job_trace_values(gcx);
+    }
+}
+
 /// Execute a Promise reaction job for a settled Promise.
 ///
 /// # Description
