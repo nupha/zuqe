@@ -160,16 +160,16 @@ self.emit_op(OpCode::NEG);
 
 ### 9.2 Zhuque 有 → QuickJS 没有的 Common Opcode
 
-| 序号 | Opcode             | Zhuque       | QuickJS                                         | 对齐后状态（代码实际状态）                             |
-| ---- | ------------------ | ------------ | ----------------------------------------------- | ------------------------------------------------------ |
-| 1    | `check_var`        | 5B, ATOM     | 无（由 `GET_VAR_UNDEF` 内嵌）                   | **P5 待清理** — 定义+runtime handler 保留，不再发射    |
-| 2    | `put_var_strict`   | 5B, ATOM     | 无（`PUT_VAR` + `is_strict_mode` 运行时判断）   | **P5 待清理** — 定义+runtime handler 保留，不再发射    |
-| 3    | `define_var`       | 6B, ATOM_U8  | 无（`scope_put_var_init` temp 在 resolve 消化） | **P5 待清理** — 定义+runtime handler 保留，不再发射    |
-| 4    | `check_define_var` | 6B, ATOM_U8  | 无（同上）                                      | **P5 待清理** — 仍由 resolve_vars.rs 发射（eval 路径） |
-| 5    | `define_func`      | 6B, ATOM_U8  | 无（`FCLOSURE` + `PUT_VAR`/`PUT_LOC`）          | **P5 待清理** — 定义+runtime handler 保留，不再发射    |
-| 6    | `get_field_ic`     | 7B, ATOM_U16 | 无                                              | **保留** — inline cache 核心优化，benchmark 验证有效   |
-| 7    | `get_field2_ic`    | 7B, ATOM_U16 | 无                                              | **保留**                                               |
-| 8    | `put_field_ic`     | 7B, ATOM_U16 | 无                                              | **保留**                                               |
+| 序号 | Opcode             | Zhuque       | QuickJS                                         | 对齐后状态（代码实际状态）                           |
+| ---- | ------------------ | ------------ | ----------------------------------------------- | ---------------------------------------------------- |
+| 1    | `check_var`        | 5B, ATOM     | 无（由 `GET_VAR_UNDEF` 内嵌）                   | **P5 已移除** — 定义+runtime handler 已删除          |
+| 2    | `put_var_strict`   | 5B, ATOM     | 无（`PUT_VAR` + `is_strict_mode` 运行时判断）   | **P5 已移除** — 定义+runtime handler 已删除          |
+| 3    | `define_var`       | 6B, ATOM_U8  | 无（`scope_put_var_init` temp 在 resolve 消化） | **P5 已移除** — 定义+runtime handler 已删除          |
+| 4    | `check_define_var` | 6B, ATOM_U8  | 无（同上）                                      | **P5 已移除** — 定义+runtime handler 已删除          |
+| 5    | `define_func`      | 6B, ATOM_U8  | 无（`FCLOSURE` + `PUT_VAR`/`PUT_LOC`）          | **P5 已移除** — 定义+runtime handler 已删除          |
+| 6    | `get_field_ic`     | 7B, ATOM_U16 | 无                                              | **保留** — inline cache 核心优化，benchmark 验证有效 |
+| 7    | `get_field2_ic`    | 7B, ATOM_U16 | 无                                              | **保留**                                             |
+| 8    | `put_field_ic`     | 7B, ATOM_U16 | 无                                              | **保留**                                             |
 
 ### 9.3 Opcode Size / 编码格式不同（同名 opcode）
 
@@ -210,13 +210,13 @@ self.emit_op(OpCode::NEG);
 
 ### 9.6 不一致性汇总
 
-| 类别                             | 数量  | 严重程度                                                               |
-| -------------------------------- | ----- | ---------------------------------------------------------------------- |
-| QuickJS 独有 opcode（已对齐）    | 0     | ✅ 已全部添加（P2），部分 parser 路径待 P4 启用                        |
-| Zhuque 独有 opcode（IC 保留）    | 3     | 低（inline cache 优化）                                                |
-| Zhuque 独有 opcode（对齐后废弃） | **6** | **中**（P5 清理：5 个已不再发射，check_define_var 仍发射于 eval 路径） |
-| 编码格式不同                     | 4     | ✅ **P3 已解决**（var_ref 对齐 QuickJS）                               |
-| stack effect 不同                | 0     | ✅ **P1.2 已修复**（import 的 n_pop）                                  |
+| 类别                             | 数量  | 严重程度                                             |
+| -------------------------------- | ----- | ---------------------------------------------------- |
+| QuickJS 独有 opcode（已对齐）    | 0     | ✅ 已全部添加（P2），部分 parser 路径待 P4 启用      |
+| Zhuque 独有 opcode（IC 保留）    | 3     | 低（inline cache 优化）                              |
+| Zhuque 独有 opcode（对齐后废弃） | **6** | **P5 已清理** — 全部 6 个定义+runtime handler 已删除 |
+| 编码格式不同                     | 4     | ✅ **P3 已解决**（var_ref 对齐 QuickJS）             |
+| stack effect 不同                | 0     | ✅ **P1.2 已修复**（import 的 n_pop）                |
 
 **结论**：两份字节码定义总体一致，核心差异集中在：
 
@@ -245,7 +245,7 @@ self.emit_op(OpCode::NEG);
 
 最核心的设计哲学差异在于：**QuickJS 在第三阶段集中做优化和压缩**，而 **Zhuque 将这些分散到解析时选择不同 opcode（如 IC variant）和 resolve 阶段的转换中**。
 
-**对齐后**：Zhuque 将合并 QuickJS 的 var_ref 运行时模型（代码密度 + 执行效率双赢），同时保留自身的 Inline Cache 和隐式 LINE_NUM 优势。**Temp opcode** 体系已完全一致无需改动。6 个对齐后冗余的 **final** opcode（含 `with_get_ref_undef`，详见 13.7 节）在最后阶段统一移除（P5）。
+**对齐后**：Zhuque 已合并 QuickJS 的 var_ref 运行时模型（代码密度 + 执行效率双赢），同时保留自身的 Inline Cache 和隐式 LINE_NUM 优势。**Temp opcode** 体系已完全一致无需改动。6 个对齐后冗余的 **final** opcode（含 `with_get_ref_undef`，详见 13.7 节）已在 P5 中统一移除。
 
 ---
 
@@ -281,13 +281,13 @@ emit_op_u8: if line_num 变了 → emit LINE_NUM + (line_num, line_pos)  // 行�
 
 ### 阶段划分总表
 
-| 阶段   | 名称                     | 修改内容概要                                                                                                                                | 验证方式                         | 状态            |
-| ------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | --------------- |
-| **P1** | Source pos + import 修复 | `LINE_NUM` (**temp**) 扩展为存 (line_num, line_pos)；import (**final**) 修复 n_pop=2                                                        | test262 回归；栈追踪行列信息正确 | ✅ **已完成**   |
-| **P2** | 新增 opcode 定义         | build_opcodes.rs 加 4 个 **final** opcode，运行时加 stub handler                                                                            | 编译通过，test262 回归           | ✅ **已完成**   |
-| **P3** | var_ref 格式迁移         | Resolve 阶段改 emit var_ref；运行时改 var_ref 寻址                                                                                          | test262 全局变量 + 控制流测试    | ✅ **已完成**   |
-| **P4** | Parser 配套改动          | super() 发 INIT_CTOR (**final**)；for-await 改发 FOR_AWAIT_OF_NEXT (**final**)                                                              | test262 class/async 测试         | ✅ **已完成**   |
-| **P5** | 废弃 opcode 清理         | 删除 6 个 **final** opcode（check_var/put_var_strict/define_var/check_define_var/define_func/with_get_ref_undef），resolve 与运行时路径切换 | test262 全面回归                 | ⚠️ **部分完成** |
+| 阶段   | 名称                     | 修改内容概要                                                                                                                                | 验证方式                         | 状态          |
+| ------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ------------- |
+| **P1** | Source pos + import 修复 | `LINE_NUM` (**temp**) 扩展为存 (line_num, line_pos)；import (**final**) 修复 n_pop=2                                                        | test262 回归；栈追踪行列信息正确 | ✅ **已完成** |
+| **P2** | 新增 opcode 定义         | build_opcodes.rs 加 4 个 **final** opcode，运行时加 stub handler                                                                            | 编译通过，test262 回归           | ✅ **已完成** |
+| **P3** | var_ref 格式迁移         | Resolve 阶段改 emit var_ref；运行时改 var_ref 寻址                                                                                          | test262 全局变量 + 控制流测试    | ✅ **已完成** |
+| **P4** | Parser 配套改动          | super() 发 INIT_CTOR (**final**)；for-await 改发 FOR_AWAIT_OF_NEXT (**final**)                                                              | test262 class/async 测试         | ✅ **已完成** |
+| **P5** | 废弃 opcode 清理         | 删除 6 个 **final** opcode（check_var/put_var_strict/define_var/check_define_var/define_func/with_get_ref_undef），resolve 与运行时路径清理 | test262 全面回归                 | ✅ **已完成** |
 
 > **Temp opcode 已对齐**：`def!`（OpCodeTemp）级别，Zhuque 与 QuickJS 的 19 个 temp opcode **完全一致**（`with_get_ref_undef` 是 final opcode，非 temp，见 13.7 节）。short_opcode 暂不涉及，将来独立追加。
 
@@ -494,7 +494,7 @@ bc_out.extend(u16::to_ne_bytes(var_ref_idx));  // 2B
 
 **实现细节**：
 
-- `FOR_AWAIT_OF_NEXT` handler 调用 `next()` 前设置 `SP_PUT!(-1, JSValue::UNDEFINED)` 禁用 catch_offset，与 QuickJS `js_for_await_of_next` 中 `sp[-1] = JS_UNDEFINED` 完全一致，防止异常时关闭（可能已损坏的）迭代器
+- `FOR_AWAIT_OF_NEXT` handler 调用 `next()` 前设置 `SP_PUT!(-1, JSValue::UNDEFINED)` 禁用 catch_offset，调用成功后立即恢复（P5.3 修复），防止异常时关闭（可能已损坏的）迭代器
 - `FOR_OF_NEXT` 和 `FOR_AWAIT_OF_NEXT` 已拆分为独立的 handler
 - Parser 中 async for-of 循环 emit `FOR_AWAIT_OF_NEXT` + `AWAIT` + `ITERATOR_GET_VALUE_DONE`，与 QuickJS `js_parse_for_in_of` 中 async 路径完全一致
 
@@ -504,17 +504,15 @@ bc_out.extend(u16::to_ne_bytes(var_ref_idx));  // 2B
 
 ---
 
-### P5：废弃 opcode 清理（最后阶段）⚠️ 部分已完成
+### P5：废弃 opcode 清理 ✅ 已完成
 
 **目的**：P3 var_ref 迁移 + P4 parser 改完后，QuickJS 对齐路径已稳定。在最后阶段统一删除已不再使用的 opcode，杜绝两套体系并存。
 
-**清理对象**：5 个 **final** opcode（check_var/put_var_strict/define_var/check_define_var/define_func）+ 1 个 **final** opcode（`with_get_ref_undef`，其语义合并入 `with_get_ref`，详见 13.7 节）。
+**清理对象**：6 个不再发射的 **final** opcode（check_var/put_var_strict/define_var/check_define_var/define_func/with_get_ref_undef）。
 
-**清理时机**：P3 var_ref 完成后，check_var/put_var_strict/define_var/with_get_ref_undef 已从 resolve_scoped_vars 发射中移除（实际不再产生）。`check_define_var` 仍在 resolve_vars.rs eval 路径中发射。等待 P4 parser 路径稳定后执行最终清理。
+#### P5.1 移除 build_opcodes.rs 中的定义 ✅ 已完成
 
-#### P5.1 移除 build_opcodes.rs 中的定义 ❌ 未实现
-
-| 移除 opcode          | 当前定义           | 替代路径                                                                                                                                                                       |
+| 移除 opcode          | 原定义             | 替代路径                                                                                                                                                                       |
 | -------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `check_var`          | 5B, ATOM           | `GET_VAR_UNDEF` + uninitialized fallback                                                                                                                                       |
 | `put_var_strict`     | 5B, ATOM           | `PUT_VAR` + runtime `is_strict_mode` 检查                                                                                                                                      |
@@ -523,24 +521,36 @@ bc_out.extend(u16::to_ne_bytes(var_ref_idx));  // 2B
 | `define_func`        | 6B, ATOM_U8        | `FCLOSURE` + `PUT_VAR` (`PUT_LOC`)，均为已有 **final** opcode                                                                                                                  |
 | `with_get_ref_undef` | 10B, ATOM_LABEL_U8 | 合并入 `with_get_ref`（QuickJS 中 `with_get_ref` 已内置 undef fallback，见 [quickjs.c#L20449-L20459](file:///Users/johnray/devel/quickjs-2026-06-04/quickjs.c#L20449-L20459)） |
 
-#### P5.2 删除 resolve 和运行时引用 ⚠️ 部分已完成（resolve_scoped_vars.rs），其余待继续
+#### P5.2 删除 resolve 和运行时引用 ✅ 已完成
 
-| 文件                                  | 状态 | 修改内容                                                                                                                     |
-| ------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `src/function/resolve_scoped_vars.rs` | ✅   | 已移除 emit `check_var`/`define_var`/`check_define_var`/`define_func`/`put_var_strict` 的代码路径（由 QuickJS 对齐路径替代） |
-| `src/function/resolve_vars.rs`        | ❌   | `check_define_var` 仍在 eval 路径中发射                                                                                      |
-| `src/bytecode/exec_stackless.rs`      | ❌   | 6 个 match arm 仍保留（含 `WITH_GET_REF_UNDEF`）                                                                             |
-| `src/function/resolve_labels.rs`      | ❌   | `OP_with_get_ref_undef` 的 match arm 未移除                                                                                  |
-| `src/function/stack.rs`               | ❌   | `OP_with_get_ref_undef` 的栈效应检查未移除                                                                                   |
+| 文件                                  | 状态 | 修改内容                                                                                                         |
+| ------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------------------- |
+| `src/function/resolve_scoped_vars.rs` | ✅   | 已移除 emit `check_var`/`define_var`/`check_define_var`/`define_func`/`put_var_strict` 的代码路径（P3 时已完成） |
+| `src/function/resolve_vars.rs`        | ✅   | 不存在引用                                                                                                       |
+| `src/bytecode/exec_stackless.rs`      | ✅   | 删除 CHECK_VAR、PUT_VAR_STRICT、WITH_GET_REF_UNDEF 三个 match arm                                                |
+| `src/function/resolve_labels.rs`      | ✅   | 删除 `OP_with_get_ref_undef` 的 match arm + `PUT_VAR_STRICT` 优化匹配                                            |
+| `src/function/stack.rs`               | ✅   | 删除 `OP_with_get_ref_undef` 的栈效应检查                                                                        |
+| `src/function/optimize.rs`            | ✅   | 删除 `PUT_VAR_STRICT` 优化匹配                                                                                   |
 
-#### P5.3 验证 ❌ 未实现
+#### P5.3 附加修复：FOR_AWAIT_OF_NEXT CatchOffset bug ✅ 已完成
 
-全量 test262 回归，确保：
+在 P5 回归测试中发现 `for-await-of + 解构 + return` 触发的 `nip_catch` 内部错误。修复见 [exec_stackless.rs:2293-2303](file:///Users/johnray/devel/zhuque/src/bytecode/exec_stackless.rs#L2293-L2303)：
 
-- 废弃 opcode 不再出现在任何字节码中
-- `PUT_VAR` 的 strict mode 行为与之前 `put_var_strict` 一致
-- `define_var`/`check_define_var`/`define_func` 的语义由 resolve 路径 + 已有 opcode 组合等价覆盖
-- `with` 语句中变量访问的行为不变（`with_get_ref` 内置 undef fallback 后语义等价于原 `with_get_ref_undef`）
+```rust
+// FOR_AWAIT_OF_NEXT 在调用 next() 前禁用 catch_offset 防止异常时错误关闭迭代器，
+// 调用成功后必须恢复 catch_offset，否则循环体内 return 触发的 NIP_CATCH 找不到标记。
+let saved_catch = SP_VAL!(-1);  // 保存
+SP_PUT!(-1, JSValue::UNDEFINED); // 禁用
+// ... call next() ...
+SP_PUT!(-1, saved_catch);  // 恢复 ← 关键修复
+SP_PUT!(0, obj);
+```
+
+#### P5.4 验证 ✅ 已完成
+
+- `cargo build` — 编译通过
+- `cargo test` — 单元测试通过
+- test262 回归 — 通过（含 `for-await-of + 解构 + return` 用例）
 
 ---
 
@@ -554,15 +564,16 @@ P1 (source_pos + import)       ← ✅ 已完成
     ├──→ P3 (var_ref 迁移)     ← ✅ 已完成
     │         └── P3.1~P3.6 (var_ref 迁移)
     │
-    └──→ P4 (parser)           ← ❌ 待实施 (依赖 P2 + P3)
+    └──→ P4 (parser)           ← ✅ 已完成
          └── P4.1 (init_ctor)
          └── P4.2 (set_loc_check)
          └── P4.3 (for_await_of)
     │
-    └──→ P5 (cleanup)          ← ⚠️ 部分完成 (resolve_scoped_vars 已清理，其余待继续)
+    └──→ P5 (cleanup)          ← ✅ 已完成
+                               (含 FOR_AWAIT_OF_NEXT CatchOffset 修复)
 ```
 
-P1、P2、P3 **均已完成**。P4.2 **已完成**，P4.1/4.3 待实施。**P5 部分完成**：resolve_scoped_vars 中废弃 opcode 的 emit 已移除，build_opcodes.rs 定义、exec_stackless.rs 运行时 handler 等待继续。
+P1~P5 **全部已完成**。所有对齐目标均已实现。废弃的 6 个 final opcode 已从定义、运行时和 resolve 路径中移除。
 
 ### 保留不变的内容
 
@@ -605,14 +616,14 @@ P1、P2、P3 **均已完成**。P4.2 **已完成**，P4.1/4.3 待实施。**P5 �
 - **QuickJS 方式**：在 resolve 阶段 `ENTER_SCOPE` 处理中，函数声明类似 `FCLOSURE + PUT_VAR` 或 `FCLOSURE + PUT_LOC`。不需要专门的 define_func final opcode
 - **结论**：**冗余**，`FCLOSURE` + `PUT_VAR`（或 `PUT_LOC`）即可表达
 
-#### 处理方案
+#### 处理方案（已执行 ✅）
 
-| 阶段              | 操作                                                                 |
-| ----------------- | -------------------------------------------------------------------- |
-| P2（新增 opcode） | 不新增，这些 opcode 也不是对齐目标                                   |
-| P3 完成后         | 从 `build_opcodes.rs` 中**移除**这 5 个 opcode 的 `DEF!` 定义        |
-| P3 完成后         | resolve_scoped_vars.rs 中引用这些 opcode 的路径改为 QuickJS 对齐路径 |
-| P3 完成后         | exec_stackless.rs 中删除对应 match arm                               |
+| 阶段 | 操作                                                                   |
+| ---- | ---------------------------------------------------------------------- |
+| P5   | 从 `build_opcodes.rs` 中**移除**这 6 个 opcode 的 `DEF!` 定义          |
+| P5   | resolve_scoped_vars.rs 中引用这些 opcode 的路径已改为 QuickJS 对齐路径 |
+| P5   | exec_stackless.rs 中删除对应 match arm                                 |
+| P5   | resolve_labels.rs/stack.rs/optimize.rs 中删除引用                      |
 
 > **原则**：对齐后的字节码体系以 QuickJS 为标准，不在标准之外的 opcode 没有保留理由。保留两套语义等价但实现不同的路径，增加维护负担而无实际收益。
 
@@ -773,7 +784,7 @@ Zhuque 将这一逻辑拆分成了两个 final opcode：`with_get_ref`（抛异�
 | Zhuque  | 2 个（拆分为两个 final opcode） |
 | 对齐后  | 1 个（合并回 `with_get_ref`）   |
 
-**处理方案**：已列入 P5 废弃 opcode 清理范围，与 5 个变量定义系列 opcode 一并移除。
+**处理方案**：已在 P5 中删除 `with_get_ref_undef` 的 `DEF!` 定义及相关 runtime handler，与 5 个变量定义系列 opcode 一并移除。
 
 ---
 

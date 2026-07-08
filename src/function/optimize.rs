@@ -371,7 +371,7 @@ impl FunctionDef {
         // post_inc put_x drop -> inc put_x
         // post_inc put_x(n) get_x(n) drop -> inc set_x(n)  (compound assignment)
         // post_inc perm3 put_field drop -> inc put_field
-        // post_inc perm3 put_var_strict drop -> inc put_var_strict
+        // post_inc perm3 put_field drop -> inc put_field
         // post_inc perm4 put_array_el drop -> inc put_array_el
         if let Some(cc) = self.code_match(
             *pos_next,
@@ -427,7 +427,7 @@ impl FunctionDef {
             *pos_next,
             &[
                 OpCode::PERM3 as _,
-                M2(OpCode::PUT_FIELD as _, OpCode::PUT_VAR_STRICT as _),
+                OpCode::PUT_FIELD as _,
                 OpCode::DROP as _,
             ],
         ) {
