@@ -5,10 +5,11 @@ use gc_lite::GcNode;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
-    JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
-    JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
-    JS_CLASS_UINT32_ARRAY,
+    JS_CLASS_FLOAT16_ARRAY, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY,
+    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
+    builtins::typed_array::f16_to_f64,
     context::ScopedContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
     function::prop_str_to_atom,
@@ -225,6 +226,17 @@ impl ObjectImpl {
             }
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
                 unimplemented!()
+            }
+            JS_CLASS_FLOAT16_ARRAY => {
+                let o = Object::from_ref(self);
+                let ta = o.as_TypedArray().unwrap();
+                return if idx < ta.length() {
+                    Some(Ok(JSValue::from(
+                        ta.with_elements_as::<u16, _>(|lst| f16_to_f64(lst[idx])),
+                    )))
+                } else {
+                    None
+                };
             }
             JS_CLASS_FLOAT32_ARRAY => {
                 typed_array_el!(f32, f64);

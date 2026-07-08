@@ -3,9 +3,10 @@
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW,
-    JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
-    JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    ScopedContext,
+    JS_CLASS_FLOAT16_ARRAY, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY,
+    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT16_ARRAY,
+    JS_CLASS_UINT32_ARRAY, ScopedContext,
+    builtins::typed_array::{f16_to_f64, f64_to_f16},
     class::ClassID,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef},
@@ -125,6 +126,15 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 ctx.throw_type_error("BigUint64Array is not supported");
                 Err(-1)
             }
+            JS_CLASS_FLOAT16_ARRAY => {
+                let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
+                let n = if le {
+                    u16::from_le_bytes(bb)
+                } else {
+                    u16::from_be_bytes(bb)
+                };
+                Ok(JSValue::from(f16_to_f64(n)))
+            }
             JS_CLASS_FLOAT32_ARRAY => {
                 let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
                 let n = if le {
@@ -171,6 +181,8 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     } else if class_id <= JS_CLASS_BIG_UINT64_ARRAY {
         ctx.throw_type_error("BigInt is not supported");
         return Err(-1);
+    } else if class_id == JS_CLASS_FLOAT16_ARRAY {
+        v = f64_to_f16(val.to_number(ctx)?.to_f64()) as u32;
     } else {
         let d: f64 = val.to_number(ctx)?.to_f64();
         if class_id == JS_CLASS_FLOAT32_ARRAY {
@@ -214,7 +226,7 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     *ptr = v as u8;
                     Ok(())
                 }
-                JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY => {
+                JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY | JS_CLASS_FLOAT16_ARRAY => {
                     let bb = if le {
                         (v as u16).to_le_bytes()
                     } else {
@@ -337,6 +349,12 @@ pub const js_dataview_proto_funcs: &[FieldDef] = &[
     //     JS_CLASS_BIG_UINT64_ARRAY as i16
     // ),
     FieldDef::FUNC(
+        "getFloat16",
+        1,
+        js_dataview_getValue,
+        JS_CLASS_FLOAT16_ARRAY as i16,
+    ),
+    FieldDef::FUNC(
         "getFloat32",
         1,
         js_dataview_getValue,
@@ -396,6 +414,12 @@ pub const js_dataview_proto_funcs: &[FieldDef] = &[
     //     js_dataview_setValue,
     //     JS_CLASS_BIG_UINT64_ARRAY as i16
     // ),
+    FieldDef::FUNC(
+        "setFloat16",
+        2,
+        js_dataview_setValue,
+        JS_CLASS_FLOAT16_ARRAY as i16,
+    ),
     FieldDef::FUNC(
         "setFloat32",
         2,

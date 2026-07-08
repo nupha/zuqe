@@ -7,8 +7,8 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
-    JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
-    JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
+    JS_CLASS_FLOAT16_ARRAY, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY,
+    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::Atom,
     builtins::array_buffer::ArrayBuffer,
@@ -176,6 +176,7 @@ object_cast!(
         | JS_CLASS_UINT32_ARRAY
         | JS_CLASS_BIG_INT64_ARRAY
         | JS_CLASS_BIG_UINT64_ARRAY
+        | JS_CLASS_FLOAT16_ARRAY
         | JS_CLASS_FLOAT32_ARRAY
         | JS_CLASS_FLOAT64_ARRAY
 );
@@ -192,6 +193,7 @@ impl TypedArray {
         2, // JS_CLASS_UINT32_ARRAY
         3, // JS_CLASS_BIG_INT64_ARRAY
         3, // JS_CLASS_BIG_UINT64_ARRAY
+        1, // JS_CLASS_FLOAT16_ARRAY
         2, // JS_CLASS_FLOAT32_ARRAY
         3, // JS_CLASS_FLOAT64_ARRAY
     ];
@@ -310,6 +312,7 @@ impl TypedArray {
             JS_CLASS_INT16_ARRAY => ObjectPayload::INT16_ARRAY(ta),
             JS_CLASS_INT32_ARRAY => ObjectPayload::INT32_ARRAY(ta),
             JS_CLASS_UINT32_ARRAY => ObjectPayload::UINT32_ARRAY(ta),
+            JS_CLASS_FLOAT16_ARRAY => ObjectPayload::FLOAT16_ARRAY(ta),
             JS_CLASS_FLOAT32_ARRAY => ObjectPayload::FLOAT32_ARRAY(ta),
             JS_CLASS_FLOAT64_ARRAY => ObjectPayload::FLOAT64_ARRAY(ta),
             c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
@@ -431,6 +434,10 @@ impl TypedArray {
                                                 unreachable!();
                                             }
                                         }
+                                    }
+                                    JS_CLASS_FLOAT16_ARRAY => {
+                                        let n = n.to_f64();
+                                        bytes.extend(f64_to_f16(n).to_ne_bytes());
                                     }
                                     JS_CLASS_FLOAT32_ARRAY | JS_CLASS_FLOAT64_ARRAY => {
                                         let n = n.to_f64();
@@ -648,6 +655,9 @@ impl TypedArray {
         if nth < self.length() {
             let cid = self.class_id();
             self.with_bytes_mut(|buf| match cid {
+                JS_CLASS_FLOAT16_ARRAY => unsafe {
+                    *buf.as_mut_ptr().cast::<u16>().add(nth) = f64_to_f16(val);
+                },
                 JS_CLASS_FLOAT32_ARRAY => unsafe {
                     *buf.as_mut_ptr().cast::<f32>().add(nth) = val as f32;
                 },
@@ -743,4 +753,130 @@ impl TypedArray {
             None
         }
     }
+}
+
+// float16 (IEEE 754 half-precision) conversion functions
+
+/// Convert f64 to IEEE 754 half-precision (float16) bits stored as u16.
+/// Uses round-to-nearest, ties-to-even rounding.
+#[inline]
+pub(crate) fn f64_to_f16(f64_val: f64) -> u16 {
+    // Convert through f32 first
+    let f = f64_val as f32;
+    let bits = f.to_bits();
+    let sign = (bits >> 31) as u16;
+    let exp = ((bits >> 23) & 0xff) as i32;
+    let mantissa = bits & 0x7fffff;
+
+    if exp == 0xff {
+        // NaN or Inf
+        if mantissa != 0 {
+            // NaN - canonical NaN for f16: exp=all 1s, leading mantissa bit set
+            return (sign << 15) | 0x7c00 | 0x0200 | ((mantissa >> 13) as u16);
+        }
+        return (sign << 15) | 0x7c00; // Inf
+    }
+
+    if exp == 0 {
+        // Zero/subnormal f32 -> zero in f16
+        return sign << 15;
+    }
+
+    let f16_exp = exp - 127 + 15; // rebias from f32 to f16
+    if f16_exp >= 0x1f {
+        // Use f64 to avoid f32 precision loss at the overflow boundary
+        if f64_val.abs() < 65520.0 {
+            return (sign << 15) | 0x7BFF; // max normal
+        }
+        return (sign << 15) | 0x7c00; // Inf
+    }
+
+    if f16_exp <= 0 {
+        // Subnormal (or underflow to zero)
+        // Use original f64 value for precision (f32 loses tie-breaking)
+        // f16 subnormal: value = mantissa10 * 2^(-24)
+        // mantissa10 = round(f64_val * 2^24), with ties-to-even
+        let scaled = f64_val * 16777216.0; // 2^24, exact in f64
+        if scaled <= 0.5 {
+            return sign << 15; // < halfway to min subnormal: underflow to zero
+        }
+        if scaled >= 1024.0 {
+            return (sign << 15) | 0x0400; // round up to min normal
+        }
+        let truncated = scaled.trunc();
+        let fract = scaled - truncated;
+        let mantissa10 = if fract > 0.5 || (fract == 0.5 && (truncated as u64) % 2 == 1) {
+            truncated + 1.0
+        } else {
+            truncated
+        } as u64;
+        if mantissa10 == 0 {
+            return sign << 15;
+        }
+        if mantissa10 >= 1024 {
+            return (sign << 15) | 0x0400;
+        }
+        return (sign << 15) | (mantissa10 as u16);
+    }
+
+    // Normal number with round-to-nearest, ties-to-even
+    let m = (mantissa >> 13) as u16; // top 10 mantissa bits
+    let rounding = mantissa & 0x1fff; // bottom 13 bits being discarded
+    let halfway: u32 = 0x1000; // 2^12: the halfway point
+
+    let round_up = rounding > halfway || (rounding == halfway && (m & 1) == 1);
+
+    if round_up {
+        let m_plus = m + 1;
+        if m_plus == 0x400 {
+            // Overflow into exponent
+            let final_exp = f16_exp + 1;
+            if final_exp >= 0x1f {
+                if f64_val.abs() < 65520.0 {
+                    return (sign << 15) | 0x7BFF; // max normal (65504)
+                }
+                return (sign << 15) | 0x7c00; // overflow to Inf
+            }
+            return (sign << 15) | ((final_exp as u16) << 10);
+        }
+        (sign << 15) | ((f16_exp as u16) << 10) | m_plus
+    } else {
+        (sign << 15) | ((f16_exp as u16) << 10) | m
+    }
+}
+
+/// Convert IEEE 754 half-precision bits (u16) to f64.
+#[inline]
+pub(crate) fn f16_to_f64(bits: u16) -> f64 {
+    let sign = ((bits >> 15) as u32) << 31;
+    let exp = ((bits >> 10) & 0x1f) as u32;
+    let mantissa = (bits & 0x3ff) as u32;
+
+    if exp == 0x1f {
+        // NaN or Inf
+        if mantissa != 0 {
+            // NaN: convert to f64 quiet NaN
+            return f64::from_bits(
+                (sign as u64) << 32 | 0x7ff8_0000_0000_0000 | (mantissa as u64) << 42,
+            );
+        }
+        // Inf
+        return f64::from_bits((sign as u64) << 32 | 0x7ff0_0000_0000_0000);
+    }
+
+    if exp == 0 {
+        if mantissa == 0 {
+            // Zero (preserve sign)
+            return f64::from_bits((sign as u64) << 32);
+        }
+        // Subnormal: value = mantissa × 2^(-24)
+        return if sign != 0 {
+            -(mantissa as f64) * (1.0 / 16777216.0)
+        } else {
+            (mantissa as f64) * (1.0 / 16777216.0)
+        };
+    }
+
+    // Normal number
+    f32::from_bits(sign | (((exp as i32 - 15 + 127) as u32) << 23) | (mantissa << 13)) as f64
 }
