@@ -24,6 +24,7 @@ pub(crate) static CLASS_DEF_UINT16_ARRAY: ClassDef = ta_class_def!(CONST_Uint16A
 pub(crate) static CLASS_DEF_INT16_ARRAY: ClassDef = ta_class_def!(CONST_Int16Array);
 pub(crate) static CLASS_DEF_UINT32_ARRAY: ClassDef = ta_class_def!(CONST_Uint32Array);
 pub(crate) static CLASS_DEF_INT32_ARRAY: ClassDef = ta_class_def!(CONST_Int32Array);
+pub(crate) static CLASS_DEF_FLOAT16_ARRAY: ClassDef = ta_class_def!(CONST_Float16Array);
 pub(crate) static CLASS_DEF_FLOAT32_ARRAY: ClassDef = ta_class_def!(CONST_Float32Array);
 pub(crate) static CLASS_DEF_FLOAT64_ARRAY: ClassDef = ta_class_def!(CONST_Float64Array);
 pub(crate) static CLASS_DEF_BIG_INT64_ARRAY: ClassDef = ta_class_def!(CONST_BigInt64Array);

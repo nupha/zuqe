@@ -4,9 +4,10 @@
 use std::cmp::Ordering;
 
 use crate::{
-    Array, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT32_ARRAY,
-    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
-    JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    Array, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT16_ARRAY,
+    JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
+    JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
+    JS_CLASS_UINT32_ARRAY,
     atom::Atom,
     builtins::{
         array::{
@@ -18,6 +19,7 @@ use crate::{
         array_buffer::ABufData,
         iterator::{JSIteratorKindEnum, js_create_array_iterator},
         js_get_this,
+        typed_array::{f16_to_f64, f64_to_f16},
     },
     class::ClassID,
     context::ScopedContext,
@@ -508,6 +510,10 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             v64 = val.to_number(ctx)?.to_u32() as _;
         }
 
+        JS_CLASS_FLOAT16_ARRAY => {
+            let d: f64 = val.to_number(ctx)?.to_f64();
+            v64 = f64_to_f16(d) as u64;
+        }
         JS_CLASS_FLOAT32_ARRAY => {
             let d: f64 = val.to_number(ctx)?.to_f64();
             v64 = unsafe {
@@ -1062,6 +1068,45 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             JS_CLASS_UINT32_ARRAY => {
                 sort!(u32, 2, JSValue::from)
             }
+            JS_CLASS_FLOAT16_ARRAY => abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
+                unsafe {
+                    let p = buf.as_mut_ptr().cast::<u16>();
+                    let len = buf.len() >> 1;
+                    let mut vec: Vec<f32> =
+                        (0..len).map(|i| f16_to_f64(*p.add(i)) as f32).collect();
+
+                    if let Some(cmp_fn) = cmp.to_object() {
+                        let mut has_error = false;
+                        vec.sort_by(|a, b| {
+                            if !has_error {
+                                if let Ok(r) = call_cmp_fn(
+                                    ctx,
+                                    cmp_fn,
+                                    JSValue::from(*a as f64),
+                                    JSValue::from(*b as f64),
+                                ) {
+                                    r
+                                } else {
+                                    has_error = true;
+                                    Ordering::Equal
+                                }
+                            } else {
+                                Ordering::Equal
+                            }
+                        });
+                        if has_error {
+                            return Err(-1);
+                        }
+                    } else {
+                        sort_f32_slice(&mut vec);
+                    }
+
+                    for (i, &v) in vec.iter().enumerate() {
+                        *p.add(i) = f64_to_f16(v as f64);
+                    }
+                }
+                Ok(())
+            }),
             JS_CLASS_FLOAT32_ARRAY => abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
                 let slice = unsafe {
                     std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<f32>(), buf.len() >> 2)
@@ -1337,6 +1382,76 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         JS_CLASS_UINT32_ARRAY if is_int && (v64 as u32) as i64 == v64 => {
             let v = v64 as u32;
             find!(u32, 2, v);
+        }
+        JS_CLASS_FLOAT16_ARRAY => {
+            if d.is_nan() {
+                if special == special_includes {
+                    // includes finds NaN
+                    let found =
+                        ta.with_elements_as::<u16, Option<usize>>(|lst| {
+                            if inc > 0 {
+                                lst.iter()
+                                    .skip(k as usize)
+                                    .position(|x| f16_to_f64(*x).is_nan())
+                            } else {
+                                lst.iter().enumerate().take(k as usize + 1).rev().find_map(
+                                    |(i, x)| {
+                                        if f16_to_f64(*x).is_nan() {
+                                            Some(i)
+                                        } else {
+                                            None
+                                        }
+                                    },
+                                )
+                            }
+                        });
+
+                    if let Some(i) = found {
+                        res = i as i32;
+                    }
+                } else {
+                    // indexOf() returns -1
+                    return Ok(JSValue::Int(-1));
+                }
+            } else if d == 0.0 {
+                // Zero: Both +0 (0x0000) and -0 (0x8000) should match
+                // due to SameValueZero semantics: (+0, -0) are equal
+                let found = ta.with_bytes(|buf| {
+                    let lst = unsafe {
+                        std::slice::from_raw_parts(buf.as_ptr().cast::<u16>(), buf.len() >> 1)
+                    };
+                    let it = lst.iter().enumerate();
+                    if inc > 0 {
+                        debug_assert!(k >= 0);
+                        it.skip(k as usize).find_map(|(i, x)| {
+                            if *x == 0x0000 || *x == 0x8000 {
+                                Some(i)
+                            } else {
+                                None
+                            }
+                        })
+                    } else {
+                        debug_assert!((0..lst.len() as i32).contains(&k));
+                        it.take(k as usize + 1).rev().find_map(|(i, x)| {
+                            if *x == 0x0000 || *x == 0x8000 {
+                                Some(i)
+                            } else {
+                                None
+                            }
+                        })
+                    }
+                });
+                if let Some(i) = found {
+                    res = i as i32;
+                }
+            } else {
+                // Need to check exact match: convert d to f16 and back, compare
+                let f16 = f64_to_f16(d);
+                let f = f16_to_f64(f16);
+                if f == d {
+                    find!(u16, 1, f16);
+                }
+            }
         }
         JS_CLASS_FLOAT32_ARRAY => {
             if d.is_nan() {
