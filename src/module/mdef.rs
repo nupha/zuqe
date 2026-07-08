@@ -29,6 +29,7 @@ pub type ModuleNormalizeFn = fn(
 pub type ModuleLoadFn = fn(
     ctx: &mut ScopedContext,
     module_name: &str,
+    attrs: JSValue,
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<ModuleDef, i32>;
 
@@ -90,6 +91,9 @@ pub struct ModuleDefImpl {
     eval_error: JSValue,
     /// the `import.meta` object of module
     pub meta_obj: Option<Object>,
+
+    /// Import attributes (e.g. `type: "json"`)
+    pub(super) attributes: JSValue,
 }
 
 impl GcTrace for ModuleDefImpl {
@@ -121,6 +125,7 @@ impl GcTrace for ModuleDefImpl {
             x.trace(tr)
         }
         self.eval_error.trace(tr);
+        self.attributes.trace(tr);
     }
 }
 
@@ -159,6 +164,7 @@ impl ModuleDefImpl {
             eval_error: JSValue::UNDEFINED,
 
             meta_obj: None,
+            attributes: JSValue::UNDEFINED,
         }
     }
 

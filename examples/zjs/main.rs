@@ -15,8 +15,8 @@ use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use libloading::Library;
 use zuqe::{
-    Context, EvalFlags, EvalType, Exception, ExitStatus, ModuleDef, Runtime, ScopedContext,
-    builtins::promise::Promise,
+    Context, EvalFlags, EvalType, Exception, ExitStatus, JSValue, ModuleDef, Runtime,
+    ScopedContext, builtins::promise::Promise,
 };
 
 use crate::{
@@ -360,6 +360,7 @@ pub type JsInitModuleFn = fn(&mut ScopedContext, &str) -> Result<ModuleDef, i32>
 fn js_module_loader(
     ctx: &mut ScopedContext,
     file_name: &str,
+    attrs: JSValue,
     _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     if file_name.ends_with(".dylib") || file_name.ends_with(".so") || file_name.ends_with(".dll") {
@@ -395,9 +396,28 @@ fn js_module_loader(
             }
         }
     } else {
-        // js file
-        match std::fs::read(file_name) {
-            Ok(buf) => ctx.compile_module(&buf, file_name, false),
+        // js file — check for import attributes: type: "json"
+        let is_json = attrs.is_object()
+            && attrs
+                .get_property_str(ctx, "type")
+                .map(|v| {
+                    v.as_string()
+                        .is_some_and(|s| s.content().encode_utf8(false).as_ref() == "json")
+                })
+                .unwrap_or(false);
+
+        match std::fs::read_to_string(file_name) {
+            Ok(content) => {
+                if is_json {
+                    // JSON module: wrap as `export default <json>;\n`
+                    let mut src = String::from("export default ");
+                    src.push_str(&content);
+                    src.push('\n');
+                    ctx.compile_module(src.as_bytes(), file_name, false)
+                } else {
+                    ctx.compile_module(content.as_bytes(), file_name, false)
+                }
+            }
             Err(_) => {
                 ctx.throw_reference_error(&format!("could not load module '{file_name}'"));
                 Err(-1)

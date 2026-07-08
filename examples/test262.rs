@@ -212,10 +212,21 @@ fn setup_ctx_test262_helpers(ctx: &mut ScopedContext) -> Result<JSValue, i32> {
 pub fn js_module_loader(
     ctx: &mut ScopedContext,
     module_name: &str,
+    attrs: JSValue,
     _opaque: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
-    match std::fs::read(module_name) {
-        Ok(buf) => {
+    // Check for import attributes: type: "json"
+    let is_json = attrs.is_object()
+        && attrs
+            .get_property_str(ctx, "type")
+            .map(|v| {
+                v.as_string()
+                    .is_some_and(|s| s.content().encode_utf8(false).as_ref() == "json")
+            })
+            .unwrap_or(false);
+
+    match std::fs::read_to_string(module_name) {
+        Ok(content) => {
             // make abs url
             let p = PathBuf::from(module_name);
             let mut normalized = PathBuf::new();
@@ -232,7 +243,15 @@ pub fn js_module_loader(
             }
             let abs_url = format!("{}", normalized.display());
 
-            ctx.compile_module(buf.as_slice(), &abs_url, false)
+            if is_json {
+                // JSON module: wrap as `export default <json>;\n`
+                let mut src = String::from("export default ");
+                src.push_str(&content);
+                src.push('\n');
+                ctx.compile_module(src.as_bytes(), &abs_url, false)
+            } else {
+                ctx.compile_module(content.as_bytes(), &abs_url, false)
+            }
         }
         Err(_) => {
             ctx.throw_reference_error(&format!("could not load module '{module_name}'"));

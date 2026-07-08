@@ -7,7 +7,9 @@ use crate::{
     error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
     function::{FunctionKind, JSVarDefEnum, JSVarKindEnum},
     module::{ExportType, ImportEntry, ModuleDef},
+    object::JS_PROP_C_W_E,
     string::{StringRef, Utf8Stream},
+    value::JSValue,
 };
 
 use super::{
@@ -22,9 +24,9 @@ pub enum JSParseExportEnum {
 }
 
 impl<'s> JSParseState<'s> {
-    /// return atom of module name.
+    /// return (module_name, attributes).
     /// returned atom is duplicated, caller should free it after use.
-    fn parse_from_clause(&mut self) -> Result<Atom, i32> {
+    fn parse_from_clause(&mut self) -> Result<(Atom, JSValue), i32> {
         if !self.token_is_pseudo_keyword(Atom::CONST_from) {
             self.throw_syntax_error("from clause expected");
             return Err(-1);
@@ -46,7 +48,89 @@ impl<'s> JSParseState<'s> {
 
         self.next_token()?;
 
-        Ok(module_name)
+        let attributes = self.parse_with_clause()?;
+
+        Ok((module_name, attributes))
+    }
+
+    /// Parse optional `with { key: 'value', ... }` clause after `from '...'`.
+    /// Returns either a JS object or JSValue::UNDEFINED if no `with` keyword.
+    fn parse_with_clause(&mut self) -> Result<JSValue, i32> {
+        if self.token.kind != TokenKind::WITH {
+            return Ok(JSValue::UNDEFINED);
+        }
+
+        self.next_token()?; // skip 'with'
+        self.parse_expect(TokenKind::Char('{'))?; // expect '{'
+
+        let mut attributes;
+        let mut keys: Vec<Atom>;
+        {
+            let ctx = self.ctx();
+            attributes = ctx.create_base_object()?;
+            keys = Vec::new();
+        }
+
+        while self.token.kind != TokenKind::Char('}') {
+            // --- Parse key (extract token data before acquiring ctx) ---
+            let key = if self.token.kind == TokenKind::STRING {
+                let sbuf = self.token.data.take_string().unwrap();
+                let ctx = self.ctx();
+                let s = ctx.create_string_with_buf(sbuf)?;
+                s.to_atom(ctx, AtomKind::String)?
+            } else if self.token.kind == TokenKind::IDENT || self.token.kind.is_keyword() {
+                self.token.atom().unwrap()
+            } else {
+                self.throw_syntax_error("identifier or string expected");
+                return Err(-1);
+            };
+
+            self.next_token()?;
+
+            if self.token.kind != TokenKind::Char(':') {
+                self.throw_syntax_error("expected ':'");
+                return Err(-1);
+            }
+            self.next_token()?;
+
+            if self.token.kind != TokenKind::STRING {
+                self.throw_syntax_error("string expected");
+                return Err(-1);
+            }
+
+            // --- Parse value (extract token data before acquiring ctx) ---
+            let sbuf = self.token.data.take_string().unwrap();
+            let val = {
+                let ctx = self.ctx();
+                let s = ctx.create_string_with_buf(sbuf)?;
+                JSValue::from(s)
+            };
+
+            // Check for duplicate keys
+            if keys.contains(&key) {
+                self.throw_syntax_error("duplicate with key");
+                return Err(-1);
+            }
+            keys.push(key);
+
+            // Set property (ctx acquired in a block, then dropped)
+            {
+                let ctx = self.ctx();
+                attributes.define_property_value(ctx, key, val, JS_PROP_C_W_E)?;
+            }
+
+            self.next_token()?;
+
+            if self.token.kind == TokenKind::Char(',') {
+                self.next_token()?;
+            } else {
+                break;
+            }
+        }
+
+        self.parse_expect(TokenKind::Char('}'))?;
+
+        Ok(JSValue::from(attributes))
     }
 
     /// parse import statement
@@ -57,16 +141,26 @@ impl<'s> JSParseState<'s> {
         self.next_token()?;
 
         let first_import = md.import_entries.len();
-        let module_name: Atom;
 
         if self.token.kind == TokenKind::STRING {
             // import "module-name"
-            let t = self.token.data.string().unwrap().to_utf8().to_string();
+            let sbuf = self.token.data.take_string().unwrap();
             let ctx = self.ctx();
-            let s = StringRef::create_utf8(ctx, t.into())?;
-            module_name = Atom::from_string(ctx, s, AtomKind::String)?;
+            let s = ctx.create_string_with_buf(sbuf)?;
+            let module_name = s.to_atom(ctx, AtomKind::String)?;
 
             self.next_token()?;
+
+            // import "module-name" with { ... } — optional with clause
+            // (parse_with_clause returns UNDEFINED if no 'with' keyword)
+            let attrs = self.parse_with_clause()?;
+            let idx = md.add_dependency(self.ctx(), module_name, attrs)?;
+            for imp in &mut md.import_entries[first_import..] {
+                imp.req_module_idx = idx as _;
+            }
+
+            self.parse_expect_semi()?;
+            return Ok(());
         } else {
             let done = if self.token.kind == TokenKind::IDENT {
                 // import <default>
@@ -165,16 +259,16 @@ impl<'s> JSParseState<'s> {
                 }
             }
 
-            module_name = self.parse_from_clause()?;
-        }
+            let (module_name, attrs) = self.parse_from_clause()?;
 
-        let idx = md.add_dependency(self.ctx(), module_name)?;
-        for imp in &mut md.import_entries[first_import..] {
-            imp.req_module_idx = idx as _;
-        }
+            let idx = md.add_dependency(self.ctx(), module_name, attrs)?;
+            for imp in &mut md.import_entries[first_import..] {
+                imp.req_module_idx = idx as _;
+            }
 
-        self.parse_expect_semi()?;
-        Ok(())
+            self.parse_expect_semi()?;
+            Ok(())
+        }
     }
 
     pub fn parse_export(&mut self) -> Result<(), i32> {
@@ -285,8 +379,8 @@ impl<'s> JSParseState<'s> {
 
                 // Handle re-exports
                 if self.token_is_pseudo_keyword(Atom::CONST_from) {
-                    let module_name = self.parse_from_clause()?;
-                    let idx = md.add_dependency(self.ctx(), module_name)?;
+                    let (module_name, attrs) = self.parse_from_clause()?;
+                    let idx = md.add_dependency(self.ctx(), module_name, attrs)?;
                     for me in &mut md.export_entries[first_export..] {
                         me.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _);
                     }
@@ -319,8 +413,8 @@ impl<'s> JSParseState<'s> {
 
                     self.next_token()?;
 
-                    let module_name = self.parse_from_clause()?;
-                    let r = md.add_dependency(self.ctx(), module_name);
+                    let (module_name, attrs) = self.parse_from_clause()?;
+                    let r = md.add_dependency(self.ctx(), module_name, attrs);
 
                     let idx = r?;
                     self.add_module_export(
@@ -330,8 +424,8 @@ impl<'s> JSParseState<'s> {
                         ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _),
                     )?;
                 } else {
-                    let module_name = self.parse_from_clause()?;
-                    let dep_idx = md.add_dependency(self.ctx(), module_name);
+                    let (module_name, attrs) = self.parse_from_clause()?;
+                    let dep_idx = md.add_dependency(self.ctx(), module_name, attrs);
 
                     md.add_star_export_entry(self.ctx(), dep_idx?)?;
                 }

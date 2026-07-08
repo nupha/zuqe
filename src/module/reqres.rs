@@ -7,6 +7,7 @@ use crate::{
     atom::Atom,
     context::{ContextImpl, ScopedContext},
     module::ModuleDef,
+    value::JSValue,
 };
 
 #[derive(Debug)]
@@ -14,6 +15,9 @@ pub struct ModuleDependency {
     pub module_name: Atom,
     /// None when module is not resolved.
     pub module: Option<ModuleDef>,
+    /// Import attributes from `with { ... }` clause, or JSValue::UNDEFINED if absent.
+    /// A JS object mapping string keys to string values (e.g. { type: "json" }).
+    pub attributes: JSValue,
 }
 
 impl GcTrace for ModuleDependency {
@@ -22,6 +26,7 @@ impl GcTrace for ModuleDependency {
         if let Some(x) = self.module {
             x.trace(tr)
         }
+        self.attributes.trace(tr);
     }
 }
 
@@ -31,6 +36,7 @@ impl ModuleDef {
         &mut self,
         ctx: &mut ScopedContext,
         module_name: Atom,
+        attributes: JSValue,
     ) -> Result<u16, i32> {
         if let Some(i) = self
             .dependencies
@@ -51,6 +57,7 @@ impl ModuleDef {
         self.dependencies.push(ModuleDependency {
             module_name,
             module: None,
+            attributes,
         });
 
         // return the new dep index
@@ -85,6 +92,7 @@ impl<'c> ScopedContext<'c> {
                     self,
                     &base_module_name,
                     &dep.module_name,
+                    dep.attributes,
                 )?;
                 dep.module = Some(m1);
                 self.resolve_module(m1)?;
@@ -110,6 +118,7 @@ pub(super) fn js_host_resolve_imported_module(
     ctx: &mut ScopedContext,
     base_name: &str,
     name: &str,
+    attrs: JSValue,
 ) -> Result<ModuleDef, i32> {
     // normalize module name
     let norm_name = if let Some(cb) = ctx.rt().module_normalize_func {
@@ -127,7 +136,7 @@ pub(super) fn js_host_resolve_imported_module(
 
     // load module
     if let Some(cb) = ctx.rt_ptr().module_load_func {
-        cb(ctx, &norm_name, ctx.rt_ptr().module_load_opaque)
+        cb(ctx, &norm_name, attrs, ctx.rt_ptr().module_load_opaque)
     } else {
         #[cfg(debug_assertions)]
         println!("WARN: module loader function is not set, can't import module.");
@@ -142,10 +151,11 @@ fn js_host_resolve_imported_module_atom(
     ctx: &mut ScopedContext,
     base_module_name: &Atom,
     module_name1: &Atom,
+    attrs: JSValue,
 ) -> Result<ModuleDef, i32> {
     let base_cname = base_module_name.to_utf8(ctx.rt());
     let cname = module_name1.to_utf8(ctx.rt());
-    js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)
+    js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname, attrs)
 }
 
 /// Canonicalize a path, stripping the Windows `\\?\` prefix that `canonicalize()` adds.
