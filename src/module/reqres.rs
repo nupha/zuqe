@@ -87,11 +87,13 @@ impl<'c> ScopedContext<'c> {
             let base_module_name = m.module_name;
 
             // resolve dependency modules
+            let base_utf8 = base_module_name.to_utf8(self.rt());
             for dep in m.dependencies.iter_mut() {
-                let m1 = js_host_resolve_imported_module_atom(
+                let dep_utf8 = dep.module_name.to_utf8(self.rt());
+                let m1 = js_host_resolve_imported_module(
                     self,
-                    &base_module_name,
-                    &dep.module_name,
+                    &base_utf8,
+                    &dep_utf8,
                     dep.attributes,
                 )?;
                 dep.module = Some(m1);
@@ -157,18 +159,6 @@ pub(super) fn js_host_resolve_imported_module(
         ctx.throw_reference_error(&format!("could not load module '{}'", norm_name));
         Err(-1)
     }
-}
-
-#[inline(always)]
-fn js_host_resolve_imported_module_atom(
-    ctx: &mut ScopedContext,
-    base_module_name: &Atom,
-    module_name1: &Atom,
-    attrs: JSValue,
-) -> Result<ModuleDef, i32> {
-    let base_cname = base_module_name.to_utf8(ctx.rt());
-    let cname = module_name1.to_utf8(ctx.rt());
-    js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname, attrs)
 }
 
 /// Canonicalize a path, stripping the Windows `\\?\` prefix that `canonicalize()` adds.
