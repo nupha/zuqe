@@ -4,7 +4,7 @@
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext,
+    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_RAWJSON, JS_CLASS_STRING, ScopedContext,
     atom::Atom,
     builtins::iterator::JSIteratorKindEnum,
     error::JSResult,
@@ -207,6 +207,16 @@ fn js_json_to_str(
                     return jsc
                         .buf
                         .push_content(val.to_string(ctx)?.content())
+                        .map_err(|_| {
+                            ctx.throw_out_of_memory();
+                            -1
+                        });
+                }
+                JS_CLASS_RAWJSON => {
+                    let raw = val.get_property(ctx, Atom::CONST_rawJSON)?;
+                    return jsc
+                        .buf
+                        .push_content(raw.to_string(ctx)?.content())
                         .map_err(|_| {
                             ctx.throw_out_of_memory();
                             -1
