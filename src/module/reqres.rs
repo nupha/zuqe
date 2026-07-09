@@ -81,21 +81,17 @@ impl ContextImpl {
 impl<'c> ScopedContext<'c> {
     /// Load all the required modules (dependent modules) for module 'm'.
     /// TODO: migrate to ModuleDef::resolve()
-    pub fn resolve_module(&mut self, mut m: ModuleDef) -> Result<(), i32> {
-        if !m.resolved {
-            m.resolved = true;
-            let base_module_name = m.module_name;
+    pub fn resolve_module(&mut self, mut md: ModuleDef) -> Result<(), i32> {
+        if !md.resolved {
+            md.resolved = true;
+            let base_utf8 = md.module_name.to_utf8(self.rt());
 
             // resolve dependency modules
-            let base_utf8 = base_module_name.to_utf8(self.rt());
-            for dep in m.dependencies.iter_mut() {
+            for dep in md.dependencies.iter_mut() {
                 let dep_utf8 = dep.module_name.to_utf8(self.rt());
-                let m1 = js_host_resolve_imported_module(
-                    self,
-                    &base_utf8,
-                    &dep_utf8,
-                    dep.attributes,
-                )?;
+                let m1 =
+                    js_host_resolve_imported_module(self, &base_utf8, &dep_utf8, dep.attributes)?;
+
                 dep.module = Some(m1);
                 self.resolve_module(m1)?;
             }
