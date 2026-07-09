@@ -120,16 +120,29 @@ pub(super) fn js_host_resolve_imported_module(
     name: &str,
     attrs: JSValue,
 ) -> Result<ModuleDef, i32> {
-    // normalize module name
+    // Native modules are registered in `loaded_modules` under their verbatim
+    // name. Check this *before* normalization: normalizing would otherwise mangle
+    // a bare native name like "os" into an absolute path (e.g. "C:/cwd/os") and the
+    // registry lookup below would miss it. Running before any host normalizer also
+    // makes native imports detected uniformly for both the default and custom
+    // normalizers. After this early return, only non-native specifiers reach the
+    // normalize + load path below.
+    let name_atom = Atom::from_str(ctx, name)?;
+    if let Some(m) = ctx.find_loaded_module(name_atom) {
+        if m.is_native() {
+            return Ok(m);
+        }
+    }
+
+    // normalize module name (non-native specifiers only)
     let norm_name = if let Some(cb) = ctx.rt().module_normalize_func {
         cb(ctx, base_name, name, ctx.rt_ptr().module_load_opaque)
     } else {
-        js_default_module_normalize_name(ctx, base_name, name)
+        js_default_module_normalize_name(base_name, name)
     }?;
 
-    let module_name = Atom::from_str(ctx, &norm_name)?;
-
     // search in loaded_modules
+    let module_name = Atom::from_str(ctx, &norm_name)?;
     if let Some(m) = ctx.find_loaded_module(module_name) {
         return Ok(m);
     }
@@ -188,16 +201,14 @@ fn canonicalize_path<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<std:
 }
 
 /// default module filename normalizer
-fn js_default_module_normalize_name(
-    _: &mut ScopedContext,
-    base_name: &str,
-    name: &str,
-) -> Result<String, i32> {
-    // Bare names (not starting with '.') are global, not relative to base
-    if !name.starts_with('.') {
-        return Ok(name.to_string());
-    }
-
+///
+/// Called only for non-native specifiers: native modules are resolved earlier in
+/// `js_host_resolve_imported_module`, before normalization runs. This function
+/// therefore treats the specifier purely as a filesystem path.
+fn js_default_module_normalize_name(base_name: &str, name: &str) -> Result<String, i32> {
+    // Treat as a filesystem path, resolving relative to `base`'s directory.
+    // `Path::join` returns `name` unchanged when it is absolute, so a leading `/`,
+    // `C:\`, `C:/` (or any `is_absolute()` path) is handled correctly too.
     let base_dir = std::path::Path::new(base_name)
         .parent()
         .unwrap_or(std::path::Path::new(""));
@@ -205,11 +216,21 @@ fn js_default_module_normalize_name(
     let resolved = base_dir.join(name);
 
     // Canonicalize if the file exists, otherwise use absolute to resolve ./ and ../
-    if let Ok(p) = canonicalize_path(&resolved) {
-        Ok(p.to_string_lossy().into_owned())
+    let raw = if let Ok(p) = canonicalize_path(&resolved) {
+        p.to_string_lossy().into_owned()
     } else if let Ok(p) = std::path::absolute(&resolved) {
-        Ok(p.to_string_lossy().into_owned())
+        p.to_string_lossy().into_owned()
     } else {
-        Ok(resolved.to_string_lossy().into_owned())
-    }
+        resolved.to_string_lossy().into_owned()
+    };
+
+    // On Windows, `canonicalize` yields '\' separators while glob/embedders and the
+    // top-level module name use '/'. Normalize to '/' so the module-name cache key
+    // is comparable; otherwise the same module loaded via a dynamic `import()` gets
+    // a different name than the top-level module and is re-evaluated.
+    // On Unix, '\' is a legal filename character, so it must be left untouched.
+    #[cfg(windows)]
+    let raw = raw.replace('\\', "/");
+
+    Ok(raw)
 }

@@ -285,6 +285,19 @@ impl<'c> ScopedContext<'c> {
     ) -> JSResult {
         if eval_type == EvalType::Module {
             // compile source into module def, then run the module def. returns Promise
+
+            // On Windows, `canonicalize` yields '\' separators; normalize the module
+            // filename to '/' so its cache key matches the top-level module name.
+            // The two `#[cfg(windows)]` lines shadow `filename`: the first produces an
+            // owned normalized `String`, the second borrows it back as `&str` so the
+            // type stays identical on both platforms. On non-Windows both lines are
+            // compiled out and the original `&str` parameter is used verbatim — '\' is
+            // a legal filename character there, so no normalization is wanted.
+            #[cfg(windows)]
+            let _f = filename.replace('\\', "/");
+            #[cfg(windows)]
+            let filename = _f.as_str();
+
             let mut md = self.compile_module(source, filename, flags.contains(EvalFlags::STRIP))?;
             md.set_import_meta(self, filename, true)?;
             md.evaluate(self).map(JSValue::from)
