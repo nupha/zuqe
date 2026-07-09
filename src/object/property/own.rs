@@ -41,13 +41,13 @@ impl ObjectImpl {
     /// Returns shape property index (the slot index, not the sequence) and prop flags if the prop exists.
     #[inline]
     pub(crate) fn find_shape_property(&self, prop: Atom) -> Option<(usize, u32)> {
-        self.shape().and_then(|sh| {
-            sh.prop_defs
-                .find_hash(prop.id())
-                .filter(|&(i, _)| !matches!(self.prop_slot(i), JSProperty::Deleted))
-                .map(|(i, prs)| (i, prs.flags()))
-                .next()
-        })
+        let sh = self.shape()?;
+        for (i, prs) in sh.prop_defs.find_hash(prop.id()) {
+            if !matches!(self.prop_slot(i), JSProperty::Deleted) {
+                return Some((i, prs.flags()));
+            }
+        }
+        None
     }
 
     /// Check if given property name exists in shape.
