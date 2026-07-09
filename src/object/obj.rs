@@ -52,6 +52,7 @@ impl ObjectFlags {
     const MASK_IS_UNCATCHABLE_ERROR: u32 = 0x0200_0000;
     const MASK_TMP_MARK: u32 = 0x0100_0000;
     const MASK_IS_HTMLDDA: u32 = 0x0080_0000;
+    const MASK_CLASS_ID: u32 = 0x0000_FFFF;
 
     pub const fn extensible(&self) -> bool {
         self.bitfield & Self::MASK_EXTENSIBLE != 0
@@ -152,6 +153,16 @@ impl ObjectFlags {
         } else {
             self.bitfield &= !Self::MASK_IS_HTMLDDA;
         }
+    }
+
+    /// Cached `ClassID`, stored in the low 16 bits (see struct doc).
+    /// Keeps `class_id()` an O(1) field load instead of a `match` over the
+    /// payload enum (which dereferences each boxed variant).
+    pub(crate) const fn class_id(&self) -> ClassID {
+        (self.bitfield & Self::MASK_CLASS_ID) as ClassID
+    }
+    const fn set_class_id(&mut self, id: ClassID) {
+        self.bitfield = (self.bitfield & !Self::MASK_CLASS_ID) | (id as u32 & Self::MASK_CLASS_ID);
     }
 }
 
@@ -344,6 +355,10 @@ impl ObjectImpl {
             }
         }
 
+        // cache class id in the flags bitfield (low 16 bits) so that
+        // `ObjectImpl::class_id()` is an O(1) field load (no payload match).
+        flags.set_class_id(payload.class_id());
+
         let mut obj = ctx
             .alloc_local(Self {
                 rt: ctx.rt_ptr(),
@@ -407,7 +422,7 @@ impl ObjectImpl {
 
     #[inline(always)]
     pub const fn class_id(&self) -> ClassID {
-        self.payload.class_id()
+        self.obj_flags.class_id()
     }
 
     /// Get object class name atom.
