@@ -16,7 +16,42 @@ use crate::{
 
 use super::{JSMapIteratorData, JSMapState, MapPair};
 
-pub fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+/// Get the internal JSMapState from a Map/Set/WeakMap/WeakSet value (throws if not the target class).
+fn get_jsmap_state<'s>(
+    val: &'s JSValue,
+    class_id: ClassID,
+    ctx: &mut ScopedContext,
+) -> Result<&'s JSMapState, i32> {
+    Ok(val.retrive_object_payload(ctx, class_id)?.mapset().unwrap())
+}
+
+/// Try to get the internal JSMapState (returns None if not the target class).
+fn try_get_jsmap_state(val: &JSValue, class_id: ClassID) -> Option<&JSMapState> {
+    val.retrive_object_payload0(class_id)
+        .and_then(|p| p.mapset())
+}
+
+/// Get the mutable internal JSMapState from a Map/Set/WeakMap/WeakSet value (throws if not the target class).
+fn get_jsmap_state_mut<'s>(
+    val: &'s mut JSValue,
+    class_id: ClassID,
+    ctx: &mut ScopedContext,
+) -> Result<&'s mut JSMapState, i32> {
+    Ok(val
+        .retrive_object_payload_mut(ctx, class_id)?
+        .mapset_mut()
+        .unwrap())
+}
+
+/// Iterate over all Strong keys in a JSMapState.
+fn strong_keys(state: &JSMapState) -> impl Iterator<Item = JSValue> + '_ {
+    state.slots.iter().filter_map(|pair| match pair {
+        MapPair::Strong { key, .. } => Some(*key),
+        _ => None,
+    })
+}
+
+pub(crate) fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let is_set = magic & 1 == 1;
     let is_weak = matches!(magic, 2 | 3);
@@ -79,14 +114,9 @@ pub fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
 pub(crate) fn js_map_get(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let key = cc.arg(0);
-    cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
-        .map(|r| {
-            r.mapset()
-                .unwrap()
-                .find(ctx, key)
-                .unwrap_or(JSValue::UNDEFINED)
-        })
+    let this = cc.this();
+    let state = get_jsmap_state(&this, JS_CLASS_MAP + cc.magic() as ClassID, ctx)?;
+    Ok(state.find(ctx, key).unwrap_or(JSValue::UNDEFINED))
 }
 
 pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -96,10 +126,7 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut key = cc.arg(0);
     let val = cc.arg(1);
 
-    let s = this
-        .retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)?
-        .mapset_mut()
-        .unwrap();
+    let s = get_jsmap_state_mut(&mut this, JS_CLASS_MAP + magic as ClassID, ctx)?;
 
     if s.is_weak() && !key.is_object() {
         ctx.throw_type_error_not_an_object();
@@ -141,49 +168,43 @@ fn js_map_delete(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let mut key = cc.arg(0);
 
-    let mut this2 = this;
-    this2
-        .retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)
-        .map(|isa| {
-            let s = isa.mapset_mut().unwrap();
-            if s.find(ctx, key).is_some() {
-                s.remove(ctx, key);
+    let mut this_mut = this;
+    let s = get_jsmap_state_mut(&mut this_mut, JS_CLASS_MAP + magic as ClassID, ctx)?;
+    if s.find(ctx, key).is_some() {
+        s.remove(ctx, key);
 
-                if s.is_weak() {
-                    key.as_object_mut()
-                        .unwrap()
-                        .remove_back_ref(ctx.rt(), this.as_object().copied().unwrap());
-                }
+        if s.is_weak() {
+            key.as_object_mut()
+                .unwrap()
+                .remove_back_ref(ctx.rt(), this.as_object().copied().unwrap());
+        }
 
-                JSValue::Bool(true)
-            } else {
-                JSValue::Bool(false)
-            }
-        })
+        Ok(JSValue::Bool(true))
+    } else {
+        Ok(JSValue::Bool(false))
+    }
 }
 
 fn js_map_has(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let key = cc.arg(0);
-    cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
-        .map(|r| r.mapset().unwrap().find(ctx, key).is_some().into())
+    let this = cc.this();
+    let state = get_jsmap_state(&this, JS_CLASS_MAP + cc.magic() as ClassID, ctx)?;
+    Ok(state.find(ctx, key).is_some().into())
 }
 
 fn js_map_clear(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
 
     let mut this = cc.this();
-    this.retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)
-        .map(|isa| {
-            isa.mapset_mut().unwrap().clear();
-            JSValue::UNDEFINED
-        })
+    let s = get_jsmap_state_mut(&mut this, JS_CLASS_MAP + magic as ClassID, ctx)?;
+    s.clear();
+    Ok(JSValue::UNDEFINED)
 }
 
 fn js_map_get_size(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
-        .map(|r| JSValue::Int(r.mapset().unwrap().len() as i32))
+    let this = cc.this();
+    let state = get_jsmap_state(&this, JS_CLASS_MAP + cc.magic() as ClassID, ctx)?;
+    Ok(JSValue::Int(state.len() as i32))
 }
 
 fn js_map_forEach(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -197,10 +218,7 @@ fn js_map_forEach(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut this = cc.this();
 
     // lock map, and ensure `this` is an object of expected class_id.
-    this.retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)?
-        .mapset_mut()
-        .unwrap()
-        .lock();
+    get_jsmap_state_mut(&mut this, JS_CLASS_MAP + magic as ClassID, ctx)?.lock();
 
     let mut this_obj = *this.as_object().unwrap();
     let mut has_err = false;
@@ -436,27 +454,17 @@ fn js_set_isDisjointFrom(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let other = cc.arg(0);
 
-    let this_state = this
-        .retrive_object_payload(ctx, JS_CLASS_SET)?
-        .mapset()
-        .unwrap();
+    let this_state = get_jsmap_state(&this, JS_CLASS_SET, ctx)?;
 
     // Fast path: other is an internal Set
-    if let Some(other_state) = other
-        .retrive_object_payload0(JS_CLASS_SET)
-        .and_then(|p| p.mapset())
-    {
+    if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
         // iterate over the smaller set for efficiency
         let (iter_set, check_set) = if this_state.len() <= other_state.len() {
             (this_state, other_state)
         } else {
             (other_state, this_state)
         };
-        for pair in &iter_set.slots {
-            let key = match pair {
-                MapPair::Strong { key, .. } => *key,
-                _ => continue,
-            };
+        for key in strong_keys(iter_set) {
             if check_set.find(ctx, key).is_some() {
                 return Ok(JSValue::Bool(false));
             }
@@ -490,11 +498,7 @@ fn js_set_isDisjointFrom(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     // Strategy: iterate this, check other.has
-    for pair in &this_state.slots {
-        let key = match pair {
-            MapPair::Strong { key, .. } => *key,
-            _ => continue,
-        };
+    for key in strong_keys(this_state) {
         let found = rec.has.call(ctx, other, &[key])?;
         if found.to_bool()? {
             return Ok(JSValue::Bool(false));
@@ -508,24 +512,14 @@ fn js_set_isSubsetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let other = cc.arg(0);
 
-    let this_state = this
-        .retrive_object_payload(ctx, JS_CLASS_SET)?
-        .mapset()
-        .unwrap();
+    let this_state = get_jsmap_state(&this, JS_CLASS_SET, ctx)?;
 
     // Fast path: other is an internal Set
-    if let Some(other_state) = other
-        .retrive_object_payload0(JS_CLASS_SET)
-        .and_then(|p| p.mapset())
-    {
+    if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
         if this_state.len() > other_state.len() {
             return Ok(JSValue::Bool(false));
         }
-        for pair in &this_state.slots {
-            let key = match pair {
-                MapPair::Strong { key, .. } => *key,
-                _ => continue,
-            };
+        for key in strong_keys(this_state) {
             if other_state.find(ctx, key).is_none() {
                 return Ok(JSValue::Bool(false));
             }
@@ -542,11 +536,7 @@ fn js_set_isSubsetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     // Iterate this, check other.has
-    for pair in &this_state.slots {
-        let key = match pair {
-            MapPair::Strong { key, .. } => *key,
-            _ => continue,
-        };
+    for key in strong_keys(this_state) {
         let found = rec.has.call(ctx, other, &[key])?;
         if !found.to_bool()? {
             return Ok(JSValue::Bool(false));
@@ -560,24 +550,14 @@ fn js_set_isSupersetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let other = cc.arg(0);
 
-    let this_state = this
-        .retrive_object_payload(ctx, JS_CLASS_SET)?
-        .mapset()
-        .unwrap();
+    let this_state = get_jsmap_state(&this, JS_CLASS_SET, ctx)?;
 
     // Fast path: other is an internal Set
-    if let Some(other_state) = other
-        .retrive_object_payload0(JS_CLASS_SET)
-        .and_then(|p| p.mapset())
-    {
+    if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
         if other_state.len() > this_state.len() {
             return Ok(JSValue::Bool(false));
         }
-        for pair in &other_state.slots {
-            let key = match pair {
-                MapPair::Strong { key, .. } => *key,
-                _ => continue,
-            };
+        for key in strong_keys(other_state) {
             if this_state.find(ctx, key).is_none() {
                 return Ok(JSValue::Bool(false));
             }
@@ -618,34 +598,21 @@ fn js_set_intersection(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let other = cc.arg(0);
 
-    let this_state = this
-        .retrive_object_payload(ctx, JS_CLASS_SET)?
-        .mapset()
-        .unwrap();
+    let this_state = get_jsmap_state(&this, JS_CLASS_SET, ctx)?;
 
     let mut result = create_empty_set(ctx, this_state.len())?;
-    let result_mut = result
-        .retrive_object_payload_mut(ctx, JS_CLASS_SET)?
-        .mapset_mut()
-        .unwrap();
+    let result_state = get_jsmap_state_mut(&mut result, JS_CLASS_SET, ctx)?;
 
     // Fast path: other is an internal Set
-    if let Some(other_state) = other
-        .retrive_object_payload0(JS_CLASS_SET)
-        .and_then(|p| p.mapset())
-    {
+    if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
         let (iter_set, check_set) = if this_state.len() <= other_state.len() {
             (this_state, other_state)
         } else {
             (other_state, this_state)
         };
-        for pair in &iter_set.slots {
-            let key = match pair {
-                MapPair::Strong { key, .. } => *key,
-                _ => continue,
-            };
+        for key in strong_keys(iter_set) {
             if check_set.find(ctx, key).is_some() {
-                result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+                result_state.upsert(ctx, key, JSValue::UNDEFINED)?;
             }
         }
         return Ok(result);
@@ -669,21 +636,17 @@ fn js_set_intersection(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }
             let value = result_val.get_property(ctx, Atom::CONST_value)?;
             if this_state.find(ctx, value).is_some() {
-                result_mut.upsert(ctx, value, JSValue::UNDEFINED)?;
+                result_state.upsert(ctx, value, JSValue::UNDEFINED)?;
             }
         }
         return Ok(result);
     }
 
     // Strategy: iterate this, check other.has → add to result
-    for pair in &this_state.slots {
-        let key = match pair {
-            MapPair::Strong { key, .. } => *key,
-            _ => continue,
-        };
+    for key in strong_keys(this_state) {
         let found = rec.has.call(ctx, other, &[key])?;
         if found.to_bool()? {
-            result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+            result_state.upsert(ctx, key, JSValue::UNDEFINED)?;
         }
     }
 
@@ -695,29 +658,16 @@ fn js_set_difference(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let other = cc.arg(0);
 
-    let this_state = this
-        .retrive_object_payload(ctx, JS_CLASS_SET)?
-        .mapset()
-        .unwrap();
+    let this_state = get_jsmap_state(&this, JS_CLASS_SET, ctx)?;
 
     let mut result = create_empty_set(ctx, this_state.len())?;
-    let result_mut = result
-        .retrive_object_payload_mut(ctx, JS_CLASS_SET)?
-        .mapset_mut()
-        .unwrap();
+    let result_state = get_jsmap_state_mut(&mut result, JS_CLASS_SET, ctx)?;
 
     // Fast path: other is an internal Set
-    if let Some(other_state) = other
-        .retrive_object_payload0(JS_CLASS_SET)
-        .and_then(|p| p.mapset())
-    {
-        for pair in &this_state.slots {
-            let key = match pair {
-                MapPair::Strong { key, .. } => *key,
-                _ => continue,
-            };
+    if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
+        for key in strong_keys(this_state) {
             if other_state.find(ctx, key).is_none() {
-                result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+                result_state.upsert(ctx, key, JSValue::UNDEFINED)?;
             }
         }
         return Ok(result);
@@ -729,12 +679,8 @@ fn js_set_difference(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this_len = this_state.len() as f64;
     if this_len > rec.size {
         // Strategy: copy this to result, iterate other's keys, remove matching
-        for pair in &this_state.slots {
-            let key = match pair {
-                MapPair::Strong { key, .. } => *key,
-                _ => continue,
-            };
-            result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+        for key in strong_keys(this_state) {
+            result_state.upsert(ctx, key, JSValue::UNDEFINED)?;
         }
 
         let iterator = rec.keys.call(ctx, other, &[])?;
@@ -749,21 +695,17 @@ fn js_set_difference(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }
             let value = result_val.get_property(ctx, Atom::CONST_value)?;
             if this_state.find(ctx, value).is_some() {
-                result_mut.remove(ctx, value);
+                result_state.remove(ctx, value);
             }
         }
         return Ok(result);
     }
 
     // Strategy: iterate this, check !other.has → add to result
-    for pair in &this_state.slots {
-        let key = match pair {
-            MapPair::Strong { key, .. } => *key,
-            _ => continue,
-        };
+    for key in strong_keys(this_state) {
         let found = rec.has.call(ctx, other, &[key])?;
         if !found.to_bool()? {
-            result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+            result_state.upsert(ctx, key, JSValue::UNDEFINED)?;
         }
     }
 
@@ -775,58 +717,32 @@ fn js_set_symmetricDifference(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let this = cc.this();
     let other = cc.arg(0);
 
-    let this_state = this
-        .retrive_object_payload(ctx, JS_CLASS_SET)?
-        .mapset()
-        .unwrap();
+    let this_state = get_jsmap_state(&this, JS_CLASS_SET, ctx)?;
 
     let mut result = create_empty_set(ctx, this_state.len() + 8)?;
-    let result_mut = result
-        .retrive_object_payload_mut(ctx, JS_CLASS_SET)?
-        .mapset_mut()
-        .unwrap();
+    let result_state = get_jsmap_state_mut(&mut result, JS_CLASS_SET, ctx)?;
 
     // Fast path: other is an internal Set
-    if let Some(other_state) = other
-        .retrive_object_payload0(JS_CLASS_SET)
-        .and_then(|p| p.mapset())
-    {
-        for pair in &this_state.slots {
-            let key = match pair {
-                MapPair::Strong { key, .. } => *key,
-                _ => continue,
-            };
+    if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
+        for key in strong_keys(this_state) {
             if other_state.find(ctx, key).is_none() {
-                result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+                result_state.upsert(ctx, key, JSValue::UNDEFINED)?;
             }
         }
-        for pair in &other_state.slots {
-            let key = match pair {
-                MapPair::Strong { key, .. } => *key,
-                _ => continue,
-            };
+        for key in strong_keys(other_state) {
             if this_state.find(ctx, key).is_none() {
-                result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+                result_state.upsert(ctx, key, JSValue::UNDEFINED)?;
             }
         }
         return Ok(result);
     }
 
     // Slow path: QuickJS copy-this-first algorithm
-    // 1. GetSetRecord (validate has+keys)
-    // 2. Copy this → result (preserves insertion order)
-    // 3. Iterate other's keys:
-    //    - if in this → remove from result
-    //    - if not in this → add to result
     let rec = get_set_record(ctx, other)?;
 
     // Copy this to result (preserves insertion order)
-    for pair in &this_state.slots {
-        let key = match pair {
-            MapPair::Strong { key, .. } => *key,
-            _ => continue,
-        };
-        result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+    for key in strong_keys(this_state) {
+        result_state.upsert(ctx, key, JSValue::UNDEFINED)?;
     }
 
     // Iterate other's keys, remove from/add to result
@@ -842,9 +758,9 @@ fn js_set_symmetricDifference(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         }
         let value = item.get_property(ctx, Atom::CONST_value)?;
         if this_state.find(ctx, value).is_some() {
-            result_mut.remove(ctx, value);
+            result_state.remove(ctx, value);
         } else {
-            result_mut.upsert(ctx, value, JSValue::UNDEFINED)?;
+            result_state.upsert(ctx, value, JSValue::UNDEFINED)?;
         }
     }
 
@@ -856,37 +772,18 @@ fn js_set_union(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let other = cc.arg(0);
 
-    let this_state = this
-        .retrive_object_payload(ctx, JS_CLASS_SET)?
-        .mapset()
-        .unwrap();
+    let this_state = get_jsmap_state(&this, JS_CLASS_SET, ctx)?;
 
     let mut result = create_empty_set(ctx, this_state.len() + 8)?;
-    let result_mut = result
-        .retrive_object_payload_mut(ctx, JS_CLASS_SET)?
-        .mapset_mut()
-        .unwrap();
+    let result_state = get_jsmap_state_mut(&mut result, JS_CLASS_SET, ctx)?;
 
     // Fast path: other is an internal Set
-    if let Some(other_state) = other
-        .retrive_object_payload0(JS_CLASS_SET)
-        .and_then(|p| p.mapset())
-    {
-        // Copy this's elements
-        for pair in &this_state.slots {
-            let key = match pair {
-                MapPair::Strong { key, .. } => *key,
-                _ => continue,
-            };
-            result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+    if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
+        for key in strong_keys(this_state) {
+            result_state.upsert(ctx, key, JSValue::UNDEFINED)?;
         }
-        // Copy other's elements
-        for pair in &other_state.slots {
-            let key = match pair {
-                MapPair::Strong { key, .. } => *key,
-                _ => continue,
-            };
-            result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+        for key in strong_keys(other_state) {
+            result_state.upsert(ctx, key, JSValue::UNDEFINED)?;
         }
         return Ok(result);
     }
@@ -896,12 +793,8 @@ fn js_set_union(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let rec = get_set_record(ctx, other)?;
 
     // 2. Copy all elements from this Set (after any mutations from step 1)
-    for pair in &this_state.slots {
-        let key = match pair {
-            MapPair::Strong { key, .. } => *key,
-            _ => continue,
-        };
-        result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+    for key in strong_keys(this_state) {
+        result_state.upsert(ctx, key, JSValue::UNDEFINED)?;
     }
 
     // 3. Iterate other's keys and add directly
@@ -916,7 +809,7 @@ fn js_set_union(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             break;
         }
         let value = item.get_property(ctx, Atom::CONST_value)?;
-        result_mut.upsert(ctx, value, JSValue::UNDEFINED)?;
+        result_state.upsert(ctx, value, JSValue::UNDEFINED)?;
     }
 
     Ok(result)
