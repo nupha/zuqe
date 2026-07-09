@@ -417,7 +417,7 @@ pub fn js_promise_withResolvers(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     Ok(obj.into())
 }
 
-pub fn js_promise_try(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+fn js_promise_try(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     if !this.is_object() {
         ctx.throw_type_error_not_an_object();
@@ -445,7 +445,7 @@ pub fn js_promise_try(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(result_promise.into())
 }
 
-pub const js_promise_funcs: &[FieldDef] = &[
+pub(super) const js_promise_funcs: &[FieldDef] = &[
     FieldDef::FUNC("resolve", 1, js_promise_resolve, 0),
     FieldDef::FUNC("reject", 1, js_promise_resolve, 1),
     FieldDef::FUNC("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
@@ -475,7 +475,7 @@ pub const js_promise_funcs: &[FieldDef] = &[
 //     Err(-1)
 // }
 
-pub const js_promise_proto_funcs: &[FieldDef] = &[
+pub(super) const js_promise_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("then", 2, js_promise_then, 0),
     FieldDef::FUNC("catch", 1, js_promise_catch, 0),
     FieldDef::FUNC("finally", 1, js_promise_finally, 0),

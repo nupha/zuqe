@@ -15,40 +15,39 @@ use crate::{
 
 use super::ArrayBuffer;
 
-//
-// Prototype
-//
-
-fn js_array_buffer_get_byteLength(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let class_id = cc.magic() as ClassID;
-
-    cc.this()
-        .retrive_object_payload(ctx, class_id)
-        .map(|isa| JSValue::from(isa.array_buffer().unwrap().byte_length() as i64))
-}
-
-fn js_array_buffer_detached(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    cc.this()
-        .as_object()
-        .filter(|o| o.class_id() == JS_CLASS_ARRAY_BUFFER)
-        .and_then(|o| {
-            o.payload()
-                .array_buffer()
-                .map(|p| JSValue::Bool(p.is_detached()))
-        })
+/// Get the `ArrayBuffer` payload for `this` with the given `class_id`.
+/// Throws TypeError if `this` is not an object of the expected class.
+fn get_array_buffer(
+    this: JSValue,
+    ctx: &mut ScopedContext,
+    class_id: ClassID,
+) -> Result<ArrayBuffer, i32> {
+    this.as_object()
+        .filter(|o| o.class_id() == class_id)
+        .map(|o| ArrayBuffer(o.gc_ref()))
         .ok_or_else(|| {
-            ctx.throw_type_error_invalid_class(JS_CLASS_ARRAY_BUFFER);
+            ctx.throw_type_error_invalid_class(class_id);
             -1
         })
 }
 
+fn js_array_buffer_get_byteLength(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let class_id = cc.magic() as ClassID;
+    let ab = get_array_buffer(cc.this(), ctx, class_id)?;
+    Ok(JSValue::from(ab.payload().byte_length() as i64))
+}
+
+fn js_array_buffer_detached(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let ab = get_array_buffer(cc.this(), ctx, JS_CLASS_ARRAY_BUFFER)?;
+    Ok(JSValue::Bool(ab.payload().is_detached()))
+}
+
 fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let class_id = cc.magic() as ClassID;
-
     let this = cc.this();
-    let abuf = this
-        .retrive_object_payload(ctx, class_id)
-        .map(|isa| isa.array_buffer().unwrap())?;
+
+    let ab = get_array_buffer(this, ctx, class_id)?;
+    let abuf = ab.payload();
 
     if abuf.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -66,11 +65,11 @@ fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_len = std::cmp::max(end - start, 0);
     let ctor = JS_SpeciesConstructor(ctx, this, JSValue::UNDEFINED)?;
 
-    let mut new_obj = if ctor.is_undefined() {
+    let new_obj = if ctor.is_undefined() {
         ArrayBuffer::with_capacity_ex(
             ctx,
             JSValue::UNDEFINED,
-            cc.magic() as ClassID == JS_CLASS_SHARED_ARRAY_BUFFER,
+            class_id == JS_CLASS_SHARED_ARRAY_BUFFER,
             new_len as usize,
             std::ptr::null_mut(),
         )
@@ -79,17 +78,15 @@ fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         ctor.call_ctor(ctx, &[JSValue::from(new_len)])
     }?;
 
-    let new_abuf = new_obj
-        .retrive_object_payload(ctx, class_id)
-        .map(|isa| isa.array_buffer().unwrap())?;
+    let mut new_ab = get_array_buffer(new_obj, ctx, class_id)?;
 
     if unlikely(new_obj.is_same(this)) {
         ctx.throw_type_error("cannot use identical ArrayBuffer");
         Err(-1)
-    } else if unlikely(new_abuf.is_detached()) {
+    } else if unlikely(new_ab.payload().is_detached()) {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         Err(-1)
-    } else if unlikely(new_abuf.byte_length() < new_len as usize) {
+    } else if unlikely(new_ab.payload().byte_length() < new_len as usize) {
         ctx.throw_type_error("new ArrayBuffer is too small");
         Err(-1)
     } else {
@@ -99,9 +96,7 @@ fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             return Err(-1);
         }
 
-        let new_abuf_mut = new_obj
-            .retrive_object_payload_mut(ctx, class_id)
-            .map(|isa| isa.array_buffer_mut().unwrap())?;
+        let new_abuf_mut = new_ab.payload_mut();
 
         abuf.with_bytes(|src| {
             new_abuf_mut.with_bytes_mut(|dst| unsafe {
@@ -115,6 +110,48 @@ fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
         Ok(new_obj)
     }
+}
+
+fn js_array_buffer_transfer(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let mut ab = get_array_buffer(cc.this(), ctx, JS_CLASS_ARRAY_BUFFER)?;
+
+    if ab.is_detached() {
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        return Err(-1);
+    }
+
+    let old_len = ab.payload().byte_length();
+
+    let new_len = if cc.length() < 1 || cc.arg(0).is_undefined() {
+        old_len
+    } else {
+        cc.arg(0).to_index(ctx)? as usize
+    };
+
+    let copy_len = std::cmp::min(old_len, new_len);
+
+    // Read old data before creating new ArrayBuffer to avoid borrow conflicts
+    let src = if copy_len > 0 {
+        let bytes = ab.payload().bytes();
+        bytes[..copy_len].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    // Create new ArrayBuffer
+    let mut new_ab = ArrayBuffer::create(ctx, false, new_len)?;
+
+    // Copy data into new buffer
+    if copy_len > 0 {
+        new_ab.payload_mut().with_bytes_mut(|dst| {
+            dst[..copy_len].copy_from_slice(&src);
+        });
+    }
+
+    // Detach old ArrayBuffer
+    ab.detatch(ctx);
+
+    Ok(JSValue::from(new_ab))
 }
 
 pub const js_array_buffer_proto_funcs: &[FieldDef] = &[
@@ -131,6 +168,8 @@ pub const js_array_buffer_proto_funcs: &[FieldDef] = &[
         js_array_buffer_slice,
         JS_CLASS_ARRAY_BUFFER as i16,
     ),
+    FieldDef::FUNC("transfer", 0, js_array_buffer_transfer, 0),
+    FieldDef::FUNC("transferToFixedLength", 0, js_array_buffer_transfer, 1),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE),
 ];
