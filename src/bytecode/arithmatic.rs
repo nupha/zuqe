@@ -7,7 +7,7 @@ use crate::{
     bytecode::OpCode,
     context::ScopedContext,
     error::JSResult,
-    number::{IntOrFloat, JSFloat64Union, js_f64_to_i32},
+    number::{IntOrFloat, js_f64_to_i32},
     utils::unlikely,
     value::{HINT_NONE, HINT_NUMBER, JSValue},
 };
@@ -481,23 +481,28 @@ impl JSValue {
 
     /// compare JSValues equality in given mode.
     /// Note: `self` and `other` are not consumed.
+    #[inline(always)]
     pub(crate) fn strict_eq_with_mode(&self, other: Self, eq_mode: StrictEqMode) -> bool {
-        if std::mem::discriminant(self) == std::mem::discriminant(&other) {
-            match (*self, other) {
-                (JSValue::Float64(a), JSValue::Int(b)) => cmp_f64(a, b as f64, eq_mode),
-                (JSValue::Float64(a), JSValue::Float64(b)) => cmp_f64(a, b, eq_mode),
-                _ => self.eq(&other),
-            }
-        } else {
-            match (*self, other) {
-                // int vs float
-                (JSValue::Int(i), JSValue::Float64(f)) | (JSValue::Float64(f), JSValue::Int(i))
-                    if f.is_finite() && f.trunc() == 0.0 =>
-                {
-                    cmp_f64(i as f64, f, eq_mode)
-                }
-                _ => false,
-            }
+        match (*self, other) {
+            (JSValue::Int(a), JSValue::Int(b)) => a == b,
+            (JSValue::Bool(a), JSValue::Bool(b)) => a == b,
+            (JSValue::Float64(a), JSValue::Float64(b)) => cmp_f64(a, b, eq_mode),
+            (JSValue::Float64(a), JSValue::Int(b)) => cmp_f64(a, b as f64, eq_mode),
+            (JSValue::Int(a), JSValue::Float64(b)) => cmp_f64(a as f64, b, eq_mode),
+            (JSValue::String(a), JSValue::String(b)) => a == b,
+            (JSValue::Object(a), JSValue::Object(b)) => a == b,
+            // singleton types
+            (JSValue::UNDEFINED, JSValue::UNDEFINED)
+            | (JSValue::NULL, JSValue::NULL)
+            | (JSValue::EXCEPTION, JSValue::EXCEPTION)
+            | (JSValue::UNINITIALIZED, JSValue::UNINITIALIZED) => true,
+            // composite types
+            (JSValue::Bytecode(a), JSValue::Bytecode(b)) => a == b,
+            (JSValue::Module(a), JSValue::Module(b)) => a == b,
+            (JSValue::CatchOffset(a), JSValue::CatchOffset(b)) => a == b,
+            #[cfg(feature = "builtin_symbol")]
+            (JSValue::Symbol(a), JSValue::Symbol(b)) => a == b,
+            _ => false,
         }
     }
 
@@ -723,25 +728,13 @@ fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, 
 }
 
 /// compare two f64 numbers
+#[inline(always)]
 fn cmp_f64(d1: f64, d2: f64, eq_mode: StrictEqMode) -> bool {
     match eq_mode {
-        StrictEqMode::JS_EQ_STRICT => {
-            // NaN return false, +0 == -0
-            d1 == d2
-        }
-
-        // cmp NaN
-        _ if d1.is_nan() || d2.is_nan() => d1.is_nan() == d2.is_nan(),
-
-        StrictEqMode::JS_EQ_SAME_VALUE => {
-            // +0 != -0
-            let u1 = JSFloat64Union { d: d1 };
-            let u2 = JSFloat64Union { d: d2 };
-            unsafe { u1.uint64 == u2.uint64 }
-        }
-        StrictEqMode::JS_EQ_SAME_VALUE_ZERO => {
-            // +0 == -0
-            d1 == d2
-        }
+        StrictEqMode::JS_EQ_STRICT => d1 == d2,
+        // SameValue: NaN == NaN, +0 != -0
+        StrictEqMode::JS_EQ_SAME_VALUE => d1.to_bits() == d2.to_bits(),
+        // SameValueZero: NaN == NaN, +0 == -0
+        StrictEqMode::JS_EQ_SAME_VALUE_ZERO => d1 == d2,
     }
 }
