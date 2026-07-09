@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_MAP, ScopedContext,
+    IntOrFloat, JS_CLASS_MAP, JS_CLASS_SET, ScopedContext,
     array::Array,
     atom::Atom,
     builtins::{iterator::JSIteratorKindEnum, js_get_this, mapset::MapSet},
@@ -329,6 +329,13 @@ pub const js_set_proto_funcs: &[FieldDef] = &[
         js_create_map_iterator,
         ((JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2) | 1,
     ),
+    FieldDef::FUNC("isDisjointFrom", 1, js_set_isDisjointFrom, 0),
+    FieldDef::FUNC("isSubsetOf", 1, js_set_isSubsetOf, 0),
+    FieldDef::FUNC("isSupersetOf", 1, js_set_isSupersetOf, 0),
+    FieldDef::FUNC("intersection", 1, js_set_intersection, 0),
+    FieldDef::FUNC("difference", 1, js_set_difference, 0),
+    FieldDef::FUNC("symmetricDifference", 1, js_set_symmetricDifference, 0),
+    FieldDef::FUNC("union", 1, js_set_union, 0),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Set", JS_PROP_CONFIGURABLE),
 ];
@@ -349,6 +356,571 @@ pub const js_weakset_proto_funcs: &[FieldDef] = &[
     #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "WeakSet", JS_PROP_CONFIGURABLE),
 ];
+
+/// SetRecord: holds the validated GetSetRecord result.
+struct SetRecord {
+    size: f64,
+    has: Object,
+    keys: Object,
+}
+
+/// GetSetRecord: extracts size (ToNumber'd), has method, and keys method.
+/// Throws TypeError if `has` is missing/not-callable, or `keys` is undefined/null/not-callable.
+fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i32> {
+    // 1. Get size → ToNumber(size)
+    let size_str = Atom::from_str(ctx, "size")?;
+    let size_val = val.get_property(ctx, size_str)?;
+    let size = match size_val.to_number(ctx)? {
+        IntOrFloat::Int64(i) => i as f64,
+        IntOrFloat::Float64(f) => f,
+    };
+
+    // 2. Get has (GetMethod: required, throws if missing or not callable)
+    let has_val = val.get_property(ctx, Atom::CONST_has)?;
+    let has_obj = match has_val.ensure_callable(ctx) {
+        Ok(o) => *o,
+        Err(_) => {
+            ctx.throw_type_error("Set.prototype.has is not a function");
+            return Err(-1);
+        }
+    };
+
+    // 3. Get keys via GetMethod: undefined/null → undefined, not-callable → throw
+    let keys_str = Atom::from_str(ctx, "keys")?;
+    let keys_val = val.get_property(ctx, keys_str)?;
+    // GetMethod returns undefined for null/undefined
+    if keys_val.is_undefined_or_null() {
+        ctx.throw_type_error("Set.prototype.keys is not a function");
+        return Err(-1);
+    }
+    let keys_obj = match keys_val.ensure_callable(ctx) {
+        Ok(o) => *o,
+        Err(_) => {
+            ctx.throw_type_error("Set.prototype.keys is not a function");
+            return Err(-1);
+        }
+    };
+
+    Ok(SetRecord {
+        size,
+        has: has_obj,
+        keys: keys_obj,
+    })
+}
+
+/// create an empty Set instance with the given capacity.
+fn create_empty_set(ctx: &mut ScopedContext, capacity: usize) -> Result<JSValue, i32> {
+    let state = Box::new(JSMapState::new(false, capacity));
+    ctx.create_instance_with_payload(ObjectPayload::SET(state))
+        .map_err(|_| -1)
+        .map(JSValue::Object)
+}
+
+/// Call iterator.return() if it exists.
+fn iterator_return(ctx: &mut ScopedContext, iterator: JSValue) -> Result<(), i32> {
+    let return_str = Atom::from_str(ctx, "return")?;
+    let return_val = iterator.get_property(ctx, return_str)?;
+    if return_val.is_callable() {
+        let return_obj = *return_val.as_object().unwrap();
+        return_obj.call(ctx, iterator, &[])?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Set.prototype methods (set-methods proposal)
+// ---------------------------------------------------------------------------
+
+/// Set.prototype.isDisjointFrom(other)
+fn js_set_isDisjointFrom(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let this = cc.this();
+    let other = cc.arg(0);
+
+    let this_state = this
+        .retrive_object_payload(ctx, JS_CLASS_SET)?
+        .mapset()
+        .unwrap();
+
+    // Fast path: other is an internal Set
+    if let Some(other_state) = other
+        .retrive_object_payload0(JS_CLASS_SET)
+        .and_then(|p| p.mapset())
+    {
+        // iterate over the smaller set for efficiency
+        let (iter_set, check_set) = if this_state.len() <= other_state.len() {
+            (this_state, other_state)
+        } else {
+            (other_state, this_state)
+        };
+        for pair in &iter_set.slots {
+            let key = match pair {
+                MapPair::Strong { key, .. } => *key,
+                _ => continue,
+            };
+            if check_set.find(ctx, key).is_some() {
+                return Ok(JSValue::Bool(false));
+            }
+        }
+        return Ok(JSValue::Bool(true));
+    }
+
+    // Slow path (GetSetRecord)
+    let rec = get_set_record(ctx, other)?;
+
+    let this_len = this_state.len() as f64;
+    if this_len > rec.size {
+        // Strategy: iterate other's keys, check this.has (internal)
+        let iterator = rec.keys.call(ctx, other, &[])?;
+        let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
+        let next_obj = *next_method.ensure_callable(ctx)?;
+
+        loop {
+            let result = next_obj.call(ctx, iterator, &[])?;
+            let done = result.get_property(ctx, Atom::CONST_done)?;
+            if done.to_bool()? {
+                break;
+            }
+            let value = result.get_property(ctx, Atom::CONST_value)?;
+            if this_state.find(ctx, value).is_some() {
+                iterator_return(ctx, iterator)?;
+                return Ok(JSValue::Bool(false));
+            }
+        }
+        return Ok(JSValue::Bool(true));
+    }
+
+    // Strategy: iterate this, check other.has
+    for pair in &this_state.slots {
+        let key = match pair {
+            MapPair::Strong { key, .. } => *key,
+            _ => continue,
+        };
+        let found = rec.has.call(ctx, other, &[key])?;
+        if found.to_bool()? {
+            return Ok(JSValue::Bool(false));
+        }
+    }
+    Ok(JSValue::Bool(true))
+}
+
+/// Set.prototype.isSubsetOf(other)
+fn js_set_isSubsetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let this = cc.this();
+    let other = cc.arg(0);
+
+    let this_state = this
+        .retrive_object_payload(ctx, JS_CLASS_SET)?
+        .mapset()
+        .unwrap();
+
+    // Fast path: other is an internal Set
+    if let Some(other_state) = other
+        .retrive_object_payload0(JS_CLASS_SET)
+        .and_then(|p| p.mapset())
+    {
+        if this_state.len() > other_state.len() {
+            return Ok(JSValue::Bool(false));
+        }
+        for pair in &this_state.slots {
+            let key = match pair {
+                MapPair::Strong { key, .. } => *key,
+                _ => continue,
+            };
+            if other_state.find(ctx, key).is_none() {
+                return Ok(JSValue::Bool(false));
+            }
+        }
+        return Ok(JSValue::Bool(true));
+    }
+
+    // Slow path (GetSetRecord)
+    let rec = get_set_record(ctx, other)?;
+
+    // Optimization: if this is larger than other, it can't be a subset
+    if (this_state.len() as f64) > rec.size {
+        return Ok(JSValue::Bool(false));
+    }
+
+    // Iterate this, check other.has
+    for pair in &this_state.slots {
+        let key = match pair {
+            MapPair::Strong { key, .. } => *key,
+            _ => continue,
+        };
+        let found = rec.has.call(ctx, other, &[key])?;
+        if !found.to_bool()? {
+            return Ok(JSValue::Bool(false));
+        }
+    }
+    Ok(JSValue::Bool(true))
+}
+
+/// Set.prototype.isSupersetOf(other)
+fn js_set_isSupersetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let this = cc.this();
+    let other = cc.arg(0);
+
+    let this_state = this
+        .retrive_object_payload(ctx, JS_CLASS_SET)?
+        .mapset()
+        .unwrap();
+
+    // Fast path: other is an internal Set
+    if let Some(other_state) = other
+        .retrive_object_payload0(JS_CLASS_SET)
+        .and_then(|p| p.mapset())
+    {
+        if other_state.len() > this_state.len() {
+            return Ok(JSValue::Bool(false));
+        }
+        for pair in &other_state.slots {
+            let key = match pair {
+                MapPair::Strong { key, .. } => *key,
+                _ => continue,
+            };
+            if this_state.find(ctx, key).is_none() {
+                return Ok(JSValue::Bool(false));
+            }
+        }
+        return Ok(JSValue::Bool(true));
+    }
+
+    // Slow path (GetSetRecord)
+    let rec = get_set_record(ctx, other)?;
+
+    // Optimization: if other is larger, this can't be a superset
+    if rec.size > this_state.len() as f64 {
+        return Ok(JSValue::Bool(false));
+    }
+
+    // Iterate other's keys, check this.has (internal)
+    let iterator = rec.keys.call(ctx, other, &[])?;
+    let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
+    let next_obj = *next_method.ensure_callable(ctx)?;
+
+    loop {
+        let result = next_obj.call(ctx, iterator, &[])?;
+        let done = result.get_property(ctx, Atom::CONST_done)?;
+        if done.to_bool()? {
+            break;
+        }
+        let value = result.get_property(ctx, Atom::CONST_value)?;
+        if this_state.find(ctx, value).is_none() {
+            iterator_return(ctx, iterator)?;
+            return Ok(JSValue::Bool(false));
+        }
+    }
+    Ok(JSValue::Bool(true))
+}
+
+/// Set.prototype.intersection(other)
+fn js_set_intersection(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let this = cc.this();
+    let other = cc.arg(0);
+
+    let this_state = this
+        .retrive_object_payload(ctx, JS_CLASS_SET)?
+        .mapset()
+        .unwrap();
+
+    let mut result = create_empty_set(ctx, this_state.len())?;
+    let result_mut = result
+        .retrive_object_payload_mut(ctx, JS_CLASS_SET)?
+        .mapset_mut()
+        .unwrap();
+
+    // Fast path: other is an internal Set
+    if let Some(other_state) = other
+        .retrive_object_payload0(JS_CLASS_SET)
+        .and_then(|p| p.mapset())
+    {
+        let (iter_set, check_set) = if this_state.len() <= other_state.len() {
+            (this_state, other_state)
+        } else {
+            (other_state, this_state)
+        };
+        for pair in &iter_set.slots {
+            let key = match pair {
+                MapPair::Strong { key, .. } => *key,
+                _ => continue,
+            };
+            if check_set.find(ctx, key).is_some() {
+                result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+            }
+        }
+        return Ok(result);
+    }
+
+    // Slow path (GetSetRecord)
+    let rec = get_set_record(ctx, other)?;
+
+    let this_len = this_state.len() as f64;
+    if this_len > rec.size {
+        // Strategy: iterate other's keys, check this.has (internal) → add to result
+        let iterator = rec.keys.call(ctx, other, &[])?;
+        let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
+        let next_obj = *next_method.ensure_callable(ctx)?;
+
+        loop {
+            let result_val = next_obj.call(ctx, iterator, &[])?;
+            let done = result_val.get_property(ctx, Atom::CONST_done)?;
+            if done.to_bool()? {
+                break;
+            }
+            let value = result_val.get_property(ctx, Atom::CONST_value)?;
+            if this_state.find(ctx, value).is_some() {
+                result_mut.upsert(ctx, value, JSValue::UNDEFINED)?;
+            }
+        }
+        return Ok(result);
+    }
+
+    // Strategy: iterate this, check other.has → add to result
+    for pair in &this_state.slots {
+        let key = match pair {
+            MapPair::Strong { key, .. } => *key,
+            _ => continue,
+        };
+        let found = rec.has.call(ctx, other, &[key])?;
+        if found.to_bool()? {
+            result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+        }
+    }
+
+    Ok(result)
+}
+
+/// Set.prototype.difference(other)
+fn js_set_difference(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let this = cc.this();
+    let other = cc.arg(0);
+
+    let this_state = this
+        .retrive_object_payload(ctx, JS_CLASS_SET)?
+        .mapset()
+        .unwrap();
+
+    let mut result = create_empty_set(ctx, this_state.len())?;
+    let result_mut = result
+        .retrive_object_payload_mut(ctx, JS_CLASS_SET)?
+        .mapset_mut()
+        .unwrap();
+
+    // Fast path: other is an internal Set
+    if let Some(other_state) = other
+        .retrive_object_payload0(JS_CLASS_SET)
+        .and_then(|p| p.mapset())
+    {
+        for pair in &this_state.slots {
+            let key = match pair {
+                MapPair::Strong { key, .. } => *key,
+                _ => continue,
+            };
+            if other_state.find(ctx, key).is_none() {
+                result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+            }
+        }
+        return Ok(result);
+    }
+
+    // Slow path (GetSetRecord)
+    let rec = get_set_record(ctx, other)?;
+
+    let this_len = this_state.len() as f64;
+    if this_len > rec.size {
+        // Strategy: copy this to result, iterate other's keys, remove matching
+        for pair in &this_state.slots {
+            let key = match pair {
+                MapPair::Strong { key, .. } => *key,
+                _ => continue,
+            };
+            result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+        }
+
+        let iterator = rec.keys.call(ctx, other, &[])?;
+        let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
+        let next_obj = *next_method.ensure_callable(ctx)?;
+
+        loop {
+            let result_val = next_obj.call(ctx, iterator, &[])?;
+            let done = result_val.get_property(ctx, Atom::CONST_done)?;
+            if done.to_bool()? {
+                break;
+            }
+            let value = result_val.get_property(ctx, Atom::CONST_value)?;
+            if this_state.find(ctx, value).is_some() {
+                result_mut.remove(ctx, value);
+            }
+        }
+        return Ok(result);
+    }
+
+    // Strategy: iterate this, check !other.has → add to result
+    for pair in &this_state.slots {
+        let key = match pair {
+            MapPair::Strong { key, .. } => *key,
+            _ => continue,
+        };
+        let found = rec.has.call(ctx, other, &[key])?;
+        if !found.to_bool()? {
+            result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+        }
+    }
+
+    Ok(result)
+}
+
+/// Set.prototype.symmetricDifference(other)
+fn js_set_symmetricDifference(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let this = cc.this();
+    let other = cc.arg(0);
+
+    let this_state = this
+        .retrive_object_payload(ctx, JS_CLASS_SET)?
+        .mapset()
+        .unwrap();
+
+    let mut result = create_empty_set(ctx, this_state.len() + 8)?;
+    let result_mut = result
+        .retrive_object_payload_mut(ctx, JS_CLASS_SET)?
+        .mapset_mut()
+        .unwrap();
+
+    // Fast path: other is an internal Set
+    if let Some(other_state) = other
+        .retrive_object_payload0(JS_CLASS_SET)
+        .and_then(|p| p.mapset())
+    {
+        for pair in &this_state.slots {
+            let key = match pair {
+                MapPair::Strong { key, .. } => *key,
+                _ => continue,
+            };
+            if other_state.find(ctx, key).is_none() {
+                result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+            }
+        }
+        for pair in &other_state.slots {
+            let key = match pair {
+                MapPair::Strong { key, .. } => *key,
+                _ => continue,
+            };
+            if this_state.find(ctx, key).is_none() {
+                result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+            }
+        }
+        return Ok(result);
+    }
+
+    // Slow path: QuickJS copy-this-first algorithm
+    // 1. GetSetRecord (validate has+keys)
+    // 2. Copy this → result (preserves insertion order)
+    // 3. Iterate other's keys:
+    //    - if in this → remove from result
+    //    - if not in this → add to result
+    let rec = get_set_record(ctx, other)?;
+
+    // Copy this to result (preserves insertion order)
+    for pair in &this_state.slots {
+        let key = match pair {
+            MapPair::Strong { key, .. } => *key,
+            _ => continue,
+        };
+        result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+    }
+
+    // Iterate other's keys, remove from/add to result
+    let iterator = rec.keys.call(ctx, other, &[])?;
+    let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
+    let next_obj = *next_method.ensure_callable(ctx)?;
+
+    loop {
+        let item = next_obj.call(ctx, iterator, &[])?;
+        let done = item.get_property(ctx, Atom::CONST_done)?;
+        if done.to_bool()? {
+            break;
+        }
+        let value = item.get_property(ctx, Atom::CONST_value)?;
+        if this_state.find(ctx, value).is_some() {
+            result_mut.remove(ctx, value);
+        } else {
+            result_mut.upsert(ctx, value, JSValue::UNDEFINED)?;
+        }
+    }
+
+    Ok(result)
+}
+
+/// Set.prototype.union(other)
+fn js_set_union(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let this = cc.this();
+    let other = cc.arg(0);
+
+    let this_state = this
+        .retrive_object_payload(ctx, JS_CLASS_SET)?
+        .mapset()
+        .unwrap();
+
+    let mut result = create_empty_set(ctx, this_state.len() + 8)?;
+    let result_mut = result
+        .retrive_object_payload_mut(ctx, JS_CLASS_SET)?
+        .mapset_mut()
+        .unwrap();
+
+    // Fast path: other is an internal Set
+    if let Some(other_state) = other
+        .retrive_object_payload0(JS_CLASS_SET)
+        .and_then(|p| p.mapset())
+    {
+        // Copy this's elements
+        for pair in &this_state.slots {
+            let key = match pair {
+                MapPair::Strong { key, .. } => *key,
+                _ => continue,
+            };
+            result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+        }
+        // Copy other's elements
+        for pair in &other_state.slots {
+            let key = match pair {
+                MapPair::Strong { key, .. } => *key,
+                _ => continue,
+            };
+            result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+        }
+        return Ok(result);
+    }
+
+    // Slow path:
+    // 1. GetSetRecord first — may trigger side effects that mutate this_state
+    let rec = get_set_record(ctx, other)?;
+
+    // 2. Copy all elements from this Set (after any mutations from step 1)
+    for pair in &this_state.slots {
+        let key = match pair {
+            MapPair::Strong { key, .. } => *key,
+            _ => continue,
+        };
+        result_mut.upsert(ctx, key, JSValue::UNDEFINED)?;
+    }
+
+    // 3. Iterate other's keys and add directly
+    let iterator = rec.keys.call(ctx, other, &[])?;
+    let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
+    let next_obj = *next_method.ensure_callable(ctx)?;
+
+    loop {
+        let item = next_obj.call(ctx, iterator, &[])?;
+        let done = item.get_property(ctx, Atom::CONST_done)?;
+        if done.to_bool()? {
+            break;
+        }
+        let value = item.get_property(ctx, Atom::CONST_value)?;
+        result_mut.upsert(ctx, value, JSValue::UNDEFINED)?;
+    }
+
+    Ok(result)
+}
 
 fn js_map_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // check must be observed before argv[0] is accessed
