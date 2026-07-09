@@ -31,7 +31,7 @@ impl<'s> JSParseState<'s> {
             }
 
             match sc {
-                CharCode::Char('\n' | '\r') => {
+                CharCode::Char('\n' | '\r' | '\u{2028}' | '\u{2029}') => {
                     self.throw_syntax_error("unexpected line terminator in regexp");
                     return Err(-1);
                 }
@@ -67,9 +67,9 @@ impl<'s> JSParseState<'s> {
                                 })?;
                                 continue;
                             }
-                            CharCode::Code(_) => {
-                                self.throw_syntax_error("invalid utf-8 sequence");
-                                return Err(-1);
+                            CharCode::Code(cp) => {
+                                let _ = pattern_str.push_u32(cp);
+                                continue;
                             }
                         }
                     } else {
