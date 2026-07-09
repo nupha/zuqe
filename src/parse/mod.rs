@@ -28,6 +28,8 @@ mod var;
 
 #[cfg(feature = "builtin_json")]
 mod json;
+#[cfg(feature = "builtin_json")]
+pub(crate) use json::JSONParseRecord;
 #[cfg(feature = "builtin_regexp")]
 mod regexp;
 

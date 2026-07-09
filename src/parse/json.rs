@@ -22,6 +22,48 @@ use super::{
 /// allow extended JSON
 pub const JS_PARSE_JSON_EXT: i32 = 1;
 
+// ---------------------------------------------------------------------------
+// JSONParseRecord — parallels the JSON value tree to support
+// json-parse-with-source reviver context.
+// ---------------------------------------------------------------------------
+
+/// A node in the parse-record tree that mirrors the JSON AST.  During
+/// parsing we capture, for every value:
+///   • `value` — the original `JSValue` (used for forward-modification
+///     detection via [`JSValue::is_same`]).
+///   • For primitives (string, number, boolean, null): `source_pos` /
+///     `source_len` give the exact byte range in the source text.
+///   • For objects: `children` holds the per-key records.
+///   • For arrays: `elements` holds the per-index records.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct JSONParseRecord {
+    pub value: JSValue,
+    pub source_pos: u32,
+    pub source_len: u32,
+    pub children: Vec<(Atom, JSONParseRecord)>,
+    pub elements: Vec<JSONParseRecord>,
+}
+
+impl JSONParseRecord {
+    pub const fn is_primitive(&self) -> bool {
+        self.value.as_object().is_none()
+    }
+
+    pub fn find_child(&self, name: Atom) -> Option<&JSONParseRecord> {
+        if !self.elements.is_empty() {
+            // Array — look up by integer index
+            let idx = name.to_small_int()?;
+            self.elements.get(idx as usize)
+        } else {
+            // Object — linear scan by Atom
+            self.children
+                .iter()
+                .find(|(a, _)| *a == name)
+                .map(|(_, r)| r)
+        }
+    }
+}
+
 impl<'s> JSParseState<'s> {
     fn json_next_token(&mut self) -> Result<(), i32> {
         if js_check_stack_overflow(self.ctx().rt_mut(), 0) {
@@ -285,7 +327,7 @@ impl<'s> JSParseState<'s> {
         Atom::from_str(self.ctx(), std::str::from_utf8(&buf).map_err(|_| -1)?)
     }
 
-    fn json_parse_value(&mut self) -> JSResult {
+    fn json_parse_value(&mut self, record: Option<&mut JSONParseRecord>) -> JSResult {
         let mut val: JSValue;
 
         match self.token.kind {
@@ -293,6 +335,9 @@ impl<'s> JSParseState<'s> {
                 self.json_next_token()?;
 
                 val = self.ctx().create_base_object()?.into();
+                let should_record = record.is_some();
+                let mut children: Vec<(Atom, JSONParseRecord)> = Vec::new();
+
                 if self.token.kind != TokenKind::Char('}') {
                     loop {
                         let prop_name = if self.token.kind == TokenKind::STRING {
@@ -311,7 +356,18 @@ impl<'s> JSParseState<'s> {
                         self.json_next_token()?;
                         json_parse_expect(self, b':')?;
 
-                        let prop_val = self.json_parse_value()?;
+                        let mut child_record = JSONParseRecord::default();
+                        let prop_val = if should_record {
+                            self.json_parse_value(Some(&mut child_record))?
+                        } else {
+                            self.json_parse_value(None)?
+                        };
+
+                        if should_record {
+                            // push the Atom back after json_next_token advanced
+                            children.push((prop_name, child_record));
+                        }
+
                         val.define_property_value(self.ctx(), prop_name, prop_val, JS_PROP_C_W_E)?;
 
                         if self.token.kind != TokenKind::Char(',') {
@@ -324,15 +380,33 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 json_parse_expect(self, b'}')?;
+
+                if let Some(pr) = record {
+                    pr.value = val;
+                    pr.children = children;
+                    pr.elements = Vec::new();
+                }
             }
 
             TokenKind::Char('[') => {
                 self.json_next_token()?;
 
                 let mut lst = Vec::<JSValue>::new();
+                let should_record = record.is_some();
+                let mut elements: Vec<JSONParseRecord> = Vec::new();
+
                 if self.token.kind != TokenKind::Char(']') {
                     'arr: loop {
-                        let el = self.json_parse_value()?;
+                        let mut child_record = JSONParseRecord::default();
+                        let el = if should_record {
+                            self.json_parse_value(Some(&mut child_record))?
+                        } else {
+                            self.json_parse_value(None)?
+                        };
+
+                        if should_record {
+                            elements.push(child_record);
+                        }
 
                         if lst.len() == lst.capacity() {
                             lst.try_reserve(32).map_err(|_| {
@@ -359,17 +433,47 @@ impl<'s> JSParseState<'s> {
                 val = crate::array::Array::from_values(self.ctx(), lst)?.into();
 
                 json_parse_expect(self, b']')?;
+
+                if let Some(pr) = record {
+                    pr.value = val;
+                    pr.children = Vec::new();
+                    pr.elements = elements;
+                }
             }
             TokenKind::STRING => {
+                // Record source position before consuming the next token
+                let source_start = (self.token.ptr as usize) - (self.input.as_ptr() as usize);
+                let source_end = (self.buf_ptr as usize) - (self.input.as_ptr() as usize);
+
                 let sbuf = self.token.data.take_string().unwrap();
                 val = self.ctx().create_string_with_buf(sbuf)?.into();
+
+                if let Some(pr) = record {
+                    pr.value = val;
+                    pr.source_pos = source_start as u32;
+                    pr.source_len = (source_end - source_start) as u32;
+                }
+
                 self.json_next_token()?;
             }
             TokenKind::NUMBER => {
+                let source_start = (self.token.ptr as usize) - (self.input.as_ptr() as usize);
+                let source_end = (self.buf_ptr as usize) - (self.input.as_ptr() as usize);
+
                 val = JSValue::from(self.token.data.number().unwrap());
+
+                if let Some(pr) = record {
+                    pr.value = val;
+                    pr.source_pos = source_start as u32;
+                    pr.source_len = (source_end - source_start) as u32;
+                }
+
                 self.json_next_token()?;
             }
             TokenKind::IDENT => {
+                let source_start = (self.token.ptr as usize) - (self.input.as_ptr() as usize);
+                let source_end = (self.buf_ptr as usize) - (self.input.as_ptr() as usize);
+
                 val = match self.token.data.ident_atom().unwrap() {
                     Atom::CONST_true => JSValue::Bool(true),
                     Atom::CONST_false => JSValue::Bool(false),
@@ -389,6 +493,12 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
                 };
+
+                if let Some(pr) = record {
+                    pr.value = val;
+                    pr.source_pos = source_start as u32;
+                    pr.source_len = (source_end - source_start) as u32;
+                }
 
                 self.json_next_token()?;
             }
@@ -411,9 +521,9 @@ impl<'s> JSParseState<'s> {
         Ok(val)
     }
 
-    pub fn json_parse(&mut self) -> JSResult {
+    pub fn json_parse(&mut self, record: Option<&mut JSONParseRecord>) -> JSResult {
         self.json_next_token()?;
-        let val = self.json_parse_value()?;
+        let val = self.json_parse_value(record)?;
 
         if unlikely(self.token.kind != TokenKind::EOF) {
             self.throw_syntax_error("unexpected data at the end");
