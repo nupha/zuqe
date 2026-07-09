@@ -242,6 +242,12 @@ pub fn js_module_loader(
                 }
             }
             let abs_url = format!("{}", normalized.display());
+            
+            // Windows `Path::display()` emits '\'; normalize to '/' so the loader's
+            // module name matches the canonicalized names used for cache lookup.
+            // On Unix, '\' is a legal filename character, so leave it untouched.
+            #[cfg(windows)]
+            let abs_url = abs_url.replace('\\', "/");
 
             if is_json {
                 // JSON module: wrap as `export default <json>;\n`

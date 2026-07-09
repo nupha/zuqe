@@ -187,6 +187,13 @@ impl ModuleDefImpl {
         self.module_name
     }
 
+    /// True if this is a native (Rust-backed) module rather than a bytecode/file module.
+    #[inline(always)]
+    pub const fn is_native(&self) -> bool {
+        // Native modules carry an `init_func`; bytecode/file modules do not.
+        self.init_func.is_some()
+    }
+
     #[inline(always)]
     pub const fn has_tla(&self) -> bool {
         self.has_tla
