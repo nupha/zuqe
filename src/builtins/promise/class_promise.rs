@@ -417,6 +417,34 @@ pub fn js_promise_withResolvers(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     Ok(obj.into())
 }
 
+pub fn js_promise_try(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let this = cc.this();
+    if !this.is_object() {
+        ctx.throw_type_error_not_an_object();
+        return Err(-1);
+    }
+
+    let (result_promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;
+
+    let fn_args = if cc.length() > 1 {
+        &cc.arguments()[1..]
+    } else {
+        &[]
+    };
+
+    match cc.arg(0).call(ctx, JSValue::UNDEFINED, fn_args) {
+        Ok(val) => {
+            resolving_funcs[0].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&val))?;
+        }
+        Err(_) => {
+            let err_val = ctx.take_exception().to_value(ctx);
+            resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
+        }
+    }
+
+    Ok(result_promise.into())
+}
+
 pub const js_promise_funcs: &[FieldDef] = &[
     FieldDef::FUNC("resolve", 1, js_promise_resolve, 0),
     FieldDef::FUNC("reject", 1, js_promise_resolve, 1),
@@ -429,6 +457,7 @@ pub const js_promise_funcs: &[FieldDef] = &[
     ),
     FieldDef::FUNC("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
     FieldDef::FUNC("race", 1, js_promise_race, 0),
+    FieldDef::FUNC("try", 1, js_promise_try, 0),
     FieldDef::FUNC("withResolvers", 0, js_promise_withResolvers, 0),
     #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
