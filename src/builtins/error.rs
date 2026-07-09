@@ -141,7 +141,14 @@ pub fn js_error_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     ctx.create_string_from_str(&txt).map(JSValue::from)
 }
 
-pub const js_error_proto_funcs: &[FieldDef] = &[
+pub fn js_error_isError(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let val = cc.arg(0);
+    Ok(JSValue::Bool(val.is_error()))
+}
+
+const js_error_funcs: &[FieldDef] = &[FieldDef::FUNC("isError", 1, js_error_isError, 0)];
+
+pub(crate) const js_error_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("toString", 0, js_error_toString, 0),
     FieldDef::STR("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
     FieldDef::STR("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
@@ -153,6 +160,7 @@ pub(crate) static CLASS_DEF_ERROR: ClassDef = ClassDef::builtin(
     Some(
         ClassCtorDef::new(js_error_constructor, 1, true)
             .magic(-1)
+            .entries(js_error_funcs)
             .expose_to_global(),
     ),
 );
