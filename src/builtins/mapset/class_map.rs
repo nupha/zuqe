@@ -119,6 +119,68 @@ pub(crate) fn js_map_get(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(state.find(ctx, key).unwrap_or(JSValue::UNDEFINED))
 }
 
+pub(crate) fn js_map_getOrInsert(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let magic = cc.magic();
+    let computed = (magic & 1) == 1;
+    let class_offset = magic & 0b10; // 0 for Map, 2 for WeakMap
+    let class_id = JS_CLASS_MAP + class_offset as ClassID;
+
+    let val = cc.arg(1);
+
+    // In computed mode, the second argument must be a function
+    if computed {
+        val.ensure_callable(ctx)?;
+    }
+
+    // Canonicalize key (-0 → +0)  (per CanonicalizeKeyedCollectionKey)
+    let mut key = MapPair::normalize_key(cc.arg(0));
+
+    // For WeakMap, validate key can be held weakly before any callback invocation
+    if class_offset == 2 && !key.is_object() {
+        ctx.throw_type_error_not_an_object();
+        return Err(-1);
+    }
+
+    // Check if key already exists
+    {
+        let this = cc.this();
+        let state = get_jsmap_state(&this, class_id, ctx)?;
+        if let Some(existing) = state.find(ctx, key) {
+            return Ok(existing);
+        }
+    }
+
+    // Compute value if needed (may trigger observable side effects via callback)
+    let value = if computed {
+        val.call(ctx, JSValue::UNDEFINED, &[key])?
+    } else {
+        val
+    };
+
+    // Insert the key-value pair
+    let mut this_mut = cc.this();
+    let s = get_jsmap_state_mut(&mut this_mut, class_id, ctx)?;
+
+    if s.upsert(ctx, key, value)? && s.is_weak() {
+        key.as_object_mut()
+            .unwrap()
+            .add_back_ref(cc.this().as_object().unwrap().downgrade());
+    }
+    let _ = s;
+
+    // Bind GC reference relations
+    let this_obj = *cc.this().as_object().unwrap();
+    let self_node = this_obj.gc_node_ptr();
+    if let Some(n) = key.gc_node_ptr() {
+        this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
+    }
+    if let Some(n) = value.gc_node_ptr() {
+        this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
+    }
+
+    Ok(value)
+}
+
 pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
 
@@ -296,6 +358,8 @@ pub(crate) fn js_create_map_iterator(ctx: &mut ScopedContext, cc: CallContext) -
 pub const js_map_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("set", 2, js_map_set, 0),
     FieldDef::FUNC("get", 1, js_map_get, 0),
+    FieldDef::FUNC("getOrInsert", 2, js_map_getOrInsert, 0),
+    FieldDef::FUNC("getOrInsertComputed", 2, js_map_getOrInsert, 1),
     FieldDef::FUNC("has", 1, js_map_has, 0),
     FieldDef::FUNC("delete", 1, js_map_delete, 0),
     FieldDef::FUNC("clear", 0, js_map_clear, 0),
@@ -361,6 +425,8 @@ pub const js_set_proto_funcs: &[FieldDef] = &[
 pub const js_weakmap_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("set", 2, js_map_set, 2),
     FieldDef::FUNC("get", 1, js_map_get, 2),
+    FieldDef::FUNC("getOrInsert", 2, js_map_getOrInsert, 2),
+    FieldDef::FUNC("getOrInsertComputed", 2, js_map_getOrInsert, 3),
     FieldDef::FUNC("has", 1, js_map_has, 2),
     FieldDef::FUNC("delete", 1, js_map_delete, 2),
     #[cfg(feature = "builtin_symbol")]
