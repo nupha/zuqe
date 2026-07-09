@@ -177,6 +177,10 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     "Math",
     #[cfg(feature = "builtin_json")]
     "JSON",
+    #[cfg(feature = "builtin_json")]
+    "rawJSON",
+    #[cfg(feature = "builtin_json")]
+    "RawJSON",
     #[cfg(feature = "builtin_date")]
     "Date",
     "Function",

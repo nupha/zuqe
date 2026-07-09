@@ -410,6 +410,12 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         "crate::builtins::CLASS_DEF_BIG_INT",
         PayloadKey::None,
     ),
+    #[cfg(feature = "builtin_json")]
+    ClassInfo::class_def(
+        "RAWJSON",
+        "crate::builtins::json::CLASS_DEF_RAWJSON",
+        PayloadKey::None,
+    ),
     //
     // map set and iterators
     //

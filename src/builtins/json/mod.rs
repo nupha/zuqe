@@ -4,4 +4,4 @@
 mod class_json;
 mod stringify;
 
-pub use class_json::js_json_obj;
+pub(crate) use class_json::{CLASS_DEF_RAWJSON, js_json_obj};
