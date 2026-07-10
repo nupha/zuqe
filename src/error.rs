@@ -274,6 +274,11 @@ impl<'c> ScopedContext<'c> {
     }
 
     #[inline(always)]
+    pub fn throw_stack_fail(&mut self) {
+        self.throw_internal_error("execution stack allocation failed");
+    }
+
+    #[inline(always)]
     pub fn throw_type_error(&mut self, message: &str) {
         self.throw_error(ErrorKind::Type, message);
     }

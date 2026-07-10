@@ -120,7 +120,13 @@ impl AsyncStateImpl {
 
         let arena = ctx.rt_mut().stack_frame_arena_mut();
         let frame_idx =
-            arena.alloc_frame(bytecode_func.into(), mode | ExecMode::ASYNC, buf_capacity);
+            match arena.alloc_frame(bytecode_func.into(), mode | ExecMode::ASYNC, buf_capacity) {
+                Ok(idx) => idx,
+                Err(()) => {
+                    ctx.with_current_scope(|mut s| s.throw_stack_fail());
+                    return Err(-1);
+                }
+            };
 
         // Initialize frame data: copy args, zero-fill vars, set up offsets.
         {

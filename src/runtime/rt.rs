@@ -25,10 +25,14 @@ use crate::{
     value::JSValue,
 };
 
-/// default stack size in bytes
-const DEFAULT_STACK_SIZE: usize = 512 * 1024;
+/// recursive C stack overflow size (in bytes)
+const STACK_OVERFLOW_LIMIT: usize = 512 * 1024;
+const STACK_ARENA_CAP: usize = 256 * 1024 / std::mem::size_of::<JSValue>();
+
+const GC_ARENA_CAP: usize = 64 * 1024;
+const GC_AERNA_THRESHOULD: usize = 16 * 1024;
 /// number of allocations between should_gc() checks.
-const DEFAULT_ALLOC_CHECK_INTERVAL: u32 = 32;
+const GC_ALLOC_CHECK_INTERVAL: u32 = 32;
 
 /// interrupt returns true to break execution
 pub trait InterruptFn: Fn(&RuntimeImpl) -> bool {}
@@ -43,11 +47,8 @@ pub struct RuntimeImpl {
     /// shape registry
     pub(crate) shape_registry: ShapeRegistry,
 
-    //
-    // execution stack
-    //
-    pub(crate) stack_size: usize,  /* in bytes, 0 if no limit */
-    pub(crate) stack_limit: usize, /* lower stack limit */
+    pub(crate) stack_overflow: usize, /* in bytes, 0 if no limit (C-stack recursion guard) */
+    pub(crate) stack_limit: usize,    /* lower stack limit */
     pub(crate) stack_top: usize,
 
     /// Bump-arena frame storage for the stackless interpreter.
@@ -92,12 +93,12 @@ pub struct RuntimeImpl {
     pub(crate) gc_job: Option<Box<dyn GcTraceFn>>,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn GcTraceFn>>,
+    /// allocation counter for batched should_gc() check
+    pub(crate) gc_alloc_count: u32,
+    /// number of allocations between should_gc() checks
+    pub(crate) gc_alloc_check_interval: u32,
     /// gc request flag
     pub(crate) gc_req: bool,
-    /// allocation counter for batched should_gc() check
-    pub(crate) alloc_count: u32,
-    /// number of allocations between should_gc() checks
-    pub(crate) alloc_check_interval: u32,
 
     pub(crate) interrupt_handler: Option<Box<dyn InterruptFn>>,
 
@@ -125,14 +126,13 @@ impl Drop for RuntimeImpl {
 
 impl RuntimeImpl {
     pub(super) fn new() -> Result<Self, i32> {
-        const STACK_FRAME_ARENA_CAP: usize = 512 * 1024 / std::mem::size_of::<JSValue>();
-
         // create gc heap and partition for this runtime
         let mut gc_heap = GcHeap::new(&GC_TYPE_REGISTRY);
         gc_heap.set_memory_limit(0); // no memory limit
         gc_heap.set_gc_threshold(8); // small threshould to trigger gc ASAP
 
-        let gc_part_id = gc_heap.create_partition(64 * 1024, 16 * 1024);
+        let gc_part_id = gc_heap.create_partition(GC_ARENA_CAP, GC_AERNA_THRESHOULD);
+        let arena_cap = STACK_ARENA_CAP / std::mem::size_of::<JSValue>();
 
         let mut rt = Self {
             atom_registry: AtomRegistry::new(),
@@ -140,7 +140,7 @@ impl RuntimeImpl {
             user_class_id_serial: USER_CLASS_ID_START,
             shape_registry: ShapeRegistry::new(),
 
-            frame_arena: StackFrameArena::with_capacity(STACK_FRAME_ARENA_CAP),
+            frame_arena: StackFrameArena::with_capacity(arena_cap),
             active_trampoline_vframes: std::ptr::null::<VirtualFrame>(),
             active_frame_index: FrameIndex::NULL,
 
@@ -149,7 +149,7 @@ impl RuntimeImpl {
 
             context_list: Vec::with_capacity(1),
 
-            stack_size: DEFAULT_STACK_SIZE,
+            stack_overflow: STACK_OVERFLOW_LIMIT,
             stack_top: 0,
             stack_limit: 0,
 
@@ -167,8 +167,8 @@ impl RuntimeImpl {
             gc_part_hot: gc_part_id,
             gc_job: None,
             gc_req: false,
-            alloc_count: 0,
-            alloc_check_interval: DEFAULT_ALLOC_CHECK_INTERVAL,
+            gc_alloc_count: 0,
+            gc_alloc_check_interval: GC_ALLOC_CHECK_INTERVAL,
             gc_user_trace: None,
 
             interrupt_handler: None,
@@ -194,17 +194,23 @@ impl RuntimeImpl {
     }
 
     const fn update_stack_limit(&mut self) {
-        self.stack_limit = if self.stack_size == 0 {
+        self.stack_limit = if self.stack_overflow == 0 {
             0 // no limit
         } else {
-            self.stack_top - self.stack_size
+            self.stack_top - self.stack_overflow
         };
     }
 
     /// set max stack size. 0 for unlimited
     pub const fn set_stack_size(&mut self, stack_size: usize) {
-        self.stack_size = stack_size;
+        self.stack_overflow = stack_size;
         self.update_stack_limit();
+    }
+
+    /// Resize the bump-arena used for frame storage. Returns `Err(())` when the
+    /// host cannot allocate the requested size (caller raises `throw_stack_fail`).
+    pub fn set_stack_arena(&mut self, size: usize) -> Result<(), ()> {
+        self.frame_arena.set_arena_capacity(size)
     }
 
     /// Peek current exception

@@ -463,7 +463,13 @@ impl BytecodeFunction {
         let buf_cap = std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
         let frame_idx = unsafe {
             let arena = &mut *arena_ptr;
-            let idx = arena.alloc_frame(func_obj, bc.mode(), buf_cap);
+            let idx = match arena.alloc_frame(func_obj, bc.mode(), buf_cap) {
+                Ok(idx) => idx,
+                Err(()) => {
+                    ctx.throw_stack_fail();
+                    return Err(-1);
+                }
+            };
             arena.frame_mut(idx).prev = parent_frame;
             idx
         };
