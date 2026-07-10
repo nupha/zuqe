@@ -1049,8 +1049,13 @@ impl Bytecode {
 
                                 // Non-tail call: use build_callee_frame to
                                 // allocate and initialize the callee frame.
-                                let callee_frame_idx =
-                                    build_callee_frame(arena, bfun.into(), bc, args_slice);
+                                let callee_frame_idx = match build_callee_frame(arena, bfun.into(), bc, args_slice) {
+                                    Ok(idx) => idx,
+                                    Err(()) => {
+                                        realm_scope.throw_stack_fail();
+                                        return ExecAction::Unwind;
+                                    }
+                                };
                                 arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
 
                                 let return_sp = unsafe {
@@ -3294,11 +3299,11 @@ fn build_callee_frame(
     func_obj: Object,
     bc: Bytecode,
     args: &[JSValue],
-) -> FrameIndex {
+) -> Result<FrameIndex, ()> {
     let cap = std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
-    let idx = arena.alloc_frame(func_obj, bc.mode(), cap);
+    let idx = arena.alloc_frame(func_obj, bc.mode(), cap).map_err(|()| ())?;
     arena.init_frame_args(idx, bc.arg_count, bc.var_count, args);
-    idx
+    Ok(idx)
 }
 
 /// Execute bytecode in a single trampoline loop, completely avoiding
@@ -3478,7 +3483,20 @@ pub(crate) fn execute_trampoline(
 
                 // Use build_callee_frame for consistent frame initialization
                 // (same path as non-tail CALL in execute_with_arena).
-                let new_idx = build_callee_frame(arena, callee_func_obj, callee_bc, &args);
+                let new_idx = match build_callee_frame(arena, callee_func_obj, callee_bc, &args) {
+                    Ok(idx) => idx,
+                    Err(()) => {
+                        cur_trampoline_scope.scope_mut().throw_stack_fail();
+                        drop(cur_trampoline_scope.into_inner());
+                        while let Some(vf) = virtual_frames.pop() {
+                            if let Some(scope) = vf.caller_scope {
+                                drop(ManuallyDrop::into_inner(scope));
+                            }
+                        }
+                        rt_ptr.active_frame_index = FrameIndex::NULL;
+                        return (JSValue::EXCEPTION, true);
+                    }
+                };
 
                 // Restore the backtrace chain: the tail-called function appears
                 // to have been called directly by the original caller.

@@ -75,19 +75,17 @@ struct Args {
 
     #[arg(
         long,
-        default_value_t = String::from("1m"),
         value_name = "n",
-        help = "set memory limit to n"
+        help = "set memory limit to n (default: unlimited)"
     )]
-    memory_limit: String,
+    memory_limit: Option<String>,
 
     #[arg(
         long,
-        default_value_t = String::from("1m"),
         value_name = "n",
-        help = "set stack size to n"
+        help = "set stack arena size to n (default: 256k)"
     )]
-    stack_size: String,
+    stack_arena: Option<String>,
 
     #[arg(help = "file to execute")]
     filename: String,
@@ -161,8 +159,7 @@ fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
 
         rt.install_panic_handler();
 
-        {
-            let ss = &args.memory_limit;
+        if let Some(ss) = &args.memory_limit {
             if let Some(size) = parse_byte_size(ss) {
                 rt.gc_set_memory_limit(size);
             } else {
@@ -171,12 +168,14 @@ fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
             }
         }
 
-        {
-            let ss = &args.stack_size;
+        if let Some(ss) = &args.stack_arena {
             if let Some(size) = parse_byte_size(ss) {
-                rt.set_stack_size(size);
+                if rt.set_stack_arena(size).is_err() {
+                    colorize_println(format!("cannot allocate stack-arena of size {ss}"), RedFg);
+                    std::process::exit(-1);
+                }
             } else {
-                colorize_println(format!("invalid stack-size: {ss}"), RedFg);
+                colorize_println(format!("invalid stack-arena: {ss}"), RedFg);
                 std::process::exit(-1);
             }
         }

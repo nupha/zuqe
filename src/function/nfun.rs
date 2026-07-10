@@ -202,7 +202,13 @@ impl NativeFunction {
         let cap = std::cmp::max(args_length, args.len()); // only covers the arg region (no var / operand stack).
         let prev_frame = rt.active_frame_index;
         let frame_idx = {
-            let idx = rt.frame_arena.alloc_frame(*nfunc, ExecMode::empty(), cap);
+            let idx = match rt.frame_arena.alloc_frame(*nfunc, ExecMode::empty(), cap) {
+                Ok(idx) => idx,
+                Err(()) => {
+                    ctx.throw_stack_fail();
+                    return Err(-1);
+                }
+            };
             rt.frame_arena.frame_mut(idx).prev = prev_frame;
             idx
         };
@@ -272,7 +278,13 @@ impl NativeFunction {
 
         let frame_idx = unsafe {
             let arena = &mut *arena_ptr;
-            let idx = arena.alloc_frame(obj, ExecMode::empty(), buf_cap);
+            let idx = match arena.alloc_frame(obj, ExecMode::empty(), buf_cap) {
+                Ok(idx) => idx,
+                Err(()) => {
+                    ctx.throw_stack_fail();
+                    return Err(-1);
+                }
+            };
             arena.frame_mut(idx).prev = saved_active;
             idx
         };

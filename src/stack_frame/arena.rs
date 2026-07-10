@@ -57,13 +57,39 @@ impl StackFrameArena {
         }
     }
 
+    /// Allocate a boxed `[JSValue]` buffer of `count` UNDEFINED slots.
+    /// Returns `None` on allocation failure so callers can raise
+    /// `throw_stack_fail` instead of aborting on host OOM.
+    fn alloc_boxed_slice(count: usize) -> Option<Box<[JSValue]>> {
+        let mut v: Vec<JSValue> = Vec::new();
+        v.try_reserve_exact(count).ok()?;
+        v.resize(count, JSValue::UNDEFINED);
+        Some(v.into_boxed_slice())
+    }
+
     #[inline(always)]
-    fn reuse_or_alloc_heap_buf(&mut self, count: usize) -> Box<[JSValue]> {
+    fn reuse_or_alloc_heap_buf(&mut self, count: usize) -> Option<Box<[JSValue]>> {
         if let Some(pos) = self.heap_buf_cache.iter().position(|b| b.len() >= count) {
-            self.heap_buf_cache.remove(pos)
+            Some(self.heap_buf_cache.remove(pos))
         } else {
-            vec![JSValue::UNDEFINED; count].into_boxed_slice()
+            Self::alloc_boxed_slice(count)
         }
+    }
+
+    /// Resize the bump-arena data region. Returns `Err(())` (which the caller
+    /// turns into `throw_stack_fail`) when the host cannot allocate, or when
+    /// the arena has already been used (frames allocated) and cannot be safely
+    /// resized.
+    pub(crate) fn set_arena_capacity(&mut self, capacity: usize) -> Result<(), ()> {
+        if self.data_used > 0 {
+            #[cfg(debug_assertions)]
+            eprintln!("can't resize stack arena: arena is in use");
+            return Err(());
+        }
+
+        self.data = Self::alloc_boxed_slice(capacity).ok_or(())?;
+        self.data_used = 0;
+        Ok(())
     }
 
     pub(crate) fn alloc_frame(
@@ -71,7 +97,7 @@ impl StackFrameArena {
         func_obj: Object,
         mode: ExecMode,
         capacity: usize,
-    ) -> FrameIndex {
+    ) -> Result<FrameIndex, ()> {
         let idx = FrameIndex(self.frames.len() as u32);
 
         let buf = if mode.contains(ExecMode::ASYNC) {
@@ -79,13 +105,13 @@ impl StackFrameArena {
             {
                 self.stats_heap_async += 1;
             }
-            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(capacity))
+            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(capacity).ok_or(())?)
         } else if self.data_used + capacity > self.data.len() {
             #[cfg(debug_assertions)]
             {
                 self.stats_heap_capacity += 1;
             }
-            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(capacity))
+            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(capacity).ok_or(())?)
         } else {
             #[cfg(debug_assertions)]
             {
@@ -116,7 +142,7 @@ impl StackFrameArena {
             var_count: 0,
         });
 
-        idx
+        Ok(idx)
     }
 
     pub(crate) fn free_frame(&mut self, idx: FrameIndex) {
