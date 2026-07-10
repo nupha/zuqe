@@ -501,7 +501,14 @@ impl JSValue {
             (JSValue::Module(a), JSValue::Module(b)) => a == b,
             (JSValue::CatchOffset(a), JSValue::CatchOffset(b)) => a == b,
             #[cfg(feature = "builtin_symbol")]
-            (JSValue::Symbol(a), JSValue::Symbol(b)) => a == b,
+            // Symbols are compared by identity (their unique atom id), not by the
+            // descriptor string content. `StringRef`'s `PartialEq` compares content,
+            // so `a == b` here would wrongly equate two distinct `Symbol('x')` calls
+            // that share the same description. Match `JSValue::eq` (val.rs), which
+            // keys on `atom_info().id()`.
+            (JSValue::Symbol(a), JSValue::Symbol(b)) => {
+                matches!((a.atom_info(), b.atom_info()), (Some(x), Some(y)) if x.id() == y.id())
+            }
             _ => false,
         }
     }
