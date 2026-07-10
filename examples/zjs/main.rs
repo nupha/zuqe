@@ -83,14 +83,21 @@ struct Args {
     #[arg(
         long,
         value_name = "n",
-        help = "set stack arena size to n (default: 256k)"
+        help = "set virtual stack arena size to n (default: 256k)"
     )]
     stack_arena: Option<String>,
 
     #[arg(
         long,
         value_name = "n",
-        help = "set C-stack recursion limit to n (default: 256k)"
+        help = "set virtual stack byte limit to n (default: 512k)"
+    )]
+    stack_limit: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "n",
+        help = "set C-stack recursion limit to n (default: 512k)"
     )]
     stack_overflow: Option<String>,
 
@@ -192,6 +199,15 @@ fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
                 rt.set_stack_overflow(size);
             } else {
                 colorize_println(format!("invalid stack-overflow: {ss}"), RedFg);
+                std::process::exit(-1);
+            }
+        }
+
+        if let Some(ss) = &args.stack_limit {
+            if let Some(size) = parse_byte_size(ss) {
+                rt.set_stack_limit(size);
+            } else {
+                colorize_println(format!("invalid stack-limit: {ss}"), RedFg);
                 std::process::exit(-1);
             }
         }

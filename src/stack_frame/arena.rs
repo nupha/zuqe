@@ -20,6 +20,14 @@ pub(crate) struct StackFrameArena {
     pub(crate) data_used: usize,
     pub(crate) suspended_count: usize,
     pub(crate) heap_buf_cache: Vec<Box<[JSValue]>>,
+    /// Live bytes currently held by heap-allocated frames (async + spilled).
+    /// Combined with `data_used` this is the total live virtual stack size in
+    /// bytes, checked against `max_stack_bytes` on every frame allocation.
+    live_heap_bytes: usize,
+    /// Maximum total live virtual stack size in bytes (bump `data_used` +
+    /// `live_heap_bytes`). Exceeding it raises a stack-depth error instead of
+    /// running out of host memory.
+    max_stack_bytes: usize,
 
     /// Closure variable references keyed by frame index.
     /// Only frames with closure captures have entries here;
@@ -35,8 +43,17 @@ pub(crate) struct StackFrameArena {
     pub(crate) stats_heap_capacity: usize,
 }
 
+/// Why a frame allocation failed.
+pub(crate) enum FrameAllocError {
+    /// Host could not allocate the backing buffer (out of memory).
+    Oom,
+    /// Combined bump+heap virtual stack exceeded `max_stack_bytes`.
+    Exceeded,
+}
+
 impl StackFrameArena {
-    pub(crate) const STACK_FRAME_ARENA_CAP: usize = 512 * 1024 / std::mem::size_of::<JSValue>();
+    /// Default maximum total live virtual stack size in bytes (bump + heap).
+    const STACK_LIMIT_DEFAULT: usize = 512 * 1024;
     const HEAP_BUF_CACHE_MAX: usize = 8;
 
     pub(crate) fn with_capacity(capacity: usize) -> Self {
@@ -46,6 +63,8 @@ impl StackFrameArena {
             data_used: 0,
             suspended_count: 0,
             heap_buf_cache: Vec::new(),
+            live_heap_bytes: 0,
+            max_stack_bytes: Self::STACK_LIMIT_DEFAULT,
             var_ref_map: HashMap::new(),
 
             #[cfg(debug_assertions)]
@@ -92,12 +111,22 @@ impl StackFrameArena {
         Ok(())
     }
 
+    /// Set the maximum total live virtual stack size in bytes (bump + heap).
+    pub(crate) fn set_stack_limit(&mut self, bytes: usize) {
+        self.max_stack_bytes = bytes;
+    }
+
     pub(crate) fn alloc_frame(
         &mut self,
         func_obj: Object,
         mode: ExecMode,
         capacity: usize,
-    ) -> Result<FrameIndex, ()> {
+    ) -> Result<FrameIndex, FrameAllocError> {
+        // Guard the combined virtual stack (bump + heap) before allocating.
+        if self.data_used + self.live_heap_bytes + capacity > self.max_stack_bytes {
+            return Err(FrameAllocError::Exceeded);
+        }
+
         let idx = FrameIndex(self.frames.len() as u32);
 
         let buf = if mode.contains(ExecMode::ASYNC) {
@@ -105,13 +134,21 @@ impl StackFrameArena {
             {
                 self.stats_heap_async += 1;
             }
-            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(capacity).ok_or(())?)
+            let boxed = self
+                .reuse_or_alloc_heap_buf(capacity)
+                .ok_or(FrameAllocError::Oom)?;
+            self.live_heap_bytes += boxed.len();
+            FrameBuffer::Heap(boxed)
         } else if self.data_used + capacity > self.data.len() {
             #[cfg(debug_assertions)]
             {
                 self.stats_heap_capacity += 1;
             }
-            FrameBuffer::Heap(self.reuse_or_alloc_heap_buf(capacity).ok_or(())?)
+            let boxed = self
+                .reuse_or_alloc_heap_buf(capacity)
+                .ok_or(FrameAllocError::Oom)?;
+            self.live_heap_bytes += boxed.len();
+            FrameBuffer::Heap(boxed)
         } else {
             #[cfg(debug_assertions)]
             {
@@ -158,6 +195,7 @@ impl StackFrameArena {
                     self.data_used -= buf_capacity as usize;
                 }
                 FrameBuffer::Heap(heap_buf) => {
+                    self.live_heap_bytes = self.live_heap_bytes.saturating_sub(heap_buf.len());
                     let remaining = self.data.len() - self.data_used;
                     if heap_buf.len() > remaining
                         && self.heap_buf_cache.len() < Self::HEAP_BUF_CACHE_MAX
@@ -180,6 +218,7 @@ impl StackFrameArena {
             if let FrameBuffer::Heap(heap_buf) =
                 std::mem::replace(&mut head.buf, FrameBuffer::Empty)
             {
+                self.live_heap_bytes = self.live_heap_bytes.saturating_sub(heap_buf.len());
                 let remaining = self.data.len() - self.data_used;
                 if heap_buf.len() > remaining
                     && self.heap_buf_cache.len() < Self::HEAP_BUF_CACHE_MAX
@@ -356,7 +395,11 @@ impl StackFrameArena {
         None
     }
 
-    pub(crate) fn find_finally_in_frame(&self, idx: FrameIndex) -> Option<(usize, usize)> {
+    pub(crate) fn find_finally_in_frame(
+        &self,
+        idx: FrameIndex,
+        bc_len: usize,
+    ) -> Option<(usize, usize)> {
         let head = self.frame(idx);
         let sp_base = head.stack_base_ptr();
         let mut sp = head.cur_sp_offset as usize;
@@ -366,6 +409,11 @@ impl StackFrameArena {
             if let JSValue::Int(pos) =
                 unsafe { std::ptr::replace(sp_base.add(sp), JSValue::UNDEFINED) }
                 && pos > 0
+                // A GOSUB marker encodes the (in-bounds) finally entry pc.
+                // Plain integer arguments (e.g. a positive `n` in a recursive
+                // call) must NOT be mistaken for a finally marker, otherwise an
+                // unrelated value on the stack would hijack unwinding.
+                && (pos as usize) < bc_len
             {
                 unsafe { std::ptr::write(sp_base.add(sp), JSValue::Int(pos)) }
                 sp += 1;

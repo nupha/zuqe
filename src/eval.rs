@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ops::Deref, ptr::NonNull};
+use std::{ops::Deref, ptr::NonNull, string::String};
 
 use crate::{
     Context,
@@ -232,7 +232,8 @@ impl<'c> ScopedContext<'c> {
         var_scope_idx: i32,
     ) -> JSResult {
         if self.allow_eval {
-            match self.compile(source, filename, eval_type, eval_flags, var_scope_idx)? {
+            let compiled = self.compile(source, filename, eval_type, eval_flags, var_scope_idx)?;
+            match compiled {
                 Compiled::GlobalOrIndirect(bc) => bc.run_as_function(self, this_obj, &[]),
                 Compiled::Direct(bc) => {
                     if self.is_arena_mode() {
@@ -290,7 +291,9 @@ impl<'c> ScopedContext<'c> {
             md.evaluate(self).map(JSValue::from)
         } else {
             let global = self.global_obj();
-            self.compile_then_run(global.into(), source, filename, EvalType::Global, flags, -1)
+            let r =
+                self.compile_then_run(global.into(), source, filename, EvalType::Global, flags, -1);
+            r
         }
     }
 

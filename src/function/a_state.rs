@@ -14,7 +14,8 @@ use crate::{
     gcref_wrapper,
     runtime::js_check_stack_overflow,
     stack_frame::{
-        AsyncStackFrame, ExecMode, FrameBuffer, FrameIndex, StackFrame, StackFrameArena,
+        AsyncStackFrame, ExecMode, FrameAllocError, FrameBuffer, FrameIndex, StackFrame,
+        StackFrameArena,
     },
     value::JSValue,
 };
@@ -122,8 +123,11 @@ impl AsyncStateImpl {
         let frame_idx =
             match arena.alloc_frame(bytecode_func.into(), mode | ExecMode::ASYNC, buf_capacity) {
                 Ok(idx) => idx,
-                Err(()) => {
-                    ctx.with_current_scope(|mut s| s.throw_stack_fail());
+                Err(e) => {
+                    ctx.with_current_scope(|mut s| match e {
+                        FrameAllocError::Oom => s.throw_stack_fail(),
+                        FrameAllocError::Exceeded => s.throw_stack_exceeded(),
+                    });
                     return Err(-1);
                 }
             };
