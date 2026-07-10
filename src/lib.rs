@@ -36,7 +36,7 @@ pub use {
     eval::{EvalFlags, EvalType},
     function::{BoundFunction, CallContext, Callback, FieldDef},
     microtask::*,
-    module::ModuleDef,
+    module::{ModuleDef, path_to_url, url_to_abspath},
     number::IntOrFloat,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,

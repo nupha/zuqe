@@ -7,5 +7,12 @@ mod import;
 mod mdef;
 mod reqres;
 mod resolve;
+mod url;
 
-pub use {export::*, import::*, mdef::*, reqres::*};
+pub use {
+    export::*,
+    import::*,
+    mdef::*,
+    reqres::*,
+    url::{path_to_url, url_to_abspath},
+};

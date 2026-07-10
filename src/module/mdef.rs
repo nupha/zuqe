@@ -231,14 +231,18 @@ impl ModuleDefImpl {
     }
 
     /// set module import.meta props.
+    ///
+    /// The `url` property is the module's canonical name, which is always a
+    /// `file://` URL (except for native modules). It is taken directly from
+    /// `module_name`, so `import.meta.url === module_name` by construction.
     pub fn set_import_meta(
         &mut self,
         ctx: &mut ScopedContext,
-        url: &str,
         is_main: bool,
     ) -> Result<(), i32> {
+        let url = self.module_name().to_utf8(ctx.rt());
         let mut meta_obj = self.import_meta(ctx)?;
-        let sval = ctx.create_string_from_str(url)?;
+        let sval = ctx.create_string_from_str(&url)?;
         meta_obj.define_property_value_str(ctx, "url", sval.into(), JS_PROP_C_W_E)?;
         meta_obj.define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)?;
         Ok(())
