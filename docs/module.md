@@ -27,48 +27,48 @@ rt.set_module_loader(
 Here's a complete example showing how to implement script file based module loading:
 
 ```rust
+use url::Url;
 use zuqe::{ModuleDef, Runtime, ScopedContext};
 
 // Module name normalization (optional)
 fn module_normalize(
     mut ctx: Context,
-    base_name: &str,
+    base_name: &Url,
     name: &str,
     _: *mut std::ffi::c_void,
-) -> Result<String, i32> {
-    // Simple normalization: if name starts with './' or '../', resolve against base
-    if name.starts_with("./") || name.starts_with("../") {
-        let base_path = std::path::Path::new(base_name).parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
-        let normalized = base_path.join(name);
-        Ok(normalized.to_string_lossy().to_string())
-    } else {
-        // Return as-is for absolute imports or bare module names
-        Ok(name.to_string())
-    }
+) -> Result<Url, i32> {
+    // Resolve relative to the importing module's URL. `Url::join` handles
+    // `.`/`..` and works uniformly for `file:` and `http:` bases.
+    base_name.join(name).map_err(|_| -1)
 }
 
 // Module loader function
 fn module_loader(
     ctx: &mut ScopedContext,
-    module_name: &str,
+    module_name: &Url,
     _opaque: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
-    // module_name is the normalized module name
-    // suppose it's a js file in this example.
+    // module_name is the normalized module name (a `file://` URL). Dispatch by
+    // scheme here for future `https:` support.
 
     // Try to read the file
-    match std::fs::read(module_name) {
-        Ok(buf) => {
+    match module_name.scheme() {
+        "file" => match std::fs::read(module_name.path()) {
+            Ok(buf) => {
             // Compile source script using ctx.compile_module() method:
             // - Takes source bytes, filename, and strip flag
             // - Compiles the source as an ES module (not global code)
             // - Returns a `ModuleDef` that can be evaluated
-            let md = ctx.compile_module(&buf, module_name, false)?;
+            let md = ctx.compile_module(&buf, module_name.as_str(), false)?;
             Ok(md)
         }
         Err(_) => {
             ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
+            Err(-1)
+        }
+        // Non-file schemes (e.g. `https:`) are not supported in this example.
+        _ => {
+            ctx.throw_reference_error(&format!("unsupported module scheme '{module_name}'"));
             Err(-1)
         }
     }
