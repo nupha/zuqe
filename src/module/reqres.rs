@@ -2,11 +2,14 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use gc_lite::{GcTrace, GcTraceCtx};
+use url::Url;
+
+use std::path::Path;
 
 use crate::{
     atom::Atom,
     context::{ContextImpl, ScopedContext},
-    module::ModuleDef,
+    module::{ModuleDef, path_to_url, url_to_abspath},
     value::JSValue,
 };
 
@@ -157,66 +160,38 @@ pub(super) fn js_host_resolve_imported_module(
     }
 }
 
-/// Canonicalize a path, stripping the Windows `\\?\` prefix that `canonicalize()` adds.
-///
-/// On Windows, `std::fs::canonicalize()` returns paths with `\\?\` prefix (extended-length
-/// path format, e.g. `\\?\C:\Users\...`). This breaks user-facing display and `starts_with`
-/// comparisons. This wrapper strips that prefix for cross-platform consistency.
-///
-/// Also handles `\\?\UNC\server\share\...` → `\\server\share\...` conversion correctly.
-fn canonicalize_path<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<std::path::PathBuf> {
-    let p = std::fs::canonicalize(path)?;
-
-    #[cfg(windows)]
-    {
-        let s = p.to_string_lossy();
-        if let Some(rest) = s.strip_prefix(r"\\?\") {
-            // UNC paths: `\\?\UNC\server\share\...` → `\\server\share\...`
-            if let Some(unc) = rest
-                .strip_prefix("UNC\\")
-                .or_else(|| rest.strip_prefix("UNC/"))
-            {
-                return Ok(std::path::PathBuf::from(format!("\\{}", unc)));
-            }
-            // Regular paths: `\\?\C:\...` → `C:\...`
-            return Ok(std::path::PathBuf::from(rest));
-        }
-    }
-
-    Ok(p)
-}
-
 /// default module filename normalizer
 ///
 /// Called only for non-native specifiers: native modules are resolved earlier in
-/// `js_host_resolve_imported_module`, before normalization runs. This function
-/// therefore treats the specifier purely as a filesystem path.
+/// `js_host_resolve_imported_module`, before normalization runs. By the time we
+/// reach here, `base_name` is always a canonical `file://` URL (the importing
+/// module's name). The import specifier itself may be:
+///
+/// * a relative reference (`./foo`, `../bar`) — resolved via `Url::join`, which
+///   handles `.`/`..` and works uniformly for `file:` and `http:` bases;
+/// * an absolute filesystem path (`C:/x.js`, `/usr/x.js`) — converted to a URL
+///   directly;
+/// * a full URL (`file://...`, future `https://...`) — passed through.
+///
+/// The resulting path is canonicalized (symlinks / `.` / `..` resolved) so two
+/// different textual paths to the same file collapse to a single `module_name`
+/// cache key.
 fn js_default_module_normalize_name(base_name: &str, name: &str) -> Result<String, i32> {
-    // Treat as a filesystem path, resolving relative to `base`'s directory.
-    // `Path::join` returns `name` unchanged when it is absolute, so a leading `/`,
-    // `C:\`, `C:/` (or any `is_absolute()` path) is handled correctly too.
-    let base_dir = std::path::Path::new(base_name)
-        .parent()
-        .unwrap_or(std::path::Path::new(""));
-
-    let resolved = base_dir.join(name);
-
-    // Canonicalize if the file exists, otherwise use absolute to resolve ./ and ../
-    let raw = if let Ok(p) = canonicalize_path(&resolved) {
-        p.to_string_lossy().into_owned()
-    } else if let Ok(p) = std::path::absolute(&resolved) {
-        p.to_string_lossy().into_owned()
+    let url = if Path::new(name).is_absolute() {
+        // A bare absolute filesystem path: URL-ify it directly.
+        path_to_url(name)
+    } else if let Ok(base) = Url::parse(base_name) {
+        // Resolve relative to the importing module's URL.
+        let joined = base.join(name).map_err(|_| -1)?;
+        let path = url_to_abspath(joined.as_str())
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| joined.as_str().to_string());
+        path_to_url(&path)
     } else {
-        resolved.to_string_lossy().into_owned()
+        // `base_name` is not a URL (should not happen for non-native modules);
+        // fall back to treating `name` as a path.
+        path_to_url(name)
     };
 
-    // On Windows, `canonicalize` yields '\' separators while glob/embedders and the
-    // top-level module name use '/'. Normalize to '/' so the module-name cache key
-    // is comparable; otherwise the same module loaded via a dynamic `import()` gets
-    // a different name than the top-level module and is re-evaluated.
-    // On Unix, '\' is a legal filename character, so it must be left untouched.
-    #[cfg(windows)]
-    let raw = raw.replace('\\', "/");
-
-    Ok(raw)
+    Ok(url)
 }

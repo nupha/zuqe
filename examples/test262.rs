@@ -225,91 +225,34 @@ pub fn js_module_loader(
             })
             .unwrap_or(false);
 
-    match std::fs::read_to_string(module_name) {
-        Ok(content) => {
-            // make abs url
-            let p = PathBuf::from(module_name);
-            let mut normalized = PathBuf::new();
-            for component in p.components() {
-                match component {
-                    std::path::Component::ParentDir => {
-                        normalized.pop();
-                    }
-                    std::path::Component::CurDir => {}
-                    _ => {
-                        normalized.push(component.as_os_str());
-                    }
-                }
-            }
-            let abs_url = format!("{}", normalized.display());
-            
-            // Windows `Path::display()` emits '\'; normalize to '/' so the loader's
-            // module name matches the canonicalized names used for cache lookup.
-            // On Unix, '\' is a legal filename character, so leave it untouched.
-            #[cfg(windows)]
-            let abs_url = abs_url.replace('\\', "/");
+    // `module_name` is a canonical `file://` URL. Dispatch by scheme here and
+    // convert the URL back to a local path to read the source. The module name
+    // (the URL) is passed through to `compile_module` so it becomes the
+    // `module_name` cache key unchanged.
+    let path = match zuqe::url_to_abspath(module_name) {
+        Some(p) => p,
+        None => {
+            ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
+            return Err(-1);
+        }
+    };
 
+    match std::fs::read_to_string(&path) {
+        Ok(content) => {
             if is_json {
                 // JSON module: wrap as `export default <json>;\n`
                 let mut src = String::from("export default ");
                 src.push_str(&content);
                 src.push('\n');
-                ctx.compile_module(src.as_bytes(), &abs_url, false)
+                ctx.compile_module(src.as_bytes(), module_name, false)
             } else {
-                ctx.compile_module(content.as_bytes(), &abs_url, false)
+                ctx.compile_module(content.as_bytes(), module_name, false)
             }
         }
         Err(_) => {
             ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
             Err(-1)
         }
-    }
-}
-
-fn js_module_set_import_meta(
-    ctx: &mut ScopedContext,
-    func_val: JSValue,
-    use_realpath: i32,
-    is_main: bool,
-) -> i32 {
-    if let JSValue::Module(mut m) = func_val {
-        // make module name to absolute url
-        let module_name_atom = m.module_name();
-        let module_name = module_name_atom.to_utf8(ctx.rt());
-
-        let p = PathBuf::from(module_name);
-        let mut normalized = PathBuf::new();
-        for component in p.components() {
-            match component {
-                std::path::Component::ParentDir => {
-                    normalized.pop();
-                }
-                std::path::Component::CurDir => {}
-                _ => {
-                    normalized.push(component.as_os_str());
-                }
-            }
-        }
-        let aurl = format!("file://{}", normalized.display());
-
-        let mut meta_obj = if let Ok(m) = m.import_meta(ctx) {
-            m
-        } else {
-            return -1;
-        };
-
-        let url_func = ctx.create_string_from_utf8(aurl.into_bytes()).unwrap();
-        meta_obj
-            .define_property_value_str(ctx, "url", url_func.into(), JS_PROP_C_W_E)
-            .unwrap();
-
-        meta_obj
-            .define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)
-            .unwrap();
-
-        0
-    } else {
-        unreachable!()
     }
 }
 
@@ -364,10 +307,19 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
+    // Convert the entry filename to a canonical `file://` URL when running a
+    // module, so `module_name` (and thus `import.meta.url`) is a URL. For plain
+    // scripts the filename stays a plain path (used only for error display).
+    let entry_name = if is_module {
+        zuqe::path_to_url(filename.to_str().unwrap())
+    } else {
+        filename.to_str().unwrap().to_string()
+    };
+
     ctx.with_new_scope(|scope| {
         let result = scope.eval_wait(
             script.as_bytes(),
-            filename.as_os_str().to_str().unwrap(),
+            &entry_name,
             if is_module {
                 EvalType::Module
             } else {
@@ -409,10 +361,19 @@ async fn run_test_script<'c>(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
+    // Convert the entry filename to a canonical `file://` URL when running a
+    // module, so `module_name` (and thus `import.meta.url`) is a URL. For plain
+    // scripts the filename stays a plain path (used only for error display).
+    let entry_name = if is_module {
+        zuqe::path_to_url(filename.to_str().unwrap())
+    } else {
+        filename.to_str().unwrap().to_string()
+    };
+
     let val = ctx
         .eval(
             script.as_bytes(),
-            filename.as_os_str().to_str().unwrap(),
+            &entry_name,
             if is_module {
                 EvalType::Module
             } else {
