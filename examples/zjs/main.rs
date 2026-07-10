@@ -14,6 +14,7 @@ use std::{io::Write, process::ExitCode};
 use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use libloading::Library;
+use url::Url;
 use zuqe::{
     Context, EvalFlags, EvalType, Exception, ExitStatus, JSValue, ModuleDef, Runtime,
     ScopedContext, builtins::promise::Promise,
@@ -223,13 +224,13 @@ fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
 fn main() -> ExitCode {
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
-    // Convert the entry filename to a canonical `file://` URL when running a
-    // module, so `module_name` (and thus `import.meta.url`) is a URL.
-    let entry_name = if is_module {
-        zuqe::path_to_url(&args.filename)
-    } else {
-        args.filename.clone()
-    };
+    // Convert the entry filename to a canonical `file://` URL. `module_name`
+    // (and `import.meta.url`) is a URL, and a `file://` base is also required so
+    // that dynamic `import()` from a *script* entry resolves relative specifiers
+    // correctly instead of being handed a bare filesystem path.
+    let entry_name = zuqe::path_to_url(&args.filename)
+        .expect("entry path must convert to a file:// URL")
+        .to_string();
 
     let exit_code = ctx.with_new_scope(|mut scope| {
         let result = scope.eval_wait(
@@ -274,13 +275,13 @@ async fn main() -> ExitCode {
     let mut promise_future = None;
 
     // Convert the entry filename to a canonical `file://` URL when running a
-    // module, so `module_name` (and thus `import.meta.url`) is a URL. For plain
-    // scripts the filename stays a plain path (used only for error display).
-    let entry_name = if is_module {
-        zuqe::path_to_url(&args.filename)
-    } else {
-        args.filename.clone()
-    };
+    // Convert the entry filename to a canonical `file://` URL. `module_name`
+    // (and `import.meta.url`) is a URL, and a `file://` base is also required so
+    // that dynamic `import()` from a *script* entry resolves relative specifiers
+    // correctly instead of being handed a bare filesystem path.
+    let entry_name = zuqe::path_to_url(&args.filename)
+        .expect("entry path must convert to a file:// URL")
+        .to_string();
 
     let result = ctx.eval(
         script.as_bytes(),
@@ -376,7 +377,7 @@ pub type JsInitModuleFn = fn(&mut ScopedContext, &str) -> Result<ModuleDef, i32>
 
 fn js_module_loader(
     ctx: &mut ScopedContext,
-    file_name: &str,
+    file_name: &Url,
     attrs: JSValue,
     _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
@@ -418,7 +419,7 @@ fn js_module_loader(
 
             // Pass the URL (`file_name`) as the module name so the loaded native
             // module's identity matches the cache key used for lookup.
-            match init_fn(ctx, file_name) {
+            match init_fn(ctx, file_name.as_str()) {
                 Ok(m) => {
                     // avoid to close the library
                     // TODO: save the lib handle somewhere
@@ -449,9 +450,9 @@ fn js_module_loader(
                     let mut src = String::from("export default ");
                     src.push_str(&content);
                     src.push('\n');
-                    ctx.compile_module(src.as_bytes(), file_name, false)
+                    ctx.compile_module(src.as_bytes(), file_name.as_str(), false)
                 } else {
-                    ctx.compile_module(content.as_bytes(), file_name, false)
+                    ctx.compile_module(content.as_bytes(), file_name.as_str(), false)
                 }
             }
             Err(_) => {

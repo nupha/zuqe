@@ -11,6 +11,7 @@
 //! percent-encoding) to the `url` crate.
 
 use std::path::{Path, PathBuf};
+use url::Url;
 
 /// Canonicalize a path, stripping the Windows `\\?\` prefix that
 /// `canonicalize()` adds, and restoring `\\?\UNC\server\share` → `\\server\share`.
@@ -73,33 +74,38 @@ fn strip_extended_prefix(path: &str) -> String {
     path.to_string()
 }
 
-/// Convert a filesystem path into a canonical `file://` URL string.
+/// Convert a filesystem path into a canonical `file://` URL.
 ///
 /// On Windows, drive letters (`C:\a`) become `file:///C:/a` and UNC shares
 /// (`\\server\share`) become `file://server/share`; the URL layer handles
 /// percent-encoding (` `, `$`, non-ASCII) for us. Relative paths are made
 /// absolute first so the result is always a valid base URL.
 ///
-/// Returns the original string unchanged if it cannot be represented as a path
-/// URL (e.g. it is already a URL or otherwise non-path text).
-pub fn path_to_url(path: &str) -> String {
+/// The return type is `Url` (not `String`) so callers can join/resolve without
+/// re-parsing. If the path cannot be represented as a `file:` URL directly
+/// (e.g. it is already a URL or otherwise non-path text), falls back to treating
+/// it as a `file://`-prefixed URL; `Err` is returned only when even that cannot
+/// be parsed.
+pub fn path_to_url(path: &str) -> Result<Url, url::ParseError> {
     let abs = to_absolute_path(path);
     let cleaned = strip_extended_prefix(&abs.to_string_lossy());
-    match url::Url::from_file_path(Path::new(&cleaned)) {
-        Ok(u) => u.to_string(),
-        Err(()) => format!("file://{}", cleaned),
+    match Url::from_file_path(Path::new(&cleaned)) {
+        Ok(u) => Ok(u),
+        Err(()) => Url::parse(&format!("file://{}", cleaned)),
     }
 }
 
 /// Convert a `file://` URL into its absolute filesystem path.
 ///
+/// Takes the already-parsed `Url` (the module name at the host boundary).
 /// Returns `Some(path)` only for `file:` URLs; for any other scheme (e.g.
-/// `http(s)://`) or an unparseable value, returns `None` because it does not
-/// denote a local file. The returned path is always absolute.
-pub fn url_to_abspath(url: &str) -> Option<PathBuf> {
-    match url::Url::parse(url) {
-        Ok(u) if u.scheme() == "file" => u.to_file_path().ok(),
-        _ => None,
+/// `http(s)://`) returns `None` because it does not denote a local file.
+/// The returned path is always absolute.
+pub fn url_to_abspath(url: &Url) -> Option<PathBuf> {
+    if url.scheme() == "file" {
+        url.to_file_path().ok()
+    } else {
+        None
     }
 }
 
@@ -110,8 +116,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn roundtrip_unix() {
-        let url = path_to_url("/usr/x.js");
-        assert_eq!(url, "file:///usr/x.js");
+        let url = path_to_url("/usr/x.js").unwrap();
+        assert_eq!(url.as_str(), "file:///usr/x.js");
         assert_eq!(url_to_abspath(&url), Some(PathBuf::from("/usr/x.js")));
     }
 
@@ -119,16 +125,16 @@ mod tests {
     #[test]
     fn local_drive() {
         // C:\a\b.js -> file:///C:/a/b.js (drive letter special-cased by url crate)
-        let url = path_to_url("C:\\a\\b.js");
-        assert_eq!(url, "file:///C:/a/b.js");
+        let url = path_to_url("C:\\a\\b.js").unwrap();
+        assert_eq!(url.as_str(), "file:///C:/a/b.js");
         assert_eq!(url_to_abspath(&url), Some(PathBuf::from("C:\\a\\b.js")));
     }
 
     #[cfg(windows)]
     #[test]
     fn percent_encoding() {
-        let url = path_to_url("C:\\a b.js");
-        assert_eq!(url, "file:///C:/a%20b.js");
+        let url = path_to_url("C:\\a b.js").unwrap();
+        assert_eq!(url.as_str(), "file:///C:/a%20b.js");
         assert_eq!(url_to_abspath(&url), Some(PathBuf::from("C:\\a b.js")));
     }
 
@@ -136,8 +142,8 @@ mod tests {
     #[test]
     fn unc_host_segment() {
         // UNC share: server goes into URL host segment.
-        let url = path_to_url("\\\\server\\share\\a.js");
-        assert_eq!(url, "file://server/share/a.js");
+        let url = path_to_url("\\\\server\\share\\a.js").unwrap();
+        assert_eq!(url.as_str(), "file://server/share/a.js");
         assert_eq!(
             url_to_abspath(&url),
             Some(PathBuf::from("\\\\server\\share\\a.js"))
@@ -146,16 +152,22 @@ mod tests {
 
     #[test]
     fn non_file_url_is_none() {
-        assert_eq!(url_to_abspath("http://example.com/x.js"), None);
-        assert_eq!(url_to_abspath("not a url"), None);
+        assert_eq!(
+            url_to_abspath(&Url::parse("http://example.com/x.js").unwrap()),
+            None
+        );
+        assert_eq!(
+            Url::parse("not a url").ok().as_ref().map(url_to_abspath),
+            None
+        );
     }
 
     #[cfg(windows)]
     #[test]
     fn extended_prefix_stripped() {
         // The \\?\ extended-length form normalizes to the same URL.
-        let plain = path_to_url("C:\\a\\b.js");
-        let extended = path_to_url("\\\\?\\C:\\a\\b.js");
+        let plain = path_to_url("C:\\a\\b.js").unwrap();
+        let extended = path_to_url("\\\\?\\C:\\a\\b.js").unwrap();
         assert_eq!(plain, extended);
     }
 }

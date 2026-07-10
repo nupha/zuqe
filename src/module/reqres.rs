@@ -135,15 +135,32 @@ pub(super) fn js_host_resolve_imported_module(
         }
     }
 
-    // normalize module name (non-native specifiers only)
+    // normalize module name (non-native specifiers only). `base_name` is expected
+    // to be a canonical `file://` (or future `http(s)://`) URL — that is what the
+    // module loaders pass. A plain *script* entry, however, may still hand a bare
+    // filesystem path here (its `entry_name` is the raw filename). Turn such a
+    // value into a URL so `Url::join` works uniformly: a Windows path like
+    // `C:\x.js` would otherwise parse under a bogus bare scheme (`c:`) and later
+    // fail every `scheme() == "file"` check, causing dynamic `import()` from a
+    // script to be rejected before the target module is even loaded.
+    let base_url = match Url::parse(base_name) {
+        Ok(u) if matches!(u.scheme(), "file" | "http" | "https") => u,
+        _ => path_to_url(base_name).map_err(|e| {
+            ctx.throw_reference_error(&format!(
+                "could not resolve module base '{}': {}",
+                base_name, e
+            ));
+            -1
+        })?,
+    };
     let norm_name = if let Some(cb) = ctx.rt().module_normalize_func {
-        cb(ctx, base_name, name, ctx.rt_ptr().module_load_opaque)
+        cb(ctx, &base_url, name, ctx.rt_ptr().module_load_opaque)
     } else {
-        js_default_module_normalize_name(base_name, name)
+        js_default_module_normalize_name(&base_url, name)
     }?;
 
     // search in loaded_modules
-    let module_name = Atom::from_str(ctx, &norm_name)?;
+    let module_name = Atom::from_str(ctx, norm_name.as_str())?;
     if let Some(m) = ctx.find_loaded_module(module_name) {
         return Ok(m);
     }
@@ -155,7 +172,7 @@ pub(super) fn js_host_resolve_imported_module(
         #[cfg(debug_assertions)]
         println!("WARN: module loader function is not set, can't import module.");
 
-        ctx.throw_reference_error(&format!("could not load module '{}'", norm_name));
+        ctx.throw_reference_error(&format!("could not load module '{}'", norm_name.as_str()));
         Err(-1)
     }
 }
@@ -176,22 +193,24 @@ pub(super) fn js_host_resolve_imported_module(
 /// The resulting path is canonicalized (symlinks / `.` / `..` resolved) so two
 /// different textual paths to the same file collapse to a single `module_name`
 /// cache key.
-fn js_default_module_normalize_name(base_name: &str, name: &str) -> Result<String, i32> {
-    let url = if Path::new(name).is_absolute() {
+fn js_default_module_normalize_name(base_name: &Url, name: &str) -> Result<Url, i32> {
+    if Path::new(name).is_absolute() {
         // A bare absolute filesystem path: URL-ify it directly.
-        path_to_url(name)
-    } else if let Ok(base) = Url::parse(base_name) {
-        // Resolve relative to the importing module's URL.
-        let joined = base.join(name).map_err(|_| -1)?;
-        let path = url_to_abspath(joined.as_str())
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| joined.as_str().to_string());
-        path_to_url(&path)
+        path_to_url(name).map_err(|_| -1)
     } else {
-        // `base_name` is not a URL (should not happen for non-native modules);
-        // fall back to treating `name` as a path.
-        path_to_url(name)
-    };
-
-    Ok(url)
+        // Resolve relative to the importing module's URL. `Url::join` handles
+        // `.`/`..` and works uniformly for `file:` and `http:` bases, yielding an
+        // absolute, normalized URL. For `file:` URLs we additionally canonicalize
+        // the path so two textual paths to the same file (symlinks / `.` / `..`)
+        // collapse to a single cache key.
+        let joined = base_name.join(name).map_err(|_| -1)?;
+        if joined.scheme() == "file" {
+            if let Some(p) = url_to_abspath(&joined) {
+                if let Ok(canon) = std::fs::canonicalize(&p) {
+                    return Ok(path_to_url(&canon.to_string_lossy()).map_err(|_| -1)?);
+                }
+            }
+        }
+        Ok(joined)
+    }
 }
