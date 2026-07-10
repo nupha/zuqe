@@ -87,6 +87,13 @@ struct Args {
     )]
     stack_arena: Option<String>,
 
+    #[arg(
+        long,
+        value_name = "n",
+        help = "set C-stack recursion limit to n (default: 256k)"
+    )]
+    stack_overflow: Option<String>,
+
     #[arg(help = "file to execute")]
     filename: String,
 
@@ -176,6 +183,15 @@ fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
                 }
             } else {
                 colorize_println(format!("invalid stack-arena: {ss}"), RedFg);
+                std::process::exit(-1);
+            }
+        }
+
+        if let Some(ss) = &args.stack_overflow {
+            if let Some(size) = parse_byte_size(ss) {
+                rt.set_stack_overflow(size);
+            } else {
+                colorize_println(format!("invalid stack-overflow: {ss}"), RedFg);
                 std::process::exit(-1);
             }
         }

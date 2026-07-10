@@ -26,7 +26,7 @@ use crate::{
 };
 
 /// recursive C stack overflow size (in bytes)
-const STACK_OVERFLOW_LIMIT: usize = 512 * 1024;
+const STACK_OVERFLOW_LIMIT: usize = 256 * 1024;
 const STACK_ARENA_CAP: usize = 256 * 1024 / std::mem::size_of::<JSValue>();
 
 const GC_ARENA_CAP: usize = 64 * 1024;
@@ -201,8 +201,8 @@ impl RuntimeImpl {
         };
     }
 
-    /// set max stack size. 0 for unlimited
-    pub const fn set_stack_size(&mut self, stack_size: usize) {
+    /// set max C-stack recursion depth (in bytes). 0 for unlimited
+    pub const fn set_stack_overflow(&mut self, stack_size: usize) {
         self.stack_overflow = stack_size;
         self.update_stack_limit();
     }
