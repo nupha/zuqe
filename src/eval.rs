@@ -75,11 +75,6 @@ impl<'c> ScopedContext<'c> {
                 BCWrapper::try_from(JSValue::from(head.func_obj))
                     .expect("arena frame func_obj must be a BCWrapper")
             } else {
-                // Legacy fallback (preserved for reference):
-                // let rt = self.rt();
-                // rt.current_stack_frame()
-                //     .and_then(|sf| sf.func_obj.as_BCWrapper().copied())
-                //     .expect("current stack frame must be a BCWrapper")
                 unreachable!(
                     "eval: BytecodeFunction::call always uses arena mode; legacy stack_frame lookup should not be reachable"
                 );

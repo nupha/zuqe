@@ -19,16 +19,18 @@ use crate::{
     value::JSValue,
 };
 
+use url::Url;
+
 pub type ModuleNormalizeFn = fn(
     ctx: &mut ScopedContext,
-    base_name: &str,
+    base_name: &Url,
     name: &str,
     opaque: *mut ::core::ffi::c_void,
-) -> Result<String, i32>;
+) -> Result<Url, i32>;
 
 pub type ModuleLoadFn = fn(
     ctx: &mut ScopedContext,
-    module_name: &str,
+    module_name: &Url,
     attrs: JSValue,
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<ModuleDef, i32>;
