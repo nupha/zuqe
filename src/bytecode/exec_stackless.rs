@@ -50,7 +50,7 @@ use crate::{
         JS_PROP_THROW_STRICT, JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, Object,
         ObjectPayload, ShapeImpl,
     },
-    stack_frame::{ExecMode, FrameIndex, StackFrameArena, VirtualFrame},
+    stack_frame::{ExecMode, FrameAllocError, FrameIndex, StackFrameArena, VirtualFrame},
     utils::{read_from_ptr, unlikely},
     value::JSValue,
 };
@@ -1049,13 +1049,21 @@ impl Bytecode {
 
                                 // Non-tail call: use build_callee_frame to
                                 // allocate and initialize the callee frame.
-                                let callee_frame_idx = match build_callee_frame(arena, bfun.into(), bc, args_slice) {
-                                    Ok(idx) => idx,
-                                    Err(()) => {
-                                        realm_scope.throw_stack_fail();
-                                        return ExecAction::Unwind;
-                                    }
-                                };
+                                let callee_frame_idx =
+                                    match build_callee_frame(arena, bfun.into(), bc, args_slice) {
+                                        Ok(idx) => idx,
+                                        Err(e) => {
+                                            match e {
+                                                FrameAllocError::Oom => {
+                                                    realm_scope.throw_stack_fail()
+                                                }
+                                                FrameAllocError::Exceeded => {
+                                                    realm_scope.throw_stack_exceeded()
+                                                }
+                                            }
+                                            return ExecAction::Unwind;
+                                        }
+                                    };
                                 arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
 
                                 let return_sp = unsafe {
@@ -3299,9 +3307,9 @@ fn build_callee_frame(
     func_obj: Object,
     bc: Bytecode,
     args: &[JSValue],
-) -> Result<FrameIndex, ()> {
+) -> Result<FrameIndex, FrameAllocError> {
     let cap = std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
-    let idx = arena.alloc_frame(func_obj, bc.mode(), cap).map_err(|()| ())?;
+    let idx = arena.alloc_frame(func_obj, bc.mode(), cap)?;
     arena.init_frame_args(idx, bc.arg_count, bc.var_count, args);
     Ok(idx)
 }
@@ -3485,8 +3493,15 @@ pub(crate) fn execute_trampoline(
                 // (same path as non-tail CALL in execute_with_arena).
                 let new_idx = match build_callee_frame(arena, callee_func_obj, callee_bc, &args) {
                     Ok(idx) => idx,
-                    Err(()) => {
-                        cur_trampoline_scope.scope_mut().throw_stack_fail();
+                    Err(e) => {
+                        match e {
+                            FrameAllocError::Oom => {
+                                cur_trampoline_scope.scope_mut().throw_stack_fail()
+                            }
+                            FrameAllocError::Exceeded => {
+                                cur_trampoline_scope.scope_mut().throw_stack_exceeded()
+                            }
+                        }
                         drop(cur_trampoline_scope.into_inner());
                         while let Some(vf) = virtual_frames.pop() {
                             if let Some(scope) = vf.caller_scope {
@@ -3658,7 +3673,9 @@ pub(crate) fn execute_trampoline(
                 // a CatchOffset but a GOSUB/THROW pattern exists (e.g.,
                 // nested try-finally with cleanups, or try-finally without
                 // catch where the CatchOffset was already consumed).
-                if let Some((finally_pc, finally_sp)) = arena.find_finally_in_frame(cur_frame_idx) {
+                if let Some((finally_pc, finally_sp)) =
+                    arena.find_finally_in_frame(cur_frame_idx, cur_bc.opcodes().len())
+                {
                     // Found a finally block. Save the exception value on
                     // the stack below the GOSUB marker so the THROW after
                     // the finally block can re-throw it.

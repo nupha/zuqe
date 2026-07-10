@@ -14,7 +14,7 @@ use crate::{
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     runtime::js_check_stack_overflow,
-    stack_frame::{ExecMode, FrameState, StackFrameArena},
+    stack_frame::{ExecMode, FrameAllocError, FrameState, StackFrameArena},
     value::JSValue,
 };
 
@@ -204,8 +204,11 @@ impl NativeFunction {
         let frame_idx = {
             let idx = match rt.frame_arena.alloc_frame(*nfunc, ExecMode::empty(), cap) {
                 Ok(idx) => idx,
-                Err(()) => {
-                    ctx.throw_stack_fail();
+                Err(e) => {
+                    match e {
+                        FrameAllocError::Oom => ctx.throw_stack_fail(),
+                        FrameAllocError::Exceeded => ctx.throw_stack_exceeded(),
+                    }
                     return Err(-1);
                 }
             };
@@ -280,8 +283,11 @@ impl NativeFunction {
             let arena = &mut *arena_ptr;
             let idx = match arena.alloc_frame(obj, ExecMode::empty(), buf_cap) {
                 Ok(idx) => idx,
-                Err(()) => {
-                    ctx.throw_stack_fail();
+                Err(e) => {
+                    match e {
+                        FrameAllocError::Oom => ctx.throw_stack_fail(),
+                        FrameAllocError::Exceeded => ctx.throw_stack_exceeded(),
+                    }
                     return Err(-1);
                 }
             };

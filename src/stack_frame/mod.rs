@@ -5,6 +5,6 @@ mod arena;
 mod frame;
 
 pub(crate) use {
-    arena::StackFrameArena,
+    arena::{FrameAllocError, StackFrameArena},
     frame::{AsyncStackFrame, ExecMode, FrameBuffer, FrameIndex, FrameState, StackFrame, VirtualFrame},
 };

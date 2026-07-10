@@ -278,6 +278,33 @@ impl<'c> ScopedContext<'c> {
         self.throw_internal_error("execution stack allocation failed");
     }
 
+    #[cold]
+    #[inline(never)]
+    pub fn throw_stack_exceeded(&mut self) {
+        // Do NOT build a backtrace here: this is thrown from a CALL instruction
+        // mid-dispatch (pc still points at CALL, sp holds unconsumed args), so
+        // the frame state is not clean. Walking the deep virtual stack for a
+        // backtrace would read freed/garbage frame data and produce bogus
+        // "invalid opcode" panics. The error message already states the cause,
+        // so we mark the error with a `stack` property (empty) to stop any
+        // later backtrace pass (is_backtrace_needed) from re-walking the frames.
+        const MSG: &str = "maximum call stack size exceeded";
+        if let Some(mut err_obj) = self.create_error_object(ErrorKind::Internal, MSG, false) {
+            let stack_val = Atom::CONST_empty_string
+                .force_string(self)
+                .map_or(JSValue::UNDEFINED, JSValue::from);
+            let _ = err_obj.define_property_value(
+                self,
+                Atom::CONST_stack,
+                stack_val,
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            );
+            self.throw_value(err_obj.into());
+        } else {
+            self.rt_mut().set_exception(Exception::OutOfMemory);
+        }
+    }
+
     #[inline(always)]
     pub fn throw_type_error(&mut self, message: &str) {
         self.throw_error(ErrorKind::Type, message);
@@ -401,7 +428,8 @@ impl<'c> ScopedContext<'c> {
                             dbuf.write_fmt(format_args!(" ({atom_str}"))
                                 .map_err(|_| -1)?;
                             if let Some((ln, col)) = line_col {
-                                dbuf.write_fmt(format_args!(":{ln}:{col}")).map_err(|_| -1)?;
+                                dbuf.write_fmt(format_args!(":{ln}:{col}"))
+                                    .map_err(|_| -1)?;
                             }
                             dbuf.write_all(b")").map_err(|_| -1)?;
                         }

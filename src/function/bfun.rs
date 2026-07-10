@@ -20,7 +20,7 @@ use crate::{
         ObjectPayload,
     },
     object_cast,
-    stack_frame::{FrameState, StackFrameArena},
+    stack_frame::{FrameAllocError, FrameState, StackFrameArena},
     string::JS_ConcatString3,
     value::JSValue,
 };
@@ -465,8 +465,11 @@ impl BytecodeFunction {
             let arena = &mut *arena_ptr;
             let idx = match arena.alloc_frame(func_obj, bc.mode(), buf_cap) {
                 Ok(idx) => idx,
-                Err(()) => {
-                    ctx.throw_stack_fail();
+                Err(e) => {
+                    match e {
+                        FrameAllocError::Oom => ctx.throw_stack_fail(),
+                        FrameAllocError::Exceeded => ctx.throw_stack_exceeded(),
+                    }
                     return Err(-1);
                 }
             };

@@ -26,7 +26,7 @@ use crate::{
 };
 
 /// recursive C stack overflow size (in bytes)
-const STACK_OVERFLOW_LIMIT: usize = 256 * 1024;
+const STACK_OVERFLOW_LIMIT: usize = 512 * 1024;
 const STACK_ARENA_CAP: usize = 256 * 1024 / std::mem::size_of::<JSValue>();
 
 const GC_ARENA_CAP: usize = 64 * 1024;
@@ -211,6 +211,12 @@ impl RuntimeImpl {
     /// host cannot allocate the requested size (caller raises `throw_stack_fail`).
     pub fn set_stack_arena(&mut self, size: usize) -> Result<(), ()> {
         self.frame_arena.set_arena_capacity(size)
+    }
+
+    /// Set the maximum total live virtual stack size in bytes (bump + heap).
+    /// Exceeding it raises `throw_stack_depth_exceeded` on the next frame alloc.
+    pub fn set_stack_limit(&mut self, bytes: usize) {
+        self.frame_arena.set_stack_limit(bytes);
     }
 
     /// Peek current exception
