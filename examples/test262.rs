@@ -15,6 +15,7 @@ use std::{
 
 use clap::Parser;
 use serde::Deserialize;
+use url::Url;
 use zuqe::{
     CallContext, Callback, Context, EvalFlags, EvalType, ExceptionText, JS_PROP_C_W_E, JSResult,
     JSValue, ModuleDef, Runtime, ScopedContext,
@@ -211,7 +212,7 @@ fn setup_ctx_test262_helpers(ctx: &mut ScopedContext) -> Result<JSValue, i32> {
 
 pub fn js_module_loader(
     ctx: &mut ScopedContext,
-    module_name: &str,
+    module_name: &Url,
     attrs: JSValue,
     _opaque: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
@@ -244,9 +245,9 @@ pub fn js_module_loader(
                 let mut src = String::from("export default ");
                 src.push_str(&content);
                 src.push('\n');
-                ctx.compile_module(src.as_bytes(), module_name, false)
+                ctx.compile_module(src.as_bytes(), module_name.as_str(), false)
             } else {
-                ctx.compile_module(content.as_bytes(), module_name, false)
+                ctx.compile_module(content.as_bytes(), module_name.as_str(), false)
             }
         }
         Err(_) => {
@@ -307,14 +308,13 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    // Convert the entry filename to a canonical `file://` URL when running a
-    // module, so `module_name` (and thus `import.meta.url`) is a URL. For plain
-    // scripts the filename stays a plain path (used only for error display).
-    let entry_name = if is_module {
-        zuqe::path_to_url(filename.to_str().unwrap())
-    } else {
-        filename.to_str().unwrap().to_string()
-    };
+    // Convert the entry filename to a canonical `file://` URL. `module_name`
+    // (and `import.meta.url`) is a URL, and a `file://` base is also required so
+    // that (top-level) dynamic `import()` from a *script* entry resolves relative
+    // specifiers correctly, instead of being handed a bare filesystem path.
+    let entry_name = zuqe::path_to_url(filename.to_str().unwrap())
+        .expect("entry path must convert to a file:// URL")
+        .to_string();
 
     ctx.with_new_scope(|scope| {
         let result = scope.eval_wait(
@@ -361,14 +361,13 @@ async fn run_test_script<'c>(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    // Convert the entry filename to a canonical `file://` URL when running a
-    // module, so `module_name` (and thus `import.meta.url`) is a URL. For plain
-    // scripts the filename stays a plain path (used only for error display).
-    let entry_name = if is_module {
-        zuqe::path_to_url(filename.to_str().unwrap())
-    } else {
-        filename.to_str().unwrap().to_string()
-    };
+    // Convert the entry filename to a canonical `file://` URL. `module_name`
+    // (and `import.meta.url`) is a URL, and a `file://` base is also required so
+    // that (top-level) dynamic `import()` from a *script* entry resolves relative
+    // specifiers correctly, instead of being handed a bare filesystem path.
+    let entry_name = zuqe::path_to_url(filename.to_str().unwrap())
+        .expect("entry path must convert to a file:// URL")
+        .to_string();
 
     let val = ctx
         .eval(
