@@ -11,6 +11,7 @@ use super::{
 impl<'s> JSParseState<'s> {
     /// cond_expr? a : b
     /// allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
+    #[inline(always)]
     pub(super) fn parse_cond_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
         self.parse_coalesce_expr(parse_flags)?;
 
@@ -37,6 +38,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
+    #[inline(always)]
     fn parse_coalesce_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
         self.parse_logical_and_or(TokenKind::LOR, parse_flags)?;
 
