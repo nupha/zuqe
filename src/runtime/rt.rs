@@ -26,7 +26,12 @@ use crate::{
 };
 
 /// recursive C stack overflow size (in bytes)
+#[cfg(debug_assertions)]
 const STACK_OVERFLOW_LIMIT: usize = 512 * 1024;
+#[cfg(not(debug_assertions))]
+const STACK_OVERFLOW_LIMIT: usize = 256 * 1024;
+
+/// VM stack arena capacity (in bytes)
 const STACK_ARENA_CAP: usize = 256 * 1024 / std::mem::size_of::<JSValue>();
 
 const GC_ARENA_CAP: usize = 64 * 1024;
@@ -47,8 +52,8 @@ pub struct RuntimeImpl {
     /// shape registry
     pub(crate) shape_registry: ShapeRegistry,
 
-    pub(crate) stack_overflow: usize,  // in bytes, 0 if no limit (C-stack recursion guard) 
-    pub(crate) stack_limit: usize,     // lower stack limit 
+    pub(crate) stack_overflow: usize, // in bytes, 0 if no limit (C-stack recursion guard)
+    pub(crate) stack_limit: usize,    // lower stack limit
     pub(crate) stack_top: usize,
 
     /// Bump-arena frame storage for the stackless interpreter.
@@ -76,7 +81,7 @@ pub struct RuntimeImpl {
     pub(crate) module_load_func: Option<ModuleLoadFn>,
     pub(crate) module_load_opaque: *mut c_void,
 
-     // timestamp for internal use in module evaluation 
+    // timestamp for internal use in module evaluation
     pub(crate) module_async_evaluation_next_timestamp: i64,
 
     /// callbacks to allocate, free and clone SharedArrayBuffers
