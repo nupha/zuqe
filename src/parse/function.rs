@@ -9,6 +9,7 @@ use crate::{
     eval::EvalType,
     function::{ARGUMENT_VAR_OFFSET, FunctionDef, FunctionKind, JSVarDefEnum},
     module::ExportType,
+    runtime::js_check_stack_overflow,
     stack_frame::ExecMode,
     utils::unlikely,
     value::JSValue,
@@ -51,6 +52,16 @@ impl<'s> JSParseState<'s> {
         function_line_num: i32,
         is_expr: bool,
     ) -> Result<Box<FunctionDef>, i32> {
+        // Bound native-stack recursion for nested function/block definitions.
+        // Mirrors QuickJS's js_check_stack_overflow placement at recursion
+        // entry points (next_token / js_parse_function). next_token already
+        // guards most parser recursion, but an explicit check here also
+        // covers the function-definition nesting chain.
+        if js_check_stack_overflow(self.ctx().rt_mut(), 0) {
+            self.throw_syntax_error("stack overflow");
+            return Err(-1);
+        }
+
         let filename_ptr = self.filename.as_ptr();
         let filename_len = self.filename.len();
         let parent_fd = self.cur_func_def;
