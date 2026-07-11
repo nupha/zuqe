@@ -224,10 +224,29 @@ impl<'s> JSParseState<'s> {
         while let Some(st) = todo.take() {
             match st {
                 TodoState::HasLet(t) => {
-                    stmt_let_const_var(self, t, decl_mask)?;
+                    if matches!(t, TokenKind::LET | TokenKind::CONST)
+                        && (decl_mask & DECL_MASK_OTHER) == 0
+                    {
+                        self.throw_syntax_error(
+                            "lexical declarations can't appear in single-statement context",
+                        );
+                        return Err(-1);
+                    }
+                    self.next_token()?;
+                    self.parse_var(1, t, false)?;
+                    self.parse_expect_semi()?;
                 }
                 TodoState::HasExpr => {
-                    hasexpr(self)?;
+                    self.parse_expr()?;
+                    if let Some(vidx) = self.cur_func().eval_ret_idx {
+                        // store the expression value so that it can be returned by eval()
+                        self.emit_op(OpCode::PUT_LOC);
+                        self.emit_u16(vidx);
+                    } else {
+                        // drop the result
+                        self.emit_op(OpCode::DROP);
+                    }
+                    self.parse_expect_semi()?;
                 }
                 TodoState::ParseFuncVar => {
                     self.parse_function_decl(
@@ -732,20 +751,6 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
     Ok(())
 }
 
-#[inline(always)]
-fn stmt_let_const_var(s: &mut JSParseState, tok: TokenKind, decl_mask: i32) -> Result<(), i32> {
-    if matches!(tok, TokenKind::LET | TokenKind::CONST) && (decl_mask & DECL_MASK_OTHER) == 0 {
-        s.throw_syntax_error("lexical declarations can't appear in single-statement context");
-        return Err(-1);
-    }
-
-    s.next_token()?;
-    s.parse_var(1, tok, false)?;
-    s.parse_expect_semi()?;
-
-    Ok(())
-}
-
 fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     s.next_token()?;
     s.set_eval_ret_undefined();
@@ -879,10 +884,12 @@ fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<TodoState, i32> {
         s.throw_reserved_identifier_error();
         return Err(-1);
     }
+
     // Determine if `let` introduces a Declaration or an ExpressionStatement
     if is_let(s, decl_mask)? {
         return Ok(TodoState::HasLet(TokenKind::LET));
     }
+
     if s.token_is_pseudo_keyword(Atom::CONST_async) && s.peek_token(true) == TokenKind::FUNCTION {
         if decl_mask & DECL_MASK_OTHER == 0 {
             s.throw_syntax_error("function declarations can't appear in single-statement context");
@@ -892,22 +899,6 @@ fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<TodoState, i32> {
     }
 
     Ok(TodoState::HasExpr)
-}
-
-fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
-    s.parse_expr()?;
-
-    if let Some(vidx) = s.cur_func().eval_ret_idx {
-        // store the expression value so that it can be returned by eval()
-        s.emit_op(OpCode::PUT_LOC);
-        s.emit_u16(vidx);
-    } else {
-        // drop the result
-        s.emit_op(OpCode::DROP);
-    }
-
-    s.parse_expect_semi()?;
-    Ok(())
 }
 
 // XXX: handle IteratorClose when exiting the loop before the
