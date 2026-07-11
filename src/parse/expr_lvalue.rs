@@ -14,7 +14,7 @@ use super::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PutLValueEnum {
+pub(super) enum PutLValueEnum {
     /// [depth] v ->
     PUT_LVALUE_NOKEEP,
     /// [depth] v -> , keep depth (currently just disable optimizations)
@@ -226,7 +226,9 @@ impl<'s> JSParseState<'s> {
         is_let: bool,
     ) {
         match opcode as u8 {
-            opcodes::OP_get_field | opcodes::OP_get_field_ic | opcodes::op_scope_get_private_field => {
+            opcodes::OP_get_field
+            | opcodes::OP_get_field_ic
+            | opcodes::op_scope_get_private_field => {
                 // depth = 1
                 match special {
                     PutLValueEnum::PUT_LVALUE_NOKEEP | PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH => {}
