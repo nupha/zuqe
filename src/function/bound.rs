@@ -117,7 +117,7 @@ impl BoundFunction {
                         if d <= arg_count as f64 {
                             d = 0.0;
                         } else {
-                            d -= arg_count as f64; /* also converts -0 to +0 */
+                            d -= arg_count as f64;  // also converts -0 to +0 
                         }
                     }
                     JSValue::from(d)

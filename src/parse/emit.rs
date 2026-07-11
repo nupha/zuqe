@@ -49,7 +49,7 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_label_raw(label);
     }
 
-    /* return the label ID offset */
+     // return the label ID offset 
     /// emit on current function def
     pub fn emit_label(&mut self, label: i32) -> i32 {
         let ln = self.last_line_num;
@@ -146,9 +146,9 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_spread_code(depth, ln, lp);
     }
 
-    /* initialize the class fields, called by the constructor. Note:
-    super() can be called in an arrow function, so <this> and
-    <class_fields_init> can be variable references */
+     // initialize the class fields, called by the constructor. Note:
+    // super() can be called in an arrow function, so <this> and
+    // <class_fields_init> can be variable references 
     /// emit on current function def
     pub fn emit_class_field_init(&mut self) {
         let ln = self.last_line_num;

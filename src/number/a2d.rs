@@ -6,15 +6,15 @@ use smallvec::SmallVec;
 use crate::{context::ScopedContext, number::IntOrFloat, utils::unlikely};
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
-/* accept Oo and Ob prefixes in addition to 0x prefix if radix = 0 */
+ // accept Oo and Ob prefixes in addition to 0x prefix if radix = 0 
 pub const ATOD_ACCEPT_BIN_OCT: i32 = 1 << 2;
-/* accept O prefix as octal if radix == 0 and properly formed (Annex B) */
+ // accept O prefix as octal if radix == 0 and properly formed (Annex B) 
 pub const ATOD_ACCEPT_LEGACY_OCTAL: i32 = 1 << 4;
-/* accept _ between digits as a digit separator */
+ // accept _ between digits as a digit separator 
 pub const ATOD_ACCEPT_UNDERSCORES: i32 = 1 << 5;
-/* allow a suffix to override the type */
+ // allow a suffix to override the type 
 pub const ATOD_ACCEPT_SUFFIX: i32 = 1 << 6;
-/* default type */
+ // default type 
 pub const ATOD_TYPE_MASK: i32 = 3 << 7;
 pub const ATOD_TYPE_FLOAT64: i32 = 0;
 pub const ATOD_TYPE_BIG_INT: i32 = 1 << 7;

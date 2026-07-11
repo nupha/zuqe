@@ -132,7 +132,7 @@ fn timestamp_to_fields(tm_val: i64, is_local: bool) -> Option<[i64; 9]> {
     let h = (h - s) / 60;
     let m = h % 60;
     let h = (h - m) / 60;
-    let wd = math_mod(days + 4, 7); /* week day */
+    let wd = math_mod(days + 4, 7);  // week day 
     let y = year_from_days(&mut days);
 
     let mut mon = 0;

@@ -26,14 +26,13 @@ use super::{
 };
 
 impl ObjectImpl {
-    /* allowed flags:
-       JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JS_PROP_ENUMERABLE
-       JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-       JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_HAS_ENUMERABLE,
-       JS_PROP_THROW, JS_PROP_NO_EXOTIC.
-       If JS_PROP_THROW is set, return an exception instead of FALSE.
-       if JS_PROP_NO_EXOTIC is set, do not call the exotic define_own_property callback.
-    */
+     // allowed flags:
+       // JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JS_PROP_ENUMERABLE
+       // JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
+       // JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_HAS_ENUMERABLE,
+       // JS_PROP_THROW, JS_PROP_NO_EXOTIC.
+       // If JS_PROP_THROW is set, return an exception instead of FALSE.
+       // if JS_PROP_NO_EXOTIC is set, do not call the exotic define_own_property callback.
     pub(crate) fn define_property(
         &mut self,
         ctx: &mut ScopedContext,
@@ -147,7 +146,7 @@ impl ObjectImpl {
                     }
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
                         if let Some(idx) = prop.to_small_int() {
-                            /* if the typed array is detached, p->u.array.count = 0 */
+                             // if the typed array is detached, p->u.array.count = 0 
                             if idx >= self.fast_array_count() {
                                 return if ctx.rt().can_throw(flags) {
                                     ctx.throw_type_error("out-of-bound index in typed array");
@@ -181,7 +180,7 @@ impl ObjectImpl {
                                 Ok(true)
                             };
                         } else {
-                            /* slow path with to handle all numeric indexes */
+                             // slow path with to handle all numeric indexes 
                             let Some(num) = prop.to_numeric_index(ctx)? else {
                                 break;
                             };
@@ -416,14 +415,13 @@ impl ObjectImpl {
 
 // TODO: these methods on JSValue are not needed.
 impl JSValue {
-    /* allowed flags:
-       JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JS_PROP_ENUMERABLE
-       JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-       JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_HAS_ENUMERABLE,
-       JS_PROP_THROW, JS_PROP_NO_EXOTIC.
-       If JS_PROP_THROW is set, return an exception instead of FALSE.
-       if JS_PROP_NO_EXOTIC is set, do not call the exotic define_own_property callback.
-    */
+     // allowed flags:
+       // JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JS_PROP_ENUMERABLE
+       // JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
+       // JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_HAS_ENUMERABLE,
+       // JS_PROP_THROW, JS_PROP_NO_EXOTIC.
+       // If JS_PROP_THROW is set, return an exception instead of FALSE.
+       // if JS_PROP_NO_EXOTIC is set, do not call the exotic define_own_property callback.
     /// Note: `prop` is not consumed.
     pub(crate) fn define_property(
         &mut self,

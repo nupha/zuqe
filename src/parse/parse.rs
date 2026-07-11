@@ -528,6 +528,6 @@ const fn is_regexp_syntax(tok: TokenKind) -> bool {
             | TokenKind::TRUE
             | TokenKind::THIS
             | TokenKind::IDENT
-            | TokenKind::Char(')' | ']' | '}') /* XXX: regexp may occur after */
+            | TokenKind::Char(')' | ']' | '}')  // XXX: regexp may occur after 
     )
 }

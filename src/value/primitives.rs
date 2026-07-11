@@ -32,8 +32,8 @@ impl ObjectImpl {
             {
                 let method = self.get_property(ctx, Atom::CONST_Symbol_toPrimitive)?;
 
-                /* ECMA says *If exoticToPrim is not undefined* but tests in
-                test262 use null as a non-callable converter */
+                 // ECMA says *If exoticToPrim is not undefined* but tests in
+                // test262 use null as a non-callable converter 
                 if !method.is_undefined_or_null() {
                     let hint_val = match hint {
                         HINT_STRING => Atom::CONST_string,

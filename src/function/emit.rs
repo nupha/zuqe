@@ -220,7 +220,7 @@ impl FunctionDef {
         }
     }
 
-    /* don't update the last opcode and don't emit line number info */
+     // don't update the last opcode and don't emit line number info 
     pub(crate) fn emit_label_raw(&mut self, label: i32) {
         debug_assert!(label >= 0);
         self.emit_u8(OpCodeTemp::LABEL as u8);
@@ -282,15 +282,15 @@ impl FunctionDef {
         Ok(())
     }
 
-    /* initialize the class fields, called by the constructor. Note:
-    super() can be called in an arrow function, so <this> and
-    <class_fields_init> can be variable references */
+     // initialize the class fields, called by the constructor. Note:
+    // super() can be called in an arrow function, so <this> and
+    // <class_fields_init> can be variable references 
     pub fn emit_class_field_init(&mut self, last_line_num: i32, last_line_pos: u32) {
         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, last_line_num, last_line_pos);
         self.emit_atom(Atom::CONST__class_fields_init_);
         self.emit_u16(self.scope_level as _);
 
-        /* no need to call the class field initializer if not defined */
+         // no need to call the class field initializer if not defined 
         self.emit_op(OpCode::DUP, last_line_num, last_line_pos);
         let label_next = self.emit_goto(OpCode::IF_FALSE, -1, last_line_num, last_line_pos);
 

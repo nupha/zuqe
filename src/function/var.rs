@@ -21,8 +21,8 @@ pub enum JSVarDefEnum {
     JS_VAR_DEF_WITH,
     JS_VAR_DEF_LET,
     JS_VAR_DEF_CONST,
-    JS_VAR_DEF_FUNCTION_DECL,     /* function declaration */
-    JS_VAR_DEF_NEW_FUNCTION_DECL, /* async/generator function declaration */
+    JS_VAR_DEF_FUNCTION_DECL,      // function declaration 
+    JS_VAR_DEF_NEW_FUNCTION_DECL,  // async/generator function declaration 
     JS_VAR_DEF_CATCH,
     JS_VAR_DEF_VAR,
 }
@@ -30,7 +30,7 @@ pub enum JSVarDefEnum {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum JSVarKindEnum {
-    /* XXX: add more variable kinds here instead of using bit fields */
+     // XXX: add more variable kinds here instead of using bit fields 
     JS_VAR_NORMAL = 0,
     /// lexical var with function declaration
     JS_VAR_FUNCTION_DECL,
@@ -42,8 +42,8 @@ pub enum JSVarKindEnum {
     JS_VAR_PRIVATE_FIELD,
     JS_VAR_PRIVATE_METHOD,
     JS_VAR_PRIVATE_GETTER,
-    JS_VAR_PRIVATE_SETTER,        /* must come after JS_VAR_PRIVATE_GETTER */
-    JS_VAR_PRIVATE_GETTER_SETTER, /* must come after JS_VAR_PRIVATE_SETTER */
+    JS_VAR_PRIVATE_SETTER,         // must come after JS_VAR_PRIVATE_GETTER 
+    JS_VAR_PRIVATE_GETTER_SETTER,  // must come after JS_VAR_PRIVATE_SETTER 
 }
 
 pub const GLOBAL_VAR_OFFSET: i32 = 0x40000000;
@@ -144,7 +144,7 @@ impl JSVarDef {
     }
 }
 
-/* XXX: should handle the argument scope generically */
+ // XXX: should handle the argument scope generically 
 #[inline]
 pub(super) const fn is_var_in_arg_scope(vd: &JSVarDef) -> bool {
     matches!(

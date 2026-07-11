@@ -154,9 +154,9 @@ impl FunctionDef {
 
             let mut state: Option<ResolveLabelsState> = match op {
                 opcodes::op_line_num => {
-                    /* line number info (for debug). We put it in a separate
-                    compressed table to reduce memory usage and get better
-                    performance */
+                     // line number info (for debug). We put it in a separate
+                    // compressed table to reduce memory usage and get better
+                    // performance 
                     line_num = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 1)) };
                     line_pos = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 5)) };
                     None
@@ -304,7 +304,7 @@ impl FunctionDef {
                 opcodes::OP_drop => {
                     let mut goto = Some(ResolveLabelsState::NoChange);
                     if OPTIMIZE {
-                        /* remove useless drops before return */
+                         // remove useless drops before return 
                         if let Some(m) =
                             self.code_match(pos_next, &[opcodes::OP_return_undef as i32])
                         {
@@ -700,14 +700,14 @@ impl FunctionDef {
                             (label, op1, _) = self.find_jump_target(label);
 
                             if self.code_has_label(pos_next, label) {
-                                /* jump to next instruction: remove jump */
+                                 // jump to next instruction: remove jump 
                                 self.update_label_ref_count(label, -1);
                             } else if matches!(
                                 op1,
                                 opcodes::OP_return | opcodes::OP_return_undef | opcodes::OP_throw
                             ) {
-                                /* jump to return/throw: remove jump, append return/throw */
-                                /* updating the line number obfuscates assembly listing */
+                                 // jump to return/throw: remove jump, append return/throw 
+                                 // updating the line number obfuscates assembly listing 
                                 //if (line1 >= 0) line_num = line1;
 
                                 self.update_label_ref_count(label, -1);
@@ -716,12 +716,11 @@ impl FunctionDef {
                                 pos_next =
                                     skip_dead_code(self, bc_ptr, bc_len, pos_next, &mut line_num);
                             } else {
-                                /* XXX: should duplicate single instructions followed by goto or return */
-                                /* For example, can match one of these followed by return:
-                                  push_i32 / push_const / push_atom_value / get_var /
-                                  undefined / null / push_false / push_true / get_ref_value /
-                                  get_loc / get_arg / get_var_ref
-                                */
+                                 // XXX: should duplicate single instructions followed by goto or return 
+                                 // For example, can match one of these followed by return:
+                                  // push_i32 / push_const / push_atom_value / get_var /
+                                  // undefined / null / push_false / push_true / get_ref_value /
+                                  // get_loc / get_arg / get_var_ref
                                 state = Some(ResolveLabelsState::HasLabel { label, op: goto_op });
                             }
                         } else {

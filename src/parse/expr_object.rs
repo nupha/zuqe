@@ -302,11 +302,11 @@ impl<'s> JSParseState<'s> {
                     private = PROP_TYPE_PRIVATE;
                 }
                 t if t.is_ident() => {
-                    /* variable can only be a non-reserved identifier */
+                     // variable can only be a non-reserved identifier 
                     is_non_reserved_ident =
                         self.token.kind == TokenKind::IDENT && !self.token.data.is_reserved();
 
-                    /* keywords and reserved words have a valid atom */
+                     // keywords and reserved words have a valid atom 
                     name.replace(self.token.atom().unwrap());
 
                     self.next_token()?;

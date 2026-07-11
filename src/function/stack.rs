@@ -257,7 +257,7 @@ impl FunctionDef {
                 }
                 opcodes::OP_for_of_start | opcodes::OP_for_await_of_start => {
                     catch_pos = pos as _;
-                    /* we assume the catch offset entry is only removed with some op codes */
+                     // we assume the catch offset entry is only removed with some op codes 
                 }
                 opcodes::OP_drop
                 | opcodes::OP_nip

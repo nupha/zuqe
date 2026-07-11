@@ -5,8 +5,8 @@ use std::{borrow::Cow, ffi::CStr};
 
 use super::MAX_SAFE_INTEGER;
 
-/* radix != 10 is only supported with flags = JS_DTOA_VAR_FORMAT */
-/* use as many digits as necessary */
+ // radix != 10 is only supported with flags = JS_DTOA_VAR_FORMAT 
+ // use as many digits as necessary 
 pub const JS_DTOA_VAR_FORMAT: i32 = 0;
 /// use n_digits significant digits (1 <= n_digits <= 101)
 pub const JS_DTOA_FIXED_FORMAT: i32 = 1;
@@ -231,7 +231,7 @@ fn f64_round_is_tie(num: f64, precision: usize) -> bool {
     is_half && is_whole
 }
 
-/* 2 <= base <= 36 */
+ // 2 <= base <= 36 
 unsafe fn i64toa(buf: *mut u8, mut n: i64, base: u32) -> *mut u8 {
     let mut is_neg = 0;
 
