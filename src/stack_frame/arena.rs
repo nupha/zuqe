@@ -20,6 +20,7 @@ pub(crate) struct StackFrameArena {
     pub(crate) data_used: usize,
     pub(crate) suspended_count: usize,
     pub(crate) heap_buf_cache: Vec<Box<[JSValue]>>,
+
     /// Live bytes currently held by heap-allocated frames (async + spilled).
     /// Combined with `data_used` this is the total live virtual stack size in
     /// bytes, checked against `max_stack_bytes` on every frame allocation.
@@ -112,7 +113,7 @@ impl StackFrameArena {
     }
 
     /// Set the maximum total live virtual stack size in bytes (bump + heap).
-    pub(crate) fn set_stack_limit(&mut self, bytes: usize) {
+    pub(crate) const fn set_stack_limit(&mut self, bytes: usize) {
         self.max_stack_bytes = bytes;
     }
 
