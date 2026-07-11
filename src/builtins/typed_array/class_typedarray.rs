@@ -1220,7 +1220,7 @@ fn js_typed_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
 
         let el = this.get_property_u32(ctx, i)?;
-        /* Can return undefined for example if the typed array is detached */
+         // Can return undefined for example if the typed array is detached 
         if !el.is_undefined_or_null() {
             let s = if to_locale {
                 el.to_locale_string(ctx)?.to_string(ctx)?

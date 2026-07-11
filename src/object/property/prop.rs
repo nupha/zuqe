@@ -507,7 +507,7 @@ pub(crate) const fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool
             return false;
         }
         if !has_accessor && !is_getset && (prop_flags & JS_PROP_WRITABLE) == 0 {
-            /* not writable: cannot set the writable bit */
+             // not writable: cannot set the writable bit 
             if (flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE))
                 == (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE)
             {

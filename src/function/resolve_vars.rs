@@ -596,7 +596,9 @@ impl FunctionDef {
                     }
                 }
                 opcodes::OP_nop => {}
-                opcodes::op_set_class_name => { /* only used during parsing */ }
+                opcodes::op_set_class_name => {
+                    // only used during parsing
+                }
                 opcodes::op_get_field_opt_chain => {
                     let name = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) };
                     bc_out.push(opcodes::OP_get_field);

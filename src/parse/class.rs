@@ -719,16 +719,16 @@ impl<'s> JSParseState<'s> {
         }
 
         if !class_name.is_null() {
-            /* store the class name in the scoped class name variable (it
-            is independent from the class statement variable
-            definition) */
+             // store the class name in the scoped class name variable (it
+            // is independent from the class statement variable
+            // definition) 
             self.emit_op(OpCode::DUP);
             self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
             self.emit_atom(class_name);
             self.emit_u16(self.cur_func().scope_level as _);
         }
 
-        /* initialize the static fields */
+         // initialize the static fields 
         if !class_fields[1].fields_init_fd.is_null() {
             let cf = &class_fields[1];
             self.emit_op(OpCode::DUP);
@@ -741,16 +741,16 @@ impl<'s> JSParseState<'s> {
         self.pop_scope();
         self.pop_scope();
 
-        /* the class statements have a block level scope */
+         // the class statements have a block level scope 
         if !class_var_name.is_null() {
             self.define_var_cur_func(class_var_name, JSVarDefEnum::JS_VAR_DEF_LET)?;
             self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
             self.emit_atom(class_var_name);
             self.emit_u16(self.cur_func().scope_level as _);
         } else if class_name.is_null() {
-            /* cannot use OP_set_name because the name of the class
-            must be defined before the static initializers are
-            executed */
+             // cannot use OP_set_name because the name of the class
+            // must be defined before the static initializers are
+            // executed 
             self.emit_op_temp(OpCodeTemp::SET_CLASS_NAME);
             self.emit_u32(self.cur_func().last_opcode_pos as u32 + 1 - define_class_offset as u32);
         }

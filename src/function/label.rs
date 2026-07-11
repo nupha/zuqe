@@ -14,8 +14,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct RelocEntry {
-    pub addr: usize, /* address to patch */
-    pub size: i32,   /* address size: 1, 2 or 4 bytes */
+    pub addr: usize,  // address to patch 
+    pub size: i32,    // address size: 1, 2 or 4 bytes 
 }
 
 #[derive(Debug)]

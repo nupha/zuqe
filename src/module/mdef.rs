@@ -71,7 +71,7 @@ pub struct ModuleDefImpl {
     pub resolved: bool,
     pub status: JSModuleStatus,
 
-    /* temp use during js_module_link() & js_module_evaluate() */
+     // temp use during js_module_link() & js_module_evaluate() 
     pub(super) dfs_index: i32,
     pub(super) dfs_ancestor_index: i32,
 
@@ -86,8 +86,8 @@ pub struct ModuleDefImpl {
     pub(super) async_evaluation_timestamp: i64,
     pub(super) pending_async_dependencies: i32,
 
-    pub(super) promise: Option<Promise>, /* corresponds to spec field: capability */
-    pub(super) resolving_funcs: [JSValue; 2], /* corresponds to spec field: capability */
+    pub(super) promise: Option<Promise>,  // corresponds to spec field: capability 
+    pub(super) resolving_funcs: [JSValue; 2],  // corresponds to spec field: capability 
 
     /// undefined means no exception
     eval_error: JSValue,
@@ -515,7 +515,7 @@ pub(crate) fn add_module_variables(ctx: &mut ScopedContext, fdef: &mut FunctionD
     0
 }
 
-/* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
+ // Unfortunately, the spec gives a different behavior from GetOwnProperty ! 
 fn js_module_ns_has(_: &mut ScopedContext, obj: Object, prop: Atom) -> Result<bool, i32> {
     Ok(obj.has_shape_property(prop))
 }

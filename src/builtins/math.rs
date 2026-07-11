@@ -105,12 +105,12 @@ pub const fn js_math_round(a: f64) -> f64 {
 
     unsafe {
         if e < 1023 {
-            /* abs(a) < 1 */
+             // abs(a) < 1 
             if e == (1023 - 1) && u.uint64 != 0xbfe0000000000000 {
-                /* abs(a) > 0.5 or a = 0.5: return +/-1.0 */
+                 // abs(a) > 0.5 or a = 0.5: return +/-1.0 
                 u.uint64 = (u.uint64 & (1 << 63)) | (1023 << 52);
             } else {
-                /* return +/-0.0 */
+                 // return +/-0.0 
                 u.uint64 &= 1 << 63;
             }
         } else if e < 1023 + 52 {
@@ -118,10 +118,10 @@ pub const fn js_math_round(a: f64) -> f64 {
             let one = 1 << (52 - (e - 1023));
             let frac_mask = one - 1;
             u.uint64 += (one >> 1) - (s as u64);
-            u.uint64 &= !frac_mask; /* truncate to an integer */
+            u.uint64 &= !frac_mask;  // truncate to an integer 
         }
 
-        /* otherwise: abs(a) >= 2^52, or NaN, +/-Infinity: no change */
+         // otherwise: abs(a) >= 2^52, or NaN, +/-Infinity: no change 
         u.d
     }
 }
@@ -158,7 +158,7 @@ fn js_math_clz32(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Int(r as i32))
 }
 
-/* xorshift* random number generator by Marsaglia */
+ // xorshift* random number generator by Marsaglia 
 #[inline]
 const fn xorshift64star(pstate: &mut u64) -> u64 {
     let mut x = *pstate;
@@ -172,7 +172,7 @@ const fn xorshift64star(pstate: &mut u64) -> u64 {
 
 pub fn js_math_random(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     let v = xorshift64star(&mut ctx.random_state);
-    /* 1.0 <= u.d < 2 */
+     // 1.0 <= u.d < 2 
     let u = JSFloat64Union {
         uint64: (0x3ff << 52) | (v >> 12),
     };

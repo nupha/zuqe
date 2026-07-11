@@ -17,10 +17,10 @@ use super::{
     tokenize::TokenKind,
 };
 
-pub const DECL_MASK_FUNC: i32 = 1 << 0; /* allow normal function declaration */
-/* ored with DECL_MASK_FUNC if function declarations are allowed with a label */
+pub const DECL_MASK_FUNC: i32 = 1 << 0;  // allow normal function declaration 
+ // ored with DECL_MASK_FUNC if function declarations are allowed with a label 
 pub const DECL_MASK_FUNC_WITH_LABEL: i32 = 1 << 1;
-pub const DECL_MASK_OTHER: i32 = 1 << 2; /* all other declarations */
+pub const DECL_MASK_OTHER: i32 = 1 << 2;  // all other declarations 
 pub const DECL_MASK_ALL: i32 = DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL | DECL_MASK_OTHER;
 
 enum TodoState {

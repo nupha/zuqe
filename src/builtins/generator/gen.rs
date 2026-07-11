@@ -248,7 +248,7 @@ fn js_generator_next(
                 g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD);
 
                 if g.is_completed() {
-                    /* finalize the execution in case of exception or normal return */
+                     // finalize the execution in case of exception or normal return 
                     g.complete();
                     return res;
                 }

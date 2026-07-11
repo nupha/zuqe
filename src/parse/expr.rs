@@ -316,7 +316,7 @@ impl<'s> JSParseState<'s> {
 
                     accept_lparen = true;
                     if self.token.kind != TokenKind::Char('(') {
-                        /* new operator on an object */
+                         // new operator on an object 
                         self.emit_op(OpCode::DUP);
                         self.emit_op(OpCode::CALL_CONSTRUCTOR);
                         self.emit_u16(0);
@@ -573,11 +573,11 @@ impl<'s> JSParseState<'s> {
         if parse_flags & (PF_POW_ALLOWED | PF_POW_FORBIDDEN) != 0
             && self.token.kind == TokenKind::POW
         {
-            /* Strict ES7 exponentiation syntax rules: To solve
-            conficting semantics between different implementations
-            regarding the precedence of prefix operators and the
-            postfix exponential, ES7 specifies that -2**2 is a
-            syntax error. */
+             // Strict ES7 exponentiation syntax rules: To solve
+            // conficting semantics between different implementations
+            // regarding the precedence of prefix operators and the
+            // postfix exponential, ES7 specifies that -2**2 is a
+            // syntax error. 
             if parse_flags & PF_POW_FORBIDDEN != 0 {
                 self.ctx().throw_syntax_error(
                     "unparenthesized unary expression can't appear on the left-hand side of '**'",
