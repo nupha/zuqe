@@ -14,8 +14,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct RelocEntry {
-    pub addr: usize,  // address to patch 
-    pub size: i32,    // address size: 1, 2 or 4 bytes 
+    pub addr: usize, // address to patch
+    pub size: i32,   // address size: 1, 2 or 4 bytes
 }
 
 #[derive(Debug)]
@@ -74,7 +74,7 @@ impl FunctionDef {
     }
 
     /// check if a specified `label` exists in bytecode, since `pos`.
-    pub(super) fn code_has_label(&self, mut pos: usize, label: u32) -> bool {
+    pub(super) const fn code_has_label(&self, mut pos: usize, label: u32) -> bool {
         let bc_buf = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();
 

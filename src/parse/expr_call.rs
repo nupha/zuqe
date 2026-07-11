@@ -74,8 +74,6 @@ impl<'s> JSParseState<'s> {
             self.parse_expect(TokenKind::Char(','))?;
         }
 
-        // TODO: use match self.token.val {} instead
-        // XXX
         if self.token.kind == TokenKind::ELLIPSIS {
             // ellipsis args, e.g.: f(...[a,b,c]), f(a,b, ...[x,y,z])
             self.emit_op(OpCode::ARRAY_FROM);
@@ -98,13 +96,14 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::DEFINE_ARRAY_EL);
                     self.emit_op(OpCode::INC);
                 }
+
                 if self.token.kind == TokenKind::Char(')') {
                     break;
                 }
 
                 // accept a trailing comma before the ')'
                 self.parse_expect(TokenKind::Char(','))?;
-            } // while
+            }
 
             self.next_token()?;
 
@@ -130,27 +129,29 @@ impl<'s> JSParseState<'s> {
                     fd.has_eval_call = true;
                 }
                 _ => {
-                    if call_type == FuncCallType::FUNC_CALL_SUPER_CTOR {
-                        self.emit_op(OpCode::APPLY);
-                        self.emit_u16(1);
-                        // set the 'this' value
-                        self.emit_op(OpCode::DUP);
-                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom(Atom::CONST_this);
-                        self.emit_u16(0);
-
-                        self.emit_class_field_init();
-                    } else if call_type == FuncCallType::FUNC_CALL_NEW {
-                        // obj func array -> func obj array
-                        self.emit_op(OpCode::PERM3);
-                        self.emit_op(OpCode::APPLY);
-                        self.emit_u16(1);
-                    } else {
-                        // func array -> func undef array
-                        self.emit_op(OpCode::UNDEFINED);
-                        self.emit_op(OpCode::SWAP);
-                        self.emit_op(OpCode::APPLY);
-                        self.emit_u16(0);
+                    match call_type {
+                        FuncCallType::FUNC_CALL_SUPER_CTOR => {
+                            self.emit_op(OpCode::APPLY);
+                            self.emit_u16(1);
+                            self.emit_op(OpCode::DUP); // set the 'this' value
+                            self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+                            self.emit_atom(Atom::CONST_this);
+                            self.emit_u16(0);
+                            self.emit_class_field_init();
+                        }
+                        FuncCallType::FUNC_CALL_NEW => {
+                            // obj func array -> func obj array
+                            self.emit_op(OpCode::PERM3);
+                            self.emit_op(OpCode::APPLY);
+                            self.emit_u16(1);
+                        }
+                        _ => {
+                            // func array -> func undef array
+                            self.emit_op(OpCode::UNDEFINED);
+                            self.emit_op(OpCode::SWAP);
+                            self.emit_op(OpCode::APPLY);
+                            self.emit_u16(0);
+                        }
                     }
                 }
             }

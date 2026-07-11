@@ -40,9 +40,6 @@ impl<'s> JSParseState<'s> {
     /// Returns the newly created function definition.
     /// For JS_PARSE_FUNC_STATEMENT, JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR,
     /// func_name must be JS_ATOM_NULL.
-    ///
-    /// Note: `func_name` is consumed inside.
-    #[inline(never)]
     fn parse_function_sub(
         &mut self,
         func_type: JSParseFunctionEnum,
@@ -102,9 +99,9 @@ impl<'s> JSParseState<'s> {
         sub_fd.attrs.is_derived_class_constructor =
             func_type == JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR;
 
-         // fd->in_function_body == FALSE prevents yield/await during the parsing
+        // fd->in_function_body == FALSE prevents yield/await during the parsing
         // of the arguments in generator/async functions. They are parsed as
-        // regular identifiers for other function kinds. 
+        // regular identifiers for other function kinds.
         sub_fd.attrs.func_kind = func_kind;
 
         match func_type {
@@ -177,8 +174,8 @@ impl<'s> JSParseState<'s> {
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
             if self.token.kind == TokenKind::Char('(') {
                 let mut skip_bits: i32 = 0;
-                 // if there is an '=' inside the parameter list, we
-                // consider there is a parameter expression inside 
+                // if there is an '=' inside the parameter list, we
+                // consider there is a parameter expression inside
                 self.parse_skip_parens_token(&mut skip_bits, false)?;
                 if skip_bits & SKIP_HAS_ASSIGNMENT != 0 {
                     fd1.has_parameter_expressions = true;
@@ -250,7 +247,7 @@ impl<'s> JSParseState<'s> {
                         self.define_var_cur_func(name, JSVarDefEnum::JS_VAR_DEF_LET)?;
                     }
 
-                     // XXX: could avoid allocating an argument if rest is true 
+                    // XXX: could avoid allocating an argument if rest is true
                     let idx = fd1.add_arg(self.ctx(), name)? as i32;
                     self.next_token()?;
 
@@ -352,10 +349,10 @@ impl<'s> JSParseState<'s> {
         }
 
         if fd1.has_parameter_expressions {
-             // Copy the variables in the argument scope to the variable
+            // Copy the variables in the argument scope to the variable
             // scope (see FunctionDeclarationInstantiation() in spec). The
             // normal arguments are already present, so no need to copy
-            // them. 
+            // them.
             let mut idx = fd1.scopes[fd1.scope_level as usize].first;
             while idx >= 0 {
                 let (scope_level, var_name, scope_next) = {
@@ -392,7 +389,7 @@ impl<'s> JSParseState<'s> {
                 idx = scope_next;
             }
 
-             // the argument scope has no parent, hence we don't use pop_scope(s) 
+            // the argument scope has no parent, hence we don't use pop_scope(s)
             fd1.emit_op_temp(
                 OpCodeTemp::LEAVE_SCOPE,
                 self.last_line_num,
@@ -400,14 +397,14 @@ impl<'s> JSParseState<'s> {
             );
             fd1.emit_u16(fd1.scope_level as _);
 
-             // set the variable scope as the current scope 
+            // set the variable scope as the current scope
             fd1.scope_level = 0;
             fd1.scope_first = fd1.scopes[fd1.scope_level as usize].first;
         }
 
         self.next_token()?;
 
-         // generator function: yield after the parameters are evaluated 
+        // generator function: yield after the parameters are evaluated
         if matches!(
             func_kind,
             FunctionKind::Generator | FunctionKind::AsyncGenerator
@@ -630,15 +627,15 @@ impl<'s> JSParseState<'s> {
             {
                 // avoid creating a lexical variable in the global scope. XXX: check annex B
                 if let Some(hf) = cur_fd.find_global_var(func_name) {
-                     // XXX: should check scope chain 
+                    // XXX: should check scope chain
                     if hf.scope_level == cur_fd.scope_level {
                         self.throw_syntax_error("invalid redefinition of global identifier");
                         return Err(-1);
                     }
                 }
             } else {
-                 // Always create a lexical name, fail if at the same scope as existing name 
-                 // Lexical variable will be initialized upon entering scope 
+                // Always create a lexical name, fail if at the same scope as existing name
+                // Lexical variable will be initialized upon entering scope
                 // now fd0 is still the cur_func
                 debug_assert_eq!(cur_fd as *mut FunctionDef, self.cur_func_def);
                 lexical_func_idx = self.define_var_cur_func(
@@ -717,13 +714,13 @@ impl<'s> JSParseState<'s> {
                             (*self.cur_func_def).add_global_var(self.ctx(), sub_func_name)?
                         };
 
-                         // it is considered as defined at the top level
+                        // it is considered as defined at the top level
                         // (needed for annex B.3.3.4 and B.3.3.5
-                        // checks) 
+                        // checks)
                         hf.scope_level = 0;
                         hf.set_force_init(js_mode.contains(ExecMode::STRICT));
 
-                         // store directly into global var, bypass lexical scope 
+                        // store directly into global var, bypass lexical scope
                         self.emit_op(OpCode::DUP);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
                         self.emit_atom(sub_func_name);
@@ -736,7 +733,7 @@ impl<'s> JSParseState<'s> {
                             }
                         };
 
-                         // store directly into local var, bypass lexical catch scope 
+                        // store directly into local var, bypass lexical catch scope
                         self.emit_op(OpCode::DUP);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
                         self.emit_atom(sub_func_name);
@@ -745,7 +742,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if lexical_func_idx >= 0 {
-                     // lexical variable will be initialized upon entering scope 
+                    // lexical variable will be initialized upon entering scope
                     self.cur_func_mut()
                         .vars
                         .get_mut(lexical_func_idx as usize)
@@ -753,8 +750,8 @@ impl<'s> JSParseState<'s> {
                         .func_pool_idx = cp_idx;
                     self.emit_op(OpCode::DROP);
                 } else {
-                     // store function object into its lexical name 
-                     // XXX: could use OP_put_loc directly 
+                    // store function object into its lexical name
+                    // XXX: could use OP_put_loc directly
                     self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
                     self.emit_atom(sub_func_name);
                     self.emit_u16(self.cur_func().scope_level as _);

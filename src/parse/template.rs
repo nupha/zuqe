@@ -102,7 +102,8 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    pub(super) fn parse_template(&mut self, call: bool, argc: &mut i32) -> Result<TokenKind, i32> {
+    pub(super) fn parse_template(&mut self, call: bool) -> Result<i32, i32> {
+        let mut argc = 0;
         let mut raw_array = JSValue::UNDEFINED;
         let mut template_object = JSValue::UNDEFINED;
 
@@ -193,7 +194,8 @@ impl<'s> JSParseState<'s> {
 
                     if depth == 0 {
                         if string_sep == b'`' as i32 {
-                            return self.next_token();
+                            self.next_token()?;
+                            return Ok(argc);
                         }
                         self.emit_op(OpCode::GET_FIELD2);
                         self.emit_atom(Atom::CONST_concat);
@@ -207,15 +209,15 @@ impl<'s> JSParseState<'s> {
                 if call {
                     seal_template_obj(self.ctx(), raw_array);
                     seal_template_obj(self.ctx(), template_object);
-                    *argc = depth + 1;
+                    argc = depth + 1;
                 } else {
                     self.emit_op(OpCode::CALL_METHOD);
                     self.emit_u16(depth as u16 - 1);
                 }
-                return self.next_token();
+                self.next_token()?;
+                return Ok(argc);
             }
 
-            // 处理模板表达式
             self.next_token()?;
             self.parse_expr()?;
 
@@ -239,6 +241,7 @@ impl<'s> JSParseState<'s> {
             })?;
         }
 
-        self.parse_expect(TokenKind::TEMPLATE)
+        self.parse_expect(TokenKind::TEMPLATE)?;
+        Ok(argc)
     }
 }
