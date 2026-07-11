@@ -17,11 +17,13 @@ use super::{
     tokenize::TokenKind,
 };
 
-pub const DECL_MASK_FUNC: i32 = 1 << 0; // allow normal function declaration 
+// allow normal function declaration
+pub(super) const DECL_MASK_FUNC: i32 = 1 << 0;
 // ored with DECL_MASK_FUNC if function declarations are allowed with a label
-pub const DECL_MASK_FUNC_WITH_LABEL: i32 = 1 << 1;
-pub const DECL_MASK_OTHER: i32 = 1 << 2; // all other declarations 
-pub const DECL_MASK_ALL: i32 = DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL | DECL_MASK_OTHER;
+pub(super) const DECL_MASK_FUNC_WITH_LABEL: i32 = 1 << 1;
+// all other declarations
+pub(super) const DECL_MASK_OTHER: i32 = 1 << 2;
+pub(super) const DECL_MASK_ALL: i32 = DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL | DECL_MASK_OTHER;
 
 enum TodoState {
     HasLet(TokenKind),
@@ -466,8 +468,11 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     let pos_cont = if s.token.kind == TokenKind::Char(')') {
         // no end expression
         label_cont = label_test;
-        break_entry.label_cont = label_cont;
-        0 // avoid warning
+        #[allow(unused_assignments)]
+        {
+            break_entry.label_cont = label_cont;
+        }
+        0
     } else {
         // skip the end expression
         s.emit_goto(OpCode::GOTO, label_body);
@@ -527,6 +532,7 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
 
     s.cur_func_mut().pop_break_entry();
     s.pop_scope();
+
     Ok(())
 }
 
@@ -849,10 +855,10 @@ fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
 
     s.cur_func_mut().pop_break_entry();
     s.pop_scope();
+
     Ok(())
 }
 
-#[inline(always)]
 fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
     if s.cur_func().attrs.exec_mode.contains(ExecMode::STRICT) {
         s.throw_syntax_error("invalid keyword: with");
@@ -933,7 +939,10 @@ fn parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Re
         ..Default::default()
     };
     s.cur_func_mut().push_break_entry(&mut break_entry);
-    break_entry.scope_level = block_scope_level;
+    #[allow(unused_assignments)]
+    {
+        break_entry.scope_level = block_scope_level;
+    }
 
     let label_expr = s.emit_goto(OpCode::GOTO, -1);
     let pos_next = s.cur_func().byte_code.len();
@@ -1054,8 +1063,11 @@ fn parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Re
     if s.token_is_pseudo_keyword(Atom::CONST_of) {
         // for...of
         is_for_of = true;
-        break_entry.has_iterator = true;
-        break_entry.drop_count += 2;
+        #[allow(unused_assignments)]
+        {
+            break_entry.has_iterator = true;
+            break_entry.drop_count += 2;
+        }
         if has_initializer {
             s.throw_syntax_error(&format!(
                 "a declaration in the head of a for-{} loop can't have an initializer",
@@ -1179,5 +1191,6 @@ fn parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Re
 
     s.cur_func_mut().pop_break_entry();
     s.pop_scope();
+
     Ok(())
 }

@@ -105,8 +105,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
             }
             TokenKind::TEMPLATE => {
-                let mut _x = 0;
-                self.parse_template(false, &mut _x)?;
+                self.parse_template(false)?;
             }
             TokenKind::STRING => {
                 let sbuf = self.token.data.take_string().unwrap();
@@ -457,8 +456,7 @@ impl<'s> JSParseState<'s> {
                     )
                 };
 
-                let mut argc = 0;
-                self.parse_template(true, &mut argc)?;
+                let argc = self.parse_template(true)?;
                 self.emit_func_call(
                     unsafe { self.cur_func_def.as_mut().unwrap() },
                     FuncCallType::FUNC_CALL_TEMPLATE,
