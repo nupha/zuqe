@@ -14,7 +14,10 @@ use super::{
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
-    state::{JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POSTFIX_CALL, SKIP_HAS_ELLIPSIS},
+    state::{
+        JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POSTFIX_CALL, PF_POW_ALLOWED,
+        PF_POW_FORBIDDEN, SKIP_HAS_ELLIPSIS,
+    },
     tokenize::TokenKind,
 };
 
@@ -25,129 +28,17 @@ impl<'s> JSParseState<'s> {
         if self.token.kind == TokenKind::YIELD {
             return self.parse_yield(parse_flags);
         }
-
-        // name0 is used to check for OP_set_name pattern,
-        // this atom is not duplicated
-        let name0 = if self.token.kind == TokenKind::IDENT {
-            self.token.atom().unwrap()
-        } else {
-            Atom::NULL
-        };
-
-        self.parse_cond_expr(parse_flags | PF_ARROW_FUNC)?;
-
-        let mut opcode: i32 = 0;
-        let mut scope: i32 = 0;
-
-        match self.token.kind {
-            op if op == TokenKind::Char('=') || op.is_op_assign() => {
-                self.next_token()?;
-
-                let mut label: i32 = 0;
-                let mut name = Atom::NULL;
-
-                self.get_lvalue(
-                    &mut opcode,
-                    &mut scope,
-                    &mut name,
-                    &mut label,
-                    std::ptr::null_mut(),
-                    op != TokenKind::Char('='),
-                    op,
-                )?;
-
-                self.parse_assign_expr2(parse_flags)?;
-
-                if op == TokenKind::Char('=') {
-                    if opcode == OpCode::GET_REF_VALUE as i32 && name == name0 {
-                        self.set_object_name(name);
-                    }
-                } else {
-                    self.emit_op(op.op_assign_opcode().unwrap());
-                }
-
-                self.put_lvalue(
-                    opcode,
-                    scope,
-                    name,
-                    label,
-                    PutLValueEnum::PUT_LVALUE_KEEP_TOP,
-                    false,
-                );
-            }
-            op @ (TokenKind::LAND_ASSIGN
-            | TokenKind::LOR_ASSIGN
-            | TokenKind::DOUBLE_QUESTION_MARK_ASSIGN) => {
-                self.next_token()?;
-
-                let mut label: i32 = 0;
-                let mut depth_lvalue: i32 = 0;
-                let mut name = Atom::NULL;
-
-                self.get_lvalue(
-                    &mut opcode,
-                    &mut scope,
-                    &mut name,
-                    &mut label,
-                    &mut depth_lvalue,
-                    true,
-                    op,
-                )?;
-
-                self.emit_op(OpCode::DUP);
-                if op == TokenKind::DOUBLE_QUESTION_MARK_ASSIGN {
-                    self.emit_op(OpCode::IS_UNDEFINED_OR_NULL);
-                }
-                let label1 = self.emit_goto(
-                    if op == TokenKind::LOR_ASSIGN {
-                        OpCode::IF_TRUE
-                    } else {
-                        OpCode::IF_FALSE
-                    },
-                    -1,
-                );
-                self.emit_op(OpCode::DROP);
-
-                self.parse_assign_expr2(parse_flags)?;
-
-                if opcode == OpCode::GET_REF_VALUE as i32 && name == name0 {
-                    self.set_object_name(name);
-                }
-
-                match depth_lvalue {
-                    1 => self.emit_op(OpCode::INSERT2),
-                    2 => self.emit_op(OpCode::INSERT3),
-                    3 => self.emit_op(OpCode::INSERT4),
-                    _ => unreachable!(),
-                }
-
-                // XXX: we disable the OP_put_ref_value optimization by not
-                // using put_lvalue() otherwise depth_lvalue is not correct
-                self.put_lvalue(
-                    opcode,
-                    scope,
-                    name,
-                    label,
-                    PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH,
-                    false,
-                );
-
-                let label2 = self.emit_goto(OpCode::GOTO, -1);
-                self.emit_label(label1);
-
-                // remove the lvalue stack entries
-                while depth_lvalue != 0 {
-                    self.emit_op(OpCode::NIP);
-                    depth_lvalue -= 1;
-                }
-
-                self.emit_label(label2);
-            }
-
-            _ => {}
-        }
-
-        Ok(())
+        // The actual assignment / ternary / logic handling now lives in
+        // parse_higher_expr, which parse_expr_binary invokes. Using level 13
+        // keeps the comma operator (level 14) out, matching the old behaviour
+        // where parse_expr2 was responsible for the comma sequence.
+        //
+        // `PF_ARROW_FUNC` must be threaded down so that arrow-function
+        // expressions are recognised in positions like object-literal property
+        // values (`{ f: () => 1 }`) and ternary/assignment right-hand sides
+        // (`a ? () => 1 : () => 2`). The original code added this flag here
+        // (then `parse_cond_expr(parse_flags | PF_ARROW_FUNC)`); keep it.
+        self.parse_expr_binary(13, parse_flags | PF_ARROW_FUNC)
     }
 
     /// a short-cut to `self.parse_assign_expr2(PF_IN_ACCEPTED)`
@@ -159,39 +50,25 @@ impl<'s> JSParseState<'s> {
     // allowed parse_flags: PF_IN_ACCEPTED
     #[inline(never)]
     pub(super) fn parse_expr2(&mut self, parse_flags: i32) -> Result<(), i32> {
-        let mut comma = false;
-
-        loop {
-            self.parse_assign_expr2(parse_flags)?;
-
-            if comma {
-                // prevent get_lvalue from using the last expression
-                // as an lvalue. This also prevents the conversion of
-                // of get_var to get_ref for method lookup in function
-                // call inside `with` statement.
-                self.cur_func_mut().last_opcode_pos = -1;
-            }
-
-            if self.token.kind != TokenKind::Char(',') {
-                break;
-            }
-
-            comma = true;
-            self.next_token()?;
-            self.emit_op(OpCode::DROP);
-        }
-
-        Ok(())
+        // `PF_ARROW_FUNC` must reach the leaf operand so that a top-level
+        // expression like `() => this` (e.g. an eval string) is recognised as
+        // an arrow function.  The original code added this flag in
+        // `parse_assign_expr2` and every entry point routed through it; now
+        // that `parse_expr2` calls `parse_expr_binary` directly we add it here.
+        self.parse_expr_binary(14, parse_flags | PF_ARROW_FUNC)
     }
 
-    /// a short-cut to `self.parse_expr2(PF_IN_ACCEPTED)`
+    /// a short-cut to `self.parse_expr_binary(14, PF_IN_ACCEPTED)`
     #[inline(always)]
     pub(super) fn parse_expr(&mut self) -> Result<(), i32> {
-        self.parse_expr2(PF_IN_ACCEPTED)
+        self.parse_expr_binary(14, PF_IN_ACCEPTED | PF_ARROW_FUNC)
     }
 
     pub(super) fn parse_expr_parens(&mut self) -> Result<(), i32> {
         self.parse_expect(TokenKind::Char('('))?;
+        // Use parse_expr() (not the raw level-14 call) so PF_ARROW_FUNC is
+        // threaded through, matching the historical behaviour where this call
+        // reached parse_assign_expr2 (which always added the flag).
         self.parse_expr()?;
         self.parse_expect(TokenKind::Char(')'))?;
         Ok(())
@@ -283,7 +160,20 @@ impl<'s> JSParseState<'s> {
                         self.token.line_num,
                     )?;
                 } else {
-                    self.parse_expr_parens()?;
+                    // Inline parse_expr_parens here so a parenthesised
+                    // expression does not pay an extra native stack frame per
+                    // parenthesis level.  The irreducible cycle for a deeply
+                    // parenthesised `((((1))))` is then
+                    //   parse_postfix_expr -> parse_expr_binary ->
+                    //   parse_unary -> parse_postfix_expr   (3 frames/level)
+                    // instead of the old 4-frame
+                    //   ... -> parse_expr_parens -> parse_expr_binary -> ...
+                    // NB: use parse_expr() (not the raw level-14 call) so the
+                    // PF_ARROW_FUNC flag is threaded through — a parenthesised
+                    // arrow such as `(() => 5)` must still be recognised.
+                    self.parse_expect(TokenKind::Char('('))?;
+                    self.parse_expr()?;
+                    self.parse_expect(TokenKind::Char(')'))?;
                 }
             }
             TokenKind::FUNCTION => {
@@ -635,6 +525,67 @@ impl<'s> JSParseState<'s> {
                     self.cur_func_mut().last_opcode_pos = -1;
                 }
             }
+        }
+
+        // Postfix increment/decrement and the `**` (exponentiation) operator
+        // used to live in parse_unary; they are handled here so that
+        // parse_expr_binary can parse its left operand by calling
+        // parse_postfix_expr directly, skipping the parse_unary frame for the
+        // common non-prefix case.  That keeps the parenthesised-expression
+        // cycle at two native frames per level
+        // (parse_expr_binary -> parse_postfix_expr) instead of three.
+        if !self.got_lf && matches!(self.token.kind, TokenKind::DEC | TokenKind::INC) {
+            let mut opcode: i32 = 0;
+            let mut scope: i32 = 0;
+            let mut label: i32 = 0;
+            let mut name = Atom::NULL;
+            let tok = self.token.kind;
+            self.get_lvalue(
+                &mut opcode,
+                &mut scope,
+                &mut name,
+                &mut label,
+                std::ptr::null_mut(),
+                true,
+                tok,
+            )?;
+
+            self.emit_op(if self.token.kind == TokenKind::DEC {
+                OpCode::POST_DEC
+            } else {
+                OpCode::POST_INC
+            });
+
+            self.put_lvalue(
+                opcode,
+                scope,
+                name,
+                label,
+                PutLValueEnum::PUT_LVALUE_KEEP_SECOND,
+                false,
+            );
+
+            self.next_token()?;
+        }
+
+        if parse_flags & (PF_POW_ALLOWED | PF_POW_FORBIDDEN) != 0
+            && self.token.kind == TokenKind::POW
+        {
+            /* Strict ES7 exponentiation syntax rules: To solve
+            conficting semantics between different implementations
+            regarding the precedence of prefix operators and the
+            postfix exponential, ES7 specifies that -2**2 is a
+            syntax error. */
+            if parse_flags & PF_POW_FORBIDDEN != 0 {
+                self.ctx().throw_syntax_error(
+                    "unparenthesized unary expression can't appear on the left-hand side of '**'",
+                );
+                return Err(-1);
+            }
+
+            self.next_token()?;
+            self.parse_unary(PF_POW_ALLOWED)?;
+            self.emit_op(OpCode::POW);
         }
 
         Ok(())
