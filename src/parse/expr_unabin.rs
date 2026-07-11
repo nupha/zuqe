@@ -20,13 +20,26 @@ use super::{
 
 impl<'s> JSParseState<'s> {
     /// allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
-    #[inline(never)]
+    /// Binary expression parser using precedence climbing (a single loop
+    /// instead of an 8-deep precedence-ladder recursion).
+    ///
+    /// `level` is the minimum operator *tier* (1 = tightest `* / %`,
+    /// 8 = loosest `|`) that this call is allowed to consume. The left operand
+    /// is parsed directly via `parse_unary`; binary operators at tier `<= level`
+    /// are consumed in the loop. Left-associative operators parse their right
+    /// operand at one tighter tier (`op_level - 1`), which excludes the
+    /// same-tier operator and keeps native-stack depth proportional to
+    /// parenthesis nesting rather than operator count — equivalent to what
+    /// QuickJS gets from TCO on its precedence ladder, so a 256k C stack now
+    /// covers a much deeper parse tree.
+    ///
+    /// allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
     pub(super) fn parse_expr_binary(&mut self, level: i32, parse_flags: i32) -> Result<(), i32> {
-        if level == 0 {
-            return self.parse_unary((parse_flags & PF_ARROW_FUNC) | PF_POW_ALLOWED);
-        } else if self.token.kind == TokenKind::PRIVATE_NAME
+        // #x in obj  — private-name membership test. Only valid at the
+        // relational tier (level >= 4) and when `in` is allowed.
+        if level >= 4
             && parse_flags & PF_IN_ACCEPTED != 0
-            && level == 4
+            && self.token.kind == TokenKind::PRIVATE_NAME
             && self.peek_token(false) == TokenKind::IN
         {
             let atom = self.token.atom().unwrap();
@@ -38,93 +51,66 @@ impl<'s> JSParseState<'s> {
             }
 
             self.next_token()?;
-            self.parse_expr_binary(level - 1, parse_flags & !PF_ARROW_FUNC)?;
+            // right operand: shift and tighter (tier < 4)
+            self.parse_expr_binary(4 - 1, parse_flags & !PF_ARROW_FUNC)?;
 
             self.emit_op_temp(OpCodeTemp::SCOPE_IN_PRIVATE_FIELD);
             self.emit_atom(atom);
             self.emit_u16(self.cur_func().scope_level as _);
 
             return Ok(());
-        } else {
-            self.parse_expr_binary(level - 1, parse_flags)?;
         }
 
+        // Left operand: a single operand. Binary operators are handled below.
+        self.parse_unary((parse_flags & PF_ARROW_FUNC) | PF_POW_ALLOWED)?;
+
         loop {
-            let op = self.token.kind;
-            let opcode = match level {
-                1 => match op {
-                    TokenKind::Char('*') => OpCode::MUL,
-                    TokenKind::Char('/') => OpCode::DIV,
-                    TokenKind::Char('%') => OpCode::MOD,
-                    _ => {
-                        return Ok(());
-                    }
-                },
-                2 => match op {
-                    TokenKind::Char('+') => OpCode::ADD,
-                    TokenKind::Char('-') => OpCode::SUB,
-                    _ => {
-                        return Ok(());
-                    }
-                },
-                3 => match op {
-                    TokenKind::SHL => OpCode::SHL,
-                    TokenKind::SAR => OpCode::SAR,
-                    TokenKind::SHR => OpCode::SHR,
-                    _ => {
-                        return Ok(());
-                    }
-                },
-                4 => match op {
-                    TokenKind::Char('<') => OpCode::LT,
-                    TokenKind::Char('>') => OpCode::GT,
-                    TokenKind::LTE => OpCode::LTE,
-                    TokenKind::GTE => OpCode::GTE,
-                    TokenKind::INSTANCEOF => OpCode::INSTANCEOF,
-                    TokenKind::IN if parse_flags & PF_IN_ACCEPTED != 0 => OpCode::IN,
-                    _ => {
-                        return Ok(());
-                    }
-                },
-                5 => match op {
-                    TokenKind::EQ => OpCode::EQ,
-                    TokenKind::NEQ => OpCode::NEQ,
-                    TokenKind::STRICT_EQ => OpCode::STRICT_EQ,
-                    TokenKind::STRICT_NEQ => OpCode::STRICT_NEQ,
-                    _ => {
-                        return Ok(());
-                    }
-                },
-                6 => match op {
-                    TokenKind::Char('&') => OpCode::AND,
-                    _ => {
-                        return Ok(());
-                    }
-                },
-                7 => match op {
-                    TokenKind::Char('^') => OpCode::XOR,
-                    _ => {
-                        return Ok(());
-                    }
-                },
-                8 => match op {
-                    TokenKind::Char('|') => OpCode::OR,
-                    _ => {
-                        return Ok(());
-                    }
-                },
-                _ => unreachable!(),
+            let info = match self.token.kind {
+                TokenKind::Char('*') => Some((1, OpCode::MUL)),
+                TokenKind::Char('/') => Some((1, OpCode::DIV)),
+                TokenKind::Char('%') => Some((1, OpCode::MOD)),
+                TokenKind::Char('+') => Some((2, OpCode::ADD)),
+                TokenKind::Char('-') => Some((2, OpCode::SUB)),
+                TokenKind::SHL => Some((3, OpCode::SHL)),
+                TokenKind::SAR => Some((3, OpCode::SAR)),
+                TokenKind::SHR => Some((3, OpCode::SHR)),
+                TokenKind::Char('<') => Some((4, OpCode::LT)),
+                TokenKind::Char('>') => Some((4, OpCode::GT)),
+                TokenKind::LTE => Some((4, OpCode::LTE)),
+                TokenKind::GTE => Some((4, OpCode::GTE)),
+                TokenKind::INSTANCEOF => Some((4, OpCode::INSTANCEOF)),
+                TokenKind::IN if parse_flags & PF_IN_ACCEPTED != 0 => Some((4, OpCode::IN)),
+                TokenKind::EQ => Some((5, OpCode::EQ)),
+                TokenKind::NEQ => Some((5, OpCode::NEQ)),
+                TokenKind::STRICT_EQ => Some((5, OpCode::STRICT_EQ)),
+                TokenKind::STRICT_NEQ => Some((5, OpCode::STRICT_NEQ)),
+                TokenKind::Char('&') => Some((6, OpCode::AND)),
+                TokenKind::Char('^') => Some((7, OpCode::XOR)),
+                TokenKind::Char('|') => Some((8, OpCode::OR)),
+                _ => None,
             };
 
+            let (op_level, opcode) = match info {
+                Some(v) => v,
+                None => break,
+            };
+            // Operators looser than the current tier are handled by the caller.
+            if op_level > level {
+                break;
+            }
+
             self.next_token()?;
-            self.parse_expr_binary(level - 1, parse_flags & !PF_ARROW_FUNC)?;
+
+            // Right operand at one tighter tier => left-associative.
+            self.parse_expr_binary(op_level - 1, parse_flags & !PF_ARROW_FUNC)?;
 
             self.emit_op(opcode);
         }
+
+        Ok(())
     }
 
     // allowed parse_flags: PF_ARROW_FUNC, PF_POW_ALLOWED, PF_POW_FORBIDDEN
-    #[inline(never)]
     pub(super) fn parse_unary(&mut self, mut parse_flags: i32) -> Result<(), i32> {
         match self.token.kind {
             op @ (TokenKind::Char('+' | '-' | '!' | '~') | TokenKind::VOID) => {
@@ -287,7 +273,9 @@ impl<'s> JSParseState<'s> {
         let fd = unsafe { fd0.as_mut().unwrap() };
 
         match fd.get_prev_opcode() {
-            opcode @ (opcodes::OP_get_field | opcodes::OP_get_field_ic | opcodes::op_get_field_opt_chain) => {
+            opcode @ (opcodes::OP_get_field
+            | opcodes::OP_get_field_ic
+            | opcodes::op_get_field_opt_chain) => {
                 let opt_chain_label: i32 = if opcode == opcodes::op_get_field_opt_chain {
                     unsafe {
                         read_from_ptr::<i32>(
