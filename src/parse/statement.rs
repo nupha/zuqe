@@ -780,7 +780,6 @@ fn stmt_let_const_var(s: &mut JSParseState, tok: TokenKind, decl_mask: i32) -> R
     Ok(())
 }
 
-#[inline(always)]
 fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     s.next_token()?;
     s.set_eval_ret_undefined();
