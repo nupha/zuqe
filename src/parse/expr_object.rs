@@ -3,9 +3,11 @@
 
 use crate::{
     atom::{Atom, AtomKind},
-    bytecode::{OpCode, OpCodeTemp},
-    class::{OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD},
-    function::FunctionKind,
+    bytecode::{OpCode, OpCodeTemp, opcodes},
+    class::{
+        OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
+    },
+    function::{FunctionDef, FunctionKind},
     object::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
         PROP_TYPE_SET, PROP_TYPE_STAR, PROP_TYPE_VAR,
@@ -18,6 +20,74 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
+    // ===== member access: `.field` and `[expr]` (was expr_property.rs) =====
+    pub(super) fn parse_property(
+        &mut self,
+        fd: &FunctionDef, // TODO: remove this arg
+        has_optional_chain: bool,
+        optional_chaining_label: &mut i32,
+    ) -> Result<(), i32> {
+        if self.token.kind == TokenKind::PRIVATE_NAME {
+            // private class field
+            if fd.get_prev_opcode() == opcodes::OP_get_super {
+                self.throw_syntax_error("private class field forbidden after super");
+                return Err(-1);
+            }
+            if has_optional_chain {
+                self.optional_chain_test(optional_chaining_label, 1);
+            }
+            self.emit_op_temp(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD);
+            self.emit_atom(self.token.atom().unwrap());
+            self.emit_u16(self.cur_func().scope_level as _);
+        } else {
+            if !self.token.kind.is_ident() {
+                self.throw_syntax_error("expecting field name");
+                return Err(-1);
+            }
+            if fd.get_prev_opcode() == opcodes::OP_get_super {
+                let val = self.token.atom().unwrap().to_value(self.ctx())?;
+                self.emit_push_const(val, true)?;
+                self.emit_op(OpCode::GET_SUPER_VALUE);
+            } else {
+                if has_optional_chain {
+                    self.optional_chain_test(optional_chaining_label, 1);
+                }
+                let atom = self.token.atom().unwrap();
+                self.emit_get_field(atom);
+            }
+        }
+
+        self.next_token()?;
+        Ok(())
+    }
+
+    pub(super) fn parse_array_access(
+        &mut self,
+        fd: &FunctionDef, // TODO: remove this arg
+        has_optional_chain: bool,
+        optional_chaining_label: &mut i32,
+    ) -> Result<(), i32> {
+        let prev_op = fd.get_prev_opcode();
+
+        if has_optional_chain {
+            self.optional_chain_test(optional_chaining_label, 1);
+        }
+
+        // NOTE: current token is '['; current buffer starts at next char of '['
+        self.next_token()?;
+        self.parse_expr()?;
+        self.parse_expect(TokenKind::Char(']'))?;
+
+        if prev_op == opcodes::OP_get_super {
+            self.emit_op(OpCode::GET_SUPER_VALUE);
+        } else {
+            self.emit_op(OpCode::GET_ARRAY_EL);
+        }
+
+        Ok(())
+    }
+
+    // ===== object literal + property name (was expr_object.rs) =====
     pub(super) fn parse_object_literal(&mut self) -> Result<TokenKind, i32> {
         self.next_token()?;
 
@@ -266,4 +336,5 @@ impl<'s> JSParseState<'s> {
 
         Ok((name.unwrap_or(Atom::NULL), prop_type | private))
     }
+
 }
