@@ -514,7 +514,7 @@ impl StackFrameArena {
     /// Used by debug assertions.
     #[inline(always)]
     pub(crate) fn has_var_refs(&self, idx: FrameIndex) -> bool {
-        self.var_ref_map.get(&idx).map_or(false, |v| !v.is_empty())
+        self.var_ref_map.get(&idx).is_some_and(|v| !v.is_empty())
     }
 }
 

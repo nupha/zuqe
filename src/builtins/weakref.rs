@@ -82,11 +82,7 @@ fn js_weakref_deref(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 static WEAKREF_PROTO_FUNCS: &[FieldDef] = &[
     FieldDef::FUNC("deref", 0, js_weakref_deref, 0),
-    FieldDef::STR(
-        "[Symbol.toStringTag]",
-        "WeakRef",
-        JS_PROP_CONFIGURABLE as u32,
-    ),
+    FieldDef::STR("[Symbol.toStringTag]", "WeakRef", JS_PROP_CONFIGURABLE),
 ];
 
 pub(crate) static CLASS_DEF_WEAKREF: ClassDef = ClassDef::builtin(
@@ -335,7 +331,7 @@ static FINREC_PROTO_FUNCS: &[FieldDef] = &[
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "FinalizationRegistry",
-        JS_PROP_CONFIGURABLE as u32,
+        JS_PROP_CONFIGURABLE,
     ),
 ];
 
