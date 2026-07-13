@@ -14,20 +14,35 @@ zjs [options] <filename>
 
 - **`-m, --module`**: Load the script as an ES6 module. When this flag is set, the script will be parsed and executed using ES6 module semantics instead of global script execution.
 
-- **`--memory-limit <n>`**: Set the memory (GC heap) limit to `n` bytes. Supports the same size suffixes as `--stack-size`.
+- **`--memory-limit <n>`**: Set the memory (GC heap) limit to `n` bytes. Size suffixes `k`/`K`, `m`/`M`, `g`/`G` are supported (multiply by 2^10 / 2^20 / 2^30).
 
-- **`--stack-size <n>`**: Set the JavaScript virtual machine stack size to `n` bytes. The stack size can be specified with suffixes:
-  - `k` or `K` for kilobytes (multiply by 2^10)
-  - `m` or `M` for megabytes (multiply by 2^20)
-  - `g` or `G` for gigabytes (multiply by 2^30)
+- **`--stack-arena <n>`** *(default: 256k)*: Set the size of the JS virtual machine **stack arena** to `n` bytes. This is a pre-allocated, contiguous bump-region used as the *fast path* for function call frames — frames are carved out of it by simply bumping a pointer.
+
+- **`--stack-limit <n>`** *(default: 512k)*: Set the **hard cap on the total live virtual stack** (arena-used + heap-used) to `n` bytes. When a new frame would push the combined usage past this limit, a stack-overflow error is thrown. This is what actually bounds recursion depth.
+
+- **`--stack-overflow <n>`** *(default: 512k)*: Set the **C-stack recursion limit** (the maximum native stack depth before a stack-overflow guard trips) to `n` bytes. This guards the host's real machine stack, independent of the virtual stack above.
 
   Examples:
 
   ```bash
-  zjs --stack-size 1m script.js    # 1 megabyte stack
-  zjs --stack-size 512k script.js # 512 kilobytes stack
-  zjs --stack-size 2g script.js   # 2 gigabytes stack
+  zjs --stack-arena 1m script.js       # 1 MiB VM stack arena
+  zjs --stack-limit 512k script.js     # 512 KiB total virtual-stack cap
+  zjs --stack-overflow 2m script.js    # 2 MiB C-stack recursion guard
   ```
+
+#### How `--stack-arena` and `--stack-limit` interact
+
+Frames are always allocated from the arena first (fast, no heap allocation). Once the arena is full, additional frames **spill over to individual heap allocations**, and this continues until the total live virtual stack (arena-used + heap-used) reaches `--stack-limit`, at which point a stack-overflow error is raised.
+
+Because the arena can never hold more than its own size, and any usage beyond the arena comes from heap spill-over, **`--stack-limit` should always be `>= --stack-arena`**:
+
+| Relationship | Effect |
+| --- | --- |
+| `limit < arena` | The limit is hit while still inside the arena, so the heap spill-over path is never reached and the arena memory above `limit` is simply **wasted** (allocated but unusable). |
+| `limit == arena` | All frames live in the fast arena; the stack **never spills to the heap** and the arena is fully utilized. A clean, allocation-free configuration. |
+| `limit > arena` | The arena acts as a fast cache and the heap provides extra headroom up to `limit`. **This is the intended design** — hence the defaults `arena=256k`, `limit=512k`. |
+
+In short: set `--stack-arena` to the size that comfortably covers typical call depth (for speed), and set `--stack-limit` to the maximum depth you are willing to tolerate before aborting (for safety). Setting `limit` below `arena` only wastes memory.
 
 ### Script Execution
 
@@ -50,11 +65,11 @@ zjs hello.js
 # Execute as ES6 module
 zjs -m app.js
 
-# Set custom stack size
-zjs --stack-size 2m my-script.js
+# Set custom VM stack arena
+zjs --stack-arena 2m my-script.js
 
-# Execute with custom stack size and module mode
-zjs --stack-size 1m -m esm-script.js
+# Execute with custom stack arena and module mode
+zjs --stack-arena 1m -m esm-script.js
 ```
 
 ### Interactive REPL
@@ -121,7 +136,7 @@ The ZJS example demonstrates how to embed the Zuqe engine in a Rust application.
    - Error handling and result display
 
 2. **Global Functions** (`global.rs`):
-   - Implementation of built-in global functions like `print()` and `createRealm()`
+   - Implementation of built-in globals: `print()`, the `console` object (`log`/`debug`/`info`/`warn`/`error`), and `scriptArgs`
    - Integration with the Zhuque runtime
 
 3. **Native class `File`** (`class_file.rs`):
@@ -154,24 +169,30 @@ The main application flow:
 // Create runtime
 let mut rt = Runtime::create()?;
 
-// Configure stack size
-rt.set_stack_size(stack_size_bytes);
+// Configure memory / stack limits (all optional)
+// rt.gc_set_memory_limit(limit_in_bytes);
+// rt.set_stack_arena(1 << 20);       // 1 MiB VM stack arena
+// rt.set_stack_limit(512 << 10);     // 512 KiB value-stack limit
+// rt.set_stack_overflow(512 << 10);  // 512 KiB C-stack recursion guard
 
 // Setup module loader
 rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
-// Register custom classes
-let class_id = CustomClass::register(&mut rt)?;
+// Register native classes
+let class_id_file = JSFile::register(&mut rt)?;
+let class_id_emitter = JSEmitter::register(&mut rt)?;
 
 // Create execution context and set up environment
 let mut ctx = rt.create_context(|cx| {
     // ECMA standard stuff
     ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
 
-    // customized stuff
-    cx.use_class(class_id)?;
-    init_modules(cx)?;
-    setup_globals(cx)
+    // enable the native classes in this context
+    cx.use_class(class_id_file)?;
+    cx.use_class(class_id_emitter)?;
+    init_mod_std(cx)?;
+    init_mod_os(cx)?;
+    setup_globals(cx, &args.script_args)
 })?;
 
 // Execute script inside a scope
@@ -195,50 +216,81 @@ returned JS Promise into a Rust `Future` via `Promise::into_future()`:
 async fn main() -> ExitCode {
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
+    // The entry filename must be a `file://` URL so that relative dynamic
+    // `import()` and `import.meta.url` resolve correctly.
+    let entry_name = zuqe::path_to_url(&args.filename)
+        .expect("entry path must convert to a file:// URL")
+        .to_string();
+
+    // Non-blocking eval: returns immediately with a JS value (possibly a Promise).
+    let result = ctx.eval(
+        script.as_bytes(),
+        &entry_name,
+        if is_module { EvalType::Module } else { EvalType::Global },
+        EvalFlags::empty(),
+    );
+
     let mut promise_future = None;
 
-    let res = ctx.with_new_scope(|mut scope| {
-        let result = scope.eval(
-            script.as_bytes(),
-            &args.filename,
-            if is_module { EvalType::Module } else { EvalType::Global },
-            EvalFlags::empty(),
-        );
-
-        let r = match result {
-            Ok(val) => {
-                if let Ok(promise) = Promise::try_from(val) {
-                    match promise.into_future(&mut scope) {
-                        Ok(fut) => {
-                            promise_future = Some(fut);
-                            Ok(())
-                        }
-                        Err(_) => Err(scope.take_exception().to_text(&mut scope)),
+    // If the result is a Promise, turn it into a Rust Future we can await.
+    let res = ctx.with_root_scope(|mut cx| match result {
+        Ok(val) => {
+            if let Ok(promise) = Promise::try_from(val) {
+                match promise.into_future(&mut cx) {
+                    Ok(fut) => {
+                        promise_future = Some(fut);
+                        Ok(())
                     }
-                } else {
-                    // Non-promise result: print directly
-                    Ok(())
+                    Err(_) => Err(cx.take_exception().to_text(&mut cx)),
                 }
+            } else {
+                colorize_println(val.inspect(&mut cx).unwrap(), GreenFg);
+                Ok(())
             }
-            Err(_) => Err(scope.take_exception().to_text(&mut scope)),
-        };
-        scope.return_with(r)
+        }
+        Err(_) => Err(cx.take_exception().to_text(&mut cx)),
     });
 
-    // If eval error, print and exit
     if let Err(e) = res {
-        // print error
+        let mut err_msg = e.message;
+        if let Some(tb) = e.traceback {
+            err_msg = format!("{err_msg}\n{tb}");
+        }
+        colorize_println(err_msg, RedFg);
         return ExitCode::FAILURE;
     }
 
-    if let Some(js_fut) = promise_future {
+    // Drive the runtime and (optionally) await the Promise result concurrently.
+    let run_result = if let Some(js_fut) = promise_future {
         let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
-        // Both the runtime and the JS Promise complete here
+        ctx.with_root_scope(|mut cx| match promise_res {
+            Ok(val) => colorize_println(val.inspect(&mut cx).unwrap(), GreenFg),
+            Err(reason) => colorize_println(
+                reason.to_string(&mut cx).unwrap().encode_utf8(false).to_string(),
+                RedFg,
+            ),
+        });
+        rt_res
     } else {
-        let _ = rt.run_async().await;
-    }
+        rt.run_async().await
+    };
 
-    exit_code
+    // Map the runtime exit status to a process exit code.
+    match run_result {
+        ExitStatus::Value(_) => ExitCode::SUCCESS,
+        ExitStatus::Interrupted(code) => code,
+        ExitStatus::Exception(Exception::OutOfMemory) => {
+            colorize_println("out of memory", RedFg);
+            ExitCode::FAILURE
+        }
+        ExitStatus::Exception(Exception::Error(err)) => {
+            ctx.with_root_scope(|mut cx| {
+                colorize_println(err.to_string(&mut cx).unwrap().encode_utf8(false), RedFg);
+            });
+            ExitCode::FAILURE
+        }
+        _ => ExitCode::FAILURE,
+    }
 }
 ```
 

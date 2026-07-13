@@ -595,85 +595,81 @@ With `async_support` enabled, `examples/zjs` switches to an async main and uses 
 async fn main() -> ExitCode {
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
+    // The entry filename must be a `file://` URL so that relative dynamic
+    // `import()` and `import.meta.url` resolve correctly.
+    let entry_name = zuqe::path_to_url(&args.filename)
+        .expect("entry path must convert to a file:// URL")
+        .to_string();
+
+    // Non-blocking eval: returns immediately with a JS value (possibly a Promise).
+    let result = ctx.eval(
+        script.as_bytes(),
+        &entry_name,
+        if is_module { EvalType::Module } else { EvalType::Global },
+        EvalFlags::empty(),
+    );
+
     let mut promise_future = None;
 
-    let mut exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
-        let result = scope
-            .eval(
-                script.as_bytes(),
-                &args.filename,
-                if is_module { EvalType::Module } else { EvalType::Global },
-                EvalFlags::empty(),
-            )
-            .map_err(|_| {
-                let exc = scope.rt_mut().take_exception();
-                ErrorText::from(&mut scope, exc)
-            });
-
-        match result {
-            Ok(val) => {
-                if let Ok(promise) = Promise::try_from(val) {
-                    match promise.into_future(&mut scope) {
-                        Ok(fut) => {
-                            promise_future = Some(fut);
-                            ExitCode::SUCCESS
-                        }
-                        Err(_) => {
-                            let exc = scope.rt_mut().take_exception();
-                            let err = ErrorText::from(&mut scope, exc);
-                            let mut err_msg = err.message;
-                            if let Some(tb) = err.traceback {
-                                err_msg = format!("{err_msg}\n{tb}");
-                            }
-                            colorize_println(err_msg, RedFg);
-                            ExitCode::FAILURE
-                        }
+    // If the result is a Promise, turn it into a Rust Future we can await.
+    let res = ctx.with_root_scope(|mut cx| match result {
+        Ok(val) => {
+            if let Ok(promise) = Promise::try_from(val) {
+                match promise.into_future(&mut cx) {
+                    Ok(fut) => {
+                        promise_future = Some(fut);
+                        Ok(())
                     }
-                } else {
-                    colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);
-                    ExitCode::SUCCESS
+                    Err(_) => Err(cx.take_exception().to_text(&mut cx)),
                 }
-            }
-            Err(e) => {
-                let mut err_msg = e.message;
-                if let Some(tb) = e.traceback {
-                    err_msg = format!("{err_msg}\n{tb}");
-                }
-                colorize_println(err_msg, RedFg);
-                ExitCode::FAILURE
+            } else {
+                colorize_println(val.inspect(&mut cx).unwrap(), GreenFg);
+                Ok(())
             }
         }
+        Err(_) => Err(cx.take_exception().to_text(&mut cx)),
     });
 
-    if let Some(js_fut) = promise_future {
-        // In this example we want both: drive the runtime and also obtain the Promise result,
-        // so we poll two futures together. If you only need to drive the runtime (and do not
-        // care about the Promise result here), it is enough to await `rt.run_async()` alone.
-        let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
-
-        if let Err(code) = rt_res {
-            let msg = format!("runtime error: {code}");
-            colorize_println(msg, RedFg);
-            exit_code = ExitCode::FAILURE;
+    if let Err(e) = res {
+        let mut err_msg = e.message;
+        if let Some(tb) = e.traceback {
+            err_msg = format!("{err_msg}\n{tb}");
         }
-
-        match promise_res {
-            Ok(val) => {
-                colorize_println(val.inspect(&mut rt).unwrap(), GreenFg);
-            }
-            Err(reason) => {
-                let err_msg = reason
-                    .inspect(&mut rt)
-                    .unwrap_or_else(|_| "<exception>".into());
-                colorize_println(err_msg.clone(), RedFg);
-                exit_code = ExitCode::FAILURE;
-            }
-        }
-    } else {
-        let _ = rt.run_async().await;
+        colorize_println(err_msg, RedFg);
+        return ExitCode::FAILURE;
     }
 
-    exit_code
+    let run_result = if let Some(js_fut) = promise_future {
+        // Drive the runtime and the Promise future concurrently.
+        let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
+        ctx.with_root_scope(|mut cx| match promise_res {
+            Ok(val) => colorize_println(val.inspect(&mut cx).unwrap(), GreenFg),
+            Err(reason) => colorize_println(
+                reason.to_string(&mut cx).unwrap().encode_utf8(false).to_string(),
+                RedFg,
+            ),
+        });
+        rt_res
+    } else {
+        rt.run_async().await
+    };
+
+    // Map the runtime exit status to a process exit code.
+    match run_result {
+        ExitStatus::Value(_) => ExitCode::SUCCESS,
+        ExitStatus::Interrupted(code) => code,
+        ExitStatus::Exception(Exception::OutOfMemory) => {
+            colorize_println("out of memory", RedFg);
+            ExitCode::FAILURE
+        }
+        ExitStatus::Exception(Exception::Error(err)) => {
+            ctx.with_root_scope(|mut cx| {
+                colorize_println(err.to_string(&mut cx).unwrap().encode_utf8(false), RedFg);
+            });
+            ExitCode::FAILURE
+        }
+        _ => ExitCode::FAILURE,
+    }
 }
 ```
 
