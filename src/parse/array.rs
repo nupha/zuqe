@@ -67,8 +67,7 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::DUP);
                 self.emit_op(OpCode::PUSH_I32);
                 self.emit_u32(idx);
-                self.emit_op(OpCode::PUT_FIELD);
-                self.emit_atom(Atom::CONST_length);
+                self.emit_put_field(Atom::CONST_length);
             }
             done!();
         }
@@ -132,8 +131,7 @@ impl<'s> JSParseState<'s> {
             // Set the length: cannot use OP_define_field because
             // length is not configurable
             self.emit_op(OpCode::DUP1); // array length - array array length
-            self.emit_op(OpCode::PUT_FIELD);
-            self.emit_atom(Atom::CONST_length);
+            self.emit_put_field(Atom::CONST_length);
         } else {
             self.emit_op(OpCode::DROP); // array length - array
         }

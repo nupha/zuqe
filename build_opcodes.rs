@@ -134,12 +134,20 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("put_var_init", 3, 1, 0, "VAR_REF", false, Never),
         DEF!("get_ref_value", 1, 2, 3, "NONE", false, Never),
         DEF!("put_ref_value", 1, 3, 0, "NONE", false, Never),
+        //
+        #[cfg(not(feature = "inline_cache"))]
         DEF!("get_field", 5, 1, 1, "ATOM", false, Never),
+        #[cfg(not(feature = "inline_cache"))]
         DEF!("get_field2", 5, 1, 2, "ATOM", false, Never),
-        DEF!("get_field_ic", 7, 1, 1, "ATOM_U16", false, Never),
-        DEF!("get_field2_ic", 7, 1, 2, "ATOM_U16", false, Never),
+        #[cfg(feature = "inline_cache")]
+        DEF!("get_field", 7, 1, 1, "ATOM_U16", false, Never),
+        #[cfg(feature = "inline_cache")]
+        DEF!("get_field2", 7, 1, 2, "ATOM_U16", false, Never),
+        #[cfg(not(feature = "inline_cache"))]
         DEF!("put_field", 5, 2, 0, "ATOM", false, Never),
-        DEF!("put_field_ic", 7, 2, 0, "ATOM_U16", false, Never),
+        #[cfg(feature = "inline_cache")]
+        DEF!("put_field", 7, 2, 0, "ATOM_U16", false, Never),
+        //
         DEF!("get_private_field", 1, 2, 1, "NONE", false, Never),
         DEF!("put_private_field", 1, 3, 0, "NONE", false, Never),
         DEF!("define_private_field", 1, 3, 1, "NONE", false, Never),
@@ -298,7 +306,10 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         def!("scope_get_private_field2", 7, 1, 2, "ATOM_U16", Never),
         def!("scope_put_private_field", 7, 2, 0, "ATOM_U16", Never),
         def!("scope_in_private_field", 7, 1, 1, "ATOM_U16", Never),
+        #[cfg(not(feature = "inline_cache"))]
         def!("get_field_opt_chain", 5, 1, 1, "ATOM", Never),
+        #[cfg(feature = "inline_cache")]
+        def!("get_field_opt_chain", 7, 1, 1, "ATOM_U16", Never),
         def!("get_array_el_opt_chain", 1, 2, 1, "NONE", Never),
         def!("set_class_name", 5, 1, 1, "U32", Never),
         def!("line_num", 9, 0, 0, "U32_U32", Never),

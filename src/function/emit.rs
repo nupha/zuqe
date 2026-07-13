@@ -39,8 +39,7 @@ impl FunctionDef {
         // Use the line number of the last token used, not the next token,
         // nor the current offset in the source file.
         // Emit LINE_NUM when either line or column changes.
-        if self.last_opcode_line_num != last_line_num
-            || self.last_opcode_line_pos != last_line_pos
+        if self.last_opcode_line_num != last_line_num || self.last_opcode_line_pos != last_line_pos
         {
             push_vec_u8(bc, OpCodeTemp::LINE_NUM as u8);
             push_vec_u32(bc, last_line_num as _);
@@ -62,57 +61,37 @@ impl FunctionDef {
         self.emit_op_u8(op as u8, last_line_num, last_line_pos);
     }
 
-    /// Emit a named-property-get — either GET_FIELD_IC (with inline_cache
-    /// feature) or plain GET_FIELD.
     pub fn emit_get_field(&mut self, atom: Atom, last_line_num: i32, last_line_pos: u32) {
+        self.emit_op(OpCode::GET_FIELD, last_line_num, last_line_pos);
+        self.emit_atom(atom);
         #[cfg(feature = "inline_cache")]
         {
-            self.emit_op(OpCode::GET_FIELD_IC, last_line_num, last_line_pos);
-            self.emit_atom(atom);
             self.emit_u16(self.inline_cache_count);
             self.inline_cache_count += 1;
-        }
-        #[cfg(not(feature = "inline_cache"))]
-        {
-            let _ = (last_line_num, last_line_pos);
-            self.emit_op(OpCode::GET_FIELD, last_line_num, last_line_pos);
-            self.emit_atom(atom);
         }
     }
 
     /// Emit a named-property-get that preserves the object on the stack
     /// (GET_FIELD2_IC or plain GET_FIELD2).
     pub fn emit_get_field2(&mut self, atom: Atom, last_line_num: i32, last_line_pos: u32) {
+        self.emit_op(OpCode::GET_FIELD2, last_line_num, last_line_pos);
+        self.emit_atom(atom);
         #[cfg(feature = "inline_cache")]
         {
-            self.emit_op(OpCode::GET_FIELD2_IC, last_line_num, last_line_pos);
-            self.emit_atom(atom);
             self.emit_u16(self.inline_cache_count);
             self.inline_cache_count += 1;
-        }
-        #[cfg(not(feature = "inline_cache"))]
-        {
-            let _ = (last_line_num, last_line_pos);
-            self.emit_op(OpCode::GET_FIELD2, last_line_num, last_line_pos);
-            self.emit_atom(atom);
         }
     }
 
     /// Emit a named-property-put — either PUT_FIELD_IC (with inline_cache
     /// feature) or plain PUT_FIELD.
     pub fn emit_put_field(&mut self, atom: Atom, last_line_num: i32, last_line_pos: u32) {
+        self.emit_op(OpCode::PUT_FIELD, last_line_num, last_line_pos);
+        self.emit_atom(atom);
         #[cfg(feature = "inline_cache")]
         {
-            self.emit_op(OpCode::PUT_FIELD_IC, last_line_num, last_line_pos);
-            self.emit_atom(atom);
             self.emit_u16(self.inline_cache_count);
             self.inline_cache_count += 1;
-        }
-        #[cfg(not(feature = "inline_cache"))]
-        {
-            let _ = (last_line_num, last_line_pos);
-            self.emit_op(OpCode::PUT_FIELD, last_line_num, last_line_pos);
-            self.emit_atom(atom);
         }
     }
 
@@ -148,20 +127,21 @@ impl FunctionDef {
                     if self.attrs.func_kind == FunctionKind::AsyncGenerator {
                         self.emit_op(OpCode::NIP, last_line_num, last_line_pos); // next
                         self.emit_op(OpCode::SWAP, last_line_num, last_line_pos);
-                        self.emit_op(OpCode::GET_FIELD2, last_line_num, last_line_pos);
-                        self.emit_atom(Atom::CONST_return);
+                        self.emit_get_field2(Atom::CONST_return, last_line_num, last_line_pos);
 
                         // stack: iter_obj return_func
                         self.emit_op(OpCode::DUP, last_line_num, last_line_pos);
                         self.emit_op(OpCode::IS_UNDEFINED_OR_NULL, last_line_num, last_line_pos);
 
-                        let label_next = self.emit_goto(OpCode::IF_TRUE, -1, last_line_num, last_line_pos);
+                        let label_next =
+                            self.emit_goto(OpCode::IF_TRUE, -1, last_line_num, last_line_pos);
                         self.emit_op(OpCode::CALL_METHOD, last_line_num, last_line_pos);
                         self.emit_u16(0);
                         self.emit_op(OpCode::ITERATOR_CHECK_OBJECT, last_line_num, last_line_pos);
                         self.emit_op(OpCode::AWAIT, last_line_num, last_line_pos);
 
-                        let label_next2 = self.emit_goto(OpCode::GOTO, -1, last_line_num, last_line_pos);
+                        let label_next2 =
+                            self.emit_goto(OpCode::GOTO, -1, last_line_num, last_line_pos);
                         self.emit_label(label_next, last_line_num, last_line_pos);
                         self.emit_op(OpCode::DROP, last_line_num, last_line_pos);
                         self.emit_label(label_next2, last_line_num, last_line_pos);
@@ -199,7 +179,11 @@ impl FunctionDef {
 
             // The error should be raised in the caller context, so we use
             // a specific opcode
-            self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR_CHECKTHIS, last_line_num, last_line_pos);
+            self.emit_op_temp(
+                OpCodeTemp::SCOPE_GET_VAR_CHECKTHIS,
+                last_line_num,
+                last_line_pos,
+            );
             self.emit_atom(Atom::CONST_this);
             self.emit_u16(0);
 
@@ -220,7 +204,7 @@ impl FunctionDef {
         }
     }
 
-     // don't update the last opcode and don't emit line number info 
+    // don't update the last opcode and don't emit line number info
     pub(crate) fn emit_label_raw(&mut self, label: i32) {
         debug_assert!(label >= 0);
         self.emit_u8(OpCodeTemp::LABEL as u8);
@@ -241,7 +225,13 @@ impl FunctionDef {
     }
 
     /// return label or -1 if dead code
-    pub fn emit_goto(&mut self, opcode: OpCode, mut label: i32, last_line_num: i32, last_line_pos: u32) -> i32 {
+    pub fn emit_goto(
+        &mut self,
+        opcode: OpCode,
+        mut label: i32,
+        last_line_num: i32,
+        last_line_pos: u32,
+    ) -> i32 {
         if self.is_live_code() {
             if label < 0 {
                 label = self.add_label().unwrap() as i32;
@@ -282,15 +272,15 @@ impl FunctionDef {
         Ok(())
     }
 
-     // initialize the class fields, called by the constructor. Note:
+    // initialize the class fields, called by the constructor. Note:
     // super() can be called in an arrow function, so <this> and
-    // <class_fields_init> can be variable references 
+    // <class_fields_init> can be variable references
     pub fn emit_class_field_init(&mut self, last_line_num: i32, last_line_pos: u32) {
         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, last_line_num, last_line_pos);
         self.emit_atom(Atom::CONST__class_fields_init_);
         self.emit_u16(self.scope_level as _);
 
-         // no need to call the class field initializer if not defined 
+        // no need to call the class field initializer if not defined
         self.emit_op(OpCode::DUP, last_line_num, last_line_pos);
         let label_next = self.emit_goto(OpCode::IF_FALSE, -1, last_line_num, last_line_pos);
 
@@ -326,7 +316,12 @@ impl FunctionDef {
         // array idx val -- array idx
         self.emit_op(OpCode::DEFINE_ARRAY_EL, last_line_num, last_line_pos);
         self.emit_op(OpCode::INC, last_line_num, last_line_pos);
-        self.emit_goto(OpCode::GOTO, label_rest_next as _, last_line_num, last_line_pos);
+        self.emit_goto(
+            OpCode::GOTO,
+            label_rest_next as _,
+            last_line_num,
+            last_line_pos,
+        );
         self.emit_label(label_rest_done, last_line_num, last_line_pos);
         // enum_rec xxx array idx undef -- enum_rec xxx array
         self.emit_op(OpCode::DROP, last_line_num, last_line_pos);
@@ -347,7 +342,12 @@ impl FunctionDef {
         while !top_break.is_null() {
             let top = unsafe { top_break.as_ref().unwrap() };
 
-            self.close_scopes(scope_level as u16, top.scope_level as u16, last_line_num, last_line_pos);
+            self.close_scopes(
+                scope_level as u16,
+                top.scope_level as u16,
+                last_line_num,
+                last_line_pos,
+            );
             scope_level = top.scope_level;
 
             if is_continue && top.label_cont != -1 && (label.is_null() || top.label_name == label) {
@@ -374,7 +374,12 @@ impl FunctionDef {
             if top.label_finally != -1 {
                 // must push dummy value to keep same stack depth
                 self.emit_op(OpCode::UNDEFINED, last_line_num, last_line_pos);
-                self.emit_goto(OpCode::GOSUB, top.label_finally, last_line_num, last_line_pos);
+                self.emit_goto(
+                    OpCode::GOSUB,
+                    top.label_finally,
+                    last_line_num,
+                    last_line_pos,
+                );
                 self.emit_op(OpCode::DROP, last_line_num, last_line_pos);
             }
 

@@ -3,7 +3,7 @@
 
 use crate::{
     atom::Atom,
-    bytecode::{OpCode, OpCodeTemp, opcodes},
+    bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     function::{FuncCallType, FunctionDef},
     utils::read_from_ptr,
 };
@@ -113,7 +113,6 @@ impl<'s> JSParseState<'s> {
             // apply function call
             match opcode {
                 opcodes::OP_get_field
-                | opcodes::OP_get_field_ic
                 | opcodes::op_scope_get_private_field
                 | opcodes::OP_get_array_el
                 | opcodes::op_scope_get_ref => {
@@ -178,29 +177,28 @@ impl<'s> JSParseState<'s> {
         let drop_count: i32;
 
         match opcode {
-            opcodes::OP_get_field | opcodes::OP_get_field_ic => {
+            opcodes::OP_get_field => {
                 // keep the object on the stack
                 let fd = self.cur_func_mut();
-                let target = if opcode == opcodes::OP_get_field_ic {
-                    opcodes::OP_get_field2_ic
-                } else {
-                    opcodes::OP_get_field2
-                };
-                fd.byte_code[fd.last_opcode_pos as usize] = target;
+                fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_field2;
                 drop_count = 2;
             }
             opcodes::op_get_field_opt_chain => {
                 let fd = self.cur_func_mut();
+                // optional-chain label is in the following op_label opcode; its
+                // position and the field opcode's total size both depend on the
+                // opcode meta (e.g. inline_cache adds an ic-index u16), so
+                // derive them instead of hardcoding `+1+4+1` / `+1+4`.
+                const op_size: usize =
+                    opcode_info_intermediate(opcodes::op_get_field_opt_chain).size as usize;
+                let label_op_pos = fd.last_opcode_pos as usize + op_size;
+                debug_assert_eq!(fd.byte_code[label_op_pos], OpCodeTemp::LABEL as u8);
                 let opt_chain_label = unsafe {
-                    read_from_ptr::<u32>(
-                        fd.byte_code
-                            .as_ptr()
-                            .offset(fd.last_opcode_pos as isize + 1 + 4 + 1),
-                    )
+                    read_from_ptr::<u32>(fd.byte_code.as_ptr().offset(label_op_pos as isize + 1))
                 };
                 // keep the object on the stack
                 fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_field2;
-                fd.byte_code.truncate(fd.last_opcode_pos as usize + 1 + 4); // ...size = fd->last_opcode_pos + 1 + 4;
+                fd.byte_code.truncate(fd.last_opcode_pos as usize + op_size);
                 let next_label = self.emit_goto(OpCode::GOTO, -1);
                 self.emit_label(opt_chain_label as _);
                 // need an additional undefined value for the
@@ -225,23 +223,21 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::op_get_array_el_opt_chain => {
                 let fd = self.cur_func_mut();
+                const op_size: usize =
+                    opcode_info_intermediate(opcodes::op_get_array_el_opt_chain).size as usize;
+                let label_op_pos = fd.last_opcode_pos as usize + op_size;
+                debug_assert_eq!(fd.byte_code[label_op_pos], OpCodeTemp::LABEL as u8);
                 let opt_chain_label = unsafe {
-                    read_from_ptr::<u32>(
-                        fd.byte_code
-                            .as_ptr()
-                            .offset(fd.last_opcode_pos as isize + 1 + 1),
-                    )
+                    read_from_ptr::<u32>(fd.byte_code.as_ptr().offset(label_op_pos as isize + 1))
                 };
                 // keep the object on the stack
                 let fd = self.cur_func_mut();
                 fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_array_el2;
-                fd.byte_code.truncate(fd.last_opcode_pos as usize + 1);
+                fd.byte_code.truncate(fd.last_opcode_pos as usize + op_size);
 
                 let next_label = self.emit_goto(OpCode::GOTO, -1);
                 self.emit_label(opt_chain_label as _);
-                // need an additional undefined value for the
-                // case where the optional field does not
-                // exists
+                // need an additional undefined value for the case where the optional field does not exists
                 self.emit_op(OpCode::UNDEFINED);
                 self.emit_label(next_label);
                 drop_count = 2;
@@ -257,11 +253,11 @@ impl<'s> JSParseState<'s> {
                     )
                 });
                 let scope = unsafe {
-                    read_from_ptr::<u16>(
-                        fd.byte_code
-                            .as_ptr()
-                            .offset(fd.last_opcode_pos as isize + 5),
-                    )
+                    read_from_ptr::<u16>(fd.byte_code.as_ptr().offset(
+                        fd.last_opcode_pos as isize
+                            + opcode_info_intermediate(opcodes::op_scope_get_var).size as isize
+                            - 2,
+                    ))
                 };
 
                 if name == Atom::CONST_eval
@@ -314,7 +310,6 @@ impl<'s> JSParseState<'s> {
     ) {
         match opcode {
             opcodes::OP_get_field
-            | opcodes::OP_get_field_ic
             | opcodes::op_scope_get_private_field
             | opcodes::OP_get_array_el
             | opcodes::op_scope_get_ref => {

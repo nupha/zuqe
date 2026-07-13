@@ -154,9 +154,9 @@ impl FunctionDef {
 
             let mut state: Option<ResolveLabelsState> = match op {
                 opcodes::op_line_num => {
-                     // line number info (for debug). We put it in a separate
+                    // line number info (for debug). We put it in a separate
                     // compressed table to reduce memory usage and get better
-                    // performance 
+                    // performance
                     line_num = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 1)) };
                     line_pos = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 5)) };
                     None
@@ -304,7 +304,7 @@ impl FunctionDef {
                 opcodes::OP_drop => {
                     let mut goto = Some(ResolveLabelsState::NoChange);
                     if OPTIMIZE {
-                         // remove useless drops before return 
+                        // remove useless drops before return
                         if let Some(m) =
                             self.code_match(pos_next, &[opcodes::OP_return_undef as i32])
                         {
@@ -600,8 +600,16 @@ impl FunctionDef {
                                 line_num = cc.line_num as _;
                             }
                             self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
-                            push_vec_u8(&mut bc_out, cc.op as u8);
+
+                            // NOTE: code_match() only sets cc.op for packed
+                            // multi-op patterns; for this single exact PUT_FIELD
+                            // match it stays 0, so emit the opcode explicitly.
+                            push_vec_u8(&mut bc_out, OpCode::PUT_FIELD as u8);
                             push_vec_atom(&mut bc_out, cc.atom);
+                            // Preserve the inline-cache index u16 (PUT_FIELD is
+                            // ATOM_U16 / 7 bytes when inline_cache is enabled).
+                            #[cfg(feature = "inline_cache")]
+                            push_vec_u16(&mut bc_out, cc.val as u16);
                             pos_next = cc.pos;
                             goto.take();
                         }
@@ -700,14 +708,14 @@ impl FunctionDef {
                             (label, op1, _) = self.find_jump_target(label);
 
                             if self.code_has_label(pos_next, label) {
-                                 // jump to next instruction: remove jump 
+                                // jump to next instruction: remove jump
                                 self.update_label_ref_count(label, -1);
                             } else if matches!(
                                 op1,
                                 opcodes::OP_return | opcodes::OP_return_undef | opcodes::OP_throw
                             ) {
-                                 // jump to return/throw: remove jump, append return/throw 
-                                 // updating the line number obfuscates assembly listing 
+                                // jump to return/throw: remove jump, append return/throw
+                                // updating the line number obfuscates assembly listing
                                 //if (line1 >= 0) line_num = line1;
 
                                 self.update_label_ref_count(label, -1);
@@ -716,11 +724,11 @@ impl FunctionDef {
                                 pos_next =
                                     skip_dead_code(self, bc_ptr, bc_len, pos_next, &mut line_num);
                             } else {
-                                 // XXX: should duplicate single instructions followed by goto or return 
-                                 // For example, can match one of these followed by return:
-                                  // push_i32 / push_const / push_atom_value / get_var /
-                                  // undefined / null / push_false / push_true / get_ref_value /
-                                  // get_loc / get_arg / get_var_ref
+                                // XXX: should duplicate single instructions followed by goto or return
+                                // For example, can match one of these followed by return:
+                                // push_i32 / push_const / push_atom_value / get_var /
+                                // undefined / null / push_false / push_true / get_ref_value /
+                                // get_loc / get_arg / get_var_ref
                                 state = Some(ResolveLabelsState::HasLabel { label, op: goto_op });
                             }
                         } else {

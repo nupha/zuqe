@@ -441,8 +441,18 @@ impl FunctionDef {
                 _ => unreachable!(),
             };
             push_vec_u8(bc_out, dec_inc);
-            push_vec_u8(bc_out, cc.op as u8);
+            // NB: `PUT_FIELD` is matched exactly here, so `code_match` never
+            // populates `cc.op` (it only records the op for multi-alternative
+            // M2/M3 matches) — it stays 0. Emit the opcode explicitly instead of
+            // `cc.op`, which would write an invalid `op=0` byte. Also preserve
+            // the trailing inline-cache index that `PUT_FIELD` (ATOM_U16) carries
+            // when the `inline_cache` feature is on; `code_match` reads it into
+            // `cc.val`. Dropping it truncated the instruction and shifted every
+            // following opcode.
+            push_vec_u8(bc_out, OpCode::PUT_FIELD as u8);
             push_vec_atom(bc_out, cc.atom);
+            #[cfg(feature = "inline_cache")]
+            push_vec_u16(bc_out, cc.val as u16);
             *pos_next = cc.pos;
             return true;
         }

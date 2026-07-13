@@ -128,19 +128,19 @@ pub(crate) struct FunctionDef {
     /// SAFETY: 有些指令中包含Atom ID，此时Atom为悬空状态，直接清空此缓存会导致Atom泄漏。
     /// 所以，销毁此缓冲前，必须释放涉及的Atom ID.
     pub byte_code: Vec<u8>,
-    /// 最后操作码位置. -1 if no last opcode
+    pub use_short_opcodes: bool,
+    /// -1 if no last opcode
     pub last_opcode_pos: i32,
 
     /// Number of inline-cache sites (GET_FIELD_IC / GET_FIELD2_IC) emitted.
     /// Used at bytecode finalization (create_bytecode) to size the cache array.
     #[cfg(feature = "inline_cache")]
     pub(crate) inline_cache_count: u16,
+
     /// 最后操作码行号
     pub last_opcode_line_num: i32,
     /// 最后操作码列号（字节列）
     pub last_opcode_line_pos: u32,
-    /// 是否使用短操作码
-    pub use_short_opcodes: bool,
 
     pub label_slots: Vec<Label>,
 

@@ -3,7 +3,7 @@
 
 use crate::{
     atom::Atom,
-    bytecode::{OpCode, OpCodeTemp, opcodes},
+    bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     stack_frame::ExecMode,
     utils::read_from_ptr,
 };
@@ -70,14 +70,17 @@ impl<'s> JSParseState<'s> {
                 };
 
                 let last_opcode_pos = self.cur_func().last_opcode_pos;
-                scope = unsafe {
-                    read_from_ptr::<u16>(
-                        self.cur_func()
-                            .byte_code
-                            .as_ptr()
-                            .offset(last_opcode_pos as isize + 5),
-                    )
-                };
+                scope =
+                    unsafe {
+                        read_from_ptr::<u16>(self.cur_func().byte_code.as_ptr().offset(
+                            last_opcode_pos as isize
+                                + const {
+                                    opcode_info_intermediate(opcodes::op_scope_get_var).size
+                                        as isize
+                                }
+                                - 2,
+                        ))
+                    };
 
                 match name {
                     Atom::CONST_arguments | Atom::CONST_eval
@@ -95,7 +98,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
             }
-            opcodes::OP_get_field | opcodes::OP_get_field_ic => {
+            opcodes::OP_get_field => {
                 let last_opcode_pos = self.cur_func().last_opcode_pos;
                 name = unsafe {
                     Atom::from_id(read_from_ptr::<u32>(
@@ -118,12 +121,14 @@ impl<'s> JSParseState<'s> {
                     ))
                 };
                 scope = unsafe {
-                    read_from_ptr::<u16>(
-                        self.cur_func()
-                            .byte_code
-                            .as_ptr()
-                            .offset(last_opcode_pos as isize + 5),
-                    )
+                    read_from_ptr::<u16>(self.cur_func().byte_code.as_ptr().offset(
+                        last_opcode_pos as isize
+                            + const {
+                                opcode_info_intermediate(opcodes::op_scope_get_private_field).size
+                                    as isize
+                            }
+                            - 2,
+                    ))
                 };
                 depth = 1;
             }
@@ -163,7 +168,7 @@ impl<'s> JSParseState<'s> {
 
                     opcode = OpCode::GET_REF_VALUE as _;
                 }
-                opcodes::OP_get_field | opcodes::OP_get_field_ic => {
+                opcodes::OP_get_field => {
                     self.emit_get_field2(name);
                 }
                 opcodes::op_scope_get_private_field => {
@@ -226,9 +231,7 @@ impl<'s> JSParseState<'s> {
         is_let: bool,
     ) {
         match opcode as u8 {
-            opcodes::OP_get_field
-            | opcodes::OP_get_field_ic
-            | opcodes::op_scope_get_private_field => {
+            opcodes::OP_get_field | opcodes::op_scope_get_private_field => {
                 // depth = 1
                 match special {
                     PutLValueEnum::PUT_LVALUE_NOKEEP | PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH => {}
@@ -298,10 +301,6 @@ impl<'s> JSParseState<'s> {
                 self.emit_u16(scope as _);
             }
             opcodes::OP_get_field => {
-                self.emit_op(OpCode::PUT_FIELD);
-                self.emit_atom(name);
-            }
-            opcodes::OP_get_field_ic => {
                 self.emit_put_field(name);
             }
             opcodes::op_scope_get_private_field => {
