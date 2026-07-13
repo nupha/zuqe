@@ -197,8 +197,7 @@ impl<'s> JSParseState<'s> {
                             self.next_token()?;
                             return Ok(argc);
                         }
-                        self.emit_op(OpCode::GET_FIELD2);
-                        self.emit_atom(Atom::CONST_concat);
+                        self.emit_get_field2(Atom::CONST_concat);
                     }
                     depth += 1;
                 }

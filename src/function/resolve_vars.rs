@@ -600,9 +600,11 @@ impl FunctionDef {
                     // only used during parsing
                 }
                 opcodes::op_get_field_opt_chain => {
-                    let name = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) };
+                    let payload_len = op_len - 1;
                     bc_out.push(opcodes::OP_get_field);
-                    bc_out.extend_from_slice(name.to_ne_bytes().as_slice());
+                    bc_out.extend_from_slice(unsafe {
+                        std::slice::from_raw_parts(bc_buf_ptr.add(pos + 1), payload_len)
+                    });
                 }
                 opcodes::op_get_array_el_opt_chain => {
                     bc_out.push(opcodes::OP_get_array_el);

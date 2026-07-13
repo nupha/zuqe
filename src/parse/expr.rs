@@ -3,7 +3,7 @@
 
 use crate::{
     atom::Atom,
-    bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
+    bytecode::{OpCode, OpCodeTemp, SpecialObject, opcode_info_intermediate, opcodes},
     error::{JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW},
     function::{FuncCallType, FunctionKind},
     number::IntOrFloat,
@@ -315,7 +315,7 @@ impl<'s> JSParseState<'s> {
 
                     accept_lparen = true;
                     if self.token.kind != TokenKind::Char('(') {
-                         // new operator on an object 
+                        // new operator on an object
                         self.emit_op(OpCode::DUP);
                         self.emit_op(OpCode::CALL_CONSTRUCTOR);
                         self.emit_u16(0);
@@ -486,29 +486,6 @@ impl<'s> JSParseState<'s> {
         } // loop
 
         if optional_chaining_label >= 0 {
-            // When inline_cache is on, GET_FIELD_IC was emitted instead of
-            // GET_FIELD.  It is 7 bytes (opcode + atom + ic_index) but the
-            // optional-chain temp opcodes expect the 5-byte format. Patch
-            // the instruction down to plain GET_FIELD first, then let the
-            // normal get_field → opt_chain conversion handle it.
-            //
-            // The label emitted by emit_label_raw() comes AFTER the IC
-            // instruction in the bytecode buffer, so we remove the 2
-            // ic_index bytes from the middle by shifting everything after
-            // them forward.
-            #[cfg(feature = "inline_cache")]
-            if self.cur_func().get_prev_opcode() == opcodes::OP_get_field_ic {
-                let fd = self.cur_func_mut();
-                // 1) Rewrite opcode from GET_FIELD_IC → GET_FIELD
-                fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_field;
-                // 2) Remove the 2 ic_index bytes after atom
-                let keep_atom = fd.last_opcode_pos as usize + 5;
-                let remove_len = 2;
-                fd.byte_code
-                    .copy_within(keep_atom + remove_len.., keep_atom);
-                fd.byte_code.truncate(fd.byte_code.len() - remove_len);
-            }
-
             self.emit_label_raw(optional_chaining_label);
 
             match self.cur_func().get_prev_opcode() {
@@ -571,11 +548,11 @@ impl<'s> JSParseState<'s> {
         if parse_flags & (PF_POW_ALLOWED | PF_POW_FORBIDDEN) != 0
             && self.token.kind == TokenKind::POW
         {
-             // Strict ES7 exponentiation syntax rules: To solve
+            // Strict ES7 exponentiation syntax rules: To solve
             // conficting semantics between different implementations
             // regarding the precedence of prefix operators and the
             // postfix exponential, ES7 specifies that -2**2 is a
-            // syntax error. 
+            // syntax error.
             if parse_flags & PF_POW_FORBIDDEN != 0 {
                 self.ctx().throw_syntax_error(
                     "unparenthesized unary expression can't appear on the left-hand side of '**'",
@@ -668,15 +645,13 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::AWAIT);
             }
             self.emit_op(OpCode::ITERATOR_CHECK_OBJECT);
-            self.emit_op(OpCode::GET_FIELD2);
-            self.emit_atom(Atom::CONST_done);
+            self.emit_get_field2(Atom::CONST_done);
             let label_next = self.emit_goto(OpCode::IF_TRUE, -1); // end of loop
             self.emit_label(label_yield as _);
 
             if is_async {
                 // OP_async_yield_star takes the value as parameter
-                self.emit_op(OpCode::GET_FIELD);
-                self.emit_atom(Atom::CONST_value);
+                self.emit_get_field(Atom::CONST_value);
                 self.emit_op(OpCode::ASYNC_YIELD_STAR);
             } else {
                 // OP_yield_star takes (value, done) as parameter
@@ -705,12 +680,10 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::AWAIT);
             }
             self.emit_op(OpCode::ITERATOR_CHECK_OBJECT);
-            self.emit_op(OpCode::GET_FIELD2);
-            self.emit_atom(Atom::CONST_done);
+            self.emit_get_field2(Atom::CONST_done);
             self.emit_goto(OpCode::IF_FALSE, label_yield as _);
 
-            self.emit_op(OpCode::GET_FIELD);
-            self.emit_atom(Atom::CONST_value);
+            self.emit_get_field(Atom::CONST_value);
 
             self.emit_label(label_return1);
             self.emit_op(OpCode::NIP);
@@ -727,8 +700,7 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::AWAIT);
             }
             self.emit_op(OpCode::ITERATOR_CHECK_OBJECT);
-            self.emit_op(OpCode::GET_FIELD2);
-            self.emit_atom(Atom::CONST_done);
+            self.emit_get_field2(Atom::CONST_done);
             self.emit_goto(OpCode::IF_FALSE, label_yield as _);
             self.emit_goto(OpCode::GOTO, label_next);
             // close the iterator and throw a type error exception
@@ -746,8 +718,7 @@ impl<'s> JSParseState<'s> {
             self.emit_u8(JS_THROW_ERROR_ITERATOR_THROW);
 
             self.emit_label(label_next);
-            self.emit_op(OpCode::GET_FIELD);
-            self.emit_atom(Atom::CONST_value);
+            self.emit_get_field(Atom::CONST_value);
             self.emit_op(OpCode::NIP); // keep the value associated with done = true
             self.emit_op(OpCode::NIP);
             self.emit_op(OpCode::NIP);
@@ -1282,15 +1253,21 @@ impl<'s> JSParseState<'s> {
         let fd = unsafe { fd0.as_mut().unwrap() };
 
         match fd.get_prev_opcode() {
-            opcode @ (opcodes::OP_get_field
-            | opcodes::OP_get_field_ic
-            | opcodes::op_get_field_opt_chain) => {
+            opcode @ (opcodes::OP_get_field | opcodes::op_get_field_opt_chain) => {
+                // The optional-chain jump target for `get_field_opt_chain` is
+                // stored in the `op_label` temp opcode emitted right after the
+                // field opcode (see parse_expr_postfix). Its byte offset
+                // depends on the field opcode's payload size, which varies
+                // (e.g. the inline_cache feature adds an ic-index u16), so
+                // derive it from the opcode meta instead of hardcoding
+                // `+1 + 4 + 1`.
+                let op_size = opcode_info_intermediate(opcode).size as usize;
                 let opt_chain_label: i32 = if opcode == opcodes::op_get_field_opt_chain {
+                    let label_op_pos = fd.last_opcode_pos as usize + op_size;
+                    debug_assert_eq!(fd.byte_code[label_op_pos], OpCodeTemp::LABEL as u8);
                     unsafe {
                         read_from_ptr::<i32>(
-                            fd.byte_code
-                                .as_ptr()
-                                .offset(fd.last_opcode_pos as isize + 1 + 4 + 1),
+                            fd.byte_code.as_ptr().offset(label_op_pos as isize + 1),
                         )
                     }
                 } else {
@@ -1334,12 +1311,14 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::DELETE);
             }
             opcodes::op_get_array_el_opt_chain => {
+                // optional-chain label lives in the following op_label opcode;
+                // its position depends on the field opcode's payload size.
+                const op_size: usize =
+                    opcode_info_intermediate(opcodes::op_get_array_el_opt_chain).size as usize;
+                let label_op_pos = fd.last_opcode_pos as usize + op_size;
+                debug_assert_eq!(fd.byte_code[label_op_pos], OpCodeTemp::LABEL as u8);
                 let opt_chain_label = unsafe {
-                    read_from_ptr::<u32>(
-                        fd.byte_code
-                            .as_ptr()
-                            .offset(fd.last_opcode_pos as isize + 1 + 1),
-                    )
+                    read_from_ptr::<u32>(fd.byte_code.as_ptr().offset(label_op_pos as isize + 1))
                 };
 
                 fd.byte_code.truncate(fd.last_opcode_pos as _);

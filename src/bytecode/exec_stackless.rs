@@ -46,9 +46,8 @@ use crate::{
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-        JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NO_ADD, JS_PROP_NORMAL, JS_PROP_THROW,
-        JS_PROP_THROW_STRICT, JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, Object,
-        ObjectPayload, ShapeImpl,
+        JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
+        JS_PROP_WRITABLE, JSProperty, Object, ObjectPayload,
     },
     stack_frame::{ExecMode, FrameAllocError, FrameIndex, StackFrameArena, VirtualFrame},
     utils::{read_from_ptr, unlikely},
@@ -1831,12 +1830,70 @@ impl Bytecode {
                         };
                         SP_PUT!(-1, JSValue::Bool(!b));
                     }
-                    OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
-                        // get_field: [obj, ^] -> [value, ^]
-                        // get_field2: [obj, ^] -> [obj, value, ^]
-                        let atom = Atom::from_id(PC_FETCH!(u32));
 
-                        if let Ok(val) = SP_REF!(-1).get_property(realm_scope, atom) {
+                    OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
+                        // get_field: [target, ^] -> [value, ^]
+                        // get_field2: [target, ^] -> [target, value, ^]
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        #[cfg(feature = "inline_cache")]
+                        let ic_idx = PC_FETCH!(u16) as usize;
+
+                        let target = SP_VAL!(-1);
+
+                        #[cfg(feature = "inline_cache")]
+                        {
+                            // IC fast path
+                            let ic_cache = unsafe { &*self.inline_cache.get() };
+
+                            if ic_idx < ic_cache.len()
+                                && let Some(o) = target.as_object()
+                                && let Some(shape) = o.shape()
+                            {
+                                let entry = &ic_cache[ic_idx];
+                                let shape_ptr = unsafe { shape.gc_ref().as_ptr().as_ptr() };
+
+                                if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
+                                    let slot = entry.slot as usize;
+                                    // delete marks slot Deleted without changing shape
+                                    if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
+                                        if let Ok(val) = o
+                                            .prop_slot(slot)
+                                            .value(realm_scope, JSValue::Object(*o))
+                                        {
+                                            if opcode == OpCode::GET_FIELD {
+                                                SP_PUT!(-1, val);
+                                            } else {
+                                                SP_PUT!(0, val);
+                                                SP_GO!(1);
+                                            }
+                                            continue;
+                                        } else {
+                                            break ExecAction::Exception;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Slow path: lookup property
+                        if let Ok(val) = target.get_property(realm_scope, atom) {
+                            #[cfg(feature = "inline_cache")]
+                            if let Some(o) = target.as_object()
+                                && let Some(shape) = o.shape()
+                                && let Some((idx, flags)) = o.find_shape_property(atom)
+                            {
+                                // update inline cache
+                                let ic_cache = unsafe { &mut *self.inline_cache.get() }; // SAFETY: single-threaded.
+                                if ic_idx < ic_cache.len() {
+                                    ic_cache[ic_idx] = InlineCacheEntry {
+                                        shape_ptr: unsafe { shape.gc_ref().as_ptr().as_ptr() },
+                                        shape_uid: shape.uid,
+                                        slot: idx as u32,
+                                        flags: flags as u8,
+                                    };
+                                }
+                            }
+
                             if opcode == OpCode::GET_FIELD {
                                 SP_PUT!(-1, val);
                             } else {
@@ -1847,164 +1904,54 @@ impl Bytecode {
                             break ExecAction::Exception;
                         }
                     }
-                    #[cfg(feature = "inline_cache")]
-                    OpCode::GET_FIELD_IC | OpCode::GET_FIELD2_IC => {
-                        // get_field: [target, ^] -> [value, ^]
-                        // get_field2: [target, ^] -> [target, value, ^]
-                        let atom = Atom::from_id(PC_FETCH!(u32));
-                        let ic_idx = PC_FETCH!(u16) as usize;
 
-                        let target = SP_VAL!(-1);
-
-                        // IC fast path
-                        let ic_cache = unsafe { &*self.inline_cache.get() };
-                        if ic_idx < ic_cache.len()
-                            && let Some(o) = target.as_object()
-                            && let Some(shape) = o.shape()
-                        {
-                            let entry = &ic_cache[ic_idx];
-                            let shape_ptr: *const ShapeImpl = &**shape as *const ShapeImpl;
-
-                            if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
-                                let slot = entry.slot as usize;
-                                // delete marks slot Deleted without changing shape
-                                if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
-                                    if let Ok(val) =
-                                        o.prop_slot(slot).value(realm_scope, JSValue::Object(*o))
-                                    {
-                                        if opcode == OpCode::GET_FIELD_IC {
-                                            SP_PUT!(-1, val);
-                                        } else {
-                                            SP_PUT!(0, val);
-                                            SP_GO!(1);
-                                        }
-                                        continue;
-                                    } else {
-                                        break ExecAction::Exception;
-                                    }
-                                }
-                            }
-                        }
-
-                        // full lookup property
-                        if let Ok(val) = target.get_property(realm_scope, atom) {
-                            if let Some(o) = target.as_object()
-                                && let Some(shape) = o.shape()
-                                && let Some((slot, flags)) = o.find_shape_property(atom)
-                            {
-                                // update inline cache
-                                let ic_cache = unsafe { &mut *self.inline_cache.get() }; // SAFETY: single-threaded.
-                                if ic_idx < ic_cache.len() {
-                                    ic_cache[ic_idx] = InlineCacheEntry {
-                                        shape_ptr: &**shape as *const ShapeImpl,
-                                        shape_uid: shape.uid,
-                                        slot: slot as u32,
-                                        flags: flags as u8,
-                                    };
-                                }
-                            }
-
-                            if opcode == OpCode::GET_FIELD_IC {
-                                SP_PUT!(-1, val);
-                            } else {
-                                SP_PUT!(0, val);
-                                SP_GO!(1)
-                            }
-                        } else {
-                            break ExecAction::Exception;
-                        }
-
-                        // if let Ok(val) = obj.get_property(realm_scope, atom) {
-                        //     // Populate / refresh the cache entry.
-                        //     if let Some(o) = obj.as_object()
-                        //         && let Some(shape) = o.shape()
-                        //         && let Some((slot, flags)) = o.find_shape_property(atom)
-                        //     {
-                        //         // SAFETY: single-threaded.
-                        //         let ic_cache = unsafe { &mut *self.inline_cache.get() };
-                        //         if ic_idx < ic_cache.len() {
-                        //             ic_cache[ic_idx] = InlineCacheEntry {
-                        //                 shape_ptr: &**shape as *const ShapeImpl,
-                        //                 shape_uid: shape.uid,
-                        //                 slot: slot as u32,
-                        //                 flags,
-                        //             };
-                        //         }
-                        //     }
-                        //     if opcode == OpCode::GET_FIELD_IC {
-                        //         SP_PUT!(-1, val);
-                        //     } else {
-                        //         SP_PUT!(0, val);
-                        //         SP_GO!(1);
-                        //     }
-                        // } else {
-                        //     break ExecAction::Exception;
-                        // }
-                    }
-                    #[cfg(not(feature = "inline_cache"))]
-                    OpCode::GET_FIELD_IC | OpCode::GET_FIELD2_IC => {
-                        // These opcodes are only emitted when the feature is active.
-                        let _ = PC_FETCH!(u32); // skip atom
-                        let _ = PC_FETCH!(u16); // skip ic_index
-                        unreachable!()
-                    }
                     OpCode::PUT_FIELD => {
-                        // [obj, value, ^] -> [^]
-                        let atom = Atom::from_id(PC_FETCH!(u32));
-                        let obj = SP_VAL!(-2);
-                        let value = SP_VAL!(-1);
-                        SP_GO!(-2);
-
-                        let r = obj.set_property_internal(
-                            realm_scope,
-                            atom,
-                            value,
-                            None,
-                            JS_PROP_THROW_STRICT,
-                        );
-                        if unlikely(r.is_err()) {
-                            break ExecAction::Exception;
-                        }
-                    }
-                    #[cfg(feature = "inline_cache")]
-                    OpCode::PUT_FIELD_IC => {
                         // [target, value, ^] -> [^]
                         let atom = Atom::from_id(PC_FETCH!(u32));
+                        #[cfg(feature = "inline_cache")]
                         let ic_idx = PC_FETCH!(u16) as usize;
 
                         let target = SP_VAL!(-2);
                         let value = SP_VAL!(-1);
 
-                        // IC fast path: direct slot write when shape & flags match
-                        let ic_cache = unsafe { &*self.inline_cache.get() };
-                        if ic_idx < ic_cache.len()
-                            && let Some(o) = target.as_object()
-                            && let Some(shape) = o.shape()
+                        #[cfg(feature = "inline_cache")]
                         {
-                            let entry = &ic_cache[ic_idx];
-                            let shape_ptr: *const ShapeImpl = &**shape as *const ShapeImpl;
+                            // IC fast path: direct slot write when shape & flags match
+                            let ic_cache = unsafe { &*self.inline_cache.get() };
+                            if ic_idx < ic_cache.len()
+                                && let Some(o) = target.as_object()
+                                && let Some(shape) = o.shape()
+                            {
+                                let entry = &ic_cache[ic_idx];
+                                let shape_ptr = unsafe { shape.gc_ref().as_ptr().as_ptr() };
 
-                            if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
-                                let slot = entry.slot as usize;
-                                // delete marks slot Deleted without changing shape
-                                if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
-                                    let prs_flags = entry.flags as u32;
-                                    if prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL
-                                        && prs_flags & JS_PROP_WRITABLE != 0
-                                        && prs_flags & JS_PROP_LENGTH == 0
-                                    {
-                                        // Fast path: direct slot write
-                                        let o = unsafe { SP_MUT!(-2).as_object_mut_unchecked() };
-                                        o.set_prop_slot(slot, JSProperty::Normal(value));
-                                        SP_GO!(-2);
-                                        continue;
+                                if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
+                                    let slot = entry.slot as usize;
+
+                                    // delete marks slot Deleted without changing shape
+                                    if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
+                                        let prs_flags = entry.flags as u32;
+                                        if prs_flags & crate::object::JS_PROP_TMASK
+                                            == crate::object::JS_PROP_NORMAL
+                                            && prs_flags & crate::object::JS_PROP_WRITABLE != 0
+                                            && prs_flags & crate::object::JS_PROP_LENGTH == 0
+                                        {
+                                            let o =
+                                                unsafe { SP_MUT!(-2).as_object_mut_unchecked() };
+                                            o.set_prop_slot(slot, JSProperty::Normal(value));
+
+                                            // next instruction
+                                            SP_GO!(-2);
+                                            continue;
+                                        }
                                     }
                                 }
                             }
                         }
 
-                        // Slow path: full property lookup & set
+                        // Slow path: property lookup & set
                         SP_GO!(-2);
+
                         let r = target.set_property_internal(
                             realm_scope,
                             atom,
@@ -2016,28 +1963,22 @@ impl Bytecode {
                             break ExecAction::Exception;
                         }
 
-                        // Update IC cache after successful slow path
+                        #[cfg(feature = "inline_cache")]
                         if let Some(o) = target.as_object()
                             && let Some(shape) = o.shape()
-                            && let Some((slot, prs_flags)) = o.find_shape_property(atom)
+                            && let Some((idx, flags)) = o.find_shape_property(atom)
                         {
+                            // Update IC cache after successful slow path
                             let ic_cache = unsafe { &mut *self.inline_cache.get() };
                             if ic_idx < ic_cache.len() {
                                 ic_cache[ic_idx] = InlineCacheEntry {
-                                    shape_ptr: &**shape as *const ShapeImpl,
+                                    shape_ptr: unsafe { shape.gc_ref().as_ptr().as_ptr() },
                                     shape_uid: shape.uid,
-                                    slot: slot as u32,
-                                    flags: prs_flags as u8,
+                                    slot: idx as u32,
+                                    flags: flags as u8,
                                 };
                             }
                         }
-                    }
-                    #[cfg(not(feature = "inline_cache"))]
-                    OpCode::PUT_FIELD_IC => {
-                        // These opcodes are only emitted when the feature is active.
-                        let _ = PC_FETCH!(u32); // skip atom
-                        let _ = PC_FETCH!(u16); // skip ic_index
-                        unreachable!()
                     }
 
                     // ═══════════════════════════════════════════════════
