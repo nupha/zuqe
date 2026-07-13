@@ -8,7 +8,7 @@ Add `zuqe` to your dependencies in `Cargo.toml`:
 
 ```toml
 [dependencies]
-zuqe = "0.7.0" # replace with the latest version
+zuqe = "0.8.0" # replace with the latest version
 ```
 
 ## 2. Initialize Runtime and Context

@@ -14,7 +14,9 @@ Zuqe is inspired by QuickJS.
 - **Lightweight**: Small binary footprint and low memory overhead for IoT devices, edge computing, and resource-constrained environments
 - **Rust-Native**: Leverages Rust's memory safety, zero-cost abstractions and modern toolchain to boost engineering process, with seamless async bridging that connects JS Promises with Rust `Future`s in both directions
 - **Embedding-Friendly**: Easy to embed in and integrate with host applications
-- **Fast Bytecode Execution**: Optimized interpreter with efficient garbage collection
+- **Stackless Interpreter**: Call frames live in a managed bump-arena (spilling to the heap), not on the native Rust stack — deep recursion can't overflow the host stack, and stack usage is bounded by a precise, configurable quota
+- **Configurable Footprint**: Built-in objects and full Unicode support are individually gated behind Cargo features, so you can trim the binary down for embedded targets
+- **Fast Bytecode Execution**: Optimized interpreter (hidden-class objects, inline caches) with efficient scope-based garbage collection
 - **Standards Compliance**: Evolving implementation of modern JavaScript standards
 
 ## 🚀 ECMAScript Features
@@ -68,7 +70,7 @@ Add `zuqe` to your dependencies in `Cargo.toml`:
 
 ```toml
 [dependencies]
-zuqe = "0.7.0"
+zuqe = "0.8.0"
 ```
 
 Zuqe provides several Cargo features to customize the build:

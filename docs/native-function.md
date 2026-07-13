@@ -181,7 +181,7 @@ use zuqe::{CallContext, Callback, JSResult, JSValue, ScopedContext};
 
 fn js_greet(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let name = cc.arg(0).to_string(ctx)?;
-    let greeting = format!("Hello, {}!", name.content());
+    let greeting = format!("Hello, {}!", name.content().encode_utf8(false));
 
     ctx.create_string_from_str(&greeting).map(JSValue::String)
 }
@@ -191,7 +191,7 @@ fn js_calculate(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let a = cc.arg(1).to_f64(ctx)?;
     let b = cc.arg(2).to_f64(ctx)?;
 
-    let result = match operation.content().as_ref() {
+    let result = match operation.content().encode_utf8(false).as_ref() {
         "add" => a + b,
         "subtract" => a - b,
         "multiply" => a * b,

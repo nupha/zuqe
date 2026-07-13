@@ -16,7 +16,7 @@ ctx.with_new_scope(|mut scope| {
     let arr = Array::create(&mut scope)?;          // protected by this scope
     arr.define_property_value_u32(&mut scope, 0, JSValue::Int(42), JS_PROP_C_W_E)?;
     // arr is automatically released when this scope closes
-    scope.return_with(Ok(JSValue::UNDEFINED))
+    Ok(JSValue::UNDEFINED)
 });
 ```
 
@@ -34,7 +34,7 @@ fn compute_result(ctx: &mut Context) -> Result<Vec<JSValue>, i32> {
 
         // Only 'result' survives the scope exit
         let result = vec![JSValue::Int(1), JSValue::Int(2)];
-        scope.return_with(Ok(result))
+        Ok(result)
     })  // tmp1, tmp2 lose protection here; 'result' is promoted to parent
 }
 ```
@@ -47,13 +47,13 @@ You can nest scopes to fine-tune lifetime boundaries:
 ctx.with_new_scope(|mut outer| {
     let outer_val = JSValue::Int(1);
 
-    outer.with_new_scope(|mut inner| {
+    outer.with_new_scope(|inner| {
         let inner_val = JSValue::Int(2);
         // Both outer_val and inner_val are protected here
-        inner.return_with(())
+        let _ = inner_val;
     }); // inner_val loses protection here; outer_val still protected
 
-    outer.return_with(outer_val)
+    outer_val
 }); // outer_val promoted to parent scope
 ```
 
@@ -72,19 +72,21 @@ For long-running applications, avoid accumulating values in the root scope. Use 
 
 > **Notice**: Any value placed into the root scope will **persist forever** — even if nothing references it, the GC will not reclaim it, because the root scope acts as a permanent GC root set. If you know a value in the root scope is no longer needed, you **must** manually call `scope.remove_local(node)` to remove it from the scope's protection. Otherwise it will leak until the `Context` itself is dropped.
 
-### `return_with`
+### Returning values across a scope boundary
 
-When returning a value from `with_new_scope`, you **must** call `scope.return_with(value)` instead of a plain `value`. This triggers the promote mechanism: GC nodes in the return value are moved to the parent scope's cache before the child scope is destroyed:
+You return a value from `with_new_scope` simply as the closure's final expression — **no special call is required**. `with_new_scope` automatically invokes `promote()` on the returned value before the child scope is destroyed, so the GC nodes embedded in it are moved into the parent scope's cache and stay protected across the boundary:
 
 ```rust
-ctx.with_new_scope(|mut scope| {
+let obj = ctx.with_new_scope(|scope| {
     let obj = scope.create_base_object()?;
-    // promote obj to parent before this scope drops
-    scope.return_with(Ok(obj))
-})
+    // `obj` is promoted to the parent scope automatically on return
+    Ok(obj)
+})?;
 ```
 
-The `#[must_use]` wrapper ensures you cannot forget to propagate the return value through the scope boundary.
+Promotion works through the `ScopeResult` trait, which is implemented for `JSValue`, `Result<T, E>`, `Option<T>`, and the common scalar/no-op types. Because promotion happens for whatever you return, returning `Ok(obj)` is all you need — any GC nodes reachable from the returned value survive the scope exit.
+
+> **Note:** Earlier versions exposed a `scope.return_with(value)` method for this purpose. It no longer exists — returning the value directly from the closure is now the only (and correct) way, since `with_new_scope` promotes the return value for you.
 
 ## Customized GC tracer
 

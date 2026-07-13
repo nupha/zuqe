@@ -8,7 +8,7 @@ Zuqe supports ESM modules by providing callbacks for module name normalization a
 
 Callback function signatures are defined for module handling:
 
-The module loader callback receives a `ScopedContext`, the normalized module name, and an opaque pointer. It is responsible for loading the module source and compiling it into a `ModuleDef`.
+The module loader callback receives a `ScopedContext`, the normalized module name (a `file://` URL), an `attrs` `JSValue` carrying the module's import attributes (e.g. `{ type: "json" }` from `import x from './d.json' with { type: 'json' }`), and an opaque pointer. It is responsible for loading the module source and compiling it into a `ModuleDef`.
 
 ## Setting Up Module Loader
 
@@ -28,14 +28,14 @@ Here's a complete example showing how to implement script file based module load
 
 ```rust
 use url::Url;
-use zuqe::{ModuleDef, Runtime, ScopedContext};
+use zuqe::{JSValue, ModuleDef, Runtime, ScopedContext, url_to_abspath};
 
 // Module name normalization (optional)
 fn module_normalize(
-    mut ctx: Context,
+    ctx: &mut ScopedContext,
     base_name: &Url,
     name: &str,
-    _: *mut std::ffi::c_void,
+    _opaque: *mut std::ffi::c_void,
 ) -> Result<Url, i32> {
     // Resolve relative to the importing module's URL. `Url::join` handles
     // `.`/`..` and works uniformly for `file:` and `http:` bases.
@@ -46,29 +46,48 @@ fn module_normalize(
 fn module_loader(
     ctx: &mut ScopedContext,
     module_name: &Url,
+    attrs: JSValue,
     _opaque: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
-    // module_name is the normalized module name (a `file://` URL). Dispatch by
-    // scheme here for future `https:` support.
+    // `module_name` is the normalized module name (a `file://` URL). Convert it
+    // back to a local path for filesystem access; dispatch by scheme here for
+    // future `https:` support.
+    let path = match zuqe::url_to_abspath(module_name) {
+        Some(p) => p,
+        None => {
+            ctx.throw_reference_error(&format!(
+                "could not load module '{module_name}': not a file:// URL"
+            ));
+            return Err(-1);
+        }
+    };
 
-    // Try to read the file
-    match module_name.scheme() {
-        "file" => match std::fs::read(module_name.path()) {
-            Ok(buf) => {
-            // Compile source script using ctx.compile_module() method:
-            // - Takes source bytes, filename, and strip flag
-            // - Compiles the source as an ES module (not global code)
-            // - Returns a `ModuleDef` that can be evaluated
-            let md = ctx.compile_module(&buf, module_name.as_str(), false)?;
-            Ok(md)
+    // Support JSON modules via import attributes, e.g.
+    //   import data from './config.json' with { type: 'json' };
+    let is_json = attrs.is_object()
+        && attrs
+            .get_property_str(ctx, "type")
+            .map(|v| {
+                v.as_string()
+                    .is_some_and(|s| s.content().encode_utf8(false).as_ref() == "json")
+            })
+            .unwrap_or(false);
+
+    match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            if is_json {
+                // Wrap JSON as `export default <json>` so it can be imported as
+                // a normal ES module namespace.
+                let mut src = String::from("export default ");
+                src.push_str(&content);
+                src.push('\n');
+                ctx.compile_module(src.as_bytes(), module_name.as_str(), false)
+            } else {
+                ctx.compile_module(content.as_bytes(), module_name.as_str(), false)
+            }
         }
         Err(_) => {
             ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
-            Err(-1)
-        }
-        // Non-file schemes (e.g. `https:`) are not supported in this example.
-        _ => {
-            ctx.throw_reference_error(&format!("unsupported module scheme '{module_name}'"));
             Err(-1)
         }
     }
@@ -102,7 +121,7 @@ fn main() -> Result<(), i32> {
 When you pass `None` for the `ModuleNormalizeFn` parameter:
 
 ```rust
-rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
+rt.set_module_loader(None, module_loader, std::ptr::null_mut());
 ```
 
 A default simple normalization function is used that provides basic module name resolution according to ES module specifications.
