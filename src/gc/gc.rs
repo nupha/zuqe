@@ -12,7 +12,7 @@ use crate::{
     module::ModuleDefImpl,
     object::{ObjectImpl, ShapeImpl},
     runtime::RuntimeImpl,
-    string::StringImpl,
+    string::{RopeImpl, StringImpl},
     value::JSValue,
 };
 
@@ -24,6 +24,7 @@ gc_type_register! {
     VarRefImpl;
     BytecodeImpl;
     StringImpl;
+    RopeImpl;
     AsyncStateImpl;
     ShapeImpl, drop_pass = 1;
 }

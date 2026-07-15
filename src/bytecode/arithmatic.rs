@@ -384,7 +384,7 @@ impl JSValue {
             match (&op1, &op2) {
                 // string vs string
                 (JSValue::String(s1), JSValue::String(s2)) => {
-                    return Ok(Some(s1.content().cmp(s2.content())));
+                    return Ok(Some(s1.cmp(s2)));
                 }
 
                 // object vs any
@@ -437,7 +437,7 @@ impl JSValue {
                     op2 = b.to_primitive(ctx, HINT_NONE)?;
                 }
                 (a @ JSValue::String(_), b) | (a, b @ JSValue::String(_)) => {
-                    return a.to_string(ctx)?.concat(ctx, b).map(JSValue::from);
+                    return JSValue::concat_value(ctx, a, b);
                 }
                 (a, b) => {
                     let n1 = a.to_number(ctx)?;

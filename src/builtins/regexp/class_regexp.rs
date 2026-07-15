@@ -357,7 +357,7 @@ fn js_regexp_compile(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub fn js_regexp_exec(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let str = cc.arg(0).to_string(ctx)?;
-    Ok(regexp_exec_default(ctx, cc.this(), str.gc_ref().into())?
+    Ok(regexp_exec_default(ctx, cc.this(), str.into())?
         .map_or(JSValue::NULL, |a| a.into()))
 }
 
@@ -379,9 +379,9 @@ pub fn js_regexp_Symbol_match(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         this.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
 
         let mut lst = Vec::<JSValue>::with_capacity(8);
-        while let Some(mat) = regexp_exec(ctx, this, str.gc_ref().into())? {
+        while let Some(mat) = regexp_exec(ctx, this, str.into())? {
             let match_str = mat.get_property_u32(ctx, 0)?.to_string(ctx)?;
-            lst.push(JSValue::from(match_str.gc_ref()));
+            lst.push(JSValue::from(match_str));
 
             if match_str.is_empty() {
                 // advance to next char
@@ -407,7 +407,7 @@ pub fn js_regexp_Symbol_match(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
             Ok(JSValue::NULL)
         }
     } else {
-        regexp_exec(ctx, this, str.gc_ref().into()).map(|a| a.map_or(JSValue::NULL, |a| a.into()))
+        regexp_exec(ctx, this, str.into()).map(|a| a.map_or(JSValue::NULL, |a| a.into()))
     }
 }
 
@@ -418,7 +418,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
     // make matcher: regexp object
     let flags = this.get_property(ctx, Atom::CONST_flags)?.to_string(ctx)?;
     let ctor = JS_SpeciesConstructor(ctx, this, ctx.regexp_ctor().into())?;
-    let regexp = ctor.call_ctor(ctx, &[this, JSValue::from(flags.gc_ref())])?;
+    let regexp = ctor.call_ctor(ctx, &[this, JSValue::from(flags)])?;
 
     let last_index = this
         .get_property(ctx, Atom::CONST_lastIndex)?
@@ -430,7 +430,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
     ctx.create_instance_with_payload(ObjectPayload::REGEXP_STRING_ITERATOR(
         RegExpStringIterPayload::new(
             regexp.try_into().unwrap(),
-            str.gc_ref().into(),
+            str.into(),
             flags.index_of_char('g', 0).is_some(),
             flags
                 .chars()
@@ -498,7 +498,7 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     let mut matche_list = SmallVec::<[Object; 10]>::new();
     let re_obj: JSValue = this_obj.into();
 
-    while let Some(mat) = regexp_exec(ctx, re_obj, str.gc_ref().into())? {
+    while let Some(mat) = regexp_exec(ctx, re_obj, str.into())? {
         matche_list.push(mat);
 
         if !is_global {
@@ -548,7 +548,7 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
                         3 // reserved extra slots for function call args
                     },
             );
-            lst.push(JSValue::from(matched.gc_ref())); // [0]: matched string
+            lst.push(JSValue::from(matched)); // [0]: matched string
 
             for i in 1..count {
                 let c = mat.get_property_u32(ctx, i as _)?;
@@ -620,7 +620,7 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
                 // make arguments: captures + extras
                 let mut aa = captures;
                 aa.push(JSValue::Int(index as i32));
-                aa.push(JSValue::from(str.gc_ref()));
+                aa.push(JSValue::from(str));
                 if !named_captures.is_undefined() {
                     aa.push(named_captures);
                 }
@@ -672,7 +672,7 @@ fn js_regexp_Symbol_search(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 
     let str = cc.arg(0).to_string(ctx)?;
 
-    let mat = regexp_exec(ctx, this_obj.into(), str.gc_ref().into())?;
+    let mat = regexp_exec(ctx, this_obj.into(), str.into())?;
     let cur_last_index = this_obj.get_property(ctx, Atom::CONST_lastIndex)?;
     if !cur_last_index.is_same(prev_last_index) {
         // restore original lastIndex
@@ -729,7 +729,7 @@ pub fn js_regexp_Symbol_split(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let mut idx = 0_usize;
 
     if str.is_empty() {
-        if regexp_exec(ctx, splitter.into(), str.gc_ref().into())?.is_none() {
+        if regexp_exec(ctx, splitter.into(), str.into())?.is_none() {
             // not match: add tail, must be an empty str
             let emp_str_val = JSValue::from(Atom::CONST_empty_string.force_string(ctx).unwrap());
             arr.define_property_value_u32(ctx, idx as u32, emp_str_val, prop_flags)?;
@@ -745,7 +745,7 @@ pub fn js_regexp_Symbol_split(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         // match regexp from `pos`
         splitter.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(last_index as i32))?;
 
-        if let Some(m) = regexp_exec(ctx, splitter.into(), str.gc_ref().into())? {
+        if let Some(m) = regexp_exec(ctx, splitter.into(), str.into())? {
             let mut next_index = splitter
                 .get_property(ctx, Atom::CONST_lastIndex)?
                 .to_length(ctx)? as usize;
@@ -928,7 +928,7 @@ fn regexp_exec_default(
 
     if let Some(cap_list) = re.capture(str.content(), from) {
         let (arr, last_index) =
-            make_regexp_capture_array(ctx, str.gc_ref().into(), &cap_list, re_flags.has_indices())?;
+            make_regexp_capture_array(ctx, str.into(), &cap_list, re_flags.has_indices())?;
 
         if re_flags.has_global() || re_flags.has_sticky() {
             this.set_property(ctx, Atom::CONST_lastIndex, JSValue::from(last_index as u32))?;
@@ -966,5 +966,5 @@ pub(super) fn regexp_exec(
         }
     }
 
-    regexp_exec_default(ctx, regexp, str.gc_ref().into()).map(|a| a.map(|a| a.into()))
+    regexp_exec_default(ctx, regexp, str.into()).map(|a| a.map(|a| a.into()))
 }

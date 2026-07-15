@@ -134,7 +134,7 @@ fn js_json_check(
     key: StringRef,
 ) -> JSResult {
     let mut val = val;
-    let key = JSValue::from(key.gc_ref());
+    let key = JSValue::from(key);
 
     // check for object.toJSON method
     // ECMA specifies this is done only for Object and BigInt */

@@ -399,10 +399,7 @@ impl JSValue {
                 let u = JSFloat64Union { uint64: *d as u64 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
-            Self::String(s) => s.atom_info().map_or_else(
-                || Atom::calc_atom_hash(s.content(), AtomKind::String),
-                |a| a.hash(),
-            ),
+            Self::String(s) => s.hash(),
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => s.atom_info().unwrap().hash(),
 
@@ -448,12 +445,12 @@ impl JSValue {
     pub fn gc_node_ptr(&self) -> Option<NonNull<GcHead>> {
         match self {
             Self::Object(o) => Some(o.gc_ref().node_ptr()),
-            Self::String(s) => Some(s.gc_ref().node_ptr()),
+            Self::String(s) => Some(s.gc_node_ptr()),
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => {
                 let aid = s.atom_info().unwrap().id();
                 if !crate::atom::is_const_atom(aid) && !crate::atom::is_small_int_atom(aid) {
-                    Some(s.gc_ref().node_ptr())
+                    Some(s.gc_node_ptr())
                 } else {
                     None
                 }

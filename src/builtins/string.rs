@@ -74,7 +74,7 @@ fn js_string_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             _ => unreachable!(),
         }
     } else {
-        let code = str.deref().get(buf_idx as usize).unwrap();
+        let code = str.get(buf_idx as usize).unwrap();
         if what == 2 {
             // charCodeAt() returns int
             Ok(JSValue::Int(code as i32))
@@ -258,9 +258,9 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                         ctx,
                         JSValue::UNDEFINED,
                         &[
-                            search_for.gc_ref().into(),
+                            search_for.into(),
                             JSValue::from(pos as u32),
-                            str.gc_ref().into(),
+                            str.into(),
                         ],
                     )
                     .and_then(|v| v.to_string(ctx))
@@ -763,7 +763,7 @@ fn js_string_trim(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(s).map(JSValue::from)
 }
 
-pub fn string_cmp(p1: &StringImpl, p2: &StringImpl, x1: usize, x2: usize, len: usize) -> i32 {
+pub fn string_cmp(p1: &StringRef, p2: &StringRef, x1: usize, x2: usize, len: usize) -> i32 {
     let mut it1 = p1.content().chars_since(x1);
     let mut it2 = p2.content().chars_since(x2);
 

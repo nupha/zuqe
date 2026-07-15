@@ -2,12 +2,15 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use std::{
+    borrow::Cow,
     cmp::Ordering,
+    collections::TryReserveError,
     ffi::CStr,
     ops::{Deref, Range},
+    ptr::NonNull,
 };
 
-use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcHead, GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_STRING,
@@ -15,18 +18,36 @@ use crate::{
     class::ClassExoticMethods,
     context::ScopedContext,
     error::Exception,
+    gc::gc::GC_TYPE_REGISTRY,
     number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, JS_DTOA_VAR_FORMAT, f64_stringify, js_aton},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
         ObjectPayload, check_define_prop_flags,
     },
     runtime::RuntimePtr,
-    string::{CharCode, StringData},
-    utils::unlikely,
+    string::{CharCode, StringCharIter, StringData},
+    utils::{hash_u32_from_base, unlikely},
     value::{HINT_STRING, JSValue},
 };
 
 use super::StringBuf;
+use super::rope::{
+    ROPE_SHORT_LEN, ROPE_SHORT2_LEN, RopeImpl, RopeIter, rope_flatten_data, string_ref_cmp,
+    string_ref_get,
+};
+
+/// Read the gc datatype id from a node head.
+///
+/// `GcHead::dtype` is `pub(crate)` inside gc-lite (0.6.0) and therefore not
+/// reachable from this crate, so we read the `attrs` word directly.
+/// `GcHead` is `#[repr(C)]` with `attrs: u32` as its first field and the
+/// datatype id stored in bits 8..16 (see gc-lite `GcHead::dtype`). Pinned to
+/// gc-lite 0.6.0.
+#[inline(always)]
+fn head_dtype(head: NonNull<GcHead>) -> u8 {
+    let attrs = unsafe { head.cast::<u32>().as_ref() };
+    ((*attrs & 0xFF00) >> 8) as u8
+}
 
 /// Maximum length allowed for JavaScript strings (1GB - 1)
 pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
@@ -288,89 +309,412 @@ impl StringImpl {
     }
 }
 
+/// A 1-word handle to a string GC node. Whether the backing node is a flat
+/// `StringImpl` or a lazy `RopeImpl` is decided by the node's `dtype`
+/// (`GcHead::dtype()`), never by this Rust type. Because `StringRef` stays a
+/// single pointer, `JSValue` size is unchanged on both the non-nan-boxing
+/// and nan-boxing representations, and flat strings pay zero extra memory.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct StringRef(GcRef<StringImpl>);
+pub struct StringRef(NonNull<GcHead>);
 
 impl GcTrace for StringRef {
     #[inline(always)]
     fn trace(&self, gcx: &mut GcTraceCtx) {
-        gcx.add(self.0);
-    }
-}
-
-impl Deref for StringRef {
-    type Target = StringImpl;
-
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        unsafe { self.0.as_ref() }
-    }
-}
-
-impl std::ops::DerefMut for StringRef {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.0.as_mut() }
-    }
-}
-
-impl PartialEq for StringRef {
-    #[inline(always)]
-    fn eq(&self, other: &Self) -> bool {
-        unsafe { self.0.as_ref().content() == other.0.as_ref().content() }
-    }
-}
-
-impl std::fmt::Display for StringRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", unsafe { self.0.as_ref() })
-    }
-}
-
-impl std::fmt::Debug for StringRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", unsafe { self.0.as_ref() })
-    }
-}
-
-impl From<GcRef<StringImpl>> for StringRef {
-    fn from(r: GcRef<StringImpl>) -> Self {
-        Self(r)
-    }
-}
-
-impl From<GcRef<StringImpl>> for JSValue {
-    #[inline(always)]
-    fn from(value: GcRef<StringImpl>) -> Self {
-        Self::String(StringRef(value))
-    }
-}
-
-impl From<StringRef> for JSValue {
-    #[inline(always)]
-    fn from(value: StringRef) -> Self {
-        Self::String(value)
-    }
-}
-
-impl TryFrom<Object> for StringRef {
-    type Error = i32;
-
-    fn try_from(obj: Object) -> Result<Self, Self::Error> {
-        Self::try_from(JSValue::Object(obj))
-    }
-}
-
-impl TryFrom<JSValue> for StringRef {
-    type Error = i32;
-
-    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        value.as_string().copied().ok_or(-1)
+        // Add the node head; GC dispatches to the type-specific trace by dtype
+        // (StringImpl::trace is a no-op, RopeImpl::trace recurses children).
+        gcx.add_node(self.0);
     }
 }
 
 impl StringRef {
+    // ---- construction / dtype dispatch accessors ----
+
+    #[inline(always)]
+    pub(crate) fn from_flat(g: GcRef<StringImpl>) -> Self {
+        Self(g.node_ptr())
+    }
+
+    #[inline(always)]
+    pub(crate) fn from_rope(g: GcRef<RopeImpl>) -> Self {
+        Self(g.node_ptr())
+    }
+
+    #[inline(always)]
+    const fn head(&self) -> &GcHead {
+        unsafe { self.0.as_ref() }
+    }
+
+    /// True if the backing node is a flat `StringImpl` (not a rope).
+    #[inline(always)]
+    pub fn is_flat(&self) -> bool {
+        head_dtype(self.0) == StringImpl::GC_TYPE_ID
+    }
+
+    #[inline(always)]
+    pub(crate) fn as_flat(&self) -> &StringImpl {
+        debug_assert!(self.is_flat());
+        let payload = self.head().payload(&GC_TYPE_REGISTRY);
+        unsafe { payload.cast::<StringImpl>().as_ref() }
+    }
+
+    #[allow(clippy::mut_from_ref)]
+    #[inline(always)]
+    pub(crate) fn as_flat_mut(&self) -> &mut StringImpl {
+        debug_assert!(self.is_flat());
+        let payload = self.head().payload(&GC_TYPE_REGISTRY);
+        unsafe { payload.cast::<StringImpl>().as_mut() }
+    }
+
+    #[inline(always)]
+    pub(crate) fn as_flat_gc(&self) -> GcRef<StringImpl> {
+        debug_assert!(self.is_flat());
+        unsafe { GcRef::<StringImpl>::from_ref_unchecked(self.as_flat()) }
+    }
+
+    #[inline(always)]
+    pub(crate) fn as_rope(&self) -> &RopeImpl {
+        debug_assert!(!self.is_flat());
+        let payload = self.head().payload(&GC_TYPE_REGISTRY);
+        unsafe { payload.cast::<RopeImpl>().as_ref() }
+    }
+
+    /// GC node head pointer (for `JSValue::gc_node_ptr` / trace roots).
+    #[inline(always)]
+    pub(crate) const fn gc_node_ptr(&self) -> NonNull<GcHead> {
+        self.0
+    }
+
+    /// GC node head (borrow), for atom/registry descriptor inspection.
+    #[inline(always)]
+    pub(crate) fn gc_head(&self) -> &GcHead {
+        self.head()
+    }
+
+    /// GC node head pointer, for atom/registry descriptor inspection.
+    #[inline(always)]
+    pub(crate) fn gc_head_ptr(&self) -> NonNull<GcHead> {
+        self.0
+    }
+
+    /// Set the atom descriptor. Ropes must be flattened before atomising, so
+    /// this is only ever called on a flat `StringImpl`.
+    #[inline(always)]
+    pub(crate) fn set_atom_info(&self, info: AtomInfo) {
+        debug_assert!(self.is_flat());
+        self.as_flat_mut().set_atom_info(info);
+    }
+
+    #[inline(always)]
+    pub(crate) fn depth(&self) -> u8 {
+        if self.is_flat() {
+            0
+        } else {
+            self.as_rope().depth
+        }
+    }
+
+    /// Number of flat leaves this string spans. A flat string is a single leaf;
+    /// a rope sums its children's leaf counts. Used by the consolidation
+    /// threshold to bound live GC nodes.
+    #[inline(always)]
+    pub(crate) fn leaves(&self) -> u32 {
+        if self.is_flat() {
+            1
+        } else {
+            self.as_rope().leaves
+        }
+    }
+
+    // ---- unified read API (replaces the old `Deref` to `StringImpl`) ----
+
+    /// Code-unit length (flat: `content.len()`; rope: stored `len`).
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        if self.is_flat() {
+            self.as_flat().len()
+        } else {
+            self.as_rope().len
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn is_wide(&self) -> bool {
+        if self.is_flat() {
+            self.as_flat().is_wide()
+        } else {
+            self.as_rope().is_wide
+        }
+    }
+
+    pub fn is_ident(&self) -> bool {
+        if self.is_flat() {
+            self.as_flat().is_ident()
+        } else {
+            false
+        }
+    }
+
+    pub fn chars_count(&self) -> usize {
+        if self.is_flat() {
+            self.as_flat().chars_count()
+        } else {
+            let ri = self.as_rope();
+            ri.left.chars_count() + ri.right.chars_count()
+        }
+    }
+
+    /// Random character access. Flat: `content.get`; rope: O(depth).
+    pub fn get(&self, idx: usize) -> Option<u16> {
+        if self.is_flat() {
+            self.as_flat().get(idx)
+        } else {
+            string_ref_get(self, idx)
+        }
+    }
+
+    /// Atom info, if this is an atom-backed flat string. Ropes are never atoms.
+    pub fn atom_info(&self) -> Option<&AtomInfo> {
+        if self.is_flat() {
+            self.as_flat().atom_info()
+        } else {
+            None
+        }
+    }
+
+    /// Stable identity for the backing GC node (used as a hash/identity key).
+    #[inline(always)]
+    pub fn id(&self) -> usize {
+        self.0.as_ptr() as usize
+    }
+
+    /// Hash. Lazy and shape-independent: a rope folds its in-order leaf hashes
+    /// so two ropes of the same content hash equally regardless of tree shape
+    /// (required for object/Map key lookup).
+    pub fn hash(&self) -> u32 {
+        if self.is_flat() {
+            let f = self.as_flat();
+            f.atom_info().map_or_else(
+                || Atom::calc_atom_hash(f.content(), AtomKind::String),
+                |a| a.hash(),
+            )
+        } else {
+            // Fold codepoints in left-to-right order, exactly mirroring
+            // `Atom::calc_atom_hash` over the concatenated content, so a rope
+            // hashes identically to an equal-content flat string (required
+            // for object/Map key lookup). Folding per-leaf codepoints (not
+            // per-leaf hashes) makes the result independent of leaf shape.
+            let mut h = AtomKind::String as u32;
+            let mut it = RopeIter::new(self);
+            while let Some(leaf) = it.next() {
+                for (_, c) in leaf.as_flat().content().chars() {
+                    h = hash_u32_from_base(h, c.to_u32());
+                }
+            }
+            h
+        }
+    }
+
+    /// Return the contiguous content. For a flat string this is direct; for a
+    /// rope it materialises (and memoises) the flat node. Ropes should
+    /// normally be flattened via [`flatten`](Self::flatten) before being
+    /// consumed as a byte buffer; this fallback keeps all legacy `.content()`
+    /// call sites correct even if they receive a rope.
+    pub fn content(&self) -> &StringData {
+        if self.is_flat() {
+            self.as_flat().content()
+        } else {
+            let ri = self.as_rope();
+            // Materialise the flat node on first use and memoise it back into
+            // the rope. The memoised node lives in the GC heap independently of
+            // `self`, so the returned `&StringData` stays valid.
+            if ri.flat.get().is_none() {
+                let data = rope_flatten_data(self);
+                let mut rt = ri.rt;
+                let node = StringImpl::new(rt, data, None);
+                let flat_g = match rt.gc_alloc_root(node) {
+                    Ok(g) => g,
+                    Err(_) => panic!("out of memory while flattening rope"),
+                };
+                ri.flat.set(Some(flat_g));
+            }
+            let f = ri.flat.get().unwrap();
+            let head = f.node_ptr();
+            unsafe {
+                head.as_ref()
+                    .payload(&GC_TYPE_REGISTRY)
+                    .cast::<StringImpl>()
+                    .as_ref()
+            }
+            .content()
+        }
+    }
+
+    // The following methods delegate to `content()`; they work for both flat
+    // and rope strings (a rope is materialised on first use).
+    pub fn chars(&self) -> StringCharIter<'_> {
+        self.content().chars()
+    }
+    pub fn chars_since(&self, index: usize) -> StringCharIter<'_> {
+        self.content().chars_since(index)
+    }
+    pub fn chars_range(&self, range: Range<usize>) -> StringCharIter<'_> {
+        self.content().chars_range(range)
+    }
+    pub fn chars_lossy(&self) -> impl Iterator<Item = char> + '_ {
+        self.content().chars_lossy()
+    }
+    pub fn chars_range_lossy(&self, range: Range<usize>) -> impl Iterator<Item = char> + '_ {
+        self.content().chars_range_lossy(range)
+    }
+    pub fn encode_utf8(&self, escape: bool) -> Cow<'_, str> {
+        self.content().encode_utf8(escape)
+    }
+    pub fn encode_utf8_bytes(&self, allow_invalid: bool) -> Cow<'_, [u8]> {
+        self.content().encode_utf8_bytes(allow_invalid)
+    }
+    pub fn encode_utf8_range(&self, range: Range<usize>, escape: bool) -> Cow<'_, str> {
+        self.content().encode_utf8_range(range, escape)
+    }
+    pub fn index_of_code(&self, code: u16, start: usize) -> Option<usize> {
+        self.content().index_of_code(code, start)
+    }
+    pub fn index_of(&self, needle: &StringData, start: usize) -> Option<usize> {
+        self.content().index_of(needle, start)
+    }
+    pub fn index_of_char<C: Into<CharCode>>(&self, ch: C, start: usize) -> Option<usize> {
+        self.content().index_of_char(ch, start)
+    }
+    pub fn index_of_next(&self, pos: usize, must_char: bool) -> Option<usize> {
+        self.content().index_of_next(pos, must_char)
+    }
+    pub fn index_of_next_i64(&self, pos: i64, must_char: bool) -> Option<i64> {
+        self.content().index_of_next_i64(pos, must_char)
+    }
+    pub fn eq_str(&self, other: &str) -> bool {
+        self.content().eq_str(other)
+    }
+    pub fn eq_buf(&self, other: &StringBuf) -> bool {
+        self.content().eq_buf(other)
+    }
+    /// If this string is exactly one ASCII code unit, return it (else `None`).
+    pub fn ascii(&self) -> Option<&[u8]> {
+        self.content().ascii()
+    }
+    pub fn to_buf(&self) -> Result<StringBuf, TryReserveError> {
+        self.content().to_buf()
+    }
+    pub fn to_buf_range(&self, range: Range<usize>) -> Result<StringBuf, TryReserveError> {
+        self.content().to_buf_range(range)
+    }
+    pub fn parse_u32(&self) -> Option<u32> {
+        self.content().parse_u32()
+    }
+    pub fn parse_i64(&self) -> Option<i64> {
+        self.content().parse_i64()
+    }
+
+    // ---- ctx-taking methods: flatten then delegate to the flat impl ----
+
+    pub fn to_number(&self, ctx: &mut ScopedContext) -> IntOrFloat {
+        let flat = self
+            .flatten(ctx)
+            .unwrap_or_else(|_| panic!("out of memory while flattening rope"));
+        flat.as_flat().to_number(ctx)
+    }
+
+    pub fn objectify(&self, ctx: &mut ScopedContext, ctor: JSValue) -> Result<Object, i32> {
+        let flat = self.flatten(ctx)?;
+        flat.as_flat().objectify(ctx, ctor)
+    }
+
+    pub fn sub_string(
+        &self,
+        ctx: &mut ScopedContext,
+        range: Range<usize>,
+    ) -> Result<StringRef, i32> {
+        let flat = self.flatten(ctx)?;
+        flat.as_flat().sub_string(ctx, range)
+    }
+
+    /// Convert this string to an atom. Flattens first so the atom descriptor
+    /// is always a flat `StringImpl` (atoms must be flat, per design doc §7C).
+    pub fn to_atom(&self, ctx: &mut ScopedContext, kind: AtomKind) -> Result<Atom, i32> {
+        let flat = self.flatten(ctx)?;
+        flat.as_flat().to_atom(ctx, kind)
+    }
+
+    // ---- flatten / concat ----
+
+    /// Return a flat `StringRef`. For a flat node, returns itself. For a rope,
+    /// linearises (with memoisation) and returns the flat node.
+    pub fn flatten(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
+        if self.is_flat() {
+            return Ok(*self);
+        }
+        let ri = self.as_rope();
+        if let Some(f) = ri.flat.get() {
+            return Ok(StringRef::from_flat(f));
+        }
+        let mut buf = StringBuf::Empty;
+        self.collect_into(&mut buf).map_err(|_| -1)?;
+        let flat = ctx.create_string_with_buf(buf)?;
+        let g = flat.as_flat_gc();
+        ri.flat.set(Some(g));
+        Ok(flat)
+    }
+
+    fn collect_into(&self, buf: &mut StringBuf) -> Result<(), i32> {
+        if self.is_flat() {
+            buf.push_content(self.as_flat().content()).map_err(|_| -1)
+        } else {
+            let ri = self.as_rope();
+            if let Some(f) = ri.flat.get() {
+                buf.push_content(StringRef::from_flat(f).content())
+                    .map_err(|_| -1)
+            } else {
+                ri.left.collect_into(buf)?;
+                ri.right.collect_into(buf)
+            }
+        }
+    }
+
+    /// Lazy concatenation. Keep the rope if possible (O(1)); only do a real
+    /// copy for short flat strings (see `ROPE_SHORT_LEN`/`ROPE_SHORT2_LEN`).
+    pub(crate) fn concat(&self, ctx: &mut ScopedContext, other: JSValue) -> Result<StringRef, i32> {
+        let s2 = other.to_string(ctx)?; // s2 is flat (to_string flattens)
+        StringRef::concat2(ctx, *self, s2)
+    }
+
+    pub(crate) fn concat2(
+        ctx: &mut ScopedContext,
+        s1: StringRef,
+        s2: StringRef,
+    ) -> Result<StringRef, i32> {
+        if s1.is_empty() {
+            return Ok(s2);
+        }
+        if s2.is_empty() {
+            return Ok(s1);
+        }
+        if s1.is_flat() && s2.is_flat() && s1.len() <= ROPE_SHORT2_LEN && s2.len() <= ROPE_SHORT_LEN
+        {
+            return s1.as_flat().concat(ctx, JSValue::from(s2));
+        }
+        RopeImpl::new(ctx, s1, s2)
+    }
+
+    /// Compare two string references (rope-aware, no flatten unless needed by
+    /// the leaf comparison).
+    pub fn cmp(&self, other: &Self) -> Ordering {
+        string_ref_cmp(self, other)
+    }
+
+    // ---- creation helpers ----
+
     /// create String with string data, and optional atom info (root gc node).
     pub(crate) fn create_root(
         mut rt: RuntimePtr,
@@ -378,7 +722,7 @@ impl StringRef {
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
         let s = StringImpl::new(rt, content, atom_info);
-        rt.gc_alloc_root(s).map(Self).map_err(|_| {
+        rt.gc_alloc_root(s).map(StringRef::from_flat).map_err(|_| {
             eprintln!("[O.o] alloc error");
             -1
         })
@@ -391,7 +735,7 @@ impl StringRef {
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
         ctx.alloc_local(StringImpl::new(ctx.rt_ptr(), content, atom_info))
-            .map(Self)
+            .map(StringRef::from_flat)
             .map_err(|_| {
                 ctx.rt_mut().set_exception(Exception::OutOfMemory);
                 eprintln!("[O.o] alloc error");
@@ -426,10 +770,85 @@ impl StringRef {
     ) -> Result<Self, i32> {
         Self::create_internal(ctx, StringData::from_static(s), atom_info)
     }
+}
 
+impl PartialEq for StringRef {
     #[inline(always)]
-    pub const fn gc_ref(&self) -> GcRef<StringImpl> {
-        self.0
+    fn eq(&self, other: &Self) -> bool {
+        // Quick length short-circuit (same as QuickJS string comparison).
+        self.len() == other.len() && self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl PartialOrd for StringRef {
+    #[inline(always)]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl std::fmt::Display for StringRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_flat() {
+            write!(f, "{}", self.as_flat())
+        } else {
+            let mut it = RopeIter::new(self);
+            while let Some(leaf) = it.next() {
+                write!(f, "{}", leaf.as_flat())?;
+            }
+            Ok(())
+        }
+    }
+}
+
+impl std::fmt::Debug for StringRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_flat() {
+            write!(f, "{:?}", self.as_flat())
+        } else {
+            write!(f, "Rope(")?;
+            let mut it = RopeIter::new(self);
+            while let Some(leaf) = it.next() {
+                write!(f, "{:?}", leaf.as_flat())?;
+            }
+            write!(f, ")")
+        }
+    }
+}
+
+impl From<GcRef<StringImpl>> for StringRef {
+    fn from(r: GcRef<StringImpl>) -> Self {
+        Self::from_flat(r)
+    }
+}
+
+impl From<GcRef<StringImpl>> for JSValue {
+    #[inline(always)]
+    fn from(value: GcRef<StringImpl>) -> Self {
+        Self::String(StringRef::from_flat(value))
+    }
+}
+
+impl From<StringRef> for JSValue {
+    #[inline(always)]
+    fn from(value: StringRef) -> Self {
+        Self::String(value)
+    }
+}
+
+impl TryFrom<Object> for StringRef {
+    type Error = i32;
+
+    fn try_from(obj: Object) -> Result<Self, Self::Error> {
+        Self::try_from(JSValue::Object(obj))
+    }
+}
+
+impl TryFrom<JSValue> for StringRef {
+    type Error = i32;
+
+    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+        value.as_string().copied().ok_or(-1)
     }
 }
 
@@ -557,6 +976,23 @@ impl JSValue {
         }
     }
 
+    /// Lazy string concatenation that keeps ropes lazy. Unlike `to_string`
+    /// (which flattens), this preserves any rope in `a`/`b` and builds a new
+    /// rope in O(1). Used by the `+` operator and template literals.
+    pub fn concat_value(ctx: &mut ScopedContext, a: JSValue, b: JSValue) -> Result<JSValue, i32> {
+        let s1 = a.to_string_keep_rope(ctx)?;
+        let s2 = b.to_string_keep_rope(ctx)?;
+        StringRef::concat2(ctx, s1, s2).map(JSValue::from)
+    }
+
+    /// Coerce to a `StringRef`, preserving a rope if `self` is already a string.
+    fn to_string_keep_rope(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
+        match self {
+            Self::String(s) => Ok(*s),
+            _ => self.to_string(ctx),
+        }
+    }
+
     /// Convert `self` to string or symbol value. (string is preferred)
     pub fn to_string_or_symbol(&self, ctx: &mut ScopedContext) -> Result<Self, i32> {
         match self {
@@ -613,7 +1049,7 @@ impl JSValue {
     /// Coerce value `self` to string. if `self` is symbol, returns Err.
     pub fn to_string(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
         match self {
-            Self::String(s) => Ok(*s),
+            Self::String(s) => s.flatten(ctx),
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => {
                 ctx.throw_type_error("cannot convert symbol to string");

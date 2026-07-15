@@ -4,11 +4,12 @@
 mod chars;
 mod data;
 mod iter;
+mod rope;
 mod sbuf;
 mod string;
 mod sub;
 
-pub use {data::*, iter::*, sbuf::*, string::*};
+pub use {data::*, iter::*, rope::RopeImpl, sbuf::*, string::*};
 
 pub(crate) use chars::*;
 

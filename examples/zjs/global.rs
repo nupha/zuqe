@@ -30,7 +30,7 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             if inspect {
                 arg.inspect(ctx)?.to_string()
             } else {
-                format!("{}", arg.to_string(ctx)?.deref())
+                format!("{}", arg.to_string(ctx)?)
             },
             color(),
         );

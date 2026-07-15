@@ -54,7 +54,7 @@ pub(crate) fn js_error_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
         obj.define_property_value(
             ctx,
             Atom::CONST_message,
-            msg.gc_ref().into(),
+            msg.into(),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
     }

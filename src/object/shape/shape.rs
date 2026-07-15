@@ -137,7 +137,7 @@ impl ShapeImpl {
                 // set Atom string gc node xref
                 ctx.rt_ptr()
                     .gc_heap_mut()
-                    .bind(shape_node, prop.descriptor(ctx.rt()).gc_ref().node_ptr());
+                    .bind(shape_node, prop.descriptor(ctx.rt()).gc_node_ptr());
             }
 
             // update shape hash
