@@ -387,13 +387,13 @@ impl StringRef {
 
     /// GC node head (borrow), for atom/registry descriptor inspection.
     #[inline(always)]
-    pub(crate) fn gc_head(&self) -> &GcHead {
+    pub(crate) const fn gc_head(&self) -> &GcHead {
         self.head()
     }
 
     /// GC node head pointer, for atom/registry descriptor inspection.
     #[inline(always)]
-    pub(crate) fn gc_head_ptr(&self) -> NonNull<GcHead> {
+    pub(crate) const fn gc_head_ptr(&self) -> NonNull<GcHead> {
         self.0
     }
 
@@ -685,7 +685,7 @@ impl StringRef {
     /// Lazy concatenation. Keep the rope if possible (O(1)); only do a real
     /// copy for short flat strings (see `ROPE_SHORT_LEN`/`ROPE_SHORT2_LEN`).
     pub(crate) fn concat(&self, ctx: &mut ScopedContext, other: JSValue) -> Result<StringRef, i32> {
-        let s2 = other.to_string(ctx)?; // s2 is flat (to_string flattens)
+        let s2 = other.to_string(ctx)?;
         StringRef::concat2(ctx, *self, s2)
     }
 
@@ -976,20 +976,41 @@ impl JSValue {
         }
     }
 
-    /// Lazy string concatenation that keeps ropes lazy. Unlike `to_string`
-    /// (which flattens), this preserves any rope in `a`/`b` and builds a new
-    /// rope in O(1). Used by the `+` operator and template literals.
+    /// Lazy string concatenation that keeps ropes lazy. `to_string` preserves
+    /// any rope in `a`/`b`, and `concat2` builds a new rope in O(1). Used by the
+    /// `+` operator and template literals.
     pub fn concat_value(ctx: &mut ScopedContext, a: JSValue, b: JSValue) -> Result<JSValue, i32> {
-        let s1 = a.to_string_keep_rope(ctx)?;
-        let s2 = b.to_string_keep_rope(ctx)?;
+        let s1 = a.to_string(ctx)?;
+        let s2 = b.to_string(ctx)?;
         StringRef::concat2(ctx, s1, s2).map(JSValue::from)
     }
 
-    /// Coerce to a `StringRef`, preserving a rope if `self` is already a string.
-    fn to_string_keep_rope(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
+    /// Coerce to a flat `StringRef`, materialising any rope first.
+    ///
+    /// Most `StringRef` operations are rope-aware and flatten lazily on their
+    /// own (e.g. [`StringRef::content`]), so callers normally want the default
+    /// [`to_string`](Self::to_string), which preserves the rope. Reach for this
+    /// variant only when a call site specifically needs a materialised flat
+    /// buffer (e.g. passing to an FFI/C boundary that requires one).
+    pub(crate) fn to_string_flat(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
         match self {
-            Self::String(s) => Ok(*s),
+            Self::String(s) => s.flatten(ctx),
             _ => self.to_string(ctx),
+        }
+    }
+
+    /// Like [`to_string_non_undefined_or_null`], but guarantees a flat result
+    /// (materialises any rope). Prefer the default
+    /// [`to_string_non_undefined_or_null`] unless a flat buffer is required.
+    pub(crate) fn to_string_non_undefined_or_null_flat(
+        &self,
+        ctx: &mut ScopedContext,
+    ) -> Result<StringRef, i32> {
+        if unlikely(self.is_undefined_or_null()) {
+            ctx.throw_type_error("null or undefined are forbidden");
+            Err(-1)
+        } else {
+            self.to_string_flat(ctx)
         }
     }
 
@@ -1047,9 +1068,13 @@ impl JSValue {
     }
 
     /// Coerce value `self` to string. if `self` is symbol, returns Err.
+    ///
+    /// If `self` is already a string, it is returned `as-is` (a rope is
+    /// preserved; materialisation to a flat buffer is an internal decision made
+    /// lazily by the `StringRef` operations that need it, not here).
     pub fn to_string(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
         match self {
-            Self::String(s) => s.flatten(ctx),
+            Self::String(s) => Ok(*s),
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => {
                 ctx.throw_type_error("cannot convert symbol to string");

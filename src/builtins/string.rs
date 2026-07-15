@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ops::Deref;
-
 #[cfg(feature = "all_unicode")]
 use unicode_normalization::UnicodeNormalization;
 
@@ -15,7 +13,7 @@ use crate::{
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
     string::{
         CharCode, CharCodeDecoder, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringData,
-        StringImpl, StringRef, Utf16Stream, js_string_exotic_methods,
+        StringRef, Utf16Stream, js_string_exotic_methods,
     },
     value::JSValue,
 };
@@ -99,9 +97,9 @@ fn js_string_codePointAt(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_string_concat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    // TODO: Use more efficient method
-    // XXX: should use string_buffer?
-
+    // `to_string_non_undefined_or_null` preserves a rope (it no longer flattens
+    // by default), so repeated `s = s.concat(x)` accumulation stays O(1)
+    // amortized via the `concat2` rope path + consolidation, matching `+`.
     let mut s = cc.this().to_string_non_undefined_or_null(ctx)?;
     for a in cc.arguments() {
         s = s.concat(ctx, *a)?;
@@ -257,11 +255,7 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     .call(
                         ctx,
                         JSValue::UNDEFINED,
-                        &[
-                            search_for.into(),
-                            JSValue::from(pos as u32),
-                            str.into(),
-                        ],
+                        &[search_for.into(), JSValue::from(pos as u32), str.into()],
                     )
                     .and_then(|v| v.to_string(ctx))
             } else {
