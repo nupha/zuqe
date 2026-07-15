@@ -641,8 +641,6 @@ impl StringRef {
         self.content().parse_i64()
     }
 
-    // ---- ctx-taking methods: flatten then delegate to the flat impl ----
-
     pub fn to_number(&self, ctx: &mut ScopedContext) -> IntOrFloat {
         let flat = self
             .flatten(ctx)

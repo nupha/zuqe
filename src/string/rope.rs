@@ -208,8 +208,7 @@ impl RopeIter {
         Self { stack }
     }
 
-    /// Returns the next flat leaf in left-to-right order, or `None` when
-    /// exhausted.
+    /// Returns the next flat leaf in left-to-right order, or `None` when exhausted.
     pub(crate) fn next(&mut self) -> Option<StringRef> {
         while let Some(n) = self.stack.pop() {
             if n.is_flat() {
