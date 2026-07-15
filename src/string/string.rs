@@ -348,6 +348,14 @@ impl StringRef {
     /// True if the backing node is a flat `StringImpl` (not a rope).
     #[inline(always)]
     pub fn is_flat(&self) -> bool {
+        // UAF guard: a `StringRef` is a `Copy` raw GC pointer. If it outlived
+        // its only root and GC freed the node, any access here would silently
+        // corrupt the heap. Panic with the real call stack instead.
+        #[cfg(debug_assertions)]
+        unsafe {
+            self.0.as_ref().debug_assert_node_valid_simple();
+        }
+
         head_dtype(self.0) == StringImpl::GC_TYPE_ID
     }
 
@@ -375,6 +383,15 @@ impl StringRef {
     #[inline(always)]
     pub(crate) fn as_rope(&self) -> &RopeImpl {
         debug_assert!(!self.is_flat());
+        // UAF guard: `StringRef` is a `Copy` raw GC pointer. If a handle
+        // outlived its only root and GC freed the node, any later access here
+        // would silently corrupt the heap. Panic with the real call stack
+        // instead. (`debug_assert_node_valid_simple` fails once a node's
+        // sentinel byte is clobbered to 0xDE on free.)
+        #[cfg(debug_assertions)]
+        unsafe {
+            self.gc_node_ptr().as_ref().debug_assert_node_valid_simple();
+        }
         let payload = self.head().payload(&GC_TYPE_REGISTRY);
         unsafe { payload.cast::<RopeImpl>().as_ref() }
     }
@@ -539,6 +556,13 @@ impl StringRef {
                     Ok(g) => g,
                     Err(_) => panic!("out of memory while flattening rope"),
                 };
+                // `gc_alloc_root` may have run GC and freed `self` (the node
+                // `ri` borrows) if it was unrooted. Re-validate before writing
+                // back into `ri.flat`.
+                #[cfg(debug_assertions)]
+                unsafe {
+                    GcRef::<RopeImpl>::from_ref_unchecked(ri).node_info();
+                }
                 ri.flat.set(Some(flat_g));
             }
             let f = ri.flat.get().unwrap();
@@ -647,23 +671,30 @@ impl StringRef {
         flat.as_flat().to_atom(ctx, kind)
     }
 
-    // ---- flatten / concat ----
-
     /// Return a flat `StringRef`. For a flat node, returns itself. For a rope,
     /// linearises (with memoisation) and returns the flat node.
-    pub fn flatten(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
+    pub(super) fn flatten(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
         if self.is_flat() {
             return Ok(*self);
         }
+
         let ri = self.as_rope();
         if let Some(f) = ri.flat.get() {
             return Ok(StringRef::from_flat(f));
         }
+
         let mut buf = StringBuf::Empty;
         self.collect_into(&mut buf).map_err(|_| -1)?;
         let flat = ctx.create_string_with_buf(buf)?;
-        let g = flat.as_flat_gc();
-        ri.flat.set(Some(g));
+        let s = flat.as_flat_gc();
+        // `create_string_with_buf` may have run GC and freed `self` (the node
+        // `ri` borrows) if it was unrooted. Re-validate before writing back.
+        #[cfg(debug_assertions)]
+        unsafe {
+            GcRef::<RopeImpl>::from_ref_unchecked(ri).node_info();
+        }
+        ri.flat.set(Some(s));
+
         Ok(flat)
     }
 
@@ -709,11 +740,10 @@ impl StringRef {
 
     /// Compare two string references (rope-aware, no flatten unless needed by
     /// the leaf comparison).
+    #[inline(always)]
     pub fn cmp(&self, other: &Self) -> Ordering {
         string_ref_cmp(self, other)
     }
-
-    // ---- creation helpers ----
 
     /// create String with string data, and optional atom info (root gc node).
     pub(crate) fn create_root(
@@ -985,35 +1015,6 @@ impl JSValue {
         StringRef::concat2(ctx, s1, s2).map(JSValue::from)
     }
 
-    /// Coerce to a flat `StringRef`, materialising any rope first.
-    ///
-    /// Most `StringRef` operations are rope-aware and flatten lazily on their
-    /// own (e.g. [`StringRef::content`]), so callers normally want the default
-    /// [`to_string`](Self::to_string), which preserves the rope. Reach for this
-    /// variant only when a call site specifically needs a materialised flat
-    /// buffer (e.g. passing to an FFI/C boundary that requires one).
-    pub(crate) fn to_string_flat(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
-        match self {
-            Self::String(s) => s.flatten(ctx),
-            _ => self.to_string(ctx),
-        }
-    }
-
-    /// Like [`to_string_non_undefined_or_null`], but guarantees a flat result
-    /// (materialises any rope). Prefer the default
-    /// [`to_string_non_undefined_or_null`] unless a flat buffer is required.
-    pub(crate) fn to_string_non_undefined_or_null_flat(
-        &self,
-        ctx: &mut ScopedContext,
-    ) -> Result<StringRef, i32> {
-        if unlikely(self.is_undefined_or_null()) {
-            ctx.throw_type_error("null or undefined are forbidden");
-            Err(-1)
-        } else {
-            self.to_string_flat(ctx)
-        }
-    }
-
     /// Convert `self` to string or symbol value. (string is preferred)
     pub fn to_string_or_symbol(&self, ctx: &mut ScopedContext) -> Result<Self, i32> {
         match self {
@@ -1074,7 +1075,32 @@ impl JSValue {
     /// lazily by the `StringRef` operations that need it, not here).
     pub fn to_string(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
         match self {
-            Self::String(s) => Ok(*s),
+            Self::String(s) => {
+                let s = *s;
+
+                // NOTE on GC safety: a value returned by `to_string` must stay reachable
+                // until the caller stores it in a traced location. Fresh string
+                // allocations are young GC roots, but an *existing* rope node is only alive
+                // while some rooted JSValue still references it. If that reference drops
+                // while the caller keeps the returned `StringRef` (a `Copy` raw GC pointer)
+                // across a GC safepoint, the node can be freed and any later use of it is a
+                // use-after-free. We therefore mark the node LOCAL for the current scope so
+                // it survives until the scope ends. We use `gc_protect_transient_force`
+                // rather than the feature-gated `gc_protect_transient` because the
+                // protection must apply even when that feature is disabled (the engine
+                // otherwise relies solely on "fresh allocation = root", which this path
+                // intentionally avoids to keep ropes lazy).
+                //
+                // Only ropes need this: flat strings already preserved the
+                // "returns a rooted node" invariant before (the old `flatten`
+                // returned the flat node as-is too), whereas ropes are what this
+                // `to_string` change newly exposes to the unrooted-old-node risk.
+                if !s.is_flat() {
+                    ctx.gc_protect_transient_force(&JSValue::String(s));
+                }
+
+                Ok(s)
+            }
             #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => {
                 ctx.throw_type_error("cannot convert symbol to string");

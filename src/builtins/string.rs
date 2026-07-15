@@ -730,10 +730,21 @@ fn js_string_match(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             f.call_ctor(ctx, &args[0..args_len])?
         };
 
-        // protect regexp_obj before calling ::invoke()
-        // if let Some(n) = regexp_obj.gc_node_ptr() {
-        //     ctx.gc_heap_mut().protect_node_v2(n);
-        // }
+        // NOTE: `regexp_obj` does NOT need an explicit `gc_protect_transient_force`.
+        // It is the freshly-allocated result of `regexp_ctor().call_ctor(...)`, and a
+        // freshly-allocated node is already protected from collection within the
+        // current GcScope (the engine's "new allocation = young root" invariant: a
+        // fresh node is either a scope-local young root or a permanent root). So it
+        // stays alive across the `to_string_non_undefined_or_null` safepoint and
+        // through `regexp_obj.invoke(...)` with no extra guard. The explicit call
+        // would in fact be a no-op here, because `add_non_local` skips any node that
+        // is already a root or scope-local.
+        //
+        // This line is kept only as a harmless backstop: it would only matter if
+        // `call_ctor` ever returned a *non-fresh* / aliased node (e.g. a constructor
+        // that does `return existingObject`), which the built-in RegExp constructor
+        // never does. In the normal flow it is never triggered, hence commented out.
+        // ctx.gc_protect_transient_force(&regexp_obj);
 
         let s = this.to_string_non_undefined_or_null(ctx)?;
         regexp_obj.invoke(ctx, method_name, std::slice::from_ref(&JSValue::from(s)))
