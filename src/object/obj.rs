@@ -936,12 +936,6 @@ impl JSValue {
 
 const JS_PROP_INITIAL_SIZE: u32 = 2;
 
-pub(crate) const JS_PROP_INITIAL_HASH_SIZE: usize = if cfg!(target_pointer_width = "64") {
-    32
-} else {
-    4
-};
-
 /// Note: all the fields are already sealed except length
 pub(crate) fn seal_template_obj(ctx: &mut ScopedContext, mut obj: JSValue) -> i32 {
     let p = unsafe { obj.as_object_mut_unchecked() };

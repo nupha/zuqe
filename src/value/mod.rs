@@ -6,6 +6,6 @@ mod primitives;
 mod repr;
 mod val;
 
-pub use val::{JSValue, Value};
+pub use val::JSValue;
 
 pub(crate) use {primitives::*, val::*};

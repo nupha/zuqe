@@ -1,17 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
-};
+use std::{ptr::NonNull};
 
 use gc_lite::{GcHead, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ERROR, ScopedContext,
-    atom::{Atom, AtomKind},
     function::Bytecode,
     module::ModuleDef,
     number::JSFloat64Union,
@@ -470,51 +465,7 @@ impl JSValue {
 pub(crate) const HINT_STRING: i32 = 0;
 pub(crate) const HINT_NUMBER: i32 = 1;
 pub(crate) const HINT_NONE: i32 = 2;
-pub(crate) const HINT_FORCE_ORDINARY: i32 = 0x01 << 4;  // don't try Symbol.toPrimitive 
-
-/// Value with lifetime
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct Value<'a> {
-    inner: JSValue,
-    _marker: PhantomData<&'a ()>,
-}
-
-impl<'a> Deref for Value<'a> {
-    type Target = JSValue;
-
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<'a> DerefMut for Value<'a> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-impl<'a> From<Value<'a>> for JSValue {
-    #[inline(always)]
-    fn from(value: Value<'a>) -> Self {
-        unsafe { std::mem::transmute::<Value<'a>, JSValue>(value) }
-    }
-}
-
-impl<'a> From<JSValue> for Value<'a> {
-    #[inline(always)]
-    fn from(value: JSValue) -> Self {
-        unsafe { std::mem::transmute::<JSValue, Value<'a>>(value) }
-    }
-}
-
-impl<'a> std::fmt::Debug for Value<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.inner)
-    }
-}
+pub(crate) const HINT_FORCE_ORDINARY: i32 = 0x01 << 4; // don't try Symbol.toPrimitive 
 
 #[cfg(feature = "serde_json_support")]
 mod serde_json_support {

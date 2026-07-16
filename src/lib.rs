@@ -43,7 +43,7 @@ pub use {
         JS_PROP_ENUMERABLE, JS_PROP_FORCE, JS_PROP_WRITABLE, Object,
     },
     runtime::{Runtime, RuntimeImpl},
-    value::{JSValue, Value},
+    value::JSValue,
 };
 
 #[cfg(feature = "async_support")]
