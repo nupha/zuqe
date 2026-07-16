@@ -58,6 +58,8 @@ macro_rules! def_native_object {
         pub struct $native_ty($crate::Object);
 
         impl $native_ty {
+            pub const CLASS_NAME: &str = $name;
+
             thread_local! {
                 static CLASS_ID: std::cell::Cell<$crate::ClassID> = const { Cell::new(0) };
             }
