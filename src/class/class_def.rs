@@ -9,8 +9,8 @@ use crate::{
         GetPrototypeFn, SetPrototypeFn,
     },
     context::ScopedContext,
-    function::CallbackFn,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload},
+    function::{CallbackFn, NativeFunction},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectPayload},
 };
 
 use super::{
@@ -79,6 +79,9 @@ impl ClassCtorDef {
 enum ClassInitType {
     Normal {
         proto_entries: &'static [FieldDef],
+        /// Parent class id resolver (lazily resolved at initialize time, so the
+        /// parent does not need to be registered before the child).
+        extends_class: Option<fn() -> ClassID>,
         ctor: Option<ClassCtorDef>,
     },
     InitFn(ClassInitializeFn),
@@ -120,6 +123,7 @@ impl Default for ClassDef {
             on_initialize: ClassInitType::Normal {
                 proto_entries: &[],
                 ctor: None,
+                extends_class: None,
             },
             on_finalize: None,
             on_finalize_opaque: None,
@@ -137,16 +141,42 @@ impl ClassDef {
         ctor: Option<ClassCtorDef>,
     ) -> Self {
         debug_assert!(!name.is_empty());
-
         Self {
             name,
             name_atom: Atom::NULL,
             call: None,
             exotic: None,
-
             on_unregister: None,
             on_initialize: ClassInitType::Normal {
                 proto_entries,
+                ctor,
+                extends_class: None,
+            },
+            on_finalize: Some(Self::default_fini_fn),
+            on_finalize_opaque: None,
+            on_gc_trace: None,
+        }
+    }
+
+    /// Create user-defined class def with proto entries, ctor and extends inheritance.
+    /// `extends_class` is a resolver invoked lazily at initialize time, so the
+    /// parent class need not be registered before the child.
+    pub fn new_extends(
+        name: &'static str,
+        proto_entries: &'static [FieldDef],
+        ctor: Option<ClassCtorDef>,
+        extends_class: fn() -> ClassID,
+    ) -> Self {
+        debug_assert!(!name.is_empty());
+        Self {
+            name,
+            name_atom: Atom::NULL,
+            call: None,
+            exotic: None,
+            on_unregister: None,
+            on_initialize: ClassInitType::Normal {
+                proto_entries,
+                extends_class: Some(extends_class),
                 ctor,
             },
             on_finalize: Some(Self::default_fini_fn),
@@ -156,7 +186,7 @@ impl ClassDef {
     }
 
     /// Create user-defined class def with init fn
-    pub const fn new_with_init_func(name: &'static str, init_fn: ClassInitializeFn) -> Self {
+    pub const fn new_with(name: &'static str, init_fn: ClassInitializeFn) -> Self {
         debug_assert!(!name.is_empty());
         Self {
             name,
@@ -187,6 +217,7 @@ impl ClassDef {
             on_initialize: ClassInitType::Normal {
                 proto_entries,
                 ctor,
+                extends_class: None,
             },
             on_finalize: None,
             on_finalize_opaque: None,
@@ -252,31 +283,77 @@ impl ClassDef {
         match self.on_initialize {
             ClassInitType::Normal {
                 proto_entries,
+                extends_class,
                 ctor,
             } => {
-                if ctx.class_slots[class_id as usize].proto.is_none() {
-                    let proto = ctx.init_class_proto(class_id, proto_entries)?;
-                    debug_assert!(
-                        ctx.class_slots[class_id as usize]
-                            .proto
-                            .is_some_and(|p| p == proto)
-                    );
-                }
+                if let Some(parent_resolver) = extends_class {
+                    // Extends inheritance: set up prototype chain. Resolve the
+                    // parent id lazily so registration order does not matter.
+                    let parent_id = parent_resolver();
 
-                if let Some(c) = ctor
-                    && ctx.class_slots[class_id as usize].ctor.is_none()
-                {
-                    let proto = ctx.class_proto(class_id).unwrap();
-                    let ctor = ctx.init_class_ctor_internal(
-                        class_id, c.callback, c.length, c.magic, proto, c.entries,
-                    )?;
-                    if c.export_to_global {
-                        ctx.global_obj().define_property_value(
+                    if ctx.class_slots[class_id as usize].proto.is_none() {
+                        let parent_proto = ctx.class_proto(parent_id).unwrap();
+                        let proto = ctx.create_base_object_with_proto(Some(parent_proto))?;
+                        ctx.init_class_proto_internal(class_id, proto, proto_entries)?;
+                    }
+
+                    if let Some(c) = ctor
+                        && ctx.class_slots[class_id as usize].ctor.is_none()
+                    {
+                        let class_name = ctx.rt().class_registry[class_id as usize].name_atom;
+                        let parent_ctor = ctx.class_constructor(parent_id).unwrap();
+
+                        let proto = ctx.class_proto(class_id).unwrap();
+                        let mut ctor: Object = NativeFunction::create(
                             ctx,
-                            self.name_atom,
-                            ctor.into(),
-                            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                            c.callback,
+                            class_name,
+                            c.length as _,
+                            c.magic,
+                            parent_ctor,
+                            None,
+                        )?
+                        .into();
+                        if !c.entries.is_empty() {
+                            ctor.install_fields(ctx, c.entries)?;
+                        }
+                        ctx.bind_ctor_proto(ctor, proto)?;
+                        ctx.class_slots[class_id as usize].ctor = Some(ctor);
+
+                        if c.export_to_global {
+                            ctx.global_obj().define_property_value(
+                                ctx,
+                                class_name,
+                                ctor.into(),
+                                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                            )?;
+                        }
+                    }
+                } else {
+                    if ctx.class_slots[class_id as usize].proto.is_none() {
+                        let proto = ctx.init_class_proto(class_id, proto_entries)?;
+                        debug_assert!(
+                            ctx.class_slots[class_id as usize]
+                                .proto
+                                .is_some_and(|p| p == proto)
+                        );
+                    }
+
+                    if let Some(c) = ctor
+                        && ctx.class_slots[class_id as usize].ctor.is_none()
+                    {
+                        let proto = ctx.class_proto(class_id).unwrap();
+                        let ctor = ctx.init_class_ctor_internal(
+                            class_id, c.callback, c.length, c.magic, proto, c.entries,
                         )?;
+                        if c.export_to_global {
+                            ctx.global_obj().define_property_value(
+                                ctx,
+                                self.name_atom,
+                                ctor.into(),
+                                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                            )?;
+                        }
                     }
                 }
             }

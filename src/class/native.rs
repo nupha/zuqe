@@ -86,48 +86,9 @@ macro_rules! def_native_object {
 
                 // Default: no extends (normal class)
                 let mut cd = $crate::ClassDef::new($name, $proto_entries, $ctor);
-
-                // If extends: was provided, override with init_func that sets up inheritance
+                // If extends: was provided, use new_extends helper
                 $(
-                    cd = $crate::ClassDef::new_with_init_func($name, |ctx: &mut $crate::ScopedContext, class_id: $crate::ClassID| {
-                        // 1. Instance chain: proto.[[Prototype]] = parent.prototype
-                        let parent_proto = ctx.class_proto($extends_class);
-                        let mut proto = ctx.create_base_object_with_proto(parent_proto)?;
-                        proto.install_fields(ctx, $proto_entries)?;
-                        ctx.set_class_proto(class_id, proto);
-
-                        // 2. Static chain: ctor.[[Prototype]] = parent constructor
-                        if let Some(c) = $ctor {
-                            let class_name = ctx.rt().class_registry[class_id as usize].name_atom;
-                            let parent_ctor = ctx.class_constructor($extends_class).unwrap();
-                            let mut ctor: $crate::Object = $crate::function::NativeFunction::create(
-                                ctx,
-                                c.callback,
-                                class_name,
-                                c.length as _,
-                                c.magic,
-                                parent_ctor,
-                                None,
-                            )?.into();
-                            if !c.entries.is_empty() {
-                                ctor.install_fields(ctx, c.entries)?;
-                            }
-                            ctx.bind_ctor_proto(ctor, proto)?;
-                            ctx.class_slots[class_id as usize].ctor = Some(ctor);
-
-                            // 3. Export to global if requested
-                            if c.export_to_global {
-                                ctx.global_obj().define_property_value(
-                                    ctx,
-                                    class_name,
-                                    ctor.into(),
-                                    $crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE,
-                                )?;
-                            }
-                        }
-
-                        Ok(())
-                    });
+                    cd = $crate::ClassDef::new_extends($name, $proto_entries, $ctor, $extends_class);
                 )?
 
                 // Set on_dispose to free heap-allocated opaque.
