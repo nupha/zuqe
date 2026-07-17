@@ -44,11 +44,14 @@ impl JSValue {
     }
 }
 
-/// Define a native object class
+/// Define a native object class.
+///
+/// Optionally supports `extends: $class_id` for inheritance — see `@register` doc.
 #[macro_export]
 macro_rules! def_native_object {
     // ── @struct: generate struct definition and built-in impls ──
     (@struct $name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
+        $(, extends: $extends_class:expr)?
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
@@ -81,7 +84,51 @@ macro_rules! def_native_object {
                 // call on_register handler
                 $($on_register(rt);)?
 
+                // Default: no extends (normal class)
                 let mut cd = $crate::ClassDef::new($name, $proto_entries, $ctor);
+
+                // If extends: was provided, override with init_func that sets up inheritance
+                $(
+                    cd = $crate::ClassDef::new_with_init_func($name, |ctx: &mut $crate::ScopedContext, class_id: $crate::ClassID| {
+                        // 1. Instance chain: proto.[[Prototype]] = parent.prototype
+                        let parent_proto = ctx.class_proto($extends_class);
+                        let mut proto = ctx.create_base_object_with_proto(parent_proto)?;
+                        proto.install_fields(ctx, $proto_entries)?;
+                        ctx.set_class_proto(class_id, proto);
+
+                        // 2. Static chain: ctor.[[Prototype]] = parent constructor
+                        if let Some(c) = $ctor {
+                            let class_name = ctx.rt().class_registry[class_id as usize].name_atom;
+                            let parent_ctor = ctx.class_constructor($extends_class).unwrap();
+                            let mut ctor: $crate::Object = $crate::function::NativeFunction::create(
+                                ctx,
+                                c.callback,
+                                class_name,
+                                c.length as _,
+                                c.magic,
+                                parent_ctor,
+                                None,
+                            )?.into();
+                            if !c.entries.is_empty() {
+                                ctor.install_fields(ctx, c.entries)?;
+                            }
+                            ctx.bind_ctor_proto(ctor, proto)?;
+                            ctx.class_slots[class_id as usize].ctor = Some(ctor);
+
+                            // 3. Export to global if requested
+                            if c.export_to_global {
+                                ctx.global_obj().define_property_value(
+                                    ctx,
+                                    class_name,
+                                    ctor.into(),
+                                    $crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE,
+                                )?;
+                            }
+                        }
+
+                        Ok(())
+                    });
+                )?
 
                 // Set on_dispose to free heap-allocated opaque.
                 // () payload uses null opaque so the null-check short-circuits;
@@ -175,10 +222,12 @@ macro_rules! def_native_object {
 
     // ── @native-no-payload: without payload ──
     (@native-no-payload $name:expr, $native_ty:ident, $proto_entries:expr, $ctor:expr
+        $(, extends: $extends_class:expr)?
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
         $crate::def_native_object!(@struct $name, $native_ty, (), $proto_entries, $ctor
+            $(, extends: $extends_class)?
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?);
 
@@ -199,10 +248,12 @@ macro_rules! def_native_object {
 
     // ── @native-with-payload: with payload ──
     (@native-with-payload $name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
+        $(, extends: $extends_class:expr)?
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
         $crate::def_native_object!(@struct $name, $native_ty, $payload_ty, $proto_entries, $ctor
+            $(, extends: $extends_class)?
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?
             $(, on_payload_gc: $on_payload_gc)?);
@@ -280,9 +331,11 @@ macro_rules! def_native_object {
 
     // ── Public: no payload ──
     ($name:expr, $native_ty:ident, (), $proto_entries:expr, $ctor:expr
+        $(, extends: $extends_class:expr)?
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?) => {
         $crate::def_native_object!(@native-no-payload $name, $native_ty, (), $proto_entries, $ctor
+            $(, extends: $extends_class)?
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?);
         $crate::def_native_object!(@impl $native_ty);
@@ -290,10 +343,12 @@ macro_rules! def_native_object {
 
     // ── Public: with payload ──
     ($name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
+        $(, extends: $extends_class:expr)?
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
         $crate::def_native_object!(@native-with-payload $name, $native_ty, $payload_ty, $proto_entries, $ctor
+            $(, extends: $extends_class)?
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?
             $(, on_payload_gc: $on_payload_gc)?);
