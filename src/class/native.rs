@@ -48,7 +48,7 @@ impl JSValue {
 #[macro_export]
 macro_rules! def_native_object {
     // ── @struct: generate struct definition and built-in impls ──
-    (@struct $name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr, $ctor:expr
+    (@struct $name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
@@ -81,7 +81,7 @@ macro_rules! def_native_object {
                 // call on_register handler
                 $($on_register(rt);)?
 
-                let mut cd = $crate::ClassDef::new($name, $proto, $ctor);
+                let mut cd = $crate::ClassDef::new($name, $proto_entries, $ctor);
 
                 // Set on_dispose to free heap-allocated opaque.
                 // () payload uses null opaque so the null-check short-circuits;
@@ -174,11 +174,11 @@ macro_rules! def_native_object {
     };
 
     // ── @native-no-payload: without payload ──
-    (@native-no-payload $name:expr, $native_ty:ident, $proto:expr, $ctor:expr
+    (@native-no-payload $name:expr, $native_ty:ident, $proto_entries:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
-        $crate::def_native_object!(@struct $name, $native_ty, (), $proto, $ctor
+        $crate::def_native_object!(@struct $name, $native_ty, (), $proto_entries, $ctor
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?);
 
@@ -198,11 +198,11 @@ macro_rules! def_native_object {
     };
 
     // ── @native-with-payload: with payload ──
-    (@native-with-payload $name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr, $ctor:expr
+    (@native-with-payload $name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
-        $crate::def_native_object!(@struct $name, $native_ty, $payload_ty, $proto, $ctor
+        $crate::def_native_object!(@struct $name, $native_ty, $payload_ty, $proto_entries, $ctor
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?
             $(, on_payload_gc: $on_payload_gc)?);
@@ -279,21 +279,21 @@ macro_rules! def_native_object {
     };
 
     // ── Public: no payload ──
-    ($name:expr, $native_ty:ident, (), $proto:expr, $ctor:expr
+    ($name:expr, $native_ty:ident, (), $proto_entries:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?) => {
-        $crate::def_native_object!(@native-no-payload $name, $native_ty, (), $proto, $ctor
+        $crate::def_native_object!(@native-no-payload $name, $native_ty, (), $proto_entries, $ctor
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?);
         $crate::def_native_object!(@impl $native_ty);
     };
 
     // ── Public: with payload ──
-    ($name:expr, $native_ty:ident, $payload_ty:ty, $proto:expr, $ctor:expr
+    ($name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
         $(, on_payload_gc: $on_payload_gc:expr)?) => {
-        $crate::def_native_object!(@native-with-payload $name, $native_ty, $payload_ty, $proto, $ctor
+        $crate::def_native_object!(@native-with-payload $name, $native_ty, $payload_ty, $proto_entries, $ctor
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?
             $(, on_payload_gc: $on_payload_gc)?);
