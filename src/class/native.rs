@@ -64,7 +64,7 @@ macro_rules! def_native_object {
             pub const CLASS_NAME: &str = $name;
 
             thread_local! {
-                static CLASS_ID: std::cell::Cell<$crate::ClassID> = const { Cell::new(0) };
+                static CLASS_ID: std::cell::Cell<$crate::ClassID> = const { std::cell::Cell::new(0) };
             }
 
             #[inline(always)]
