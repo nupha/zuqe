@@ -233,8 +233,14 @@ impl ModuleDefImpl {
                         .and_then(|x| x.ctor)
                         .map(JSValue::Object)
                         .ok_or_else(|| {
+                            let name = ctx
+                                .rt()
+                                .class_registry
+                                .get(class_id as usize)
+                                .map(|d| d.name)
+                                .unwrap_or("<unknown>");
                             ctx.throw_internal_error(&format!(
-                                "can't get constructor for class id {class_id}: class is not registered, not used or has no constructor"
+                                "can't get constructor for class id {class_id} ({name}): class is not registered, not used or has no constructor"
                             ));
                            -1
                         })?
