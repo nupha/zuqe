@@ -31,7 +31,6 @@ impl ObjectImpl {
         match ctor.get_property(ctx, Atom::CONST_prototype)? {
             JSValue::Object(proto) => {
                 let mut p = Object::from_ref(self);
-
                 loop {
                     if let Some(up) = p.shape().unwrap().proto {
                         if up == proto {
@@ -104,32 +103,6 @@ impl ObjectImpl {
 }
 
 impl JSValue {
-    /// get typeof value, equivalent to js `typeof val`
-    ///
-    /// Note:
-    /// returned atom is not cloned, if caller want keep reference, should clone it.
-    pub fn type_of(&self) -> Atom {
-        match self {
-            Self::Int(_) | Self::Float64(_) => Atom::CONST_number,
-            Self::Bool(_) => Atom::CONST_boolean,
-            Self::String(_) => Atom::CONST_string,
-            Self::Object(p) => {
-                if p.flags().is_htmldda() {
-                    Atom::CONST_undefined
-                } else if self.is_callable() {
-                    Atom::CONST_function
-                } else {
-                    Atom::CONST_object
-                }
-            }
-            Self::NULL => Atom::CONST_object,
-            Self::UNDEFINED => Atom::CONST_undefined,
-            #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(_) => Atom::CONST_symbol,
-            _ => Atom::CONST_unknown,
-        }
-    }
-
     /// Test if value `self` is instance of `ctor`.
     /// Equivalent to `self instanceof ctor`
     pub fn instance_of(&self, ctx: &mut ScopedContext, ctor: JSValue) -> Result<bool, i32> {

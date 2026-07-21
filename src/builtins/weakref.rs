@@ -53,7 +53,7 @@ fn js_weakref_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         )
         .map_err(|_| -1)?;
 
-    Ok(JSValue::Object(obj))
+    Ok(JSValue::from(obj))
 }
 
 fn js_weakref_deref(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -75,7 +75,7 @@ fn js_weakref_deref(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let heap = ctx.rt().gc_heap();
     match wrd.target.upgrade(heap) {
-        Some(gc_ref) => Ok(JSValue::Object(Object::from(gc_ref.into_raw()))),
+        Some(gc_ref) => Ok(JSValue::from(Object::from(gc_ref.into_raw()))),
         None => Ok(JSValue::UNDEFINED),
     }
 }
@@ -194,7 +194,7 @@ fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         )
         .map_err(|_| -1)?;
 
-    Ok(JSValue::Object(obj))
+    Ok(JSValue::from(obj))
 }
 
 fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

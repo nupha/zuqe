@@ -18,7 +18,7 @@ use crate::{
         JSProperty, Object, ObjectImpl,
     },
     utils::unlikely,
-    value::{JS_GetPrototypePrimitive, JSValue},
+    value::JSValue,
 };
 
 use super::{
@@ -194,7 +194,7 @@ impl ObjectImpl {
                     if let Some(f) = xm.set_property {
                         return f(
                             ctx,
-                            JSValue::Object(cur_obj),
+                            JSValue::from(cur_obj),
                             prop,
                             val,
                             receiver.unwrap_or(Object::from_ref(self)).into(),
@@ -203,7 +203,7 @@ impl ObjectImpl {
                     }
 
                     if let Some(f) = xm.get_own_property
-                        && let Some(desc) = f(ctx, JSValue::Object(cur_obj), prop)?
+                        && let Some(desc) = f(ctx, JSValue::from(cur_obj), prop)?
                     {
                         if desc.flags & JS_PROP_GETSET != 0 {
                             // protect self before calling setter
@@ -572,7 +572,7 @@ impl JSValue {
                 Err(-1)
             }
             _ => {
-                if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
+                if let Some(p) = self.get_prototype_primitive(ctx).as_object() {
                     p.set_property_internal(ctx, prop, val, receiver, flags)
                 } else if unlikely(ctx.rt().can_throw(flags)) {
                     ctx.throw_type_error_not_an_object();
@@ -602,7 +602,7 @@ impl JSValue {
         val: Self,
         flags: u32,
     ) -> Result<bool, i32> {
-        if let Self::Object(o) = self {
+        if let Some(o) = self.as_object_mut() {
             o.set_property_value(ctx, prop, val, flags)
         } else {
             let atom = prop.to_atom(ctx)?;
@@ -617,10 +617,10 @@ impl JSValue {
         idx: u32,
         val: Self,
     ) -> Result<bool, i32> {
-        if let Self::Object(ob) = self {
+        if let Some(ob) = self.as_object_mut() {
             ob.set_property_u32(ctx, idx, val)
         } else {
-            self.set_property_value(ctx, JSValue::from(idx), val, JS_PROP_THROW)
+            self.set_property_value(ctx, idx.into(), val, JS_PROP_THROW)
         }
     }
 

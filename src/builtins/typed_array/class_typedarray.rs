@@ -88,7 +88,7 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
     let new_target = cc.this();
     let class_id = cc.magic() as ClassID;
 
-    let ta = if let JSValue::Object(p) = cc.arg(0) {
+    let ta = if let Some(p) = cc.arg(0).as_object() {
         if let Some(ab) = p.as_ArrayBuffer() {
             let size_log2 = TypedArray::SIZE_LOG2(class_id as _);
             let byte_length = ab.payload().byte_length();
@@ -132,7 +132,7 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
                 }
             };
 
-            TypedArray::create_from(ctx, new_target, p.into(), offset, len, class_id as _)
+            TypedArray::create_from(ctx, new_target, (*p).into(), offset, len, class_id as _)
         } else {
             TypedArray::create_from(ctx, new_target, cc.arg(0), 0, 0, class_id as _)
         }
@@ -1220,7 +1220,7 @@ fn js_typed_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
 
         let el = this.get_property_u32(ctx, i)?;
-         // Can return undefined for example if the typed array is detached 
+        // Can return undefined for example if the typed array is detached
         if !el.is_undefined_or_null() {
             let s = if to_locale {
                 el.to_locale_string(ctx)?.to_string(ctx)?

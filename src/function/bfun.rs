@@ -413,7 +413,7 @@ impl BytecodeFunction {
                     .as_object()
                     .map_or(Ok(ctx.into()), |o| o.realm(ctx.into()))?
                     .class_proto(func_kind.class_id())
-                    .map_or(JSValue::NULL, JSValue::Object);
+                    .map_or(JSValue::NULL, JSValue::from);
             }
 
             ret_val.set_prototype_internal(ctx, proto, true)?;

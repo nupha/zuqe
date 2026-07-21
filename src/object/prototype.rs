@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     object::{Object, ObjectImpl},
     utils::unlikely,
-    value::{JS_GetPrototypePrimitive, JSValue},
+    value::JSValue,
 };
 
 /// To iterate over shape proto chain of an object
@@ -77,7 +77,7 @@ impl ObjectImpl {
                 .and_then(|em| em.get_prototype)
         {
             // exotic: Proxy
-            f(ctx, JSValue::Object(Object::from(self.gc_ref()))).map(|v| Object::try_from(v).ok())
+            f(ctx, Object::from(self.gc_ref()).into()).map(|v| Object::try_from(v).ok())
         } else {
             Ok(self.shape_proto())
         }
@@ -92,7 +92,7 @@ impl ObjectImpl {
         proto_val: JSValue,
         throw_flag: bool,
     ) -> Result<bool, i32> {
-        let proto = if let JSValue::Object(p) = proto_val {
+        let proto = if let Some(&p) = proto_val.as_object() {
             Some(p)
         } else if proto_val.is_null() {
             None
@@ -112,7 +112,7 @@ impl ObjectImpl {
                 .and_then(|em| em.set_prototype)
         {
             // exotic handler: Proxy
-            let ret = f(ctx, JSValue::Object(obj), proto_val);
+            let ret = f(ctx, JSValue::from(obj), proto_val);
             return if ret == Ok(false) && throw_flag {
                 ctx.throw_type_error("proxy: bad prototype");
                 Err(-1)
@@ -188,10 +188,10 @@ impl JSValue {
     /// This is the correct API for general-purpose prototype lookup.
     /// Err case only happens for exotic objects like Proxy.
     pub fn prototype(&self, ctx: &mut ScopedContext) -> JSResult {
-        if let Self::Object(o) = self {
-            Ok(o.prototype(ctx)?.map_or(JSValue::NULL, JSValue::Object))
+        if let Some(o) = self.as_object() {
+            Ok(o.prototype(ctx)?.map_or(JSValue::NULL, JSValue::from))
         } else {
-            JS_GetPrototypePrimitive(ctx, self).err()
+            self.get_prototype_primitive(ctx).err()
         }
     }
 
@@ -207,7 +207,7 @@ impl JSValue {
         if unlikely(throw_flag && self.is_undefined_or_null()) {
             ctx.throw_type_error_not_an_object();
             Err(-1)
-        } else if let JSValue::Object(o) = self {
+        } else if let Some(o) = self.as_object_mut() {
             o.set_prototype_internal(ctx, proto_val, throw_flag)
         } else if throw_flag {
             Ok(true)

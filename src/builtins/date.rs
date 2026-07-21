@@ -132,7 +132,7 @@ fn timestamp_to_fields(tm_val: i64, is_local: bool) -> Option<[i64; 9]> {
     let h = (h - s) / 60;
     let m = h % 60;
     let h = (h - m) / 60;
-    let wd = math_mod(days + 4, 7);  // week day 
+    let wd = math_mod(days + 4, 7); // week day 
     let y = year_from_days(&mut days);
 
     let mut mon = 0;
@@ -878,7 +878,7 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         datetime_format(ctx, tm.into(), 0x13).map(JSValue::from)
     } else {
         ctx.create_instance_with_ctor(new_target, ObjectPayload::DATE(tm))
-            .map(JSValue::Object)
+            .map(JSValue::from)
             .map_err(|_| -1)
     }
 }
@@ -973,7 +973,7 @@ fn get_date_field(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
         Ok(JSValue::from(fields[n as usize]))
     } else {
-        Ok(JSValue::Float64(f64::NAN))
+        Ok(JSValue::from(f64::NAN))
     }
 }
 

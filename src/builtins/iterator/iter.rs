@@ -218,8 +218,8 @@ impl<'a> From<ObjectIter<'a>> for Object {
 }
 
 impl<'a> From<ObjectIter<'a>> for JSValue {
-    fn from(value: ObjectIter) -> Self {
-        Self::Object(value.into())
+    fn from(iter: ObjectIter) -> Self {
+        Self::from(Object::from(iter))
     }
 }
 
@@ -296,7 +296,7 @@ impl<'a> ObjectIter<'a> {
 
         // generic case: call `method` - must return an object.
         let call_result = method.call(ctx, enum_obj.into(), args)?;
-        if let JSValue::Object(o) = call_result {
+        if let Some(o) = call_result.as_object().copied() {
             Ok((o.into(), IteratorState::NotParsed))
         } else {
             ctx.throw_type_error("iterator must return an object");

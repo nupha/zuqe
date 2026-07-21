@@ -371,7 +371,7 @@ impl JSValue {
         ctx: &mut ScopedContext,
         entries: &[FieldDef],
     ) -> Result<(), i32> {
-        if let Self::Object(o) = self {
+        if let Some(o) = self.as_object_mut() {
             o.install_fields(ctx, entries)
         } else {
             ctx.throw_type_error_not_an_object();

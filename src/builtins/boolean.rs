@@ -17,7 +17,7 @@ pub fn js_boolean_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
 
     if !new_target.is_undefined() {
         ctx.create_instance_with_ctor(new_target, ObjectPayload::BOOLEAN(b))
-            .map(JSValue::Object)
+            .map(JSValue::from)
             .map_err(|_| -1)
     } else {
         Ok(b.into())

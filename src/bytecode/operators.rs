@@ -31,7 +31,6 @@ use crate::{
 // mark_prepare sets all LOCAL nodes to gray, so these values survive.
 // Therefore no GC bug can occur at these sites.
 
-
 #[inline(always)]
 pub(super) fn js_operator_delete(ctx: &mut ScopedContext, sp: *mut JSValue) -> i32 {
     let (mut op1, op2) = unsafe {
@@ -91,7 +90,7 @@ pub(super) fn js_operator_private_in(ctx: &mut ScopedContext, sp: *mut JSValue) 
     let obj = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) }; // object
     let item = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) }; // field name or method function
 
-    if let JSValue::Object(o) = obj {
+    if let Some(o) = obj.as_object() {
         let ret = if item.is_object() {
             // method: use the brand
             o.check_brand(ctx, item)?
@@ -158,8 +157,13 @@ pub(super) fn js_op_define_class_for_arena(
     }
 
     let mut proto = ctx.create_base_object_with_proto(parent_proto)?;
-    let mut ctor =
-        bc.make_closure_for_arena(ctx, parent_class.to_object(), captured_vars, arena, parent_frame_idx)?;
+    let mut ctor = bc.make_closure_for_arena(
+        ctx,
+        parent_class.to_object(),
+        captured_vars,
+        arena,
+        parent_frame_idx,
+    )?;
 
     ctor.method_set_home_object(Some(proto));
     ctor.set_flag_constructor(true);
@@ -340,7 +344,7 @@ pub(super) unsafe fn js_append_enumerate(
 pub(super) fn js_for_in_start(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
     unsafe {
         let obj = std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED);
-        let it = ForInIterPayload::create(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
+        let it = ForInIterPayload::create(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::from);
 
         std::ptr::replace(sp.offset(-1), it);
 
@@ -518,7 +522,7 @@ pub(super) unsafe fn js_for_of_next(
     let mut value: JSValue = JSValue::UNDEFINED;
     let mut done = true;
 
-    if let JSValue::Object(iter_obj) = unsafe { *sp.offset(base as isize) } {
+    if let Some(&iter_obj) = unsafe { *sp.offset(base as isize) }.as_object() {
         if let Ok((v, d)) = ObjectIter::fetch_next(
             ctx,
             iter_obj,

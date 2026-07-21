@@ -11,7 +11,7 @@ use crate::{
     function::VarRef,
     object::{LazyInit, Object, ObjectImpl},
     utils::unlikely,
-    value::{JS_GetPrototypePrimitive, JSValue},
+    value::JSValue,
 };
 
 // Property flags
@@ -433,7 +433,7 @@ impl JSValue {
     }
 
     pub fn has_property(&self, ctx: &mut ScopedContext, prop: Atom) -> Result<bool, i32> {
-        if let Self::Object(p) = self {
+        if let Some(p) = self.as_object() {
             p.has_property(ctx, prop)
         } else {
             Ok(false)
@@ -449,10 +449,10 @@ impl JSValue {
         excluded: &Self,
         setprop: bool,
     ) -> Result<(), i32> {
-        if let Self::Object(src_obj) = source {
-            if let Self::Object(o) = self {
+        if let Some(src_obj) = source.as_object() {
+            if let Some(o) = self.as_object_mut() {
                 o.copy_data_properties_from(ctx, *src_obj, excluded.as_object().copied(), setprop)
-            } else if let JSValue::Object(mut p) = JS_GetPrototypePrimitive(ctx, self) {
+            } else if let Some(p) = self.get_prototype_primitive(ctx).as_object_mut() {
                 p.copy_data_properties_from(ctx, *src_obj, excluded.as_object().copied(), setprop)
             } else {
                 ctx.throw_type_error_not_an_object();
@@ -507,7 +507,7 @@ pub(crate) const fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool
             return false;
         }
         if !has_accessor && !is_getset && (prop_flags & JS_PROP_WRITABLE) == 0 {
-             // not writable: cannot set the writable bit 
+            // not writable: cannot set the writable bit
             if (flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE))
                 == (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE)
             {

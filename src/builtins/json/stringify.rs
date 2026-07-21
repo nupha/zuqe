@@ -53,7 +53,7 @@ impl<'a> ScopedContext<'a> {
                 let k: StringRef = match replacer.get_property_i64(self, i)? {
                     JSValue::Object(o) => {
                         if matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
-                            JSValue::Object(o).to_string(self)?
+                            JSValue::from(o).to_string(self)?
                         } else {
                             continue; // symbols are ignored
                         }

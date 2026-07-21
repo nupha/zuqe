@@ -231,7 +231,7 @@ impl ModuleDefImpl {
                     ctx.class_slots
                         .get(class_id as usize)
                         .and_then(|x| x.ctor)
-                        .map(JSValue::Object)
+                        .map(JSValue::from)
                         .ok_or_else(|| {
                             let name = ctx
                                 .rt()

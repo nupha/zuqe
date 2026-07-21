@@ -166,7 +166,7 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
 
         debug_assert!(result_promise.gc_node().is_local());
-        Ok(JSValue::Object(result_promise))
+        Ok(JSValue::from(result_promise))
     };
 
     let promise_resolve = if let Ok(x) = cc.this().get_property(ctx, Atom::CONST_resolve) {
@@ -297,7 +297,7 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
 
             debug_assert!(result_promise.gc_node().is_local());
-            return Ok(JSValue::Object(result_promise));
+            return Ok(JSValue::from(result_promise));
         }
     }
 

@@ -133,7 +133,7 @@ impl ProxyPayload {
             return self
                 .target
                 .prototype(ctx)
-                .map(|v| v.map_or(JSValue::NULL, JSValue::Object));
+                .map(|v| v.map_or(JSValue::NULL, JSValue::from));
         }
 
         let ret = method.call(ctx, self.handler, &[self.target.into()])?;
@@ -149,7 +149,7 @@ impl ProxyPayload {
             if self
                 .target
                 .prototype(ctx)?
-                .map_or(JSValue::NULL, JSValue::Object)
+                .map_or(JSValue::NULL, JSValue::from)
                 != ret
             {
                 ctx.throw_type_error("proxy: inconsistent prototype");
@@ -189,7 +189,7 @@ impl ProxyPayload {
                         != self
                             .target
                             .prototype(ctx)?
-                            .map_or(JSValue::NULL, JSValue::Object)
+                            .map_or(JSValue::NULL, JSValue::from)
                 {
                     ctx.throw_type_error("proxy: inconsistent prototype");
                     Err(-1)
@@ -395,7 +395,7 @@ fn js_proxy_get_own_property(
 
     let target_desc = px.target.get_own_property(ctx, prop)?;
 
-    if let JSValue::Object(trap_result_obj) = trap_result_obj {
+    if let Some(&trap_result_obj) = trap_result_obj.as_object() {
         let result_desc = JSPropertyDescriptor::parse(ctx, trap_result_obj)?;
 
         if let Some(target_desc) = &target_desc {

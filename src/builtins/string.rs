@@ -44,7 +44,7 @@ pub fn js_string_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 
     if !new_target.is_undefined() {
         // make String object using `new_target` as prototype.
-        str_val.objectify(ctx, new_target).map(JSValue::Object)
+        str_val.objectify(ctx, new_target).map(JSValue::from)
     } else {
         Ok(str_val.into())
     }
@@ -700,7 +700,7 @@ fn js_string_match(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let regexp_val = cc.arg(0);
 
-    if let JSValue::Object(o) = regexp_val {
+    if let Some(o) = regexp_val.as_object() {
         let func = o.get_property(ctx, method_name)?;
 
         #[cfg(feature = "builtin_regexp")]

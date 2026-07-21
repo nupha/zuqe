@@ -96,7 +96,7 @@ pub fn js_create_array_iterator(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     } else {
         ObjectPayload::ARRAY_ITERATOR(isa)
     })
-    .map(JSValue::Object)
+    .map(JSValue::from)
     .map_err(|_| -1)
 }
 

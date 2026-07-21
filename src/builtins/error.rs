@@ -143,7 +143,7 @@ pub fn js_error_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub fn js_error_isError(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let val = cc.arg(0);
-    Ok(JSValue::Bool(val.is_error()))
+    Ok(JSValue::from(val.is_error()))
 }
 
 const js_error_funcs: &[FieldDef] = &[FieldDef::FUNC("isError", 1, js_error_isError, 0)];

@@ -11,13 +11,6 @@ use crate::{
     value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},
 };
 
-impl From<bool> for JSValue {
-    #[inline(always)]
-    fn from(value: bool) -> Self {
-        JSValue::Bool(value)
-    }
-}
-
 impl ObjectImpl {
     /// Coerce object to primitive (non-object) value
     pub fn to_primitive(&self, ctx: &mut ScopedContext, hint: i32) -> JSResult {
@@ -32,8 +25,8 @@ impl ObjectImpl {
             {
                 let method = self.get_property(ctx, Atom::CONST_Symbol_toPrimitive)?;
 
-                 // ECMA says *If exoticToPrim is not undefined* but tests in
-                // test262 use null as a non-callable converter 
+                // ECMA says *If exoticToPrim is not undefined* but tests in
+                // test262 use null as a non-callable converter
                 if !method.is_undefined_or_null() {
                     let hint_val = match hint {
                         HINT_STRING => Atom::CONST_string,
@@ -88,32 +81,4 @@ impl JSValue {
         self.as_object()
             .map_or(Ok(*self), |o| o.to_primitive(ctx, hint))
     }
-
-    /// coerce value to bool
-    pub fn to_bool(&self) -> Result<bool, i32> {
-        match self {
-            JSValue::NULL | JSValue::UNDEFINED => Ok(false),
-            JSValue::Int(i) => Ok(*i != 0),
-            JSValue::Bool(b) => Ok(*b),
-            JSValue::Object(o) => Ok(!o.flags().is_htmldda()),
-            JSValue::String(s) => Ok(!s.is_empty()),
-            JSValue::Float64(d) => Ok(!d.is_nan() && *d != 0.0),
-            JSValue::EXCEPTION => Err(-1),
-            _ => Ok(true),
-        }
-    }
-}
-
-/// For primitive types (number, bool, string, symbol), return prototype of associated type.
-/// Only works for primitive types, otherwise returns Null.
-pub(crate) fn JS_GetPrototypePrimitive(ctx: &mut ScopedContext, val: &JSValue) -> JSValue {
-    match val {
-        JSValue::Int(_) | JSValue::Float64(_) => ctx.class_proto(JS_CLASS_NUMBER),
-        JSValue::Bool(_) => ctx.class_proto(JS_CLASS_BOOLEAN),
-        JSValue::String(_) => ctx.class_proto(JS_CLASS_STRING),
-        #[cfg(feature = "builtin_symbol")]
-        JSValue::Symbol(_) => ctx.class_proto(crate::JS_CLASS_SYMBOL),
-        _ => None,
-    }
-    .map_or(JSValue::NULL, JSValue::Object)
 }

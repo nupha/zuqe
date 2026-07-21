@@ -78,9 +78,9 @@ fn js_function_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_function_hasInstance(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(o) = cc.arg(0).as_object() {
-        o.ordinary_instance_of(ctx, cc.this()).map(JSValue::Bool)
+        o.ordinary_instance_of(ctx, cc.this()).map(JSValue::from)
     } else {
-        Ok(JSValue::Bool(false))
+        Ok(JSValue::from(false))
     }
 }
 

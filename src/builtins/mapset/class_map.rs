@@ -70,7 +70,7 @@ pub(crate) fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JS
                 _ => unreachable!(),
             },
         )
-        .map(JSValue::Object)
+        .map(JSValue::from)
         .map_err(|_| -1)?;
 
     let arr = if cc.length() > 0 {
@@ -352,7 +352,7 @@ pub(crate) fn js_create_map_iterator(ctx: &mut ScopedContext, cc: CallContext) -
         _ => unreachable!(),
     })
     .map_err(|_| -1)
-    .map(JSValue::Object)
+    .map(JSValue::from)
 }
 
 pub const js_map_proto_funcs: &[FieldDef] = &[
@@ -497,7 +497,7 @@ fn create_empty_set(ctx: &mut ScopedContext, capacity: usize) -> Result<JSValue,
     let state = Box::new(JSMapState::new(false, capacity));
     ctx.create_instance_with_payload(ObjectPayload::SET(state))
         .map_err(|_| -1)
-        .map(JSValue::Object)
+        .map(JSValue::from)
 }
 
 /// Call iterator.return() if it exists.

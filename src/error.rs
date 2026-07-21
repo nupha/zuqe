@@ -95,10 +95,10 @@ impl Exception {
             Self::No => JSValue::UNDEFINED,
             Self::OutOfMemory => ctx
                 .create_string_from_static("out of memory")
-                .map_or(JSValue::Int(-1), JSValue::from),
+                .map_or(JSValue::from(-1), JSValue::from),
             Self::TooManyClasses => ctx
                 .create_string_from_static("too many classes")
-                .map_or(JSValue::Int(-1), JSValue::from),
+                .map_or(JSValue::from(-1), JSValue::from),
             Self::Error(v) => v,
         }
     }
@@ -483,7 +483,7 @@ pub(crate) const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
 /// Note: it is important that no exception is returned by this function
 #[cold]
 pub(crate) fn is_backtrace_needed(obj: JSValue) -> bool {
-    if let JSValue::Object(p) = obj {
+    if let Some(p) = obj.as_object() {
         if p.class_id() != JS_CLASS_ERROR {
             false
         } else {
@@ -538,8 +538,8 @@ pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &mut ScopedContext, prop: Atom) 
     ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())));
 }
 
-pub fn JS_SetUncatchableError(error_val: JSValue, is_uncatchable: bool) {
-    if let JSValue::Object(mut o) = error_val
+pub fn JS_SetUncatchableError(mut error_val: JSValue, is_uncatchable: bool) {
+    if let Some(o) = error_val.as_object_mut()
         && o.class_id() == JS_CLASS_ERROR
     {
         o.set_flag_uncatchable_error(is_uncatchable);

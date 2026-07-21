@@ -130,7 +130,7 @@ macro_rules! object_cast {
             type Error = i32;
 
             fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-                if let JSValue::Object(o) = value {
+                if let Some(o) = value.as_object().copied() {
                     o.try_into()
                 } else {
                     Err(-1)

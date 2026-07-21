@@ -113,8 +113,8 @@ impl ObjectImpl {
                 JS_PROP_GETSET => {
                     desc.flags |= JS_PROP_GETSET;
                     if let JSProperty::GetSet { getter, setter } = self.prop_slot(idx) {
-                        desc.getter = getter.map_or(JSValue::UNDEFINED, JSValue::Object);
-                        desc.setter = setter.map_or(JSValue::UNDEFINED, JSValue::Object);
+                        desc.getter = getter.map_or(JSValue::UNDEFINED, JSValue::from);
+                        desc.setter = setter.map_or(JSValue::UNDEFINED, JSValue::from);
                     } else {
                         unreachable!()
                     }
@@ -434,7 +434,7 @@ impl ObjectImpl {
 impl JSValue {
     /// test if own property prop exists.
     pub fn has_own_property(&self, ctx: &mut ScopedContext, prop: Atom) -> Result<bool, i32> {
-        if let JSValue::Object(p) = self {
+        if let Some(p) = self.as_object() {
             p.has_own_property(ctx, prop)
         } else {
             ctx.throw_type_error_not_an_object();
@@ -457,7 +457,7 @@ impl JSValue {
         ctx: &mut ScopedContext,
         prop: Atom,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
-        if let JSValue::Object(p) = self {
+        if let Some(p) = self.as_object_mut() {
             p.get_own_property(ctx, prop)
         } else {
             ctx.throw_type_error_not_an_object();

@@ -555,17 +555,15 @@ impl Bytecode {
                     }
                     OpCode::PUSH_THIS => {
                         let val: JSValue = if !mode.contains(ExecMode::STRICT) {
-                            match this_obj {
-                                JSValue::Object(_) => this_obj,
-                                JSValue::NULL | JSValue::UNDEFINED => {
-                                    JSValue::Object(realm_scope.global_obj())
-                                }
-                                _ => {
-                                    if let Ok(v) = this_obj.objectify(realm_scope) {
-                                        v.into()
-                                    } else {
-                                        break ExecAction::Exception;
-                                    }
+                            if this_obj.is_undefined_or_null() {
+                                JSValue::from(realm_scope.global_obj())
+                            } else if this_obj.is_object() {
+                                this_obj
+                            } else {
+                                if let Ok(v) = this_obj.objectify(realm_scope) {
+                                    v.into()
+                                } else {
+                                    break ExecAction::Exception;
                                 }
                             }
                         } else {
@@ -590,7 +588,7 @@ impl Bytecode {
                         // [^] -> [obj, ^]
                         let obj = realm_scope
                             .create_base_object()
-                            .map_or(JSValue::EXCEPTION, JSValue::Object);
+                            .map_or(JSValue::EXCEPTION, JSValue::from);
                         SP_PUT!(0, obj);
                         SP_GO!(1);
                         if unlikely(SP_REF!(-1).is_exception()) {
@@ -718,7 +716,7 @@ impl Bytecode {
                                     break ExecAction::Exception;
                                 }
 
-                                let ma = JSValue::Object(obj);
+                                let ma = JSValue::from(obj);
                                 SP_PUT!(0, ma);
                                 SP_GO!(1);
                                 if unlikely(SP_REF!(-1).is_exception()) {
@@ -737,7 +735,7 @@ impl Bytecode {
                                 SP_PUT!(
                                     0,
                                     if let Some(ho) = func_home_obj {
-                                        JSValue::Object(ho)
+                                        JSValue::from(ho)
                                     } else {
                                         JSValue::UNDEFINED
                                     }
@@ -749,7 +747,7 @@ impl Bytecode {
                                     0,
                                     realm_scope
                                         .create_base_object_with_proto(None)
-                                        .map_or(JSValue::EXCEPTION, JSValue::Object)
+                                        .map_or(JSValue::EXCEPTION, JSValue::from)
                                 );
                                 SP_GO!(1);
                                 if unlikely(SP_REF!(-1).is_exception()) {
@@ -760,7 +758,7 @@ impl Bytecode {
                                 SP_PUT!(
                                     0,
                                     js_import_meta(realm_scope)
-                                        .map_or(JSValue::EXCEPTION, JSValue::Object)
+                                        .map_or(JSValue::EXCEPTION, JSValue::from)
                                 );
                                 SP_GO!(1);
                                 if unlikely(SP_REF!(-1).is_exception()) {
@@ -903,7 +901,7 @@ impl Bytecode {
                             0,
                             realm_scope
                                 .create_base_object_with_proto(None)
-                                .map_or(JSValue::EXCEPTION, JSValue::Object)
+                                .map_or(JSValue::EXCEPTION, JSValue::from)
                         );
                         SP_GO!(1);
                         if unlikely(SP_REF!(-1).is_exception()) {
@@ -1856,9 +1854,8 @@ impl Bytecode {
                                     let slot = entry.slot as usize;
                                     // delete marks slot Deleted without changing shape
                                     if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
-                                        if let Ok(val) = o
-                                            .prop_slot(slot)
-                                            .value(realm_scope, JSValue::Object(*o))
+                                        if let Ok(val) =
+                                            o.prop_slot(slot).value(realm_scope, JSValue::from(*o))
                                         {
                                             if opcode == OpCode::GET_FIELD {
                                                 SP_PUT!(-1, val);
@@ -2280,7 +2277,7 @@ impl Bytecode {
                         SP_GO!(-2);
 
                         // SP[-1] is iter_obj
-                        if let JSValue::Object(o) = SP_VAL!(-1)
+                        if let Some(&o) = SP_VAL!(-1).as_object()
                             && ObjectIter::close_iter_internal(realm_scope, o).is_err()
                         {
                             break ExecAction::Exception;
@@ -2578,7 +2575,7 @@ impl Bytecode {
                                 }
                                 break ExecAction::Exception;
                             }
-                            obj = JSValue::Object(realm_scope.global_obj());
+                            obj = JSValue::from(realm_scope.global_obj());
                         } else if rt.is_strict_mode() {
                             flags |= JS_PROP_NO_ADD;
                         }

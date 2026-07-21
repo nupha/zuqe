@@ -31,7 +31,7 @@ pub(crate) fn js_object_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
             a => a.objectify(ctx),
         }
     }
-    .map(JSValue::Object)
+    .map(JSValue::from)
 }
 
 pub(crate) fn js_object_create(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -85,9 +85,9 @@ pub(crate) fn js_object_defineProperty(ctx: &mut ScopedContext, cc: CallContext)
         }
         let b = obj.define_property_desc(ctx, atom, desc, flags)?;
         Ok(if cc.magic() != 0 {
-            JSValue::Bool(b)
+            JSValue::from(b)
         } else {
-            JSValue::Object(obj)
+            JSValue::from(obj)
         })
     } else {
         ctx.throw_type_error_not_an_object();
@@ -281,8 +281,8 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(
 
     let mut obj = if reflect {
         // Reflect.getOwnPropertyDescriptor
-        if let JSValue::Object(p) = cc.arg(0) {
-            p
+        if let Some(p) = cc.arg(0).as_object() {
+            *p
         } else {
             ctx.throw_type_error_not_an_object();
             return Err(-1);

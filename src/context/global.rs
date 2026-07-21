@@ -37,12 +37,12 @@ impl<'c> ScopedContext<'c> {
                 return Err(-1);
             }
 
-            JSValue::Object(gvobj)
+            JSValue::from(gvobj)
         } else {
             // prop does not exist
             let gobj = self.global_obj();
             if gobj.has_property(self, prop)? {
-                JSValue::Object(gobj)
+                JSValue::from(gobj)
             } else {
                 JSValue::UNDEFINED
             }
@@ -54,6 +54,7 @@ impl<'c> ScopedContext<'c> {
 
     /// 'def_flags' is 0 or JS_PROP_CONFIGURABLE.
     /// XXX: could support exotic global object.
+    #[deprecated]
     pub(crate) fn define_global_function(
         &mut self,
         prop: Atom,
@@ -152,7 +153,7 @@ impl<'c> ScopedContext<'c> {
 
     /// Pre-validation for global variable declarations.
     ///
-    /// All checks are done BEFORE any bindings are created, 
+    /// All checks are done BEFORE any bindings are created,
     /// so that partial bindings don't leak on failure.
     ///
     /// `flags` is 0 (var), `DEFINE_GLOBAL_LEX_VAR` (let/const), or
@@ -231,7 +232,7 @@ impl<'c> ScopedContext<'c> {
         } else {
             // search global object
             let gobj = self.global_obj();
-            gobj.get_property_internal(self, prop, JSValue::Object(gobj), throw_ref_error)
+            gobj.get_property_internal(self, prop, JSValue::from(gobj), throw_ref_error)
         }
     }
 

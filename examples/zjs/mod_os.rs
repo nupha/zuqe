@@ -103,8 +103,8 @@ fn js_os_ttyGetWinSize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     let mut obj = Array::create(ctx)?;
-    obj.define_property_value_u32(ctx, 0, JSValue::Int(w), JS_PROP_C_W_E)?;
-    obj.define_property_value_u32(ctx, 1, JSValue::Int(h), JS_PROP_C_W_E)?;
+    obj.define_property_value_u32(ctx, 0, w.into(), JS_PROP_C_W_E)?;
+    obj.define_property_value_u32(ctx, 1, h.into(), JS_PROP_C_W_E)?;
     Ok(obj.into())
 }
 

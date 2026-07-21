@@ -107,7 +107,7 @@ fn js_get_regexp<'a>(
 }
 
 pub(crate) fn is_regexp(ctx: &mut ScopedContext, obj: JSValue) -> Result<bool, i32> {
-    if let JSValue::Object(o) = obj {
+    if let Some(o) = obj.as_object() {
         let m = {
             #[cfg(feature = "builtin_symbol")]
             {
@@ -135,7 +135,7 @@ pub fn js_regexp_get_source(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     if this.is_object() {
         if this.is_same(
             ctx.class_proto(JS_CLASS_REGEXP)
-                .map_or(JSValue::NULL, JSValue::Object),
+                .map_or(JSValue::NULL, JSValue::from),
         ) {
             // empty_regex
             return ctx.create_string_from_str("(?:)").map(JSValue::from);
@@ -215,7 +215,7 @@ pub fn js_regexp_get_flag(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
             Ok(JSValue::Bool(!(re.flags() & mask).is_empty()))
         } else if this.is_same(
             ctx.class_proto(JS_CLASS_REGEXP)
-                .map_or(JSValue::NULL, JSValue::Object),
+                .map_or(JSValue::NULL, JSValue::from),
         ) {
             Ok(JSValue::UNDEFINED)
         } else {
@@ -229,7 +229,7 @@ pub fn js_regexp_get_flag(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 }
 
 pub fn js_regexp_get_flags(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if let JSValue::Object(o) = cc.this() {
+    if let Some(o) = cc.this().as_object() {
         const TESTS: [(&str, u8); 8] = [
             ("hasIndices", b'd'),
             ("global", b'g'),
@@ -263,7 +263,7 @@ pub fn js_regexp_get_flags(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 }
 
 pub fn js_regexp_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if let JSValue::Object(_) = cc.this() {
+    if cc.this().is_object() {
         let Ok(mut buf) = StringBuf::with_capacity(96, false) else {
             ctx.throw_out_of_memory();
             return Err(-1);
@@ -357,8 +357,7 @@ fn js_regexp_compile(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub fn js_regexp_exec(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let str = cc.arg(0).to_string(ctx)?;
-    Ok(regexp_exec_default(ctx, cc.this(), str.into())?
-        .map_or(JSValue::NULL, |a| a.into()))
+    Ok(regexp_exec_default(ctx, cc.this(), str.into())?.map_or(JSValue::NULL, |a| a.into()))
 }
 
 pub fn js_regexp_test(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -437,7 +436,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
                 .any(|(_, c)| matches!(c, CharCode::Char('u') | CharCode::Char('v'))),
         ),
     ))
-    .map(JSValue::Object)
+    .map(JSValue::from)
     .map_err(|_| -1)
 }
 

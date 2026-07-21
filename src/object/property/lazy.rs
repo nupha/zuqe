@@ -59,12 +59,12 @@ impl LazyInit {
                 obj.define_property_value(
                     ctx,
                     Atom::CONST_constructor,
-                    JSValue::Object(this_obj),
+                    JSValue::from(this_obj),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )?;
                 Ok(obj.into())
             }
-            Self::ModuleNS(md) => md.ns(ctx).map(JSValue::Object),
+            Self::ModuleNS(md) => md.ns(ctx).map(JSValue::from),
             Self::ValueFn(f) => f(ctx),
             Self::String(s) => {
                 ctx.create_atom_string(s).map(JSValue::from)
@@ -92,7 +92,7 @@ impl LazyInit {
                 ctx.class_slots
                     .get(class_id as usize)
                     .and_then(|x| x.ctor)
-                    .map(JSValue::Object)
+                    .map(JSValue::from)
                     .ok_or_else(|| {
                         ctx.throw_internal_error(&format!(
                             "can't get constructor for class {class_id}: either class is not registered, not used or has no constructor"

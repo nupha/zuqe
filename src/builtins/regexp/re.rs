@@ -408,7 +408,7 @@ pub(super) fn make_regexp_capture_array(
         indices.define_property_value(
             ctx,
             Atom::CONST_groups,
-            idx_grp.map_or(JSValue::UNDEFINED, JSValue::Object),
+            idx_grp.map_or(JSValue::UNDEFINED, JSValue::from),
             prop_flags,
         )?;
         res.define_property_value(ctx, Atom::CONST_indices, indices.into(), prop_flags)?;

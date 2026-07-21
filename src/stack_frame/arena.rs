@@ -380,10 +380,14 @@ impl StackFrameArena {
                 if pos == 0 {
                     unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) };
                     sp -= 1;
-                    if let JSValue::Object(o) =
-                        unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) }
-                    {
-                        let _ = crate::builtins::iterator::ObjectIter::close_iter_internal(ctx, o);
+
+                    unsafe {
+                        if let Some(o) =
+                            std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED).as_object()
+                        {
+                            let _ =
+                                crate::builtins::iterator::ObjectIter::close_iter_internal(ctx, *o);
+                        }
                     }
                 } else {
                     let err_val = ctx.take_exception().to_value(ctx);

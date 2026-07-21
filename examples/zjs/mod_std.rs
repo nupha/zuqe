@@ -72,7 +72,7 @@ fn js_std_open(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     if let Some(fh) = fh {
-        JSFile::create_file_instance(ctx, fh).map(JSValue::Object)
+        JSFile::create_file_instance(ctx, fh).map(JSValue::from)
     } else {
         Ok(JSValue::NULL)
     }
@@ -176,7 +176,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
         "in",
         |cx| {
             let obj = JSFile::create_stdin_instance(cx)?;
-            Ok(JSValue::Object(obj))
+            Ok(JSValue::from(obj))
         },
         JS_PROP_ENUMERABLE,
     ),
@@ -184,7 +184,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
         "out",
         |cx| {
             let obj = JSFile::create_stdout_instance(cx)?;
-            Ok(JSValue::Object(obj))
+            Ok(JSValue::from(obj))
         },
         JS_PROP_ENUMERABLE,
     ),
@@ -192,7 +192,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
         "err",
         |cx| {
             let obj = JSFile::create_stderr_instance(cx)?;
-            Ok(JSValue::Object(obj))
+            Ok(JSValue::from(obj))
         },
         JS_PROP_ENUMERABLE,
     ),

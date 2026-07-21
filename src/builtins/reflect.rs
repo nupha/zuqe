@@ -52,7 +52,7 @@ fn js_reflect_construct(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_reflect_deleteProperty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if let JSValue::Object(mut obj) = cc.arg(0) {
+    if let Some(obj) = cc.arg(0).as_object_mut() {
         let atom = cc.arg(1).to_atom(ctx)?;
         let ret = obj.delete_property(ctx, atom, 0);
         ret.map(JSValue::Bool)
@@ -73,7 +73,7 @@ fn js_reflect_get(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_reflect_has(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if let JSValue::Object(obj) = cc.arg(0) {
+    if let Some(obj) = cc.arg(0).as_object() {
         let prop = cc.arg(1);
         let atom = prop.to_atom(ctx)?;
         obj.has_property(ctx, atom).map(JSValue::Bool)

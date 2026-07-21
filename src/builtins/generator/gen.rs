@@ -167,7 +167,7 @@ pub(super) fn js_generator_function_call(
 
     // create Generator instance
     ctx.create_instance_with_ctor(func_obj, ObjectPayload::GENERATOR(p))
-        .map(JSValue::Object)
+        .map(JSValue::from)
         .map_err(|_| -1)
 }
 
@@ -248,7 +248,7 @@ fn js_generator_next(
                 g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD);
 
                 if g.is_completed() {
-                     // finalize the execution in case of exception or normal return 
+                    // finalize the execution in case of exception or normal return
                     g.complete();
                     return res;
                 }

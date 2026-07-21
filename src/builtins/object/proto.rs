@@ -27,7 +27,7 @@ pub(crate) fn js_object_toLocaleString(ctx: &mut ScopedContext, cc: CallContext)
 }
 
 pub(crate) fn js_object_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    cc.this().objectify(ctx).map(JSValue::Object)
+    cc.this().objectify(ctx).map(JSValue::from)
 }
 
 pub(crate) fn js_object_hasOwnProperty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -41,9 +41,9 @@ pub(crate) fn js_object_hasOwnProperty(ctx: &mut ScopedContext, cc: CallContext)
 }
 
 pub(crate) fn js_object_isPrototypeOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if let JSValue::Object(ctor) = cc.arg(0) {
+    if let Some(ctor) = cc.arg(0).as_object() {
         let obj = cc.this().objectify(ctx)?;
-        let mut cur_obj = ctor;
+        let mut cur_obj = *ctor;
 
         let b = loop {
             if let Some(p) = cur_obj.prototype(ctx)? {
@@ -64,7 +64,7 @@ pub(crate) fn js_object_isPrototypeOf(ctx: &mut ScopedContext, cc: CallContext) 
 
         Ok(b.into())
     } else {
-        Ok(JSValue::Bool(false))
+        Ok(JSValue::from(false))
     }
 }
 
@@ -84,7 +84,7 @@ pub(crate) fn js_object_getset___proto__(ctx: &mut ScopedContext, cc: CallContex
     if cc.length() == 0 {
         // getter
         let p = this.objectify(ctx).and_then(|o| o.prototype(ctx))?;
-        Ok(p.map_or(JSValue::NULL, JSValue::Object))
+        Ok(p.map_or(JSValue::NULL, JSValue::from))
     } else {
         // setter
         if this.is_undefined_or_null() {

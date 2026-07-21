@@ -62,7 +62,7 @@ impl BoundFunction {
             if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
                 let mut new_target = this_obj;
                 if func_obj.is_same(new_target) {
-                    new_target = JSValue::Object(bf.func_obj);
+                    new_target = JSValue::from(bf.func_obj);
                 }
                 bf.func_obj.call_ctor_new_target(ctx, new_target, &arg_list)
             } else {
@@ -117,7 +117,7 @@ impl BoundFunction {
                         if d <= arg_count as f64 {
                             d = 0.0;
                         } else {
-                            d -= arg_count as f64;  // also converts -0 to +0 
+                            d -= arg_count as f64; // also converts -0 to +0 
                         }
                     }
                     JSValue::from(d)

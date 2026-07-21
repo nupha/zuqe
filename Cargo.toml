@@ -10,6 +10,9 @@ repository = "https://github.com/nupha/zuqe"
 license = "Apache-2.0"
 
 [features]
+nan_boxing = []
+inline_cache = []
+
 all_unicode = ["unicode-xid", "unicode-normalization"]
 async_support = []
 crossbeam_channel = ["crossbeam"]
@@ -25,7 +28,6 @@ builtin_date = ["libc"]
 builtin_math = []
 builtin_weakref = []
 
-inline_cache = []
 dump_bytecode = []
 debug_gc = []
 
@@ -38,7 +40,9 @@ debug_gc = []
 gc_protect_transient = []
 
 default = [
+    #"nan_boxing",
     "inline_cache",
+    "serde_json_support",
 
     "all_unicode",
     "async_support",
@@ -120,7 +124,7 @@ windows-sys = { version = "0.61.0", features = [
 ] }
 
 [lib]
-lib = "src/lib.rs"
+path = "src/lib.rs"
 
 [[example]]
 name = "zjs"

@@ -868,7 +868,7 @@ impl TryFrom<Object> for StringRef {
     type Error = i32;
 
     fn try_from(obj: Object) -> Result<Self, Self::Error> {
-        Self::try_from(JSValue::Object(obj))
+        Self::try_from(JSValue::from(obj))
     }
 }
 
@@ -1011,53 +1011,6 @@ impl JSValue {
         let s1 = a.to_string(ctx)?;
         let s2 = b.to_string(ctx)?;
         StringRef::concat2(ctx, s1, s2).map(JSValue::from)
-    }
-
-    /// Convert `self` to string or symbol value. (string is preferred)
-    pub fn to_string_or_symbol(&self, ctx: &mut ScopedContext) -> Result<Self, i32> {
-        match self {
-            Self::String(_) => {
-                Ok(*self) // as-is
-            }
-            #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(_) => Ok(*self),
-
-            Self::Int(i) => ctx
-                .create_string_from_utf8(format!("{}", *i).into_bytes())
-                .map(Self::from),
-            Self::Bool(b) => if *b {
-                Atom::CONST_true
-            } else {
-                Atom::CONST_false
-            }
-            .force_string(ctx)
-            .map(Self::from),
-            Self::Float64(n) => {
-                let s = f64_stringify(*n, 10, None, JS_DTOA_VAR_FORMAT);
-                ctx.create_string_from_str(s.as_ref()).map(Self::from)
-            }
-            Self::NULL => Atom::CONST_null.force_string(ctx).map(Self::from),
-            Self::UNDEFINED => Atom::CONST_undefined.force_string(ctx).map(Self::from),
-
-            Self::Object(_) => self
-                .to_primitive(ctx, HINT_STRING)
-                .and_then(|s| s.to_string_or_symbol(ctx)),
-
-            Self::Bytecode(_) => ctx.create_string_from_str("[bytecode]").map(Self::from),
-
-            Self::EXCEPTION => {
-                #[cfg(debug_assertions)]
-                unreachable!();
-                #[cfg(not(debug_assertions))]
-                unsafe {
-                    std::hint::unreachable_unchecked();
-                }
-            }
-            _ => {
-                ctx.throw_type_error("can't convert to string or symbol");
-                Err(-1)
-            }
-        }
     }
 
     /// An alias for [`JSValue::to_string_or_symbol`](Self::to_string_or_symbol).

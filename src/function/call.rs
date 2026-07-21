@@ -238,7 +238,7 @@ impl ObjectImpl {
             ];
 
             if is_ctor && !SKIP_PROTO_CHECK.contains(&self.class_id()) {
-                let self_val = JSValue::Object(self_obj);
+                let self_val = JSValue::from(self_obj);
 
                 if new_target != self_val   // new_target differs from this constructor → called as super()
                    && let Ok(ref mut val) = result
@@ -269,7 +269,7 @@ impl ObjectImpl {
 
                     // Release mode behavior: fix the prototype silently
                     if let Some(p) = expected_proto {
-                        let _ = obj.set_prototype(ctx, JSValue::Object(p));
+                        let _ = obj.set_prototype(ctx, JSValue::from(p));
                     } else {
                         let _ = obj.set_prototype(ctx, JSValue::NULL);
                     }

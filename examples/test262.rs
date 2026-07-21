@@ -151,7 +151,7 @@ fn js_createRealm(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
 }
 
 fn setup_ctx_test262_helpers(ctx: &mut ScopedContext) -> Result<JSValue, i32> {
-    let mut global = JSValue::Object(ctx.global_obj());
+    let mut global = JSValue::from(ctx.global_obj());
 
     {
         let s = ctx.create_native_function(Callback::Func(js_print), "print", 1, 0)?;

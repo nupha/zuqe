@@ -333,63 +333,6 @@ impl<'c> ScopedContext<'c> {
     }
 }
 
-impl JSValue {
-    /// convert value to atom. if value is not string or symbol, corece value to string then convert to atom.
-    ///
-    /// Note: returned atom is cloned, caller should free it after use.
-    pub fn to_atom(&self, ctx: &mut ScopedContext) -> Result<Atom, i32> {
-        let mut val = *self;
-
-        loop {
-            match val {
-                JSValue::UNDEFINED => {
-                    return Ok(Atom::CONST_undefined);
-                }
-                JSValue::NULL => {
-                    return Ok(Atom::CONST_null);
-                }
-                JSValue::Bool(b) => {
-                    return Ok(if b {
-                        Atom::CONST_true
-                    } else {
-                        Atom::CONST_false
-                    });
-                }
-                JSValue::Int(i) => {
-                    return Atom::from_i64(ctx, i as i64);
-                }
-                JSValue::String(s) => {
-                    return s.to_atom(ctx, AtomKind::String);
-                }
-                #[cfg(feature = "builtin_symbol")]
-                JSValue::Symbol(s) => {
-                    return s.to_atom(ctx, AtomKind::Symbol);
-                }
-
-                JSValue::Object(_) | JSValue::Float64(_) => {
-                    val = self.to_string_or_symbol(ctx)?;
-                    continue;
-                }
-
-                JSValue::UNINITIALIZED
-                | JSValue::CatchOffset(_)
-                | JSValue::Module(_)
-                | JSValue::Bytecode(_) => {
-                    ctx.throw_type_error("cannot convert to atom");
-                    return Err(-1);
-                }
-
-                JSValue::EXCEPTION => {
-                    #[cfg(debug_assertions)]
-                    unreachable!();
-                    #[cfg(not(debug_assertions))]
-                    return Err(-1);
-                }
-            }
-        }
-    }
-}
-
 /// return a string atom containing name concatenated with str1.
 /// Note: returned atom should be freed by caller.
 pub(crate) fn js_atom_concat_str(

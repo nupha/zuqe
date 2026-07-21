@@ -15,7 +15,7 @@ use crate::{
     function::prop_str_to_atom,
     object::{JSProperty, Object, ObjectImpl},
     utils::unlikely,
-    value::{JS_GetPrototypePrimitive, JSValue},
+    value::JSValue,
 };
 
 use super::{JS_PROP_GETSET, JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF};
@@ -139,7 +139,7 @@ impl ObjectImpl {
                     }
 
                     if let Some(cb) = pm.get_own_property
-                        && let Some(desc) = cb(ctx, JSValue::Object(cur_obj), prop)?
+                        && let Some(desc) = cb(ctx, JSValue::from(cur_obj), prop)?
                     {
                         return if unlikely(desc.flags & JS_PROP_GETSET != 0) {
                             // protect self, cur_obj, this_obj before calling getter
@@ -355,7 +355,7 @@ impl JSValue {
                         Ok(JSValue::UNDEFINED)
                     }
                 } else {
-                    JS_GetPrototypePrimitive(ctx, self)
+                    self.get_prototype_primitive(ctx)
                         .as_object()
                         .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
                         .unwrap_or(Ok(JSValue::UNDEFINED))
@@ -375,7 +375,8 @@ impl JSValue {
                 #[cfg(not(debug_assertions))]
                 Err(-1)
             }
-            _ => JS_GetPrototypePrimitive(ctx, self)
+            _ => self
+                .get_prototype_primitive(ctx)
                 .as_object()
                 .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
                 .unwrap_or(Ok(JSValue::UNDEFINED)),

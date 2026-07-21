@@ -639,19 +639,12 @@ pub struct Object(pub(crate) GcRef<ObjectImpl>);
 
 gcref_wrapper!(Object, ObjectImpl);
 
-impl From<Object> for JSValue {
-    #[inline(always)]
-    fn from(value: Object) -> Self {
-        Self::Object(value)
-    }
-}
-
 impl TryFrom<JSValue> for Object {
     type Error = i32;
 
     #[inline]
     fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        if let JSValue::Object(o) = value {
+        if let Some(o) = value.as_object().copied() {
             Ok(o)
         } else {
             Err(-1)
@@ -662,7 +655,7 @@ impl TryFrom<JSValue> for Object {
 impl From<GcRef<ObjectImpl>> for JSValue {
     #[inline(always)]
     fn from(value: GcRef<ObjectImpl>) -> Self {
-        Self::Object(Object(value))
+        Self::from(Object(value))
     }
 }
 
@@ -774,147 +767,8 @@ impl ObjectImpl {
 }
 
 impl JSValue {
-    /// for String value or String object, returns its StringRef
-    pub fn as_string(&self) -> Option<&StringRef> {
-        match self {
-            Self::String(s) => Some(s),
-            Self::Object(o) if o.class_id() == JS_CLASS_STRING => o.payload().string(),
-            _ => None,
-        }
-    }
-
-    /// for Symbol value or Symbol object, returns its StringRef descriptor
-    pub fn as_symbol(&self) -> Option<&StringRef> {
-        match self {
-            Self::Symbol(s) => Some(s),
-            Self::Object(o) if o.class_id() == JS_CLASS_SYMBOL => o.payload().string(),
-            _ => None,
-        }
-    }
-
-    /// for Boolean value or Boolean object, returns bool
-    pub fn as_bool(&self) -> Option<bool> {
-        match self {
-            Self::Bool(b) => Some(*b),
-            Self::Object(o) => o.payload().bool().copied(),
-            _ => None,
-        }
-    }
-
-    #[inline]
-    pub const fn as_object(&self) -> Option<&Object> {
-        if let Self::Object(o) = self {
-            Some(o)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    pub const fn as_object_mut(&mut self) -> Option<&mut Object> {
-        if let Self::Object(o) = self {
-            Some(o)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    pub unsafe fn as_object_unchecked(&self) -> &Object {
-        if let Self::Object(o) = self {
-            o
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!("{self:?}");
-            #[cfg(not(debug_assertions))]
-            unsafe {
-                std::hint::unreachable_unchecked();
-            }
-        }
-    }
-
-    #[inline]
-    pub unsafe fn as_object_mut_unchecked(&mut self) -> &mut Object {
-        if let Self::Object(o) = self {
-            o
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!("{self:?}");
-            #[cfg(not(debug_assertions))]
-            unsafe {
-                std::hint::unreachable_unchecked();
-            }
-        }
-    }
-
-    #[inline]
-    pub const fn to_object(self) -> Option<Object> {
-        if let Self::Object(o) = self {
-            Some(o)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    pub unsafe fn to_object_unchecked(self) -> Object {
-        if let Self::Object(o) = self {
-            o
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!("{self:?}");
-            #[cfg(not(debug_assertions))]
-            unsafe {
-                std::hint::unreachable_unchecked();
-            }
-        }
-    }
-
-    /// Migrage value to object.
-    /// Handles primitive wrapping according to ES6 ToObject conversion rules.
-    ///
-    /// For example:
-    /// - object => object (as-is)
-    /// - 10 => \[object 10\]
-    /// - true => \[object true\]
-    /// - "abc" => \[object "abc"\]
-    /// - Symbol() => \[object Symbol()\]
-    /// - null, undefined => Error
-    pub fn objectify(&self, ctx: &mut ScopedContext) -> Result<Object, i32> {
-        match self {
-            Self::Object(o) => Ok(*o),
-            Self::String(s) => s.objectify(ctx, JSValue::UNDEFINED),
-
-            Self::Int(_) | Self::Float64(_) => ctx
-                .create_instance_with_payload(ObjectPayload::NUMBER(*self))
-                .map_err(|_| -1),
-            Self::Bool(b) => ctx
-                .create_instance_with_payload(ObjectPayload::BOOLEAN(*b))
-                .map_err(|_| -1),
-            #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(s) => ctx
-                .create_instance_with_payload(ObjectPayload::SYMBOL(*s))
-                .map_err(|_| -1),
-
-            Self::EXCEPTION => {
-                #[cfg(debug_assertions)]
-                unreachable!();
-                #[cfg(not(debug_assertions))]
-                Err(-1)
-            }
-            _ => {
-                ctx.throw_type_error_not_an_object();
-                Err(-1)
-            }
-        }
-    }
-
     pub fn is_constructor(&self) -> bool {
-        if let Self::Object(o) = self {
-            o.flags().is_constructor()
-        } else {
-            false
-        }
+        self.as_object().is_some_and(|o| o.flags().is_constructor())
     }
 
     pub fn prevent_extensions(&mut self, ctx: &mut ScopedContext) -> Result<bool, i32> {

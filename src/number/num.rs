@@ -280,18 +280,11 @@ pub(crate) union JSFloat64Union {
     pub uint32: [u32; 2],
 }
 
-impl From<i32> for JSValue {
-    #[inline(always)]
-    fn from(val: i32) -> Self {
-        Self::Int(val)
-    }
-}
-
 impl From<u32> for JSValue {
     #[inline(always)]
     fn from(val: u32) -> Self {
         if val <= 0x7fffffff {
-            Self::Int(val as i32)
+            Self::from(val as i32)
         } else {
             Self::from_f64_as_is(val as f64)
         }
@@ -304,7 +297,7 @@ impl From<i64> for JSValue {
     /// if value beyonds \[-2^53, 2^53\] range, precision is not guaranteed.
     fn from(i: i64) -> Self {
         if (i32::MIN as i64..=i32::MAX as i64).contains(&i) {
-            Self::Int(i as i32)
+            Self::from(i as i32)
         } else {
             #[cfg(debug_assertions)]
             if !SAFE_INTEGER_RANGE.contains(&i) {
@@ -319,12 +312,13 @@ impl From<i64> for JSValue {
 impl From<f64> for JSValue {
     fn from(d: f64) -> Self {
         if d == 0.0 && d.is_sign_negative() {
-            Self::from_f64_as_is(d) // JSValue::Float(0.0) means -0.0
+            // JSValue::Float(0.0) means -0.0
+            Self::from_f64_as_is(d)
         } else if d.fract() == 0.0 && d.is_finite() {
             // integral
             let i = d as i64;
             if i as i32 as i64 == i {
-                Self::Int(i as i32)
+                Self::from(i as i32)
             } else {
                 Self::from_f64_as_is(d)
             }
@@ -335,27 +329,6 @@ impl From<f64> for JSValue {
 }
 
 impl JSValue {
-    /// create Float64 value as-is
-    #[cfg(not(feature = "nan_boxing"))]
-    #[inline(always)]
-    const fn from_f64_as_is(d: f64) -> JSValue {
-        JSValue::Float64(d)
-    }
-
-    /// create f64 value as-is
-    #[cfg(feature = "nan_boxing")]
-    #[inline]
-    pub(crate) const fn from_f64_as_is(d: f64) -> JSValue {
-        let u = Float64Union { d };
-
-        // Normalize NaN
-        if (u.u64 & 0x7fffffffffffffff) > 0x7ff0000000000000 {
-            JSValue::NAN
-        } else {
-            JSValue::from_u64(u.u64 - ((super::value::JS_FLOAT64_TAG_ADDEND as u64) << 32))
-        }
-    }
-
     /// test if the value is an intergral number.
     /// returns Err if test has exception.
     pub fn is_integral(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {

@@ -28,7 +28,7 @@ pub fn js_number_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let new_target = cc.this();
     if !new_target.is_undefined() {
         ctx.create_instance_with_ctor(new_target, ObjectPayload::NUMBER(val))
-            .map(JSValue::Object)
+            .map(JSValue::from)
             .map_err(|_| -1)
     } else {
         Ok(val)
@@ -270,9 +270,9 @@ pub const js_number_funcs: &[FieldDef] = &[
     FieldDef::FLOAT64("NaN", f64::NAN, 0),
     FieldDef::FLOAT64("NEGATIVE_INFINITY", -f64::INFINITY, 0),
     FieldDef::FLOAT64("POSITIVE_INFINITY", f64::INFINITY, 0),
-    FieldDef::FLOAT64("EPSILON", 2.220446049250313e-16, 0),  // ES6 
-    FieldDef::FLOAT64("MAX_SAFE_INTEGER", 9007199254740991.0, 0),  // ES6 
-    FieldDef::FLOAT64("MIN_SAFE_INTEGER", -9007199254740991.0, 0),  // ES6 
+    FieldDef::FLOAT64("EPSILON", 2.220446049250313e-16, 0), // ES6
+    FieldDef::FLOAT64("MAX_SAFE_INTEGER", 9007199254740991.0, 0), // ES6
+    FieldDef::FLOAT64("MIN_SAFE_INTEGER", -9007199254740991.0, 0), // ES6
 ];
 
 pub(crate) static CLASS_DEF_NUMBER: ClassDef = ClassDef::builtin(

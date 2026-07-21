@@ -116,7 +116,7 @@ impl ObjectImpl {
 impl JSValue {
     /// Check if `self` has own property suggested by `func.<home_object>.<brand>`.
     pub fn check_brand(&self, ctx: &mut ScopedContext, func: JSValue) -> Result<bool, i32> {
-        if let JSValue::Object(ob) = self {
+        if let Some(ob) = self.as_object() {
             ob.check_brand(ctx, func)
         } else {
             ctx.throw_type_error_not_an_object();
@@ -124,10 +124,10 @@ impl JSValue {
         }
     }
 
-    /// Assign `home_obj` a symbol as its identifier and store it in `home_obj.<brand>`.
+    /// Assign `home_val` a symbol as its identifier and store it in `home_val.<brand>`.
     /// If `self` is an object, define a property with the home object's symbol as key.
-    pub fn add_brand(&mut self, ctx: &mut ScopedContext, home_obj: JSValue) -> Result<(), i32> {
-        if let JSValue::Object(mut home) = home_obj {
+    pub fn add_brand(&mut self, ctx: &mut ScopedContext, mut home_val: JSValue) -> Result<(), i32> {
+        if let Some(home) = home_val.as_object_mut() {
             let brand_sym: JSValue = if let Some((idx, _)) =
                 home.find_shape_property(Atom::CONST_Private_brand)
             {
@@ -155,9 +155,7 @@ impl JSValue {
                     ctx.throw_type_error("private method is already present");
                     Err(-1)
                 } else if !ob.is_extensible_obj(ctx)? {
-                    ctx.throw_type_error(
-                        "cannot add private fields to non-extensible object",
-                    );
+                    ctx.throw_type_error("cannot add private fields to non-extensible object");
                     Err(-1)
                 } else {
                     ob.add_own_property(
@@ -182,7 +180,7 @@ impl JSValue {
         name: JSValue,
         val: JSValue,
     ) -> Result<(), i32> {
-        if let JSValue::Object(o) = self {
+        if let Some(o) = self.as_object_mut() {
             if unlikely(!o.flags().extensible()) {
                 ctx.throw_type_error("object is nonextensible for private field");
                 Err(-1)
@@ -196,7 +194,7 @@ impl JSValue {
     }
 
     pub fn get_private_field(&self, ctx: &mut ScopedContext, name: JSValue) -> JSResult {
-        if let Self::Object(ob) = self {
+        if let Some(ob) = self.as_object() {
             ob.get_private_field(ctx, name)
         } else {
             ctx.throw_type_error_not_an_object();
@@ -211,7 +209,7 @@ impl JSValue {
         name: JSValue,
         val: JSValue,
     ) -> Result<(), i32> {
-        if let Self::Object(ob) = self {
+        if let Some(ob) = self.as_object_mut() {
             ob.define_private_field(ctx, name, val)
         } else {
             ctx.throw_type_error_not_an_object();

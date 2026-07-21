@@ -200,14 +200,11 @@ pub const js_shared_array_buffer_proto_funcs: &[FieldDef] = &[
 //
 
 fn js_array_buffer_isView(_: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let res = if let JSValue::Object(p) = cc.arg(0)
-        && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_DATAVIEW).contains(&p.class_id())
-    {
-        true
-    } else {
-        false
-    };
-    Ok(JSValue::Bool(res))
+    let b = cc
+        .arg(0)
+        .as_object()
+        .is_some_and(|p| (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_DATAVIEW).contains(&p.class_id()));
+    Ok(JSValue::from(b))
 }
 
 pub const js_array_buffer_funcs: &[FieldDef] = &[
