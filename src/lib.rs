@@ -135,8 +135,6 @@ mod async_sender {
                 Ok(_) => Poll::Ready(Ok(())),
                 Err(crate::TrySendError::Full(v)) => {
                     this.value = Some(v);
-                    // Re-schedule for re-polling on the next executor tick.
-                    cx.waker().wake_by_ref();
                     Poll::Pending
                 }
                 Err(crate::TrySendError::Disconnected(v)) => Poll::Ready(Err(v)),
