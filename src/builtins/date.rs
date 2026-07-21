@@ -201,9 +201,14 @@ fn get_timezone_offset(time: i64) -> i32 {
 
         #[cfg(windows)]
         {
-            // Windows: use _s versions of the functions
-            gm_result = libc::gmtime_s(&mut gm_tm as *mut libc::tm, &ti) != 0;
-            loc_result = libc::localtime_s(&mut loc_tm as *mut libc::tm, &ti) != 0;
+            // The CRT time functions only accept a limited range. For
+            // timestamps outside that range (e.g. near the Date range
+            // boundary) fall back to a representable reference instant;
+            // the base UTC offset is effectively constant across such
+            // ranges.
+            let safe_ti = ti.clamp(0, 2_000_000_000);
+            gm_result = libc::gmtime_s(&mut gm_tm as *mut libc::tm, &safe_ti) != 0;
+            loc_result = libc::localtime_s(&mut loc_tm as *mut libc::tm, &safe_ti) != 0;
         }
 
         if gm_result || loc_result {
@@ -216,16 +221,29 @@ fn get_timezone_offset(time: i64) -> i32 {
             (-(gm_tm.tm_gmtoff) / 60) as i32
         }
 
-        // On Windows and as fallback, use a simplified approach
-        // This approximates the timezone offset by comparing UTC and local components
-        // Note: This is not as precise as the Unix tm_gmtoff approach
+        // On Windows (and as fallback), compute the offset by comparing the
+        // two broken-down times as if both were UTC instants. This is robust
+        // across day/month boundaries, unlike a naive hour/minute subtraction.
         #[cfg(windows)]
         {
-            // For Windows, we use a simplified approach since mktime might not be available
-            // This computes the difference between UTC and local time components
-            let utc_offset_hours = loc_tm.tm_hour - gm_tm.tm_hour;
-            let utc_offset_minutes = (loc_tm.tm_min - gm_tm.tm_min) + (utc_offset_hours * 60);
-            -utc_offset_minutes as i32 // Negative because local time is behind UTC
+            let gm_secs = ymdhms_to_secs(
+                gm_tm.tm_year as i64 + 1900,
+                gm_tm.tm_mon as usize,
+                gm_tm.tm_mday,
+                gm_tm.tm_hour,
+                gm_tm.tm_min,
+                gm_tm.tm_sec,
+            );
+            let loc_secs = ymdhms_to_secs(
+                loc_tm.tm_year as i64 + 1900,
+                loc_tm.tm_mon as usize,
+                loc_tm.tm_mday,
+                loc_tm.tm_hour,
+                loc_tm.tm_min,
+                loc_tm.tm_sec,
+            );
+            let gmtoff = loc_secs - gm_secs; // local - utc, in seconds
+            -(gmtoff / 60) as i32
         }
     }
 
@@ -233,6 +251,27 @@ fn get_timezone_offset(time: i64) -> i32 {
     {
         0 // unsupported platform
     }
+}
+
+#[cfg(windows)]
+#[inline(always)]
+fn ymdhms_to_secs(y: i64, m: usize, d: i32, h: i32, min: i32, s: i32) -> i64 {
+    let mut mm = m;
+    let mut yy = y;
+    if mm >= 12 {
+        mm -= 12;
+        yy += 1;
+    }
+    let mut days = days_from_year(yy);
+    for i in 0..mm {
+        let mut md = MONTH_DAYS[i as usize] as i64;
+        if i == 1 {
+            md += days_in_year(yy) - 365;
+        }
+        days += md;
+    }
+    days += d as i64 - 1;
+    days * 86400 + (h as i64) * 3600 + (min as i64) * 60 + (s as i64)
 }
 
 fn string_get_digits(s: &[u8]) -> (i64, usize) {
@@ -814,7 +853,7 @@ impl From<Datetime> for i64 {
 impl From<Datetime> for JSValue {
     fn from(tm: Datetime) -> Self {
         if tm.is_invalid() {
-            Self::from(f64::NAN)
+            Self::NAN
         } else {
             Self::from(tm.timestamp())
         }
@@ -953,7 +992,7 @@ fn js_date_Symbol_toPrimitive(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
 fn js_date_getTimezoneOffset(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let tm = JS_ThisTimeValue(ctx, cc.this())?;
     if tm.is_invalid() {
-        Ok(JSValue::Float64(f64::NAN))
+        Ok(JSValue::NAN)
     } else {
         Ok(JSValue::Int(get_timezone_offset(tm.into())))
     }
@@ -973,7 +1012,7 @@ fn get_date_field(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
         Ok(JSValue::from(fields[n as usize]))
     } else {
-        Ok(JSValue::from(f64::NAN))
+        Ok(JSValue::NAN)
     }
 }
 
@@ -1141,7 +1180,7 @@ fn js_Date_UTC(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         for (i, a) in cc.arguments().iter().take(7).enumerate() {
             let v = a.to_number(ctx)?.to_f64();
             if !v.is_finite() {
-                return Ok(JSValue::Float64(f64::NAN));
+                return Ok(JSValue::NAN);
             }
             fields[i] = v.trunc();
             if i == 0 && (0.0..100.0).contains(&fields[0]) {
