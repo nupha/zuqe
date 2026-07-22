@@ -130,7 +130,7 @@ macro_rules! object_cast {
             type Error = i32;
 
             fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-                if let Some(o) = value.as_object().copied() {
+                if let Some(o) = value.as_object()  {
                     o.try_into()
                 } else {
                     Err(-1)
@@ -184,7 +184,6 @@ macro_rules! object_cast {
                     unsafe { &mut *(self as *mut Self as *mut _) }
                 }
 
-
                 #[inline(always)]
                 pub unsafe fn [<to_ $ty _unchecked>](self) -> $ty {
                     debug_assert!(matches!(self.class_id(), $($class_id)|+));
@@ -205,22 +204,22 @@ macro_rules! object_cast {
         impl JSValue {
             paste::paste! {
                 #[inline]
-                pub fn [<as_object_ $ty>](&self) -> Option<&$ty >{
+                pub fn [<as_object_ $ty>](&self) -> Option<$ty >{
                     if let Some(o) = self.as_object(){
-                        o.[<as_ $ty>]()
+                        o.[<as_ $ty>]().copied()
                     } else {
                         None
                     }
                 }
 
-                #[inline]
-                pub fn [<as_object_ $ty _mut>](&mut self) -> Option<&mut $ty >{
-                    if let Some(o) = self.as_object_mut(){
-                        o.[<as_ $ty _mut>]()
-                    } else {
-                        None
-                    }
-                }
+                // #[inline]
+                // pub fn [<as_object_ $ty _mut>](&mut self) -> Option<&mut $ty >{
+                //     if let Some(o) = self.as_object_mut(){
+                //         o.[<as_ $ty _mut>]()
+                //     } else {
+                //         None
+                //     }
+                // }
             }
         }
     }

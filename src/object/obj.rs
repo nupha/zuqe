@@ -644,7 +644,7 @@ impl TryFrom<JSValue> for Object {
 
     #[inline]
     fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        if let Some(o) = value.as_object().copied() {
+        if let Some(o) = value.as_object() {
             Ok(o)
         } else {
             Err(-1)
@@ -791,8 +791,8 @@ impl JSValue {
 const JS_PROP_INITIAL_SIZE: u32 = 2;
 
 /// Note: all the fields are already sealed except length
-pub(crate) fn seal_template_obj(ctx: &mut ScopedContext, mut obj: JSValue) -> i32 {
-    let p = unsafe { obj.as_object_mut_unchecked() };
+pub(crate) fn seal_template_obj(ctx: &mut ScopedContext, obj: JSValue) -> i32 {
+    let mut p = unsafe { obj.as_object_unchecked() };
 
     // let (_, cur_flags) = p
     //     .find_shape_property(Atom::CONST_length)

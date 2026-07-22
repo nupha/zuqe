@@ -78,13 +78,10 @@ pub fn js_symbol_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 //
 
 pub fn js_thisSymbolValue(ctx: &mut ScopedContext, val: JSValue) -> JSResult {
-    val.as_symbol()
-        .copied()
-        .map(JSValue::Symbol)
-        .ok_or_else(|| {
-            ctx.throw_type_error_not_a_symbol();
-            -1
-        })
+    val.as_symbol().map(JSValue::from).ok_or_else(|| {
+        ctx.throw_type_error_not_a_symbol();
+        -1
+    })
 }
 
 fn js_symbol_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

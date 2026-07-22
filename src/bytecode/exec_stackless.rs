@@ -925,7 +925,7 @@ impl Bytecode {
                         };
                         match var_ref {
                             Ok(vr) => {
-                                if unsafe { SP_MUT!(-1).as_object_mut_unchecked() }
+                                if unsafe { SP_MUT!(-1).as_object_unchecked() }
                                     .add_own_property(
                                         realm_scope,
                                         atom,
@@ -1855,7 +1855,7 @@ impl Bytecode {
                                     // delete marks slot Deleted without changing shape
                                     if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
                                         if let Ok(val) =
-                                            o.prop_slot(slot).value(realm_scope, JSValue::from(*o))
+                                            o.prop_slot(slot).value(realm_scope, o.into())
                                         {
                                             if opcode == OpCode::GET_FIELD {
                                                 SP_PUT!(-1, val);
@@ -1933,8 +1933,8 @@ impl Bytecode {
                                             && prs_flags & crate::object::JS_PROP_WRITABLE != 0
                                             && prs_flags & crate::object::JS_PROP_LENGTH == 0
                                         {
-                                            let o =
-                                                unsafe { SP_MUT!(-2).as_object_mut_unchecked() };
+                                            let mut o =
+                                                unsafe { SP_MUT!(-2).as_object_unchecked() };
                                             o.set_prop_slot(slot, JSProperty::Normal(value));
 
                                             // next instruction
@@ -2277,7 +2277,7 @@ impl Bytecode {
                         SP_GO!(-2);
 
                         // SP[-1] is iter_obj
-                        if let Some(&o) = SP_VAL!(-1).as_object()
+                        if let Some(o) = SP_VAL!(-1).as_object()
                             && ObjectIter::close_iter_internal(realm_scope, o).is_err()
                         {
                             break ExecAction::Exception;
@@ -2611,7 +2611,7 @@ impl Bytecode {
                                 realm_scope,
                                 atom,
                                 val,
-                                this_obj.as_object().copied(),
+                                this_obj.as_object(),
                                 JS_PROP_THROW_STRICT,
                             );
                             if unlikely(ret.is_err()) {
@@ -2796,8 +2796,8 @@ impl Bytecode {
                     }
                     OpCode::SET_HOME_OBJECT => {
                         // [home_obj, func, ^] -> [home_obj, func, ^]
-                        if let Some(fo) = SP_MUT!(-1).as_object_BCWrapper_mut() {
-                            fo.method_set_home_object(SP_VAL!(-2).to_object());
+                        if let Some(mut fo) = SP_MUT!(-1).as_object_BCWrapper() {
+                            fo.method_set_home_object(SP_VAL!(-2).as_object());
                         } else {
                             #[cfg(debug_assertions)]
                             unreachable!("SET_HOME_OBJECT expect BytecodeFunction object");

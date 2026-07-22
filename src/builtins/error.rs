@@ -90,9 +90,7 @@ pub(crate) fn js_error_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
 }
 
 pub(crate) fn js_aggregate_error_constructor(ctx: &mut ScopedContext, errors: JSValue) -> JSValue {
-    let err_proto = ctx.error_protos[ErrorKind::Aggregate as usize]
-        .as_object()
-        .copied();
+    let err_proto = ctx.error_protos[ErrorKind::Aggregate as usize].as_object();
 
     if let Ok(mut obj) = ctx.create_instance_with_proto_payload(err_proto, ObjectPayload::ERROR) {
         obj.define_property_value(
@@ -110,7 +108,7 @@ pub(crate) fn js_aggregate_error_constructor(ctx: &mut ScopedContext, errors: JS
 }
 
 pub fn js_error_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this = cc.this().into_object(ctx)?;
+    let this = cc.this().ensure_object(ctx)?;
 
     let name = this.get_property(ctx, Atom::CONST_name)?;
     let name = if name.is_undefined() {

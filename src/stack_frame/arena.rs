@@ -386,7 +386,7 @@ impl StackFrameArena {
                             std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED).as_object()
                         {
                             let _ =
-                                crate::builtins::iterator::ObjectIter::close_iter_internal(ctx, *o);
+                                crate::builtins::iterator::ObjectIter::close_iter_internal(ctx, o);
                         }
                     }
                 } else {

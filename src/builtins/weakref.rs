@@ -36,12 +36,9 @@ fn js_weakref_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     }
 
     let target_val = cc.arg(0);
-    let target_obj = match target_val.as_object() {
-        Some(o) => *o,
-        None => {
-            ctx.throw_type_error("WeakRef target must be an object");
-            return Err(-1);
-        }
+    let Some(target_obj) = target_val.as_object() else {
+        ctx.throw_type_error("WeakRef target must be an object");
+        return Err(-1);
     };
 
     let weak = target_obj.downgrade();
@@ -57,12 +54,9 @@ fn js_weakref_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 }
 
 fn js_weakref_deref(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this_obj = match cc.this().as_object() {
-        Some(o) => *o,
-        None => {
-            ctx.throw_type_error("WeakRef.prototype.deref requires a WeakRef");
-            return Err(-1);
-        }
+    let Some(this_obj) = cc.this().as_object() else {
+        ctx.throw_type_error("WeakRef.prototype.deref requires a WeakRef");
+        return Err(-1);
     };
 
     let wrd = match this_obj.payload().weak_ref() {
@@ -198,14 +192,11 @@ fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut this_obj = match cc.this().as_object() {
-        Some(o) => *o,
-        None => {
-            ctx.throw_type_error(
-                "FinalizationRegistry.prototype.register requires a FinalizationRegistry",
-            );
-            return Err(-1);
-        }
+    let Some(mut this_obj) = cc.this().as_object() else {
+        ctx.throw_type_error(
+            "FinalizationRegistry.prototype.register requires a FinalizationRegistry",
+        );
+        return Err(-1);
     };
 
     let frd = match this_obj.payload_mut().finalization_registry_mut() {
@@ -222,14 +213,9 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let held_val = cc.arg(1);
     let token_val = cc.arg(2);
 
-    let mut target_obj = match target_val.as_object() {
-        Some(o) => *o,
-        None => {
-            ctx.throw_type_error(
-                "FinalizationRegistry.prototype.register: target must be an object",
-            );
-            return Err(-1);
-        }
+    let Some(mut target_obj) = target_val.as_object() else {
+        ctx.throw_type_error("FinalizationRegistry.prototype.register: target must be an object");
+        return Err(-1);
     };
 
     // held_value cannot be the same object as target (SameValue check)
@@ -256,7 +242,7 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let token_weak = if token_val.is_undefined() {
         None
     } else {
-        let tok_obj = *token_val.as_object().unwrap();
+        let tok_obj = token_val.as_object().unwrap();
         Some(tok_obj.downgrade())
     };
 
@@ -274,14 +260,11 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_finrec_unregister(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut this_obj = match cc.this().as_object() {
-        Some(o) => *o,
-        None => {
-            ctx.throw_type_error(
-                "FinalizationRegistry.prototype.unregister requires a FinalizationRegistry",
-            );
-            return Err(-1);
-        }
+    let Some(mut this_obj) = cc.this().as_object() else {
+        ctx.throw_type_error(
+            "FinalizationRegistry.prototype.unregister requires a FinalizationRegistry",
+        );
+        return Err(-1);
     };
 
     let frd = match this_obj.payload_mut().finalization_registry_mut() {
@@ -297,14 +280,11 @@ fn js_finrec_unregister(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let token_val = cc.arg(0);
     // CanBeHeldWeakly check — only objects can be held weakly.
     // Unlike register(), there is no exception for undefined in unregister.
-    let token_obj = match token_val.as_object() {
-        Some(o) => *o,
-        None => {
-            ctx.throw_type_error(
-                "FinalizationRegistry.prototype.unregister: unregister token must be an object",
-            );
-            return Err(-1);
-        }
+    let Some(token_obj) = token_val.as_object() else {
+        ctx.throw_type_error(
+            "FinalizationRegistry.prototype.unregister: unregister token must be an object",
+        );
+        return Err(-1);
     };
 
     let heap = ctx.rt().gc_heap();

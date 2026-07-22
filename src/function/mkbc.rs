@@ -108,7 +108,7 @@ impl FunctionDef {
 
                 if let Ok(sub_bc) = sub_fd.create_bytecode(ctx) {
                     // strore child bytecode to constant pool
-                    self.cpool[cpool_idx as usize] = JSValue::Bytecode(sub_bc);
+                    self.cpool[cpool_idx as usize] = JSValue::from(sub_bc);
                 } else {
                     has_err = true;
                 }

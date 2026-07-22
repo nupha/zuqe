@@ -279,7 +279,8 @@ impl<'a> ObjectIter<'a> {
         method: JSValue,
         args: &[JSValue],
     ) -> Result<(JSValue, IteratorState), i32> {
-        if let Some(ObjectPayload::C_FUNCTION(nfun)) = method.as_object().map(|o| o.payload())
+        if let Some(o) = method.as_object()
+            && let ObjectPayload::C_FUNCTION(nfun) = o.payload()
             && let Callback::IteratorNext(f) = nfun.callback
         {
             // fast path for the built-in iterators,
@@ -296,7 +297,7 @@ impl<'a> ObjectIter<'a> {
 
         // generic case: call `method` - must return an object.
         let call_result = method.call(ctx, enum_obj.into(), args)?;
-        if let Some(o) = call_result.as_object().copied() {
+        if let Some(o) = call_result.as_object() {
             Ok((o.into(), IteratorState::NotParsed))
         } else {
             ctx.throw_type_error("iterator must return an object");
@@ -403,7 +404,7 @@ impl JSValue {
         {
             r.and_then(|v| v.into_object(ctx)).map(Some)
         } else if let Some(r) = self.invoke_defined(ctx, Atom::CONST_Symbol_iterator, &[])? {
-            let sync_it = r.and_then(|v| v.into_object(ctx))?;
+            let sync_it = r.and_then(|v| v.ensure_object(ctx))?;
             if is_async {
                 // method [Symbol.asyncIterator] is not defined:
                 // wrap [Symbol.iterator]() object into an AsyncFromSyncIterator
@@ -599,7 +600,7 @@ impl Array {
     ) -> Result<(Self, usize), i32> {
         let target = method
             .call(ctx, iterable.into(), &[])
-            .and_then(|v| v.into_object(ctx))?;
+            .and_then(|v| v.ensure_object(ctx))?;
 
         let it = ObjectIter::new(ctx, target, Atom::CONST_next)?;
 

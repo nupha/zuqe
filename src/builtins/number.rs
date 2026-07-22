@@ -40,15 +40,14 @@ fn js_thisNumberValue(ctx: &mut ScopedContext, this_val: JSValue) -> JSResult {
         Ok(this_val)
     } else {
         // check number object
-        this_val
+        let val = this_val
             .as_object()
-            .and_then(|p| p.payload().value())
-            .filter(|v| v.is_number())
-            .cloned()
-            .ok_or_else(|| {
-                ctx.throw_type_error("not a number");
-                -1
-            })
+            .and_then(|p| p.payload().value().cloned());
+
+        val.filter(|v| v.is_number()).ok_or_else(|| {
+            ctx.throw_type_error("not a number");
+            -1
+        })
     }
 }
 
@@ -56,14 +55,14 @@ pub(super) fn js_parseInt(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     let radix = cc.arg(1).to_number(ctx)?.to_i32();
 
     if radix != 0 && !(2..=36).contains(&radix) {
-        Ok(JSValue::Float64(f64::NAN))
+        Ok(JSValue::NAN)
     } else {
         let str = cc.arg(0).to_string(ctx)?;
         let s = str.content().encode_utf8(false);
         let str = s.trim();
 
         if unlikely(str.is_empty()) {
-            Ok(JSValue::Float64(f64::NAN))
+            Ok(JSValue::NAN)
         } else {
             let val: JSValue = js_aton(
                 ctx,
@@ -75,7 +74,7 @@ pub(super) fn js_parseInt(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                 |_| {
                     // fail to parse number, returns NaN
                     ctx.clear_exception();
-                    JSValue::Float64(f64::NAN)
+                    JSValue::NAN
                 },
                 |(n, _)| JSValue::from(n),
             );
@@ -91,13 +90,13 @@ pub(super) fn js_parseFloat(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     let str = s.trim();
 
     if unlikely(str.is_empty()) {
-        Ok(JSValue::Float64(f64::NAN))
+        Ok(JSValue::NAN)
     } else {
         let val = js_aton(ctx, str.as_bytes(), 10, 0).map_or_else(
             |_| {
                 // fail to parse number, returns NaN
                 ctx.clear_exception();
-                JSValue::Float64(f64::NAN)
+                JSValue::NAN
             },
             |(n, _)| JSValue::from(n),
         );

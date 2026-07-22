@@ -169,7 +169,7 @@ pub(crate) fn js_map_getOrInsert(ctx: &mut ScopedContext, cc: CallContext) -> JS
     let _ = s;
 
     // Bind GC reference relations
-    let this_obj = *cc.this().as_object().unwrap();
+    let this_obj = cc.this().as_object().unwrap();
     let self_node = this_obj.gc_node_ptr();
     if let Some(n) = key.gc_node_ptr() {
         this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
@@ -212,7 +212,7 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     // bind reference relation for gc values
-    let this_obj = *cc.this().as_object().unwrap();
+    let this_obj = cc.this().as_object().unwrap();
     let self_node = this_obj.gc_node_ptr();
     if let Some(n) = key.gc_node_ptr() {
         this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
@@ -238,7 +238,7 @@ fn js_map_delete(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         if s.is_weak() {
             key.as_object_mut()
                 .unwrap()
-                .remove_back_ref(ctx.rt(), this.as_object().copied().unwrap());
+                .remove_back_ref(ctx.rt(), this.as_object().unwrap());
         }
 
         Ok(JSValue::Bool(true))
@@ -282,7 +282,7 @@ fn js_map_forEach(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // lock map, and ensure `this` is an object of expected class_id.
     get_jsmap_state_mut(&mut this, JS_CLASS_MAP + magic as ClassID, ctx)?.lock();
 
-    let mut this_obj = *this.as_object().unwrap();
+    let mut this_obj = this.as_object().unwrap();
     let mut has_err = false;
     let mut i = 0;
 
@@ -342,7 +342,7 @@ pub(crate) fn js_create_map_iterator(ctx: &mut ScopedContext, cc: CallContext) -
 
     // create iterator object
     let isa = Box::new(JSMapIteratorData {
-        obj: this.as_object().copied(),
+        obj: this.as_object(),
         kind,
         index: 0,
     });
@@ -462,7 +462,7 @@ fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i3
     // 2. Get has (GetMethod: required, throws if missing or not callable)
     let has_val = val.get_property(ctx, Atom::CONST_has)?;
     let has_obj = match has_val.ensure_callable(ctx) {
-        Ok(o) => *o,
+        Ok(o) => o,
         Err(_) => {
             ctx.throw_type_error("Set.prototype.has is not a function");
             return Err(-1);
@@ -478,7 +478,7 @@ fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i3
         return Err(-1);
     }
     let keys_obj = match keys_val.ensure_callable(ctx) {
-        Ok(o) => *o,
+        Ok(o) => o,
         Err(_) => {
             ctx.throw_type_error("Set.prototype.keys is not a function");
             return Err(-1);
@@ -505,7 +505,7 @@ fn iterator_return(ctx: &mut ScopedContext, iterator: JSValue) -> Result<(), i32
     let return_str = Atom::from_str(ctx, "return")?;
     let return_val = iterator.get_property(ctx, return_str)?;
     if return_val.is_callable() {
-        let return_obj = *return_val.as_object().unwrap();
+        let return_obj = return_val.as_object().unwrap();
         return_obj.call(ctx, iterator, &[])?;
     }
     Ok(())
@@ -546,7 +546,7 @@ fn js_set_isDisjointFrom(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         // Strategy: iterate other's keys, check this.has (internal)
         let iterator = rec.keys.call(ctx, other, &[])?;
         let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
-        let next_obj = *next_method.ensure_callable(ctx)?;
+        let next_obj = next_method.ensure_callable(ctx)?;
 
         loop {
             let result = next_obj.call(ctx, iterator, &[])?;
@@ -642,7 +642,7 @@ fn js_set_isSupersetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // Iterate other's keys, check this.has (internal)
     let iterator = rec.keys.call(ctx, other, &[])?;
     let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
-    let next_obj = *next_method.ensure_callable(ctx)?;
+    let next_obj = next_method.ensure_callable(ctx)?;
 
     loop {
         let result = next_obj.call(ctx, iterator, &[])?;
@@ -692,7 +692,7 @@ fn js_set_intersection(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         // Strategy: iterate other's keys, check this.has (internal) → add to result
         let iterator = rec.keys.call(ctx, other, &[])?;
         let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
-        let next_obj = *next_method.ensure_callable(ctx)?;
+        let next_obj = next_method.ensure_callable(ctx)?;
 
         loop {
             let result_val = next_obj.call(ctx, iterator, &[])?;
@@ -751,7 +751,7 @@ fn js_set_difference(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
         let iterator = rec.keys.call(ctx, other, &[])?;
         let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
-        let next_obj = *next_method.ensure_callable(ctx)?;
+        let next_obj = next_method.ensure_callable(ctx)?;
 
         loop {
             let result_val = next_obj.call(ctx, iterator, &[])?;
@@ -814,7 +814,7 @@ fn js_set_symmetricDifference(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     // Iterate other's keys, remove from/add to result
     let iterator = rec.keys.call(ctx, other, &[])?;
     let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
-    let next_obj = *next_method.ensure_callable(ctx)?;
+    let next_obj = next_method.ensure_callable(ctx)?;
 
     loop {
         let item = next_obj.call(ctx, iterator, &[])?;
@@ -866,7 +866,7 @@ fn js_set_union(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // 3. Iterate other's keys and add directly
     let iterator = rec.keys.call(ctx, other, &[])?;
     let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
-    let next_obj = *next_method.ensure_callable(ctx)?;
+    let next_obj = next_method.ensure_callable(ctx)?;
 
     loop {
         let item = next_obj.call(ctx, iterator, &[])?;

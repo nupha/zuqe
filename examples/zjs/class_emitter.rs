@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
 use zuqe::{
     CallContext, ClassCtorDef, FieldDef, JSResult, JSValue, ScopedContext, def_native_object,
@@ -13,12 +13,20 @@ struct EmitterData {
 }
 
 fn get_emitter<'a>(ctx: &mut ScopedContext, val: &'a JSValue) -> Result<&'a EmitterData, i32> {
-    val.as_native_object::<JSEmitter>()
-        .and_then(|o| o.payload())
-        .ok_or_else(|| {
-            ctx.throw_internal_error("not an Emitter instance");
-            -1
-        })
+    let emitter = val.as_native_object::<JSEmitter>().ok_or_else(|| {
+        ctx.throw_internal_error("not an Emitter instance");
+        -1
+    })?;
+    let payload = emitter.payload().ok_or_else(|| {
+        ctx.throw_internal_error("not an Emitter instance");
+        -1
+    })?;
+
+    // SAFETY: `emitter` is a Copy of the object pointer stored inside `val`, and
+    // `EmitterData` lives in the GC heap reachable through that pointer, so the
+    // reference stays valid for the lifetime of `val` (`'a`). We only rebind the
+    // lifetime past the temporary `emitter` borrow.
+    Ok(unsafe { std::mem::transmute::<&EmitterData, &'a EmitterData>(payload) })
 }
 
 fn js_emitter_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

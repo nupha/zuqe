@@ -17,8 +17,8 @@ use clap::Parser;
 use serde::Deserialize;
 use url::Url;
 use zuqe::{
-    CallContext, Callback, Context, EvalFlags, EvalType, ExceptionText, JS_PROP_C_W_E, JSResult,
-    JSValue, ModuleDef, Runtime, ScopedContext,
+    CallContext, Callback, Context, EvalFlags, EvalType, ExceptionText, JSResult, JSValue,
+    ModuleDef, Runtime, ScopedContext,
 };
 
 /// counter of "Test262:AsyncTestComplete" messages
@@ -98,7 +98,7 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_detachArrayBuffer(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if let Some(mut ab) = cc.arg(0).as_object_ArrayBuffer().copied() {
+    if let Some(mut ab) = cc.arg(0).as_object_ArrayBuffer() {
         ab.detatch(ctx);
     }
     Ok(JSValue::UNDEFINED)

@@ -71,7 +71,7 @@ pub struct ModuleDefImpl {
     pub resolved: bool,
     pub status: JSModuleStatus,
 
-     // temp use during js_module_link() & js_module_evaluate() 
+    // temp use during js_module_link() & js_module_evaluate()
     pub(super) dfs_index: i32,
     pub(super) dfs_ancestor_index: i32,
 
@@ -86,8 +86,8 @@ pub struct ModuleDefImpl {
     pub(super) async_evaluation_timestamp: i64,
     pub(super) pending_async_dependencies: i32,
 
-    pub(super) promise: Option<Promise>,  // corresponds to spec field: capability 
-    pub(super) resolving_funcs: [JSValue; 2],  // corresponds to spec field: capability 
+    pub(super) promise: Option<Promise>, // corresponds to spec field: capability
+    pub(super) resolving_funcs: [JSValue; 2], // corresponds to spec field: capability
 
     /// undefined means no exception
     eval_error: JSValue,
@@ -237,11 +237,7 @@ impl ModuleDefImpl {
     /// The `url` property is the module's canonical name, which is always a
     /// `file://` URL (except for native modules). It is taken directly from
     /// `module_name`, so `import.meta.url === module_name` by construction.
-    pub fn set_import_meta(
-        &mut self,
-        ctx: &mut ScopedContext,
-        is_main: bool,
-    ) -> Result<(), i32> {
+    pub fn set_import_meta(&mut self, ctx: &mut ScopedContext, is_main: bool) -> Result<(), i32> {
         let url = self.module_name().to_utf8(ctx.rt());
         let mut meta_obj = self.import_meta(ctx)?;
         let sval = ctx.create_string_from_str(&url)?;
@@ -254,75 +250,69 @@ impl ModuleDefImpl {
     fn create_module_bytecode_function(&mut self, ctx: &mut ScopedContext) -> Result<(), i32> {
         debug_assert!(!self.func_created);
 
-        match self.bytecode {
-            JSValue::Bytecode(bc) => {
-                // create BytecodeFunction object embedding Bytecode
-                let mut var_refs = Vec::<VarRef>::new();
-                let gvar_count = bc.global_var_ref_count;
-                let cvar_count = bc.closure_var_count;
-                let total_count = gvar_count as usize + cvar_count as usize;
+        let Some(bc) = self.bytecode.as_bytecode() else {
+            unreachable!("module bytecode function already created");
+        };
 
-                if total_count != 0 {
-                    var_refs.try_reserve_exact(total_count).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+        // create BytecodeFunction object embedding Bytecode
+        let mut var_refs = Vec::<VarRef>::new();
+        let gvar_count = bc.global_var_ref_count;
+        let cvar_count = bc.closure_var_count;
+        let total_count = gvar_count as usize + cvar_count as usize;
 
-                    // First: global variable refs (initialized via realm_scope fallback)
-                    for cv in bc.global_var_refs() {
-                        if cv.is_global_decl() {
-                            // define the global property at closure-creation time, matching declare_global_var.
-                            let def_flags = if cv.is_lexical() {
-                                (DEFINE_GLOBAL_LEX_VAR as u32)
-                                    | if !cv.is_const() { JS_PROP_WRITABLE } else { 0 }
-                            } else {
-                                0 // Module code is never eval; var/func decl is non-configurable.
-                            };
-                            ctx.define_global_var(cv.var_name, def_flags)?;
-                            if let Some((idx, _)) =
-                                ctx.global_var_obj().find_shape_property(cv.var_name)
-                            {
-                                var_refs.push(VarRef::create_prop_value(
-                                    ctx,
-                                    ctx.global_var_obj(),
-                                    cv.var_name,
-                                    std::ptr::null(),
-                                    0,
-                                    idx as u16,
-                                )?);
-                            } else {
-                                var_refs.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
-                            }
-                        } else {
-                            var_refs.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
-                        }
+        if total_count != 0 {
+            var_refs.try_reserve_exact(total_count).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+
+            // First: global variable refs (initialized via realm_scope fallback)
+            for cv in bc.global_var_refs() {
+                if cv.is_global_decl() {
+                    // define the global property at closure-creation time, matching declare_global_var.
+                    let def_flags = if cv.is_lexical() {
+                        (DEFINE_GLOBAL_LEX_VAR as u32)
+                            | if !cv.is_const() { JS_PROP_WRITABLE } else { 0 }
+                    } else {
+                        0 // Module code is never eval; var/func decl is non-configurable.
+                    };
+                    ctx.define_global_var(cv.var_name, def_flags)?;
+                    if let Some((idx, _)) = ctx.global_var_obj().find_shape_property(cv.var_name) {
+                        var_refs.push(VarRef::create_prop_value(
+                            ctx,
+                            ctx.global_var_obj(),
+                            cv.var_name,
+                            std::ptr::null(),
+                            0,
+                            idx as u16,
+                        )?);
+                    } else {
+                        var_refs.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
                     }
-
-                    // Then: closure variables
-                    // (module's own variables + variables imported from other modules)
-                    for cv in bc.closure_vars() {
-                        var_refs.push(if cv.is_local() {
-                            js_create_module_var(ctx, cv.is_lexical())?
-                        } else {
-                            // The other variables are imported from other modules.
-                            // Add slot with a placeholder.
-                            VarRef::create(ctx, JSValue::UNDEFINED)?
-                        });
-                    }
+                } else {
+                    var_refs.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
                 }
-
-                self.bytecode = {
-                    let p = ObjectPayload::BYTECODE_FUNCTION(BFuncPayload::new(bc, var_refs));
-                    ctx.create_instance_with_proto_payload(Some(ctx.function_proto()), p)
-                        .map_err(|_| -1)?
-                        .into()
-                };
             }
 
-            _ => {
-                unreachable!("module bytecode function already created");
+            // Then: closure variables
+            // (module's own variables + variables imported from other modules)
+            for cv in bc.closure_vars() {
+                var_refs.push(if cv.is_local() {
+                    js_create_module_var(ctx, cv.is_lexical())?
+                } else {
+                    // The other variables are imported from other modules.
+                    // Add slot with a placeholder.
+                    VarRef::create(ctx, JSValue::UNDEFINED)?
+                });
             }
         }
+
+        self.bytecode = {
+            let p = ObjectPayload::BYTECODE_FUNCTION(BFuncPayload::new(bc, var_refs));
+            ctx.create_instance_with_proto_payload(Some(ctx.function_proto()), p)
+                .map_err(|_| -1)?
+                .into()
+        };
 
         Ok(())
     }
@@ -515,7 +505,7 @@ pub(crate) fn add_module_variables(ctx: &mut ScopedContext, fdef: &mut FunctionD
     0
 }
 
- // Unfortunately, the spec gives a different behavior from GetOwnProperty ! 
+// Unfortunately, the spec gives a different behavior from GetOwnProperty !
 fn js_module_ns_has(_: &mut ScopedContext, obj: Object, prop: Atom) -> Result<bool, i32> {
     Ok(obj.has_shape_property(prop))
 }

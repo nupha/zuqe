@@ -287,12 +287,12 @@ impl ObjectImpl {
         flags: u32,
     ) -> Result<bool, i32> {
         let new_getter = if flags & JS_PROP_HAS_GET != 0 && getter.is_callable() {
-            getter.as_object().copied()
+            getter.as_object()
         } else {
             None
         };
         let new_setter = if flags & JS_PROP_HAS_SET != 0 && setter.is_callable() {
-            setter.as_object().copied()
+            setter.as_object()
         } else {
             None
         };

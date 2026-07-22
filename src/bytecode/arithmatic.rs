@@ -114,7 +114,7 @@ impl TwoNumbers {
         match self {
             Self::Int(a, b) => {
                 if unlikely(b == 0) {
-                    JSValue::Float64(f64::NAN)
+                    JSValue::NAN
                 } else if a < 0 {
                     JSValue::from((a as f64) % (b as f64))
                 } else {
@@ -123,7 +123,7 @@ impl TwoNumbers {
             }
             Self::Float(a, b) => {
                 if unlikely(b == 0.0) {
-                    JSValue::Float64(f64::NAN)
+                    JSValue::NAN
                 } else {
                     JSValue::from(a % b)
                 }
@@ -144,7 +144,7 @@ impl TwoNumbers {
             Self::Float(a, b) => {
                 if unlikely(!b.is_finite() && a.abs() == 1.0) {
                     // not compatible with IEEE 754
-                    JSValue::Float64(f64::NAN)
+                    JSValue::NAN
                 } else {
                     JSValue::from(a.powf(b))
                 }

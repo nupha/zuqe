@@ -74,14 +74,11 @@ impl Exception {
                     traceback: None,
                 };
 
-                match e.get_property(ctx, Atom::CONST_stack) {
-                    Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
-                    Ok(s) => {
-                        if let Ok(ss) = s.inspect(ctx) {
-                            t.traceback.replace(ss);
-                        }
-                    }
-                    Err(_) => {}
+                if let Ok(s) = e.get_property(ctx, Atom::CONST_stack)
+                    && !s.is_undefined_or_null()
+                    && let Ok(ss) = s.inspect(ctx)
+                {
+                    t.traceback.replace(ss);
                 }
 
                 t
@@ -161,7 +158,7 @@ impl<'c> ScopedContext<'c> {
         message: &str,
         add_backtrace: bool,
     ) -> Option<Object> {
-        let proto = self.error_protos[kind as usize].as_object().copied();
+        let proto = self.error_protos[kind as usize].as_object();
         if let Ok(mut err_obj) =
             self.create_instance_with_proto_payload(proto, ObjectPayload::ERROR)
         {
@@ -383,7 +380,7 @@ impl<'c> ScopedContext<'c> {
             error_obj.define_property_value(
                 self,
                 Atom::CONST_lineNumber,
-                JSValue::Int(line_num),
+                JSValue::from(line_num),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )?;
 
@@ -538,8 +535,8 @@ pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &mut ScopedContext, prop: Atom) 
     ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())));
 }
 
-pub fn JS_SetUncatchableError(mut error_val: JSValue, is_uncatchable: bool) {
-    if let Some(o) = error_val.as_object_mut()
+pub fn JS_SetUncatchableError(error_val: JSValue, is_uncatchable: bool) {
+    if let Some(mut o) = error_val.as_object()
         && o.class_id() == JS_CLASS_ERROR
     {
         o.set_flag_uncatchable_error(is_uncatchable);

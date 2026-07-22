@@ -45,8 +45,7 @@ use super::rope::{
 /// gc-lite 0.6.0.
 #[inline(always)]
 fn head_dtype(head: NonNull<GcHead>) -> u8 {
-    let attrs = unsafe { head.cast::<u32>().as_ref() };
-    ((*attrs & 0xFF00) >> 8) as u8
+    unsafe { head.as_ref().dtype() }
 }
 
 /// Maximum length allowed for JavaScript strings (1GB - 1)
@@ -864,22 +863,6 @@ impl From<StringRef> for JSValue {
     }
 }
 
-impl TryFrom<Object> for StringRef {
-    type Error = i32;
-
-    fn try_from(obj: Object) -> Result<Self, Self::Error> {
-        Self::try_from(JSValue::from(obj))
-    }
-}
-
-impl TryFrom<JSValue> for StringRef {
-    type Error = i32;
-
-    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        value.as_string().copied().ok_or(-1)
-    }
-}
-
 impl<'c> ScopedContext<'c> {
     /// create string value from string buf.
     pub(crate) fn create_string_with_buf(&mut self, sbuf: StringBuf) -> Result<StringRef, i32> {
@@ -1198,7 +1181,7 @@ pub(crate) const js_string_exotic_methods: ClassExoticMethods = ClassExoticMetho
 
     delete_property: Some(|_, obj: JSValue, prop: Atom| -> Result<bool, i32> {
         if let Some(idx) = prop.to_small_int() {
-            let buflen = StringRef::try_from(obj).unwrap().len();
+            let buflen = obj.as_string().unwrap().len();
             if (idx as usize) < buflen {
                 return Ok(false);
             }

@@ -352,7 +352,7 @@ impl ModuleDef {
                     // it seems this call has no actual effect according to the bytecode.
                     // should this call be removed? and the emitted bytecode (see above) be optimized?
 
-                    md_func.call(ctx, JSValue::Bool(true), &[])?;
+                    md_func.call(ctx, true.into(), &[])?;
                 }
 
                 if result.is_err() {

@@ -138,7 +138,7 @@ impl JSMapState {
             lst.iter().find_map(|i| match self.slots.get_mut(*i) {
                 Some(MapPair::Weak { key: k, value: v }) => {
                     debug_assert!(self.is_weak);
-                    let Some(o) = key.as_object().copied() else {
+                    let Some(o) = key.as_object() else {
                         unreachable!()
                     };
                     k.upgrade(ctx.rt().gc_heap()).and_then(|k| {
@@ -202,7 +202,7 @@ impl JSMapState {
                 Some(MapPair::Weak { key: k, value }) => {
                     if let Some(o) = key.as_object() {
                         k.upgrade(o.rt_ptr().gc_heap()).and_then(|k| {
-                            if Object(k.into_raw()) == *o {
+                            if Object(k.into_raw()) == o {
                                 Some(*value)
                             } else {
                                 None
@@ -245,7 +245,7 @@ impl JSMapState {
                 }
                 Some(MapPair::Weak { key: k, .. }) => {
                     if let Some(k) = k.upgrade(ctx.rt_ptr().gc_heap()) {
-                        if Object(k.into_raw()) == unsafe { *key.as_object_unchecked() } {
+                        if Object(k.into_raw()) == unsafe { key.as_object_unchecked() } {
                             self.slots[*i] = MapPair::Removed;
                             self.remove_count += 1;
                             false

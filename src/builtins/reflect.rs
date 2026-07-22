@@ -84,7 +84,7 @@ fn js_reflect_has(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_reflect_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let target = cc.arg(0).as_object().copied().ok_or_else(|| {
+    let target = cc.arg(0).as_object().ok_or_else(|| {
         ctx.throw_type_error_not_an_object();
         -1
     })?;

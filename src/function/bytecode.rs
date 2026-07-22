@@ -63,7 +63,7 @@ impl GcTrace for BytecodeDebugInfo {
     }
 }
 
- // for the encoding of the pc2line table 
+// for the encoding of the pc2line table
 pub const PC2LINE_BASE: i32 = -1;
 pub const PC2LINE_RANGE: i32 = 5;
 pub const PC2LINE_OP_FIRST: i32 = 1;
@@ -607,7 +607,7 @@ impl BytecodeImpl {
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq)]
-pub struct Bytecode(GcRef<BytecodeImpl>);
+pub struct Bytecode(pub(crate) GcRef<BytecodeImpl>);
 
 gcref_wrapper!(Bytecode, BytecodeImpl);
 

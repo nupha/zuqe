@@ -66,7 +66,11 @@ impl JSValue {
     /// throws type error.
     pub(crate) fn retrive_object_payload0(&self, class_id: ClassID) -> Option<&ObjectPayload> {
         if let Some(o) = self.as_object() {
-            o.retrive_payload0(class_id)
+            unsafe {
+                std::mem::transmute::<Option<&ObjectPayload>, Option<&ObjectPayload>>(
+                    o.retrive_payload0(class_id),
+                )
+            }
         } else {
             None
         }
@@ -81,7 +85,11 @@ impl JSValue {
         class_id: ClassID,
     ) -> Result<&ObjectPayload, i32> {
         if let Some(o) = self.as_object() {
-            o.retrive_payload(ctx, class_id)
+            unsafe {
+                std::mem::transmute::<Result<&ObjectPayload, i32>, Result<&ObjectPayload, i32>>(
+                    o.retrive_payload(ctx, class_id),
+                )
+            }
         } else {
             ctx.throw_type_error_invalid_class(class_id);
             Err(-1)

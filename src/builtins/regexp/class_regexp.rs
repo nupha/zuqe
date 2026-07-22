@@ -453,7 +453,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
 pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // [Symbol.replace](str, rep)
 
-    let Some(this_obj) = cc.this().as_object().copied() else {
+    let Some(this_obj) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
@@ -659,7 +659,7 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
 }
 
 fn js_regexp_Symbol_search(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let Some(this_obj) = cc.this().as_object().copied() else {
+    let Some(this_obj) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
@@ -689,7 +689,7 @@ fn js_regexp_Symbol_search(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 /// [Symbol.split](str, limit)
 pub fn js_regexp_Symbol_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let Some(this_obj) = this.as_object().copied() else {
+    let Some(this_obj) = this.as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };

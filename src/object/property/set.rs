@@ -211,7 +211,7 @@ impl ObjectImpl {
 
                             return call_setter(
                                 ctx,
-                                desc.setter.as_object().copied(),
+                                desc.setter.as_object(),
                                 receiver.unwrap_or(Object::from_ref(self)).into(),
                                 val,
                                 flags,

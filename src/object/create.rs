@@ -76,7 +76,7 @@ impl<'c> ScopedContext<'c> {
         let proto: Option<Object> = if ctor.is_undefined() {
             self.class_proto(class_id)
         } else if let Ok(p) = ctor.get_property(self, Atom::CONST_prototype) {
-            if let Some(o) = p.as_object().copied() {
+            if let Some(o) = p.as_object() {
                 Some(o)
             } else if let Ok(realm) = {
                 let cx = ContextPtr::from(self.gc_ref());

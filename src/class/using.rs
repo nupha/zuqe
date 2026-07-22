@@ -3,7 +3,7 @@
 
 use std::{ffi::c_void, ptr::NonNull};
 
-use gc_lite::{GcNode, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     FieldDef, USER_CLASS_ID_START,
@@ -86,10 +86,6 @@ impl JSValue {
     /// if the value is a user class instance, returns the opaque pointer if available
     pub fn opaque(&self) -> Option<NonNull<c_void>> {
         self.as_object()?.opaque()
-    }
-
-    pub fn opaque_ref<T>(&self) -> Option<&T> {
-        self.as_object()?.opaque_ref::<T>()
     }
 }
 

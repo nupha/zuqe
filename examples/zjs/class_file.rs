@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     io::{Read, Write},
 };
 
@@ -46,12 +46,20 @@ fn get_file_fd<'a>(
     ctx: &mut ScopedContext,
     val: &'a JSValue,
 ) -> Result<&'a RefCell<FileDesc>, i32> {
-    val.as_native_object::<JSFile>()
-        .and_then(|o| o.payload())
-        .ok_or_else(|| {
-            ctx.throw_type_error("not a File instance");
-            -1
-        })
+    let file = val.as_native_object::<JSFile>().ok_or_else(|| {
+        ctx.throw_type_error("not a File instance");
+        -1
+    })?;
+    let payload = file.payload().ok_or_else(|| {
+        ctx.throw_type_error("not a File instance");
+        -1
+    })?;
+
+    // SAFETY: `file` is a Copy of the object pointer stored inside `val`, and the
+    // `RefCell<FileDesc>` payload lives in the GC heap reachable through that
+    // pointer, so the reference stays valid for the lifetime of `val` (`'a`). We
+    // only rebind the lifetime past the temporary `file` borrow.
+    Ok(unsafe { std::mem::transmute::<&RefCell<FileDesc>, &'a RefCell<FileDesc>>(payload) })
 }
 
 fn js_file_fileno(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -194,8 +202,8 @@ fn js_file_flush(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_file_close(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut this = cc.this();
-    let jsfile = this.as_native_object_mut::<JSFile>().ok_or_else(|| {
+    let this = cc.this();
+    let mut jsfile = this.as_native_object::<JSFile>().ok_or_else(|| {
         ctx.throw_type_error("not a File instance");
         -1
     })?;

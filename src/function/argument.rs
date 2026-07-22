@@ -32,7 +32,7 @@ pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) ->
         ctx,
         Atom::CONST_length,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        JSProperty::Normal(JSValue::Int(values.len() as i32)),
+        JSProperty::Normal(JSValue::from(values.len() as i32)),
     )
     .unwrap();
 
@@ -75,7 +75,7 @@ pub(crate) fn build_arg_list(
     ctx: &mut ScopedContext,
     array_arg: JSValue,
 ) -> Result<Box<[JSValue]>, i32> {
-    let Some(array_arg) = array_arg.as_object().copied() else {
+    let Some(array_arg) = array_arg.as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };

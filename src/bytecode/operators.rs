@@ -159,7 +159,7 @@ pub(super) fn js_op_define_class_for_arena(
     let mut proto = ctx.create_base_object_with_proto(parent_proto)?;
     let mut ctor = bc.make_closure_for_arena(
         ctx,
-        parent_class.to_object(),
+        parent_class.as_object(),
         captured_vars,
         arena,
         parent_frame_idx,
@@ -252,8 +252,8 @@ pub(super) fn js_method_set_properties(
 
     func_obj.define_property_value(ctx, Atom::CONST_name, name_str.into(), JS_PROP_CONFIGURABLE)?;
 
-    if let Some(fo) = func_obj.as_object_BCWrapper_mut() {
-        fo.method_set_home_object(home_obj.as_object().copied());
+    if let Some(mut fo) = func_obj.as_object_BCWrapper() {
+        fo.method_set_home_object(home_obj.as_object());
     }
 
     Ok(())
@@ -314,7 +314,8 @@ pub(super) unsafe fn js_append_enumerate(
     {
         // fast path: fast array
         if src.is_fast_array()
-            && let Some(arr_data) = src.as_object_Array().map(|a| a.payload())
+            && let Some(ob) = src.as_object_Array()
+            && let arr_data = ob.payload()
             && arr_data.len() == len
         {
             for v in arr_data.values() {
@@ -363,7 +364,7 @@ pub(super) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
     let mut enum_obj = unsafe {
         let v = &mut *sp.offset(-1);
         debug_assert!(v.is_object());
-        *v.as_object_unchecked()
+        v.as_object_unchecked()
     };
 
     let mut ob2 = enum_obj;
@@ -522,7 +523,7 @@ pub(super) unsafe fn js_for_of_next(
     let mut value: JSValue = JSValue::UNDEFINED;
     let mut done = true;
 
-    if let Some(&iter_obj) = unsafe { *sp.offset(base as isize) }.as_object() {
+    if let Some(iter_obj) = unsafe { *sp.offset(base as isize) }.as_object() {
         if let Ok((v, d)) = ObjectIter::fetch_next(
             ctx,
             iter_obj,

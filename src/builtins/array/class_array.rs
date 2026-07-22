@@ -1045,7 +1045,7 @@ pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let mut n = 0;
 
     // Special case fast arrays
-    if let Some(arr1) = res_arr.as_object_Array_mut()
+    if let Some(mut arr1) = res_arr.as_object_Array()
         && arr1.is_fast_array()
         && obj.is_fast_array()
         && let Some(arr_data) = obj.payload_mut().array_mut()

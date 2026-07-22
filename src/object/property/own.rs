@@ -202,7 +202,7 @@ impl ObjectImpl {
                 // first prop must be `length`
                 let prs_flags = arr_obj
                     .shape()
-                    .and_then(|sh| sh.prop_defs.first().copied())
+                    .and_then(|sh| sh.prop_defs.first())
                     .map(|p| p.flags())
                     .unwrap(); // <-- prop length must exist.
 
@@ -406,12 +406,12 @@ impl ObjectImpl {
                     // getset property
                     JSProperty::GetSet {
                         getter: if flags & JS_PROP_HAS_GET != 0 && getter.is_callable() {
-                            getter.as_object().copied()
+                            getter.as_object()
                         } else {
                             None
                         },
                         setter: if flags & JS_PROP_HAS_SET != 0 && setter.is_callable() {
-                            setter.as_object().copied()
+                            setter.as_object()
                         } else {
                             None
                         },

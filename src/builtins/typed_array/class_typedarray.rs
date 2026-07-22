@@ -132,7 +132,7 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
                 }
             };
 
-            TypedArray::create_from(ctx, new_target, (*p).into(), offset, len, class_id as _)
+            TypedArray::create_from(ctx, new_target, p.into(), offset, len, class_id as _)
         } else {
             TypedArray::create_from(ctx, new_target, cc.arg(0), 0, 0, class_id as _)
         }
@@ -328,7 +328,7 @@ fn js_typed_array_set_internal(
     offset: &JSValue,
 ) -> JSResult {
     // don't change order
-    let Some(mut dest) = dst.as_object_TypedArray().copied() else {
+    let Some(mut dest) = dst.as_object_TypedArray() else {
         ctx.throw_type_error("not a TypedArray");
         return Err(-1);
     };
@@ -491,7 +491,7 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
 
     // we are sure cc.this() is a TypedArray
-    let mut ta = *cc.this().as_object_TypedArray().unwrap();
+    let mut ta = cc.this().as_object_TypedArray().unwrap();
 
     let shift = TypedArray::SIZE_LOG2(ta.class_id());
     let val = cc.arg(0);
@@ -671,7 +671,7 @@ fn js_typed_array_find(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_typed_array_reverse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let len = js_typed_array_get_length_internal(ctx, cc.this())?;
     if len > 0 {
-        let mut ta = *cc.this().as_object_TypedArray().unwrap();
+        let mut ta = cc.this().as_object_TypedArray().unwrap();
 
         macro_rules! swap_slice {
             ($ty:ident, $shift:expr) => {
@@ -758,7 +758,7 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             return Err(-1);
         }
 
-        let Some(mut dst) = arr.as_object_TypedArray().copied() else {
+        let Some(mut dst) = arr.as_object_TypedArray() else {
             ctx.throw_type_error("not a TypedArray");
             return Err(-1);
         };
@@ -824,7 +824,7 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_typed_array_subarray(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
 
-    let Some(ta) = this.as_object_TypedArray().copied() else {
+    let Some(ta) = this.as_object_TypedArray() else {
         ctx.throw_type_error("not a TypedArray");
         return Err(-1);
     };
@@ -1025,7 +1025,7 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                         )
                     };
 
-                    if let Some(cmp) = cmp.to_object() {
+                    if let Some(cmp) = cmp.as_object() {
                         let mut has_error = false;
                         slice.sort_by(|a, b| {
                             if !has_error {
@@ -1075,7 +1075,7 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     let mut vec: Vec<f32> =
                         (0..len).map(|i| f16_to_f64(*p.add(i)) as f32).collect();
 
-                    if let Some(cmp_fn) = cmp.to_object() {
+                    if let Some(cmp_fn) = cmp.as_object() {
                         let mut has_error = false;
                         vec.sort_by(|a, b| {
                             if !has_error {
@@ -1112,7 +1112,7 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<f32>(), buf.len() >> 2)
                 };
 
-                if let Some(cmp_fn) = cmp.to_object() {
+                if let Some(cmp_fn) = cmp.as_object() {
                     let mut has_error = false;
                     slice.sort_by(|a, b| {
                         if !has_error {
@@ -1143,7 +1143,7 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<f64>(), buf.len() >> 3)
                 };
 
-                if let Some(cmp_fn) = cmp.to_object() {
+                if let Some(cmp_fn) = cmp.as_object() {
                     let mut has_error = false;
                     slice.sort_by(|a, b| {
                         if !has_error {
@@ -1183,7 +1183,7 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_typed_array_toSorted(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let Some(p) = cc.this().as_object_TypedArray().copied() else {
+    let Some(p) = cc.this().as_object_TypedArray() else {
         ctx.throw_type_error("not a TypedArray");
         return Err(-1);
     };
@@ -1290,7 +1290,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         inc = 1;
     }
 
-    let ta = *cc.this().as_object_TypedArray().unwrap();
+    let ta = cc.this().as_object_TypedArray().unwrap();
     let mut res = -1;
 
     if ta.is_detached() {

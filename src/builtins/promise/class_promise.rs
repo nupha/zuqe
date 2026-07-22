@@ -20,7 +20,7 @@ use super::{
 
 fn js_promise_then(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut this = cc.this();
-    if let Some(p) = this.as_object_Promise_mut() {
+    if let Some(mut p) = this.as_object_Promise() {
         p.then(ctx, cc.arg(0), cc.arg(1)).map(|p| p.into())
     } else {
         ctx.throw_type_error_invalid_class(JS_CLASS_PROMISE);

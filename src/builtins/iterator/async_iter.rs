@@ -315,7 +315,11 @@ impl AsyncIterableIterator {
 fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
 
-    let Some(ait) = this.as_object().and_then(|o| o.payload().async_iterator()) else {
+    let Some(o) = this.as_object() else {
+        ctx.throw_type_error("not an AsyncIterableIterator");
+        return Err(-1);
+    };
+    let Some(ait) = o.payload().async_iterator() else {
         ctx.throw_type_error("not an AsyncIterableIterator");
         return Err(-1);
     };
@@ -356,14 +360,13 @@ fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 fn js_async_iterator_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut this = cc.this();
 
-    if let Some(ait) = this
-        .as_object_mut()
-        .and_then(|obj| obj.payload_mut().async_iterator_mut())
-    {
-        ait.set_completed();
+    if let Some(obj) = this.as_object_mut() {
+        if let Some(ait) = obj.payload_mut().async_iterator_mut() {
+            ait.set_completed();
 
-        if let Some(fetcher) = ait.fetcher.take() {
-            fetcher.close();
+            if let Some(fetcher) = ait.fetcher.take() {
+                fetcher.close();
+            }
         }
     }
 

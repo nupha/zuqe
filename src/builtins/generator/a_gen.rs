@@ -454,7 +454,7 @@ impl AsyncGeneratorFunction {
             async_state: AsyncState::new(
                 ctx,
                 [const { JSValue::UNDEFINED }; 2],
-                func_obj.as_object_BCWrapper().copied().unwrap(),
+                func_obj.as_object_BCWrapper().unwrap(),
                 this_obj,
                 args,
             )?,
@@ -519,7 +519,7 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
     let is_reject = cc.magic() & 1 != 0;
 
     let arg = cc.arg(0);
-    let mut data0 = *cc.data(0).as_object().unwrap();
+    let mut data0 = cc.data(0).as_object().unwrap();
     if let ObjectPayload::ASYNC_GENERATOR(s) = data0.payload_mut() {
         if cc.magic() >= 2 {
             // resume next case in AWAITING_RETURN state

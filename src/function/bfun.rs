@@ -286,7 +286,9 @@ pub(crate) fn get_func_name(func_obj: Object) -> Option<String> {
     if let Some((idx, prs_flags)) = func_obj.find_shape_property(Atom::CONST_name)
         && prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL
     {
-        if let JSProperty::Normal(JSValue::String(s)) = func_obj.prop_slot(idx) {
+        if let JSProperty::Normal(v) = func_obj.prop_slot(idx)
+            && let Some(s) = v.as_string()
+        {
             return Some(s.content().encode_utf8(false).into_owned());
         } else {
             #[cfg(debug_assertions)]
@@ -311,7 +313,7 @@ pub(crate) fn js_function_set_properties(
     let _ = func_obj.define_property_value(
         ctx,
         Atom::CONST_length,
-        JSValue::Int(len),
+        JSValue::from(len),
         JS_PROP_CONFIGURABLE, // ES6 feature non-compatible with ES5.1: length is configurable
     );
 

@@ -45,9 +45,8 @@ impl BoundFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        if let ObjectPayload::BOUND_FUNCTION(bf) =
-            unsafe { func_obj.as_object_unchecked().payload() }
-        {
+        let o = unsafe { func_obj.as_object_unchecked() };
+        if let Some(bf) = o.payload().bound_function() {
             let arg_count = bf.bind_args.len() + args.len();
 
             // if js_check_stack_overflow(ctx.rt_ref(), std::mem::size_of::<JSValue>() * arg_count) {
@@ -105,10 +104,10 @@ impl BoundFunction {
             .get_own_property(ctx, Atom::CONST_length)?
             .is_none()
         {
-            JSValue::Int(0)
+            JSValue::from(0)
         } else {
             match func_obj.get_property(ctx, Atom::CONST_length)? {
-                JSValue::Int(n) => JSValue::Int(std::cmp::max(0, n - arg_count as i32)),
+                JSValue::Int(n) => JSValue::from(std::cmp::max(0, n - arg_count as i32)),
                 JSValue::Float64(mut d) => {
                     if d.is_nan() {
                         d = 0.0;
@@ -122,14 +121,14 @@ impl BoundFunction {
                     }
                     JSValue::from(d)
                 }
-                _ => JSValue::Int(0),
+                _ => JSValue::from(0),
             }
         };
         bound.define_property_value(ctx, Atom::CONST_length, len_val, JS_PROP_CONFIGURABLE)?;
 
         // set bound function name property
         let name: StringRef =
-            if let JSValue::String(s) = func_obj.get_property(ctx, Atom::CONST_name)? {
+            if let Some(s) = func_obj.get_property(ctx, Atom::CONST_name)?.as_string() {
                 s
             } else {
                 Atom::CONST_empty_string.force_string(ctx)?

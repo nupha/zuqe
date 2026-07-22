@@ -44,14 +44,15 @@ fn extract_import_attrs(ctx: &mut ScopedContext, options: JSValue) -> JSResult {
         return Ok(JSValue::UNDEFINED);
     }
 
-    let attrs = match options.get_property_str(ctx, "with") {
-        Ok(v) if v.is_object() => v,
-        Ok(JSValue::UNDEFINED) | Ok(JSValue::NULL) => return Ok(JSValue::UNDEFINED),
-        Ok(_) => {
+    let attrs = match options.get_property_str(ctx, "with")? {
+        v if v.is_object() => v,
+        v if v.is_undefined_or_null() => {
+            return Ok(JSValue::UNDEFINED);
+        }
+        _ => {
             ctx.throw_type_error("import() options.with must be an object");
             return Err(-1);
         }
-        Err(_) => return Err(-1),
     };
 
     let mut obj = Object::try_from(attrs).map_err(|_| {
@@ -129,7 +130,7 @@ fn js_dynamic_import_job(
     name: JSValue,
     attrs: JSValue,
 ) {
-    let r = if let JSValue::String(base) = basename {
+    let r = if let Some(base) = basename.as_string() {
         name.to_string(ctx).map(|nm| {
             js_load_module_internal(
                 ctx,

@@ -173,12 +173,8 @@ impl<'c> ScopedContext<'c> {
             .unwrap();
 
             let et_proto = self.error_protos[i]; // <-- this was initialized in core
-            self.add_global_constructor(
-                name,
-                func_obj.into(),
-                et_proto.as_object().copied().unwrap(),
-            )
-            .unwrap();
+            self.add_global_constructor(name, func_obj.into(), et_proto.as_object().unwrap())
+                .unwrap();
         }
     }
 
@@ -227,7 +223,7 @@ impl<'c> ScopedContext<'c> {
             ];
             let mut obj1 = self.create_base_object_with_proto(None).unwrap();
             for s in unscopables {
-                obj1.define_property_value_str(self, s, JSValue::Bool(true), JS_PROP_C_W_E)
+                obj1.define_property_value_str(self, s, true.into(), JS_PROP_C_W_E)
                     .unwrap();
             }
 
@@ -255,7 +251,7 @@ impl<'c> ScopedContext<'c> {
         let mut proto = self
             .create_instance_with_proto_payload(
                 self.class_proto(JS_CLASS_OBJECT),
-                ObjectPayload::NUMBER(JSValue::Int(0)),
+                ObjectPayload::NUMBER(0.into()),
             )
             .unwrap();
         proto.install_fields(self, js_number_proto_funcs).unwrap();

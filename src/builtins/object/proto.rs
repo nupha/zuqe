@@ -43,7 +43,7 @@ pub(crate) fn js_object_hasOwnProperty(ctx: &mut ScopedContext, cc: CallContext)
 pub(crate) fn js_object_isPrototypeOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(ctor) = cc.arg(0).as_object() {
         let obj = cc.this().objectify(ctx)?;
-        let mut cur_obj = *ctor;
+        let mut cur_obj = ctor;
 
         let b = loop {
             if let Some(p) = cur_obj.prototype(ctx)? {

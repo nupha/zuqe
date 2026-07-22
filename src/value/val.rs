@@ -43,8 +43,9 @@ impl JSValue {
         self.gc_node_ptr().map(|n| unsafe { n.as_ref() })
     }
 
+    #[deprecated(note = "use ensure_object() instead")]
     pub fn into_object(self, ctx: &mut ScopedContext) -> Result<Object, i32> {
-        if let Some(o) = self.as_object().copied() {
+        if let Some(o) = self.as_object() {
             Ok(o)
         } else {
             ctx.throw_type_error_not_an_object();
@@ -53,7 +54,7 @@ impl JSValue {
     }
 
     /// Convert value `self` to object, raise exception if value is not an object.
-    pub fn ensure_object(&self, ctx: &mut ScopedContext) -> Result<&Object, i32> {
+    pub fn ensure_object(&self, ctx: &mut ScopedContext) -> Result<Object, i32> {
         if let Some(o) = self.as_object() {
             Ok(o)
         } else {
@@ -63,7 +64,7 @@ impl JSValue {
     }
 
     // Convert value `self` to callable object, raise exception if value is not a callable object.
-    pub fn ensure_callable(&self, ctx: &mut ScopedContext) -> Result<&Object, i32> {
+    pub fn ensure_callable(&self, ctx: &mut ScopedContext) -> Result<Object, i32> {
         self.ensure_object(ctx).and_then(|o| {
             if o.is_callable() {
                 Ok(o)
@@ -75,8 +76,9 @@ impl JSValue {
     }
 
     /// Convert value `self` to callable object, consuming self, raise exception if value is not an object.
+    #[deprecated(note = "use ensure_callable() instead")]
     pub fn into_callable(self, ctx: &mut ScopedContext) -> Result<Object, i32> {
-        self.into_object(ctx).and_then(|o| {
+        self.ensure_object(ctx).and_then(|o| {
             if o.is_callable() {
                 Ok(o)
             } else {

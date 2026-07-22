@@ -92,7 +92,7 @@ impl ObjectImpl {
         proto_val: JSValue,
         throw_flag: bool,
     ) -> Result<bool, i32> {
-        let proto = if let Some(&p) = proto_val.as_object() {
+        let proto = if let Some(p) = proto_val.as_object() {
             Some(p)
         } else if proto_val.is_null() {
             None

@@ -28,50 +28,47 @@ impl ObjectImpl {
             return self.instance_of(ctx, b.func_obj.into());
         }
 
-        match ctor.get_property(ctx, Atom::CONST_prototype)? {
-            JSValue::Object(proto) => {
-                let mut p = Object::from_ref(self);
-                loop {
-                    if let Some(up) = p.shape().unwrap().proto {
-                        if up == proto {
-                            break Ok(true);
-                        }
-                        p = up;
-                    } else {
-                        let r = {
-                            #[cfg(feature = "builtin_proxy")]
-                            if p.class_id() == crate::JS_CLASS_PROXY {
-                                // slow case if proxy in the prototype chain
-                                let mut obj1 = p;
-                                'px_proto: loop {
-                                    if let Some(o) = obj1.prototype(ctx)? {
-                                        if proto == o {
-                                            break Ok(true);
-                                        }
-                                        obj1 = o;
+        let Some(proto) = ctor.get_property(ctx, Atom::CONST_prototype)?.as_object() else {
+            ctx.throw_type_error("operand 'prototype' property is not an object");
+            return Err(-1);
+        };
 
-                                        // check to avoid infinite loop
-                                        if ctx.poll_interrupts() {
-                                            return Err(-1);
-                                        }
-                                    } else {
-                                        break 'px_proto Ok(false);
-                                    }
+        let mut p = Object::from_ref(self);
+        loop {
+            if let Some(up) = p.shape().unwrap().proto {
+                if up == proto {
+                    break Ok(true);
+                }
+                p = up;
+            } else {
+                let r = {
+                    #[cfg(feature = "builtin_proxy")]
+                    if p.class_id() == crate::JS_CLASS_PROXY {
+                        // slow case if proxy in the prototype chain
+                        let mut obj1 = p;
+                        'px_proto: loop {
+                            if let Some(o) = obj1.prototype(ctx)? {
+                                if proto == o {
+                                    break Ok(true);
+                                }
+                                obj1 = o;
+
+                                // check to avoid infinite loop
+                                if ctx.poll_interrupts() {
+                                    return Err(-1);
                                 }
                             } else {
-                                Ok(false)
+                                break 'px_proto Ok(false);
                             }
-
-                            #[cfg(not(feature = "builtin_proxy"))]
-                            Ok(false)
-                        };
-                        break r;
+                        }
+                    } else {
+                        Ok(false)
                     }
-                }
-            }
-            _ => {
-                ctx.throw_type_error("operand 'prototype' property is not an object");
-                Err(-1)
+
+                    #[cfg(not(feature = "builtin_proxy"))]
+                    Ok(false)
+                };
+                break r;
             }
         }
     }

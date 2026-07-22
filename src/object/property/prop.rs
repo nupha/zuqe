@@ -189,7 +189,7 @@ impl JSPropertyDescriptor {
     #[inline]
     pub(crate) fn from_value(ctx: &mut ScopedContext, desc: JSValue) -> Result<Self, i32> {
         if let Some(o) = desc.as_object() {
-            Self::parse(ctx, *o)
+            Self::parse(ctx, o)
         } else {
             ctx.throw_type_error_not_an_object();
             Err(-1)
@@ -451,9 +451,9 @@ impl JSValue {
     ) -> Result<(), i32> {
         if let Some(src_obj) = source.as_object() {
             if let Some(o) = self.as_object_mut() {
-                o.copy_data_properties_from(ctx, *src_obj, excluded.as_object().copied(), setprop)
+                o.copy_data_properties_from(ctx, src_obj, excluded.as_object(), setprop)
             } else if let Some(p) = self.get_prototype_primitive(ctx).as_object_mut() {
-                p.copy_data_properties_from(ctx, *src_obj, excluded.as_object().copied(), setprop)
+                p.copy_data_properties_from(ctx, src_obj, excluded.as_object(), setprop)
             } else {
                 ctx.throw_type_error_not_an_object();
                 Err(-1)

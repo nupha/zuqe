@@ -660,6 +660,6 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
 }
 
 pub(crate) fn js_promise_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let exec_func = *cc.arg(0).ensure_callable(ctx)?;
+    let exec_func = cc.arg(0).ensure_callable(ctx)?;
     Promise::create_with_executor(ctx, exec_func, cc.this()).map(|p| p.into())
 }

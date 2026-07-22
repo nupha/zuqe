@@ -318,7 +318,7 @@ impl ModuleDef {
                     match cur_module.execute_async_module(ctx) {
                         Ok(()) => {}
                         Err(e) => {
-                            result = Err(JSValue::Int(e));
+                            result = Err(JSValue::from(e));
                             break;
                         }
                     }
@@ -403,7 +403,7 @@ impl ModuleDef {
             0,
             0,
             ctx.function_proto(),
-            Some([JSValue::Module(*self)].into()),
+            Some([JSValue::from(*self)].into()),
         )?;
         let fail = NativeFunction::create(
             ctx,
@@ -412,7 +412,7 @@ impl ModuleDef {
             0,
             0,
             ctx.function_proto(),
-            Some([JSValue::Module(*self)].into()),
+            Some([JSValue::from(*self)].into()),
         )?;
         promise.then(ctx, success.into(), fail.into())?;
 
@@ -463,7 +463,7 @@ impl ModuleDef {
                                 JSValue::UNDEFINED,
                                 std::slice::from_ref(&e),
                                 0,
-                                Some(&mut [JSValue::Module(m)]),
+                                Some(&mut [JSValue::from(m)]),
                             ),
                         )?;
                     }
@@ -513,7 +513,7 @@ impl ModuleDef {
                     JSValue::UNDEFINED,
                     std::slice::from_ref(&err_val),
                     0,
-                    Some(&mut [JSValue::Module(*m)]),
+                    Some(&mut [JSValue::from(*m)]),
                 ),
             )
             .unwrap();

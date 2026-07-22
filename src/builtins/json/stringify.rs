@@ -319,7 +319,7 @@ fn js_json_to_str(
                         -1
                     })?;
                     for (key, _) in kvs {
-                        lst.push(StringRef::try_from(key).unwrap());
+                        lst.push(key.as_string().unwrap());
                     }
                     lst.into()
                 };

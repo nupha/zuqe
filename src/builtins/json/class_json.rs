@@ -85,7 +85,7 @@ fn internalize_json_property(
         .and_then(|pr| pr.find_child(name))
         .filter(|pr| pr.value.is_same(val));
 
-    if let Some(mut o) = val.as_object().copied() {
+    if let Some(mut o) = val.as_object() {
         let is_array = o.is_array(ctx)?;
         let len: u32;
         let pks: Box<[PropertyKey]>;
@@ -132,7 +132,7 @@ fn internalize_json_property(
                 .get_unchecked(..pr.source_len as usize)
         };
         let source_val = JSValue::from(ctx.create_string_from_str(source_slice)?);
-        let mut context_obj = context.as_object().copied().unwrap();
+        let mut context_obj = context.as_object().unwrap();
         context_obj.define_property_value(ctx, Atom::CONST_source, source_val, JS_PROP_C_W_E)?;
     }
 

@@ -41,7 +41,7 @@ pub(crate) fn js_object_create(ctx: &mut ScopedContext, cc: CallContext) -> JSRe
         return Err(-1);
     }
 
-    let mut obj = ctx.create_base_object_with_proto(proto.as_object().cloned())?;
+    let mut obj = ctx.create_base_object_with_proto(proto.as_object())?;
 
     let props = cc.arg(1);
     if !props.is_undefined() {
@@ -74,7 +74,7 @@ pub(crate) fn js_object_defineProperty(ctx: &mut ScopedContext, cc: CallContext)
     let prop = cc.arg(1);
     let desc = cc.arg(2);
 
-    if let Some(mut obj) = cc.arg(0).as_object().copied() {
+    if let Some(mut obj) = cc.arg(0).as_object() {
         let atom = prop.to_atom(ctx)?;
 
         // magic = 1: Reflect.defineProperty, don't throw on failure
@@ -98,7 +98,7 @@ pub(crate) fn js_object_defineProperty(ctx: &mut ScopedContext, cc: CallContext)
 /// defineProperties(obj, properties)
 pub(crate) fn js_object_defineProperties(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0);
-    if let Some(mut o) = obj.as_object().copied() {
+    if let Some(mut o) = obj.as_object() {
         let arg1 = cc.arg(1);
         o.define_properties(ctx, arg1)?;
         Ok(o.into())
@@ -254,7 +254,7 @@ pub(crate) fn js_object_preventExtensions(ctx: &mut ScopedContext, cc: CallConte
     let reflect = cc.magic() != 0;
 
     let arg = cc.arg(0);
-    if let Some(mut obj) = arg.as_object().copied() {
+    if let Some(mut obj) = arg.as_object() {
         let ret = obj.prevent_extensions(ctx)?;
 
         if reflect {
@@ -282,7 +282,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(
     let mut obj = if reflect {
         // Reflect.getOwnPropertyDescriptor
         if let Some(p) = cc.arg(0).as_object() {
-            *p
+            p
         } else {
             ctx.throw_type_error_not_an_object();
             return Err(-1);

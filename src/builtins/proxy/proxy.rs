@@ -374,12 +374,16 @@ fn js_proxy_call_constructor(
 
 fn js_proxy_get_own_property(
     ctx: &mut ScopedContext,
-    mut obj: JSValue,
+    obj: JSValue,
     prop: Atom,
 ) -> Result<Option<JSPropertyDescriptor>, i32> {
-    let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
+    let Some(mut ob) = obj.as_object_Proxy() else {
+        #[cfg(debug_assertions)]
+        unreachable!("must be a Proxy object");
+        #[cfg(not(debug_assertions))]
         return Err(-1);
     };
+    let px = ob.payload_mut();
 
     let method = px.get_proxy_method(ctx, Atom::CONST_getOwnPropertyDescriptor)?;
     if method.is_undefined() {
@@ -395,7 +399,7 @@ fn js_proxy_get_own_property(
 
     let target_desc = px.target.get_own_property(ctx, prop)?;
 
-    if let Some(&trap_result_obj) = trap_result_obj.as_object() {
+    if let Some(trap_result_obj) = trap_result_obj.as_object() {
         let result_desc = JSPropertyDescriptor::parse(ctx, trap_result_obj)?;
 
         if let Some(target_desc) = &target_desc {
@@ -455,19 +459,22 @@ fn js_proxy_get_own_property(
 
 fn js_proxy_define_own_property(
     ctx: &mut ScopedContext,
-    mut obj: JSValue,
+    obj: JSValue,
     prop: Atom,
     value: JSValue,
     getter: JSValue,
     setter: JSValue,
     flags: i32,
 ) -> Result<bool, i32> {
-    let flags = flags as u32;
-
-    let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
+    let Some(mut ob) = obj.as_object_Proxy() else {
+        #[cfg(debug_assertions)]
+        unreachable!("must be a Proxy object");
+        #[cfg(not(debug_assertions))]
         return Err(-1);
     };
+    let px = ob.payload_mut();
 
+    let flags = flags as u32;
     let method = px.get_proxy_method(ctx, Atom::CONST_defineProperty)?;
     if method.is_undefined() {
         return {
@@ -556,12 +563,16 @@ fn js_proxy_define_own_property(
 
 fn js_proxy_delete_property(
     ctx: &mut ScopedContext,
-    mut obj: JSValue,
+    obj: JSValue,
     atom: Atom,
 ) -> Result<bool, i32> {
-    let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
+    let Some(mut ob) = obj.as_object_Proxy() else {
+        #[cfg(debug_assertions)]
+        unreachable!("must be a Proxy object");
+        #[cfg(not(debug_assertions))]
         return Err(-1);
     };
+    let px = ob.payload_mut();
 
     let method = px.get_proxy_method(ctx, Atom::CONST_deleteProperty)?;
     if method.is_undefined() {
@@ -712,15 +723,14 @@ fn js_proxy_has(ctx: &mut ScopedContext, mut obj: Object, atom: Atom) -> Result<
     Ok(ret)
 }
 
-fn js_proxy_get(
-    ctx: &mut ScopedContext,
-    mut obj: JSValue,
-    atom: Atom,
-    receiver: JSValue,
-) -> JSResult {
-    let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
+fn js_proxy_get(ctx: &mut ScopedContext, obj: JSValue, atom: Atom, receiver: JSValue) -> JSResult {
+    let Some(mut ob) = obj.as_object_Proxy() else {
+        #[cfg(debug_assertions)]
+        unreachable!("must be a Proxy object");
+        #[cfg(not(debug_assertions))]
         return Err(-1);
     };
+    let px = ob.payload_mut();
 
     let method = px.get_proxy_method(ctx, Atom::CONST_get)?;
     // Note: recursion is possible thru the prototype of s.target
@@ -751,15 +761,19 @@ fn js_proxy_get(
 
 fn js_proxy_set(
     ctx: &mut ScopedContext,
-    mut obj: JSValue,
+    obj: JSValue,
     atom: Atom,
     value: JSValue,
     receiver: JSValue,
     flags: i32,
 ) -> Result<bool, i32> {
-    let Some(px) = obj.as_object_Proxy_mut().map(|x| x.payload_mut()) else {
+    let Some(mut ob) = obj.as_object_Proxy() else {
+        #[cfg(debug_assertions)]
+        unreachable!("must be a Proxy object");
+        #[cfg(not(debug_assertions))]
         return Err(-1);
     };
+    let px = ob.payload_mut();
 
     let method = px.get_proxy_method(ctx, Atom::CONST_set)?;
     if method.is_undefined() {
@@ -820,10 +834,10 @@ fn js_proxy_get_prototype(ctx: &mut ScopedContext, obj: JSValue) -> Result<JSVal
 
 fn js_proxy_set_prototype(
     ctx: &mut ScopedContext,
-    mut obj: JSValue,
+    obj: JSValue,
     proto_val: JSValue,
 ) -> Result<bool, i32> {
-    if let Some(s) = obj.as_object_Proxy_mut() {
+    if let Some(mut s) = obj.as_object_Proxy() {
         s.set_prototype_of(ctx, proto_val, false)
     } else {
         Err(-1)

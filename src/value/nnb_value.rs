@@ -88,6 +88,8 @@ impl From<Object> for JSValue {
 }
 
 impl JSValue {
+    pub const NAN: Self = Self::Float64(f64::NAN);
+
     #[inline(always)]
     pub const fn is_exception(&self) -> bool {
         matches!(self, Self::EXCEPTION)
@@ -352,19 +354,19 @@ impl JSValue {
         .map_or(Self::NULL, Self::from)
     }
 
-    pub fn as_string(&self) -> Option<&StringRef> {
+    pub fn as_string(&self) -> Option<StringRef> {
         match self {
-            Self::String(s) => Some(s),
-            Self::Object(o) if o.class_id() == JS_CLASS_STRING => o.payload().string(),
+            Self::String(s) => Some(*s),
+            Self::Object(o) if o.class_id() == JS_CLASS_STRING => o.payload().string().copied(),
             _ => None,
         }
     }
 
     /// for Symbol value or Symbol object, returns its StringRef descriptor
-    pub fn as_symbol(&self) -> Option<&StringRef> {
+    pub fn as_symbol(&self) -> Option<StringRef> {
         match self {
-            Self::Symbol(s) => Some(s),
-            Self::Object(o) if o.class_id() == JS_CLASS_SYMBOL => o.payload().string(),
+            Self::Symbol(s) => Some(*s),
+            Self::Object(o) if o.class_id() == JS_CLASS_SYMBOL => o.payload().string().copied(),
             _ => None,
         }
     }
@@ -379,9 +381,9 @@ impl JSValue {
     }
 
     #[inline]
-    pub const fn as_object(&self) -> Option<&Object> {
+    pub const fn as_object(&self) -> Option<Object> {
         if let Self::Object(o) = self {
-            Some(o)
+            Some(*o)
         } else {
             None
         }
@@ -397,53 +399,27 @@ impl JSValue {
     }
 
     #[inline]
-    pub unsafe fn as_object_unchecked(&self) -> &Object {
+    pub(crate) unsafe fn as_object_unchecked(&self) -> Object {
         if let Self::Object(o) = self {
-            o
+            *o
         } else {
-            #[cfg(debug_assertions)]
             unreachable!("{self:?}");
-            #[cfg(not(debug_assertions))]
-            unsafe {
-                std::hint::unreachable_unchecked();
-            }
         }
     }
 
-    #[inline]
-    pub unsafe fn as_object_mut_unchecked(&mut self) -> &mut Object {
-        if let Self::Object(o) = self {
-            o
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!("{self:?}");
-            #[cfg(not(debug_assertions))]
-            unsafe {
-                std::hint::unreachable_unchecked();
-            }
-        }
-    }
-
-    #[inline]
-    pub const fn to_object(self) -> Option<Object> {
-        if let Self::Object(o) = self {
-            Some(o)
+    pub fn as_bytecode(&self) -> Option<Bytecode> {
+        if let Self::Bytecode(b) = self {
+            Some(*b)
         } else {
             None
         }
     }
 
-    #[inline]
-    pub unsafe fn to_object_unchecked(self) -> Object {
-        if let Self::Object(o) = self {
-            o
+    pub(crate) unsafe fn as_bytecode_unchecked(&self) -> Bytecode {
+        if let Self::Bytecode(b) = self {
+            *b
         } else {
-            #[cfg(debug_assertions)]
             unreachable!("{self:?}");
-            #[cfg(not(debug_assertions))]
-            unsafe {
-                std::hint::unreachable_unchecked();
-            }
         }
     }
 

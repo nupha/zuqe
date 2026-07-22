@@ -68,7 +68,7 @@ fn js_string_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 .force_string(ctx)
                 .map(JSValue::from),
             1 => Ok(JSValue::UNDEFINED),
-            2 => Ok(JSValue::Float64(f64::NAN)),
+            2 => Ok(JSValue::NAN),
             _ => unreachable!(),
         }
     } else {
@@ -805,7 +805,7 @@ fn js_string_toString(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValu
 
 #[inline]
 fn js_thisStringValue(ctx: &mut ScopedContext, this_val: JSValue) -> Result<StringRef, i32> {
-    this_val.as_string().cloned().ok_or_else(|| {
+    this_val.as_string().ok_or_else(|| {
         ctx.throw_type_error("not a string");
         -1
     })

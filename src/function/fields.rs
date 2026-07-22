@@ -326,13 +326,13 @@ impl ObjectImpl {
             }
 
             FieldDetail::Bool(b) => {
-                val = JSValue::Bool(b);
+                val = JSValue::from(b);
             }
             FieldDetail::Int32(i) => {
-                val = JSValue::Int(i);
+                val = JSValue::from(i);
             }
             FieldDetail::Float64(d) => {
-                val = JSValue::Float64(d);
+                val = JSValue::from(d);
             }
             FieldDetail::Undefined => {
                 val = JSValue::UNDEFINED;
@@ -371,7 +371,7 @@ impl JSValue {
         ctx: &mut ScopedContext,
         entries: &[FieldDef],
     ) -> Result<(), i32> {
-        if let Some(o) = self.as_object_mut() {
+        if let Some(mut o) = self.as_object() {
             o.install_fields(ctx, entries)
         } else {
             ctx.throw_type_error_not_an_object();

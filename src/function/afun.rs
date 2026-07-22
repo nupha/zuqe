@@ -111,7 +111,7 @@ impl AsyncState {
         args: &[JSValue],
         _flags: i32,
     ) -> JSResult {
-        let mut o = unsafe { *func_obj.as_object_unchecked() };
+        let mut o = unsafe { func_obj.as_object_unchecked() };
         let is_reject = o.class_id() == JS_CLASS_ASYNC_FUNCTION_REJECT;
         let a_state = o.payload_mut().async_function_resolving_mut().unwrap();
 

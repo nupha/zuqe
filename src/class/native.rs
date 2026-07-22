@@ -23,24 +23,12 @@ impl Object {
             None
         }
     }
-
-    pub fn as_native_object_mut<O: NativeObject>(&mut self) -> Option<&mut O> {
-        if self.class_id() == O::class_id() {
-            Some(unsafe { std::mem::transmute::<&mut Self, &mut O>(self) })
-        } else {
-            None
-        }
-    }
 }
 
 impl JSValue {
-    pub fn as_native_object<O: NativeObject>(&self) -> Option<&O> {
-        self.as_object().and_then(Object::as_native_object::<O>)
-    }
-
-    pub fn as_native_object_mut<O: NativeObject>(&mut self) -> Option<&mut O> {
-        self.as_object_mut()
-            .and_then(Object::as_native_object_mut::<O>)
+    pub fn as_native_object<O: NativeObject>(&self) -> Option<O> {
+        self.as_object()
+            .and_then(|o| o.as_native_object::<O>().cloned())
     }
 }
 
@@ -152,8 +140,9 @@ macro_rules! def_native_object {
         impl TryFrom<$crate::JSValue> for $native_ty {
             type Error = i32;
 
+            #[inline(always)]
             fn try_from(v: $crate::JSValue) -> Result<Self, Self::Error> {
-                v.as_native_object::<Self>().cloned().ok_or(-1)
+                v.as_native_object::<Self>().ok_or(-1)
             }
         }
 

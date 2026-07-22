@@ -253,7 +253,7 @@ impl FunctionDef {
         last_line_num: i32,
         last_line_pos: u32,
     ) -> Result<(), i32> {
-        if let JSValue::String(ss) = val
+        if let Some(ss) = val.as_string()
             && as_atom
             && let Ok(atom) = {
                 let mut cx = self.ctx.current_scope();

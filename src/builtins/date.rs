@@ -874,12 +874,12 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         1 => {
             if let Some(ts) = cc.arg(0).as_object().and_then(|p| {
                 if let ObjectPayload::DATE(dt) = p.payload() {
-                    Some(dt)
+                    Some(*dt)
                 } else {
                     None
                 }
             }) {
-                *ts
+                ts
             } else {
                 match cc.arg(0).to_primitive(ctx, HINT_NONE)? {
                     JSValue::String(s) => Datetime::parse(&s.content().encode_utf8_bytes(false))
@@ -967,7 +967,7 @@ fn get_date_string(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_date_Symbol_toPrimitive(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // Symbol_toPrimitive(hint)
 
-    let Some(obj) = cc.this().as_object().copied() else {
+    let Some(obj) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };

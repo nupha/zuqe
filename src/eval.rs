@@ -183,11 +183,10 @@ impl<'c> ScopedContext<'c> {
             // the child scope to the parent scope, so it remains LOCAL after
             // child_scope drops. The atoms/cpool targets it references are
             // kept alive via BytecodeImpl::trace thereafter.
-            let bc_val = JSValue::Bytecode(bc);
+            let bc_val = JSValue::from(bc);
             let bc_val = bc_val.promote(&child_scope);
-            let bc = match bc_val {
-                JSValue::Bytecode(b) => b,
-                _ => unreachable!(),
+            let Some(bc) = bc_val.as_bytecode() else {
+                unreachable!();
             };
 
             // child_scope dropped here: atom descriptors / cpool targets that
@@ -209,7 +208,7 @@ impl<'c> ScopedContext<'c> {
         // XXX: Could add a flag to avoid resolution if necessary
         if let Some(mut md) = frame_module {
             // resolve module
-            md.bytecode = JSValue::Bytecode(bc);
+            md.bytecode = JSValue::from(bc);
             md.set_tla(has_await);
             self.resolve_module(md)?;
             Ok(Compiled::Module(md))
@@ -426,7 +425,7 @@ impl JSValue {
         eval_flags: EvalFlags,
         var_scope_idx: i32,
     ) -> JSResult {
-        if let Self::String(s) = self {
+        if let Some(s) = self.as_string() {
             ctx.compile_then_run(
                 this_obj,
                 s.content().encode_utf8_bytes(true).as_ref(),

@@ -242,7 +242,7 @@ impl ObjectImpl {
 
                 if new_target != self_val   // new_target differs from this constructor → called as super()
                    && let Ok(ref mut val) = result
-                        && let Some(obj) = val.as_object_mut()
+                        && let Some(mut obj) = val.as_object ()
                         && let Ok(proto_val) = new_target.get_property(ctx, Atom::CONST_prototype)
                         && proto_val.is_object()
                 {
@@ -254,7 +254,7 @@ impl ObjectImpl {
                     // Non-Object prototypes (null, undefined, etc.) trigger the
                     // intrinsic fallback which call.rs cannot verify (e.g., EvalError
                     // vs Error prototype both share JS_CLASS_ERROR class_id).
-                    let expected_proto = proto_val.as_object().copied();
+                    let expected_proto = proto_val.as_object();
 
                     // Debug mode behavior: panic immediately to force the constructor author to fix it
                     #[cfg(debug_assertions)]
