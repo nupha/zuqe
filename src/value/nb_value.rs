@@ -8,7 +8,7 @@ use std::ptr::NonNull;
 use gc_lite::{GcHead, GcNode, GcRef};
 
 use crate::{
-    Atom, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext,
+    Atom, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL, ScopedContext,
     atom::AtomKind,
     function::{Bytecode, BytecodeImpl},
     number::{JS_DTOA_VAR_FORMAT, JSFloat64Union, f64_stringify},
@@ -283,6 +283,21 @@ impl JSValue {
         }
     }
 
+    /// Returns the underlying [`Object`] handle if this value is an object.
+    ///
+    /// Under NaN-boxing a `JSValue` is a plain `u64`, so there is no inline
+    /// `Object` field to borrow — unlike the enum representation which can hand
+    /// out a `&mut Object`. Instead the object handle is returned by value.
+    /// Since [`Object`] is a `Copy` GC handle, mutating methods invoked on it
+    /// still operate on the same heap-allocated object.
+    pub fn as_object_mut(&mut self) -> Option<Object> {
+        if js_value_get_tag(self.0) == (JSValueTag::Object as i32) {
+            Some(unsafe { self.as_object_unchecked() })
+        } else {
+            None
+        }
+    }
+
     pub fn as_string(&self) -> Option<StringRef> {
         let tag = js_value_get_tag(self.0);
         if tag == (JSValueTag::String as i32) {
@@ -299,6 +314,22 @@ impl JSValue {
         } else {
             None
         }
+    }
+
+    /// for Symbol value or Symbol object, returns its StringRef descriptor
+    #[cfg(feature = "builtin_symbol")]
+    pub fn as_symbol(&self) -> Option<StringRef> {
+        let tag = js_value_get_tag(self.0);
+        if tag == (JSValueTag::Symbol as i32) {
+            return Some(unsafe { self.as_string_unchecked() });
+        } else if tag == (JSValueTag::Object as i32) {
+            let o = unsafe { self.as_object_unchecked() };
+            if o.class_id() == JS_CLASS_SYMBOL {
+                return o.payload().string().copied();
+            }
+        }
+
+        None
     }
 
     pub fn as_bytecode(&self) -> Option<Bytecode> {
@@ -579,6 +610,62 @@ impl JSValue {
             _ => {
                 ctx.throw_type_error_not_an_object();
                 Err(-1)
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn make_string(s: StringRef) -> Self {
+        let p = s.gc_head_ptr();
+        Self(JSValueTag::String.mknode(p))
+    }
+
+    #[cfg(feature = "builtin_symbol")]
+    #[inline(always)]
+    pub fn make_symbol(s: StringRef) -> Self {
+        let p = s.gc_head_ptr();
+        Self(JSValueTag::Symbol.mknode(p))
+    }
+}
+
+#[cfg(feature = "serde_json_support")]
+mod serde_json_support {
+    use smallvec::SmallVec;
+
+    use crate::{ScopedContext, object::Object, value::JSValue};
+
+    use super::super::tag::{JSValueTag, js_value_get_float64};
+
+    impl JSValue {
+        pub(crate) fn jsvalue_to_serde_json(
+            ctx: &mut ScopedContext,
+            val: &JSValue,
+            stack: &mut SmallVec<[Object; 16]>,
+        ) -> Result<serde_json::Value, i32> {
+            match val.tag() {
+                JSValueTag::Null | JSValueTag::Undefined => Ok(serde_json::Value::Null),
+                JSValueTag::Bool => Ok(serde_json::Value::Bool(val.payload_i32() != 0)),
+                JSValueTag::Int => Ok(serde_json::Value::Number((val.payload_i32() as i64).into())),
+                JSValueTag::Float64 => {
+                    let f = js_value_get_float64(val.0);
+                    if !f.is_finite() {
+                        Ok(serde_json::Value::Null)
+                    } else {
+                        Ok(serde_json::Number::from_f64(f)
+                            .map(serde_json::Value::Number)
+                            .unwrap_or(serde_json::Value::Null))
+                    }
+                }
+                JSValueTag::String => {
+                    let s = unsafe { val.as_string_unchecked() };
+                    let rust_str = s.content().encode_utf8(false).into_owned();
+                    Ok(serde_json::Value::String(rust_str))
+                }
+                JSValueTag::Object => {
+                    let obj = unsafe { val.as_object_unchecked() };
+                    Self::object_to_serde_json(ctx, &obj, stack)
+                }
+                _ => Ok(serde_json::Value::Null),
             }
         }
     }

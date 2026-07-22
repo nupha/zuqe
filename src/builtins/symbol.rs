@@ -34,7 +34,7 @@ impl<'c> ScopedContext<'c> {
             Atom::from_string_as_is(self, s, atom_kind)?
         };
 
-        let sym = JSValue::Symbol(atom.descriptor(self.rt()));
+        let sym = JSValue::make_symbol(atom.descriptor(self.rt()));
         Ok(sym)
     }
 
@@ -78,7 +78,7 @@ pub fn js_symbol_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 //
 
 pub fn js_thisSymbolValue(ctx: &mut ScopedContext, val: JSValue) -> JSResult {
-    val.as_symbol().map(JSValue::from).ok_or_else(|| {
+    val.as_symbol().map(JSValue::make_symbol).ok_or_else(|| {
         ctx.throw_type_error_not_a_symbol();
         -1
     })
@@ -88,7 +88,7 @@ fn js_symbol_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let val = js_thisSymbolValue(ctx, cc.this())?;
     // formatted as 'Symbol(XXX)'
     let repr = val.inspect(ctx)?.into_bytes();
-    ctx.create_string_from_utf8(repr).map(JSValue::from)
+    ctx.create_string_from_utf8(repr).map(JSValue::make_string)
 }
 
 fn js_symbol_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -100,7 +100,7 @@ fn js_symbol_get_description(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         if s.content().is_ident() {
             Ok(JSValue::UNDEFINED)
         } else {
-            Ok(s.into())
+            Ok(JSValue::make_string(s))
         }
     } else {
         unreachable!()
@@ -122,11 +122,11 @@ fn js_symbol_for(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_symbol_keyFor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if let JSValue::Symbol(s) = cc.arg(0) {
+    if let Some(s) = cc.arg(0).as_symbol() {
         if s.atom_info().unwrap().kind() != AtomKind::GlobalSymbol {
             Ok(JSValue::UNDEFINED)
         } else {
-            Ok(JSValue::from(s))
+            Ok(JSValue::make_string(s))
         }
     } else {
         ctx.throw_type_error_not_a_symbol();

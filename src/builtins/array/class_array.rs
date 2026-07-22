@@ -744,7 +744,7 @@ pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         }
     }
 
-    ctx.create_string_with_buf(sbuf).map(JSValue::from)
+    ctx.create_string_with_buf(sbuf).map(JSValue::make_string)
 }
 
 pub(crate) fn js_array_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ops::Deref;
-
 use colorized::{Colors, colorize_print};
 use zuqe::{Array, CallContext, Callback, JS_PROP_C_W_E, JSResult, JSValue, ScopedContext};
 
@@ -73,12 +71,12 @@ pub fn setup_globals(ctx: &mut ScopedContext, script_args: &[String]) -> Result<
                     .to_string_lossy()
                     .into_owned()
                     .into_bytes(),
-            )?
-            .into(),
+            )
+            .map(JSValue::make_string)?,
         );
         for a in script_args {
             let s = ctx.create_string_from_utf8(a.as_bytes().to_vec())?;
-            args.push(s.into());
+            args.push(JSValue::make_string(s));
         }
         let arr = Array::from_values(ctx, args)?;
         global.set_property_str(ctx, "scriptArgs", arr.into())?;

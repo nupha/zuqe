@@ -19,7 +19,7 @@ pub(crate) fn js_object_toString(ctx: &mut ScopedContext, cc: CallContext) -> JS
     };
 
     ctx.create_string_from_utf8(txt.into_bytes())
-        .map(JSValue::from)
+        .map(JSValue::make_string)
 }
 
 pub(crate) fn js_object_toLocaleString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

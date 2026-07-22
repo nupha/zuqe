@@ -226,7 +226,7 @@ pub(super) fn js_has_unscopable(
 pub(crate) fn js_get_function_name(ctx: &mut ScopedContext, name: Atom) -> Result<StringRef, i32> {
     let name_str = name.force_string(ctx)?;
     if name.is_normal_desc_string(ctx.rt()) {
-        JS_ConcatString3(ctx, c"[", JSValue::from(name_str), c"]")
+        JS_ConcatString3(ctx, c"[", JSValue::make_string(name_str), c"]")
     } else {
         Ok(name_str)
     }
@@ -245,12 +245,17 @@ pub(super) fn js_method_set_properties(
     let mut name_str = js_get_function_name(ctx, name)?;
 
     if flags & JS_PROP_HAS_GET != 0 {
-        name_str = JS_ConcatString3(ctx, c"get ", name_str.into(), c"")?;
+        name_str = JS_ConcatString3(ctx, c"get ", JSValue::make_string(name_str), c"")?;
     } else if flags & JS_PROP_HAS_SET != 0 {
-        name_str = JS_ConcatString3(ctx, c"set ", name_str.into(), c"")?;
+        name_str = JS_ConcatString3(ctx, c"set ", JSValue::make_string(name_str), c"")?;
     }
 
-    func_obj.define_property_value(ctx, Atom::CONST_name, name_str.into(), JS_PROP_CONFIGURABLE)?;
+    func_obj.define_property_value(
+        ctx,
+        Atom::CONST_name,
+        JSValue::make_string(name_str),
+        JS_PROP_CONFIGURABLE,
+    )?;
 
     if let Some(mut fo) = func_obj.as_object_BCWrapper() {
         fo.method_set_home_object(home_obj.as_object());

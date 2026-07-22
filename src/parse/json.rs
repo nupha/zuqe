@@ -446,7 +446,10 @@ impl<'s> JSParseState<'s> {
                 let source_end = (self.buf_ptr as usize) - (self.input.as_ptr() as usize);
 
                 let sbuf = self.token.data.take_string().unwrap();
-                val = self.ctx().create_string_with_buf(sbuf)?.into();
+                val = self
+                    .ctx()
+                    .create_string_with_buf(sbuf)
+                    .map(JSValue::make_string)?;
 
                 if let Some(pr) = record {
                     pr.value = val;

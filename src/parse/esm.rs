@@ -103,7 +103,7 @@ impl<'s> JSParseState<'s> {
             let val = {
                 let ctx = self.ctx();
                 let s = ctx.create_string_with_buf(sbuf)?;
-                JSValue::from(s)
+                JSValue::make_string(s)
             };
 
             // Check for duplicate keys

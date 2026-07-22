@@ -125,7 +125,7 @@ fn js_file_readAsString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         FileDesc::Stdout | FileDesc::Stderr => {}
     }
 
-    ctx.create_string_from_utf8(buf).map(JSValue::from)
+    ctx.create_string_from_utf8(buf).map(JSValue::make_string)
 }
 
 pub(super) fn js_file_puts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

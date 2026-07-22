@@ -219,15 +219,15 @@ impl Atom {
     pub fn to_value(&self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
-                .map(JSValue::from)
+                .map(JSValue::make_string)
         } else {
             let s = self.descriptor(ctx.rt());
             match s.atom_info().unwrap().kind() {
-                AtomKind::String => Ok(JSValue::from(s)),
+                AtomKind::String => Ok(JSValue::make_string(s)),
                 #[cfg(feature = "builtin_symbol")]
-                AtomKind::Private => Ok(JSValue::from(s)),
+                AtomKind::Private => Ok(JSValue::make_string(s)),
                 #[cfg(feature = "builtin_symbol")]
-                AtomKind::Symbol | AtomKind::GlobalSymbol => Ok(JSValue::Symbol(s)),
+                AtomKind::Symbol | AtomKind::GlobalSymbol => Ok(JSValue::make_symbol(s)),
             }
         }
     }

@@ -252,26 +252,34 @@ impl JSValue {
 
             Self::Int(i) => ctx
                 .create_string_from_utf8(format!("{}", *i).into_bytes())
-                .map(Self::from),
+                .map(Self::make_string),
+
             Self::Bool(b) => if *b {
                 Atom::CONST_true
             } else {
                 Atom::CONST_false
             }
             .force_string(ctx)
-            .map(Self::from),
+            .map(Self::make_string),
+
             Self::Float64(n) => {
                 let s = f64_stringify(*n, 10, None, JS_DTOA_VAR_FORMAT);
-                ctx.create_string_from_str(s.as_ref()).map(Self::from)
+                ctx.create_string_from_str(s.as_ref())
+                    .map(Self::make_string)
             }
-            Self::NULL => Atom::CONST_null.force_string(ctx).map(Self::from),
-            Self::UNDEFINED => Atom::CONST_undefined.force_string(ctx).map(Self::from),
+
+            Self::NULL => Atom::CONST_null.force_string(ctx).map(Self::make_string),
+            Self::UNDEFINED => Atom::CONST_undefined
+                .force_string(ctx)
+                .map(Self::make_string),
 
             Self::Object(_) => self
                 .to_primitive(ctx, HINT_STRING)
                 .and_then(|s| s.to_string_or_symbol(ctx)),
 
-            Self::Bytecode(_) => ctx.create_string_from_str("[bytecode]").map(Self::from),
+            Self::Bytecode(_) => ctx
+                .create_string_from_str("[bytecode]")
+                .map(Self::make_string),
 
             Self::EXCEPTION => {
                 #[cfg(debug_assertions)]
@@ -447,6 +455,17 @@ impl JSValue {
             Self::Symbol(_) => Atom::CONST_symbol,
             _ => Atom::CONST_unknown,
         }
+    }
+
+    #[inline(always)]
+    pub fn make_string(s: StringRef) -> Self {
+        Self::String(s)
+    }
+
+    #[cfg(feature = "builtin_symbol")]
+    #[inline(always)]
+    pub fn make_symbol(s: StringRef) -> Self {
+        Self::Symbol(s)
     }
 
     /// Migrage value to object.

@@ -350,7 +350,8 @@ impl JSValue {
                 } else if let Some(idx) = prop.to_small_int() {
                     // code point at idx
                     if let Some(code) = s.content().get(idx as usize) {
-                        ctx.create_string_from_char(code.into()).map(JSValue::from)
+                        ctx.create_string_from_char(code.into())
+                            .map(JSValue::make_string)
                     } else {
                         Ok(JSValue::UNDEFINED)
                     }

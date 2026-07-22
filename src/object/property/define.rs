@@ -366,7 +366,7 @@ impl ObjectImpl {
             Err(-1)
         } else if !self.has_name() {
             let name_str = name.force_string(ctx)?;
-            self.define_property_value(ctx, Atom::CONST_name, name_str.into(), flags)
+            self.define_property_value(ctx, Atom::CONST_name, JSValue::make_string(name_str), flags)
         } else {
             Ok(false)
         }
@@ -381,7 +381,7 @@ impl ObjectImpl {
         if !self.has_name() {
             let atom = str_val.to_atom(ctx)?;
             let name_str = js_get_function_name(ctx, atom)?;
-            self.define_property_value(ctx, Atom::CONST_name, name_str.into(), flags)
+            self.define_property_value(ctx, Atom::CONST_name, JSValue::make_string(name_str), flags)
         } else {
             Ok(false)
         }

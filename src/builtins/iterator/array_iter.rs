@@ -80,7 +80,7 @@ pub fn js_create_array_iterator(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     let (class_id, obj) = if cc.magic() & 4 != 0 {
         (
             JS_CLASS_STRING_ITERATOR,
-            JSValue::from(this.to_string_non_undefined_or_null(ctx)?),
+            JSValue::make_string(this.to_string_non_undefined_or_null(ctx)?),
         )
     } else {
         (JS_CLASS_ARRAY_ITERATOR, JSValue::from(this.objectify(ctx)?))

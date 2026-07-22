@@ -213,7 +213,9 @@ impl ModuleDefImpl {
 
             let val: JSValue = match entry.detail {
                 FieldDetail::LazyValueFn(f) => f(ctx)?,
-                FieldDetail::LazyStr(s) => ctx.create_string_from_str(s).map(JSValue::from)?,
+                FieldDetail::LazyStr(s) => {
+                    ctx.create_string_from_str(s).map(JSValue::make_string)?
+                }
                 FieldDetail::LazyFunc {
                     callback,
                     length,
@@ -492,7 +494,12 @@ impl ModuleDef {
         #[cfg(feature = "builtin_symbol")]
         {
             let mod_str = Atom::CONST_Module.force_string(ctx)?;
-            obj.define_property_value(ctx, Atom::CONST_Symbol_toStringTag, mod_str.into(), 0)?;
+            obj.define_property_value(
+                ctx,
+                Atom::CONST_Symbol_toStringTag,
+                JSValue::make_string(mod_str),
+                0,
+            )?;
         }
 
         obj.set_flag_extensible(false);

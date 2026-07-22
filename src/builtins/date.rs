@@ -914,7 +914,7 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 
     if new_target.is_undefined() {
         // invoked as a function, returns toString()
-        datetime_format(ctx, tm.into(), 0x13).map(JSValue::from)
+        datetime_format(ctx, tm.into(), 0x13).map(JSValue::make_string)
     } else {
         ctx.create_instance_with_ctor(new_target, ObjectPayload::DATE(tm))
             .map(JSValue::from)
@@ -961,7 +961,7 @@ fn js_date_setTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn get_date_string(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let tm = JS_ThisTimeValue(ctx, cc.this())?;
-    datetime_format(ctx, tm.into(), cc.magic()).map(JSValue::from)
+    datetime_format(ctx, tm.into(), cc.magic()).map(JSValue::make_string)
 }
 
 fn js_date_Symbol_toPrimitive(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

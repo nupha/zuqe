@@ -133,8 +133,14 @@ impl BoundFunction {
             } else {
                 Atom::CONST_empty_string.force_string(ctx)?
             };
-        let bf_name = JS_ConcatString3(ctx, c"bound ", name.into(), c"")?;
-        bound.define_property_value(ctx, Atom::CONST_name, bf_name.into(), JS_PROP_CONFIGURABLE)?;
+
+        let bf_name = JS_ConcatString3(ctx, c"bound ", JSValue::make_string(name), c"")?;
+        bound.define_property_value(
+            ctx,
+            Atom::CONST_name,
+            JSValue::make_string(bf_name),
+            JS_PROP_CONFIGURABLE,
+        )?;
 
         Ok(Self(bound.gc_ref()))
     }

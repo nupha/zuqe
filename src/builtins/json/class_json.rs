@@ -131,7 +131,7 @@ fn internalize_json_property(
                 .get_unchecked(pr.source_pos as usize..)
                 .get_unchecked(..pr.source_len as usize)
         };
-        let source_val = JSValue::from(ctx.create_string_from_str(source_slice)?);
+        let source_val = JSValue::make_string(ctx.create_string_from_str(source_slice)?);
         let mut context_obj = context.as_object().unwrap();
         context_obj.define_property_value(ctx, Atom::CONST_source, source_val, JS_PROP_C_W_E)?;
     }
@@ -266,7 +266,7 @@ fn js_json_rawJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     obj.define_property_value(
         ctx,
         Atom::CONST_rawJSON,
-        JSValue::from(str),
+        JSValue::make_string(str),
         JS_PROP_ENUMERABLE,
     )?;
 

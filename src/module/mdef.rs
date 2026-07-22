@@ -241,7 +241,12 @@ impl ModuleDefImpl {
         let url = self.module_name().to_utf8(ctx.rt());
         let mut meta_obj = self.import_meta(ctx)?;
         let sval = ctx.create_string_from_str(&url)?;
-        meta_obj.define_property_value_str(ctx, "url", sval.into(), JS_PROP_C_W_E)?;
+        meta_obj.define_property_value_str(
+            ctx,
+            "url",
+            JSValue::make_string(sval),
+            JS_PROP_C_W_E,
+        )?;
         meta_obj.define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)?;
         Ok(())
     }

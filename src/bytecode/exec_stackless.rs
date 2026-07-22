@@ -1320,7 +1320,7 @@ impl Bytecode {
                         SP_PUT!(
                             -1,
                             atom.force_string(realm_scope)
-                                .map_or(JSValue::EXCEPTION, JSValue::from)
+                                .map_or(JSValue::EXCEPTION, JSValue::make_string)
                         );
                     }
                     OpCode::DELETE => {

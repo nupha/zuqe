@@ -70,7 +70,7 @@ impl<'c> ScopedContext<'c> {
                 err.define_property_value(
                     self,
                     Atom::CONST_name,
-                    JSValue::from(name),
+                    JSValue::make_string(name),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
                 .unwrap();
@@ -78,7 +78,7 @@ impl<'c> ScopedContext<'c> {
                 err.define_property_value(
                     self,
                     Atom::CONST_message,
-                    JSValue::from(msg),
+                    JSValue::make_string(msg),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
                 .unwrap();

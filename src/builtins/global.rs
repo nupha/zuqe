@@ -124,10 +124,14 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 if d < 0x80 {
                     if !is_component && is_uri_reserved(d as _) {
                         buf.push_u8_slice([b'%', hh[0], hh[1]].as_slice())
-                            .map_err(|_| { ctx.throw_out_of_memory(); -1 })?;
+                            .map_err(|_| {
+                                ctx.throw_out_of_memory();
+                                -1
+                            })?;
                     } else {
                         buf.push_u8(d as u8).map_err(|_| {
-                            ctx.throw_out_of_memory(); -1
+                            ctx.throw_out_of_memory();
+                            -1
                         })?;
                     }
                 } else {
@@ -175,23 +179,28 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                         return Err(-1);
                     }
                     buf.push_u32(uc).map_err(|_| {
-                        ctx.throw_out_of_memory(); -1
+                        ctx.throw_out_of_memory();
+                        -1
                     })?;
                 }
             }
             CharCode::Char(c) => {
                 buf.push_char(c).map_err(|_| {
-                    ctx.throw_out_of_memory(); -1
+                    ctx.throw_out_of_memory();
+                    -1
                 })?;
             }
             CharCode::Code(_) => {
                 buf.push_u16_slice(ch.encode_utf16(&mut [0; 2]))
-                    .map_err(|_| { ctx.throw_out_of_memory(); -1 })?;
+                    .map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
             }
         }
     }
 
-    ctx.create_string_with_buf(buf).map(JSValue::from)
+    ctx.create_string_with_buf(buf).map(JSValue::make_string)
 }
 
 /// Fast path: decodeURI on ASCII-only input using byte scanning.
@@ -284,7 +293,7 @@ fn decode_uri_ascii(ctx: &mut ScopedContext, bytes: &[u8], is_component: bool) -
         }
     }
 
-    ctx.create_string_with_buf(buf).map(JSValue::from)
+    ctx.create_string_with_buf(buf).map(JSValue::make_string)
 }
 
 /// ES spec: encodeURI (19.2.6.3) / encodeURIComponent (19.2.6.4)
@@ -347,7 +356,7 @@ fn js_global_encodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     }
 
-    ctx.create_string_with_buf(buf).map(|s| s.into())
+    ctx.create_string_with_buf(buf).map(JSValue::make_string)
 }
 
 /// ES spec Annex B.2.1.1: escape(string)
@@ -413,7 +422,7 @@ fn js_global_escape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     }
 
-    ctx.create_string_with_buf(buf).map(|s| s.into())
+    ctx.create_string_with_buf(buf).map(JSValue::make_string)
 }
 
 #[inline(always)]
@@ -501,7 +510,7 @@ fn js_global_unescape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     }
 
-    ctx.create_string_with_buf(buf).map(|s| s.into())
+    ctx.create_string_with_buf(buf).map(JSValue::make_string)
 }
 
 pub const js_global_props: &[FieldDef] = &[

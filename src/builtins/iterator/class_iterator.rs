@@ -243,8 +243,7 @@ fn js_iterator_constructor_setter(ctx: &mut ScopedContext, cc: CallContext) -> J
 /// Getter for `[Symbol.toStringTag]` — returns "Iterator".
 fn js_iterator_toStringTag_getter(ctx: &mut ScopedContext, _cc: CallContext) -> JSResult {
     let s = Atom::from_str(ctx, "Iterator")?;
-    let str_ref = s.force_string(ctx)?;
-    Ok(str_ref.into())
+    s.force_string(ctx).map(JSValue::make_string)
 }
 
 /// Setter for `[Symbol.toStringTag]` — SetterThatIgnoresPrototypeProperties.

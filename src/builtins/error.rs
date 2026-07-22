@@ -54,7 +54,7 @@ pub(crate) fn js_error_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
         obj.define_property_value(
             ctx,
             Atom::CONST_message,
-            msg.into(),
+            JSValue::make_string(msg),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
     }
@@ -136,7 +136,7 @@ pub fn js_error_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         (true, true) => "".into(),
     };
 
-    ctx.create_string_from_str(&txt).map(JSValue::from)
+    ctx.create_string_from_str(&txt).map(JSValue::make_string)
 }
 
 pub fn js_error_isError(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

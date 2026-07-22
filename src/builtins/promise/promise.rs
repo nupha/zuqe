@@ -617,7 +617,12 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
         let status_val =
             ctx.create_string_from_str(if is_reject { "rejected" } else { "fulfilled" })?;
 
-        ob.define_property_value(ctx, Atom::CONST_status, status_val.into(), JS_PROP_C_W_E)?;
+        ob.define_property_value(
+            ctx,
+            Atom::CONST_status,
+            JSValue::make_string(status_val),
+            JS_PROP_C_W_E,
+        )?;
         ob.define_property_value(
             ctx,
             if is_reject {

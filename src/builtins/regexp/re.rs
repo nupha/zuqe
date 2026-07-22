@@ -355,7 +355,7 @@ pub(super) fn make_regexp_capture_array(
                 start_index = span.start;
                 last_index = span.end;
             }
-            text.sub_string(ctx, span)?.into()
+            text.sub_string(ctx, span).map(JSValue::make_string)?
         } else {
             JSValue::UNDEFINED
         };
@@ -400,7 +400,12 @@ pub(super) fn make_regexp_capture_array(
         JSValue::Int(start_index as i32),
         prop_flags,
     )?;
-    res.define_property_value(ctx, Atom::CONST_input, text.into(), prop_flags)?;
+    res.define_property_value(
+        ctx,
+        Atom::CONST_input,
+        JSValue::make_string(text),
+        prop_flags,
+    )?;
     res.define_property_value(ctx, Atom::CONST_groups, groups, prop_flags)?;
 
     if let Some((idx_lst, idx_grp)) = indices {

@@ -26,7 +26,7 @@ fn js_function_call(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_function_bind(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let func_obj = cc.this().into_callable(ctx)?;
+    let func_obj = cc.this().ensure_callable(ctx)?;
     let arg_count = cc.length().saturating_sub(1);
 
     BoundFunction::create(
@@ -54,7 +54,7 @@ fn js_function_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         if let Some(debug) = bc.debug.as_ref()
             && let Some(s) = debug.source.as_deref()
         {
-            return ctx.create_string_from_str(s).map(JSValue::from);
+            return ctx.create_string_from_str(s).map(JSValue::make_string);
         }
         bc.func_kind()
     } else {
@@ -70,10 +70,10 @@ fn js_function_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let suff = c"() { [native code] }";
     let mut name = this_val.get_property(ctx, Atom::CONST_name)?;
     if name.is_undefined() {
-        name = Atom::CONST_empty_string.force_string(ctx)?.into();
+        name = JSValue::make_string(Atom::CONST_empty_string.force_string(ctx)?);
     }
 
-    JS_ConcatString3(ctx, pref, name, suff).map(JSValue::from)
+    JS_ConcatString3(ctx, pref, name, suff).map(JSValue::make_string)
 }
 
 fn js_function_hasInstance(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -90,7 +90,7 @@ fn js_function_proto_fileName(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
             .bc_function()
             .and_then(|x| x.bytecode().debug.as_ref().map(|d| d.filename))
     }) {
-        filename.force_string(ctx).map(JSValue::from)
+        filename.force_string(ctx).map(JSValue::make_string)
     } else {
         Ok(JSValue::UNDEFINED)
     }

@@ -33,7 +33,7 @@ pub fn js_string_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
             && new_target.is_undefined()
         {
             // "Symbol(desc)"
-            JS_ConcatString3(ctx, c"Symbol(", s.into(), c")")?
+            JS_ConcatString3(ctx, c"Symbol(", JSValue::make_string(s), c")")?
         } else {
             cc.arg(0).to_string(ctx)?
         }
@@ -46,7 +46,7 @@ pub fn js_string_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         // make String object using `new_target` as prototype.
         str_val.objectify(ctx, new_target).map(JSValue::from)
     } else {
-        Ok(str_val.into())
+        Ok(JSValue::make_string(str_val))
     }
 }
 
@@ -66,7 +66,7 @@ fn js_string_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         match what {
             0 => Atom::CONST_empty_string
                 .force_string(ctx)
-                .map(JSValue::from),
+                .map(JSValue::make_string),
             1 => Ok(JSValue::UNDEFINED),
             2 => Ok(JSValue::NAN),
             _ => unreachable!(),
@@ -78,7 +78,8 @@ fn js_string_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             Ok(JSValue::Int(code as i32))
         } else {
             // charAt(), at() returns string
-            ctx.create_string_from_char(code.into()).map(JSValue::from)
+            ctx.create_string_from_char(code.into())
+                .map(JSValue::make_string)
         }
     }
 }
@@ -104,7 +105,7 @@ fn js_string_concat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     for a in cc.arguments() {
         s = s.concat(ctx, *a)?;
     }
-    Ok(s.into())
+    Ok(JSValue::make_string(s))
 }
 
 fn js_string_isWellFormed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -129,11 +130,13 @@ fn js_string_toWellFormed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                 buf.extend_from_slice(cc.char().unwrap_or('\u{FFFD}').encode_utf16(&mut [0; 2]));
             }
 
-            return ctx.create_string_with_buf(buf.into()).map(JSValue::from);
+            return ctx
+                .create_string_with_buf(buf.into())
+                .map(JSValue::make_string);
         }
     }
 
-    Ok(p.into())
+    Ok(JSValue::make_string(p))
 }
 
 pub fn js_string_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -255,7 +258,11 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     .call(
                         ctx,
                         JSValue::UNDEFINED,
-                        &[search_for.into(), JSValue::from(pos as u32), str.into()],
+                        &[
+                            JSValue::make_string(search_for),
+                            JSValue::from(pos as u32),
+                            JSValue::make_string(str),
+                        ],
                     )
                     .and_then(|v| v.to_string(ctx))
             } else {
@@ -300,7 +307,7 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 break;
             }
         } else if is_first {
-            return Ok(str.into());
+            return Ok(JSValue::make_string(str));
         } else {
             break;
         }
@@ -317,7 +324,8 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     // create result string
-    ctx.create_string_with_buf(res_string).map(JSValue::from)
+    ctx.create_string_with_buf(res_string)
+        .map(JSValue::make_string)
 }
 
 fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -359,7 +367,12 @@ fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     if separator.is_undefined() {
-        ret_arr.define_property_value_u32(ctx, 0, str.into(), JS_PROP_C_W_E | JS_PROP_THROW)?;
+        ret_arr.define_property_value_u32(
+            ctx,
+            0,
+            JSValue::make_string(str),
+            JS_PROP_C_W_E | JS_PROP_THROW,
+        )?;
         return Ok(ret_arr.into());
     }
 
@@ -369,7 +382,7 @@ fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             ret_arr.define_property_value_u32(
                 ctx,
                 i as _,
-                t.into(),
+                JSValue::make_string(t),
                 JS_PROP_C_W_E | JS_PROP_THROW,
             )?;
         }
@@ -382,7 +395,12 @@ fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
         while let Some(i) = cc.index_of(sc, cursor) {
             let t = str.sub_string(ctx, cursor..i)?;
-            ret_arr.define_property_value_u32(ctx, idx, t.into(), JS_PROP_C_W_E | JS_PROP_THROW)?;
+            ret_arr.define_property_value_u32(
+                ctx,
+                idx,
+                JSValue::make_string(t),
+                JS_PROP_C_W_E | JS_PROP_THROW,
+            )?;
             idx += 1;
             if idx == lim {
                 break;
@@ -398,7 +416,7 @@ fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             ret_arr.define_property_value_u32(
                 ctx,
                 idx as _,
-                t.into(),
+                JSValue::make_string(t),
                 JS_PROP_C_W_E | JS_PROP_THROW,
             )?;
         }
@@ -420,7 +438,7 @@ fn js_string_substring(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let (start, end) = if a < b { (a, b) } else { (b, a) };
 
     p.sub_string(ctx, start as usize..end as usize)
-        .map(JSValue::from)
+        .map(JSValue::make_string)
 }
 
 fn js_string_substr(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -435,7 +453,7 @@ fn js_string_substr(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     p.sub_string(ctx, a as usize..(a + n) as usize)
-        .map(JSValue::from)
+        .map(JSValue::make_string)
 }
 
 fn js_string_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -449,7 +467,7 @@ fn js_string_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     p.sub_string(ctx, start as usize..std::cmp::max(end, start) as usize)
-        .map(JSValue::from)
+        .map(JSValue::make_string)
 }
 
 fn js_string_pad(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -461,7 +479,7 @@ fn js_string_pad(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let mut ttl_len: i32 = cc.arg(0).to_number(ctx)?.to_i32_saturating();
     if len >= ttl_len {
-        return Ok(str.into());
+        return Ok(JSValue::make_string(str));
     }
     ttl_len -= len;
 
@@ -471,7 +489,7 @@ fn js_string_pad(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
         let s = cc.arg(1).to_string(ctx)?;
         if s.is_empty() {
-            return Ok(str.into());
+            return Ok(JSValue::make_string(str));
         }
 
         if s.len() == 1 {
@@ -532,7 +550,7 @@ fn js_string_pad(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         })?;
     }
 
-    ctx.create_string_with_buf(sbuf).map(JSValue::from)
+    ctx.create_string_with_buf(sbuf).map(JSValue::make_string)
 }
 
 fn js_string_repeat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -547,7 +565,7 @@ fn js_string_repeat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let repeat = repeat as usize;
     let len = p.len();
     if len == 0 || repeat == 1 {
-        return Ok(p.into());
+        return Ok(JSValue::make_string(p));
     }
     if repeat * len > JS_STRING_LEN_MAX {
         ctx.throw_internal_error("string too long");
@@ -567,7 +585,8 @@ fn js_string_repeat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
     res_string.shrink_to_fit();
 
-    ctx.create_string_with_buf(res_string).map(JSValue::from)
+    ctx.create_string_with_buf(res_string)
+        .map(JSValue::make_string)
 }
 
 fn js_string_includes(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -722,7 +741,7 @@ fn js_string_match(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         ];
         let mut args_len = 1;
         if magic == MAGIC_MATCH_ALL {
-            args[args_len] = ctx.create_string_from_char('g'.into())?.into();
+            args[args_len] = JSValue::make_string(ctx.create_string_from_char('g'.into())?);
             args_len += 1;
         }
         let regexp_obj = {
@@ -747,7 +766,11 @@ fn js_string_match(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         // ctx.gc_protect_transient_force(&regexp_obj);
 
         let s = this.to_string_non_undefined_or_null(ctx)?;
-        regexp_obj.invoke(ctx, method_name, std::slice::from_ref(&JSValue::from(s)))
+        regexp_obj.invoke(
+            ctx,
+            method_name,
+            std::slice::from_ref(&JSValue::make_string(s)),
+        )
     }
 
     #[cfg(not(feature = "builtin_regexp"))]
@@ -765,7 +788,7 @@ fn js_string_trim(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         -1
     })?;
     s.trim(cc.magic() & 1 != 0, cc.magic() & 2 != 0);
-    ctx.create_string_with_buf(s).map(JSValue::from)
+    ctx.create_string_with_buf(s).map(JSValue::make_string)
 }
 
 pub fn string_cmp(p1: &StringRef, p2: &StringRef, x1: usize, x2: usize, len: usize) -> i32 {
@@ -800,7 +823,7 @@ pub fn string_cmp(p1: &StringRef, p2: &StringRef, x1: usize, x2: usize, len: usi
 
 /// also used for String.prototype.valueOf
 fn js_string_toString(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32> {
-    js_thisStringValue(ctx, cc.this()).map(JSValue::from)
+    js_thisStringValue(ctx, cc.this()).map(JSValue::make_string)
 }
 
 #[inline]
@@ -817,7 +840,7 @@ fn js_string_toLowerCase(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let p = this.to_string_non_undefined_or_null(ctx)?;
     if p.is_empty() {
-        return Ok(p.into());
+        return Ok(JSValue::make_string(p));
     }
 
     let sbuf = match p.content() {
@@ -860,7 +883,7 @@ fn js_string_toLowerCase(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 s.to_uppercase()
             };
             if t.eq(s) {
-                return Ok(JSValue::from(p));
+                return Ok(JSValue::make_string(p));
             }
             StringBuf::from_utf8(t.into_bytes())?
         }
@@ -869,7 +892,7 @@ fn js_string_toLowerCase(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     };
 
-    ctx.create_string_with_buf(sbuf).map(JSValue::from)
+    ctx.create_string_with_buf(sbuf).map(JSValue::make_string)
 }
 
 #[cfg(feature = "all_unicode")]
@@ -943,7 +966,7 @@ fn js_string_normalize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     ctx.create_string_from_utf8(ns.into_bytes())
-        .map(JSValue::from)
+        .map(JSValue::make_string)
 }
 
 // non-standard
@@ -956,7 +979,7 @@ fn js_string__quote(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let s = val.to_string(ctx)?;
         let s = s.content().encode_utf8(true);
         ctx.create_string_from_utf8(format!("\"{}\"", s).into_bytes())
-            .map(|x| x.into())
+            .map(JSValue::make_string)
     }
 }
 
@@ -1033,7 +1056,7 @@ fn js_string_iterator_next(
                 if let Some((span, c)) = ss.content().chars_since(it.index() as usize).next() {
                     it.set_index(span.end as u32);
                     *state = IteratorState::NotDone;
-                    ctx.create_string_from_char(c).map(JSValue::from)
+                    ctx.create_string_from_char(c).map(JSValue::make_string)
                 } else {
                     it.set_value(JSValue::UNDEFINED);
                     *state = IteratorState::Done;
@@ -1068,7 +1091,7 @@ fn js_string_fromCharCode(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
             -1
         })?;
     }
-    ctx.create_string_with_buf(sbuf).map(JSValue::from)
+    ctx.create_string_with_buf(sbuf).map(JSValue::make_string)
 }
 
 fn js_string_fromCodePoint(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -1113,7 +1136,7 @@ fn js_string_fromCodePoint(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         }
     }
 
-    ctx.create_string_with_buf(sbuf).map(JSValue::from)
+    ctx.create_string_with_buf(sbuf).map(JSValue::make_string)
 }
 
 fn js_string_raw(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -1142,7 +1165,7 @@ fn js_string_raw(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     }
 
-    ctx.create_string_with_buf(sbuf).map(JSValue::from)
+    ctx.create_string_with_buf(sbuf).map(JSValue::make_string)
 }
 
 pub const js_string_funcs: &[FieldDef] = &[

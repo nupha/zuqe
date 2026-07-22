@@ -153,7 +153,7 @@ impl<'s> JSParseState<'s> {
                     raw_array.define_property_value_u32(
                         self.ctx(),
                         depth as _,
-                        str_val.into(),
+                        JSValue::make_string(str_val),
                         JS_PROP_ENUMERABLE | JS_PROP_THROW,
                     )?;
                 }
@@ -169,7 +169,7 @@ impl<'s> JSParseState<'s> {
                         template_object.define_property_value_u32(
                             self.ctx(),
                             depth as _,
-                            str_val.into(),
+                            JSValue::make_string(str_val),
                             JS_PROP_ENUMERABLE | JS_PROP_THROW,
                         )?;
                     }
@@ -189,8 +189,11 @@ impl<'s> JSParseState<'s> {
 
                 let sbuf = cooked.data.string().unwrap();
                 if depth == 0 || !sbuf.is_empty() {
-                    let str = self.ctx().create_string_from_str(&sbuf.to_utf8())?;
-                    self.emit_push_const(str.into(), true)?;
+                    let str = self
+                        .ctx()
+                        .create_string_from_str(&sbuf.to_utf8())
+                        .map(JSValue::make_string)?;
+                    self.emit_push_const(str, true)?;
 
                     if depth == 0 {
                         if string_sep == b'`' as i32 {

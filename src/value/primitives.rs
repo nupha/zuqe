@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
     atom::Atom,
     context::ScopedContext,
     error::JSResult,
@@ -35,7 +34,7 @@ impl ObjectImpl {
                     }
                     .force_string(ctx)?;
 
-                    let ret = method.call(ctx, this, &[hint_val.into()])?;
+                    let ret = method.call(ctx, this, &[JSValue::make_string(hint_val)])?;
                     return if !ret.is_object() {
                         Ok(ret)
                     } else {

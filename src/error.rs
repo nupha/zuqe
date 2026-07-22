@@ -92,10 +92,10 @@ impl Exception {
             Self::No => JSValue::UNDEFINED,
             Self::OutOfMemory => ctx
                 .create_string_from_static("out of memory")
-                .map_or(JSValue::from(-1), JSValue::from),
+                .map_or(JSValue::from(-1), JSValue::make_string),
             Self::TooManyClasses => ctx
                 .create_string_from_static("too many classes")
-                .map_or(JSValue::from(-1), JSValue::from),
+                .map_or(JSValue::from(-1), JSValue::make_string),
             Self::Error(v) => v,
         }
     }
@@ -166,7 +166,7 @@ impl<'c> ScopedContext<'c> {
             let _ = err_obj.define_property_value(
                 self,
                 Atom::CONST_message,
-                s.map_or(JSValue::EXCEPTION, JSValue::from),
+                s.map_or(JSValue::EXCEPTION, JSValue::make_string),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             );
 
@@ -289,7 +289,7 @@ impl<'c> ScopedContext<'c> {
         if let Some(mut err_obj) = self.create_error_object(ErrorKind::Internal, MSG, false) {
             let stack_val = Atom::CONST_empty_string
                 .force_string(self)
-                .map_or(JSValue::UNDEFINED, JSValue::from);
+                .map_or(JSValue::UNDEFINED, JSValue::make_string);
             let _ = err_obj.define_property_value(
                 self,
                 Atom::CONST_stack,
@@ -374,7 +374,7 @@ impl<'c> ScopedContext<'c> {
             error_obj.define_property_value(
                 self,
                 Atom::CONST_fileName,
-                str.map_or(JSValue::UNDEFINED, JSValue::from),
+                str.map_or(JSValue::UNDEFINED, JSValue::make_string),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )?;
             error_obj.define_property_value(
@@ -459,7 +459,7 @@ impl<'c> ScopedContext<'c> {
     ) {
         let traceback = if let Ok(s) = self.do_build_backtrace(target, file_line, backtrace_flags) {
             self.create_string_from_utf8(s.into_bytes())
-                .map_or(JSValue::UNDEFINED, JSValue::from)
+                .map_or(JSValue::UNDEFINED, JSValue::make_string)
         } else {
             JSValue::NULL
         };

@@ -446,7 +446,7 @@ fn js_typed_array_get_toStringTag(ctx: &mut ScopedContext, cc: CallContext) -> J
         ctx.rt_ptr().class_registry[ta.class_id() as usize]
             .name_atom
             .force_string(ctx)
-            .map(JSValue::from)
+            .map(JSValue::make_string)
     } else {
         Ok(JSValue::UNDEFINED)
     }
@@ -1239,7 +1239,7 @@ fn js_typed_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     sbuf.shrink_to_fit();
-    ctx.create_string_with_buf(sbuf).map(JSValue::from)
+    ctx.create_string_with_buf(sbuf).map(JSValue::make_string)
 }
 
 fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

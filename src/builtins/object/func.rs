@@ -445,7 +445,7 @@ fn js_object___getClass(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             } else {
                 Atom::CONST_empty_string
             };
-            Ok(name.force_string(ctx).unwrap().into())
+            Ok(JSValue::make_string(name.force_string(ctx).unwrap()))
         }
         1 => {
             // get class id

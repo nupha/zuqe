@@ -320,9 +320,9 @@ pub(crate) fn js_function_set_properties(
     let name_val = if name.desc_kind(ctx.rt()) == AtomDescKind::JS_ATOM_KIND_SYMBOL {
         // Well-known symbol functions: name should be [Symbol.xxx]
         let inner = name.force_string(ctx)?;
-        JS_ConcatString3(ctx, c"[", inner.into(), c"]").map(JSValue::from)?
+        JS_ConcatString3(ctx, c"[", JSValue::make_string(inner), c"]").map(JSValue::make_string)?
     } else {
-        name.force_string(ctx).map(JSValue::from)?
+        name.force_string(ctx).map(JSValue::make_string)?
     };
 
     func_obj

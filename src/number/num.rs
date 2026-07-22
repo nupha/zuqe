@@ -404,17 +404,6 @@ pub enum JSToNumberHintEnum {
     TON_FLAG_NUMERIC,
 }
 
-const fn JS_NumberIsNegativeOrMinusZero(val: &JSValue) -> bool {
-    match val {
-        JSValue::Int(v) => *v < 0,
-        JSValue::Float64(d) => {
-            let u = JSFloat64Union { d: *d };
-            unsafe { (u.uint64 >> 63) != 0 }
-        }
-        _ => false,
-    }
-}
-
 /// convert f64 to i32 according to the ECMAScript rules (not rust rules).
 pub(crate) const fn js_f64_to_i32(d: f64) -> i32 {
     let u = JSFloat64Union { d };

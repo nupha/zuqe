@@ -19,7 +19,7 @@ use crate::{
     context::ScopedContext,
     error::Exception,
     gc::gc::GC_TYPE_REGISTRY,
-    number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, JS_DTOA_VAR_FORMAT, f64_stringify, js_aton},
+    number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, js_aton},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
         ObjectPayload, check_define_prop_flags,
@@ -27,13 +27,15 @@ use crate::{
     runtime::RuntimePtr,
     string::{CharCode, StringCharIter, StringData},
     utils::{hash_u32_from_base, unlikely},
-    value::{HINT_STRING, JSValue},
+    value::JSValue,
 };
 
-use super::StringBuf;
-use super::rope::{
-    ROPE_SHORT_LEN, ROPE_SHORT2_LEN, RopeImpl, RopeIter, rope_flatten_data, string_ref_cmp,
-    string_ref_get,
+use super::{
+    StringBuf,
+    rope::{
+        ROPE_SHORT_LEN, ROPE_SHORT2_LEN, RopeImpl, RopeIter, rope_flatten_data, string_ref_cmp,
+        string_ref_get,
+    },
 };
 
 /// Read the gc datatype id from a node head.
@@ -327,8 +329,6 @@ impl GcTrace for StringRef {
 }
 
 impl StringRef {
-    // ---- construction / dtype dispatch accessors ----
-
     #[inline(always)]
     pub(crate) fn from_flat(g: GcRef<StringImpl>) -> Self {
         Self(g.node_ptr())
@@ -730,7 +730,7 @@ impl StringRef {
         }
         if s1.is_flat() && s2.is_flat() && s1.len() <= ROPE_SHORT2_LEN && s2.len() <= ROPE_SHORT_LEN
         {
-            return s1.as_flat().concat(ctx, JSValue::from(s2));
+            return s1.as_flat().concat(ctx, JSValue::make_string(s2));
         }
         RopeImpl::new(ctx, s1, s2)
     }
@@ -853,13 +853,6 @@ impl From<GcRef<StringImpl>> for JSValue {
     #[inline(always)]
     fn from(value: GcRef<StringImpl>) -> Self {
         Self::String(StringRef::from_flat(value))
-    }
-}
-
-impl From<StringRef> for JSValue {
-    #[inline(always)]
-    fn from(value: StringRef) -> Self {
-        Self::String(value)
     }
 }
 
@@ -993,7 +986,7 @@ impl JSValue {
     pub fn concat_value(ctx: &mut ScopedContext, a: JSValue, b: JSValue) -> Result<JSValue, i32> {
         let s1 = a.to_string(ctx)?;
         let s2 = b.to_string(ctx)?;
-        StringRef::concat2(ctx, s1, s2).map(JSValue::from)
+        StringRef::concat2(ctx, s1, s2).map(JSValue::make_string)
     }
 
     /// An alias for [`JSValue::to_string_or_symbol`](Self::to_string_or_symbol).
@@ -1068,7 +1061,7 @@ impl JSValue {
     /// Invoking `toLocaleString()` method.
     pub fn to_locale_string(&self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         if self.is_undefined_or_null() {
-            self.to_string(ctx).map(JSValue::from)
+            self.to_string(ctx).map(JSValue::make_string)
         } else {
             self.invoke(ctx, Atom::CONST_toLocaleString, &[])
         }
@@ -1167,7 +1160,7 @@ pub(crate) const js_string_exotic_methods: ClassExoticMethods = ClassExoticMetho
                 let code = s.content().get(idx as usize).unwrap();
                 return Ok(Some(JSPropertyDescriptor {
                     flags: JS_PROP_ENUMERABLE as _,
-                    value: ctx.create_string_from_char(code.into())?.into(),
+                    value: JSValue::make_string(ctx.create_string_from_char(code.into())?),
                     getter: JSValue::UNDEFINED,
                     setter: JSValue::UNDEFINED,
                 }));

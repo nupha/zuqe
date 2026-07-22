@@ -80,7 +80,7 @@ impl<'a> ScopedContext<'a> {
                     space = space.to_number(self)?.into();
                 }
                 JS_CLASS_STRING => {
-                    space = space.to_string(self)?.into();
+                    space = space.to_string(self).map(JSValue::make_string)?;
                 }
                 _ => {}
             }
@@ -122,7 +122,8 @@ impl<'a> ScopedContext<'a> {
         js_json_to_str(self, &mut jsc, val, &StringBuf::Empty)?;
 
         jsc.buf.shrink_to_fit();
-        self.create_string_with_buf(jsc.buf).map(JSValue::from)
+        self.create_string_with_buf(jsc.buf)
+            .map(JSValue::make_string)
     }
 }
 
@@ -134,7 +135,7 @@ fn js_json_check(
     key: StringRef,
 ) -> JSResult {
     let mut val = val;
-    let key = JSValue::from(key);
+    let key = JSValue::make_string(key);
 
     // check for object.toJSON method
     // ECMA specifies this is done only for Object and BigInt */
@@ -332,7 +333,7 @@ fn js_json_to_str(
                 let mut has_content = false;
                 for k in tab.iter() {
                     let key = *k;
-                    let prop_val = val.get_property_value(ctx, key.into())?;
+                    let prop_val = val.get_property_value(ctx, JSValue::make_string(key))?;
 
                     let v = js_json_check(ctx, jsc, val, prop_val, key)?;
                     if !v.is_undefined() {

@@ -126,7 +126,7 @@ fn js_number_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let s = f64_stringify(d, radix as _, None, JS_DTOA_VAR_FORMAT);
     ctx.create_string_from_utf8(s.into_owned().into_bytes())
-        .map(JSValue::from)
+        .map(JSValue::make_string)
 }
 
 fn js_number_toPrecision(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -166,7 +166,7 @@ fn js_number_toPrecision(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     };
 
-    ctx.create_string_from_str(&s).map(JSValue::from)
+    ctx.create_string_from_str(&s).map(JSValue::make_string)
 }
 
 fn js_number_toExponential(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -199,7 +199,7 @@ fn js_number_toExponential(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         )
     };
 
-    ctx.create_string_from_str(&s).map(JSValue::from)
+    ctx.create_string_from_str(&s).map(JSValue::make_string)
 }
 
 fn js_number_toFixed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -216,7 +216,7 @@ fn js_number_toFixed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     ctx.create_string_from_utf8(s.into_bytes())
-        .map(JSValue::from)
+        .map(JSValue::make_string)
 }
 
 pub const js_number_proto_funcs: &[FieldDef] = &[
