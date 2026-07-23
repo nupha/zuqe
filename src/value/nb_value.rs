@@ -391,13 +391,16 @@ impl JSValue {
         }
     }
 
-    pub fn as_string(&self) -> Option<StringRef> {
+    /// Returns the `StringRef` if this is a primitive string.
+    /// When `allow_string_object` is `true`, also unwraps `String` wrapper objects.
+    /// With `false`, only a string *primitive* matches (equivalent to
+    /// `is_string() && as_string()`).
+    pub fn as_string(&self, allow_string_object: bool) -> Option<StringRef> {
         let tag = js_value_get_tag(self.0);
         if tag == (JSValueTag::String as i32) {
             Some(unsafe { self.as_string_unchecked() })
-        } else if tag == (JSValueTag::Object as i32) {
+        } else if allow_string_object && tag == (JSValueTag::Object as i32) {
             // unwrap String object
-            // XXX: should restrict value type conversion only, String object should not considered here?
             let o = unsafe { self.as_object_unchecked() };
             if o.class_id() == JS_CLASS_STRING {
                 o.payload().string().copied()
@@ -409,13 +412,16 @@ impl JSValue {
         }
     }
 
-    /// for Symbol value or Symbol object, returns its StringRef descriptor
+    /// for Symbol value or Symbol object, returns its StringRef descriptor.
+    /// When `allow_symbol_object` is `true`, also unwraps `Symbol` wrapper objects.
+    /// With `false`, only a symbol *primitive* matches (equivalent to
+    /// `is_symbol() && as_symbol()`).
     #[cfg(feature = "builtin_symbol")]
-    pub fn as_symbol(&self) -> Option<StringRef> {
+    pub fn as_symbol(&self, allow_symbol_object: bool) -> Option<StringRef> {
         let tag = js_value_get_tag(self.0);
         if tag == (JSValueTag::Symbol as i32) {
             return Some(unsafe { self.as_string_unchecked() });
-        } else if tag == (JSValueTag::Object as i32) {
+        } else if allow_symbol_object && tag == (JSValueTag::Object as i32) {
             let o = unsafe { self.as_object_unchecked() };
             if o.class_id() == JS_CLASS_SYMBOL {
                 return o.payload().string().copied();

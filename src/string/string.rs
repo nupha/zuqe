@@ -940,7 +940,7 @@ pub(crate) fn JS_ConcatString3(
     str2: JSValue,
     str3: &CStr,
 ) -> Result<StringRef, i32> {
-    let p = if let Some(s) = str2.as_string() {
+    let p = if let Some(s) = str2.as_string(true) {
         s
     } else {
         str2.to_string(ctx)?
@@ -1058,7 +1058,7 @@ fn string_define_own_property(
 
             // check that the same value is configured
             if flags & JS_PROP_HAS_VALUE as i32 != 0 {
-                if let Some(p2) = val.as_string() {
+                if let Some(p2) = val.as_string(true) {
                     let len2 = p2.len();
                     let nth_char2 = p2.content().chars().next().map(|(_, c)| c);
                     if len2 != 1 {
@@ -1088,7 +1088,7 @@ pub(crate) const js_string_exotic_methods: ClassExoticMethods = ClassExoticMetho
          -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method for JS_CLASS_STRING object
             if let Some(idx) = prop.to_small_int()
-                && let Some(s) = obj.as_string()
+                && let Some(s) = obj.as_string(true)
                 && idx < s.len() as u32
             {
                 let code = s.content().get(idx as usize).unwrap();
@@ -1108,7 +1108,7 @@ pub(crate) const js_string_exotic_methods: ClassExoticMethods = ClassExoticMetho
 
     delete_property: Some(|_, obj: JSValue, prop: Atom| -> Result<bool, i32> {
         if let Some(idx) = prop.to_small_int() {
-            let buflen = obj.as_string().unwrap().len();
+            let buflen = obj.as_string(true).unwrap().len();
             if (idx as usize) < buflen {
                 return Ok(false);
             }

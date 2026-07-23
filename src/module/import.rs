@@ -130,7 +130,7 @@ fn js_dynamic_import_job(
     name: JSValue,
     attrs: JSValue,
 ) {
-    let r = if let Some(base) = basename.as_string() {
+    let r = if let Some(base) = basename.as_string(true) {
         name.to_string(ctx).map(|nm| {
             js_load_module_internal(
                 ctx,

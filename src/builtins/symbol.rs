@@ -78,7 +78,7 @@ pub fn js_symbol_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 //
 
 fn js_symbol_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let Some(sym) = cc.this().as_symbol() else {
+    let Some(sym) = cc.this().as_symbol(true) else {
         ctx.throw_type_error_not_a_symbol();
         return Err(-1);
     };
@@ -90,7 +90,7 @@ fn js_symbol_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_symbol_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     cc.this()
-        .as_symbol()
+        .as_symbol(true)
         .ok_or_else(|| {
             ctx.throw_type_error_not_a_symbol();
             -1
@@ -99,7 +99,7 @@ fn js_symbol_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_symbol_get_description(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let Some(sym) = cc.this().as_symbol() else {
+    let Some(sym) = cc.this().as_symbol(true) else {
         ctx.throw_type_error_not_a_symbol();
         return Err(-1);
     };
@@ -125,15 +125,16 @@ fn js_symbol_for(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_symbol_keyFor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if let Some(s) = cc.arg(0).as_symbol() {
-        if s.atom_info().unwrap().kind() != AtomKind::GlobalSymbol {
-            Ok(JSValue::UNDEFINED)
-        } else {
-            Ok(JSValue::make_string(s))
-        }
-    } else {
+    let arg = cc.arg(0);
+    if !arg.is_symbol() {
         ctx.throw_type_error_not_a_symbol();
-        Err(-1)
+        return Err(-1);
+    }
+    let s = arg.as_symbol(false).unwrap();
+    if s.atom_info().unwrap().kind() != AtomKind::GlobalSymbol {
+        Ok(JSValue::UNDEFINED)
+    } else {
+        Ok(JSValue::make_string(s))
     }
 }
 

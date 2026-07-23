@@ -882,7 +882,7 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
                 ts
             } else {
                 let v = cc.arg(0).to_primitive(ctx, HINT_NONE)?;
-                if let Some(s) = v.as_string() {
+                if let Some(s) = v.as_string(true) {
                     Datetime::parse(&s.content().encode_utf8_bytes(false))
                         .unwrap_or(Datetime::INVALID)
                 } else {
@@ -975,7 +975,12 @@ fn js_date_Symbol_toPrimitive(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         return Err(-1);
     };
 
-    let hint: Atom = if let Some(s) = cc.arg(0).as_string() {
+    // The hint must be a *string primitive* ("string" | "default" | "number").
+    // A String object (e.g. `new String('number')`) is not a valid hint and must
+    // fall through to the TypeError branch (ES spec Date.prototype[@@toPrimitive]
+    // step 5). `as_string(false)` only matches primitive strings and does not
+    // unwrap String objects.
+    let hint: Atom = if let Some(s) = cc.arg(0).as_string(false) {
         s.to_atom(ctx, AtomKind::String)?
     } else {
         Atom::CONST_empty_string

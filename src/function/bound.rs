@@ -128,12 +128,14 @@ impl BoundFunction {
         bound.define_property_value(ctx, Atom::CONST_length, len_val, JS_PROP_CONFIGURABLE)?;
 
         // set bound function name property
-        let name: StringRef =
-            if let Some(s) = func_obj.get_property(ctx, Atom::CONST_name)?.as_string() {
-                s
-            } else {
-                Atom::CONST_empty_string.force_string(ctx)?
-            };
+        let name: StringRef = if let Some(s) = func_obj
+            .get_property(ctx, Atom::CONST_name)?
+            .as_string(true)
+        {
+            s
+        } else {
+            Atom::CONST_empty_string.force_string(ctx)?
+        };
 
         let bf_name = JS_ConcatString3(ctx, c"bound ", JSValue::make_string(name), c"")?;
         bound.define_property_value(

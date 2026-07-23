@@ -221,7 +221,7 @@ pub fn js_module_loader(
         && attrs
             .get_property_str(ctx, "type")
             .map(|v| {
-                v.as_string()
+                v.as_string(true)
                     .is_some_and(|s| s.content().encode_utf8(false).as_ref() == "json")
             })
             .unwrap_or(false);

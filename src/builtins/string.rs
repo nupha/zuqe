@@ -29,7 +29,7 @@ pub fn js_string_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         Atom::CONST_empty_string.force_string(ctx)?
     } else {
         #[cfg(feature = "builtin_symbol")]
-        if let Some(s) = cc.arg(0).as_symbol()
+        if let Some(s) = cc.arg(0).as_symbol(false)
             && new_target.is_undefined()
         {
             // "Symbol(desc)"
@@ -828,7 +828,7 @@ fn js_string_toString(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValu
 
 #[inline]
 fn js_thisStringValue(ctx: &mut ScopedContext, this_val: JSValue) -> Result<StringRef, i32> {
-    this_val.as_string().ok_or_else(|| {
+    this_val.as_string(true).ok_or_else(|| {
         ctx.throw_type_error("not a string");
         -1
     })
@@ -1051,7 +1051,7 @@ fn js_string_iterator_next(
         if val.is_undefined() {
             *state = IteratorState::Done;
             Ok(JSValue::UNDEFINED)
-        } else if let Some(ss) = val.as_string() {
+        } else if let Some(ss) = val.as_string(true) {
             // iterate over string buf to get char or code at `idx`
             if let Some((span, c)) = ss.content().chars_since(it.index() as usize).next() {
                 it.set_index(span.end as u32);

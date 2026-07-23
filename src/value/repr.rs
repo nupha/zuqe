@@ -153,13 +153,17 @@ impl ObjectImpl {
 
         let tag: StringRef = {
             #[cfg(feature = "builtin_symbol")]
-            if let Some(s) = self
-                .get_property(ctx, Atom::CONST_Symbol_toStringTag)?
-                .as_string()
             {
-                s
-            } else {
-                atom.force_string(ctx)?
+                let val = self.get_property(ctx, Atom::CONST_Symbol_toStringTag)?;
+                // Per ES spec, the `@@toStringTag` value is only honored when it
+                // is a *string primitive*. A String object (e.g. `new String(t)`)
+                // must be ignored and the builtin tag used instead. `as_string(false)`
+                // does not unwrap String objects, so it only matches primitives.
+                if let Some(s) = val.as_string(false) {
+                    s
+                } else {
+                    atom.force_string(ctx)?
+                }
             }
             #[cfg(not(feature = "builtin_symbol"))]
             atom.force_string(ctx)?

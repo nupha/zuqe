@@ -22,7 +22,7 @@ impl ObjectImpl {
         if let Some(home_obj) = home_obj {
             if let Some((idx, _)) = home_obj.find_shape_property(Atom::CONST_Private_brand) {
                 let atom = if let JSProperty::Normal(v) = home_obj.prop_slot(idx)
-                    && let Some(s) = v.as_symbol()
+                    && let Some(s) = v.as_symbol(true)
                 {
                     Atom::from_id(s.atom_info().unwrap().id())
                 } else {
@@ -47,7 +47,7 @@ impl ObjectImpl {
         name: JSValue,
         val: JSValue,
     ) -> Result<(), i32> {
-        let Some(s) = name.as_symbol() else {
+        let Some(s) = name.as_symbol(true) else {
             ctx.throw_type_error_not_a_symbol();
             return Err(-1);
         };
@@ -63,7 +63,7 @@ impl ObjectImpl {
     }
 
     fn get_private_field(&self, ctx: &mut ScopedContext, name: JSValue) -> JSResult {
-        let Some(s) = name.as_symbol() else {
+        let Some(s) = name.as_symbol(true) else {
             ctx.throw_type_error_not_a_symbol();
             return Err(-1);
         };
@@ -88,7 +88,7 @@ impl ObjectImpl {
         name: JSValue,
         val: JSValue,
     ) -> Result<(), i32> {
-        let Some(s) = name.as_symbol() else {
+        let Some(s) = name.as_symbol(true) else {
             ctx.throw_type_error_not_a_symbol();
             return Err(-1);
         };

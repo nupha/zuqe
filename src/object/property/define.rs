@@ -391,7 +391,7 @@ impl ObjectImpl {
     pub fn has_name(&self) -> bool {
         if let Some((idx, _)) = self.find_shape_property(Atom::CONST_name) {
             if let JSProperty::Normal(v) = self.prop_slot(idx)
-                && let Some(s) = v.as_string()
+                && let Some(s) = v.as_string(true)
             {
                 !s.is_empty()
             } else {

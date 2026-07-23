@@ -287,7 +287,7 @@ pub(crate) fn get_func_name(func_obj: Object) -> Option<String> {
         && prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL
     {
         if let JSProperty::Normal(v) = func_obj.prop_slot(idx)
-            && let Some(s) = v.as_string()
+            && let Some(s) = v.as_string(true)
         {
             return Some(s.content().encode_utf8(false).into_owned());
         } else {

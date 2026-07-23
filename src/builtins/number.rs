@@ -210,7 +210,11 @@ fn js_number_toFixed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         ctx.throw_range_error("invalid number of digits");
         return Err(-1);
     } else if unlikely(d.abs() >= 1e21) {
-        format!("{d:e}")
+        // ES spec step 9: when x >= 10^21, toFixed returns ToString(x),
+        // which uses variable-format exponential notation (positive
+        // exponents carry a '+' sign, e.g. "1e+21"). Delegating to
+        // f64_stringify keeps it consistent with String(x).
+        f64_stringify(d, 10, None, JS_DTOA_VAR_FORMAT).into_owned()
     } else {
         f64_stringify(d, 10, Some(f as u32), JS_DTOA_FRAC_FORMAT).into_owned()
     };

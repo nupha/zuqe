@@ -425,7 +425,7 @@ impl JSValue {
         eval_flags: EvalFlags,
         var_scope_idx: i32,
     ) -> JSResult {
-        if let Some(s) = self.as_string() {
+        if let Some(s) = self.as_string(true) {
             ctx.compile_then_run(
                 this_obj,
                 s.content().encode_utf8_bytes(true).as_ref(),

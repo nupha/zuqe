@@ -732,7 +732,7 @@ pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         if !el.is_undefined_or_null() {
             let ss: StringRef = if to_locale_string {
                 el.to_locale_string(ctx)?.to_string(ctx)?
-            } else if let Some(s) = el.as_string() {
+            } else if let Some(s) = el.as_string(true) {
                 s
             } else {
                 el.to_string(ctx)?

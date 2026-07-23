@@ -53,13 +53,22 @@ impl<'a> ScopedContext<'a> {
                 let k: StringRef = {
                     let v = replacer.get_property_i64(self, i)?;
 
-                    if let Some(s) = v.as_string() {
+                    // Per ES spec JSON.stringify step 4:
+                    // - String/Number primitive -> ToString(v)
+                    // - Object with [[StringData]] or [[NumberData]] -> ToString(v)
+                    // - everything else is ignored
+                    // `ToString` must go through ToPrimitive so an overridden
+                    // `toString`/`valueOf` is honored; do NOT unwrap objects.
+                    // `as_string(false)` only matches a *string primitive*, which
+                    // is exactly what the `is_string()` guard expressed before.
+                    if let Some(s) = v.as_string(false) {
                         s
+                    } else if v.is_number() {
+                        v.to_string(self)?
                     } else if let Some(o) = v.as_object()
                         && matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER)
                     {
-                        // accept String/Number Object as key only
-                        JSValue::from(o).to_string(self)?
+                        v.to_string(self)?
                     } else {
                         continue; // ignored
                     }
@@ -97,7 +106,7 @@ impl<'a> ScopedContext<'a> {
                     a.into()
                 })
             };
-        } else if let Some(s) = space.as_string() {
+        } else if let Some(s) = space.as_string(true) {
             let mut b = StringBuf::with_capacity(s.len(), false).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
@@ -315,7 +324,7 @@ fn js_json_to_str(
                         -1
                     })?;
                     for (key, _) in kvs {
-                        lst.push(key.as_string().unwrap());
+                        lst.push(key.as_string(true).unwrap());
                     }
                     lst.into()
                 };
@@ -561,7 +570,7 @@ fn js_json_to_str(
                         -1
                     })?;
                     for (key, _) in kvs {
-                        lst.push(key.as_string().unwrap());
+                        lst.push(key.as_string(true).unwrap());
                     }
                     lst.into()
                 };

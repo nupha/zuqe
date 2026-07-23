@@ -412,19 +412,30 @@ impl JSValue {
         .map_or(Self::NULL, Self::from)
     }
 
-    pub fn as_string(&self) -> Option<StringRef> {
+    /// Returns the `StringRef` if this is a primitive string.
+    /// When `allow_string_object` is `true`, also unwraps `String` wrapper objects.
+    /// With `false`, only a string *primitive* matches (equivalent to
+    /// `is_string() && as_string()`).
+    pub fn as_string(&self, allow_string_object: bool) -> Option<StringRef> {
         match self {
             Self::String(s) => Some(*s),
-            Self::Object(o) if o.class_id() == JS_CLASS_STRING => o.payload().string().copied(),
+            Self::Object(o) if allow_string_object && o.class_id() == JS_CLASS_STRING => {
+                o.payload().string().copied()
+            }
             _ => None,
         }
     }
 
-    /// for Symbol value or Symbol object, returns its StringRef descriptor
-    pub fn as_symbol(&self) -> Option<StringRef> {
+    /// for Symbol value or Symbol object, returns its StringRef descriptor.
+    /// When `allow_symbol_object` is `true`, also unwraps `Symbol` wrapper objects.
+    /// With `false`, only a symbol *primitive* matches (equivalent to
+    /// `is_symbol() && as_symbol()`).
+    pub fn as_symbol(&self, allow_symbol_object: bool) -> Option<StringRef> {
         match self {
             Self::Symbol(s) => Some(*s),
-            Self::Object(o) if o.class_id() == JS_CLASS_SYMBOL => o.payload().string().copied(),
+            Self::Object(o) if allow_symbol_object && o.class_id() == JS_CLASS_SYMBOL => {
+                o.payload().string().copied()
+            }
             _ => None,
         }
     }

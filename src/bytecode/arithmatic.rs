@@ -676,8 +676,8 @@ impl JSValue {
                 // so `a == b` here would wrongly equate two distinct `Symbol('x')` calls
                 // that share the same description. Match `JSValue::eq` (val.rs), which
                 // keys on `atom_info().id()`.
-                let a = self.as_symbol().unwrap();
-                let b = other.as_symbol().unwrap();
+                let a = self.as_symbol(true).unwrap();
+                let b = other.as_symbol(true).unwrap();
                 matches!((a.atom_info(), b.atom_info()), (Some(x), Some(y)) if x.id() == y.id())
             }
 
@@ -761,8 +761,8 @@ impl JSValue {
                 #[cfg(feature = "builtin_symbol")]
                 (crate::JSValueTag::Symbol, crate::JSValueTag::Symbol) => {
                     // compare atom descriptor content
-                    let s1 = v1.as_symbol().unwrap();
-                    let s2 = v2.as_symbol().unwrap();
+                    let s1 = v1.as_symbol(true).unwrap();
+                    let s2 = v2.as_symbol(true).unwrap();
                     return Ok(s1.content().partial_cmp(s2.content()).unwrap());
                 }
 
@@ -1186,6 +1186,6 @@ fn cmp_f64(d1: f64, d2: f64, eq_mode: StrictEqMode) -> bool {
         // SameValue: NaN == NaN, +0 != -0
         StrictEqMode::JS_EQ_SAME_VALUE => d1.to_bits() == d2.to_bits(),
         // SameValueZero: NaN == NaN, +0 == -0
-        StrictEqMode::JS_EQ_SAME_VALUE_ZERO => d1 == d2,
+        StrictEqMode::JS_EQ_SAME_VALUE_ZERO => d1 == d2 || (d1.is_nan() && d2.is_nan()),
     }
 }
