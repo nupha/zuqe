@@ -39,7 +39,7 @@ fn js_array_buffer_get_byteLength(ctx: &mut ScopedContext, cc: CallContext) -> J
 
 fn js_array_buffer_detached(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let ab = get_array_buffer(cc.this(), ctx, JS_CLASS_ARRAY_BUFFER)?;
-    Ok(JSValue::Bool(ab.payload().is_detached()))
+    Ok(JSValue::from(ab.payload().is_detached()))
 }
 
 fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

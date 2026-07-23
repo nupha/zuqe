@@ -8,7 +8,7 @@ use crate::{JS_CLASS_ERROR, JSValue, ScopedContext, object::Object, utils::unlik
 impl GcTrace for JSValue {
     #[inline(always)]
     fn trace(&self, tr: &mut GcTraceCtx) {
-        if let Some(p) = self.gc_node_ptr() {
+        if let Some(p) = self.as_gc_node() {
             tr.add_node(p);
         }
     }
@@ -40,17 +40,7 @@ impl JSValue {
 
     #[inline(always)]
     pub fn gc_node(&self) -> Option<&GcHead> {
-        self.gc_node_ptr().map(|n| unsafe { n.as_ref() })
-    }
-
-    #[deprecated(note = "use ensure_object() instead")]
-    pub fn into_object(self, ctx: &mut ScopedContext) -> Result<Object, i32> {
-        if let Some(o) = self.as_object() {
-            Ok(o)
-        } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
-        }
+        self.as_gc_node().map(|n| unsafe { n.as_ref() })
     }
 
     /// Convert value `self` to object, raise exception if value is not an object.
@@ -65,19 +55,6 @@ impl JSValue {
 
     // Convert value `self` to callable object, raise exception if value is not a callable object.
     pub fn ensure_callable(&self, ctx: &mut ScopedContext) -> Result<Object, i32> {
-        self.ensure_object(ctx).and_then(|o| {
-            if o.is_callable() {
-                Ok(o)
-            } else {
-                ctx.throw_type_error("not a function");
-                Err(-1)
-            }
-        })
-    }
-
-    /// Convert value `self` to callable object, consuming self, raise exception if value is not an object.
-    #[deprecated(note = "use ensure_callable() instead")]
-    pub fn into_callable(self, ctx: &mut ScopedContext) -> Result<Object, i32> {
         self.ensure_object(ctx).and_then(|o| {
             if o.is_callable() {
                 Ok(o)

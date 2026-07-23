@@ -205,7 +205,7 @@ impl VarRef {
 
     pub(crate) fn set_value(&mut self, rt: &mut RuntimeImpl, new_value: JSValue) {
         self.set_value_internal(new_value);
-        if let Some(n) = new_value.gc_node_ptr() {
+        if let Some(n) = new_value.as_gc_node() {
             rt.gc_heap_mut().bind(self.gc_node_ptr(), n);
         }
     }

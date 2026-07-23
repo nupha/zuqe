@@ -20,6 +20,32 @@ pub(super) enum TwoNumbers {
 
 impl TwoNumbers {
     /// fast path
+    #[cfg(feature = "nan_boxing")]
+    const fn from_values_fast(op1: JSValue, op2: JSValue) -> Option<Self> {
+        match (op1.tag(), op2.tag()) {
+            (
+                crate::JSValueTag::Int | crate::JSValueTag::Bool,
+                crate::JSValueTag::Int | crate::JSValueTag::Bool,
+            ) => Some(Self::Int(op1.payload_i32(), op2.payload_i32())),
+
+            (crate::JSValueTag::Float64, crate::JSValueTag::Int | crate::JSValueTag::Bool) => {
+                Some(Self::Float(
+                    unsafe { op1.as_float_unchecked() },
+                    op2.payload_i32() as f64,
+                ))
+            }
+
+            (crate::JSValueTag::Int | crate::JSValueTag::Bool, crate::JSValueTag::Float64) => {
+                Some(Self::Float(op1.payload_i32() as f64, unsafe {
+                    op2.as_float_unchecked()
+                }))
+            }
+
+            _ => None,
+        }
+    }
+
+    #[cfg(not(feature = "nan_boxing"))]
     const fn from_values_fast(op1: JSValue, op2: JSValue) -> Option<Self> {
         match (op1, op2) {
             (JSValue::Int(a), JSValue::Int(b)) => Some(Self::Int(a, b)),
@@ -94,7 +120,7 @@ impl TwoNumbers {
             Self::Int(a, b) => {
                 let n = (a as i64) * (b as i64);
                 if unlikely(n == 0 && (a | b) < 0) {
-                    JSValue::Float64(-0.0)
+                    JSValue::make_float(-0.0)
                 } else {
                     JSValue::from(n)
                 }
@@ -152,7 +178,7 @@ impl TwoNumbers {
         }
     }
 
-    pub const fn shl(self) -> JSValue {
+    pub fn shl(self) -> JSValue {
         let (a, b) = match self {
             Self::Int(v1, v2) => (v1, v2),
             Self::Float(v1, v2) => {
@@ -161,10 +187,10 @@ impl TwoNumbers {
                 (v1, v2)
             }
         };
-        JSValue::Int(a << (b & 0x1f))
+        JSValue::from(a << (b & 0x1f))
     }
 
-    pub const fn sar(self) -> JSValue {
+    pub fn sar(self) -> JSValue {
         let (a, b) = match self {
             Self::Int(v1, v2) => (v1, v2),
             Self::Float(v1, v2) => {
@@ -173,7 +199,7 @@ impl TwoNumbers {
                 (v1, v2)
             }
         };
-        JSValue::Int(a >> (b & 0x1f))
+        JSValue::from(a >> (b & 0x1f))
     }
 
     pub fn shr(self) -> JSValue {
@@ -222,6 +248,22 @@ impl UnaryOp {
         val: JSValue,
         allow_float: bool,
     ) -> Result<Self, i32> {
+        #[cfg(feature = "nan_boxing")]
+        match val.tag() {
+            crate::JSValueTag::Int => Ok(UnaryOp::Int(val.payload_i32())),
+            crate::JSValueTag::Float64 if allow_float => {
+                Ok(UnaryOp::Float(unsafe { val.as_float_unchecked() }))
+            }
+            _ if allow_float => match val.to_number(ctx)? {
+                IntOrFloat::Int64(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => {
+                    Ok(UnaryOp::Int(i as i32))
+                }
+                n => Ok(UnaryOp::Float(n.to_f64())),
+            },
+            _ => val.to_number(ctx).map(|n| Self::Int(n.to_i32())),
+        }
+
+        #[cfg(not(feature = "nan_boxing"))]
         match val {
             JSValue::Int(i) => Ok(UnaryOp::Int(i)),
             JSValue::Float64(f) if allow_float => Ok(UnaryOp::Float(f)),
@@ -235,12 +277,13 @@ impl UnaryOp {
         }
     }
 
-    /// a shortcut for ::new(ctx, op1, false)
+    /// a shortcut for ::new(ctx, val, false)
     #[inline(always)]
-    pub fn new_int(ctx: &mut ScopedContext, op1: JSValue) -> Result<Self, i32> {
-        match op1 {
-            JSValue::Int(i) => Ok(Self::Int(i)),
-            _ => op1.to_number(ctx).map(|n| Self::Int(n.to_i32())),
+    pub fn new_int(ctx: &mut ScopedContext, val: JSValue) -> Result<Self, i32> {
+        if let Some(i) = val.as_int() {
+            Ok(Self::Int(i))
+        } else {
+            val.to_number(ctx).map(|n| Self::Int(n.to_i32()))
         }
     }
 
@@ -249,19 +292,19 @@ impl UnaryOp {
             UnaryOp::Int(a) => {
                 if unlikely(a == 0) {
                     // -0 cannot be expressed as integer
-                    JSValue::Float64(-0.0)
+                    JSValue::make_float(-0.0)
                 } else if a == i32::MIN {
-                    JSValue::Float64(-(a as f64))
+                    JSValue::make_float(-(a as f64))
                 } else {
-                    JSValue::Int(-a)
+                    JSValue::from(-a)
                 }
             }
             UnaryOp::Float(a) => {
                 if unlikely(a == 0.0) {
                     if a.is_sign_negative() {
-                        JSValue::Int(0)
+                        JSValue::from(0)
                     } else {
-                        JSValue::Float64(-0.0)
+                        JSValue::make_float(-0.0)
                     }
                 } else {
                     JSValue::from(-a)
@@ -270,10 +313,10 @@ impl UnaryOp {
         }
     }
 
-    pub const fn plus(self) -> JSValue {
+    pub fn plus(self) -> JSValue {
         match self {
-            UnaryOp::Int(a) => JSValue::Int(a),
-            UnaryOp::Float(a) => JSValue::Float64(a),
+            UnaryOp::Int(a) => JSValue::from(a),
+            UnaryOp::Float(a) => JSValue::make_float(a),
         }
     }
 
@@ -283,10 +326,10 @@ impl UnaryOp {
                 if unlikely(a == i32::MAX) {
                     JSValue::from(a as u32 + 1)
                 } else {
-                    JSValue::Int(a + 1)
+                    JSValue::from(a + 1)
                 }
             }
-            UnaryOp::Float(a) => JSValue::Float64(a + 1.0),
+            UnaryOp::Float(a) => JSValue::make_float(a + 1.0),
         }
     }
 
@@ -296,16 +339,16 @@ impl UnaryOp {
                 if unlikely(a == i32::MIN) {
                     JSValue::from(a as i64 - 1)
                 } else {
-                    JSValue::Int(a - 1)
+                    JSValue::from(a - 1)
                 }
             }
-            UnaryOp::Float(a) => JSValue::Float64(a - 1.0),
+            UnaryOp::Float(a) => JSValue::make_float(a - 1.0),
         }
     }
 
     pub fn not(self) -> JSValue {
         match self {
-            Self::Int(a) => JSValue::Int(!a),
+            Self::Int(a) => JSValue::from(!a),
             _ => unreachable!(),
         }
     }
@@ -367,6 +410,58 @@ pub enum StrictEqMode {
 impl JSValue {
     /// arithmatic compare of two values.
     /// returns None only if value converted to NaN
+    #[cfg(feature = "nan_boxing")]
+    pub fn arith_cmp(
+        &self,
+        ctx: &mut ScopedContext,
+        other: JSValue,
+    ) -> Result<Option<std::cmp::Ordering>, i32> {
+        // fast path
+        if let Some(n2) = TwoNumbers::from_values_fast(*self, other) {
+            return Ok(n2.partial_cmp());
+        }
+
+        // slow path
+        let mut op1 = *self;
+        let mut op2 = other;
+
+        loop {
+            match (op1.tag(), op2.tag()) {
+                // string vs string
+                (crate::JSValueTag::String, crate::JSValueTag::String) => unsafe {
+                    let s1 = op1.as_string_unchecked();
+                    let s2 = &op2.as_string_unchecked();
+                    return Ok(Some(s1.cmp(s2)));
+                },
+
+                // object vs any
+                (crate::JSValueTag::Object, crate::JSValueTag::Object) => {
+                    op1 = op1.to_primitive(ctx, HINT_NUMBER)?;
+                    op2 = op2.to_primitive(ctx, HINT_NUMBER)?;
+                }
+                (crate::JSValueTag::Object, _) => {
+                    op1 = op1.to_primitive(ctx, HINT_NUMBER)?;
+                }
+                (_, crate::JSValueTag::Object) => {
+                    op2 = op2.to_primitive(ctx, HINT_NUMBER)?;
+                }
+
+                _ => {
+                    let n1 = op1.to_number(ctx)?;
+                    let n2 = op2.to_number(ctx)?;
+                    return Ok(n1.partial_cmp(&n2));
+                }
+            }
+
+            if let Some(n2) = TwoNumbers::from_values_fast(op1, op2) {
+                return Ok(n2.partial_cmp());
+            }
+        }
+    }
+
+    /// arithmatic compare of two values.
+    /// returns None only if value converted to NaN
+    #[cfg(not(feature = "nan_boxing"))]
     pub fn arith_cmp(
         &self,
         ctx: &mut ScopedContext,
@@ -413,6 +508,54 @@ impl JSValue {
     }
 
     /// arithmatic add of two values.
+    #[cfg(feature = "nan_boxing")]
+    pub fn arith_add(ctx: &mut ScopedContext, mut op1: Self, mut op2: Self) -> JSResult {
+        loop {
+            match (op1.tag(), op2.tag()) {
+                // path to exit:
+                (crate::JSValueTag::Int, crate::JSValueTag::Int) => {
+                    let a = op1.payload_i32();
+                    let b = op2.payload_i32();
+                    // result may overflow i32 ranges
+                    return Ok(JSValue::from(a as i64 + b as i64));
+                }
+                (crate::JSValueTag::Float64, crate::JSValueTag::Float64) => unsafe {
+                    let a = op1.as_float_unchecked();
+                    let b = op2.as_float_unchecked();
+                    return Ok(JSValue::from(a + b));
+                },
+                (crate::JSValueTag::Int, crate::JSValueTag::Float64) => {
+                    let a = op1.payload_i32() as f64;
+                    let b = unsafe { op2.as_float_unchecked() };
+                    return Ok(JSValue::from(a + b));
+                }
+                (crate::JSValueTag::Float64, crate::JSValueTag::Int) => {
+                    let a = unsafe { op1.as_float_unchecked() };
+                    let b = op2.payload_i32() as f64;
+                    return Ok(JSValue::from(a + b));
+                }
+
+                //
+                // conversion - don't change following arm order
+                //
+                (crate::JSValueTag::Object, _) | (_, crate::JSValueTag::Object) => {
+                    op1 = op1.to_primitive(ctx, HINT_NONE)?;
+                    op2 = op2.to_primitive(ctx, HINT_NONE)?;
+                }
+                (crate::JSValueTag::String, _) | (_, crate::JSValueTag::String) => {
+                    return JSValue::concat_value(ctx, op1, op2);
+                }
+                _ => {
+                    let n1 = op1.to_number(ctx)?;
+                    let n2 = op2.to_number(ctx)?;
+                    return Ok(n1.add(n2).into());
+                }
+            }
+        }
+    }
+
+    /// arithmatic add of two values.
+    #[cfg(not(feature = "nan_boxing"))]
     pub fn arith_add(ctx: &mut ScopedContext, mut op1: Self, mut op2: Self) -> JSResult {
         loop {
             match (op1, op2) {
@@ -481,7 +624,70 @@ impl JSValue {
 
     /// compare JSValues equality in given mode.
     /// Note: `self` and `other` are not consumed.
-    #[inline(always)]
+    #[cfg(feature = "nan_boxing")]
+    pub(crate) fn strict_eq_with_mode(&self, other: Self, eq_mode: StrictEqMode) -> bool {
+        match (self.tag(), other.tag()) {
+            (crate::JSValueTag::Int, crate::JSValueTag::Int)
+            | (crate::JSValueTag::Bool, crate::JSValueTag::Bool)
+            | (crate::JSValueTag::CatchOffset, crate::JSValueTag::CatchOffset) => {
+                self.0 == other.0 // i32 payload eq
+            }
+
+            (crate::JSValueTag::String, crate::JSValueTag::String) => unsafe {
+                // string: content equality (matches non-nan-boxing StringRef::eq).
+                // runtime-built strings (e.g. ropes from concat) are distinct
+                // nodes with equal content, so raw-pointer compare rejects them.
+                self.as_string_unchecked() == other.as_string_unchecked()
+            },
+
+            // gc node: identity
+            (crate::JSValueTag::Object, crate::JSValueTag::Object)
+            | (crate::JSValueTag::FunctionBytecode, crate::JSValueTag::FunctionBytecode)
+            | (crate::JSValueTag::Module, crate::JSValueTag::Module) => {
+                self.0 == other.0 // raw pointer equal
+            }
+
+            (crate::JSValueTag::Float64, crate::JSValueTag::Float64) => unsafe {
+                let a = self.as_float_unchecked();
+                let b = other.as_float_unchecked();
+                cmp_f64(a, b, eq_mode)
+            },
+            (crate::JSValueTag::Float64, crate::JSValueTag::Int) => unsafe {
+                let a = self.as_float_unchecked();
+                let b = other.payload_i32() as f64;
+                cmp_f64(a, b, eq_mode)
+            },
+            (crate::JSValueTag::Int, crate::JSValueTag::Float64) => unsafe {
+                let a = self.payload_i32() as f64;
+                let b = other.as_float_unchecked();
+                cmp_f64(a, b, eq_mode)
+            },
+
+            // singleton types
+            (crate::JSValueTag::Undefined, crate::JSValueTag::Undefined)
+            | (crate::JSValueTag::Null, crate::JSValueTag::Null)
+            | (crate::JSValueTag::Exception, crate::JSValueTag::Exception)
+            | (crate::JSValueTag::Uninitialized, crate::JSValueTag::Uninitialized) => true,
+
+            #[cfg(feature = "builtin_symbol")]
+            (crate::JSValueTag::Symbol, crate::JSValueTag::Symbol) => {
+                // Symbols are compared by identity (their unique atom id), not by the
+                // descriptor string content. `StringRef`'s `PartialEq` compares content,
+                // so `a == b` here would wrongly equate two distinct `Symbol('x')` calls
+                // that share the same description. Match `JSValue::eq` (val.rs), which
+                // keys on `atom_info().id()`.
+                let a = self.as_symbol().unwrap();
+                let b = other.as_symbol().unwrap();
+                matches!((a.atom_info(), b.atom_info()), (Some(x), Some(y)) if x.id() == y.id())
+            }
+
+            _ => false,
+        }
+    }
+
+    /// compare JSValues equality in given mode.
+    /// Note: `self` and `other` are not consumed.
+    #[cfg(not(feature = "nan_boxing"))]
     pub(crate) fn strict_eq_with_mode(&self, other: Self, eq_mode: StrictEqMode) -> bool {
         match (*self, other) {
             (JSValue::Int(a), JSValue::Int(b)) => a == b,
@@ -532,6 +738,123 @@ impl JSValue {
     }
 
     /// get order of `self` and `other`.
+    #[cfg(feature = "nan_boxing")]
+    pub fn sort_cmp(&self, ctx: &mut ScopedContext, other: Self) -> Result<Ordering, i32> {
+        let mut v1 = *self;
+        let mut v2 = other;
+
+        loop {
+            match (v1.tag(), v2.tag()) {
+                (
+                    crate::JSValueTag::Int | crate::JSValueTag::Bool,
+                    crate::JSValueTag::Int | crate::JSValueTag::Bool,
+                ) => {
+                    return Ok(v1.payload_i32().cmp(&v2.payload_i32()));
+                }
+
+                (crate::JSValueTag::String, crate::JSValueTag::String) => unsafe {
+                    let a = v1.as_string_unchecked();
+                    let b = v2.as_string_unchecked();
+                    return Ok(a.partial_cmp(&b).unwrap());
+                },
+
+                #[cfg(feature = "builtin_symbol")]
+                (crate::JSValueTag::Symbol, crate::JSValueTag::Symbol) => {
+                    // compare atom descriptor content
+                    let s1 = v1.as_symbol().unwrap();
+                    let s2 = v2.as_symbol().unwrap();
+                    return Ok(s1.content().partial_cmp(s2.content()).unwrap());
+                }
+
+                (crate::JSValueTag::Float64, crate::JSValueTag::Float64) => unsafe {
+                    let a = v1.as_float_unchecked();
+                    let b = v2.as_float_unchecked();
+                    return Ok(match (a.is_nan(), b.is_nan()) {
+                        (true, true) => Ordering::Equal,
+                        (true, false) => Ordering::Greater,
+                        (false, true) => Ordering::Less,
+                        (false, false) => a.partial_cmp(&b).unwrap_or(Ordering::Equal),
+                    });
+                },
+                (crate::JSValueTag::Int, crate::JSValueTag::Float64) => {
+                    let a = v1.payload_i32() as f64;
+                    let b = unsafe { v2.as_float_unchecked() };
+                    return Ok(match (a.is_nan(), b.is_nan()) {
+                        (true, true) => Ordering::Equal,
+                        (true, false) => Ordering::Greater,
+                        (false, true) => Ordering::Less,
+                        (false, false) => a.partial_cmp(&b).unwrap_or(Ordering::Equal),
+                    });
+                }
+                (crate::JSValueTag::Float64, crate::JSValueTag::Int) => {
+                    let a = unsafe { v1.as_float_unchecked() };
+                    let b = v2.payload_i32() as f64;
+                    return Ok(match (a.is_nan(), b.is_nan()) {
+                        (true, true) => Ordering::Equal,
+                        (true, false) => Ordering::Greater,
+                        (false, true) => Ordering::Less,
+                        (false, false) => a.partial_cmp(&b).unwrap_or(Ordering::Equal),
+                    });
+                }
+
+                (crate::JSValueTag::Undefined, crate::JSValueTag::Undefined)
+                | (crate::JSValueTag::Null, crate::JSValueTag::Null) => {
+                    return Ok(Ordering::Equal);
+                }
+
+                // string is prior to symbol
+                #[cfg(feature = "builtin_symbol")]
+                (crate::JSValueTag::String, crate::JSValueTag::Symbol) => {
+                    return Ok(Ordering::Less);
+                }
+                #[cfg(feature = "builtin_symbol")]
+                (crate::JSValueTag::Symbol, crate::JSValueTag::String) => {
+                    return Ok(Ordering::Greater);
+                }
+
+                // undefined is always the last
+                (crate::JSValueTag::Undefined, _) => {
+                    return Ok(Ordering::Greater);
+                }
+                (_, crate::JSValueTag::Undefined) => {
+                    return Ok(Ordering::Less);
+                }
+
+                // null is prior to NaN
+                (crate::JSValueTag::Null, crate::JSValueTag::Float64) => {
+                    let d = unsafe { v2.as_float_unchecked() };
+                    return if d.is_nan() {
+                        Ok(Ordering::Less)
+                    } else {
+                        Ok(0.0.partial_cmp(&d).unwrap())
+                    };
+                }
+                (crate::JSValueTag::Float64, crate::JSValueTag::Null) => {
+                    let d = unsafe { v1.as_float_unchecked() };
+                    return if d.is_nan() {
+                        Ok(Ordering::Greater)
+                    } else {
+                        Ok(d.partial_cmp(&0.0).unwrap())
+                    };
+                }
+
+                // convert
+                (crate::JSValueTag::Null, _) => {
+                    v1 = JSValue::ZERO;
+                }
+                (_, crate::JSValueTag::Null) => {
+                    v2 = JSValue::ZERO;
+                }
+                (a, b) => {
+                    v1 = v1.to_primitive(ctx, HINT_NUMBER)?;
+                    v2 = v2.to_primitive(ctx, HINT_NUMBER)?;
+                }
+            }
+        }
+    }
+
+    /// get order of `self` and `other`.
+    #[cfg(not(feature = "nan_boxing"))]
     pub fn sort_cmp(&self, ctx: &mut ScopedContext, other: Self) -> Result<Ordering, i32> {
         let mut v1 = *self;
         let mut v2 = other;
@@ -622,10 +945,10 @@ impl JSValue {
 
                 // convert
                 (JSValue::NULL, _) => {
-                    v1 = JSValue::Int(0);
+                    v1 = JSValue::ZERO;
                 }
                 (_, JSValue::NULL) => {
-                    v2 = JSValue::Int(0);
+                    v2 = JSValue::ZERO;
                 }
                 (a, b) => {
                     v1 = a.to_primitive(ctx, HINT_NUMBER)?;
@@ -637,6 +960,127 @@ impl JSValue {
 }
 
 /// test arith equality (no-strict eq): val1 == val2
+#[cfg(feature = "nan_boxing")]
+fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
+    let tag1 = val1.tag();
+    let tag2 = val2.tag();
+    if tag1 == tag2 {
+        return Ok(val1 == val2);
+    } else if let Some(n2) = TwoNumbers::from_values_fast(val1, val2) {
+        // fast path for numbers
+        return Ok(n2.partial_cmp() == Some(std::cmp::Ordering::Equal));
+    }
+
+    // slow path
+    let mut op1 = val1;
+    let mut op2 = val2;
+
+    let b = loop {
+        match (op1.tag(), op2.tag()) {
+            // null == undefined
+            (
+                crate::JSValueTag::Null | crate::JSValueTag::Undefined,
+                crate::JSValueTag::Null | crate::JSValueTag::Undefined,
+            ) => {
+                break true;
+            }
+            // null,undefined != others
+            (_, crate::JSValueTag::Null | crate::JSValueTag::Undefined)
+            | (crate::JSValueTag::Null | crate::JSValueTag::Undefined, _) => {
+                break false;
+            }
+
+            // int|boolean vs string
+            (crate::JSValueTag::Int | crate::JSValueTag::Bool, crate::JSValueTag::String) => {
+                let i = op1.payload_i32();
+                let s = unsafe { op2.as_string_unchecked() };
+                break match s.to_number(ctx) {
+                    IntOrFloat::Int64(v) => v == i as i64,
+                    IntOrFloat::Float64(v) => v == 0.0 && i == 0, // -0 == 0
+                };
+            }
+            (crate::JSValueTag::String, crate::JSValueTag::Int | crate::JSValueTag::Bool) => {
+                let s = unsafe { op1.as_string_unchecked() };
+                let i = op2.payload_i32();
+                break match s.to_number(ctx) {
+                    IntOrFloat::Int64(v) => v == i as i64,
+                    IntOrFloat::Float64(v) => v == 0.0 && i == 0, // -0 == 0
+                };
+            }
+
+            // float vs string
+            (crate::JSValueTag::Float64, crate::JSValueTag::String) => {
+                let f = unsafe { op1.as_float_unchecked() };
+                let s = unsafe { op2.as_string_unchecked() };
+                break s.to_number(ctx).to_f64() == f;
+            }
+            (crate::JSValueTag::String, crate::JSValueTag::Float64) => {
+                let s = unsafe { op1.as_string_unchecked() };
+                let f = unsafe { op2.as_float_unchecked() };
+                break s.to_number(ctx).to_f64() == f;
+            }
+
+            // object vs object
+            (crate::JSValueTag::Object, crate::JSValueTag::Object) => unsafe {
+                op1 = op1.as_object_unchecked().to_primitive(ctx, HINT_NONE)?;
+                op2 = op2.as_object_unchecked().to_primitive(ctx, HINT_NONE)?;
+            },
+
+            // object vs number/string/boolean/string
+            (
+                crate::JSValueTag::Object,
+                crate::JSValueTag::Int
+                | crate::JSValueTag::Float64
+                | crate::JSValueTag::Bool
+                | crate::JSValueTag::String,
+            ) => unsafe {
+                op1 = op1.as_object_unchecked().to_primitive(ctx, HINT_NONE)?;
+            },
+            (
+                crate::JSValueTag::Int
+                | crate::JSValueTag::Float64
+                | crate::JSValueTag::Bool
+                | crate::JSValueTag::String,
+                crate::JSValueTag::Object,
+            ) => unsafe {
+                op2 = op2.as_object_unchecked().to_primitive(ctx, HINT_NONE)?;
+            },
+
+            // object vs symbol
+            #[cfg(feature = "builtin_symbol")]
+            (crate::JSValueTag::Object, crate::JSValueTag::Symbol) => unsafe {
+                op1 = op1.as_object_unchecked().to_primitive(ctx, HINT_NONE)?;
+            },
+            #[cfg(feature = "builtin_symbol")]
+            (crate::JSValueTag::Symbol, crate::JSValueTag::Object) => unsafe {
+                op2 = op2.as_object_unchecked().to_primitive(ctx, HINT_NONE)?;
+            },
+
+            #[cfg(debug_assertions)]
+            (
+                crate::JSValueTag::Int | crate::JSValueTag::Float64 | crate::JSValueTag::Bool,
+                crate::JSValueTag::Int | crate::JSValueTag::Float64 | crate::JSValueTag::Bool,
+            ) => {
+                unreachable!("op1={:?}, op2={:?}, handled in fast path", op1, op2);
+            }
+
+            _ => {
+                break false;
+            }
+        }
+
+        if op1.tag() == op2.tag() {
+            break op1 == op2;
+        } else if let Some(n2) = TwoNumbers::from_values_fast(op1, op2) {
+            break n2.partial_cmp() == Some(std::cmp::Ordering::Equal);
+        }
+    };
+
+    Ok(b)
+}
+
+/// test arith equality (no-strict eq): val1 == val2
+#[cfg(not(feature = "nan_boxing"))]
 fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
     if std::mem::discriminant(&val1) == std::mem::discriminant(&val2) {
         return Ok(val1 == val2);

@@ -60,7 +60,7 @@ fn get_time_ms() -> u64 {
 
 fn js_os_isatty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let fd = cc.arg(0).to_number(ctx)?.to_i32();
-    Ok(JSValue::Bool(unsafe { libc::isatty(fd) != 0 }))
+    Ok(JSValue::from(unsafe { libc::isatty(fd) != 0 }))
 }
 
 fn js_os_ttyGetWinSize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

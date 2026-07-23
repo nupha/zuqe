@@ -10,9 +10,9 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
-    JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, RuntimeImpl,
-    atom::Atom, class::ClassID, context::ScopedContext, error::JSResult, gcref_wrapper,
-    runtime::RuntimePtr, string::StringRef, utils::unlikely, value::JSValue,
+    JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_UINT8C_ARRAY, RuntimeImpl, atom::Atom,
+    class::ClassID, context::ScopedContext, error::JSResult, gcref_wrapper, runtime::RuntimePtr,
+    utils::unlikely, value::JSValue,
 };
 
 use super::{
@@ -308,7 +308,7 @@ impl ObjectImpl {
 
                 if ctx.array_shape == shape {
                     // set length property to 0
-                    prop_values[0] = JSProperty::Normal(JSValue::Int(0));
+                    prop_values[0] = JSProperty::Normal(JSValue::ZERO);
                 } else {
                     // we are creating the Array proto object.
                     // by this moment, the default shape for array is not initialized yet.
@@ -373,7 +373,7 @@ impl ObjectImpl {
             .map(Object)
             .map_err(|(_, mut o)| {
                 ctx.throw_out_of_memory();
-                std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::Int(0)))
+                std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::ZERO))
             })?;
 
         #[cfg(debug_assertions)]
@@ -390,7 +390,7 @@ impl ObjectImpl {
                 ctx,
                 Atom::CONST_length,
                 JS_PROP_WRITABLE | JS_PROP_LENGTH,
-                JSProperty::Normal(JSValue::Int(0)),
+                JSProperty::Normal(JSValue::ZERO),
             )
             .unwrap(); // can't fail
         }
@@ -772,19 +772,19 @@ impl JSValue {
     }
 
     pub fn prevent_extensions(&mut self, ctx: &mut ScopedContext) -> Result<bool, i32> {
-        self.as_object_mut()
-            .map_or(Ok(false), |o| o.prevent_extensions(ctx))
+        self.as_object()
+            .map_or(Ok(false), |mut o| o.prevent_extensions(ctx))
     }
 
     /// Seal `self` if it is an object.
     pub fn seal(&mut self, ctx: &mut ScopedContext, freeze: bool) -> Result<(), i32> {
-        self.as_object_mut().map_or(Ok(()), |o| o.seal(ctx, freeze))
+        self.as_object().map_or(Ok(()), |mut o| o.seal(ctx, freeze))
     }
 
     /// check if value is sealed. Object value will check property, Non-object value is always treated as sealed.
     pub fn is_sealed(&mut self, ctx: &mut ScopedContext, is_frozen: bool) -> Result<bool, i32> {
-        self.as_object_mut()
-            .map_or(Ok(true), |o| o.is_sealed(ctx, is_frozen))
+        self.as_object()
+            .map_or(Ok(true), |mut o| o.is_sealed(ctx, is_frozen))
     }
 }
 

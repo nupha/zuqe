@@ -4,10 +4,11 @@
 use gc_lite::GcNode;
 
 use crate::{
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
-    JS_CLASS_FLOAT16_ARRAY, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY,
-    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT,
-    JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    IntOrFloat, JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY,
+    JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT16_ARRAY, JS_CLASS_FLOAT32_ARRAY,
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
+    JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::Atom,
     context::ScopedContext,
     error::JS_ThrowReferenceErrorNotDefined,
@@ -159,7 +160,7 @@ impl ObjectImpl {
                                 // set property on receiver object.
                                 return cur_obj.set_property_value(
                                     ctx,
-                                    JSValue::Int(idx as _),
+                                    JSValue::from(idx as i32),
                                     val,
                                     flags,
                                 );
@@ -343,7 +344,7 @@ impl ObjectImpl {
                                 // update existing
                                 arr_data.set_nth(index, val);
                                 // bind reference relation
-                                if let Some(n) = val.gc_node_ptr() {
+                                if let Some(n) = val.as_gc_node() {
                                     let self_node = self.gc_head_ptr();
                                     self.rt_ptr().gc_heap_mut().bind(self_node, n);
                                 }
@@ -401,7 +402,7 @@ impl ObjectImpl {
                     if index < arr_data.len() {
                         arr_data.set_nth(index, val);
                         // bind reference relation
-                        if let Some(n) = val.gc_node_ptr() {
+                        if let Some(n) = val.as_gc_node() {
                             let self_node = self.gc_head_ptr();
                             self.rt_ptr().gc_heap_mut().bind(self_node, n);
                         }
@@ -469,21 +470,21 @@ impl ObjectImpl {
         flags: u32,
     ) -> Result<bool, i32> {
         // check if prop is a u32 (a.k.a. index key)
-        let index_key: Option<usize> = match prop {
-            JSValue::Int(i) if i >= 0 => Some(i as usize),
-            JSValue::Float64(f) if f >= 0.0 => {
-                if f.fract() == 0.0 {
+        let index_key: Option<usize> = if let Some(num) = prop.as_number() {
+            match num {
+                IntOrFloat::Int64(i) if i >= 0 => Some(i as usize),
+                IntOrFloat::Float64(f) if f >= 0.0 && f.fract() == 0.0 => {
                     let n = f.trunc() as i64;
                     if n <= u32::MAX as i64 {
                         Some(n as usize)
                     } else {
                         None
                     }
-                } else {
-                    None
                 }
+                _ => None,
             }
-            _ => None,
+        } else {
+            None
         };
 
         if let Some(idx) = index_key
@@ -559,27 +560,23 @@ impl JSValue {
         receiver: Option<Object>, // a.k.a. this_obj
         flags: u32,
     ) -> Result<bool, i32> {
-        match self {
-            JSValue::Object(o) => {
-                o.set_property_internal(ctx, prop, val, receiver.or(Some(*o)), flags)
-            }
-            JSValue::NULL | JSValue::UNDEFINED => {
-                ctx.throw_type_error(if self.is_undefined() {
-                    "cannot set property of undefined"
-                } else {
-                    "cannot set property of null"
-                });
+        if let Some(o) = self.as_object() {
+            o.set_property_internal(ctx, prop, val, receiver.or(Some(o)), flags)
+        } else if self.is_undefined_or_null() {
+            ctx.throw_type_error(if self.is_undefined() {
+                "cannot set property of undefined"
+            } else {
+                "cannot set property of null"
+            });
+            Err(-1)
+        } else {
+            if let Some(p) = self.get_prototype_primitive(ctx).as_object() {
+                p.set_property_internal(ctx, prop, val, receiver, flags)
+            } else if unlikely(ctx.rt().can_throw(flags)) {
+                ctx.throw_type_error_not_an_object();
                 Err(-1)
-            }
-            _ => {
-                if let Some(p) = self.get_prototype_primitive(ctx).as_object() {
-                    p.set_property_internal(ctx, prop, val, receiver, flags)
-                } else if unlikely(ctx.rt().can_throw(flags)) {
-                    ctx.throw_type_error_not_an_object();
-                    Err(-1)
-                } else {
-                    Ok(false)
-                }
+            } else {
+                Ok(false)
             }
         }
     }
@@ -602,7 +599,7 @@ impl JSValue {
         val: Self,
         flags: u32,
     ) -> Result<bool, i32> {
-        if let Some(o) = self.as_object_mut() {
+        if let Some(mut o) = self.as_object() {
             o.set_property_value(ctx, prop, val, flags)
         } else {
             let atom = prop.to_atom(ctx)?;
@@ -617,7 +614,7 @@ impl JSValue {
         idx: u32,
         val: Self,
     ) -> Result<bool, i32> {
-        if let Some(ob) = self.as_object_mut() {
+        if let Some(mut ob) = self.as_object() {
             ob.set_property_u32(ctx, idx, val)
         } else {
             self.set_property_value(ctx, idx.into(), val, JS_PROP_THROW)
@@ -631,7 +628,7 @@ impl JSValue {
         idx: i64,
         val: Self,
     ) -> Result<bool, i32> {
-        if let Some(ob) = self.as_object_mut() {
+        if let Some(mut ob) = self.as_object() {
             ob.set_property_i64(ctx, idx, val)
         } else {
             self.set_property_value(ctx, JSValue::from(idx), val, JS_PROP_THROW)

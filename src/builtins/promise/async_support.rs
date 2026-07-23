@@ -76,9 +76,8 @@ impl Future for PromiseFuture {
 }
 
 fn promise_future_reaction(_: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let id = match cc.data(0) {
-        JSValue::Int(i) => i,
-        _ => return Ok(JSValue::UNDEFINED),
+    let Some(id) = cc.data(0).as_int() else {
+        return Ok(JSValue::UNDEFINED);
     };
 
     let is_reject = cc.magic() != 0;
@@ -167,7 +166,7 @@ impl Promise {
         let id = PROMISE_FUTURE_REGISTRY.with(|lut| lut.borrow_mut().insert(state.clone()));
 
         let ok_func = {
-            let data = Box::new([JSValue::Int(id)]);
+            let data = Box::new([JSValue::from(id)]);
             NativeFunction::create(
                 ctx,
                 Callback::Func(promise_future_reaction),
@@ -180,7 +179,7 @@ impl Promise {
         };
 
         let err_func = {
-            let data = Box::new([JSValue::Int(id)]);
+            let data = Box::new([JSValue::from(id)]);
             NativeFunction::create(
                 ctx,
                 Callback::Func(promise_future_reaction),

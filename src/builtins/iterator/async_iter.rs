@@ -161,13 +161,13 @@ impl<D: 'static> AsyncIteratorFetcher for SlotFetcher<D> {
 ///
 /// ```ignore
 /// let (iter, tx) = AsyncIterableIterator::create(ctx, |_, n: i32| {
-///     Ok(Some(JSValue::Int(n)))
+///     Ok(Some(JSValue::from(n)))
 /// }, None)?;
 ///
 /// // With on_return callback:
 /// let (iter, tx) = AsyncIterableIterator::create(
 ///     ctx,
-///     |_, n: i32| Ok(Some(JSValue::Int(n))),
+///     |_, n: i32| Ok(Some(JSValue::from(n))),
 ///     Some(|| { println!("iterator closed"); }),
 /// )?;
 ///
@@ -358,9 +358,9 @@ fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 /// Invokes the `on_return` callback (if set) and notifies the fetcher to
 /// release its resources.
 fn js_async_iterator_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut this = cc.this();
+    let this = cc.this();
 
-    if let Some(obj) = this.as_object_mut() {
+    if let Some(mut obj) = this.as_object() {
         if let Some(ait) = obj.payload_mut().async_iterator_mut() {
             ait.set_completed();
 

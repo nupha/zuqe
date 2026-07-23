@@ -19,7 +19,7 @@ use super::{
 };
 
 fn js_promise_then(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut this = cc.this();
+    let this = cc.this();
     if let Some(mut p) = this.as_object_Promise() {
         p.then(ctx, cc.arg(0), cc.arg(1)).map(|p| p.into())
     } else {
@@ -187,7 +187,7 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Ok(arr) = crate::array::Array::create(ctx) else {
         return fail_reject(ctx);
     };
-    let Ok(resolve_element_env) = crate::array::Array::from_values(ctx, vec![JSValue::Int(1)])
+    let Ok(resolve_element_env) = crate::array::Array::from_values(ctx, vec![JSValue::from(1)])
     else {
         return fail_reject(ctx);
     };
@@ -219,8 +219,8 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 ctx.function_proto(),
                 Some(
                     [
-                        JSValue::Bool(false),
-                        JSValue::Int(index),
+                        JSValue::from(false),
+                        JSValue::from(index),
                         values,
                         resolving_funcs[is_promise_any as usize],
                         resolve_element_env.into(),
@@ -243,8 +243,8 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                         ctx.function_proto(),
                         Some(
                             [
-                                JSValue::Bool(false),
-                                JSValue::Int(index),
+                                JSValue::from(false),
+                                JSValue::from(index),
                                 values,
                                 resolving_funcs[is_promise_any as usize],
                                 resolve_element_env.into(),

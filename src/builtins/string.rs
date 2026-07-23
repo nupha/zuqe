@@ -29,7 +29,7 @@ pub fn js_string_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         Atom::CONST_empty_string.force_string(ctx)?
     } else {
         #[cfg(feature = "builtin_symbol")]
-        if let JSValue::Symbol(s) = cc.arg(0)
+        if let Some(s) = cc.arg(0).as_symbol()
             && new_target.is_undefined()
         {
             // "Symbol(desc)"
@@ -75,7 +75,7 @@ fn js_string_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let code = str.get(buf_idx as usize).unwrap();
         if what == 2 {
             // charCodeAt() returns int
-            Ok(JSValue::Int(code as i32))
+            Ok(JSValue::from(code as i32))
         } else {
             // charAt(), at() returns string
             ctx.create_string_from_char(code.into())
@@ -192,7 +192,7 @@ pub fn js_string_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     }
 
-    Ok(JSValue::Int(ret))
+    Ok(JSValue::from(ret))
 }
 
 fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -619,15 +619,15 @@ fn js_string_includes(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     if pat_len == 0 {
-        Ok(JSValue::Bool(true))
+        Ok(JSValue::from(true))
     } else if pat_len > str_len {
-        Ok(JSValue::Bool(false))
+        Ok(JSValue::from(false))
     } else {
         match cc.magic() {
             MAGIC_INCLUDES => Ok(p
                 .content()
                 .index_of(pat.content(), pos)
-                .map_or(JSValue::Bool(false), |_| JSValue::Bool(true))),
+                .map_or(JSValue::from(false), |_| JSValue::from(true))),
 
             m @ (MAGIC_STARTS_WITH | MAGIC_ENDS_WITH) => {
                 let mut it1 = p.content().chars_range(if m == MAGIC_ENDS_WITH {
@@ -918,11 +918,11 @@ fn js_string_localeCompare(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         }
     };
 
-    match cmp {
-        std::cmp::Ordering::Less => Ok(JSValue::Int(-1)),
-        std::cmp::Ordering::Equal => Ok(JSValue::Int(0)),
-        std::cmp::Ordering::Greater => Ok(JSValue::Int(1)),
-    }
+    Ok(JSValue::from(match cmp {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    }))
 }
 
 #[cfg(feature = "all_unicode")]
@@ -939,12 +939,12 @@ fn js_string_normalize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let n_type = if cc.length() == 0 || cc.arg(0).is_undefined() {
         UnicodeNormalizationEnum::NFC
     } else {
-        match cc.arg(0) {
-            JSValue::NULL => {
-                ctx.throw_range_error("bad normalization form");
-                return Err(-1);
-            }
-            form => match form.to_string(ctx)?.content().encode_utf8(false).as_ref() {
+        let form = cc.arg(0);
+        if form.is_null() {
+            ctx.throw_range_error("bad normalization form");
+            return Err(-1);
+        } else {
+            match form.to_string(ctx)?.content().encode_utf8(false).as_ref() {
                 "NFC" => UnicodeNormalizationEnum::NFC,
                 "NFD" => UnicodeNormalizationEnum::NFD,
                 "NFKC" => UnicodeNormalizationEnum::NFKC,
@@ -953,7 +953,7 @@ fn js_string_normalize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     ctx.throw_range_error("bad normalization form");
                     return Err(-1);
                 }
-            },
+            }
         }
     };
 
@@ -1046,26 +1046,24 @@ fn js_string_iterator_next(
         .this()
         .retrive_object_payload(ctx, JS_CLASS_STRING_ITERATOR)?
     {
-        match it.value() {
-            JSValue::UNDEFINED => {
+        let val = it.value();
+
+        if val.is_undefined() {
+            *state = IteratorState::Done;
+            Ok(JSValue::UNDEFINED)
+        } else if let Some(ss) = val.as_string() {
+            // iterate over string buf to get char or code at `idx`
+            if let Some((span, c)) = ss.content().chars_since(it.index() as usize).next() {
+                it.set_index(span.end as u32);
+                *state = IteratorState::NotDone;
+                ctx.create_string_from_char(c).map(JSValue::make_string)
+            } else {
+                it.set_value(JSValue::UNDEFINED);
                 *state = IteratorState::Done;
                 Ok(JSValue::UNDEFINED)
             }
-            JSValue::String(ss) => {
-                // iterate over string buf to get char or code at `idx`
-                if let Some((span, c)) = ss.content().chars_since(it.index() as usize).next() {
-                    it.set_index(span.end as u32);
-                    *state = IteratorState::NotDone;
-                    ctx.create_string_from_char(c).map(JSValue::make_string)
-                } else {
-                    it.set_value(JSValue::UNDEFINED);
-                    *state = IteratorState::Done;
-                    Ok(JSValue::UNDEFINED)
-                }
-            }
-            _ => {
-                unreachable!();
-            }
+        } else {
+            unreachable!();
         }
     } else {
         unreachable!()
@@ -1104,9 +1102,9 @@ fn js_string_fromCodePoint(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         })?;
 
         for a in cc.arguments() {
-            let code: i32 = if let JSValue::Int(i) = a {
-                if (0..=0x10ffff).contains(i) {
-                    *i
+            let code: i32 = if let Some(i) = a.as_int() {
+                if (0..=0x10ffff).contains(&i) {
+                    i
                 } else {
                     -1 // bad code
                 }

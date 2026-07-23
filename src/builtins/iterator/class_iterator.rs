@@ -955,9 +955,9 @@ fn eager_iterate(ctx: &mut ScopedContext, this_val: JSValue, func: JSValue, mode
         let (value, done) = call_iterator_next(ctx, this_obj, next)?;
         if done {
             return Ok(match mode {
-                0 => JSValue::Bool(true),
+                0 => JSValue::TRUE,
                 2 => JSValue::UNDEFINED,
-                3 => JSValue::Bool(false),
+                3 => JSValue::FALSE,
                 _ => JSValue::UNDEFINED,
             });
         }
@@ -978,7 +978,7 @@ fn eager_iterate(ctx: &mut ScopedContext, this_val: JSValue, func: JSValue, mode
             0 => {
                 if !truthy {
                     iterator_return(ctx, this_obj)?;
-                    return Ok(JSValue::Bool(false));
+                    return Ok(JSValue::FALSE);
                 }
             }
             1 => {
@@ -991,7 +991,7 @@ fn eager_iterate(ctx: &mut ScopedContext, this_val: JSValue, func: JSValue, mode
             3 => {
                 if truthy {
                     iterator_return(ctx, this_obj)?;
-                    return Ok(JSValue::Bool(true));
+                    return Ok(JSValue::TRUE);
                 }
             }
             _ => unreachable!(),

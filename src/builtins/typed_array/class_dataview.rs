@@ -80,8 +80,8 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let ptr = buf.as_ptr().add(pos);
 
         match class_id {
-            JS_CLASS_INT8_ARRAY => Ok(JSValue::Int(*ptr.cast::<i8>() as i32)),
-            JS_CLASS_UINT8_ARRAY => Ok(JSValue::Int(*ptr as i32)),
+            JS_CLASS_INT8_ARRAY => Ok(JSValue::from(*ptr.cast::<i8>() as i32)),
+            JS_CLASS_UINT8_ARRAY => Ok(JSValue::from(*ptr as i32)),
             JS_CLASS_INT16_ARRAY => {
                 let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
                 let n = if le {
@@ -89,7 +89,7 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 } else {
                     i16::from_be_bytes(bb)
                 };
-                Ok(JSValue::Int(n as i32))
+                Ok(JSValue::from(n as i32))
             }
             JS_CLASS_UINT16_ARRAY => {
                 let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
@@ -98,7 +98,7 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 } else {
                     u16::from_be_bytes(bb)
                 };
-                Ok(JSValue::Int(n as i32))
+                Ok(JSValue::from(n as i32))
             }
             JS_CLASS_INT32_ARRAY => {
                 let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
@@ -107,7 +107,7 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 } else {
                     i32::from_be_bytes(bb)
                 };
-                Ok(JSValue::Int(n))
+                Ok(JSValue::from(n))
             }
             JS_CLASS_UINT32_ARRAY => {
                 let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
@@ -269,7 +269,7 @@ fn js_dataview_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             TA_GET_BUFFER => Ok(dv.array_buffer().into()),
             TA_GET_BYTE_LENGTH => {
                 if !dv.is_detached() {
-                    Ok(JSValue::Int(dv.byte_length() as i32))
+                    Ok(JSValue::from(dv.byte_length() as i32))
                 } else {
                     JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                     Err(-1)
@@ -277,7 +277,7 @@ fn js_dataview_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }
             TA_GET_BYTE_OFFSET => dv
                 .array_buffer_byte_offset(ctx)
-                .map(|n| JSValue::Int(n as i32)),
+                .map(|n| JSValue::from(n as i32)),
             _ => unreachable!(),
         }
     } else {

@@ -133,7 +133,7 @@ impl<'s> JSParseState<'s> {
                     let re_id = self.token.data.regexp().unwrap();
                     let empty_str = Atom::CONST_empty_string.force_string(self.ctx()).unwrap();
                     self.emit_push_const(JSValue::make_string(empty_str), false)?;
-                    self.emit_push_const(JSValue::Int(re_id as i32), false)?;
+                    self.emit_push_const(JSValue::from(re_id as i32), false)?;
                     // we use a specific opcode to be sure the correct
                     // function is called (otherwise the bytecode would have
                     // to be verified by the RegExp constructor)

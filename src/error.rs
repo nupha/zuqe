@@ -189,7 +189,7 @@ impl<'c> ScopedContext<'c> {
     /// if other GC references exist, GC will trace it; otherwise it should be collected.
     pub fn throw(&mut self, exc: Exception) {
         if let Exception::Error(val) = &exc
-            && let Some(n) = val.gc_node_ptr()
+            && let Some(n) = val.as_gc_node()
         {
             // If the node is LOCAL, it must be in some scope's cache.
             // Search from current scope upward through ancestors.

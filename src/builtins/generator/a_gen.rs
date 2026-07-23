@@ -163,7 +163,7 @@ impl AGenPayload {
                             self.async_state.stack_store_value(
                                 arena,
                                 0,
-                                JSValue::Int(completion_type),
+                                JSValue::from(completion_type),
                             );
                             self.async_state.bump_sp(arena, 1);
                         }
@@ -198,7 +198,7 @@ impl AGenPayload {
                             }
                         }
                     } else {
-                        let code = if let Ok(JSValue::Int(i)) = func_ret {
+                        let code = if let Ok(Some(i)) = func_ret.map(|v| v.as_int()) {
                             i
                         } else {
                             unreachable!()
@@ -256,7 +256,7 @@ impl AGenPayload {
                 let err_val = ctx.take_exception().to_value(ctx);
                 debug_assert!(
                     err_val
-                        .gc_node_ptr()
+                        .as_gc_node()
                         .is_none_or(|n| unsafe { n.as_ref().is_root_or_local() })
                 );
                 js_promise_resolve(
@@ -272,7 +272,7 @@ impl AGenPayload {
         }
         .try_into()?;
 
-        let generator = JSValue::Object(Object(
+        let generator = JSValue::from(Object(
             self.generator
                 .borrow()
                 .upgrade(ctx.rt_ptr().gc_heap())

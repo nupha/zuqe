@@ -425,7 +425,7 @@ impl ObjectImpl {
 impl JSValue {
     /// return Err() if exception (Proxy object only) or TRUE/FALSE
     pub fn is_extensible(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {
-        if let Self::Object(p) = self {
+        if let Some(p) = self.as_object() {
             p.is_extensible_obj(ctx)
         } else {
             Ok(false)
@@ -450,9 +450,9 @@ impl JSValue {
         setprop: bool,
     ) -> Result<(), i32> {
         if let Some(src_obj) = source.as_object() {
-            if let Some(o) = self.as_object_mut() {
+            if let Some(mut o) = self.as_object() {
                 o.copy_data_properties_from(ctx, src_obj, excluded.as_object(), setprop)
-            } else if let Some(p) = self.get_prototype_primitive(ctx).as_object_mut() {
+            } else if let Some(mut p) = self.get_prototype_primitive(ctx).as_object() {
                 p.copy_data_properties_from(ctx, src_obj, excluded.as_object(), setprop)
             } else {
                 ctx.throw_type_error_not_an_object();

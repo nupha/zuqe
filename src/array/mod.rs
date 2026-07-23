@@ -283,7 +283,7 @@ impl Array {
         let self_node = self.gc_node_ptr();
         let mut rt = self.rt_ptr();
         for v in values.iter() {
-            if let Some(n) = v.gc_node_ptr() {
+            if let Some(n) = v.as_gc_node() {
                 rt.gc_heap_mut().bind(self_node, n);
             }
         }
@@ -531,12 +531,11 @@ fn sort_values_by(
     cmpfn: JSValue,
 ) -> Result<(), i32> {
     let mut has_err = false;
-
     values.sort_by(|a, b| {
         if !has_err {
             match cmpfn.call(ctx, JSValue::UNDEFINED, &[*a, *b]) {
-                Ok(r) => match r {
-                    JSValue::Int(n) => {
+                Ok(r) => {
+                    if let Some(n) = r.as_int() {
                         if n == 0 {
                             std::cmp::Ordering::Equal
                         } else if n > 0 {
@@ -544,8 +543,7 @@ fn sort_values_by(
                         } else {
                             std::cmp::Ordering::Less
                         }
-                    }
-                    r => {
+                    } else {
                         if let Ok(f) = r.to_number(ctx).map(|n| n.to_f64()) {
                             if f == 0.0 {
                                 std::cmp::Ordering::Equal
@@ -559,7 +557,7 @@ fn sort_values_by(
                             std::cmp::Ordering::Equal
                         }
                     }
-                },
+                }
                 Err(_) => {
                     has_err = true;
                     std::cmp::Ordering::Equal
@@ -656,8 +654,10 @@ impl ObjectImpl {
         // update the length if necessary. We assume that if the length is
         // not an integer, then if it >= 2^31.
         // Note: check array length to int in advance, to avoid prop_values borrow conflict.
-        let len: Option<i32> = if let JSProperty::Normal(JSValue::Int(n)) = self.prop_slot(0) {
-            Some(*n)
+        let len: Option<i32> = if let JSProperty::Normal(v) = self.prop_slot(0)
+            && let Some(n) = v.as_int()
+        {
+            Some(n)
         } else {
             #[cfg(debug_assertions)]
             unreachable!();
@@ -683,7 +683,7 @@ impl ObjectImpl {
                 };
             } else {
                 // update `length`
-                self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::Int(new_len as i32)));
+                self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::from(new_len as i32)));
             }
         }
 
@@ -698,7 +698,7 @@ impl ObjectImpl {
             })?;
 
         // bind reference relation
-        if let Some(n) = value.gc_node_ptr() {
+        if let Some(n) = value.as_gc_node() {
             let self_node = self.gc_head_ptr();
             ctx.rt_ptr().gc_heap_mut().bind(self_node, n);
         }
@@ -745,60 +745,106 @@ impl JSValue {
     ) -> Result<u32, i32> {
         let len: u32;
 
-        match self {
-            Self::NULL => {
-                len = 0;
+        if self.is_null() {
+            len = 0;
+        } else if let Some(n) = self.as_int() {
+            if n < 0 {
+                ctx.throw_range_error("invalid array length");
+                return Err(-1);
             }
-            Self::Int(v) => {
-                let n = *v;
-                if n < 0 {
+            len = n as u32;
+        } else if let Some(d) = self.as_float() {
+            len = d as u32;
+            if len as f64 != d {
+                // f64 can't convert to u32
+                ctx.throw_range_error("invalid array length");
+                return Err(-1);
+            }
+        } else {
+            if is_array_ctor {
+                match self.to_number(ctx)? {
+                    IntOrFloat::Int64(n) => {
+                        if n < 0 {
+                            ctx.throw_range_error("invalid array length");
+                            return Err(-1);
+                        }
+                        len = n as u32;
+                    }
+                    IntOrFloat::Float64(d) => {
+                        len = d as u32;
+                        if len as f64 != d {
+                            // f64 can't convert to u32
+                            ctx.throw_range_error("invalid array length");
+                            return Err(-1);
+                        }
+                    }
+                }
+            } else {
+                // 1) ECMA legacy behavior: must do ::to_number() conversion twice and compare
+                len = self.to_number(ctx)?.to_u32();
+                if len != JSValue::from(self.to_number(ctx)?).to_array_length(ctx, false)? {
                     ctx.throw_range_error("invalid array length");
                     return Err(-1);
                 }
-                len = n as u32;
-            }
-            Self::Bool(b) => {
-                len = *b as u32;
-            }
-            Self::Float64(d) => {
-                len = *d as u32;
-                if len as f64 != *d {
-                    // f64 can't convert to u32
-                    ctx.throw_range_error("invalid array length");
-                    return Err(-1);
-                }
-            }
-            _ => {
-                if is_array_ctor {
-                    match self.to_number(ctx)? {
-                        IntOrFloat::Int64(n) => {
-                            if n < 0 {
-                                ctx.throw_range_error("invalid array length");
-                                return Err(-1);
-                            }
-                            len = n as u32;
-                        }
-                        IntOrFloat::Float64(d) => {
-                            len = d as u32;
-                            if len as f64 != d {
-                                // f64 can't convert to u32
-                                ctx.throw_range_error("invalid array length");
-                                return Err(-1);
-                            }
-                        }
-                    }
-                } else {
-                    // 1) ECMA legacy behavior: must do ::to_number() conversion twice and compare
-                    len = self.to_number(ctx)?.to_u32();
-                    if len != JSValue::from(self.to_number(ctx)?).to_array_length(ctx, false)? {
-                        ctx.throw_range_error("invalid array length");
-                        return Err(-1);
-                    }
-                    // 2) non-ECMA compatible, but cleaner
-                    // len = self.to_number(ctx)?.to_u32();
-                }
+                // 2) non-ECMA compatible, but cleaner
+                // len = self.to_number(ctx)?.to_u32();
             }
         }
+
+        // match self {
+        //     Self::NULL => {
+        //         len = 0;
+        //     }
+        //     Self::Int(v) => {
+        //         let n = *v;
+        //         if n < 0 {
+        //             ctx.throw_range_error("invalid array length");
+        //             return Err(-1);
+        //         }
+        //         len = n as u32;
+        //     }
+        //     Self::Bool(b) => {
+        //         len = *b as u32;
+        //     }
+        //     Self::Float64(d) => {
+        //         len = *d as u32;
+        //         if len as f64 != *d {
+        //             // f64 can't convert to u32
+        //             ctx.throw_range_error("invalid array length");
+        //             return Err(-1);
+        //         }
+        //     }
+        //     _ => {
+        //         if is_array_ctor {
+        //             match self.to_number(ctx)? {
+        //                 IntOrFloat::Int64(n) => {
+        //                     if n < 0 {
+        //                         ctx.throw_range_error("invalid array length");
+        //                         return Err(-1);
+        //                     }
+        //                     len = n as u32;
+        //                 }
+        //                 IntOrFloat::Float64(d) => {
+        //                     len = d as u32;
+        //                     if len as f64 != d {
+        //                         // f64 can't convert to u32
+        //                         ctx.throw_range_error("invalid array length");
+        //                         return Err(-1);
+        //                     }
+        //                 }
+        //             }
+        //         } else {
+        //             // 1) ECMA legacy behavior: must do ::to_number() conversion twice and compare
+        //             len = self.to_number(ctx)?.to_u32();
+        //             if len != JSValue::from(self.to_number(ctx)?).to_array_length(ctx, false)? {
+        //                 ctx.throw_range_error("invalid array length");
+        //                 return Err(-1);
+        //             }
+        //             // 2) non-ECMA compatible, but cleaner
+        //             // len = self.to_number(ctx)?.to_u32();
+        //         }
+        //     }
+        // }
 
         Ok(len)
     }

@@ -77,33 +77,36 @@ pub fn js_symbol_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 // prototype funcs
 //
 
-pub fn js_thisSymbolValue(ctx: &mut ScopedContext, val: JSValue) -> JSResult {
-    val.as_symbol().map(JSValue::make_symbol).ok_or_else(|| {
-        ctx.throw_type_error_not_a_symbol();
-        -1
-    })
-}
-
 fn js_symbol_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let val = js_thisSymbolValue(ctx, cc.this())?;
+    let Some(sym) = cc.this().as_symbol() else {
+        ctx.throw_type_error_not_a_symbol();
+        return Err(-1);
+    };
+
     // formatted as 'Symbol(XXX)'
-    let repr = val.inspect(ctx)?.into_bytes();
+    let repr = JSValue::make_symbol(sym).inspect(ctx)?.into_bytes();
     ctx.create_string_from_utf8(repr).map(JSValue::make_string)
 }
 
 fn js_symbol_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    js_thisSymbolValue(ctx, cc.this())
+    cc.this()
+        .as_symbol()
+        .ok_or_else(|| {
+            ctx.throw_type_error_not_a_symbol();
+            -1
+        })
+        .map(JSValue::make_symbol)
 }
 
 fn js_symbol_get_description(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if let JSValue::Symbol(s) = js_thisSymbolValue(ctx, cc.this())? {
-        if s.content().is_ident() {
-            Ok(JSValue::UNDEFINED)
-        } else {
-            Ok(JSValue::make_string(s))
-        }
+    let Some(sym) = cc.this().as_symbol() else {
+        ctx.throw_type_error_not_a_symbol();
+        return Err(-1);
+    };
+    if sym.content().is_ident() {
+        Ok(JSValue::UNDEFINED)
     } else {
-        unreachable!()
+        Ok(JSValue::make_string(sym))
     }
 }
 

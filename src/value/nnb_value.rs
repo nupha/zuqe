@@ -223,7 +223,7 @@ impl JSValue {
 
     /// create Float64 value as-is
     #[inline(always)]
-    pub(crate) const fn from_f64_as_is(d: f64) -> Self {
+    pub(crate) const fn make_f64_as_is(d: f64) -> Self {
         Self::Float64(d)
     }
 
@@ -293,6 +293,56 @@ impl JSValue {
                 ctx.throw_type_error("can't convert to string or symbol");
                 Err(-1)
             }
+        }
+    }
+
+    /// Coerce value `self` to string. if `self` is symbol, returns Err.
+    ///
+    /// If `self` is already a string, it is returned `as-is` (a rope is
+    /// preserved; materialisation to a flat buffer is an internal decision made
+    /// lazily by the `StringRef` operations that need it, not here).
+    pub fn to_string(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
+        match self {
+            Self::String(s) => {
+                let s = *s;
+
+                // NOTE on GC safety: a value returned by `to_string` must stay reachable
+                // until the caller stores it in a traced location. Fresh string
+                // allocations are young GC roots, but an *existing* rope node is only alive
+                // while some rooted JSValue still references it. If that reference drops
+                // while the caller keeps the returned `StringRef` (a `Copy` raw GC pointer)
+                // across a GC safepoint, the node can be freed and any later use of it is a
+                // use-after-free. We therefore mark the node LOCAL for the current scope so
+                // it survives until the scope ends. We use `gc_protect_transient_force`
+                // rather than the feature-gated `gc_protect_transient` because the
+                // protection must apply even when that feature is disabled (the engine
+                // otherwise relies solely on "fresh allocation = root", which this path
+                // intentionally avoids to keep ropes lazy).
+                //
+                // Only ropes need this: flat strings already preserved the
+                // "returns a rooted node" invariant before (the old `flatten`
+                // returned the flat node as-is too), whereas ropes are what this
+                // `to_string` change newly exposes to the unrooted-old-node risk.
+                if !s.is_flat() {
+                    ctx.gc_protect_transient_force(&JSValue::String(s));
+                }
+
+                Ok(s)
+            }
+            #[cfg(feature = "builtin_symbol")]
+            Self::Symbol(_) => {
+                ctx.throw_type_error("cannot convert symbol to string");
+                Err(-1)
+            }
+            _ => match self.to_string_or_symbol(ctx)? {
+                JSValue::String(s) => Ok(s),
+                #[cfg(feature = "builtin_symbol")]
+                JSValue::Symbol(_) => {
+                    ctx.throw_type_error("cannot convert symbol to string");
+                    Err(-1)
+                }
+                _ => unreachable!(),
+            },
         }
     }
 

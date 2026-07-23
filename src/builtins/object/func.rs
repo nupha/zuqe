@@ -26,9 +26,11 @@ pub(crate) fn js_object_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
         ctx.create_instance_with_ctor(new_target, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     } else {
-        match cc.arg(0) {
-            JSValue::NULL | JSValue::UNDEFINED => ctx.create_base_object(),
-            a => a.objectify(ctx),
+        let v = cc.arg(0);
+        if v.is_undefined_or_null() {
+            ctx.create_base_object()
+        } else {
+            v.objectify(ctx)
         }
     }
     .map(JSValue::from)
@@ -243,11 +245,11 @@ pub(crate) fn js_object_isExtensible(ctx: &mut ScopedContext, cc: CallContext) -
             ctx.throw_type_error_not_an_object();
             Err(-1)
         } else {
-            Ok(JSValue::Bool(false))
+            Ok(JSValue::from(false))
         };
     }
 
-    Ok(JSValue::Bool(obj.is_extensible(ctx)?))
+    Ok(JSValue::from(obj.is_extensible(ctx)?))
 }
 
 pub(crate) fn js_object_preventExtensions(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -258,7 +260,7 @@ pub(crate) fn js_object_preventExtensions(ctx: &mut ScopedContext, cc: CallConte
         let ret = obj.prevent_extensions(ctx)?;
 
         if reflect {
-            Ok(JSValue::Bool(ret))
+            Ok(JSValue::from(ret))
         } else if !ret {
             ctx.throw_type_error("proxy preventExtensions handler returned false");
             Err(-1)
@@ -309,7 +311,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(
             ret.define_property_value(
                 ctx,
                 Atom::CONST_writable,
-                JSValue::Bool(desc.flags & JS_PROP_WRITABLE != 0),
+                JSValue::from(desc.flags & JS_PROP_WRITABLE != 0),
                 prop_flags,
             )?;
         }
@@ -317,13 +319,13 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(
         ret.define_property_value(
             ctx,
             Atom::CONST_enumerable,
-            JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0),
+            JSValue::from(desc.flags & JS_PROP_ENUMERABLE != 0),
             prop_flags,
         )?;
         ret.define_property_value(
             ctx,
             Atom::CONST_configurable,
-            JSValue::Bool(desc.flags & JS_PROP_CONFIGURABLE != 0),
+            JSValue::from(desc.flags & JS_PROP_CONFIGURABLE != 0),
             prop_flags,
         )?;
 
@@ -366,7 +368,7 @@ pub(crate) fn js_object_getOwnPropertyDescriptors(
 }
 
 pub(crate) fn js_object_is(_: &mut ScopedContext, cc: CallContext) -> JSResult {
-    Ok(JSValue::Bool(cc.arg(0).is_same(cc.arg(1))))
+    Ok(JSValue::from(cc.arg(0).is_same(cc.arg(1))))
 }
 
 /// Object.assign(obj, source1)
@@ -394,7 +396,7 @@ pub(crate) fn js_object_seal(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 
 pub(crate) fn js_object_isSealed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let b = cc.arg(0).clone().is_sealed(ctx, cc.magic() != 0)?;
-    Ok(JSValue::Bool(b))
+    Ok(JSValue::from(b))
 }
 
 pub(crate) fn js_object_fromEntries(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -403,8 +405,8 @@ pub(crate) fn js_object_fromEntries(ctx: &mut ScopedContext, cc: CallContext) ->
     let mut ret = ctx.create_base_object()?;
 
     while let Some(r) = enum_obj.next() {
-        match r {
-            Ok(JSValue::Object(o)) => {
+        match r.map(|v| v.as_object()) {
+            Ok(Some(o)) => {
                 let key = o.get_property_u32(ctx, 0)?;
                 let value = o.get_property_u32(ctx, 1)?;
                 let atom = key.to_atom(ctx)?;
@@ -430,7 +432,7 @@ pub(crate) fn js_object_fromEntries(ctx: &mut ScopedContext, cc: CallContext) ->
 pub(crate) fn js_object_hasOwn(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut obj = cc.arg(0).objectify(ctx)?;
     let atom = cc.arg(1).to_atom(ctx)?;
-    Ok(JSValue::Bool(obj.get_own_property(ctx, atom)?.is_some()))
+    Ok(JSValue::from(obj.get_own_property(ctx, atom)?.is_some()))
 }
 
 //
@@ -452,7 +454,7 @@ fn js_object___getClass(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             Ok(cc
                 .arg(0)
                 .as_object()
-                .map_or(JSValue::NULL, |o| JSValue::Int(o.class_id() as i32)))
+                .map_or(JSValue::NULL, |o| JSValue::from(o.class_id() as i32)))
         }
         _ => {
             unreachable!();

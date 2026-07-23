@@ -241,7 +241,7 @@ fn js_load_module_rejected(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 }
 
 fn js_load_module_fulfilled(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let JSValue::Module(mut m) = cc.data(2) else {
+    let Some(mut m) = cc.data(2).as_module() else {
         unreachable!()
     };
 

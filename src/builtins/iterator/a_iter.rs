@@ -68,7 +68,7 @@ fn js_async_from_sync_iterator_unwrap_func_create(ctx: &mut ScopedContext, done:
         1,
         0,
         ctx.function_proto(),
-        Some([JSValue::Bool(done)].into()),
+        Some([JSValue::from(done)].into()),
     )
     .map_or(JSValue::EXCEPTION, |x| x.into())
 }

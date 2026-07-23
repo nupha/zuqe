@@ -15,7 +15,7 @@ mod tag;
 #[cfg(feature = "nan_boxing")]
 pub use nb_value::JSValue;
 #[cfg(feature = "nan_boxing")]
-pub(super) use tag::*;
+pub(crate) use tag::*;
 
 #[cfg(not(feature = "nan_boxing"))]
 mod nnb_value;

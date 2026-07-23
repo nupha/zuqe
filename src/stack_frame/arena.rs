@@ -374,8 +374,9 @@ impl StackFrameArena {
 
         while sp > 0 {
             sp -= 1;
-            if let JSValue::CatchOffset(pos) =
-                unsafe { std::ptr::replace(sp_base.add(sp), JSValue::UNDEFINED) }
+
+            if let Some(pos) =
+                unsafe { std::ptr::replace(sp_base.add(sp), JSValue::UNDEFINED) }.as_catch_offset()
             {
                 if pos == 0 {
                     unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) };
@@ -411,8 +412,9 @@ impl StackFrameArena {
 
         while sp > 0 {
             sp -= 1;
-            if let JSValue::Int(pos) =
-                unsafe { std::ptr::replace(sp_base.add(sp), JSValue::UNDEFINED) }
+
+            if let Some(pos) =
+                unsafe { std::ptr::replace(sp_base.add(sp), JSValue::UNDEFINED) }.as_int()
                 && pos > 0
                 // A GOSUB marker encodes the (in-bounds) finally entry pc.
                 // Plain integer arguments (e.g. a positive `n` in a recursive
@@ -420,7 +422,7 @@ impl StackFrameArena {
                 // unrelated value on the stack would hijack unwinding.
                 && (pos as usize) < bc_len
             {
-                unsafe { std::ptr::write(sp_base.add(sp), JSValue::Int(pos)) }
+                unsafe { std::ptr::write(sp_base.add(sp), JSValue::from(pos)) }
                 sp += 1;
                 return Some((pos as usize, sp));
             }

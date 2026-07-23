@@ -32,7 +32,9 @@ impl<'c> ScopedContext<'c> {
 
             // XXX: should handle JS_PROP_LAZYINIT properties?
             // XXX: conformance: do these tests in OP_put_var_ref/OP_get_var_ref ?
-            if let JSProperty::Normal(JSValue::UNINITIALIZED) = gvobj.prop_slot(idx) {
+            if let JSProperty::Normal(v) = gvobj.prop_slot(idx)
+                && JSValue::UNINITIALIZED.eq(v)
+            {
                 JS_ThrowReferenceErrorUninitialized(self, prop);
                 return Err(-1);
             }
@@ -220,11 +222,14 @@ impl<'c> ScopedContext<'c> {
             // found in global var object
             // XXX: should handle JS_PROP_TMASK properties
             match gvobj.prop_slot(idx) {
-                JSProperty::Normal(JSValue::UNINITIALIZED) => {
-                    JS_ThrowReferenceErrorUninitialized(self, prop);
-                    Err(-1)
+                JSProperty::Normal(v) => {
+                    if JSValue::UNINITIALIZED.eq(v) {
+                        JS_ThrowReferenceErrorUninitialized(self, prop);
+                        Err(-1)
+                    } else {
+                        Ok(*v)
+                    }
                 }
-                JSProperty::Normal(v) => Ok(*v),
                 _ => {
                     unreachable!()
                 }
@@ -264,7 +269,7 @@ impl<'c> ScopedContext<'c> {
             // XXX: should handle JS_PROP_LAZYINIT properties?
             if flag != 1 {
                 match gv.prop_slot(idx) {
-                    JSProperty::Normal(JSValue::UNINITIALIZED) => {
+                    JSProperty::Normal(v) if JSValue::UNINITIALIZED.eq(v) => {
                         JS_ThrowReferenceErrorUninitialized(self, prop);
                         return Err(-1);
                     }

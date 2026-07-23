@@ -24,28 +24,29 @@ pub fn js_boolean_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     }
 }
 
-fn js_thisBooleanValue(ctx: &mut ScopedContext, this_val: JSValue) -> JSResult {
-    this_val.as_bool().map(JSValue::Bool).ok_or_else(|| {
-        ctx.throw_type_error("not a boolean");
-        -1
-    })
-}
-
 fn js_boolean_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    match js_thisBooleanValue(ctx, cc.this())? {
-        JSValue::Bool(true) => Atom::CONST_true,
-        JSValue::Bool(false) => Atom::CONST_false,
-        _ => {
-            ctx.throw_type_error("not a boolean");
-            return Err(-1);
-        }
+    let Some(b) = cc.this().as_bool() else {
+        ctx.throw_type_error("not a boolean");
+        return Err(-1);
+    };
+
+    if b {
+        Atom::CONST_true
+    } else {
+        Atom::CONST_false
     }
     .force_string(ctx)
     .map(JSValue::make_string)
 }
 
 fn js_boolean_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    js_thisBooleanValue(ctx, cc.this())
+    cc.this()
+        .as_bool()
+        .ok_or_else(|| {
+            ctx.throw_type_error("not a boolean");
+            -1
+        })
+        .map(JSValue::from)
 }
 
 pub const js_boolean_proto_funcs: &[FieldDef] = &[

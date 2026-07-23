@@ -421,7 +421,7 @@ impl ModuleDef {
 
     /// async module execution callback
     fn execute_async_fulfilled(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-        let JSValue::Module(mut md) = cc.data(0) else {
+        let Some(mut md) = cc.data(0).as_module() else {
             unreachable!()
         };
 
@@ -476,7 +476,7 @@ impl ModuleDef {
 
     /// async module execution reject callback
     fn execute_async_rejected(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-        let JSValue::Module(mut md) = cc.data(0) else {
+        let Some(mut md) = cc.data(0).as_module() else {
             unreachable!()
         };
         let err_val = cc.arg(0);

@@ -526,7 +526,7 @@ impl Bytecode {
                     OpCode::PUSH_I32 => {
                         // [^] -> [int_value, ^]
                         let a = PC_FETCH!(i32);
-                        SP_PUT!(0, JSValue::Int(a));
+                        SP_PUT!(0, JSValue::from(a));
                         SP_GO!(1);
                     }
                     OpCode::PUSH_CONST => {
@@ -573,11 +573,11 @@ impl Bytecode {
                         SP_GO!(1);
                     }
                     OpCode::PUSH_FALSE => {
-                        SP_PUT!(0, JSValue::Bool(false));
+                        SP_PUT!(0, JSValue::from(false));
                         SP_GO!(1);
                     }
                     OpCode::PUSH_TRUE => {
-                        SP_PUT!(0, JSValue::Bool(true));
+                        SP_PUT!(0, JSValue::from(true));
                         SP_GO!(1);
                     }
 
@@ -626,7 +626,7 @@ impl Bytecode {
                                         realm_scope,
                                         Atom::CONST_length,
                                         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                                        JSProperty::Normal(JSValue::Int(args.len() as i32)),
+                                        JSProperty::Normal(JSValue::from(args.len() as i32)),
                                     )
                                     .is_err()
                                 {
@@ -954,9 +954,7 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     OpCode::PLUS | OpCode::NEG | OpCode::INC | OpCode::DEC => {
                         let op1 = SP_VAL!(-1);
-                        if opcode == OpCode::PLUS
-                            && matches!(op1, JSValue::Int(_) | JSValue::Float64(_))
-                        {
+                        if opcode == OpCode::PLUS && op1.is_number() {
                             // + before an int or float: do nothing
                             SP_PUT!(-1, op1);
                         } else if let Ok(res) =
@@ -974,18 +972,16 @@ impl Bytecode {
                             break ExecAction::Exception;
                         }
                     }
-                    OpCode::TO_PROPKEY => match SP_REF!(-1) {
-                        JSValue::Int(_) | JSValue::String(_) => {}
-                        #[cfg(feature = "builtin_symbol")]
-                        JSValue::Symbol(_) => {}
-                        _ => {
-                            if let Ok(pk) = SP_REF!(-1).to_propkey(realm_scope) {
+                    OpCode::TO_PROPKEY => {
+                        let key = SP_REF!(-1);
+                        if !key.is_string_or_symbol() && !key.is_int() {
+                            if let Ok(pk) = key.to_propkey(realm_scope) {
                                 SP_PUT!(-1, pk);
                             } else {
                                 break ExecAction::Exception;
                             }
                         }
-                    },
+                    }
                     OpCode::TO_OBJECT => {
                         if !SP_REF!(-1).is_object() {
                             if let Ok(o) = SP_VAL!(-1).objectify(realm_scope) {
@@ -1259,7 +1255,7 @@ impl Bytecode {
                                     | (Some(std::cmp::Ordering::Greater), OpCode::GT | OpCode::GTE)
                                     | (Some(std::cmp::Ordering::Equal), OpCode::LTE | OpCode::GTE)
                             );
-                            SP_PUT!(-2, JSValue::Bool(b));
+                            SP_PUT!(-2, JSValue::from(b));
                             SP_GO!(-1);
                         } else {
                             break ExecAction::Exception;
@@ -1269,7 +1265,7 @@ impl Bytecode {
                         let op1 = SP_VAL!(-2);
                         let op2 = SP_VAL!(-1);
                         if let Ok(b) = op1.arith_eq(realm_scope, op2) {
-                            SP_PUT!(-2, JSValue::Bool(b ^ (opcode == OpCode::NEQ)));
+                            SP_PUT!(-2, JSValue::from(b ^ (opcode == OpCode::NEQ)));
                             SP_GO!(-1);
                         } else {
                             break ExecAction::Exception;
@@ -1280,12 +1276,12 @@ impl Bytecode {
                         if opcode == OpCode::STRICT_NEQ {
                             b = !b;
                         }
-                        SP_PUT!(-2, JSValue::Bool(b));
+                        SP_PUT!(-2, JSValue::from(b));
                         SP_GO!(-1);
                     }
                     OpCode::IN => {
                         if let Ok(b) = js_operator_in(realm_scope, SP_REF!(-1), SP_REF!(-2)) {
-                            SP_PUT!(-2, JSValue::Bool(b));
+                            SP_PUT!(-2, JSValue::from(b));
                             SP_GO!(-1);
                         } else {
                             break ExecAction::Exception;
@@ -1408,7 +1404,7 @@ impl Bytecode {
                             .delete_property(realm_scope, atom, 0)
                         {
                             Ok(ret) => {
-                                SP_PUT!(0, JSValue::Bool(ret));
+                                SP_PUT!(0, JSValue::from(ret));
                                 SP_GO!(1);
                             }
                             Err(_) => {
@@ -1546,11 +1542,11 @@ impl Bytecode {
                                 );
                                 break ExecAction::Exception;
                             } else {
-                                SP_PUT!(0, JSValue::Bool(true));
+                                SP_PUT!(0, JSValue::from(true));
                                 SP_GO!(1);
                             }
                         } else {
-                            SP_PUT!(0, JSValue::Bool(false));
+                            SP_PUT!(0, JSValue::from(false));
                             SP_GO!(1);
                         }
                     }
@@ -1813,20 +1809,15 @@ impl Bytecode {
                     // Property access
                     // ═══════════════════════════════════════════════════
                     OpCode::LNOT => {
-                        let op_1: JSValue = SP_VAL!(-1);
-                        let b = match op_1 {
-                            JSValue::Int(i) => i != 0,
-                            JSValue::Bool(b) => b,
-                            JSValue::NULL | JSValue::UNDEFINED => false,
-                            _ => {
-                                if let Ok(b) = op_1.to_bool() {
-                                    b
-                                } else {
-                                    break ExecAction::Exception;
-                                }
-                            }
+                        let val: JSValue = SP_VAL!(-1);
+                        let b = if val.is_int_or_bool() {
+                            val.payload_i32() != 0
+                        } else if let Ok(b) = val.to_bool() {
+                            b
+                        } else {
+                            break ExecAction::Exception;
                         };
-                        SP_PUT!(-1, JSValue::Bool(!b));
+                        SP_PUT!(-1, JSValue::from(!b));
                     }
 
                     OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
@@ -2020,23 +2011,20 @@ impl Bytecode {
                     }
                     OpCode::IF_TRUE | OpCode::IF_FALSE => {
                         let b = opcode == OpCode::IF_TRUE;
-                        let op_1 = SP_VAL!(-1);
+                        let val = SP_VAL!(-1);
                         SP_GO!(-1);
 
                         // skip jump offset
                         PC_GO!(4);
 
-                        let test = match op_1 {
-                            JSValue::Int(i) => i != 0,
-                            JSValue::Bool(b) => b,
-                            JSValue::UNDEFINED | JSValue::NULL => false,
-                            _ => {
-                                if let Ok(x) = op_1.to_bool() {
-                                    x
-                                } else {
-                                    break ExecAction::Exception;
-                                }
-                            }
+                        let test = if val.is_int_or_bool() {
+                            val.payload_i32() != 0
+                        } else if val.is_undefined_or_null() {
+                            false
+                        } else if let Ok(x) = val.to_bool() {
+                            x
+                        } else {
+                            break ExecAction::Exception;
                         };
 
                         if b == test {
@@ -2081,22 +2069,22 @@ impl Bytecode {
                     }
                     OpCode::GET_ARRAY_EL3 => {
                         // [array, prop, ^] -> [array, prop1, value, ^]
-                        match SP_REF!(-2) {
-                            JSValue::Int(_) | JSValue::String(_) | JSValue::Symbol(_) => {}
-                            a => {
-                                // must be tested before ToPropertyKey
-                                if a.is_undefined_or_null() {
-                                    realm_scope.throw_type_error("value has no property ");
-                                    break ExecAction::Exception;
-                                }
-                                let Ok(prop1) = SP_REF!(-1).to_propkey(realm_scope) else {
-                                    break ExecAction::Exception;
-                                };
-                                SP_PUT!(-1, prop1);
+                        let arr = SP_REF!(-2);
+
+                        if !arr.is_int() && !arr.is_string_or_symbol() {
+                            // must be tested before ToPropertyKey
+                            if arr.is_undefined_or_null() {
+                                realm_scope.throw_type_error("value has no property ");
+                                break ExecAction::Exception;
                             }
+
+                            let Ok(prop1) = SP_VAL!(-1).to_propkey(realm_scope) else {
+                                break ExecAction::Exception;
+                            };
+                            SP_PUT!(-1, prop1);
                         }
 
-                        let val = SP_REF!(-2)
+                        let val = arr
                             .get_property_value(realm_scope, SP_VAL!(-1))
                             .unwrap_or(JSValue::EXCEPTION);
                         let is_err = val.is_exception();
@@ -2146,7 +2134,7 @@ impl Bytecode {
                     }
                     OpCode::REGEXP => {
                         #[cfg(feature = "builtin_regexp")]
-                        if let JSValue::Int(re_id) = SP_VAL!(-1) {
+                        if let Some(re_id) = SP_VAL!(-1).as_int() {
                             let re = Box::new(
                                 realm_scope.rt().regexp_precompiled[re_id as usize].clone(),
                             );
@@ -2179,7 +2167,7 @@ impl Bytecode {
                         let diff = unsafe { read_from_ptr::<i32>(pc) };
                         SP_PUT!(
                             0,
-                            JSValue::CatchOffset(pc.offset_from(pc_base) as i32 + diff)
+                            JSValue::make_catch_offset(pc.offset_from(pc_base) as i32 + diff)
                         );
                         SP_GO!(1);
                         PC_GO!(4);
@@ -2190,7 +2178,7 @@ impl Bytecode {
                         // keep ret_val
                         let ret_val = SP_VAL!(0);
                         // drop ... values
-                        while sp > sp_base && !matches!(SP_REF!(-1), JSValue::CatchOffset(_)) {
+                        while sp > sp_base && !SP_REF!(-1).is_catch_offset() {
                             SP_GO!(-1);
                         }
                         if unlikely(sp == sp_base) {
@@ -2218,7 +2206,7 @@ impl Bytecode {
                             SP_PUT!(-1, JSValue::from(iter_obj));
                             SP_PUT!(0, next_method);
                             SP_GO!(1);
-                            SP_PUT!(0, JSValue::CatchOffset(0));
+                            SP_PUT!(0, JSValue::make_catch_offset(0));
                             SP_GO!(1);
                         } else {
                             break ExecAction::Exception;
@@ -2331,7 +2319,7 @@ impl Bytecode {
                                 false
                             };
 
-                            SP_PUT!(0, JSValue::Bool(ret_flag));
+                            SP_PUT!(0, JSValue::from(ret_flag));
                             SP_GO!(1);
                         } else {
                             break ExecAction::Exception;
@@ -2345,23 +2333,21 @@ impl Bytecode {
                         // [^] -> [func_obj, ^]
                         let id = PC_FETCH!(u32);
 
-                        if let JSValue::Bytecode(bc) = CPOOL![id] {
-                            let r = bc
-                                .make_closure_for_arena(
-                                    realm_scope,
-                                    None,
-                                    captured_vars,
-                                    arena,
-                                    cur_frame_idx,
-                                )
-                                .map_or(JSValue::EXCEPTION, |f| f.into());
-                            SP_PUT!(0, r);
-                            SP_GO!(1);
-                            if r.is_exception() {
-                                break ExecAction::Exception;
-                            }
-                        } else {
-                            unreachable!()
+                        let bc = unsafe { CPOOL![id].as_bytecode_unchecked() };
+                        let r = bc
+                            .make_closure_for_arena(
+                                realm_scope,
+                                None,
+                                captured_vars,
+                                arena,
+                                cur_frame_idx,
+                            )
+                            .map_or(JSValue::EXCEPTION, |f| f.into());
+
+                        SP_PUT!(0, r);
+                        SP_GO!(1);
+                        if r.is_exception() {
+                            break ExecAction::Exception;
                         }
                     }
 
@@ -2369,16 +2355,16 @@ impl Bytecode {
                     // Generator/Async suspension and return
                     // ═══════════════════════════════════════════════════
                     OpCode::AWAIT => {
-                        break ExecAction::Return(JSValue::Int(FUNC_RET_AWAIT), true);
+                        break ExecAction::Return(JSValue::from(FUNC_RET_AWAIT), true);
                     }
                     OpCode::YIELD => {
-                        break ExecAction::Return(JSValue::Int(FUNC_RET_YIELD), true);
+                        break ExecAction::Return(JSValue::from(FUNC_RET_YIELD), true);
                     }
                     OpCode::YIELD_STAR | OpCode::ASYNC_YIELD_STAR => {
-                        break ExecAction::Return(JSValue::Int(FUNC_RET_YIELD_STAR), true);
+                        break ExecAction::Return(JSValue::from(FUNC_RET_YIELD_STAR), true);
                     }
                     OpCode::INITIAL_YIELD => {
-                        break ExecAction::Return(JSValue::Int(FUNC_RET_INITIAL_YIELD), true);
+                        break ExecAction::Return(JSValue::from(FUNC_RET_INITIAL_YIELD), true);
                     }
                     OpCode::RETURN_ASYNC => {
                         break ExecAction::Return(JSValue::UNDEFINED, true);
@@ -2390,13 +2376,13 @@ impl Bytecode {
                     OpCode::GOSUB => {
                         let diff = unsafe { read_from_ptr::<i32>(pc) };
                         // Push return address as Int (offset to instruction after GOSUB)
-                        SP_PUT!(0, JSValue::Int(pc.offset_from(pc_base) as i32 + 4));
+                        SP_PUT!(0, JSValue::from(pc.offset_from(pc_base) as i32 + 4));
                         SP_GO!(1);
                         PC_GO!(diff);
                     }
                     OpCode::RET => {
-                        if let JSValue::Int(i) = SP_REF!(-1) {
-                            let pos = *i;
+                        if let Some(i) = SP_REF!(-1).as_int() {
+                            let pos = i;
                             if unlikely(pos >= bytecodes.len() as i32) {
                                 realm_scope.throw_internal_error("invalid ret value");
                                 break ExecAction::Exception;
@@ -2478,7 +2464,7 @@ impl Bytecode {
                         lst.rotate_right(1);
                     }
                     OpCode::IS_UNDEFINED_OR_NULL => {
-                        SP_PUT!(-1, JSValue::Bool(SP_REF!(-1).is_undefined_or_null()));
+                        SP_PUT!(-1, JSValue::from(SP_REF!(-1).is_undefined_or_null()));
                     }
 
                     // ═══════════════════════════════════════════════════
@@ -2764,17 +2750,16 @@ impl Bytecode {
                     OpCode::SET_NAME => {
                         // [obj, ^] -> [obj, ^]
                         let atom = Atom::from_id(PC_FETCH!(u32));
-                        let r = SP_MUT!(-1)
-                            .as_object_mut()
-                            .ok_or(-1)
-                            .and_then(|o| o.define_name(realm_scope, atom, JS_PROP_CONFIGURABLE));
+                        let r = SP_REF!(-1).as_object().ok_or(-1).and_then(|mut o| {
+                            o.define_name(realm_scope, atom, JS_PROP_CONFIGURABLE)
+                        });
                         if unlikely(r.is_err()) {
                             break ExecAction::Exception;
                         }
                     }
                     OpCode::SET_NAME_COMPUTED => {
                         // [name, value, ^] -> [name, value, ^]
-                        let r = SP_MUT!(-1).as_object_mut().unwrap().define_name_computed(
+                        let r = SP_MUT!(-1).as_object().unwrap().define_name_computed(
                             realm_scope,
                             SP_VAL!(-2),
                             JS_PROP_CONFIGURABLE,
@@ -2971,7 +2956,7 @@ impl Bytecode {
                                     OpCode::WITH_DELETE_VAR => {
                                         if let Ok(b) = env_obj.delete_property(realm_scope, atom, 0)
                                         {
-                                            SP_PUT!(-1, JSValue::Bool(b));
+                                            SP_PUT!(-1, JSValue::from(b));
                                         } else {
                                             break ExecAction::Exception;
                                         }
@@ -3220,7 +3205,7 @@ impl Bytecode {
 /// `ScopeResult::promote` in `with_new_scope`.  Returns the (unchanged)
 /// value so callers can chain: `val = promote_to_parent(val, scope)`.
 fn promote_to_parent(value: JSValue, scope: &ScopedContext<'_>) -> JSValue {
-    if let Some(node) = value.gc_node_ptr()
+    if let Some(node) = value.as_gc_node()
         && let Some((parent, _)) = scope.gc_state().parent()
     {
         scope.gc_state().promote_node_to(node, parent);

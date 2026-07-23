@@ -71,11 +71,14 @@ impl ForInIterPayload {
     /// create new object with ForInIterPayload payload for given value.
     /// the new object is of CLASS_FOR_IN_ITERATOR class.
     pub fn create(ctx: &mut ScopedContext, val: JSValue) -> Result<Object, i32> {
-        let obj = match val {
-            JSValue::Object(o) => Some(o),
-            JSValue::NULL | JSValue::UNDEFINED => None,
-            _ => Some(val.objectify(ctx)?),
+        let obj: Option<Object> = if let Some(o) = val.as_object() {
+            Some(o)
+        } else if val.is_undefined_or_null() {
+            None
+        } else {
+            Some(val.objectify(ctx)?)
         };
+
         let mut it = Box::new(ForInIterPayload {
             obj,
             idx: 0,
@@ -244,7 +247,7 @@ impl<'a> ObjectIter<'a> {
                 cnt += 1;
             }
 
-            if let Some(n) = next_method.gc_node_ptr() {
+            if let Some(n) = next_method.as_gc_node() {
                 let h = unsafe { n.as_ref() };
                 if !h.is_local() && !h.is_root() {
                     protects[cnt] = n.as_ptr();
@@ -343,7 +346,7 @@ impl<'a> ObjectIter<'a> {
         #[cfg(debug_assertions)]
         if let Exception::Error(v) = &pending_exc {
             debug_assert!(
-                v.gc_node_ptr()
+                v.as_gc_node()
                     .is_none_or(|n| unsafe { n.as_ref().is_root_or_local() })
             );
         }
@@ -402,7 +405,7 @@ impl JSValue {
         if is_async
             && let Some(r) = self.invoke_defined(ctx, Atom::CONST_Symbol_asyncIterator, &[])?
         {
-            r.and_then(|v| v.into_object(ctx)).map(Some)
+            r.and_then(|v| v.ensure_object(ctx)).map(Some)
         } else if let Some(r) = self.invoke_defined(ctx, Atom::CONST_Symbol_iterator, &[])? {
             let sync_it = r.and_then(|v| v.ensure_object(ctx))?;
             if is_async {
@@ -572,7 +575,7 @@ pub(crate) fn make_iterator_next_result(
 ) -> JSResult {
     let mut obj = ctx.create_base_object()?;
     obj.define_property_value(ctx, Atom::CONST_value, value, JS_PROP_C_W_E)?;
-    obj.define_property_value(ctx, Atom::CONST_done, JSValue::Bool(done), JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, Atom::CONST_done, JSValue::from(done), JS_PROP_C_W_E)?;
     Ok(obj.into())
 }
 

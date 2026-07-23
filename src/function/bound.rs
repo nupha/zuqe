@@ -4,7 +4,7 @@
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    Atom, JS_CLASS_BOUND_FUNCTION, JS_PROP_CONFIGURABLE,
+    Atom, IntOrFloat, JS_CLASS_BOUND_FUNCTION, JS_PROP_CONFIGURABLE,
     array::alloc_fast_array_slots,
     context::ScopedContext,
     error::JSResult,
@@ -104,11 +104,11 @@ impl BoundFunction {
             .get_own_property(ctx, Atom::CONST_length)?
             .is_none()
         {
-            JSValue::from(0)
+            JSValue::ZERO
         } else {
-            match func_obj.get_property(ctx, Atom::CONST_length)? {
-                JSValue::Int(n) => JSValue::from(std::cmp::max(0, n - arg_count as i32)),
-                JSValue::Float64(mut d) => {
+            match func_obj.get_property(ctx, Atom::CONST_length)?.as_number() {
+                Some(IntOrFloat::Int64(n)) => JSValue::from(std::cmp::max(0, n - arg_count as i64)),
+                Some(IntOrFloat::Float64(mut d)) => {
                     if d.is_nan() {
                         d = 0.0;
                     } else {
@@ -121,9 +121,10 @@ impl BoundFunction {
                     }
                     JSValue::from(d)
                 }
-                _ => JSValue::from(0),
+                _ => JSValue::ZERO,
             }
         };
+
         bound.define_property_value(ctx, Atom::CONST_length, len_val, JS_PROP_CONFIGURABLE)?;
 
         // set bound function name property

@@ -14,7 +14,7 @@ fn js_math_min_max(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let is_max = cc.magic() != 0;
 
     if cc.length() == 0 {
-        return Ok(JSValue::Float64(if is_max {
+        return Ok(JSValue::make_float(if is_max {
             f64::NEG_INFINITY
         } else {
             f64::INFINITY
@@ -149,13 +149,13 @@ fn js_math_hypot(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_math_imul(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let a = cc.arg(0).to_number(ctx)?.to_i32();
     let b = cc.arg(1).to_number(ctx)?.to_i32();
-    Ok(JSValue::Int(a.wrapping_mul(b)))
+    Ok(JSValue::from(a.wrapping_mul(b)))
 }
 
 fn js_math_clz32(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let a = cc.arg(0).to_number(ctx)?.to_u32();
     let r: u32 = if a == 0 { 32 } else { a.leading_zeros() };
-    Ok(JSValue::Int(r as i32))
+    Ok(JSValue::from(r as i32))
 }
 
 // xorshift* random number generator by Marsaglia
@@ -176,7 +176,7 @@ pub fn js_math_random(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     let u = JSFloat64Union {
         uint64: (0x3ff << 52) | (v >> 12),
     };
-    Ok(JSValue::Float64(unsafe { u.d } - 1.0))
+    Ok(JSValue::make_float(unsafe { u.d } - 1.0))
 }
 
 pub const js_math_funcs: &[FieldDef] = &[

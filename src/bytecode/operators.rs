@@ -47,7 +47,7 @@ pub(super) fn js_operator_delete(ctx: &mut ScopedContext, sp: *mut JSValue) -> i
     let ret = op1.delete_property(ctx, atom, JS_PROP_THROW_STRICT);
     if let Ok(b) = ret {
         unsafe {
-            std::ptr::replace(sp.offset(-2), JSValue::Bool(b));
+            std::ptr::replace(sp.offset(-2), JSValue::from(b));
         }
         0
     } else {
@@ -65,7 +65,7 @@ pub(super) fn js_operator_instanceof(ctx: &mut ScopedContext, sp: *mut JSValue) 
 
     let b = val.instance_of(ctx, ctor)?;
     unsafe {
-        std::ptr::replace(sp.offset(-2), JSValue::Bool(b));
+        std::ptr::replace(sp.offset(-2), JSValue::from(b));
     }
 
     Ok(())
@@ -100,7 +100,7 @@ pub(super) fn js_operator_private_in(ctx: &mut ScopedContext, sp: *mut JSValue) 
             o.has_shape_property(atom)
         };
         unsafe {
-            std::ptr::replace(sp.offset(-2), JSValue::Bool(ret));
+            std::ptr::replace(sp.offset(-2), JSValue::from(ret));
         }
         Ok(())
     } else {
@@ -123,9 +123,8 @@ pub(super) fn js_op_define_class_for_arena(
 ) -> Result<(), i32> {
     // SP[-1] is bytecode
     let bc_val = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
-    let bc = match bc_val {
-        JSValue::Bytecode(b) => b,
-        _ => unreachable!(),
+    let Some(bc) = bc_val.as_bytecode() else {
+        unreachable!()
     };
     debug_assert_eq!(bc.func_kind(), FunctionKind::Normal);
 
@@ -141,13 +140,14 @@ pub(super) fn js_op_define_class_for_arena(
             ctx.throw_type_error("parent class must be constructor ");
             return Err(-1);
         } else {
-            parent_proto = match parent_class.get_property(ctx, Atom::CONST_prototype)? {
-                JSValue::NULL => None,
-                JSValue::Object(o) => Some(o),
-                _ => {
-                    ctx.throw_type_error("parent prototype must be an object or null");
-                    return Err(-1);
-                }
+            let pt = parent_class.get_property(ctx, Atom::CONST_prototype)?;
+            parent_proto = if let Some(o) = pt.as_object() {
+                Some(o)
+            } else if pt.is_null() {
+                None
+            } else {
+                ctx.throw_type_error("parent prototype must be an object or null");
+                return Err(-1);
             };
         }
     } else {
@@ -171,7 +171,7 @@ pub(super) fn js_op_define_class_for_arena(
     ctor.define_property_value(
         ctx,
         Atom::CONST_length,
-        JSValue::Int(bc.attrs.defined_arg_count as i32),
+        JSValue::from(bc.attrs.defined_arg_count as i32),
         JS_PROP_CONFIGURABLE,
     )?;
 
@@ -273,9 +273,7 @@ pub(super) unsafe fn js_append_enumerate(
     sp: *mut JSValue,
 ) -> Result<(), i32> {
     // the index where append starts
-    let mut pos = if let JSValue::Int(i) = unsafe { &*sp.offset(-2) } {
-        *i
-    } else {
+    let Some(mut pos) = unsafe { &*sp.offset(-2) }.as_int() else {
         ctx.throw_internal_error("invalid index for append");
         return Err(-1);
     };
@@ -341,7 +339,7 @@ pub(super) unsafe fn js_append_enumerate(
 
     // put end index (pos) to SP[-2]
     unsafe {
-        std::ptr::replace(sp.offset(-2), JSValue::Int(pos));
+        std::ptr::replace(sp.offset(-2), JSValue::from(pos));
     }
     Ok(())
 }
@@ -393,7 +391,7 @@ pub(super) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                         if done {
                             unsafe {
                                 *sp = JSValue::UNDEFINED;
-                                *sp.offset(1) = JSValue::Bool(true);
+                                *sp.offset(1) = JSValue::TRUE;
                             }
                             return Ok(());
                         } else {
@@ -422,14 +420,14 @@ pub(super) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                         debug_assert!(it.obj.is_none());
                         unsafe {
                             *sp = JSValue::UNDEFINED;
-                            *sp.offset(1) = JSValue::Bool(true);
+                            *sp.offset(1) = JSValue::TRUE;
                         }
                         return Ok(());
                     }
                 } else {
                     unsafe {
                         *sp = JSValue::UNDEFINED;
-                        *sp.offset(1) = JSValue::Bool(true);
+                        *sp.offset(1) = JSValue::TRUE;
                     }
                     return Ok(());
                 }
@@ -486,12 +484,12 @@ pub(super) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
 
         unsafe {
             *sp = prop.to_value(ctx).unwrap_or(JSValue::EXCEPTION); // value
-            *sp.offset(1) = JSValue::Bool(false); // done flag
+            *sp.offset(1) = JSValue::FALSE; // done flag
         }
     } else {
         unsafe {
             *sp = JSValue::UNDEFINED;
-            *sp.offset(1) = JSValue::Bool(true);
+            *sp.offset(1) = JSValue::TRUE;
         }
     }
 
@@ -513,7 +511,7 @@ pub(super) unsafe fn js_iterator_get_value_done(ctx: &mut ScopedContext, sp: *mu
 
     unsafe {
         *sp.offset(-1) = value;
-        *sp = JSValue::Bool(done);
+        *sp = JSValue::from(done);
     }
 
     0
@@ -556,7 +554,7 @@ pub(super) unsafe fn js_for_of_next(
 
     unsafe {
         *sp = value;
-        *sp.add(1) = JSValue::Bool(done);
+        *sp.add(1) = JSValue::from(done);
     }
 
     Ok(())

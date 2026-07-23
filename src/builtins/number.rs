@@ -20,7 +20,7 @@ use crate::{
 
 pub fn js_number_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let val = if cc.length() == 0 {
-        JSValue::Int(0)
+        JSValue::from(0)
     } else {
         cc.arg(0).to_numeric(ctx)?.into()
     };
@@ -230,7 +230,7 @@ pub const js_number_proto_funcs: &[FieldDef] = &[
 
 fn js_number_isNaN_isFinite(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if !cc.arg(0).is_number() {
-        Ok(JSValue::Bool(false))
+        Ok(JSValue::FALSE)
     } else {
         js_global_isNaN_isFinite(ctx, cc)
     }
@@ -244,7 +244,7 @@ fn js_number_isInteger(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_number_isSafeInteger(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let val = cc.arg(0);
     if !val.is_number() {
-        return Ok(JSValue::Bool(false));
+        return Ok(JSValue::FALSE);
     }
 
     let d: f64 = val.to_number(ctx)?.to_f64();

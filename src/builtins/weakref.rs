@@ -302,7 +302,7 @@ fn js_finrec_unregister(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     });
 
     let removed = before != frd.entries.len();
-    Ok(JSValue::Bool(removed))
+    Ok(JSValue::from(removed))
 }
 
 static FINREC_PROTO_FUNCS: &[FieldDef] = &[

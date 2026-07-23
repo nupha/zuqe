@@ -213,7 +213,7 @@ fn js_json_isRawJSON(_ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let is_raw = val
         .as_object()
         .is_some_and(|o| o.class_id() == JS_CLASS_RAWJSON);
-    Ok(JSValue::Bool(is_raw))
+    Ok(JSValue::from(is_raw))
 }
 
 fn js_json_rawJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

@@ -68,7 +68,7 @@ fn js_std_open(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     if !err_obj.is_undefined() {
-        err_obj.set_property_str(ctx, "errno", JSValue::Int(errno))?;
+        err_obj.set_property_str(ctx, "errno", JSValue::from(errno))?;
     }
 
     if let Some(fh) = fh {

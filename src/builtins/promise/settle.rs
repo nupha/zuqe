@@ -207,7 +207,7 @@ impl Promise {
                     fail.handler,
                 ]
                 .iter()
-                .filter_map(|v| v.gc_node_ptr())
+                .filter_map(|v| v.as_gc_node())
                 .for_each(|n| {
                     ctx.gc_heap_mut().bind(self.gc_node_ptr(), n);
                 });
@@ -265,7 +265,7 @@ impl Promise {
     /// Save result `value` and update promise status to 'fulfilled' or 'rejected'.
     /// Call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     fn settle(&mut self, ctx: &mut ScopedContext, value: JSValue, is_reject: bool) {
-        if let Some(n) = value.gc_node_ptr() {
+        if let Some(n) = value.as_gc_node() {
             ctx.gc_heap_mut().bind(self.gc_node_ptr(), n); // write barrier
         }
 

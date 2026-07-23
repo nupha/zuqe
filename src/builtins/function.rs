@@ -102,7 +102,7 @@ fn js_function_proto_lineNumber(_: &mut ScopedContext, cc: CallContext) -> JSRes
             .bc_function()
             .and_then(|x| x.bytecode().debug.as_ref().map(|d| d.line_num))
     }) {
-        Ok(JSValue::Int(line_num))
+        Ok(JSValue::from(line_num))
     } else {
         Ok(JSValue::UNDEFINED)
     }

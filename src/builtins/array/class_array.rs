@@ -268,7 +268,7 @@ fn js_array_with(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_array_concat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this: JSValue = cc.this().objectify(ctx)?.into();
-    let mut arr = JS_ArraySpeciesCreate(ctx, this, JSValue::Int(0))?;
+    let mut arr = JS_ArraySpeciesCreate(ctx, this, JSValue::from(0))?;
 
     let mut n = 0;
 
@@ -334,10 +334,10 @@ pub(crate) fn js_array_every(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     func.ensure_callable(ctx)?;
 
     let mut ret: JSValue = match special {
-        s if s == special_every || s == special_every | special_TA => JSValue::Bool(true),
-        s if s == special_some || s == special_some | special_TA => JSValue::Bool(false),
+        s if s == special_every || s == special_every | special_TA => JSValue::from(true),
+        s if s == special_some || s == special_some | special_TA => JSValue::from(false),
         special_map => JS_ArraySpeciesCreate(ctx, obj, JSValue::from(len))?,
-        special_filter => JS_ArraySpeciesCreate(ctx, obj, JSValue::Int(0))?,
+        special_filter => JS_ArraySpeciesCreate(ctx, obj, JSValue::from(0))?,
         s if s == special_map | special_TA => js_typed_array___speciesCreate(
             ctx,
             JSValue::UNDEFINED,
@@ -384,21 +384,21 @@ pub(crate) fn js_array_every(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
             match special {
                 s if s == special_every || s == special_every | special_TA => {
                     if let Ok(false) = res.to_bool() {
-                        ret = JSValue::Bool(false);
+                        ret = JSValue::FALSE;
                         break;
                     }
                 }
                 s if (s == special_some || s == special_some | special_TA)
                     && res.to_bool().unwrap_or(true) =>
                 {
-                    ret = JSValue::Bool(true);
+                    ret = JSValue::TRUE;
                     break;
                 }
                 special_map => {
                     ret.define_property_value_i64(ctx, k, res, JS_PROP_C_W_E | JS_PROP_THROW)?;
                 }
                 s if s == special_map | special_TA => {
-                    ret.set_property_value(ctx, JSValue::Int(k as i32), res, JS_PROP_THROW)?;
+                    ret.set_property_value(ctx, JSValue::from(k as i32), res, JS_PROP_THROW)?;
                 }
                 s if (s == special_filter || s == special_filter | special_TA)
                     && res.to_bool().unwrap_or(true) =>
@@ -415,7 +415,7 @@ pub(crate) fn js_array_every(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         let arr = js_typed_array___speciesCreate(
             ctx,
             JSValue::UNDEFINED,
-            &[obj, JSValue::Int(n as i32)],
+            &[obj, JSValue::from(n as i32)],
         )?;
 
         // node `arr` will be used as `this_obj` when invoking method,
@@ -578,7 +578,7 @@ fn js_array_find(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     Ok(
         if matches!(mode, special_findIndex | special_findLastIndex) {
-            JSValue::Int(-1)
+            JSValue::from(-1)
         } else {
             JSValue::UNDEFINED
         },
@@ -622,7 +622,7 @@ fn js_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     }
 
-    Ok(JSValue::Int(-1)) // -1 means not found
+    Ok(JSValue::from(-1)) // -1 means not found
 }
 
 pub(crate) fn js_array_lastIndexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -676,10 +676,10 @@ fn js_array_includes(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 .skip(start as usize)
                 .any(|&el| target.strict_eq_with_mode(el, StrictEqMode::JS_EQ_SAME_VALUE_ZERO))
             {
-                return Ok(JSValue::Bool(true));
+                return Ok(JSValue::TRUE);
             } else if target.is_undefined() && arr_data.len() < length as usize {
                 // fast array has less elements than prop `length` suggests includes `undefined`
-                return Ok(JSValue::Bool(true));
+                return Ok(JSValue::TRUE);
             }
         }
 
@@ -687,12 +687,12 @@ fn js_array_includes(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         for i in start..length {
             let val = obj.get_property_i64(ctx, i)?;
             if target.strict_eq_with_mode(val, StrictEqMode::JS_EQ_SAME_VALUE_ZERO) {
-                return Ok(JSValue::Bool(true));
+                return Ok(JSValue::TRUE);
             }
         }
     }
 
-    Ok(JSValue::Bool(false)) // not found
+    Ok(JSValue::FALSE) // not found
 }
 
 pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -732,7 +732,7 @@ pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         if !el.is_undefined_or_null() {
             let ss: StringRef = if to_locale_string {
                 el.to_locale_string(ctx)?.to_string(ctx)?
-            } else if let JSValue::String(s) = el {
+            } else if let Some(s) = el.as_string() {
                 s
             } else {
                 el.to_string(ctx)?
@@ -1244,7 +1244,7 @@ pub(crate) fn js_array_flatten(ctx: &mut ScopedContext, cc: CallContext) -> JSRe
         depth = cc.arg(0).to_number(ctx)?.to_i32_saturating();
     }
 
-    let arr = JS_ArraySpeciesCreate(ctx, source, JSValue::Int(0))?;
+    let arr = JS_ArraySpeciesCreate(ctx, source, JSValue::from(0))?;
 
     JS_FlattenIntoArray(
         ctx,
@@ -1468,7 +1468,7 @@ fn js_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 for el in it {
                     let mut val = el?;
                     if mapping {
-                        val = map_fn.call(ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
+                        val = map_fn.call(ctx, this_arg, &[val, JSValue::from(k as i32)])?;
                     }
                     arr.create_data_property_u32(ctx, k as _, val, JS_PROP_THROW)?;
                     k += 1;
@@ -1503,7 +1503,7 @@ fn js_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         for i in 0..len {
             let mut el = src.get_property_i64(ctx, i)?;
             if mapping {
-                el = map_fn.call(ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
+                el = map_fn.call(ctx, this_arg, &[el, JSValue::from(i as i32)])?;
             }
             arr.create_data_property_u32(ctx, i as _, el, JS_PROP_THROW)?;
         }
@@ -1519,7 +1519,10 @@ fn js_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_array_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let mut arr = if this.is_constructor() {
-        this.call_ctor(ctx, std::slice::from_ref(&JSValue::Int(cc.length() as i32)))?
+        this.call_ctor(
+            ctx,
+            std::slice::from_ref(&JSValue::from(cc.length() as i32)),
+        )?
     } else {
         Array::create(ctx)?.into()
     };
@@ -1534,7 +1537,7 @@ fn js_array_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_array_isArray(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    Ok(JSValue::Bool(cc.arg(0).is_array(ctx)?))
+    Ok(JSValue::from(cc.arg(0).is_array(ctx)?))
 }
 
 pub const js_array_funcs: &[FieldDef] = &[

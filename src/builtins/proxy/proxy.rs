@@ -137,7 +137,7 @@ impl ProxyPayload {
         }
 
         let ret = method.call(ctx, self.handler, &[self.target.into()])?;
-        if !matches!(ret, JSValue::NULL | JSValue::Object(_)) {
+        if !ret.is_null() && !ret.is_object() {
             ctx.throw_type_error("proxy: inconsistent prototype");
             return Err(-1);
         }
@@ -392,7 +392,8 @@ fn js_proxy_get_own_property(
 
     let prop_val = prop.to_value(ctx)?;
     let trap_result_obj = method.call(ctx, px.handler, &[px.target.into(), prop_val])?;
-    if !matches!(trap_result_obj, JSValue::Object(_) | JSValue::UNDEFINED) {
+
+    if !trap_result_obj.is_undefined() && !trap_result_obj.is_object() {
         ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor ");
         return Err(-1);
     }
@@ -633,12 +634,12 @@ fn js_proxy_get_own_property_names(
         let val = prop_array.get_property_u32(ctx, i as u32)?;
 
         #[cfg(feature = "builtin_symbol")]
-        if !matches!(val, JSValue::String(_) | JSValue::Symbol(_)) {
+        if !(val.is_string() || val.is_symbol()) {
             ctx.throw_type_error("proxy: properties must be strings or symbols");
             return Err(-1);
         }
         #[cfg(not(feature = "builtin_symbol"))]
-        if !matches!(val, JSValue::String(_)) {
+        if !val.is_string() {
             ctx.throw_type_error("proxy: properties must be strings");
             return Err(-1);
         }
@@ -781,13 +782,13 @@ fn js_proxy_set(
             ctx,
             atom,
             value,
-            match receiver {
-                JSValue::NULL | JSValue::UNDEFINED => None,
-                JSValue::Object(o) => Some(o),
-                _ => {
-                    ctx.throw_type_error("receiver must be an object");
-                    return Err(-1);
-                }
+            if receiver.is_undefined_or_null() {
+                None
+            } else if let Some(o) = receiver.as_object() {
+                Some(o)
+            } else {
+                ctx.throw_type_error("receiver must be an object");
+                return Err(-1);
             },
             flags as u32,
         );

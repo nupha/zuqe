@@ -286,7 +286,7 @@ impl From<u32> for JSValue {
         if val <= 0x7fffffff {
             Self::from(val as i32)
         } else {
-            Self::from_f64_as_is(val as f64)
+            Self::make_float(val as f64)
         }
     }
 }
@@ -304,7 +304,7 @@ impl From<i64> for JSValue {
                 eprintln!("integer {i} will loose precision");
             }
 
-            Self::from_f64_as_is(i as f64)
+            Self::make_float(i as f64)
         }
     }
 }
@@ -313,17 +313,17 @@ impl From<f64> for JSValue {
     fn from(d: f64) -> Self {
         if d == 0.0 && d.is_sign_negative() {
             // JSValue::Float(0.0) means -0.0
-            Self::from_f64_as_is(d)
+            Self::make_float(d)
         } else if d.fract() == 0.0 && d.is_finite() {
             // integral
             let i = d as i64;
             if i as i32 as i64 == i {
                 Self::from(i as i32)
             } else {
-                Self::from_f64_as_is(d)
+                Self::make_float(d)
             }
         } else {
-            Self::from_f64_as_is(d)
+            Self::make_float(d)
         }
     }
 }
@@ -343,6 +343,45 @@ impl JSValue {
     /// Convert value to number.
     ///
     /// Because BigInt is not supported, JSToNumberHintEnum does not effect
+    #[cfg(feature = "nan_boxing")]
+    fn to_number_internal(
+        self,
+        ctx: &mut ScopedContext,
+        undefined_is_nan: bool,
+        _flag: JSToNumberHintEnum,
+    ) -> Result<IntOrFloat, i32> {
+        match self.tag() {
+            crate::JSValueTag::Int | crate::JSValueTag::Bool => {
+                Ok(IntOrFloat::Int64(self.payload_i32().into()))
+            }
+            crate::JSValueTag::Float64 => Ok(unsafe { self.as_float_unchecked().into() }),
+            crate::JSValueTag::Null => Ok(IntOrFloat::Int64(0)),
+            crate::JSValueTag::Undefined => Ok(if undefined_is_nan {
+                IntOrFloat::Float64(f64::NAN)
+            } else {
+                IntOrFloat::Int64(0)
+            }),
+            crate::JSValueTag::String => unsafe { Ok(self.as_string_unchecked().to_number(ctx)) },
+            crate::JSValueTag::Object => unsafe { self.as_object_unchecked().to_number(ctx) },
+            #[cfg(feature = "builtin_symbol")]
+            crate::JSValueTag::Symbol => {
+                ctx.throw_type_error("cannot convert Symbol to number");
+                Err(-1)
+            }
+            crate::JSValueTag::Exception => {
+                #[cfg(debug_assertions)]
+                unreachable!();
+                #[cfg(not(debug_assertions))]
+                Err(-1)
+            }
+            _ => Ok(IntOrFloat::Float64(f64::NAN)),
+        }
+    }
+
+    /// Convert value to number.
+    ///
+    /// Because BigInt is not supported, JSToNumberHintEnum does not effect
+    #[cfg(not(feature = "nan_boxing"))]
     fn to_number_internal(
         self,
         ctx: &mut ScopedContext,

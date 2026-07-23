@@ -71,7 +71,7 @@ fn js_emitter_emit(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .map(|(_, c)| *c)
         .unwrap_or(0);
 
-    Ok(JSValue::Int(count))
+    Ok(JSValue::from(count))
 }
 
 const CLASS_EMITTER_PROTO: &[FieldDef] = &[

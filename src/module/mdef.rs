@@ -358,7 +358,16 @@ pub struct ModuleDef(GcRef<ModuleDefImpl>);
 
 gcref_wrapper!(ModuleDef, ModuleDefImpl);
 
+#[cfg(feature = "nan_boxing")]
 impl From<ModuleDef> for JSValue {
+    #[inline(always)]
+    fn from(value: ModuleDef) -> Self {
+        Self(crate::JSValueTag::Module.mknode(value.gc_node_ptr()))
+    }
+}
+#[cfg(not(feature = "nan_boxing"))]
+impl From<ModuleDef> for JSValue {
+    #[inline(always)]
     fn from(value: ModuleDef) -> Self {
         Self::Module(value)
     }

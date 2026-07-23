@@ -65,7 +65,7 @@ fn get_file_fd<'a>(
 fn js_file_fileno(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let fd = get_file_fd(ctx, &this)?;
-    Ok(JSValue::Int(fd.borrow().as_raw_fd()))
+    Ok(JSValue::from(fd.borrow().as_raw_fd()))
 }
 
 fn js_file_readAsString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

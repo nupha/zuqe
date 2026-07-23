@@ -63,7 +63,7 @@ impl ObjectImpl {
         debug_assert!(idx < self.prop_values.len());
 
         let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
-            JSProperty::Normal(val) => [val.gc_node_ptr(), None],
+            JSProperty::Normal(val) => [val.as_gc_node(), None],
             JSProperty::GetSet { getter, setter } => [
                 getter.map(|o| o.gc_node_ptr()),
                 setter.map(|o| o.gc_node_ptr()),
@@ -95,7 +95,7 @@ impl ObjectImpl {
         debug_assert!(idx < self.prop_values.len());
 
         let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
-            JSProperty::Normal(val) => [val.gc_node_ptr(), None],
+            JSProperty::Normal(val) => [val.as_gc_node(), None],
             JSProperty::GetSet { getter, setter } => [
                 getter.map(|o| o.gc_node_ptr()),
                 setter.map(|o| o.gc_node_ptr()),

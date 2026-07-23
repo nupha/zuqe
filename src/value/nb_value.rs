@@ -8,9 +8,11 @@ use std::ptr::NonNull;
 use gc_lite::{GcHead, GcNode, GcRef};
 
 use crate::{
-    Atom, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL, ScopedContext,
+    Atom, IntOrFloat, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL,
+    ModuleDef, ScopedContext,
     atom::AtomKind,
     function::{Bytecode, BytecodeImpl},
+    module::ModuleDefImpl,
     number::{JS_DTOA_VAR_FORMAT, JSFloat64Union, f64_stringify},
     object::{Object, ObjectImpl, ObjectPayload},
     string::{RopeImpl, StringImpl, StringRef},
@@ -28,14 +30,20 @@ use super::tag::{JS_NAN_U64, JSValueTag, js_new_float64, js_value_get_float64, j
 /// when reconstructing a pointer;
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
-pub struct JSValue(pub(super) u64);
+pub struct JSValue(pub(crate) u64);
 
 #[allow(non_upper_case_globals)]
 impl JSValue {
-    pub const NULL: Self = Self(JSValueTag::Null.mkval(0));
-    pub const UNDEFINED: Self = Self(JSValueTag::Undefined.mkval(0));
-    pub const EXCEPTION: Self = Self(JSValueTag::Exception.mkval(0));
-    pub const UNINITIALIZED: Self = Self(JSValueTag::Uninitialized.mkval(0));
+    //
+    // Constant values
+    //
+    pub const NULL: Self = Self((JSValueTag::Null as u64) << 48);
+    pub const UNDEFINED: Self = Self((JSValueTag::Undefined as u64) << 48);
+    pub const EXCEPTION: Self = Self((JSValueTag::Exception as u64) << 48);
+    pub const UNINITIALIZED: Self = Self((JSValueTag::Uninitialized as u64) << 48);
+    pub const ZERO: Self = Self(JSValueTag::Int.mkval(0));
+    pub const FALSE: Self = Self(JSValueTag::Bool.mkval(0));
+    pub const TRUE: Self = Self(JSValueTag::Bool.mkval(1));
     pub const NAN: Self = Self(JS_NAN_U64);
 
     const fn Bool(v: bool) -> Self {
@@ -54,24 +62,33 @@ impl JSValue {
 
 impl PartialEq for JSValue {
     fn eq(&self, other: &Self) -> bool {
-        if self.0 == other.0 {
-            return true;
-        }
-
         let ta = js_value_get_tag(self.0);
         let tb = js_value_get_tag(other.0);
+
         if ta != tb {
             return false;
         }
 
+        // Bit-identical values are equal, except Float64: all NaN payloads
+        // canonicalize to the same u64, yet JS semantics require NaN != NaN.
+        if self.0 == other.0 && JSValueTag::norm_tag(ta) != JSValueTag::Float64 {
+            return true;
+        }
+
         match JSValueTag::norm_tag(ta) {
-            JSValueTag::Bool => self.0 as u32 == other.0 as u32,
-            JSValueTag::Int => self.payload_i32() == other.payload_i32(),
+            JSValueTag::Int | JSValueTag::Bool | JSValueTag::CatchOffset => self.0 == other.0,
             JSValueTag::Float64 => js_value_get_float64(self.0).eq(&js_value_get_float64(other.0)),
-            JSValueTag::String
-            | JSValueTag::Object
-            | JSValueTag::FunctionBytecode
-            | JSValueTag::Module => unsafe { self.as_ptr::<()>() == other.as_ptr::<()>() },
+
+            JSValueTag::String => unsafe {
+                // string: content equality (matches non-nan-boxing StringRef::eq).
+                // runtime-built strings (e.g. ropes from concat) are distinct nodes
+                // with equal content, so raw-pointer compare would wrongly reject them.
+                self.as_string_unchecked() == other.as_string_unchecked()
+            },
+
+            JSValueTag::Object | JSValueTag::FunctionBytecode | JSValueTag::Module => {
+                self.0 == other.0 // raw pointer eq
+            }
 
             #[cfg(feature = "builtin_symbol")]
             JSValueTag::Symbol => unsafe {
@@ -84,8 +101,8 @@ impl PartialEq for JSValue {
                 }
             },
 
-            JSValueTag::CatchOffset => self.payload_i32() == other.payload_i32(),
             JSValueTag::StringRope => unreachable!(),
+
             JSValueTag::Null
             | JSValueTag::Undefined
             | JSValueTag::Uninitialized
@@ -126,7 +143,7 @@ impl From<Object> for JSValue {
 impl JSValue {
     pub(crate) const fn tag(self) -> JSValueTag {
         let t = js_value_get_tag(self.0);
-        if JSValueTag::is_float64_raw(t) {
+        if JSValueTag::is_float64(t) {
             JSValueTag::Float64
         } else {
             JSValueTag::from_raw(t).unwrap()
@@ -134,12 +151,7 @@ impl JSValue {
     }
 
     #[inline(always)]
-    const fn payload_u32(self) -> u32 {
-        self.0 as u32
-    }
-
-    #[inline(always)]
-    const fn payload_i32(self) -> i32 {
+    pub(crate) const fn payload_i32(self) -> i32 {
         self.0 as i32
     }
 
@@ -156,41 +168,28 @@ impl JSValue {
         unsafe { NonNull::new_unchecked(p) }
     }
 
-    pub(crate) unsafe fn as_object_unchecked(&self) -> Object {
-        unsafe {
-            let head = self.as_node_ptr();
-            debug_assert_eq!(head.as_ref().dtype(), ObjectImpl::GC_TYPE_ID);
-            Object(GcRef::<ObjectImpl>::from_node_ptr(head))
+    pub(crate) fn as_gc_node(&self) -> Option<NonNull<GcHead>> {
+        match JSValueTag::norm_tag(js_value_get_tag(self.0)) {
+            JSValueTag::Object
+            | JSValueTag::String
+            | JSValueTag::FunctionBytecode
+            | JSValueTag::Module => Some(unsafe { self.as_node_ptr() }),
+
+            #[cfg(feature = "builtin_symbol")]
+            JSValueTag::Symbol => unsafe {
+                let sr = self.as_string_unchecked();
+                let aid = sr.atom_info().unwrap().id();
+                if !crate::atom::is_const_atom(aid) && !crate::atom::is_small_int_atom(aid) {
+                    Some(sr.gc_node_ptr())
+                } else {
+                    None
+                }
+            },
+
+            _ => None,
         }
     }
 
-    pub(crate) unsafe fn as_string_unchecked(&self) -> StringRef {
-        unsafe {
-            let head = self.as_node_ptr();
-            match head.as_ref().dtype() {
-                StringImpl::GC_TYPE_ID => {
-                    StringRef::from_flat(GcRef::<StringImpl>::from_node_ptr(head))
-                }
-                RopeImpl::GC_TYPE_ID => {
-                    StringRef::from_rope(GcRef::<RopeImpl>::from_node_ptr(head))
-                }
-                _ => {
-                    unreachable!()
-                }
-            }
-        }
-    }
-
-    pub(crate) unsafe fn as_bytecode_unchecked(&self) -> Bytecode {
-        unsafe {
-            let head = self.as_node_ptr();
-            debug_assert_eq!(head.as_ref().dtype(), BytecodeImpl::GC_TYPE_ID);
-            Bytecode(GcRef::<BytecodeImpl>::from_node_ptr(head))
-        }
-    }
-}
-
-impl JSValue {
     #[inline(always)]
     pub const fn is_exception(&self) -> bool {
         js_value_get_tag(self.0) == (JSValueTag::Exception as i32)
@@ -234,13 +233,18 @@ impl JSValue {
 
     #[inline(always)]
     pub const fn is_float64(&self) -> bool {
-        JSValueTag::is_float64_raw(js_value_get_tag(self.0))
+        JSValueTag::is_float64(js_value_get_tag(self.0))
+    }
+
+    pub const fn is_int_or_bool(&self) -> bool {
+        let t = js_value_get_tag(self.0);
+        t == (JSValueTag::Int as i32) || t == (JSValueTag::Bool as i32)
     }
 
     #[inline(always)]
     pub const fn is_number(&self) -> bool {
         let t = js_value_get_tag(self.0);
-        t == (JSValueTag::Int as i32) || JSValueTag::is_float64_raw(t)
+        t == (JSValueTag::Int as i32) || JSValueTag::is_float64(t)
     }
 
     #[inline(always)]
@@ -259,6 +263,24 @@ impl JSValue {
         js_value_get_tag(self.0) == (JSValueTag::Symbol as i32)
     }
 
+    pub const fn is_string_or_symbol(&self) -> bool {
+        let t = js_value_get_tag(self.0);
+
+        #[cfg(not(feature = "builtin_symbol"))]
+        {
+            t == (JSValueTag::String as i32)
+        }
+        #[cfg(feature = "builtin_symbol")]
+        {
+            t == (JSValueTag::String as i32) || t == (JSValueTag::Symbol as i32)
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) const fn is_catch_offset(&self) -> bool {
+        js_value_get_tag(self.0) == (JSValueTag::CatchOffset as i32)
+    }
+
     pub fn is_gc(&self) -> bool {
         match self.tag() {
             JSValueTag::Object
@@ -275,22 +297,93 @@ impl JSValue {
         }
     }
 
-    pub fn as_object(&self) -> Option<Object> {
-        if js_value_get_tag(self.0) == (JSValueTag::Object as i32) {
-            Some(unsafe { self.as_object_unchecked() })
+    pub(crate) const fn as_int(&self) -> Option<i32> {
+        if js_value_get_tag(self.0) == JSValueTag::Int as i32 {
+            Some(self.payload_i32())
         } else {
             None
         }
     }
 
-    /// Returns the underlying [`Object`] handle if this value is an object.
-    ///
-    /// Under NaN-boxing a `JSValue` is a plain `u64`, so there is no inline
-    /// `Object` field to borrow — unlike the enum representation which can hand
-    /// out a `&mut Object`. Instead the object handle is returned by value.
-    /// Since [`Object`] is a `Copy` GC handle, mutating methods invoked on it
-    /// still operate on the same heap-allocated object.
-    pub fn as_object_mut(&mut self) -> Option<Object> {
+    // for Boolean value or Boolean object, returns bool
+    pub fn as_bool(&self) -> Option<bool> {
+        if js_value_get_tag(self.0) == (JSValueTag::Bool as i32) {
+            Some(self.0 as u32 != 0)
+        } else if self.tag() == JSValueTag::Object {
+            // Boolean objects (e.g. `new Boolean(true)`) must unwrap their
+            // stored primitive, not be rejected as a non-boolean.
+            unsafe { self.as_object_unchecked().payload().bool().copied() }
+        } else {
+            None
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) const unsafe fn as_float_unchecked(&self) -> f64 {
+        js_value_get_float64(self.0)
+    }
+
+    pub(crate) const fn as_float(&self) -> Option<f64> {
+        if JSValueTag::is_float64(js_value_get_tag(self.0)) {
+            Some(js_value_get_float64(self.0))
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn as_number(&self) -> Option<IntOrFloat> {
+        let t = js_value_get_tag(self.0);
+        if t == JSValueTag::Int as i32 {
+            Some(IntOrFloat::from(self.payload_i32()))
+        } else if JSValueTag::is_float64(t) {
+            Some(IntOrFloat::from(js_value_get_float64(self.0)))
+        } else {
+            None
+        }
+    }
+
+    pub(crate) unsafe fn as_object_unchecked(&self) -> Object {
+        unsafe {
+            let head = self.as_node_ptr();
+            debug_assert_eq!(head.as_ref().dtype(), ObjectImpl::GC_TYPE_ID);
+            Object(GcRef::<ObjectImpl>::from_node_ptr(head))
+        }
+    }
+
+    pub(crate) unsafe fn as_string_unchecked(&self) -> StringRef {
+        unsafe {
+            let head = self.as_node_ptr();
+            match head.as_ref().dtype() {
+                StringImpl::GC_TYPE_ID => {
+                    StringRef::from_flat(GcRef::<StringImpl>::from_node_ptr(head))
+                }
+                RopeImpl::GC_TYPE_ID => {
+                    StringRef::from_rope(GcRef::<RopeImpl>::from_node_ptr(head))
+                }
+                _ => {
+                    unreachable!()
+                }
+            }
+        }
+    }
+
+    pub(crate) unsafe fn as_bytecode_unchecked(&self) -> Bytecode {
+        unsafe {
+            let head = self.as_node_ptr();
+            debug_assert_eq!(head.as_ref().dtype(), BytecodeImpl::GC_TYPE_ID);
+            Bytecode::from(GcRef::<BytecodeImpl>::from_node_ptr(head))
+        }
+    }
+
+    pub(crate) unsafe fn as_module_unchecked(&self) -> ModuleDef {
+        unsafe {
+            let head = self.as_node_ptr();
+            debug_assert_eq!(head.as_ref().dtype(), ModuleDefImpl::GC_TYPE_ID);
+            ModuleDef::from(GcRef::<ModuleDefImpl>::from_node_ptr(head))
+        }
+    }
+
+    pub fn as_object(&self) -> Option<Object> {
         if js_value_get_tag(self.0) == (JSValueTag::Object as i32) {
             Some(unsafe { self.as_object_unchecked() })
         } else {
@@ -340,34 +433,24 @@ impl JSValue {
         }
     }
 
-    pub fn as_bool(&self) -> Option<bool> {
-        if js_value_get_tag(self.0) == (JSValueTag::Bool as i32) {
-            Some(self.0 as u32 != 0)
+    pub fn as_module(&self) -> Option<ModuleDef> {
+        if js_value_get_tag(self.0) == (JSValueTag::Module as i32) {
+            Some(unsafe { self.as_module_unchecked() })
         } else {
             None
         }
     }
 
-    pub fn gc_node_ptr(&self) -> Option<NonNull<GcHead>> {
-        match JSValueTag::norm_tag(js_value_get_tag(self.0)) {
-            JSValueTag::Object
-            | JSValueTag::String
-            | JSValueTag::FunctionBytecode
-            | JSValueTag::Module => Some(unsafe { self.as_node_ptr() }),
-            #[cfg(feature = "builtin_symbol")]
-            JSValueTag::Symbol => unsafe {
-                let sr = self.as_string_unchecked();
-                let aid = sr.atom_info().unwrap().id();
-                if !crate::atom::is_const_atom(aid) && !crate::atom::is_small_int_atom(aid) {
-                    Some(sr.gc_node_ptr())
-                } else {
-                    None
-                }
-            },
-            _ => None,
+    pub(crate) fn as_catch_offset(&self) -> Option<i32> {
+        if js_value_get_tag(self.0) == (JSValueTag::CatchOffset as i32) {
+            Some(self.payload_i32())
+        } else {
+            None
         }
     }
+}
 
+impl JSValue {
     pub(crate) fn hash(&self) -> u32 {
         let h: u32 = match self.tag() {
             JSValueTag::Object | JSValueTag::FunctionBytecode | JSValueTag::Module => unsafe {
@@ -402,23 +485,13 @@ impl JSValue {
         h ^ (js_value_get_tag(self.0) as u32)
     }
 
-    /// create Float64 value as-is
-    #[inline(always)]
-    pub(crate) const fn from_f64_as_is(d: f64) -> Self {
-        if d.is_nan() {
-            Self::NAN
-        } else {
-            Self::Float64(d)
-        }
-    }
-
     /// coerce value to bool
     pub fn to_bool(&self) -> Result<bool, i32> {
         match self.tag() {
             JSValueTag::Null | JSValueTag::Undefined => Ok(false),
             JSValueTag::Int | JSValueTag::Bool => Ok(self.payload_i32() != 0),
-            JSValueTag::Object => Ok(unsafe { self.as_object_unchecked().flags().is_htmldda() }),
-            JSValueTag::String => Ok(unsafe { self.as_string_unchecked().is_empty() }),
+            JSValueTag::Object => Ok(unsafe { !self.as_object_unchecked().flags().is_htmldda() }),
+            JSValueTag::String => Ok(unsafe { !self.as_string_unchecked().is_empty() }),
             JSValueTag::Float64 => {
                 let d = js_value_get_float64(self.0);
                 Ok(!d.is_nan() && d != 0.0)
@@ -439,29 +512,34 @@ impl JSValue {
 
             JSValueTag::Int => ctx
                 .create_string_from_utf8(format!("{}", self.payload_i32()).into_bytes())
-                .map(Self::from),
+                .map(Self::make_string),
+
             JSValueTag::Bool => if self.payload_i32() != 0 {
                 Atom::CONST_true
             } else {
                 Atom::CONST_false
             }
             .force_string(ctx)
-            .map(Self::from),
+            .map(Self::make_string),
+
             JSValueTag::Float64 => {
                 let n = js_value_get_float64(self.0);
                 let s = f64_stringify(n, 10, None, JS_DTOA_VAR_FORMAT);
-                ctx.create_string_from_str(s.as_ref()).map(Self::from)
+                ctx.create_string_from_str(s.as_ref())
+                    .map(Self::make_string)
             }
-            JSValueTag::Null => Atom::CONST_null.force_string(ctx).map(Self::from),
-            JSValueTag::Undefined => Atom::CONST_undefined.force_string(ctx).map(Self::from),
+            JSValueTag::Null => Atom::CONST_null.force_string(ctx).map(Self::make_string),
+            JSValueTag::Undefined => Atom::CONST_undefined
+                .force_string(ctx)
+                .map(Self::make_string),
 
             JSValueTag::Object => self
                 .to_primitive(ctx, HINT_STRING)
                 .and_then(|s| s.to_string_or_symbol(ctx)),
 
-            JSValueTag::FunctionBytecode => {
-                ctx.create_string_from_str("[bytecode]").map(Self::from)
-            }
+            JSValueTag::FunctionBytecode => ctx
+                .create_string_from_str("[bytecode]")
+                .map(Self::make_string),
 
             JSValueTag::Exception => {
                 #[cfg(debug_assertions)]
@@ -474,6 +552,59 @@ impl JSValue {
             _ => {
                 ctx.throw_type_error("can't convert to string or symbol");
                 Err(-1)
+            }
+        }
+    }
+
+    /// Coerce value `self` to string. if `self` is symbol, returns Err.
+    ///
+    /// If `self` is already a string, it is returned `as-is` (a rope is
+    /// preserved; materialisation to a flat buffer is an internal decision made
+    /// lazily by the `StringRef` operations that need it, not here).
+    pub fn to_string(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
+        match self.tag() {
+            JSValueTag::String => {
+                let s = unsafe { self.as_string_unchecked() };
+
+                // NOTE on GC safety: a value returned by `to_string` must stay reachable
+                // until the caller stores it in a traced location. Fresh string
+                // allocations are young GC roots, but an *existing* rope node is only alive
+                // while some rooted JSValue still references it. If that reference drops
+                // while the caller keeps the returned `StringRef` (a `Copy` raw GC pointer)
+                // across a GC safepoint, the node can be freed and any later use of it is a
+                // use-after-free. We therefore mark the node LOCAL for the current scope so
+                // it survives until the scope ends. We use `gc_protect_transient_force`
+                // rather than the feature-gated `gc_protect_transient` because the
+                // protection must apply even when that feature is disabled (the engine
+                // otherwise relies solely on "fresh allocation = root", which this path
+                // intentionally avoids to keep ropes lazy).
+                //
+                // Only ropes need this: flat strings already preserved the
+                // "returns a rooted node" invariant before (the old `flatten`
+                // returned the flat node as-is too), whereas ropes are what this
+                // `to_string` change newly exposes to the unrooted-old-node risk.
+                if !s.is_flat() {
+                    ctx.gc_protect_transient_force(self);
+                }
+
+                Ok(s)
+            }
+            #[cfg(feature = "builtin_symbol")]
+            JSValueTag::Symbol => {
+                ctx.throw_type_error("cannot convert symbol to string");
+                Err(-1)
+            }
+            _ => {
+                let v = self.to_string_or_symbol(ctx)?;
+                match v.tag() {
+                    JSValueTag::String => Ok(unsafe { v.as_string_unchecked() }),
+                    #[cfg(feature = "builtin_symbol")]
+                    JSValueTag::Symbol => {
+                        ctx.throw_type_error("cannot convert symbol to string");
+                        Err(-1)
+                    }
+                    _ => unreachable!(),
+                }
             }
         }
     }
@@ -493,24 +624,24 @@ impl JSValue {
                     return Ok(Atom::CONST_null);
                 }
                 JSValueTag::Bool => {
-                    return Ok(if self.payload_i32() != 0 {
+                    return Ok(if val.payload_i32() != 0 {
                         Atom::CONST_true
                     } else {
                         Atom::CONST_false
                     });
                 }
                 JSValueTag::Int => {
-                    return Atom::from_i64(ctx, self.payload_i32() as i64);
+                    return Atom::from_i64(ctx, val.payload_i32() as i64);
                 }
                 JSValueTag::String => unsafe {
-                    return self.as_string_unchecked().to_atom(ctx, AtomKind::String);
+                    return val.as_string_unchecked().to_atom(ctx, AtomKind::String);
                 },
                 #[cfg(feature = "builtin_symbol")]
                 JSValueTag::Symbol => unsafe {
-                    return self.as_string_unchecked().to_atom(ctx, AtomKind::Symbol);
+                    return val.as_string_unchecked().to_atom(ctx, AtomKind::Symbol);
                 },
                 JSValueTag::Object | JSValueTag::Float64 => {
-                    val = self.to_string_or_symbol(ctx)?;
+                    val = val.to_string_or_symbol(ctx)?;
                     continue;
                 }
                 JSValueTag::Uninitialized
@@ -612,6 +743,17 @@ impl JSValue {
                 Err(-1)
             }
         }
+    }
+
+    /// create Float64 value as-is
+    #[inline(always)]
+    pub(crate) const fn make_float(d: f64) -> Self {
+        Self::Float64(d)
+    }
+
+    #[inline(always)]
+    pub fn make_catch_offset(pos: i32) -> Self {
+        Self::CatchOffset(pos)
     }
 
     #[inline(always)]

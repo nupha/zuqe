@@ -4,10 +4,10 @@
 use gc_lite::GcNode;
 
 use crate::{
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
-    JS_CLASS_FLOAT16_ARRAY, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY,
-    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    IntOrFloat, JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY,
+    JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT16_ARRAY, JS_CLASS_FLOAT32_ARRAY,
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
+    JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
     builtins::typed_array::f16_to_f64,
     context::ScopedContext,
@@ -260,21 +260,23 @@ impl ObjectImpl {
     /// get property by prop value
     pub fn get_property_value(&self, ctx: &mut ScopedContext, prop: JSValue) -> JSResult {
         // fast path: check if prop is an index
-        match prop {
-            JSValue::Int(i) if i >= 0 => {
-                if let Some(r) = self.get_property_index(i as usize) {
-                    return r;
+        if let Some(num) = prop.as_number() {
+            match num {
+                IntOrFloat::Int64(i) if i >= 0 => {
+                    if let Some(r) = self.get_property_index(i as usize) {
+                        return r;
+                    }
                 }
-            }
-            JSValue::Float64(f) if f >= 0.0 && f.fract() == 0.0 => {
-                let n = f.trunc() as i64;
-                if n <= u32::MAX as i64
-                    && let Some(r) = self.get_property_index(n as usize)
-                {
-                    return r;
+                IntOrFloat::Float64(f) if f >= 0.0 && f.fract() == 0.0 => {
+                    let n = f.trunc() as i64;
+                    if n <= u32::MAX as i64
+                        && let Some(r) = self.get_property_index(n as usize)
+                    {
+                        return r;
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
 
         // slow path
@@ -334,6 +336,66 @@ impl ObjectImpl {
 }
 
 impl JSValue {
+    #[cfg(feature = "nan_boxing")]
+    pub(crate) fn get_property_internal(
+        &self,
+        ctx: &mut ScopedContext,
+        prop: Atom,
+        this_obj: JSValue,
+        throw_ref_error: bool,
+    ) -> JSResult {
+        match self.tag() {
+            crate::JSValueTag::Object => unsafe {
+                self.as_object_unchecked().get_property_internal(
+                    ctx,
+                    prop,
+                    this_obj,
+                    throw_ref_error,
+                )
+            },
+            crate::JSValueTag::String => {
+                let s = unsafe { self.as_string_unchecked() };
+                if unlikely(prop == Atom::CONST_length) {
+                    // string length
+                    Ok(JSValue::from(s.len() as u32))
+                } else if let Some(idx) = prop.to_small_int() {
+                    // code point at idx
+                    if let Some(code) = s.content().get(idx as usize) {
+                        ctx.create_string_from_char(code.into())
+                            .map(JSValue::make_string)
+                    } else {
+                        Ok(JSValue::UNDEFINED)
+                    }
+                } else {
+                    self.get_prototype_primitive(ctx)
+                        .as_object()
+                        .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
+                        .unwrap_or(Ok(JSValue::UNDEFINED))
+                }
+            }
+            crate::JSValueTag::Null => {
+                ctx.throw_type_error("cannot read property of null");
+                Err(-1)
+            }
+            crate::JSValueTag::Undefined => {
+                ctx.throw_type_error("cannot read property of undefined");
+                Err(-1)
+            }
+            crate::JSValueTag::Exception => {
+                #[cfg(debug_assertions)]
+                unreachable!();
+                #[cfg(not(debug_assertions))]
+                Err(-1)
+            }
+            _ => self
+                .get_prototype_primitive(ctx)
+                .as_object()
+                .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
+                .unwrap_or(Ok(JSValue::UNDEFINED)),
+        }
+    }
+
+    #[cfg(not(feature = "nan_boxing"))]
     pub(crate) fn get_property_internal(
         &self,
         ctx: &mut ScopedContext,
@@ -392,20 +454,18 @@ impl JSValue {
 
     /// get property by prop value
     pub fn get_property_value(&self, ctx: &mut ScopedContext, prop: JSValue) -> JSResult {
-        match self {
-            JSValue::Object(o) => o.get_property_value(ctx, prop),
-            JSValue::NULL | JSValue::UNDEFINED => {
-                ctx.throw_type_error(if self.is_undefined() {
-                    "cannot read property of undefined"
-                } else {
-                    "cannot read property of null"
-                });
-                Err(-1)
-            }
-            _ => {
-                let atom = prop.to_atom(ctx)?;
-                self.get_property_internal(ctx, atom, *self, false)
-            }
+        if let Some(o) = self.as_object() {
+            o.get_property_value(ctx, prop)
+        } else if self.is_undefined_or_null() {
+            ctx.throw_type_error(if self.is_undefined() {
+                "cannot read property of undefined"
+            } else {
+                "cannot read property of null"
+            });
+            Err(-1)
+        } else {
+            let atom = prop.to_atom(ctx)?;
+            self.get_property_internal(ctx, atom, *self, false)
         }
     }
 

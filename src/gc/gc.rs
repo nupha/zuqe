@@ -204,7 +204,7 @@ impl ScopedContext<'_> {
     /// traced location and the point they are stored in a new traced location.
     #[inline(always)]
     pub(crate) fn gc_protect_transient_force(&self, val: &JSValue) {
-        if let Some(n) = val.gc_node_ptr() {
+        if let Some(n) = val.as_gc_node() {
             self.gc_state().add_non_local(n);
         }
     }

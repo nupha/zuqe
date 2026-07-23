@@ -21,6 +21,66 @@ impl JSValue {
     /// Get inspect representation string of `self` value.
     /// `inspect()` string is only used for interactive prompting,
     /// use `to_string()` for other cases.
+    #[cfg(feature = "nan_boxing")]
+    pub(crate) fn inspect_internal(
+        &self,
+        ctx: &mut ScopedContext,
+        quoted: bool,
+    ) -> Result<String, i32> {
+        match self.tag() {
+            crate::JSValueTag::Int => Ok(format!("{}", self.payload_i32())),
+            crate::JSValueTag::Bool => Ok(if self.payload_i32() != 0 {
+                "true"
+            } else {
+                "false"
+            }
+            .into()),
+            crate::JSValueTag::Float64 => {
+                let n = unsafe { self.as_float_unchecked() };
+                Ok(if n == 0.0 {
+                    // distinct '0' and '-0'
+                    if n.is_sign_negative() { "-0" } else { "0" }.into()
+                } else {
+                    f64_stringify(n, 10, None, 0).into()
+                })
+            }
+
+            crate::JSValueTag::String => {
+                let s = unsafe { self.as_string_unchecked() };
+                if quoted {
+                    Ok(format!("\"{}\"", s.content().encode_utf8(true)))
+                } else {
+                    Ok(s.content().encode_utf8(false).into())
+                }
+            }
+            #[cfg(feature = "builtin_symbol")]
+            crate::JSValueTag::Symbol => {
+                let s = unsafe { self.as_string_unchecked() };
+                Ok(format!("Symbol({})", s.content().encode_utf8(false)))
+            }
+
+            crate::JSValueTag::Object => unsafe { self.as_object_unchecked().inspect(ctx) },
+            crate::JSValueTag::FunctionBytecode => unsafe {
+                Ok(format!(
+                    "[bytecode {}]",
+                    self.as_bytecode_unchecked().func_name.to_utf8(ctx.rt())
+                ))
+            },
+
+            crate::JSValueTag::Null => Ok("null".into()),
+            crate::JSValueTag::Undefined => Ok("undefined".into()),
+            crate::JSValueTag::Module => Ok("[module]".into()),
+
+            // internal value types
+            crate::JSValueTag::Exception => Ok("<exception>".into()),
+            crate::JSValueTag::Uninitialized => Ok("<uninitialized>".into()),
+            crate::JSValueTag::CatchOffset => Ok(format!("<catchoffset {}>", self.payload_i32())),
+
+            crate::JSValueTag::StringRope => unreachable!("not used"),
+        }
+    }
+
+    #[cfg(not(feature = "nan_boxing"))]
     pub(crate) fn inspect_internal(
         &self,
         ctx: &mut ScopedContext,
@@ -93,7 +153,10 @@ impl ObjectImpl {
 
         let tag: StringRef = {
             #[cfg(feature = "builtin_symbol")]
-            if let JSValue::String(s) = self.get_property(ctx, Atom::CONST_Symbol_toStringTag)? {
+            if let Some(s) = self
+                .get_property(ctx, Atom::CONST_Symbol_toStringTag)?
+                .as_string()
+            {
                 s
             } else {
                 atom.force_string(ctx)?

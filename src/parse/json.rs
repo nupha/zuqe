@@ -45,8 +45,9 @@ pub(crate) struct JSONParseRecord {
 }
 
 impl JSONParseRecord {
+    #[inline(always)]
     pub const fn is_primitive(&self) -> bool {
-        self.value.as_object().is_none()
+        !self.value.is_object()
     }
 
     pub fn find_child(&self, name: Atom) -> Option<&JSONParseRecord> {
@@ -478,8 +479,8 @@ impl<'s> JSParseState<'s> {
                 let source_end = (self.buf_ptr as usize) - (self.input.as_ptr() as usize);
 
                 val = match self.token.data.ident_atom().unwrap() {
-                    Atom::CONST_true => JSValue::Bool(true),
-                    Atom::CONST_false => JSValue::Bool(false),
+                    Atom::CONST_true => JSValue::TRUE,
+                    Atom::CONST_false => JSValue::FALSE,
                     Atom::CONST_null => JSValue::NULL,
                     _ => {
                         if self.token.kind == TokenKind::EOF {

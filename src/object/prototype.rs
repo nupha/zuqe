@@ -207,7 +207,7 @@ impl JSValue {
         if unlikely(throw_flag && self.is_undefined_or_null()) {
             ctx.throw_type_error_not_an_object();
             Err(-1)
-        } else if let Some(o) = self.as_object_mut() {
+        } else if let Some(mut o) = self.as_object() {
             o.set_prototype_internal(ctx, proto_val, throw_flag)
         } else if throw_flag {
             Ok(true)

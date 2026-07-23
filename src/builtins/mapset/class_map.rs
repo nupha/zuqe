@@ -162,7 +162,7 @@ pub(crate) fn js_map_getOrInsert(ctx: &mut ScopedContext, cc: CallContext) -> JS
     let s = get_jsmap_state_mut(&mut this_mut, class_id, ctx)?;
 
     if s.upsert(ctx, key, value)? && s.is_weak() {
-        key.as_object_mut()
+        key.as_object()
             .unwrap()
             .add_back_ref(cc.this().as_object().unwrap().downgrade());
     }
@@ -171,10 +171,10 @@ pub(crate) fn js_map_getOrInsert(ctx: &mut ScopedContext, cc: CallContext) -> JS
     // Bind GC reference relations
     let this_obj = cc.this().as_object().unwrap();
     let self_node = this_obj.gc_node_ptr();
-    if let Some(n) = key.gc_node_ptr() {
+    if let Some(n) = key.as_gc_node() {
         this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
     }
-    if let Some(n) = value.gc_node_ptr() {
+    if let Some(n) = value.as_gc_node() {
         this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
     }
 
@@ -202,10 +202,9 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     if s.upsert(ctx, key, map_val)? {
-        // inserted pair
-        // make back ref for key object if is weak
+        // inserted pair: make back ref for key object if is weak
         if s.is_weak() {
-            key.as_object_mut()
+            key.as_object()
                 .unwrap()
                 .add_back_ref(cc.this().as_object().unwrap().downgrade());
         }
@@ -214,10 +213,10 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // bind reference relation for gc values
     let this_obj = cc.this().as_object().unwrap();
     let self_node = this_obj.gc_node_ptr();
-    if let Some(n) = key.gc_node_ptr() {
+    if let Some(n) = key.as_gc_node() {
         this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
     }
-    if let Some(n) = map_val.gc_node_ptr() {
+    if let Some(n) = map_val.as_gc_node() {
         this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
     }
 
@@ -236,14 +235,14 @@ fn js_map_delete(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         s.remove(ctx, key);
 
         if s.is_weak() {
-            key.as_object_mut()
+            key.as_object()
                 .unwrap()
                 .remove_back_ref(ctx.rt(), this.as_object().unwrap());
         }
 
-        Ok(JSValue::Bool(true))
+        Ok(JSValue::from(true))
     } else {
-        Ok(JSValue::Bool(false))
+        Ok(JSValue::from(false))
     }
 }
 
@@ -266,7 +265,7 @@ fn js_map_clear(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_map_get_size(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let state = get_jsmap_state(&this, JS_CLASS_MAP + cc.magic() as ClassID, ctx)?;
-    Ok(JSValue::Int(state.len() as i32))
+    Ok(JSValue::from(state.len() as i32))
 }
 
 fn js_map_forEach(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -532,10 +531,10 @@ fn js_set_isDisjointFrom(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         };
         for key in strong_keys(iter_set) {
             if check_set.find(ctx, key).is_some() {
-                return Ok(JSValue::Bool(false));
+                return Ok(JSValue::from(false));
             }
         }
-        return Ok(JSValue::Bool(true));
+        return Ok(JSValue::from(true));
     }
 
     // Slow path (GetSetRecord)
@@ -557,20 +556,20 @@ fn js_set_isDisjointFrom(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             let value = result.get_property(ctx, Atom::CONST_value)?;
             if this_state.find(ctx, value).is_some() {
                 iterator_return(ctx, iterator)?;
-                return Ok(JSValue::Bool(false));
+                return Ok(JSValue::from(false));
             }
         }
-        return Ok(JSValue::Bool(true));
+        return Ok(JSValue::TRUE);
     }
 
     // Strategy: iterate this, check other.has
     for key in strong_keys(this_state) {
         let found = rec.has.call(ctx, other, &[key])?;
         if found.to_bool()? {
-            return Ok(JSValue::Bool(false));
+            return Ok(JSValue::FALSE);
         }
     }
-    Ok(JSValue::Bool(true))
+    Ok(JSValue::TRUE)
 }
 
 /// Set.prototype.isSubsetOf(other)
@@ -583,14 +582,14 @@ fn js_set_isSubsetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // Fast path: other is an internal Set
     if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
         if this_state.len() > other_state.len() {
-            return Ok(JSValue::Bool(false));
+            return Ok(JSValue::FALSE);
         }
         for key in strong_keys(this_state) {
             if other_state.find(ctx, key).is_none() {
-                return Ok(JSValue::Bool(false));
+                return Ok(JSValue::FALSE);
             }
         }
-        return Ok(JSValue::Bool(true));
+        return Ok(JSValue::TRUE);
     }
 
     // Slow path (GetSetRecord)
@@ -598,17 +597,17 @@ fn js_set_isSubsetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     // Optimization: if this is larger than other, it can't be a subset
     if (this_state.len() as f64) > rec.size {
-        return Ok(JSValue::Bool(false));
+        return Ok(JSValue::FALSE);
     }
 
     // Iterate this, check other.has
     for key in strong_keys(this_state) {
         let found = rec.has.call(ctx, other, &[key])?;
         if !found.to_bool()? {
-            return Ok(JSValue::Bool(false));
+            return Ok(JSValue::FALSE);
         }
     }
-    Ok(JSValue::Bool(true))
+    Ok(JSValue::TRUE)
 }
 
 /// Set.prototype.isSupersetOf(other)
@@ -621,14 +620,14 @@ fn js_set_isSupersetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // Fast path: other is an internal Set
     if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
         if other_state.len() > this_state.len() {
-            return Ok(JSValue::Bool(false));
+            return Ok(JSValue::FALSE);
         }
         for key in strong_keys(other_state) {
             if this_state.find(ctx, key).is_none() {
-                return Ok(JSValue::Bool(false));
+                return Ok(JSValue::FALSE);
             }
         }
-        return Ok(JSValue::Bool(true));
+        return Ok(JSValue::TRUE);
     }
 
     // Slow path (GetSetRecord)
@@ -636,7 +635,7 @@ fn js_set_isSupersetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     // Optimization: if other is larger, this can't be a superset
     if rec.size > this_state.len() as f64 {
-        return Ok(JSValue::Bool(false));
+        return Ok(JSValue::FALSE);
     }
 
     // Iterate other's keys, check this.has (internal)
@@ -653,10 +652,11 @@ fn js_set_isSupersetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let value = result.get_property(ctx, Atom::CONST_value)?;
         if this_state.find(ctx, value).is_none() {
             iterator_return(ctx, iterator)?;
-            return Ok(JSValue::Bool(false));
+            return Ok(JSValue::FALSE);
         }
     }
-    Ok(JSValue::Bool(true))
+
+    Ok(JSValue::TRUE)
 }
 
 /// Set.prototype.intersection(other)

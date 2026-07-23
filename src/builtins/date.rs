@@ -881,10 +881,12 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
             }) {
                 ts
             } else {
-                match cc.arg(0).to_primitive(ctx, HINT_NONE)? {
-                    JSValue::String(s) => Datetime::parse(&s.content().encode_utf8_bytes(false))
-                        .unwrap_or(Datetime::INVALID),
-                    v => v.to_number(ctx)?.to_f64().into(),
+                let v = cc.arg(0).to_primitive(ctx, HINT_NONE)?;
+                if let Some(s) = v.as_string() {
+                    Datetime::parse(&s.content().encode_utf8_bytes(false))
+                        .unwrap_or(Datetime::INVALID)
+                } else {
+                    v.to_number(ctx)?.to_f64().into()
                 }
             }
         }
@@ -943,6 +945,7 @@ fn js_date_getTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_date_setTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let _ = JS_ThisTimeValue(ctx, cc.this())?;
+
     let a = cc.arg(0).to_number(ctx)?.to_f64();
     let dt2 = if a.is_finite() {
         Datetime::from_timestamp_ms(a.trunc() as i64) // will clip inside
@@ -950,7 +953,7 @@ fn js_date_setTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         Datetime::INVALID
     };
 
-    if let ObjectPayload::DATE(dt) = cc.this().as_object_mut().unwrap().payload_mut() {
+    if let ObjectPayload::DATE(dt) = cc.this().as_object().unwrap().payload_mut() {
         *dt = dt2;
         Ok(dt2.into())
     } else {
@@ -972,7 +975,7 @@ fn js_date_Symbol_toPrimitive(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         return Err(-1);
     };
 
-    let hint: Atom = if let JSValue::String(s) = cc.arg(0) {
+    let hint: Atom = if let Some(s) = cc.arg(0).as_string() {
         s.to_atom(ctx, AtomKind::String)?
     } else {
         Atom::CONST_empty_string
@@ -994,7 +997,7 @@ fn js_date_getTimezoneOffset(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     if tm.is_invalid() {
         Ok(JSValue::NAN)
     } else {
-        Ok(JSValue::Int(get_timezone_offset(tm.into())))
+        Ok(JSValue::from(get_timezone_offset(tm.into())))
     }
 }
 
@@ -1060,7 +1063,7 @@ fn set_date_field_internal(
         Datetime::INVALID
     };
 
-    if let ObjectPayload::DATE(dt) = this.as_object_mut().unwrap().payload_mut() {
+    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().payload_mut() {
         // Note: to pass test262
         // only `this` timestamp is invalid, and not setting `year`, do update the timestamp.
         // `this` timestamp could have been updated in valueOf() method.

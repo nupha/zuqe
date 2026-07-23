@@ -135,7 +135,7 @@ impl ObjectImpl {
                                     // in case the array has already been marked Black and a new White
                                     // value is set_nth(), calling bind() ensures the value is grayed
                                     // before GC proceeds, preventing it from being swept.
-                                    if let Some(n) = val.gc_node_ptr() {
+                                    if let Some(n) = val.as_gc_node() {
                                         let self_node = self.gc_head_ptr();
                                         ctx.gc_heap_mut().bind(self_node, n);
                                     }
@@ -175,7 +175,7 @@ impl ObjectImpl {
                                     Ok(false)
                                 }
                             } else if flags & JS_PROP_HAS_VALUE != 0 {
-                                self.set_property_value(ctx, JSValue::Int(idx as i32), val, flags)
+                                self.set_property_value(ctx, JSValue::from(idx as i32), val, flags)
                             } else {
                                 Ok(true)
                             };
@@ -390,7 +390,9 @@ impl ObjectImpl {
     /// Check if object has 'name' property with non-empty normal string.
     pub fn has_name(&self) -> bool {
         if let Some((idx, _)) = self.find_shape_property(Atom::CONST_name) {
-            if let JSProperty::Normal(JSValue::String(s)) = self.prop_slot(idx) {
+            if let JSProperty::Normal(v) = self.prop_slot(idx)
+                && let Some(s) = v.as_string()
+            {
                 !s.is_empty()
             } else {
                 true
@@ -432,7 +434,7 @@ impl JSValue {
         setter: JSValue, // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
         flags: u32,
     ) -> Result<bool, i32> {
-        if let Some(p) = self.as_object_mut() {
+        if let Some(mut p) = self.as_object() {
             p.define_property(ctx, prop, val, getter, setter, flags)
         } else {
             ctx.throw_type_error_not_an_object();

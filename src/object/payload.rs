@@ -99,13 +99,15 @@ impl JSValue {
     /// get object value's payload borrow ref.
     /// if the value is not an object, or optionally is not the required class_id,
     /// throws type error.
-    pub fn retrive_object_payload_mut(
-        &mut self,
+    pub fn retrive_object_payload_mut<'a>(
+        &'a mut self,
         ctx: &mut ScopedContext,
         class_id: ClassID,
-    ) -> Result<&mut ObjectPayload, i32> {
-        if let Some(o) = self.as_object_mut() {
-            o.retrive_payload_mut(ctx, class_id)
+    ) -> Result<&'a mut ObjectPayload, i32> {
+        if let Some(mut o) = self.as_object() {
+            o.retrive_payload_mut(ctx, class_id).map(|p| unsafe {
+                std::mem::transmute::<&mut ObjectPayload, &'a mut ObjectPayload>(p)
+            })
         } else {
             ctx.throw_type_error_invalid_class(class_id);
             Err(-1)

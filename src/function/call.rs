@@ -462,7 +462,7 @@ impl JSValue {
 
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
 pub(crate) fn js_function_apply(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let func_obj = cc.this().into_callable(ctx)?;
+    let func_obj = cc.this().ensure_callable(ctx)?;
     let this_arg = cc.arg(0);
     let array_arg = cc.arg(1);
 

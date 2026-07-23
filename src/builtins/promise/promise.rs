@@ -590,7 +590,7 @@ pub(crate) fn remainingElementsCount_add(
         .to_i32();
 
     remainingElementsCount += addend;
-    resolve_element_env.set_property_u32(ctx, 0, JSValue::Int(remainingElementsCount))?;
+    resolve_element_env.set_property_u32(ctx, 0, JSValue::from(remainingElementsCount))?;
 
     Ok(if remainingElementsCount == 0 { 1 } else { 0 })
 }
@@ -609,7 +609,7 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
         return Ok(JSValue::UNDEFINED);
     }
 
-    let _ = cc.replace_data(0, JSValue::Bool(true));
+    let _ = cc.replace_data(0, JSValue::from(true));
 
     let obj: JSValue = if resolve_type == PROMISE_MAGIC_allSettled {
         let mut ob = ctx.create_base_object()?;

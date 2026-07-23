@@ -242,7 +242,7 @@ impl RuntimeImpl {
     pub(crate) fn set_exception(&mut self, exc: Exception) {
         #[cfg(debug_assertions)]
         if let Exception::Error(val) = &exc
-            && let Some(n) = val.gc_node_ptr()
+            && let Some(n) = val.as_gc_node()
         {
             unsafe {
                 debug_assert!(
@@ -405,7 +405,7 @@ impl<'c> ScopedContext<'c> {
     pub fn take_exception(&mut self) -> Exception {
         let exc = std::mem::take(&mut self.rt_mut().cur_exception);
         if let Exception::Error(val) = &exc
-            && let Some(n) = val.gc_node_ptr()
+            && let Some(n) = val.as_gc_node()
         {
             self.gc_state().add_non_local(n);
         }

@@ -40,7 +40,7 @@ debug_gc = []
 gc_protect_transient = []
 
 default = [
-    #"nan_boxing",
+    "nan_boxing",
     "inline_cache",
 
     "all_unicode",

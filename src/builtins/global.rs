@@ -40,7 +40,7 @@ pub(crate) fn js_global_isNaN_isFinite(ctx: &mut ScopedContext, cc: CallContext)
         MAGIC_NUM_IS_FINITE => f64::is_finite(d),
         _ => unreachable!(),
     };
-    Ok(JSValue::Bool(b))
+    Ok(JSValue::from(b))
 }
 
 /// ES spec: uriReserved (used by decodeURI — includes '#')

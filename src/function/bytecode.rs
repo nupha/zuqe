@@ -611,6 +611,14 @@ pub struct Bytecode(pub(crate) GcRef<BytecodeImpl>);
 
 gcref_wrapper!(Bytecode, BytecodeImpl);
 
+#[cfg(feature = "nan_boxing")]
+impl From<Bytecode> for JSValue {
+    #[inline(always)]
+    fn from(value: Bytecode) -> Self {
+        Self(crate::JSValueTag::FunctionBytecode.mknode(value.gc_node_ptr()))
+    }
+}
+#[cfg(not(feature = "nan_boxing"))]
 impl From<Bytecode> for JSValue {
     #[inline(always)]
     fn from(value: Bytecode) -> Self {

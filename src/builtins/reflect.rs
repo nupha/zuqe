@@ -52,10 +52,10 @@ fn js_reflect_construct(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_reflect_deleteProperty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    if let Some(obj) = cc.arg(0).as_object_mut() {
+    if let Some(mut obj) = cc.arg(0).as_object() {
         let atom = cc.arg(1).to_atom(ctx)?;
         let ret = obj.delete_property(ctx, atom, 0);
-        ret.map(JSValue::Bool)
+        ret.map(JSValue::from)
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)
@@ -76,7 +76,7 @@ fn js_reflect_has(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(obj) = cc.arg(0).as_object() {
         let prop = cc.arg(1);
         let atom = prop.to_atom(ctx)?;
-        obj.has_property(ctx, atom).map(JSValue::Bool)
+        obj.has_property(ctx, atom).map(JSValue::from)
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)
@@ -99,24 +99,14 @@ fn js_reflect_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let atom = prop.to_atom(ctx)?;
 
     target
-        .set_property_internal(
-            ctx,
-            atom,
-            val,
-            match receiver {
-                JSValue::Object(o) => Some(o),
-                JSValue::NULL | JSValue::UNDEFINED => None,
-                _ => None,
-            },
-            0,
-        )
-        .map(JSValue::Bool)
+        .set_property_internal(ctx, atom, val, receiver.as_object(), 0)
+        .map(JSValue::from)
 }
 
 fn js_reflect_setPrototypeOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut val = cc.arg(0);
     val.set_prototype_internal(ctx, cc.arg(1), false)
-        .map(JSValue::Bool)
+        .map(JSValue::from)
 }
 
 fn js_reflect_ownKeys(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

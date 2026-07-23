@@ -36,7 +36,7 @@ impl<T: ScopeResult> ScopeResult for Option<T> {
 
 impl ScopeResult for JSValue {
     fn promote(self, scope: &ScopedContext<'_>) -> Self {
-        if let Some(node) = self.gc_node_ptr()
+        if let Some(node) = self.as_gc_node()
             && let Some((parent, _)) = scope.gc_state().parent()
         {
             scope.gc_state().promote_node_to(node, parent);

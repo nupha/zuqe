@@ -457,7 +457,7 @@ impl JSValue {
         ctx: &mut ScopedContext,
         prop: Atom,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
-        if let Some(p) = self.as_object_mut() {
+        if let Some(mut p) = self.as_object() {
             p.get_own_property(ctx, prop)
         } else {
             ctx.throw_type_error_not_an_object();

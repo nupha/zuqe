@@ -226,7 +226,7 @@ fn js_generator_next(
                         let arena = ctx.rt_mut().stack_frame_arena_mut();
                         g.async_state.stack_store_value(arena, -1, val);
                         g.async_state
-                            .stack_store_value(arena, 0, JSValue::Int(magic));
+                            .stack_store_value(arena, 0, JSValue::from(magic));
                         g.async_state.bump_sp(arena, 1);
                     }
 
@@ -263,7 +263,7 @@ fn js_generator_next(
                     g.async_state.take_top_value(arena, ctx)
                 };
 
-                *iter_state = if let Ok(JSValue::Int(FUNC_RET_YIELD_STAR)) = res {
+                *iter_state = if let Ok(Some(FUNC_RET_YIELD_STAR)) = res.map(|v| v.as_int()) {
                     g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR);
                     IteratorState::NotParsed // should return (value, done) object
                 } else {

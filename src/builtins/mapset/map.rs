@@ -51,10 +51,10 @@ impl GcTrace for MapPair {
 
 impl MapPair {
     pub fn normalize_key(key: JSValue) -> JSValue {
-        if let JSValue::Float64(d) = key
+        if let Some(d) = key.as_float()
             && d == 0.0
         {
-            return JSValue::Int(0); // -0.0 to 0
+            return JSValue::from(0); // -0.0 to 0
         }
         key
     }

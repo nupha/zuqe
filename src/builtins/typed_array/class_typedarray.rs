@@ -211,7 +211,7 @@ fn js_typed_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     for i in 0..len {
         let mut el = arr.get_property_i64(ctx, i)?;
         if mapping {
-            el = map_fn.call(ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
+            el = map_fn.call(ctx, this_arg, &[el, JSValue::from(i as i32)])?;
         }
         res_ta.set_property_i64(ctx, i, el)?;
     }
@@ -220,7 +220,7 @@ fn js_typed_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_typed_array_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut obj = js_typed_array_create(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)])?;
+    let mut obj = js_typed_array_create(ctx, cc.this(), &[JSValue::from(cc.length() as i32)])?;
     for i in 0..cc.length() {
         obj.set_property_u32(ctx, i as u32, cc.arg(i))?;
     }
@@ -240,7 +240,7 @@ pub const js_typed_array_base_funcs: &[FieldDef] = &[
 
 pub fn js_typed_array_get_length(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     TypedArray::try_from(cc.this())
-        .map(|p| JSValue::Int(p.length() as i32))
+        .map(|p| JSValue::from(p.length() as i32))
         .map_err(|_| {
             ctx.throw_type_error("not a TypedArray");
             -1
@@ -257,9 +257,9 @@ fn js_typed_array_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             TA_GET_BUFFER => Ok(ta.array_buffer().into()),
             TA_GET_BYTE_LENGTH => {
                 if !ta.is_detached() {
-                    Ok(JSValue::Int(ta.byte_length() as i32))
+                    Ok(JSValue::from(ta.byte_length() as i32))
                 } else {
-                    Ok(JSValue::Int(0))
+                    Ok(JSValue::from(0))
                 }
             }
             TA_GET_BYTE_OFFSET => Ok(JSValue::from(ta.array_buffer_byte_offset() as u32)),
@@ -646,7 +646,7 @@ fn js_typed_array_find(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     while k != end {
-        let index_val = JSValue::Int(k);
+        let index_val = JSValue::from(k);
         let val = this_val.get_property_value(ctx, index_val)?;
 
         let res = func.call(ctx, this_arg, &[val, index_val, this_val])?;
@@ -662,7 +662,7 @@ fn js_typed_array_find(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     if matches!(cc.magic(), special_findIndex | special_findLastIndex) {
-        Ok(JSValue::Int(-1))
+        Ok(JSValue::from(-1))
     } else {
         Ok(JSValue::UNDEFINED)
     }
@@ -744,7 +744,7 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut arr = js_typed_array___speciesCreate(
         ctx,
         JSValue::UNDEFINED,
-        &[this_val, JSValue::Int(count as _)],
+        &[this_val, JSValue::from(count as i32)],
     )?;
 
     if count > 0 {
@@ -813,7 +813,7 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
         // slow path using property set
         for n in 0..count {
-            let val = this_val.get_property_value(ctx, JSValue::Int((start + n) as i32))?;
+            let val = this_val.get_property_value(ctx, JSValue::from((start + n) as i32))?;
             arr.set_property_u32(ctx, n as u32, val)?;
         }
     }
@@ -856,8 +856,8 @@ fn js_typed_array_subarray(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         &[
             this,
             ta.array_buffer().into(), // array buffer
-            JSValue::Int(byte_offset as i32),
-            JSValue::Int(count as i32),
+            JSValue::from(byte_offset as i32),
+            JSValue::from(count as i32),
         ],
     )
 }
@@ -1051,19 +1051,19 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
         let r = match ta.class_id() {
             JS_CLASS_INT8_ARRAY => {
-                sort!(i8, 0, |v| JSValue::Int(v as i32))
+                sort!(i8, 0, |v| JSValue::from(v as i32))
             }
             JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                sort!(u8, 0, |v| JSValue::Int(v as i32))
+                sort!(u8, 0, |v| JSValue::from(v as i32))
             }
             JS_CLASS_INT16_ARRAY => {
-                sort!(i16, 1, |v| JSValue::Int(v as i32))
+                sort!(i16, 1, |v| JSValue::from(v as i32))
             }
             JS_CLASS_UINT16_ARRAY => {
-                sort!(u16, 1, |v| JSValue::Int(v as i32))
+                sort!(u16, 1, |v| JSValue::from(v as i32))
             }
             JS_CLASS_INT32_ARRAY => {
-                sort!(i32, 2, JSValue::Int)
+                sort!(i32, 2, JSValue::from)
             }
             JS_CLASS_UINT32_ARRAY => {
                 sort!(u32, 2, JSValue::from)
@@ -1248,9 +1248,9 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
     if len == 0 {
         return Ok(if special == special_includes {
-            JSValue::Bool(false)
+            JSValue::from(false)
         } else {
-            JSValue::Int(-1)
+            JSValue::from(-1)
         });
     }
 
@@ -1272,9 +1272,9 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                 d += len as f64;
                 if d < 0.0 {
                     return Ok(if special == special_includes {
-                        JSValue::Bool(false)
+                        JSValue::from(false)
                     } else {
-                        JSValue::Int(-1)
+                        JSValue::from(-1)
                     });
                 }
                 k = d as i32;
@@ -1300,9 +1300,9 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
             res = 0;
         }
         return Ok(if special == special_includes {
-            JSValue::Bool(res >= 0)
+            JSValue::from(res >= 0)
         } else {
-            JSValue::Int(res)
+            JSValue::from(res)
         });
     }
 
@@ -1311,24 +1311,21 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     let v64: i64;
 
     // check value to find
-    match cc.arg(0) {
-        JSValue::Int(i) => {
-            is_int = true;
-            v64 = i as i64;
-            d = v64 as f64;
-        }
-        JSValue::Float64(f) => {
-            d = f;
-            v64 = d as i64;
-            is_int = v64 as f64 == d;
-        }
-        _ => {
-            return Ok(if special == special_includes {
-                JSValue::Bool(false)
-            } else {
-                JSValue::Int(-1)
-            });
-        }
+    let v = cc.arg(0);
+    if let Some(i) = v.as_int() {
+        is_int = true;
+        v64 = i as i64;
+        d = v64 as f64;
+    } else if let Some(f) = v.as_float() {
+        d = f;
+        v64 = d as i64;
+        is_int = v64 as f64 == d;
+    } else {
+        return Ok(if special == special_includes {
+            JSValue::from(false)
+        } else {
+            JSValue::from(-1)
+        });
     }
 
     macro_rules! find {
@@ -1411,7 +1408,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                     }
                 } else {
                     // indexOf() returns -1
-                    return Ok(JSValue::Int(-1));
+                    return Ok(JSValue::from(-1));
                 }
             } else if d == 0.0 {
                 // Zero: Both +0 (0x0000) and -0 (0x8000) should match
@@ -1474,7 +1471,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                     }
                 } else {
                     // indexOf() returns -1
-                    return Ok(JSValue::Int(-1));
+                    return Ok(JSValue::from(-1));
                 }
             } else {
                 let f = d as f32;
@@ -1503,7 +1500,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                     }
                 } else {
                     // indexOf() returns -1
-                    return Ok(JSValue::Int(-1));
+                    return Ok(JSValue::from(-1));
                 }
             } else {
                 find!(f64, 3, d);
@@ -1518,9 +1515,9 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     }
 
     Ok(if special == special_includes {
-        JSValue::Bool(res >= 0)
+        JSValue::from(res >= 0)
     } else {
-        JSValue::Int(res)
+        JSValue::from(res)
     })
 }
 

@@ -140,15 +140,15 @@ macro_rules! object_cast {
 
         impl From<$ty> for Object {
             #[inline(always)]
-            fn from(value: $ty ) -> Self {
-                Object(value.0)
+            fn from(ob: $ty) -> Self {
+                Object(ob.0)
             }
         }
 
         impl From<$ty> for JSValue {
             #[inline(always)]
-            fn from(value: $ty ) -> Self {
-                Self::Object(value.into())
+            fn from(ob: $ty) -> Self {
+                Self::from(Object::from(ob))
             }
         }
 
@@ -211,15 +211,6 @@ macro_rules! object_cast {
                         None
                     }
                 }
-
-                // #[inline]
-                // pub fn [<as_object_ $ty _mut>](&mut self) -> Option<&mut $ty >{
-                //     if let Some(o) = self.as_object_mut(){
-                //         o.[<as_ $ty _mut>]()
-                //     } else {
-                //         None
-                //     }
-                // }
             }
         }
     }

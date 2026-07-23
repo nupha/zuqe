@@ -849,12 +849,12 @@ impl From<GcRef<StringImpl>> for StringRef {
     }
 }
 
-impl From<GcRef<StringImpl>> for JSValue {
-    #[inline(always)]
-    fn from(value: GcRef<StringImpl>) -> Self {
-        Self::String(StringRef::from_flat(value))
-    }
-}
+// impl From<GcRef<StringImpl>> for JSValue {
+//     #[inline(always)]
+//     fn from(value: GcRef<StringImpl>) -> Self {
+//         Self::String(StringRef::from_flat(value))
+//     }
+// }
 
 impl<'c> ScopedContext<'c> {
     /// create string value from string buf.
@@ -940,7 +940,7 @@ pub(crate) fn JS_ConcatString3(
     str2: JSValue,
     str3: &CStr,
 ) -> Result<StringRef, i32> {
-    let p = if let JSValue::String(s) = str2 {
+    let p = if let Some(s) = str2.as_string() {
         s
     } else {
         str2.to_string(ctx)?
@@ -966,20 +966,6 @@ pub(crate) fn JS_ConcatString3(
 }
 
 impl JSValue {
-    /// get a reference to value's string description. won't change value's ref_count.
-    /// will panic if value is not string type.
-    #[inline(always)]
-    pub unsafe fn string_unchecked(&self) -> &StringRef {
-        if let Self::String(s) = self {
-            s
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!();
-            #[cfg(not(debug_assertions))]
-            std::hint::unreachable_unchecked();
-        }
-    }
-
     /// Lazy string concatenation that keeps ropes lazy. `to_string` preserves
     /// any rope in `a`/`b`, and `concat2` builds a new rope in O(1). Used by the
     /// `+` operator and template literals.
@@ -993,56 +979,6 @@ impl JSValue {
     #[inline(always)]
     pub fn to_propkey(&self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         self.to_string_or_symbol(ctx)
-    }
-
-    /// Coerce value `self` to string. if `self` is symbol, returns Err.
-    ///
-    /// If `self` is already a string, it is returned `as-is` (a rope is
-    /// preserved; materialisation to a flat buffer is an internal decision made
-    /// lazily by the `StringRef` operations that need it, not here).
-    pub fn to_string(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
-        match self {
-            Self::String(s) => {
-                let s = *s;
-
-                // NOTE on GC safety: a value returned by `to_string` must stay reachable
-                // until the caller stores it in a traced location. Fresh string
-                // allocations are young GC roots, but an *existing* rope node is only alive
-                // while some rooted JSValue still references it. If that reference drops
-                // while the caller keeps the returned `StringRef` (a `Copy` raw GC pointer)
-                // across a GC safepoint, the node can be freed and any later use of it is a
-                // use-after-free. We therefore mark the node LOCAL for the current scope so
-                // it survives until the scope ends. We use `gc_protect_transient_force`
-                // rather than the feature-gated `gc_protect_transient` because the
-                // protection must apply even when that feature is disabled (the engine
-                // otherwise relies solely on "fresh allocation = root", which this path
-                // intentionally avoids to keep ropes lazy).
-                //
-                // Only ropes need this: flat strings already preserved the
-                // "returns a rooted node" invariant before (the old `flatten`
-                // returned the flat node as-is too), whereas ropes are what this
-                // `to_string` change newly exposes to the unrooted-old-node risk.
-                if !s.is_flat() {
-                    ctx.gc_protect_transient_force(&JSValue::String(s));
-                }
-
-                Ok(s)
-            }
-            #[cfg(feature = "builtin_symbol")]
-            Self::Symbol(_) => {
-                ctx.throw_type_error("cannot convert symbol to string");
-                Err(-1)
-            }
-            _ => match self.to_string_or_symbol(ctx)? {
-                JSValue::String(s) => Ok(s),
-                #[cfg(feature = "builtin_symbol")]
-                JSValue::Symbol(_) => {
-                    ctx.throw_type_error("cannot convert symbol to string");
-                    Err(-1)
-                }
-                _ => unreachable!(),
-            },
-        }
     }
 
     /// Coerce value `val` to string, but null or undefined are forbidden.
@@ -1122,18 +1058,16 @@ fn string_define_own_property(
 
             // check that the same value is configured
             if flags & JS_PROP_HAS_VALUE as i32 != 0 {
-                if !val.is_string() {
-                    fail!();
-                }
-
-                let p2 = unsafe { val.string_unchecked() };
-                let len2 = p2.len();
-                let nth_char2 = p2.content().chars().next().map(|(_, c)| c);
-
-                if len2 != 1 {
-                    fail!();
-                }
-                if nth_char != nth_char2 {
+                if let Some(p2) = val.as_string() {
+                    let len2 = p2.len();
+                    let nth_char2 = p2.content().chars().next().map(|(_, c)| c);
+                    if len2 != 1 {
+                        fail!();
+                    }
+                    if nth_char != nth_char2 {
+                        fail!();
+                    }
+                } else {
                     fail!();
                 }
             }

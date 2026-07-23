@@ -297,7 +297,7 @@ impl RegExp {
         o.define_property_value(
             ctx,
             Atom::CONST_lastIndex,
-            JSValue::Int(0),
+            JSValue::from(0),
             JS_PROP_WRITABLE,
         )?;
         Ok(o)
@@ -372,7 +372,7 @@ pub(super) fn make_regexp_capture_array(
             let idx = if let Some(r) = range {
                 Array::from_values(
                     ctx,
-                    vec![JSValue::Int(r.start as i32), JSValue::Int(r.end as i32)],
+                    vec![JSValue::from(r.start as i32), JSValue::from(r.end as i32)],
                 )?
                 .into()
             } else {
@@ -397,7 +397,7 @@ pub(super) fn make_regexp_capture_array(
     res.define_property_value(
         ctx,
         Atom::CONST_index,
-        JSValue::Int(start_index as i32),
+        JSValue::from(start_index as i32),
         prop_flags,
     )?;
     res.define_property_value(

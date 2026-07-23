@@ -429,7 +429,7 @@ pub(super) fn make_regexp_capture_array(
             let idx = if let Some(r) = range {
                 crate::array::Array::from_values(
                     ctx,
-                    vec![JSValue::Int(r.start as i32), JSValue::Int(r.end as i32)],
+                    vec![JSValue::from(r.start as i32), JSValue::from(r.end as i32)],
                 )?
                 .into()
             } else {
