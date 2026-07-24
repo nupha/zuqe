@@ -425,7 +425,9 @@ impl JSValue {
         eval_flags: EvalFlags,
         var_scope_idx: i32,
     ) -> JSResult {
-        if let Some(s) = self.as_string(true) {
+        // PerformEval step 2: only a primitive String is evaluated; a String
+        // object (new String(...)) is returned as-is (`as_string(false)`), not coerced.
+        if let Some(s) = self.as_string(false) {
             ctx.compile_then_run(
                 this_obj,
                 s.content().encode_utf8_bytes(true).as_ref(),

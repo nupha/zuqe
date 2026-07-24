@@ -845,7 +845,7 @@ impl JSValue {
                 (_, crate::JSValueTag::Null) => {
                     v2 = JSValue::ZERO;
                 }
-                (a, b) => {
+                _ => {
                     v1 = v1.to_primitive(ctx, HINT_NUMBER)?;
                     v2 = v2.to_primitive(ctx, HINT_NUMBER)?;
                 }
