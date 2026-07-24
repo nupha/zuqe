@@ -42,7 +42,10 @@ impl FileDesc {
     }
 }
 
-fn get_file_fd<'a>(ctx: &mut ScopedContext, val: JSValue) -> Result<&'a RefCell<FileDesc>, i32> {
+fn get_file_fd<'a>(
+    ctx: &mut ScopedContext,
+    val: &'a JSValue,
+) -> Result<&'a RefCell<FileDesc>, i32> {
     JSFile::payload_of(val).ok_or_else(|| {
         ctx.throw_type_error("not a File instance");
         -1
@@ -51,13 +54,13 @@ fn get_file_fd<'a>(ctx: &mut ScopedContext, val: JSValue) -> Result<&'a RefCell<
 
 fn js_file_fileno(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let fd = get_file_fd(ctx, this)?;
+    let fd = get_file_fd(ctx, &this)?;
     Ok(JSValue::from(fd.borrow().as_raw_fd()))
 }
 
 fn js_file_readAsString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let fd = get_file_fd(ctx, this)?;
+    let fd = get_file_fd(ctx, &this)?;
     let mut fdesc = fd.borrow_mut();
 
     let max_size_val = cc.arg(0);
@@ -120,7 +123,7 @@ pub(super) fn js_file_puts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 
     if magic == 1 {
         let this = cc.this();
-        let fd = get_file_fd(ctx, this)?;
+        let fd = get_file_fd(ctx, &this)?;
         let mut fdesc = fd.borrow_mut();
         for arg in cc.arguments() {
             let s = arg.to_string(ctx)?;
@@ -164,8 +167,9 @@ pub(super) fn js_file_puts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 
 fn js_file_flush(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let fd = get_file_fd(ctx, this)?;
+    let fd = get_file_fd(ctx, &this)?;
     let mut fdesc = fd.borrow_mut();
+
     match &mut *fdesc {
         FileDesc::File(f) => {
             let _ = f.flush().inspect_err(|e| {

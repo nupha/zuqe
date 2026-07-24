@@ -12,7 +12,7 @@ struct EmitterData {
     listeners: RefCell<Vec<(String, i32)>>, // simplified: (event_name, count)
 }
 
-fn get_emitter<'a>(ctx: &mut ScopedContext, val: JSValue) -> Result<&'a EmitterData, i32> {
+fn get_emitter<'a>(ctx: &mut ScopedContext, val: &'a JSValue) -> Result<&'a EmitterData, i32> {
     JSEmitter::payload_of(val).ok_or_else(|| {
         ctx.throw_internal_error("not an Emitter instance");
         -1
@@ -33,7 +33,7 @@ fn js_emitter_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
 fn js_emitter_on(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let emitter = get_emitter(ctx, this)?;
+    let emitter = get_emitter(ctx, &this)?;
     let event_name = cc.arg(0).to_string(ctx)?;
     let name_str = event_name.content().encode_utf8(false).to_string();
 
@@ -49,7 +49,7 @@ fn js_emitter_on(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_emitter_emit(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let emitter = get_emitter(ctx, this)?;
+    let emitter = get_emitter(ctx, &this)?;
     let event_name = cc.arg(0).to_string(ctx)?;
     let name_str = event_name.content().encode_utf8(false).to_string();
 

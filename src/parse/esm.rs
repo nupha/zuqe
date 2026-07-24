@@ -368,6 +368,30 @@ impl<'s> JSParseState<'s> {
                         },
                     )?;
 
+                    // Per ES spec 16.2.1.7.1 ParseModule step 10.1.ii:
+                    // If the export's local name was imported (not locally defined),
+                    // convert the export entry to INDIRECT pointing to the original
+                    // import's module request. This ensures that e.g.
+                    //   import { foo } from "A"; export { foo }
+                    // traces through to module A, not the current module.
+                    let import_info = self.cur_func().closure_vars.as_ref().and_then(|cvars| {
+                        md.import_entries.iter().find_map(|ie| {
+                            cvars.get(ie.var_idx as usize).and_then(|cv| {
+                                (cv.var_name == local_name)
+                                    .then_some((ie.import_name, ie.req_module_idx))
+                            })
+                        })
+                    });
+                    if let Some((import_name, req_idx)) = import_info {
+                        let last = md.export_entries.last_mut().unwrap();
+                        last.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(req_idx);
+                        last.local_name = if import_name == Atom::CONST__star_ {
+                            Atom::CONST__star_
+                        } else {
+                            import_name
+                        };
+                    }
+
                     if self.token.kind != TokenKind::Char(',') {
                         break;
                     }

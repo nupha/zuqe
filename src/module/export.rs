@@ -422,9 +422,10 @@ impl ModuleDef {
                 } => match export_type {
                     ExportType::JS_EXPORT_TYPE_INDIRECT(dep_idx) => {
                         if local_name == Atom::CONST__star_ {
-                            export.export_type = ExportedNameKind::EXPORTED_NAME_NS(
-                                module.dependencies[dep_idx as usize].module.unwrap(),
-                            );
+                            // After the resolve fix, `module` is already the
+                            // imported (target) module, not `self`. Use it
+                            // directly instead of module.dependencies[dep_idx].
+                            export.export_type = ExportedNameKind::EXPORTED_NAME_NS(module);
                         }
                     }
                     ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {

@@ -257,18 +257,16 @@ macro_rules! def_native_object {
                 }
             }
 
-
             /// Extract payload from a `JSValue` by class id check.
             ///
             /// Returns `Some(&'a $payload_ty)` if `val` is an object of this native class,
             /// or `None` otherwise.
             ///
-            /// # Safety
-            ///
-            /// The returned reference borrows from the GC heap, not from `val`. The caller
-            /// must ensure the underlying JS object remains GC-rooted for the lifetime `'a`
-            /// (e.g., by keeping the `ScopedContext` or a `JSValue` reference alive).
-            pub fn payload_of<'a>(val: $crate::JSValue) -> Option<&'a $payload_ty> {
+            /// The returned reference borrows from the GC heap. Its lifetime `'a` is tied to
+            /// the borrow of `val`, which keeps the underlying JS object (a GC root) alive for
+            /// as long as the payload reference is in use — preventing the object from being
+            /// reclaimed while the payload is still borrowed.
+            pub fn payload_of<'a>(val: &'a $crate::JSValue) -> Option<&'a $payload_ty> {
                 let o = val.as_object()?;
                 if o.class_id() != <Self as $crate::NativeObject>::class_id() {
                     return None;
@@ -312,6 +310,33 @@ macro_rules! def_native_object {
                         Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
                     } else {
                         None
+                    }
+                } else {
+                    None
+                }
+            }
+
+            /// Take (detach) the payload from a `&mut JSValue` by class id check.
+            ///
+            /// Returns `Some(Box<$payload_ty>)` if `val` is an object of this native
+            /// class with an attached payload, replacing the object's opaque pointer
+            /// with null so ownership of the payload transfers to the caller. Returns
+            /// `None` otherwise (wrong class or already detached).
+            pub fn take_payload_of(val: &mut $crate::JSValue) -> Option<Box<$payload_ty>> {
+                let mut o = val.as_object()?;
+                if o.class_id() != <Self as $crate::NativeObject>::class_id() {
+                    return None;
+                }
+                if let Some(other) = o.payload_mut().other_mut() {
+                    // Safety: the opaque pointer, if non-null, points to a
+                    // heap-allocated Box<$payload_ty> created in new_instance.
+                    unsafe {
+                        let ptr = other.replace_opaque(std::ptr::null_mut());
+                        if !ptr.is_null() {
+                            Some(Box::from_raw(ptr.cast::<$payload_ty>()))
+                        } else {
+                            None
+                        }
                     }
                 } else {
                     None

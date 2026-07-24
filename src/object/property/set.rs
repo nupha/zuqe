@@ -11,7 +11,7 @@ use crate::{
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::Atom,
     context::ScopedContext,
-    error::JS_ThrowReferenceErrorNotDefined,
+    error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized},
     function::prop_str_to_atom,
     object::{
         JS_PROP_FORCE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE,
@@ -96,6 +96,17 @@ impl ObjectImpl {
 
                     JS_PROP_VARREF if receiver.is_some_and(|o| cur_obj == o) => {
                         if unlikely(cur_obj.class_id() == JS_CLASS_MODULE_NS) {
+                            // Per ES spec, module namespace [[GetOwnProperty]]
+                            // calls [[Get]] which throws ReferenceError for
+                            // uninitialized (TDZ) bindings. Read first to
+                            // trigger the TDZ check before the read-only error.
+                            let v = cur_obj
+                                .prop_slot(idx)
+                                .value(ctx, receiver.unwrap().into())?;
+                            if unlikely(v.is_uninitialized()) {
+                                JS_ThrowReferenceErrorUninitialized(ctx, prop);
+                                return Err(-1);
+                            }
                             fail_read_only!(prop)
                         } else if let JSProperty::VarRef(vref) = cur_obj.prop_slot_mut(idx) {
                             vref.set_value(&mut ctx.rt_ptr(), val);
@@ -248,25 +259,12 @@ impl ObjectImpl {
 
         // receiver must be provided in order to add new property on it.
         if let Some(mut target) = receiver {
-            if unlikely(!target.flags().extensible()) {
-                fail!("object is not extensible")
-            }
-
-            if target.gc_node_ptr() == self.gc_head_ptr() {
-                if target.flags().is_exotic() {
-                    if let Some(idx) = prop.to_small_int()
-                        && let Some(arr) = target.as_Array_mut()
-                        && arr.is_fast_array()
-                        && arr.class_id() == JS_CLASS_ARRAY // Array only, exclude Arguments
-                        && idx == arr.fast_array_count()
-                    {
-                        return arr.add_fast_array_element(ctx, val, flags);
-                    }
-                } else {
-                    target.add_own_property(ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))?;
-                    return Ok(true);
-                }
-            } else {
+            // Per ES spec OrdinarySetWithOwnDescriptor step 4.c:
+            // First check if target already has own property (receiver != self).
+            // For module namespace, [[GetOwnProperty]] calls [[Get]] which
+            // throws ReferenceError for uninitialized (TDZ) bindings. This
+            // MUST happen before the extensibility check.
+            if target.gc_node_ptr() != self.gc_head_ptr() {
                 // generic case: modify the property on `target` if it already exists
                 if let Some(desc) = target.get_own_property(ctx, prop)? {
                     if unlikely(desc.flags & JS_PROP_GETSET != 0) {
@@ -286,6 +284,27 @@ impl ObjectImpl {
                             JS_PROP_HAS_VALUE,
                         );
                     }
+                }
+            }
+
+            // Check extensibility before adding new property
+            if unlikely(!target.flags().extensible()) {
+                fail!("object is not extensible")
+            }
+
+            if target.gc_node_ptr() == self.gc_head_ptr() {
+                if target.flags().is_exotic() {
+                    if let Some(idx) = prop.to_small_int()
+                        && let Some(arr) = target.as_Array_mut()
+                        && arr.is_fast_array()
+                        && arr.class_id() == JS_CLASS_ARRAY // Array only, exclude Arguments
+                        && idx == arr.fast_array_count()
+                    {
+                        return arr.add_fast_array_element(ctx, val, flags);
+                    }
+                } else {
+                    target.add_own_property(ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))?;
+                    return Ok(true);
                 }
             }
 

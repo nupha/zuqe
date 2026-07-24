@@ -8,7 +8,6 @@ use crate::{
     module::{ExportType, JSModuleStatus, ModuleDef, ResolveExport, js_create_module_var},
     runtime::js_check_stack_overflow,
     utils::unlikely,
-    value::JSValue,
 };
 
 impl ModuleDef {
@@ -24,7 +23,10 @@ impl ModuleDef {
                 .iter()
                 .any(|(m, a)| m.eq(self) && *a == export_name),
         ) {
-            return Ok(ResolveExport::Circular);
+            // per ES spec, resolveSet duplicate returns null (NotFound),
+            // not ~circular~. The star export loop skips null and tries
+            // the next star export.
+            return Ok(ResolveExport::NotFound);
         }
 
         // add resolving
@@ -46,9 +48,11 @@ impl ModuleDef {
                 }),
                 ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
                     if me.local_name == Atom::CONST__star_ {
-                        // export ns from
+                        // export ns from — per ES spec ResolveExport step 6.iii.1,
+                        // return the *imported* module, not self.
+                        let dep = self.dependencies[req_module_idx as usize].module.unwrap();
                         Ok(ResolveExport::Found {
-                            module: *self,
+                            module: dep,
                             export_type: me.export_type,
                             export_name: me.export_name,
                             local_name: me.local_name,
@@ -275,13 +279,13 @@ impl ModuleDef {
                                     match export_type {
                                         ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
                                             if local_name == Atom::CONST__star_ {
-                                                // name space import from
-                                                let mut m2 = dep.dependencies
-                                                    [req_module_idx as usize]
-                                                    .module
-                                                    .unwrap();
-
-                                                let val = m2.ns(ctx)?;
+                                                // namespace import from — after the resolve fix,
+                                                // dep is already the target module (not self),
+                                                // so ns() can be called directly.
+                                                let val = {
+                                                    let mut md = dep;
+                                                    md.ns(ctx)?
+                                                };
                                                 let vref = {
                                                     let mut vr = js_create_module_var(ctx, true)?;
                                                     vr.set_value(&mut ctx.rt_ptr(), val.into());
