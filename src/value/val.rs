@@ -87,7 +87,6 @@ mod serde_json_support {
         Array, IntOrFloat, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext,
         builtins::iterator::JSIteratorKindEnum,
         object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, Object},
-        string::StringRef,
         value::JSValue,
     };
 
@@ -133,6 +132,55 @@ mod serde_json_support {
             Self::jsvalue_to_serde_json(ctx, self, &mut SmallVec::new())
         }
 
+        /// Shallow JSValue -> serde_json::Value, considering only scalar
+        /// values (string/number/bool/null/undefined). Arrays, objects,
+        /// functions and symbols all become `serde_json::Value::Null`.
+        ///
+        /// Unlike [`to_serde_json`], this does not recurse into nested
+        /// structures and never fails.
+        pub fn to_serde_json_primitive(&self, ctx: &mut ScopedContext) -> serde_json::Value {
+            if let Some(s) = self.as_string(true) {
+                serde_json::Value::String(s.content().encode_utf8(false).to_string())
+            } else if let Some(n) = self.to_number(ctx).ok() {
+                match n {
+                    IntOrFloat::Int64(i) => serde_json::Value::from(i),
+                    IntOrFloat::Float64(f) => serde_json::Value::from(f),
+                }
+            } else if self.is_bool() {
+                serde_json::Value::Bool(self.to_bool().unwrap_or(false))
+            } else {
+                // null, undefined, and every non-scalar (array/object/function/symbol)
+                serde_json::Value::Null
+            }
+        }
+
+        /// Shallow serde_json::Value -> JSValue, considering only scalar
+        /// values (null/bool/number/string). Arrays and objects become
+        /// `JSValue::NULL` — no nested structure is built.
+        ///
+        /// Unlike [`from_serde_json`], this does not recurse and never fails.
+        pub fn from_serde_json_primitive(
+            ctx: &mut ScopedContext,
+            json: &serde_json::Value,
+        ) -> Self {
+            match json {
+                serde_json::Value::Null => JSValue::NULL,
+                serde_json::Value::Bool(b) => JSValue::from(*b),
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        JSValue::from(i)
+                    } else {
+                        JSValue::from(n.as_f64().unwrap_or(0.0))
+                    }
+                }
+                serde_json::Value::String(s) => ctx
+                    .create_string_from_utf8(s.clone().into_bytes())
+                    .map(JSValue::make_string)
+                    .unwrap_or(JSValue::NULL),
+                serde_json::Value::Array(_) | serde_json::Value::Object(_) => JSValue::NULL,
+            }
+        }
+
         /// Convert a JS Object to a serde_json::Value.
         pub(crate) fn object_to_serde_json(
             ctx: &mut ScopedContext,
@@ -164,20 +212,6 @@ mod serde_json_support {
                         } else {
                             Ok(serde_json::Value::Null)
                         };
-
-                        // return match n {
-                        //     JSValue::Int(i) => Ok(serde_json::Value::Number((*i as i64).into())),
-                        //     JSValue::Float64(f) => {
-                        //         if f.is_finite() {
-                        //             Ok(serde_json::Number::from_f64(*f)
-                        //                 .map(serde_json::Value::Number)
-                        //                 .unwrap_or(serde_json::Value::Null))
-                        //         } else {
-                        //             Ok(serde_json::Value::Null)
-                        //         }
-                        //     }
-                        //     _ => Ok(serde_json::Value::Null),
-                        // };
                     }
                 }
                 JS_CLASS_BOOLEAN => {
