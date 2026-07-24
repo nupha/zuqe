@@ -84,7 +84,7 @@ mod serde_json_support {
     use smallvec::SmallVec;
 
     use crate::{
-        Array, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext,
+        Array, IntOrFloat, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext,
         builtins::iterator::JSIteratorKindEnum,
         object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, Object},
         string::StringRef,
@@ -109,7 +109,7 @@ mod serde_json_support {
                 }
                 serde_json::Value::String(s) => ctx
                     .create_string_from_utf8(s.clone().into_bytes())
-                    .map(JSValue::from),
+                    .map(JSValue::make_string),
                 serde_json::Value::Array(arr) => {
                     let mut values = Vec::with_capacity(arr.len());
                     for item in arr {
@@ -148,19 +148,36 @@ mod serde_json_support {
                 }
                 JS_CLASS_NUMBER => {
                     if let Some(n) = obj.payload().value() {
-                        return match n {
-                            JSValue::Int(i) => Ok(serde_json::Value::Number((*i as i64).into())),
-                            JSValue::Float64(f) => {
-                                if f.is_finite() {
-                                    Ok(serde_json::Number::from_f64(*f)
-                                        .map(serde_json::Value::Number)
-                                        .unwrap_or(serde_json::Value::Null))
-                                } else {
-                                    Ok(serde_json::Value::Null)
+                        return if let Some(num) = n.as_number() {
+                            match num {
+                                IntOrFloat::Int64(i) => Ok(serde_json::Value::Number(i.into())),
+                                IntOrFloat::Float64(f) => {
+                                    if f.is_finite() {
+                                        Ok(serde_json::Number::from_f64(f)
+                                            .map(serde_json::Value::Number)
+                                            .unwrap_or(serde_json::Value::Null))
+                                    } else {
+                                        Ok(serde_json::Value::Null)
+                                    }
                                 }
                             }
-                            _ => Ok(serde_json::Value::Null),
+                        } else {
+                            Ok(serde_json::Value::Null)
                         };
+
+                        // return match n {
+                        //     JSValue::Int(i) => Ok(serde_json::Value::Number((*i as i64).into())),
+                        //     JSValue::Float64(f) => {
+                        //         if f.is_finite() {
+                        //             Ok(serde_json::Number::from_f64(*f)
+                        //                 .map(serde_json::Value::Number)
+                        //                 .unwrap_or(serde_json::Value::Null))
+                        //         } else {
+                        //             Ok(serde_json::Value::Null)
+                        //         }
+                        //     }
+                        //     _ => Ok(serde_json::Value::Null),
+                        // };
                     }
                 }
                 JS_CLASS_BOOLEAN => {
@@ -201,14 +218,12 @@ mod serde_json_support {
                 )?;
 
                 let mut map = serde_json::Map::new();
-                for (key, _) in kvs {
-                    let key_sr = StringRef::try_from(key).map_err(|_| -1)?;
-                    let key_str = key_sr.content().encode_utf8(false).into_owned();
-
-                    let prop_val = obj.get_property_value(ctx, key_sr.into())?;
-                    if !prop_val.is_undefined() {
-                        let json_val = Self::jsvalue_to_serde_json(ctx, &prop_val, stack)?;
-                        map.insert(key_str, json_val);
+                for (key, val) in kvs {
+                    if !val.is_undefined()
+                        && let Some(k) = key.as_string(false)
+                    {
+                        let json_val = Self::jsvalue_to_serde_json(ctx, &val, stack)?;
+                        map.insert(k.content().encode_utf8(false).into_owned(), json_val);
                     }
                 }
                 serde_json::Value::Object(map)

@@ -109,8 +109,8 @@ impl ModuleDef {
         }
 
         let (promise, rr) = Promise::create(ctx)?;
-        self.promise.replace(promise);
-        self.resolving_funcs = rr;
+        md.promise.replace(promise);
+        md.resolving_funcs = rr;
 
         let mut stack_top: Option<ModuleDef> = None;
 
