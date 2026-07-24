@@ -61,6 +61,22 @@ impl ObjectImpl {
 }
 
 impl JSValue {
+    /// if value is an object, then returns the object payload
+    pub fn payload<'a>(&'a self) -> Option<&'a ObjectPayload> {
+        self.as_object().map(|o| unsafe {
+            let p = o.payload();
+            std::mem::transmute::<_, &'a ObjectPayload>(p)
+        })
+    }
+
+    /// if value is an object, then returns the object payload
+    pub fn payload_mut<'a>(&'a mut self) -> Option<&'a mut ObjectPayload> {
+        self.as_object().map(|mut o| unsafe {
+            let p = o.payload_mut();
+            std::mem::transmute::<_, &'a mut ObjectPayload>(p)
+        })
+    }
+
     /// get object value's payload.
     /// if the value is not an object, or optionally is not the required class_id,
     /// throws type error.

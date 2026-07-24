@@ -805,13 +805,13 @@ mod serde_json_support {
                     }
                 }
                 JSValueTag::String => {
-                    let s = unsafe { val.as_string_unchecked() };
-                    let rust_str = s.content().encode_utf8(false).into_owned();
-                    Ok(serde_json::Value::String(rust_str))
+                    let t = unsafe { val.as_string_unchecked() };
+                    let s = t.content().encode_utf8(false).into_owned();
+                    Ok(serde_json::Value::String(s))
                 }
                 JSValueTag::Object => {
                     let obj = unsafe { val.as_object_unchecked() };
-                    Self::object_to_serde_json(ctx, &obj, stack)
+                    Self::jsobject_to_serde_json(ctx, &obj, stack)
                 }
                 _ => Ok(serde_json::Value::Null),
             }

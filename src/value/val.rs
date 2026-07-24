@@ -182,7 +182,7 @@ mod serde_json_support {
         }
 
         /// Convert JS Object => serde_json::Value.
-        pub(super) fn object_to_serde_json(
+        pub(crate) fn jsobject_to_serde_json(
             ctx: &mut ScopedContext,
             obj: &Object,
             stack: &mut SmallVec<[Object; 16]>,
@@ -272,7 +272,7 @@ mod serde_json_support {
         /// Convert a JS Object to a serde_json::Value.
         #[inline(always)]
         pub fn to_serde_json(&self, ctx: &mut ScopedContext) -> Result<serde_json::Value, i32> {
-            JSValue::object_to_serde_json(ctx, self, &mut SmallVec::new())
+            JSValue::jsobject_to_serde_json(ctx, self, &mut SmallVec::new())
         }
     }
 }
