@@ -38,3 +38,6 @@ pub(crate) static CLASS_DEF_ITERATOR_WRAP: ClassDef =
 
 pub(crate) static CLASS_DEF_ITERATOR_CONCAT: ClassDef =
     ClassDef::builtin_with_init_func(Atom::CONST_empty_string, js_iterator_concat_class_init);
+
+pub(crate) static CLASS_DEF_ITERATOR_ZIP: ClassDef =
+    ClassDef::builtin_with_init_func(Atom::CONST_empty_string, js_iterator_zip_class_init);

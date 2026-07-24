@@ -739,29 +739,6 @@ impl ObjectImpl {
             }
         }
 
-        // const NOT_SEALED_ERR: i32 = i32::MAX;
-        // if let Err(e) = self.own_property_names_foreach(
-        //     ctx,
-        //     JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
-        //     |cx, pk| {
-        //         if let Some(desc) = o.get_own_property(cx, pk.atom)?
-        //             && (desc.flags & JS_PROP_CONFIGURABLE != 0
-        //                 || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0)))
-        //         {
-        //             // found writable prop: that means object is not sealed
-        //             // return Err to stop iterate name
-        //             return Err(NOT_SEALED_ERR);
-        //         }
-        //         Ok(())
-        //     },
-        // ) {
-        //     return if e == NOT_SEALED_ERR {
-        //         Ok(false) // not sealed
-        //     } else {
-        //         Err(e) // real error
-        //     };
-        // }
-
         self.is_extensible_obj(ctx).map(|b| !b)
     }
 }
