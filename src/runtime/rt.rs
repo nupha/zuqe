@@ -32,7 +32,7 @@ const STACK_OVERFLOW_LIMIT: usize = 512 * 1024;
 const STACK_OVERFLOW_LIMIT: usize = 256 * 1024;
 
 /// VM stack arena capacity (in bytes)
-const STACK_ARENA_CAP: usize = 256 * 1024 / std::mem::size_of::<JSValue>();
+const STACK_ARENA_CAP: usize = 256 * 1024;
 
 const GC_ARENA_CAP: usize = 64 * 1024;
 const GC_AERNA_THRESHOULD: usize = 16 * 1024;
@@ -137,6 +137,8 @@ impl RuntimeImpl {
         gc_heap.set_gc_threshold(8); // small threshould to trigger gc ASAP
 
         let gc_part_id = gc_heap.create_partition(GC_ARENA_CAP, GC_AERNA_THRESHOULD);
+
+        // `STACK_ARENA_CAP` is expressed in bytes, calc (bytes / sizeof(JSValue)) for slots capacity
         let arena_cap = STACK_ARENA_CAP / std::mem::size_of::<JSValue>();
 
         let mut rt = Self {
@@ -178,11 +180,12 @@ impl RuntimeImpl {
 
             interrupt_handler: None,
 
-            host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
-            host_promise_rejection_tracker: None,
             next_shape_uid: Cell::new(1),
             #[cfg(feature = "builtin_weakref")]
             finrec_pending_cleanups: Vec::new(),
+
+            host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
+            host_promise_rejection_tracker: None,
         };
 
         rt.init_const_atoms();
