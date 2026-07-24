@@ -12,21 +12,11 @@ struct EmitterData {
     listeners: RefCell<Vec<(String, i32)>>, // simplified: (event_name, count)
 }
 
-fn get_emitter<'a>(ctx: &mut ScopedContext, val: &'a JSValue) -> Result<&'a EmitterData, i32> {
-    let emitter = val.as_native_object::<JSEmitter>().ok_or_else(|| {
+fn get_emitter<'a>(ctx: &mut ScopedContext, val: JSValue) -> Result<&'a EmitterData, i32> {
+    JSEmitter::payload_of(val).ok_or_else(|| {
         ctx.throw_internal_error("not an Emitter instance");
         -1
-    })?;
-    let payload = emitter.payload().ok_or_else(|| {
-        ctx.throw_internal_error("not an Emitter instance");
-        -1
-    })?;
-
-    // SAFETY: `emitter` is a Copy of the object pointer stored inside `val`, and
-    // `EmitterData` lives in the GC heap reachable through that pointer, so the
-    // reference stays valid for the lifetime of `val` (`'a`). We only rebind the
-    // lifetime past the temporary `emitter` borrow.
-    Ok(unsafe { std::mem::transmute::<&EmitterData, &'a EmitterData>(payload) })
+    })
 }
 
 fn js_emitter_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -43,7 +33,7 @@ fn js_emitter_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
 fn js_emitter_on(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let emitter = get_emitter(ctx, &this)?;
+    let emitter = get_emitter(ctx, this)?;
     let event_name = cc.arg(0).to_string(ctx)?;
     let name_str = event_name.content().encode_utf8(false).to_string();
 
@@ -59,7 +49,7 @@ fn js_emitter_on(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_emitter_emit(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let emitter = get_emitter(ctx, &this)?;
+    let emitter = get_emitter(ctx, this)?;
     let event_name = cc.arg(0).to_string(ctx)?;
     let name_str = event_name.content().encode_utf8(false).to_string();
 

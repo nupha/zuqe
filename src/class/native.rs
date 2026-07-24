@@ -257,6 +257,67 @@ macro_rules! def_native_object {
                 }
             }
 
+
+            /// Extract payload from a `JSValue` by class id check.
+            ///
+            /// Returns `Some(&'a $payload_ty)` if `val` is an object of this native class,
+            /// or `None` otherwise.
+            ///
+            /// # Safety
+            ///
+            /// The returned reference borrows from the GC heap, not from `val`. The caller
+            /// must ensure the underlying JS object remains GC-rooted for the lifetime `'a`
+            /// (e.g., by keeping the `ScopedContext` or a `JSValue` reference alive).
+            pub fn payload_of<'a>(val: $crate::JSValue) -> Option<&'a $payload_ty> {
+                let o = val.as_object()?;
+                if o.class_id() != <Self as $crate::NativeObject>::class_id() {
+                    return None;
+                }
+                // Safety: the opaque pointer points to a heap-allocated Box<$payload_ty>
+                // (created via Box::into_raw in new_instance). As long as the JS object
+                // is alive in the GC heap, this allocation remains valid.
+                if let Some(other) = o.payload().other() {
+                    let ptr = other.opaque();
+                    if !ptr.is_null() {
+                        Some(unsafe { &*ptr.cast::<$payload_ty>() })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+
+            /// Extract mutable payload from a `&mut JSValue` by class id check.
+            ///
+            /// Returns `Some(&'a mut $payload_ty)` if `val` is an object of this native
+            /// class, or `None` otherwise.
+            ///
+            /// # Safety
+            ///
+            /// The returned reference borrows from the GC heap, not from `val`. The caller
+            /// must ensure the underlying JS object remains uniquely GC-rooted for the
+            /// lifetime `'a` and that no aliasing `&mut` access to the payload exists.
+            pub fn payload_mut_of<'a>(val: &'a mut $crate::JSValue) -> Option<&'a mut $payload_ty> {
+                let mut o = val.as_object()?;
+                if o.class_id() != <Self as $crate::NativeObject>::class_id() {
+                    return None;
+                }
+                // Safety: the opaque pointer points to a heap-allocated Box<$payload_ty>
+                // (created via Box::into_raw in new_instance). Mutability is gated by the
+                // &'a mut JSValue — the caller must not alias the payload during 'a.
+                if let Some(other) = o.payload_mut().other_mut() {
+                    let ptr = other.opaque();
+                    if !ptr.is_null() {
+                        Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+
             /// create an instance of the class with attached payload
             pub fn new_instance(
                 ctx: &mut $crate::ScopedContext,
