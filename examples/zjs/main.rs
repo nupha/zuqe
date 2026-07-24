@@ -464,32 +464,64 @@ fn js_module_loader(
             }
         }
     } else {
-        // js file — check for import attributes: type: "json"
-        let is_json = attrs.is_object()
-            && attrs
-                .get_property_str(ctx, "type")
-                .map(|v| {
-                    v.as_string(true)
-                        .is_some_and(|s| s.content().encode_utf8(false).as_ref() == "json")
-                })
-                .unwrap_or(false);
+        // js file — check for import attributes
+        let attr_type = get_attr_type(ctx, attrs);
 
         match std::fs::read_to_string(&path) {
-            Ok(content) => {
-                if is_json {
+            Ok(content) => match attr_type.as_deref() {
+                Some("json") => {
                     // JSON module: wrap as `export default <json>;\n`
                     let mut src = String::from("export default ");
                     src.push_str(&content);
                     src.push('\n');
                     ctx.compile_module(src.as_bytes(), file_name.as_str(), false)
-                } else {
-                    ctx.compile_module(content.as_bytes(), file_name.as_str(), false)
                 }
-            }
+                Some("text") => {
+                    // Text module: wrap as `export default "<escaped>";\n`
+                    let mut src = String::from("export default \"");
+                    src.push_str(&escape_js_string(&content));
+                    src.push_str("\";\n");
+                    ctx.compile_module(src.as_bytes(), file_name.as_str(), false)
+                }
+                Some(other) => {
+                    ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other));
+                    Err(-1)
+                }
+                None => ctx.compile_module(content.as_bytes(), file_name.as_str(), false),
+            },
             Err(_) => {
                 ctx.throw_reference_error(&format!("could not load module '{file_name}'"));
                 Err(-1)
             }
         }
     }
+}
+
+/// Extract the `type` value from import attributes, returning `None` if
+/// the attrs object is absent or has no `type` property.
+fn get_attr_type(ctx: &mut ScopedContext, attrs: JSValue) -> Option<String> {
+    if !attrs.is_object() {
+        return None;
+    }
+    attrs.get_property_str(ctx, "type").ok().and_then(|v| {
+        v.as_string(true)
+            .map(|s| s.content().encode_utf8(false).to_string())
+    })
+}
+
+/// Escape a string for use as a JS string literal (double-quoted).
+fn escape_js_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\x00'..='\x1f' => out.push_str(&format!("\\x{:02x}", ch as u8)),
+            c => out.push(c),
+        }
+    }
+    out
 }
