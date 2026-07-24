@@ -173,11 +173,11 @@ impl<'s> JSParseState<'s> {
         if c.is_ascii() {
             matches!(c, '0'..='9' | 'A'..='Z' | 'a'..='z' | '_' | '$')
         } else {
-            // ZWNJ and ZWJ are accepted in identifiers
-            // Also accept Other_ID_Continue characters not included in unicode-xid
             #[cfg(feature = "all_unicode")]
             {
-                unicode_xid::UnicodeXID::is_xid_continue(c) || matches!(c, '\u{200C}' | '\u{200D}' | '\u{309B}' | '\u{309C}')
+                // Use ID_Continue (Unicode Standard Annex #31) directly.
+                // unicode-id-start includes Other_ID_Continue (ZWNJ, ZWJ, etc.).
+                unicode_id_start::is_id_continue_unicode(c)
             }
             #[cfg(not(feature = "all_unicode"))]
             {
@@ -194,8 +194,9 @@ impl<'s> JSParseState<'s> {
         } else {
             #[cfg(feature = "all_unicode")]
             {
-                // Also accept Other_ID_Start characters not included in unicode-xid's XID_Start
-                unicode_xid::UnicodeXID::is_xid_start(c) || matches!(c, '\u{309B}' | '\u{309C}')
+                // Use ID_Start (Unicode Standard Annex #31) directly.
+                // unicode-id-start includes Other_ID_Start (e.g. U+309B, U+309C).
+                unicode_id_start::is_id_start_unicode(c)
             }
             #[cfg(not(feature = "all_unicode"))]
             {
@@ -528,6 +529,6 @@ const fn is_regexp_syntax(tok: TokenKind) -> bool {
             | TokenKind::TRUE
             | TokenKind::THIS
             | TokenKind::IDENT
-            | TokenKind::Char(')' | ']' | '}')  // XXX: regexp may occur after 
+            | TokenKind::Char(')' | ']' | '}') // XXX: regexp may occur after
     )
 }

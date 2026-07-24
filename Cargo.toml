@@ -13,7 +13,7 @@ license = "Apache-2.0"
 nan_boxing = []
 inline_cache = []
 
-all_unicode = ["unicode-xid", "unicode-normalization"]
+all_unicode = ["unicode-id-start", "unicode-normalization"]
 async_support = []
 crossbeam_channel = ["crossbeam"]
 serde_json_support = ["serde_json"]
@@ -91,7 +91,7 @@ fallible_collections = "0.5"
 gc-lite = { version = "0.6.1", path = "../gc-lite-v2" }
 lre = { version = "0.3.1", optional = true }
 libc = { version = "0.2", optional = true }
-unicode-xid = { version = "0.2", optional = true }
+unicode-id-start = { version = "1.4", optional = true }
 unicode-normalization = { version = "0.1", optional = true }
 zerocopy = "0.8"
 url = "2.5"
