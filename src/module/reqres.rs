@@ -129,10 +129,10 @@ pub(super) fn js_host_resolve_imported_module(
     // normalizers. After this early return, only non-native specifiers reach the
     // normalize + load path below.
     let name_atom = Atom::from_str(ctx, name)?;
-    if let Some(m) = ctx.find_loaded_module(name_atom) {
-        if m.is_native() {
-            return Ok(m);
-        }
+    if let Some(m) = ctx.find_loaded_module(name_atom)
+        && m.is_native()
+    {
+        return Ok(m);
     }
 
     // normalize module name (non-native specifiers only). `base_name` is expected
@@ -159,15 +159,36 @@ pub(super) fn js_host_resolve_imported_module(
         js_default_module_normalize_name(&base_url, name)
     }?;
 
-    // search in loaded_modules
+    // Best-effort canonicalization of `file://` URLs so symlink aliases
+    // (e.g. `link/foo.js` → `real/foo.js`) collapse to a single cache key.
+    // This applies uniformly to both custom and default normalizers.
+    let norm_name = if norm_name.scheme() == "file"
+        && let Some(p) = url_to_abspath(&norm_name)
+        && let Ok(canon) = std::fs::canonicalize(&p)
+    {
+        path_to_url(&canon.to_string_lossy()).unwrap_or(norm_name)
+    } else {
+        norm_name
+    };
+
+    // search in loaded_modules (match both name and import attributes).
+    // Two modules loaded from the same URL with different import attributes
+    // are distinct module records per-spec.
     let module_name = Atom::from_str(ctx, norm_name.as_str())?;
-    if let Some(m) = ctx.find_loaded_module(module_name) {
+    if let Some(m) = ctx.find_loaded_module(module_name)
+        && attrs_are_same(ctx, m.attributes, attrs)
+    {
         return Ok(m);
     }
 
     // load module
     if let Some(cb) = ctx.rt_ptr().module_load_func {
-        cb(ctx, &norm_name, attrs, ctx.rt_ptr().module_load_opaque)
+        let mut md = cb(ctx, &norm_name, attrs, ctx.rt_ptr().module_load_opaque)?;
+        // Store import attributes on the module so future cache lookups
+        // can distinguish between modules loaded from the same URL with
+        // different attribute types (e.g. `type: "text"` vs no attrs).
+        md.attributes = attrs;
+        return Ok(md);
     } else {
         #[cfg(debug_assertions)]
         println!("WARN: module loader function is not set, can't import module.");
@@ -175,6 +196,33 @@ pub(super) fn js_host_resolve_imported_module(
         ctx.throw_reference_error(&format!("could not load module '{}'", norm_name.as_str()));
         Err(-1)
     }
+}
+
+/// Compare two import attribute objects for semantic equality, used when
+/// looking up modules in the loaded-module cache. Two modules loaded from
+/// the same URL but with different import attributes are distinct modules
+/// per-spec; this helper distinguishes them by comparing their `type` value.
+///
+/// Returns `true` if both are `undefined`, or both have the same `type`
+/// string value (e.g. `"text"`, `"json"`).
+fn attrs_are_same(ctx: &mut ScopedContext, a: JSValue, b: JSValue) -> bool {
+    match (a.is_undefined(), b.is_undefined()) {
+        (true, true) => return true,
+        (false, false) => {}
+        _ => return false,
+    }
+
+    // Both are non-undefined objects: compare `type` property values.
+    // Silently treat get/parse failures as a mismatch (conservative).
+    let type_a: Option<String> = a.get_property_str(ctx, "type").ok().and_then(|v| {
+        v.as_string(true)
+            .map(|s| s.content().encode_utf8(false).to_string())
+    });
+    let type_b: Option<String> = b.get_property_str(ctx, "type").ok().and_then(|v| {
+        v.as_string(true)
+            .map(|s| s.content().encode_utf8(false).to_string())
+    });
+    type_a == type_b
 }
 
 /// default module filename normalizer
@@ -190,27 +238,14 @@ pub(super) fn js_host_resolve_imported_module(
 ///   directly;
 /// * a full URL (`file://...`, future `https://...`) — passed through.
 ///
-/// The resulting path is canonicalized (symlinks / `.` / `..` resolved) so two
-/// different textual paths to the same file collapse to a single `module_name`
-/// cache key.
+/// Note: `file://` canonicalization (symlink resolution) is done centrally in
+/// `js_host_resolve_imported_module` so it applies to custom normalizers too.
 fn js_default_module_normalize_name(base_name: &Url, name: &str) -> Result<Url, i32> {
     if Path::new(name).is_absolute() {
         // A bare absolute filesystem path: URL-ify it directly.
         path_to_url(name).map_err(|_| -1)
     } else {
-        // Resolve relative to the importing module's URL. `Url::join` handles
-        // `.`/`..` and works uniformly for `file:` and `http:` bases, yielding an
-        // absolute, normalized URL. For `file:` URLs we additionally canonicalize
-        // the path so two textual paths to the same file (symlinks / `.` / `..`)
-        // collapse to a single cache key.
-        let joined = base_name.join(name).map_err(|_| -1)?;
-        if joined.scheme() == "file" {
-            if let Some(p) = url_to_abspath(&joined) {
-                if let Ok(canon) = std::fs::canonicalize(&p) {
-                    return Ok(path_to_url(&canon.to_string_lossy()).map_err(|_| -1)?);
-                }
-            }
-        }
-        Ok(joined)
+        // Resolve relative to the importing module's URL.
+        base_name.join(name).map_err(|_| -1)
     }
 }
