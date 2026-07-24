@@ -37,8 +37,8 @@ impl RuntimeImpl {
                 if !cx.oneshot_jobs.is_empty() {
                     while let Some(mut job) = cx.oneshot_jobs.pop_front() {
                         self.gc_job = job.gc_trace.take(); // hold job gc tracer so GC can trace it during run()
-                        let res = job.run(cx);
-                        self.gc_job = None;
+                        let res = job.run(cx); // run the job
+                        drop(self.gc_job.take()); // release gc tracer
 
                         if res.is_err() {
                             log::warn!("[task error] {:?}", self.cur_exception);

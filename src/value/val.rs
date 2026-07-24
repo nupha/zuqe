@@ -181,8 +181,8 @@ mod serde_json_support {
             }
         }
 
-        /// Convert a JS Object to a serde_json::Value.
-        pub(crate) fn object_to_serde_json(
+        /// Convert JS Object => serde_json::Value.
+        pub(super) fn object_to_serde_json(
             ctx: &mut ScopedContext,
             obj: &Object,
             stack: &mut SmallVec<[Object; 16]>,
@@ -248,7 +248,7 @@ mod serde_json_support {
                 let kvs = o.get_own_property_kvs(
                     ctx,
                     JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK,
-                    JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
+                    JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE,
                 )?;
 
                 let mut map = serde_json::Map::new();
@@ -270,6 +270,7 @@ mod serde_json_support {
 
     impl Object {
         /// Convert a JS Object to a serde_json::Value.
+        #[inline(always)]
         pub fn to_serde_json(&self, ctx: &mut ScopedContext) -> Result<serde_json::Value, i32> {
             JSValue::object_to_serde_json(ctx, self, &mut SmallVec::new())
         }
