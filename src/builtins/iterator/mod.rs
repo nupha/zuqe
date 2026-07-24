@@ -4,11 +4,18 @@
 mod a_iter;
 mod array_iter;
 mod async_iter;
-mod class_iterator;
 mod iter;
+mod iter_concat;
+mod iter_helper;
+mod iter_shared;
+mod iter_wrap;
+mod iter_zip;
+mod iterator;
 
-pub(crate) use class_iterator::*;
 pub use {a_iter::*, array_iter::*, async_iter::*, iter::*};
+pub(crate) use {
+    iter_concat::*, iter_helper::*, iter_shared::*, iter_wrap::*, iter_zip::*, iterator::*,
+};
 
 use crate::{Atom, ClassDef};
 
@@ -22,10 +29,6 @@ pub(crate) static CLASS_DEF_ASYNC_ITERABLE_ITERATOR: ClassDef = ClassDef::builti
     Atom::CONST_AsyncIterableIterator,
     AsyncIterableIterator::class_init,
 );
-
-// ============================================================
-// ES2024+ Iterator global object
-// ============================================================
 
 pub(crate) static CLASS_DEF_ITERATOR: ClassDef =
     ClassDef::builtin_with_init_func(Atom::CONST_Iterator, js_iterator_class_init);
