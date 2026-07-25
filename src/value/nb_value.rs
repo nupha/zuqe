@@ -13,7 +13,7 @@ use crate::{
     atom::AtomKind,
     function::{Bytecode, BytecodeImpl},
     module::ModuleDefImpl,
-    number::{JS_DTOA_VAR_FORMAT, JSFloat64Union, f64_stringify},
+    number::{Float64Union, JS_DTOA_VAR_FORMAT, f64_stringify},
     object::{Object, ObjectImpl, ObjectPayload},
     string::{RopeImpl, StringImpl, StringRef},
     utils::hash_usize,
@@ -463,7 +463,7 @@ impl JSValue {
                 hash_usize(self.as_ptr::<GcHead>() as usize)
             },
             JSValueTag::Int => {
-                let u = JSFloat64Union {
+                let u = Float64Union {
                     uint64: self.payload_i32() as u64,
                 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
@@ -473,14 +473,14 @@ impl JSValue {
             JSValueTag::Symbol => unsafe { self.as_string_unchecked().atom_info().unwrap().hash() },
             JSValueTag::Float64 => {
                 let d = js_value_get_float64(self.0);
-                let u = JSFloat64Union {
+                let u = Float64Union {
                     d: if d.is_nan() { f64::NAN } else { d },
                 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
             JSValueTag::Bool => self.0 as u32,
             JSValueTag::CatchOffset => {
-                let u = JSFloat64Union {
+                let u = Float64Union {
                     uint64: self.payload_i32() as u64,
                 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }

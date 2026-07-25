@@ -162,7 +162,8 @@ fn js_load_module_internal(
     match js_host_resolve_imported_module(ctx, basename, filename, attrs) {
         Ok(mut md) => {
             md.attributes = attrs;
-            if ctx.resolve_module(md).is_err() {
+
+            if md.resolve_deps(ctx).is_err() {
                 js_free_modules(ctx, JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED);
                 let err_val = ctx.take_exception().to_value(ctx);
                 let _ = resolving_funcs[1].call(
@@ -228,6 +229,7 @@ fn js_load_module_rejected(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     } else {
         JSValue::UNDEFINED
     };
+
     let _ = cc
         .data(1)
         .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&error));
@@ -237,15 +239,16 @@ fn js_load_module_rejected(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         crate::Exception::No,
         "[import js_load_module_rejected] left exception behind"
     );
+
     Ok(JSValue::UNDEFINED)
 }
 
 fn js_load_module_fulfilled(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let Some(mut m) = cc.data(2).as_module() else {
+    let Some(mut md) = cc.data(2).as_module() else {
         unreachable!()
     };
 
-    match m.ns(ctx) {
+    match md.ns_object(ctx) {
         Ok(ns) => {
             // resolve with module namespace
             let _ = cc.data(0).call(ctx, JSValue::UNDEFINED, &[ns.into()]);

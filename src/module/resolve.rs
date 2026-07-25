@@ -253,17 +253,12 @@ impl ModuleDef {
 
                         if cur_module.import_entries[i].import_name == Atom::CONST__star_ {
                             // name space import
-                            let val = reqm.ns(ctx)?;
+                            let ns = reqm.ns_object(ctx)?;
                             md_func.payload_mut().store_closure_value(
                                 import_var_idx as _,
                                 ctx,
-                                val.into(),
+                                ns.into(),
                             );
-
-                            // let gvc = md_func.payload().global_var_count as usize;
-                            // md_func.payload_mut().closure_var_refs_mut()
-                            //     [gvc + import_var_idx as usize]
-                            //     .set_value(&mut ctx.rt_ptr(), val.into());
                         } else {
                             match reqm.resolve_export(
                                 ctx,
@@ -271,24 +266,20 @@ impl ModuleDef {
                                 None,
                             )? {
                                 ResolveExport::Found {
-                                    module: dep,
+                                    module: mut dep,
                                     export_type,
                                     local_name,
                                     ..
                                 } => {
                                     match export_type {
-                                        ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
+                                        ExportType::JS_EXPORT_TYPE_INDIRECT(_) => {
                                             if local_name == Atom::CONST__star_ {
                                                 // namespace import from — after the resolve fix,
-                                                // dep is already the target module (not self),
-                                                // so ns() can be called directly.
-                                                let val = {
-                                                    let mut md = dep;
-                                                    md.ns(ctx)?
-                                                };
+                                                // dep is already the target module (not self), so ns() can be called directly.
+                                                let ns = dep.ns_object(ctx)?;
                                                 let vref = {
                                                     let mut vr = js_create_module_var(ctx, true)?;
-                                                    vr.set_value(&mut ctx.rt_ptr(), val.into());
+                                                    vr.set_value(&mut ctx.rt_ptr(), ns.into());
                                                     vr
                                                 };
                                                 md_func
@@ -333,19 +324,16 @@ impl ModuleDef {
                     }
 
                     // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
-                    {
-                        for i in 0..cur_module.export_entries.len() {
-                            if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
-                                &mut cur_module.export_entries[i].export_type
-                            {
-                                debug_assert_ne!(*var_idx, u16::MAX);
-                                let vr = md_func.payload().get_closure(*var_idx as usize);
-                                var_ref.replace(vr);
-                            }
+                    for i in 0..cur_module.export_entries.len() {
+                        if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
+                            &mut cur_module.export_entries[i].export_type
+                        {
+                            debug_assert_ne!(*var_idx, u16::MAX);
+                            let vr = md_func.payload().get_closure(*var_idx as usize);
+                            var_ref.replace(vr);
                         }
-
-                        debug_assert!(cur_module.func_created);
                     }
+                    debug_assert!(cur_module.func_created);
 
                     // initialize the global variables
                     // Note: following function call with this_obj=TRUE actually executes bytecode like this:
@@ -401,12 +389,11 @@ impl ModuleDef {
         result.map(|_| index)
     }
 
-    /// Prepare a module to be executed by resolving all the imported variables.
-    /// 准备模块执行前的链接工作，即解析和绑定所有导入的变量。
-    /// - 模块依赖链接：解析模块之间的依赖关系，将导入和导出绑定起来
-    /// - 变量引用解析：建立导入变量与导出变量之间的引用关系
-    /// - 循环依赖处理：使用深度优先搜索(DFS)算法处理模块间的循环依赖
-    /// - 状态管理：管理模块的链接状态转换
+    /// Link a module before evaluation: resolve and bind all imported variables.
+    /// - Dependency linking: resolve inter-module deps, bind imports to exports
+    /// - Variable resolution: link imports to their exporting definitions
+    /// - Cyclic deps: handled via depth-first search (DFS)
+    /// - State management: transition the module's link status
     pub(super) fn link(&mut self, ctx: &mut ScopedContext) -> Result<(), i32> {
         debug_assert!(matches!(
             self.status(),
@@ -434,6 +421,7 @@ impl ModuleDef {
                     | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                     | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
             ));
+
             Ok(())
         }
     }

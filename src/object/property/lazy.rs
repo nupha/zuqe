@@ -64,7 +64,7 @@ impl LazyInit {
                 )?;
                 Ok(obj.into())
             }
-            Self::ModuleNS(md) => md.ns(ctx).map(JSValue::from),
+            Self::ModuleNS(md) => md.ns_object(ctx).map(JSValue::from),
             Self::ValueFn(f) => f(ctx),
             Self::String(s) => {
                 ctx.create_atom_string(s).map(JSValue::make_string)

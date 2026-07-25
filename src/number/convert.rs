@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use super::JSFloat64Union;
+use super::Float64Union;
 
 /// convert f64 to i32 according to the ECMAScript rules (not rust rules).
 pub(crate) const fn f64_to_i32(d: f64) -> i32 {
-    let u = JSFloat64Union { d };
+    let u = Float64Union { d };
 
     // we avoid doing fmod(x, 2^32)
     let e = unsafe { (u.uint64 >> 52) & 0x7ff } as i32;

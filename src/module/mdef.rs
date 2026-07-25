@@ -397,6 +397,30 @@ impl ModuleDef {
 
         Ok(md)
     }
+
+    /// Load all dependency modules for module `self`.
+    pub(crate) fn resolve_deps(&mut self, ctx: &mut ScopedContext) -> Result<(), i32> {
+        if !self.resolved {
+            self.resolved = true;
+            let base_utf8 = self.module_name.to_utf8(ctx.rt());
+
+            // resolve dependency modules
+            for dep in self.dependencies.iter_mut() {
+                let dep_utf8 = dep.module_name.to_utf8(ctx.rt());
+                let mut m1 = super::js_host_resolve_imported_module(
+                    ctx,
+                    &base_utf8,
+                    &dep_utf8,
+                    dep.attributes,
+                )?;
+
+                dep.module = Some(m1);
+                m1.resolve_deps(ctx)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<'c> ScopedContext<'c> {
@@ -593,7 +617,7 @@ pub(super) fn get_script_or_module_name(
 pub fn js_import_meta(ctx: &mut ScopedContext) -> Result<Object, i32> {
     if let Some(filename) = get_script_or_module_name(ctx, 0) {
         // XXX: inefficient, need to add a module or script pointer in Bytecode
-        if let Some(mut m) = ctx.find_loaded_module(filename) {
+        if let Some(mut m) = ctx.find_module_def(filename) {
             m.import_meta(ctx)
         } else {
             ctx.throw_type_error("import.meta not supported in this context");

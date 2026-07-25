@@ -5,7 +5,7 @@ use crate::{
     ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
-    number::{IntOrFloat, JSFloat64Union, math_f16round},
+    number::{Float64Union, IntOrFloat, math_f16round},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     value::JSValue,
 };
@@ -100,7 +100,7 @@ fn js_math_min_max(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 pub const fn js_math_round(a: f64) -> f64 {
-    let mut u = JSFloat64Union { d: a };
+    let mut u = Float64Union { d: a };
     let e = unsafe { (u.uint64 >> 52) as u32 } & 0x7ff;
 
     unsafe {
@@ -173,7 +173,7 @@ const fn xorshift64star(pstate: &mut u64) -> u64 {
 pub fn js_math_random(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     let v = xorshift64star(&mut ctx.random_state);
     // 1.0 <= u.d < 2
-    let u = JSFloat64Union {
+    let u = Float64Union {
         uint64: (0x3ff << 52) | (v >> 12),
     };
     Ok(JSValue::make_float(unsafe { u.d } - 1.0))

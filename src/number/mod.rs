@@ -11,8 +11,7 @@ pub(crate) use {a2d::*, convert::*, d2a::*};
 pub(crate) const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 
 /// Integer beyonds range \[-2^53, 2^53\], precision is not guaranteed when converting to f64.
-// const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -(1_i64 << 53)..=1_i64 << 53;
-pub(crate) const SAFE_INTEGER_RANGE: std::ops::RangeInclusive<i64> =
+pub(super) const SAFE_INTEGER_RANGE: std::ops::RangeInclusive<i64> =
     -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;
 
 #[inline(always)]
@@ -26,7 +25,7 @@ pub(crate) fn is_safe_integer(d: f64) -> bool {
 /// and by value codegen. `repr(C)` guarantees the three views share storage.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub(crate) union JSFloat64Union {
+pub(crate) union Float64Union {
     pub d: f64,
     pub uint64: u64,
     pub uint32: [u32; 2],

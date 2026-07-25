@@ -10,7 +10,7 @@ use crate::{
     class::ClassID,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef},
-    number::JSFloat64Union,
+    number::Float64Union,
     object::JS_PROP_CONFIGURABLE,
     value::JSValue,
 };
@@ -193,7 +193,7 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             let u = U { f: d as f32 };
             v = unsafe { u.i };
         } else {
-            let u = JSFloat64Union { d };
+            let u = Float64Union { d };
             v64 = unsafe { u.uint64 };
         }
     }

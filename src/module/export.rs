@@ -69,10 +69,10 @@ pub struct ExportEntry {
 }
 
 impl GcTrace for ExportEntry {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.export_type.trace(tr);
-        self.local_name.trace(tr);
-        self.export_name.trace(tr);
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        self.export_type.trace(gcx);
+        self.local_name.trace(gcx);
+        self.export_name.trace(gcx);
     }
 }
 
@@ -420,7 +420,7 @@ impl ModuleDef {
                     local_name,
                     ..
                 } => match export_type {
-                    ExportType::JS_EXPORT_TYPE_INDIRECT(dep_idx) => {
+                    ExportType::JS_EXPORT_TYPE_INDIRECT(_) => {
                         if local_name == Atom::CONST__star_ {
                             // After the resolve fix, `module` is already the
                             // imported (target) module, not `self`. Use it
@@ -510,7 +510,7 @@ impl ModuleDef {
 
     /// get module ns object.
     /// if ns object is not initialized, initialize it and return.
-    pub fn ns(&mut self, ctx: &mut ScopedContext) -> Result<Object, i32> {
+    pub(crate) fn ns_object(&mut self, ctx: &mut ScopedContext) -> Result<Object, i32> {
         if let Some(ns) = self.module_ns {
             Ok(ns)
         } else {

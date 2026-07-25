@@ -25,7 +25,7 @@ use crate::{
     context::ScopedContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef},
-    number::JSFloat64Union,
+    number::Float64Union,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, Object},
     string::StringBuf,
     utils::unlikely,
@@ -529,7 +529,7 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         JS_CLASS_FLOAT64_ARRAY => {
             let d: f64 = val.to_number(ctx)?.to_f64();
             v64 = unsafe {
-                let u = JSFloat64Union { d };
+                let u = Float64Union { d };
                 u.uint64
             };
         }

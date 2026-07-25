@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::path::Path;
+
 use gc_lite::{GcTrace, GcTraceCtx};
 use url::Url;
-
-use std::path::Path;
 
 use crate::{
     atom::Atom,
@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct ModuleDependency {
+pub(super) struct ModuleDependency {
     pub module_name: Atom,
     /// None when module is not resolved.
     pub module: Option<ModuleDef>,
@@ -69,8 +69,8 @@ impl ModuleDef {
 }
 
 impl ContextImpl {
-    /// find the loaded module by module name.
-    pub fn find_loaded_module(&self, name: Atom) -> Option<ModuleDef> {
+    /// find the loaded module_def by name.
+    pub(super) fn find_module_def(&self, name: Atom) -> Option<ModuleDef> {
         self.loaded_modules.iter().find_map(|m| {
             if m.module_name == name {
                 Some(*m)
@@ -78,29 +78,6 @@ impl ContextImpl {
                 None
             }
         })
-    }
-}
-
-impl<'c> ScopedContext<'c> {
-    /// Load all the required modules (dependent modules) for module 'm'.
-    /// TODO: migrate to ModuleDef::resolve()
-    pub fn resolve_module(&mut self, mut md: ModuleDef) -> Result<(), i32> {
-        if !md.resolved {
-            md.resolved = true;
-            let base_utf8 = md.module_name.to_utf8(self.rt());
-
-            // resolve dependency modules
-            for dep in md.dependencies.iter_mut() {
-                let dep_utf8 = dep.module_name.to_utf8(self.rt());
-                let m1 =
-                    js_host_resolve_imported_module(self, &base_utf8, &dep_utf8, dep.attributes)?;
-
-                dep.module = Some(m1);
-                self.resolve_module(m1)?;
-            }
-        }
-
-        Ok(())
     }
 }
 
@@ -129,7 +106,7 @@ pub(super) fn js_host_resolve_imported_module(
     // normalizers. After this early return, only non-native specifiers reach the
     // normalize + load path below.
     let name_atom = Atom::from_str(ctx, name)?;
-    if let Some(m) = ctx.find_loaded_module(name_atom)
+    if let Some(m) = ctx.find_module_def(name_atom)
         && m.is_native()
     {
         return Ok(m);
@@ -175,7 +152,7 @@ pub(super) fn js_host_resolve_imported_module(
     // Two modules loaded from the same URL with different import attributes
     // are distinct module records per-spec.
     let module_name = Atom::from_str(ctx, norm_name.as_str())?;
-    if let Some(m) = ctx.find_loaded_module(module_name)
+    if let Some(m) = ctx.find_module_def(module_name)
         && attrs_are_same(ctx, m.attributes, attrs)
     {
         return Ok(m);
@@ -188,7 +165,7 @@ pub(super) fn js_host_resolve_imported_module(
         // can distinguish between modules loaded from the same URL with
         // different attribute types (e.g. `type: "text"` vs no attrs).
         md.attributes = attrs;
-        return Ok(md);
+        Ok(md)
     } else {
         #[cfg(debug_assertions)]
         println!("WARN: module loader function is not set, can't import module.");
@@ -207,9 +184,13 @@ pub(super) fn js_host_resolve_imported_module(
 /// string value (e.g. `"text"`, `"json"`).
 fn attrs_are_same(ctx: &mut ScopedContext, a: JSValue, b: JSValue) -> bool {
     match (a.is_undefined(), b.is_undefined()) {
-        (true, true) => return true,
+        (true, true) => {
+            return true;
+        }
         (false, false) => {}
-        _ => return false,
+        _ => {
+            return false;
+        }
     }
 
     // Both are non-undefined objects: compare `type` property values.
