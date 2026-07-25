@@ -443,8 +443,8 @@ impl BytecodeFunction {
         // When active_trampoline_frame is null (first call from a
         // non-trampoline context, e.g. native callback), we create a
         // root arena frame — execute_trampoline handles this correctly.
-        let func_obj: Object = **self;
-        let bf = self.payload_mut();
+
+        let func_obj: Object = Object::from(*self);
         let mut rt = ctx.rt_ptr();
 
         let parent_frame = rt.active_frame_index;
