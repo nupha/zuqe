@@ -12,11 +12,13 @@ use smallvec::SmallVec;
 impl ObjectImpl {
     /// modify object's shape by closure.
     /// an exclusive, unregistered shape is passed to closure as argument.
-    pub(crate) fn modify_shape<R>(
+    /// Returns true if deleted slots were compacted (property indices changed),
+    /// false otherwise.
+    pub(crate) fn modify_shape(
         &mut self,
         ctx: &mut ScopedContext,
-        update_fn: impl FnOnce(&mut ShapeImpl) -> R,
-    ) -> Result<R, i32> {
+        update_fn: impl FnOnce(&mut ShapeImpl),
+    ) -> Result<bool, i32> {
         let use_count = self.shape().unwrap().use_count;
         let mut use_shape = if use_count > 1 {
             // shape is shared: dup to new
@@ -28,7 +30,7 @@ impl ObjectImpl {
             sh
         };
 
-        let r = update_fn(&mut use_shape);
+        update_fn(&mut use_shape);
 
         // compact props slot when deleted count ≥ threshold AND deleted count ≥ half of total slots.
         #[cfg(debug_assertions)]
@@ -37,14 +39,16 @@ impl ObjectImpl {
         let should_compact = self.deleted_slot_count > 8
             && self.deleted_slot_count >= (self.prop_values.len() / 2) as u16;
 
-        if should_compact {
-            self.compact_deleted_slots(ctx, &mut use_shape);
-        }
+        let compacted = if should_compact {
+            self.compact_deleted_slots(ctx, &mut use_shape)
+        } else {
+            false
+        };
 
         ctx.rt_mut().register_shape(&use_shape)?;
         self.set_shape(use_shape);
 
-        Ok(r)
+        Ok(compacted)
     }
 
     /// Append an extra property to shape
@@ -132,54 +136,84 @@ impl ObjectImpl {
         let new_flags = flags_fn(prs_flag);
 
         if prs_flag != new_flags {
-            self.modify_shape(ctx, |sh| {
+            let compacted = self.modify_shape(ctx, |sh| {
                 sh.prop_defs.get_mut(idx).unwrap().set_flags(new_flags);
                 sh.full_rehash();
             })?;
-            // modify_shape may compact deleted slots, shifting indices.
-            // Re-find to get the post-compact index.
-            idx = self
-                .shape()
-                .unwrap()
-                .prop_defs
-                .find_hash(prop.id())
-                .next()
-                .map(|(i, _)| i)
-                .unwrap();
+
+            if compacted {
+                // compaction shifted indices; re-find the post-compact index.
+                idx = self
+                    .shape()
+                    .unwrap()
+                    .prop_defs
+                    .find_hash(prop.id())
+                    .next()
+                    .map(|(i, _)| i)
+                    .unwrap();
+            }
         }
 
         Ok(idx)
     }
 
     /// Updates flag of a shape property by index.
-    /// if object's shape was changed, returns true
+    /// Returns the property's (post-compact) index: if modifying the shape
+    /// compacted deleted slots (shifting indices), the index is re-found and
+    /// the updated one is returned; otherwise the passed-in index is returned.
+    #[must_use = "returns the (possibly compact-shifted) property index the caller must use to access the property slot"]
     pub(crate) fn modify_shape_property_index_flags(
         &mut self,
         ctx: &mut ScopedContext,
         index: usize,
         flags_fn: impl FnOnce(u32) -> u32,
-    ) -> Result<bool, i32> {
-        let flags = self
+    ) -> Result<usize, i32> {
+        let (flags, prop_id) = self
             .shape()
             .and_then(|s| s.prop_defs.get(index))
-            .map(|p| p.flags())
+            .map(|p| (p.flags(), p.atom.id()))
             .unwrap();
 
         let new_flags = flags_fn(flags);
 
         if flags != new_flags {
-            self.modify_shape(ctx, |sh| {
+            let compacted = self.modify_shape(ctx, |sh| {
                 sh.prop_defs.get_mut(index).unwrap().set_flags(new_flags);
                 sh.full_rehash();
             })?;
-            Ok(true)
-        } else {
-            Ok(false)
+
+            if compacted {
+                // compaction shifted indices; re-find the post-compact index.
+                let index = self
+                    .shape()
+                    .unwrap()
+                    .prop_defs
+                    .find_hash(prop_id)
+                    .next()
+                    .map(|(i, _)| i)
+                    .unwrap();
+                return Ok(index);
+            }
         }
+
+        Ok(index)
     }
 
-    fn compact_deleted_slots(&mut self, ctx: &mut ScopedContext, shape: &mut ShapeImpl) {
+    /// Returns true if any deleted slot was actually removed (indices shifted).
+    fn compact_deleted_slots(&mut self, ctx: &mut ScopedContext, shape: &mut ShapeImpl) -> bool {
         debug_assert!(shape.use_count == 1);
+
+        // Collect entries from prop_defs whose corresponding slot is Deleted
+        let mut removed_indices: SmallVec<[usize; 8]> = SmallVec::new();
+        for (idx, _) in shape.prop_defs.iter() {
+            if matches!(self.prop_slot(idx), JSProperty::Deleted) {
+                removed_indices.push(idx);
+            }
+        }
+
+        if removed_indices.is_empty() {
+            return false;
+        }
 
         // Compaction reorders prop slots, so any cached `(shape, slot)` pair
         // (the bytecode `GET_FIELD_IC`) becomes stale
@@ -190,14 +224,6 @@ impl ObjectImpl {
         let uid = ctx.rt_mut().next_shape_uid.get();
         ctx.rt_mut().next_shape_uid.set(uid.wrapping_add(1));
         shape.uid = uid;
-
-        // Remove all entries from prop_defs whose corresponding slot is Deleted
-        let mut removed_indices: SmallVec<[usize; 8]> = SmallVec::new();
-        for (idx, _) in shape.prop_defs.iter() {
-            if matches!(self.prop_slot(idx), JSProperty::Deleted) {
-                removed_indices.push(idx);
-            }
-        }
 
         // Remove in reverse order to keep indices valid
         for idx in removed_indices.iter().rev() {
@@ -214,5 +240,7 @@ impl ObjectImpl {
             .retain(|p| !matches!(p, JSProperty::Deleted));
 
         self.deleted_slot_count = 0;
+
+        true
     }
 }

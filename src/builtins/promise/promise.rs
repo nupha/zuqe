@@ -579,6 +579,13 @@ pub const PROMISE_MAGIC_all: i32 = 0;
 pub const PROMISE_MAGIC_allSettled: i32 = 1;
 pub const PROMISE_MAGIC_any: i32 = 2;
 
+// Keyed variants (Promise.allKeyed / Promise.allSettledKeyed). The reject bit
+// (4) marks the reject twin of an allSettledKeyed resolve element; resolve_type
+// (bits 0-1) distinguishes `all` (0) from `allSettled` (1). `allKeyed` reuses
+// PROMISE_MAGIC_all (0) since it has no reject twin.
+pub const PROMISE_MAGIC_allKeyed: i32 = PROMISE_MAGIC_all;
+pub const PROMISE_MAGIC_allSettledKeyed: i32 = PROMISE_MAGIC_allSettled | 4;
+
 pub(crate) fn remainingElementsCount_add(
     ctx: &mut ScopedContext,
     mut resolve_element_env: JSValue,

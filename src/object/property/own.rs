@@ -131,12 +131,15 @@ impl ObjectImpl {
                     let pd = self.replace_prop_slot(idx, JSProperty::default());
                     debug_assert!(matches!(pd, JSProperty::LazyInit { .. }));
 
-                    // modify shape property kind to NORMAL
-                    self.modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
+                    // modify shape property kind to NORMAL.
+                    // Modifying the shape may compact deleted slots (shifting
+                    // indices); the returned index is the up-to-date one.
+                    let idx2 =
+                        self.modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
 
                     // instantiate the value, and set it to prop slot
                     let val = pd.instantiate(prop, Object::from_ref(self));
-                    self.set_prop_slot(idx, JSProperty::Normal(val?));
+                    self.set_prop_slot(idx2, JSProperty::Normal(val?));
 
                     continue;
                 }

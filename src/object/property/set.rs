@@ -137,8 +137,10 @@ impl ObjectImpl {
                         let pd = cur_obj.replace_prop_slot(idx, JSProperty::default());
                         debug_assert!(matches!(pd, JSProperty::LazyInit { .. }));
 
-                        // modify shape property kind to NORMAL
-                        cur_obj
+                        // modify shape property kind to NORMAL.
+                        // Modifying the shape may compact deleted slots (shifting
+                        // indices); the returned index is the up-to-date one.
+                        let idx = cur_obj
                             .modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;
 
                         // instantiate the value, and set it to prop slot

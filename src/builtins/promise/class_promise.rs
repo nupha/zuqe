@@ -3,19 +3,24 @@
 
 use crate::{
     Callback, JS_CLASS_PROMISE,
+    array::Array,
     atom::Atom,
     builtins::{error::js_aggregate_error_constructor, js_get_this},
     context::ScopedContext,
-    error::JSResult,
+    error::{ErrorKind, JSResult},
     function::{CallContext, FieldDef, NativeFunction},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
+    object::{
+        JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
+        JS_PROP_CONFIGURABLE, JS_SpeciesConstructor,
+    },
     utils::unlikely,
     value::JSValue,
 };
 
 use super::{
-    PROMISE_MAGIC_all, PROMISE_MAGIC_allSettled, PROMISE_MAGIC_any, Promise,
-    js_promise_all_resolve_element, remainingElementsCount_add,
+    PROMISE_MAGIC_all, PROMISE_MAGIC_allKeyed, PROMISE_MAGIC_allSettled,
+    PROMISE_MAGIC_allSettledKeyed, PROMISE_MAGIC_any, Promise, js_promise_all_resolve_element,
+    remainingElementsCount_add,
 };
 
 fn js_promise_then(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -332,6 +337,279 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(result_promise.into())
 }
 
+// Build a plain object mapping each keyed key to its resolved value. Used both
+// for the empty-input fast path and when the last element settles.
+fn js_promise_all_keyed_combine(
+    ctx: &mut ScopedContext,
+    keys: JSValue,
+    values: JSValue,
+) -> JSResult {
+    let len = keys.objectify(ctx)?.get_length_prop(ctx)? as usize;
+    let mut obj = ctx.create_base_object_with_proto(None)?;
+    for i in 0..len {
+        let key_val = keys.get_property_u32(ctx, i as u32)?;
+        let v = values.get_property_u32(ctx, i as u32)?;
+        let atom = key_val.to_atom(ctx)?;
+        obj.define_property_value(ctx, atom, v, JS_PROP_C_W_E)?;
+    }
+    Ok(obj.into())
+}
+
+pub fn js_promise_all_keyed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let is_all_settled = cc.magic() == PROMISE_MAGIC_allSettledKeyed;
+
+    let this = cc.this();
+    if !this.is_object() {
+        ctx.throw_type_error_not_an_object();
+        return Err(-1);
+    }
+
+    let (result_promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;
+    debug_assert!(result_promise.gc_node().is_local());
+
+    // IfAbruptRejectPromise: reject the result promise and RETURN it (do not
+    // throw synchronously). If a real exception is pending (e.g. a property
+    // access threw), propagate that exact error; otherwise raise a TypeError
+    // for the spec-mandated early rejections (non-object argument / non-callable
+    // `resolve`).
+    let fail_reject = |cx: &mut ScopedContext| -> JSResult {
+        let exc = cx.take_exception();
+        let err_val = exc.to_value(cx);
+        let err_val = if err_val.is_undefined() {
+            match cx.create_error_object(
+                ErrorKind::Type,
+                "Promise.allKeyed: 'resolve' is not a function or the argument is not an object",
+                false,
+            ) {
+                Some(obj) => obj.into(),
+                None => JSValue::UNDEFINED,
+            }
+        } else {
+            err_val
+        };
+        resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
+        debug_assert!(result_promise.gc_node().is_local());
+        Ok(JSValue::from(result_promise))
+    };
+
+    let promise_resolve = if let Ok(x) = cc.this().get_property(ctx, Atom::CONST_resolve) {
+        if unlikely(!x.is_callable()) {
+            return fail_reject(ctx);
+        } else {
+            x
+        }
+    } else {
+        return fail_reject(ctx);
+    };
+
+    let Some(mut items_obj) = cc.arg(0).as_object() else {
+        return fail_reject(ctx);
+    };
+
+    let pkeys = match items_obj.get_own_property_names(
+        ctx,
+        JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK,
+    ) {
+        Ok(k) => k,
+        Err(_) => return fail_reject(ctx),
+    };
+    let n = pkeys.len();
+
+    let Ok(values) = Array::from_values(ctx, vec![JSValue::UNDEFINED; n]) else {
+        return fail_reject(ctx);
+    };
+    let Ok(resolve_element_env) = Array::from_values(ctx, vec![JSValue::from(1)]) else {
+        return fail_reject(ctx);
+    };
+
+    let mut key_vals: Vec<JSValue> = Vec::with_capacity(n);
+    for pk in pkeys.iter() {
+        key_vals.push(pk.atom.to_value(ctx)?);
+    }
+    let Ok(keys) = Array::from_values(ctx, key_vals) else {
+        return fail_reject(ctx);
+    };
+
+    let values_val: JSValue = values.into();
+    let keys_val: JSValue = keys.into();
+    let resolve_element_env_val: JSValue = resolve_element_env.into();
+
+    for index in 0..n {
+        let pk = &pkeys[index];
+        let item = match items_obj.get_property(ctx, pk.atom) {
+            Ok(v) => v,
+            Err(_) => return fail_reject(ctx),
+        };
+
+        let Ok(next_promise) = promise_resolve.call(ctx, cc.this(), std::slice::from_ref(&item))
+        else {
+            return fail_reject(ctx);
+        };
+
+        // Per-key already_called flag: the resolve element and its reject twin
+        // (allSettledKeyed) must share one, distinct keys must not.
+        let Ok(already_called) = Array::from_values(ctx, vec![JSValue::from(false)]) else {
+            return fail_reject(ctx);
+        };
+        let already_called_val: JSValue = already_called.into();
+
+        let Ok(resolve_element) = NativeFunction::create(
+            ctx,
+            Callback::Func(js_promise_all_keyed_resolve_element),
+            Atom::CONST_empty_string,
+            1,
+            (if is_all_settled {
+                PROMISE_MAGIC_allSettled
+            } else {
+                PROMISE_MAGIC_all
+            }) as _,
+            ctx.function_proto(),
+            Some(
+                [
+                    already_called_val,
+                    JSValue::from(index as i32),
+                    values_val,
+                    keys_val,
+                    resolving_funcs[0],
+                    resolve_element_env_val,
+                    resolving_funcs[1],
+                ]
+                .into(),
+            ),
+        ) else {
+            return fail_reject(ctx);
+        };
+        let resolve_element = JSValue::from(resolve_element);
+
+        let reject_element: JSValue = if is_all_settled {
+            let Ok(reject_element) = NativeFunction::create(
+                ctx,
+                Callback::Func(js_promise_all_keyed_resolve_element),
+                Atom::CONST_empty_string,
+                1,
+                (PROMISE_MAGIC_allSettled | 4) as _,
+                ctx.function_proto(),
+                Some(
+                    [
+                        already_called_val,
+                        JSValue::from(index as i32),
+                        values_val,
+                        keys_val,
+                        resolving_funcs[0],
+                        resolve_element_env_val,
+                        resolving_funcs[1],
+                    ]
+                    .into(),
+                ),
+            ) else {
+                return fail_reject(ctx);
+            };
+            JSValue::from(reject_element)
+        } else {
+            resolving_funcs[1]
+        };
+
+        if remainingElementsCount_add(ctx, resolve_element_env_val, 1).is_err() {
+            return fail_reject(ctx);
+        }
+
+        if next_promise
+            .invoke(ctx, Atom::CONST_then, &[resolve_element, reject_element])
+            .is_err()
+        {
+            return fail_reject(ctx);
+        }
+    }
+
+    // Account for the initial "1" added so the first element to settle does not
+    // resolve prematurely. When n == 0 this returns 1 and we resolve now.
+    match remainingElementsCount_add(ctx, resolve_element_env_val, -1) {
+        Ok(1) => {
+            let obj = js_promise_all_keyed_combine(ctx, keys_val, values_val)?;
+            if resolving_funcs[0]
+                .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&obj))
+                .is_err()
+            {
+                return fail_reject(ctx);
+            }
+        }
+        Ok(0) => {}
+        Err(_) => return fail_reject(ctx),
+        _ => unreachable!(),
+    }
+
+    Ok(result_promise.into())
+}
+
+pub(crate) fn js_promise_all_keyed_resolve_element(
+    ctx: &mut ScopedContext,
+    cc: CallContext,
+) -> JSResult {
+    let resolve_type = cc.magic() & 3;
+    let is_reject = cc.magic() & 4 != 0;
+
+    let mut already_called = cc.data(0);
+    let called = already_called.get_property_u32(ctx, 0)?.to_bool()?;
+    if called {
+        return Ok(JSValue::UNDEFINED);
+    }
+    already_called.define_property_value_u32(ctx, 0, JSValue::from(true), JS_PROP_C_W_E)?;
+
+    let index = cc.data(1).to_number(ctx)?.to_i32();
+    let mut values = cc.data(2);
+    let keys = cc.data(3);
+    let resolve = cc.data(4);
+    let resolve_element_env = cc.data(5);
+
+    let value_to_store = if resolve_type == PROMISE_MAGIC_allSettled {
+        let mut ob = ctx.create_base_object()?;
+        let status_val =
+            ctx.create_string_from_str(if is_reject { "rejected" } else { "fulfilled" })?;
+        ob.define_property_value(
+            ctx,
+            Atom::CONST_status,
+            JSValue::make_string(status_val),
+            JS_PROP_C_W_E,
+        )?;
+        ob.define_property_value(
+            ctx,
+            if is_reject {
+                Atom::CONST_reason
+            } else {
+                Atom::CONST_value
+            },
+            cc.arg(0),
+            JS_PROP_C_W_E,
+        )?;
+        ob.into()
+    } else {
+        cc.arg(0)
+    };
+
+    // Protect value_to_store from GC before writing into values;
+    // define_property_value_u32 may allocate and trigger arena GC.
+    ctx.gc_protect_transient(&value_to_store);
+    values.define_property_value_u32(ctx, index as u32, value_to_store, JS_PROP_C_W_E)?;
+
+    match remainingElementsCount_add(ctx, resolve_element_env, -1)? {
+        1 => {
+            let obj = js_promise_all_keyed_combine(ctx, keys, values)?;
+            if resolve
+                .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&obj))
+                .is_err()
+            {
+                let err_val = ctx.take_exception().to_value(ctx);
+                cc.data(6)
+                    .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
+            }
+        }
+        0 => {}
+        _ => unreachable!(),
+    }
+
+    Ok(JSValue::UNDEFINED)
+}
+
 pub fn js_promise_race(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     if !this.is_object() {
@@ -456,6 +734,18 @@ pub(super) const js_promise_funcs: &[FieldDef] = &[
         PROMISE_MAGIC_allSettled as _,
     ),
     FieldDef::FUNC("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
+    FieldDef::FUNC(
+        "allKeyed",
+        1,
+        js_promise_all_keyed,
+        PROMISE_MAGIC_allKeyed as _,
+    ),
+    FieldDef::FUNC(
+        "allSettledKeyed",
+        1,
+        js_promise_all_keyed,
+        PROMISE_MAGIC_allSettledKeyed as _,
+    ),
     FieldDef::FUNC("race", 1, js_promise_race, 0),
     FieldDef::FUNC("try", 1, js_promise_try, 0),
     FieldDef::FUNC("withResolvers", 0, js_promise_withResolvers, 0),
