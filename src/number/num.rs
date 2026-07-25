@@ -1,86 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use {
-    core::f64,
-    std::{cmp::Ordering, ops::RangeInclusive},
+use core::f64;
+
+use crate::{context::ScopedContext, value::JSValue};
+
+use super::{
+    IntOrFloat, MAX_SAFE_INTEGER, SAFE_INTEGER_RANGE, ToNumberHintEnum, f64_to_i32, is_safe_integer,
 };
-
-use crate::{
-    context::ScopedContext,
-    number::{JS_DTOA_VAR_FORMAT, f64_stringify},
-    value::JSValue,
-};
-
-pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
-
-/// Integer beyonds range \[-2^53, 2^53\], precision is not guaranteed when converting to f64.
-// const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -(1_i64 << 53)..=1_i64 << 53;
-const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;
-
-#[inline(always)]
-pub(crate) fn is_safe_integer(d: f64) -> bool {
-    f64::is_finite(d) && d.floor() == d && d.abs() <= MAX_SAFE_INTEGER as f64
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum IntOrFloat {
-    Int64(i64),
-    Float64(f64),
-}
-
-impl PartialOrd for IntOrFloat {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self, other) {
-            (IntOrFloat::Int64(a), IntOrFloat::Int64(b)) => a.partial_cmp(b),
-            (IntOrFloat::Float64(a), IntOrFloat::Float64(b)) => a.partial_cmp(b),
-            (IntOrFloat::Int64(a), IntOrFloat::Float64(b)) => (*a as f64).partial_cmp(b),
-            (IntOrFloat::Float64(a), IntOrFloat::Int64(b)) => a.partial_cmp(&(*b as f64)),
-        }
-    }
-}
-
-impl std::fmt::Display for IntOrFloat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(i) = self.to_safe_i64() {
-            write!(f, "{}", i)
-        } else {
-            let s = f64_stringify(self.to_f64(), 10, None, JS_DTOA_VAR_FORMAT);
-            write!(f, "{}", s)
-        }
-    }
-}
-
-impl From<i32> for IntOrFloat {
-    #[inline(always)]
-    fn from(val: i32) -> Self {
-        Self::Int64(val as i64)
-    }
-}
-
-impl From<i64> for IntOrFloat {
-    #[inline(always)]
-    fn from(val: i64) -> Self {
-        Self::Int64(val)
-    }
-}
-
-impl From<f64> for IntOrFloat {
-    fn from(d: f64) -> Self {
-        if d == 0.0 {
-            if d.is_sign_negative() {
-                Self::Float64(-0.0)
-            } else {
-                Self::Int64(0)
-            }
-        } else if d.fract() == 0.0 && is_safe_integer(d) {
-            Self::Int64(d as i64)
-        } else {
-            Self::Float64(d)
-        }
-    }
-}
 
 impl From<IntOrFloat> for JSValue {
     fn from(value: IntOrFloat) -> Self {
@@ -147,14 +74,14 @@ impl IntOrFloat {
                 if i as i32 as i64 == i {
                     i as i32
                 } else {
-                    js_f64_to_i32(i as f64)
+                    f64_to_i32(i as f64)
                 }
             }
             IntOrFloat::Float64(d) => {
                 if d.is_nan() {
                     0
                 } else {
-                    js_f64_to_i32(*d)
+                    f64_to_i32(*d)
                 }
             }
         }
@@ -204,7 +131,7 @@ impl IntOrFloat {
         } else {
             // integral part toward zero, then mod 2^16
             let int = if d >= 0.0 { d.floor() } else { d.ceil() };
-            (js_f64_to_i32(int) as u32 & 0xffff) as u16
+            (f64_to_i32(int) as u32 & 0xffff) as u16
         }
     }
 
@@ -270,14 +197,6 @@ impl IntOrFloat {
             (a, b) => Self::Float64(a.to_f64() + b.to_f64()),
         }
     }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub(crate) union JSFloat64Union {
-    pub d: f64,
-    pub uint64: u64,
-    pub uint32: [u32; 2],
 }
 
 impl From<u32> for JSValue {
@@ -348,7 +267,7 @@ impl JSValue {
         self,
         ctx: &mut ScopedContext,
         undefined_is_nan: bool,
-        _flag: JSToNumberHintEnum,
+        _flag: ToNumberHintEnum,
     ) -> Result<IntOrFloat, i32> {
         match self.tag() {
             crate::JSValueTag::Int | crate::JSValueTag::Bool => {
@@ -386,7 +305,7 @@ impl JSValue {
         self,
         ctx: &mut ScopedContext,
         undefined_is_nan: bool,
-        _flag: JSToNumberHintEnum,
+        _flag: ToNumberHintEnum,
     ) -> Result<IntOrFloat, i32> {
         match self {
             Self::Int(i) => Ok(i.into()),
@@ -418,52 +337,19 @@ impl JSValue {
     /// Convert value to number (Int or Float64, could be NaN).
     #[inline(always)]
     pub fn to_number(&self, ctx: &mut ScopedContext) -> Result<IntOrFloat, i32> {
-        self.to_number_internal(ctx, true, JSToNumberHintEnum::TON_FLAG_NUMBER)
+        self.to_number_internal(ctx, true, ToNumberHintEnum::TON_FLAG_NUMBER)
     }
 
     /// Convert value to Int, Float64 (could be NaN) value, or Err.
     /// Because BigInt is not supported, this method is same as coerce_to_number()
     #[inline(always)]
     pub fn to_numeric(&self, ctx: &mut ScopedContext) -> Result<IntOrFloat, i32> {
-        self.to_number_internal(ctx, true, JSToNumberHintEnum::TON_FLAG_NUMERIC)
+        self.to_number_internal(ctx, true, ToNumberHintEnum::TON_FLAG_NUMERIC)
     }
 
     /// convert value to length between \[0, MAX_SAFE_INTEGER\].
     pub fn to_length(&self, ctx: &mut ScopedContext) -> Result<i64, i32> {
         self.to_number(ctx)
             .map(|n| n.to_i64_clamp(0, MAX_SAFE_INTEGER, 0))
-    }
-}
-
-/// this hint is for BigInt only
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
-pub enum JSToNumberHintEnum {
-    TON_FLAG_NUMBER,
-    TON_FLAG_NUMERIC,
-}
-
-/// convert f64 to i32 according to the ECMAScript rules (not rust rules).
-pub(crate) const fn js_f64_to_i32(d: f64) -> i32 {
-    let u = JSFloat64Union { d };
-
-    // we avoid doing fmod(x, 2^32)
-    let e = unsafe { (u.uint64 >> 52) & 0x7ff } as i32;
-    if e <= (1023 + 30) {
-        // fast case
-        d as i32
-    } else if e <= (1023 + 30 + 53) {
-        // remainder modulo 2^32
-        let mut v = unsafe { (u.uint64 & ((1u64 << 52) - 1)) | (1u64 << 52) };
-        v <<= (e - 1023 - 52 + 32) as u32;
-
-        let mut ret = (v >> 32) as i32;
-        // take the sign into account
-        if unsafe { u.uint64 >> 63 } != 0 {
-            ret = ret.wrapping_neg();
-        }
-        ret
-    } else {
-        0 // also handles NaN and +inf
     }
 }

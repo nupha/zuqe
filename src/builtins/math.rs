@@ -5,7 +5,7 @@ use crate::{
     ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
-    number::{IntOrFloat, JSFloat64Union},
+    number::{IntOrFloat, JSFloat64Union, math_f16round},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     value::JSValue,
 };
@@ -239,6 +239,7 @@ pub const js_math_funcs: &[FieldDef] = &[
     FieldDef::FUNC("hypot", 2, js_math_hypot, 0),
     FieldDef::FUNC("random", 0, js_math_random, 0),
     FieldDef::CALL_FF("fround", 1, |a: f64| -> f64 { (a as f32) as f64 }, 0),
+    FieldDef::CALL_FF("f16round", 1, |a: f64| -> f64 { math_f16round(a) }, 0),
     FieldDef::FUNC("imul", 2, js_math_imul, 0),
     FieldDef::FUNC("clz32", 1, js_math_clz32, 0),
     FieldDef::FLOAT64("E", std::f64::consts::E, 0),

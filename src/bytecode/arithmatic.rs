@@ -7,7 +7,7 @@ use crate::{
     bytecode::OpCode,
     context::ScopedContext,
     error::JSResult,
-    number::{IntOrFloat, js_f64_to_i32},
+    number::{IntOrFloat, f64_to_i32},
     utils::unlikely,
     value::{HINT_NONE, HINT_NUMBER, JSValue},
 };
@@ -182,8 +182,8 @@ impl TwoNumbers {
         let (a, b) = match self {
             Self::Int(v1, v2) => (v1, v2),
             Self::Float(v1, v2) => {
-                let v1 = js_f64_to_i32(v1);
-                let v2 = js_f64_to_i32(v2);
+                let v1 = f64_to_i32(v1);
+                let v2 = f64_to_i32(v2);
                 (v1, v2)
             }
         };
@@ -194,8 +194,8 @@ impl TwoNumbers {
         let (a, b) = match self {
             Self::Int(v1, v2) => (v1, v2),
             Self::Float(v1, v2) => {
-                let v1 = js_f64_to_i32(v1);
-                let v2 = js_f64_to_i32(v2);
+                let v1 = f64_to_i32(v1);
+                let v2 = f64_to_i32(v2);
                 (v1, v2)
             }
         };
@@ -206,8 +206,8 @@ impl TwoNumbers {
         let (a, b) = match self {
             Self::Int(v1, v2) => (v1 as u32, v2 as u32),
             Self::Float(v1, v2) => {
-                let v1 = js_f64_to_i32(v1) as u32;
-                let v2 = js_f64_to_i32(v2) as u32;
+                let v1 = f64_to_i32(v1) as u32;
+                let v2 = f64_to_i32(v2) as u32;
                 (v1, v2)
             }
         };
