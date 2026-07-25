@@ -36,8 +36,9 @@ impl ObjectImpl {
         #[cfg(not(debug_assertions))]
         let should_compact = self.deleted_slot_count > 8
             && self.deleted_slot_count >= (self.prop_values.len() / 2) as u16;
+
         if should_compact {
-            self.compact_deleted_slots(&mut use_shape);
+            self.compact_deleted_slots(ctx, &mut use_shape);
         }
 
         ctx.rt_mut().register_shape(&use_shape)?;
@@ -177,8 +178,18 @@ impl ObjectImpl {
         }
     }
 
-    fn compact_deleted_slots(&mut self, shape: &mut ShapeImpl) {
+    fn compact_deleted_slots(&mut self, ctx: &mut ScopedContext, shape: &mut ShapeImpl) {
         debug_assert!(shape.use_count == 1);
+
+        // Compaction reorders prop slots, so any cached `(shape, slot)` pair
+        // (VarRef `PropValue` IC and the bytecode `GET_FIELD_IC`) becomes stale
+        // while the shape pointer stays the same on the exclusive path. Mint a
+        // fresh uid from the global counter so those caches detect the change
+        // and re-resolve the slot by name — mirroring QuickJS, which allocates
+        // a brand-new `JSShape` on every modification.
+        let uid = ctx.rt_mut().next_shape_uid.get();
+        ctx.rt_mut().next_shape_uid.set(uid.wrapping_add(1));
+        shape.uid = uid;
 
         // Remove all entries from prop_defs whose corresponding slot is Deleted
         let mut removed_indices: SmallVec<[usize; 8]> = SmallVec::new();
@@ -187,10 +198,12 @@ impl ObjectImpl {
                 removed_indices.push(idx);
             }
         }
+
         // Remove in reverse order to keep indices valid
         for idx in removed_indices.iter().rev() {
             shape.prop_defs.remove_index(*idx);
         }
+
         // Actually compact the hash list so deleted entries are removed and
         // the hash table is rebuilt — this ensures find_hash returns correct
         // indices after prop_values is compacted.
@@ -199,6 +212,7 @@ impl ObjectImpl {
         // compact prop_values
         self.prop_values
             .retain(|p| !matches!(p, JSProperty::Deleted));
+
         self.deleted_slot_count = 0;
     }
 }
