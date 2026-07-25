@@ -286,66 +286,18 @@ impl Bytecode {
         arena: &mut StackFrameArena,
         parent_frame_idx: FrameIndex,
     ) -> Result<BCWrapper, i32> {
-        let global_ref_count = self.global_var_ref_count as usize;
-        let closure_count = self.closure_var_count as usize;
-        let total_count = global_ref_count + closure_count;
-
-        let captures: Vec<VarRef> = if total_count != 0 {
-            // Extract frame buffer range before any mutable borrow on arena.
-            #[cfg(debug_assertions)]
-            let buf_range = if closure_count != 0 {
-                let head = arena.frame(parent_frame_idx);
-                (head.buf.data_ptr(), head.buf.capacity())
-            } else {
-                (std::ptr::null_mut(), 0)
-            };
-
-            let parent_var_refs = if closure_count != 0 {
-                debug_assert!(
-                    ctx.is_arena_mode(),
-                    "closure vars require active arena mode"
-                );
-                // Extract frame metadata for closure var resolution.
-                let (arg_base, var_base, arg_count, var_count) = {
-                    let head = arena.frame(parent_frame_idx);
-                    let data_ptr = head.buf.data_ptr();
-                    (
-                        data_ptr,
-                        unsafe { data_ptr.add(head.var_base_offset as usize) },
-                        head.arg_count,
-                        head.var_count,
-                    )
-                };
-                Some((
-                    arg_base,
-                    var_base,
-                    arg_count,
-                    var_count,
-                    arena.var_refs_or_default(parent_frame_idx),
-                ))
-            } else {
-                None
-            };
-
-            let mut lst = Vec::new();
-            lst.try_reserve_exact(total_count).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
-
-            // First: global variable refs — create PropValue with ABA-safe
-            // inline cache (shape_ptr + shape_uid pair, matching GET_FIELD_IC).
-            let gvobj = ctx.global_var_obj();
-            let (shape_ptr, shape_uid) = gvobj.shape().map_or((std::ptr::null(), 0), |sh| {
-                let ptr: *const () = (&**sh) as *const _ as *const ();
-                (ptr, sh.uid)
-            });
-
-            // === Phase 1: validate all global declarations BEFORE creating any bindings ===
-            // This mirrors QuickJS's two-phase approach in js_closure2: first check
-            // (JS_CheckDefineGlobalVar), then create (js_closure_define_global_var).
-            // Without this pre-validation, a failure in a later declaration would leave
-            // bindings from earlier declarations leaked on global_obj/global_var_obj.
+        // === Global variable declarations ===
+        // Declarations are materialized at closure-creation time (not via
+        // inline DEFINE_VAR/DEFINE_FUNC opcodes). This is pure property
+        // definition on global_obj/global_var_obj — no VarRefs are created
+        // for globals; GET_VAR/PUT_VAR resolve by name at runtime, like
+        // QuickJS OP_get_var/OP_put_var.
+        if self.global_var_ref_count != 0 {
+            // Phase 1: validate all global declarations BEFORE creating any bindings:
+            // first check (JS_CheckDefineGlobalVar), then create
+            // (js_closure_define_global_var). Without pre-validation, a
+            // failure in a later declaration would leave bindings from
+            // earlier declarations leaked on global_obj/global_var_obj.
             for cv in self.global_var_refs() {
                 if cv.is_global_decl() {
                     let mut check_flags = 0u32;
@@ -359,13 +311,9 @@ impl Bytecode {
                 }
             }
 
-            // === Phase 2: create all bindings ===
+            // Phase 2: create all bindings.
             for cv in self.global_var_refs() {
                 if cv.is_global_decl() {
-                    // QuickJS alignment: global variable declarations are
-                    // materialized at closure-creation time (not via inline
-                    // DEFINE_VAR/DEFINE_FUNC opcodes). Define the property
-                    // on the global object first, then create a PropValue VarRef.
                     let def_flags = if cv.is_lexical() {
                         (DEFINE_GLOBAL_LEX_VAR as u32)
                             | if !cv.is_const() { JS_PROP_WRITABLE } else { 0 }
@@ -405,80 +353,85 @@ impl Bytecode {
                             )?;
                         }
                     }
-
-                    if let Some((idx, _)) = gvobj.find_shape_property(cv.var_name) {
-                        lst.push(VarRef::create_prop_value(
-                            ctx,
-                            gvobj,
-                            cv.var_name,
-                            shape_ptr,
-                            shape_uid,
-                            idx as u16,
-                        )?);
-                    } else {
-                        lst.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
-                    }
-                } else if let Some((idx, _)) = gvobj.find_shape_property(cv.var_name) {
-                    lst.push(VarRef::create_prop_value(
-                        ctx,
-                        gvobj,
-                        cv.var_name,
-                        shape_ptr,
-                        shape_uid,
-                        idx as u16,
-                    )?);
-                } else {
-                    // Variable not yet defined in global scope; use Detached fallback.
-                    lst.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
                 }
             }
+        }
 
-            // Then: actual closure variables
-            if let Some((arg_base, var_base, arg_count, var_count, parent_var_refs)) =
-                parent_var_refs
-            {
-                for cv in self.closure_vars() {
-                    lst.push(if cv.is_local() {
-                        // Create VarRef pointing to the local variable in the arena frame
-                        if let Some(vr) = parent_var_refs
-                            .iter()
-                            .find(|x| x.is_match(cv.var_idx, cv.is_arg()))
-                            .copied()
-                        {
-                            vr
-                        } else {
-                            let pvalue = unsafe {
-                                NonNull::new_unchecked(if cv.is_arg() {
-                                    debug_assert!(cv.var_idx < arg_count);
-                                    arg_base.add(cv.var_idx as usize)
-                                } else {
-                                    debug_assert!(cv.var_idx < var_count);
-                                    var_base.add(cv.var_idx as usize)
-                                })
-                            };
-                            let vref = VarRef::create_bind(ctx, cv.var_idx, cv.is_arg(), pvalue)?;
+        let closure_count = self.closure_var_count as usize;
 
-                            #[cfg(debug_assertions)]
-                            {
-                                let (buf_start, buf_cap) = buf_range;
-                                let buf_start: *const JSValue = buf_start as *const JSValue;
-                                let buf_end = unsafe { buf_start.add(buf_cap as usize) };
-                                let ptr: *const JSValue = pvalue.as_ptr() as *const JSValue;
-                                debug_assert!(
-                                    ptr >= buf_start && ptr < buf_end,
-                                    "make_closure_for_arena: VarRef::Bind pvalue {:p} out of frame buf [{:p}, {:p})",
-                                    ptr, buf_start, buf_end
-                                );
-                            }
+        let captures: Vec<VarRef> = if closure_count != 0 {
+            debug_assert!(
+                ctx.is_arena_mode(),
+                "closure vars require active arena mode"
+            );
 
-                            parent_var_refs.push(vref);
-                            vref
-                        }
+            // Extract frame buffer range before any mutable borrow on arena.
+            #[cfg(debug_assertions)]
+            let buf_range = {
+                let head = arena.frame(parent_frame_idx);
+                (head.buf.data_ptr(), head.buf.capacity())
+            };
+
+            // Extract frame metadata for closure var resolution.
+            let (arg_base, var_base, arg_count, var_count) = {
+                let head = arena.frame(parent_frame_idx);
+                let data_ptr = head.buf.data_ptr();
+                (
+                    data_ptr,
+                    unsafe { data_ptr.add(head.var_base_offset as usize) },
+                    head.arg_count,
+                    head.var_count,
+                )
+            };
+            let parent_var_refs = arena.var_refs_or_default(parent_frame_idx);
+
+            let mut lst = Vec::new();
+            lst.try_reserve_exact(closure_count).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+
+            for cv in self.closure_vars() {
+                lst.push(if cv.is_local() {
+                    // Create VarRef pointing to the local variable in the arena frame
+                    if let Some(vr) = parent_var_refs
+                        .iter()
+                        .find(|x| x.is_match(cv.var_idx, cv.is_arg()))
+                        .copied()
+                    {
+                        vr
                     } else {
-                        debug_assert!((cv.var_idx as usize) < captured_vars.len());
-                        captured_vars[cv.var_idx as usize]
-                    });
-                }
+                        let pvalue = unsafe {
+                            NonNull::new_unchecked(if cv.is_arg() {
+                                debug_assert!(cv.var_idx < arg_count);
+                                arg_base.add(cv.var_idx as usize)
+                            } else {
+                                debug_assert!(cv.var_idx < var_count);
+                                var_base.add(cv.var_idx as usize)
+                            })
+                        };
+                        let vref = VarRef::create_bind(ctx, cv.var_idx, cv.is_arg(), pvalue)?;
+
+                        #[cfg(debug_assertions)]
+                        {
+                            let (buf_start, buf_cap) = buf_range;
+                            let buf_start: *const JSValue = buf_start as *const JSValue;
+                            let buf_end = unsafe { buf_start.add(buf_cap as usize) };
+                            let ptr: *const JSValue = pvalue.as_ptr() as *const JSValue;
+                            debug_assert!(
+                                ptr >= buf_start && ptr < buf_end,
+                                "make_closure_for_arena: VarRef::Bind pvalue {:p} out of frame buf [{:p}, {:p})",
+                                ptr, buf_start, buf_end
+                            );
+                        }
+
+                        parent_var_refs.push(vref);
+                        vref
+                    }
+                } else {
+                    debug_assert!((cv.var_idx as usize) < captured_vars.len());
+                    captured_vars[cv.var_idx as usize]
+                });
             }
 
             lst
@@ -643,7 +596,7 @@ pub(crate) fn add_closure_variables(
     for (i, cv0) in bc.closure_vars().iter().enumerate() {
         let mut cv = ClosureVar {
             flags: 0,
-            var_idx: (i + bc.global_var_ref_count as usize) as u16,
+            var_idx: i as u16,
             var_name: cv0.var_name,
         };
         cv.set_local(false);

@@ -182,7 +182,7 @@ impl ObjectImpl {
         debug_assert!(shape.use_count == 1);
 
         // Compaction reorders prop slots, so any cached `(shape, slot)` pair
-        // (VarRef `PropValue` IC and the bytecode `GET_FIELD_IC`) becomes stale
+        // (the bytecode `GET_FIELD_IC`) becomes stale
         // while the shape pointer stays the same on the exclusive path. Mint a
         // fresh uid from the global counter so those caches detect the change
         // and re-resolve the slot by name — mirroring QuickJS, which allocates

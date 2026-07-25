@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, ptr::NonNull};
+use std::ptr::NonNull;
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
-use crate::{
-    RuntimeImpl, atom::Atom, context::ScopedContext, gcref_wrapper, object::JSProperty,
-    object::Object, value::JSValue,
-};
+use crate::{RuntimeImpl, context::ScopedContext, gcref_wrapper, value::JSValue};
 
 #[repr(u8)]
 #[derive(Debug)]
@@ -19,28 +16,10 @@ pub enum VarRefImpl {
     Detached(JSValue),
 
     /// Reference to a local variable slot in an arena stack frame.
-    ///
-    /// `pvalue` is a raw pointer into the arena frame's data buffer:
-    ///   - For arguments: arg_base_ptr[var_idx]
-    ///   - For locals:   var_base_ptr[var_idx]
     Bind {
         is_arg: bool,
         var_idx: u16,
         pvalue: NonNull<JSValue>,
-    },
-
-    /// Reference to a property slot in a global scope object, with inline-cache
-    /// self-healing via ABA-safe `(shape_ptr, shape_uid)` pair (same pattern as
-    /// `GET_FIELD_IC`'s `InlineCacheEntry`).
-    ///
-    /// Fast path (shape unchanged, >99.9%): `obj.prop_slot(slot_idx)` → O(1)
-    /// Slow path (Shape changed): `obj.find_shape_property(name)` → re-cache → O(n)
-    PropValue {
-        obj: Object,
-        name: Atom,
-        shape_ptr: Cell<*const ()>,
-        shape_uid: Cell<u32>,
-        slot_idx: Cell<u16>,
     },
 }
 
@@ -52,10 +31,6 @@ impl GcTrace for VarRefImpl {
             },
             Self::Detached(value) => {
                 value.trace(gcx);
-            }
-            Self::PropValue { obj, name, .. } => {
-                obj.trace(gcx);
-                name.trace(gcx);
             }
         }
     }
@@ -100,64 +75,17 @@ impl VarRefImpl {
     }
 
     #[inline(always)]
-    pub(crate) fn value(&self) -> JSValue {
+    pub(crate) const fn value(&self) -> JSValue {
         match self {
             Self::Bind { pvalue, .. } => unsafe { *pvalue.as_ref() },
             Self::Detached(value) => *value,
-            Self::PropValue {
-                obj,
-                name,
-                shape_ptr,
-                shape_uid,
-                slot_idx,
-            } => {
-                if let Some(sh) = obj.shape() {
-                    let current_ptr: *const () = (&**sh) as *const _ as *const ();
-                    if current_ptr == shape_ptr.get() && sh.uid == shape_uid.get() {
-                        let idx = slot_idx.get() as usize;
-                        if let JSProperty::Normal(v) = obj.prop_slot(idx) {
-                            return *v;
-                        }
-                    }
-                    if let Some((idx, _)) = obj.find_shape_property(*name) {
-                        shape_ptr.set(current_ptr);
-                        shape_uid.set(sh.uid);
-                        slot_idx.set(idx as u16);
-                        if let JSProperty::Normal(v) = obj.prop_slot(idx) {
-                            return *v;
-                        }
-                    }
-                }
-                JSValue::UNDEFINED
-            }
         }
     }
 
-    fn set_value_internal(&mut self, new_value: JSValue) {
+    const fn set_value_internal(&mut self, new_value: JSValue) {
         match self {
             Self::Bind { pvalue, .. } => unsafe { *pvalue.as_mut() = new_value },
             Self::Detached(value) => *value = new_value,
-            Self::PropValue {
-                obj,
-                name,
-                shape_ptr,
-                shape_uid,
-                slot_idx,
-            } => {
-                if let Some(sh) = obj.shape() {
-                    let current_ptr: *const () = (&**sh) as *const _ as *const ();
-                    if current_ptr == shape_ptr.get() && sh.uid == shape_uid.get() {
-                        obj.set_prop_slot(slot_idx.get() as usize, JSProperty::Normal(new_value));
-                        return;
-                    }
-                    if let Some((idx, _)) = obj.find_shape_property(*name) {
-                        shape_ptr.set(current_ptr);
-                        shape_uid.set(sh.uid);
-                        slot_idx.set(idx as u16);
-                        obj.set_prop_slot(idx, JSProperty::Normal(new_value));
-                    }
-                }
-            }
         }
     }
 
@@ -184,6 +112,7 @@ impl VarRefImpl {
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct VarRef(GcRef<VarRefImpl>);
+
 gcref_wrapper!(VarRef, VarRefImpl);
 
 impl VarRef {
@@ -229,28 +158,6 @@ impl VarRef {
             is_arg,
             var_idx,
             pvalue,
-        })
-        .map(Self)
-        .map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })
-    }
-
-    pub(crate) fn create_prop_value(
-        ctx: &mut ScopedContext,
-        obj: Object,
-        name: Atom,
-        shape_ptr: *const (),
-        shape_uid: u32,
-        slot_idx: u16,
-    ) -> Result<Self, i32> {
-        ctx.alloc_local(VarRefImpl::PropValue {
-            obj,
-            name,
-            shape_ptr: Cell::new(shape_ptr),
-            shape_uid: Cell::new(shape_uid),
-            slot_idx: Cell::new(slot_idx),
         })
         .map(Self)
         .map_err(|_| {

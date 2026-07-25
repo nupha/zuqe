@@ -316,21 +316,6 @@ impl Bytecode {
             }
         };
 
-        // Split captured_vars: first N are global VarRefs, rest are closure VarRefs.
-        // GET_VAR/PUT_VAR use global_var_refs[idx]; GET_VAR_REF/PUT_VAR_REF use
-        // closure_var_refs[idx] with zero offset change.
-        let global_var_count = {
-            if let Ok(bfun) = BCWrapper::try_from(JSValue::from(func_obj)) {
-                bfun.payload().global_var_count as usize
-            } else {
-                0
-            }
-        };
-        let (global_var_refs, closure_var_refs) = captured_vars.split_at_mut(global_var_count);
-        // Rebind captured_vars to the closure-var-only slice so existing GET_VAR_REF
-        // handlers (which use captured_vars[idx]) index from 0 correctly.
-        let captured_vars: &mut [VarRef] = closure_var_refs;
-
         if throwed {
             let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
 
@@ -1332,69 +1317,26 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     OpCode::GET_VAR_UNDEF | OpCode::GET_VAR => {
                         let idx = PC_FETCH!(u16) as usize;
-                        // PropValue uses inline cache: shape_uid match → O(1) slot,
-                        // shape changed → self-healing find_shape_property fallback.
-                        let val = global_var_refs[idx].value();
-                        if !val.is_uninitialized() {
-                            SP_PUT!(0, val);
+                        // resolve the global by name on global_var_obj/global_obj at each access. No VarRef cell.
+                        let var_name = self.global_var_refs()[idx].var_name;
+                        if let Ok(v) =
+                            realm_scope.get_global_var(var_name, opcode == OpCode::GET_VAR)
+                        {
+                            SP_PUT!(0, v);
                             SP_GO!(1);
                         } else {
-                            // Detached placeholder (var not yet defined in scope).
-                            let var_name = self.global_var_refs()[idx].var_name;
-                            if let Ok(v) =
-                                realm_scope.get_global_var(var_name, opcode == OpCode::GET_VAR)
-                            {
-                                SP_PUT!(0, v);
-                                SP_GO!(1);
-                            } else {
-                                break ExecAction::Exception;
-                            }
+                            break ExecAction::Exception;
                         }
                     }
                     OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
                         let idx = PC_FETCH!(u16) as usize;
-
-                        // PropValue self-heals on shape change; write directly.
-                        let val = global_var_refs[idx].value();
-                        if !val.is_uninitialized() {
-                            // Const/readonly writability check for non-initialization writes.
-                            // throws TypeError on assignment to non-writable global.
-                            if opcode == OpCode::PUT_VAR {
-                                let cv = &self.global_var_refs()[idx];
-                                // Check both global_var_obj (let/const) and global_obj (var)
-                                // for writability before fast-path assignment.
-                                // Uses `or_else` so we find the property on whichever object
-                                // actually stores it.
-                                let is_writable = realm_scope
-                                    .global_var_obj()
-                                    .find_shape_property(cv.var_name)
-                                    .or_else(|| {
-                                        realm_scope.global_obj().find_shape_property(cv.var_name)
-                                    })
-                                    .is_none_or(|(_, f)| f & JS_PROP_WRITABLE != 0);
-
-                                if !is_writable {
-                                    realm_scope.throw_type_error_read_only(cv.var_name);
-                                    break ExecAction::Exception;
-                                }
-                            }
-
-                            global_var_refs[idx].set_value(&mut rt, SP_VAL!(-1));
-                            SP_GO!(-1);
-                        } else {
-                            // Detached placeholder fallback.
-                            let init_flags = match opcode {
-                                OpCode::PUT_VAR => 0u32,
-                                OpCode::PUT_VAR_INIT => 1u32,
-                                _ => unreachable!(),
-                            };
-                            let var_name = self.global_var_refs()[idx].var_name;
-                            let res =
-                                realm_scope.set_global_var(var_name, SP_VAL!(-1), init_flags as u8);
-                            SP_GO!(-1);
-                            if res.is_err() {
-                                break ExecAction::Exception;
-                            }
+                        // set_global_var handles TDZ (ReferenceError) and read-only (TypeError) checks.
+                        let init_flag = (opcode == OpCode::PUT_VAR_INIT) as u8;
+                        let var_name = self.global_var_refs()[idx].var_name;
+                        let res = realm_scope.set_global_var(var_name, SP_VAL!(-1), init_flag);
+                        SP_GO!(-1);
+                        if res.is_err() {
+                            break ExecAction::Exception;
                         }
                     }
                     OpCode::DELETE_VAR => {

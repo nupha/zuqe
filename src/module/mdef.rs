@@ -259,47 +259,28 @@ impl ModuleDefImpl {
             unreachable!("module bytecode function already created");
         };
 
-        // create BytecodeFunction object embedding Bytecode
-        let mut var_refs = Vec::<VarRef>::new();
-        let gvar_count = bc.global_var_ref_count;
-        let cvar_count = bc.closure_var_count;
-        let total_count = gvar_count as usize + cvar_count as usize;
-
-        if total_count != 0 {
-            var_refs.try_reserve_exact(total_count).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
-
-            // First: global variable refs (initialized via realm_scope fallback)
-            for cv in bc.global_var_refs() {
-                if cv.is_global_decl() {
-                    // define the global property at closure-creation time, matching declare_global_var.
-                    let def_flags = if cv.is_lexical() {
-                        (DEFINE_GLOBAL_LEX_VAR as u32)
-                            | if !cv.is_const() { JS_PROP_WRITABLE } else { 0 }
-                    } else {
-                        0 // Module code is never eval; var/func decl is non-configurable.
-                    };
-                    ctx.define_global_var(cv.var_name, def_flags)?;
-                    if let Some((idx, _)) = ctx.global_var_obj().find_shape_property(cv.var_name) {
-                        var_refs.push(VarRef::create_prop_value(
-                            ctx,
-                            ctx.global_var_obj(),
-                            cv.var_name,
-                            std::ptr::null(),
-                            0,
-                            idx as u16,
-                        )?);
-                    } else {
-                        var_refs.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
-                    }
+        // Global variable declarations: define the global property at
+        // closure-creation time (declaration side effect only). No VarRefs
+        // are created for globals — GET_VAR/PUT_VAR resolve by name at
+        // runtime, like QuickJS OP_get_var/OP_put_var.
+        for cv in bc.global_var_refs() {
+            if cv.is_global_decl() {
+                let def_flags = if cv.is_lexical() {
+                    (DEFINE_GLOBAL_LEX_VAR as u32)
+                        | if !cv.is_const() { JS_PROP_WRITABLE } else { 0 }
                 } else {
-                    var_refs.push(VarRef::create(ctx, JSValue::UNINITIALIZED)?);
-                }
+                    0 // Module code is never eval; var/func decl is non-configurable.
+                };
+                ctx.define_global_var(cv.var_name, def_flags)?;
             }
+        }
 
-            // Then: closure variables
+        // create BytecodeFunction object embedding Bytecode
+        let cvar_count = bc.closure_var_count as usize;
+        let mut var_refs = Vec::<VarRef>::with_capacity(cvar_count);
+
+        if cvar_count != 0 {
+            // Closure variables
             // (module's own variables + variables imported from other modules)
             for cv in bc.closure_vars() {
                 var_refs.push(if cv.is_local() {

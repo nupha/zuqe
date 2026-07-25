@@ -90,6 +90,7 @@ pub enum FuncCallType {
 }
 
 /// Object payload for:
+///
 /// * bytecode function
 /// * async function
 /// * generator function
@@ -97,10 +98,9 @@ pub enum FuncCallType {
 #[derive(Debug)]
 pub struct BFuncPayload {
     bytecode: Bytecode,
-    /// Combined array: first `global_var_count` entries are global VarRefs,
-    /// remaining entries are closure VarRefs.
+    /// Closure VarRefs (captured variables only; globals are resolved by
+    /// name at runtime and never captured).
     closure_var_refs: Vec<VarRef>,
-    pub(crate) global_var_count: u16,
 
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
@@ -122,11 +122,9 @@ impl GcTrace for BFuncPayload {
 
 impl BFuncPayload {
     pub(crate) fn new(bytecode: Bytecode, captured_vars: Vec<VarRef>) -> Box<Self> {
-        let global_var_count = bytecode.global_var_ref_count;
         Box::new(Self {
             bytecode,
             closure_var_refs: captured_vars,
-            global_var_count,
             home_object: None,
         })
     }
@@ -148,24 +146,18 @@ impl BFuncPayload {
     }
 
     /// Get a closure variable reference by its closure-var index.
-    /// Automatically offsets by `global_var_count`.
     #[inline(always)]
     pub(crate) fn get_closure(&self, nth: usize) -> VarRef {
-        self.closure_var_refs[self.global_var_count as usize + nth]
+        self.closure_var_refs[nth]
     }
 
-    /// Set a closure variable reference by its closure-var index (0-based,
-    /// relative to the end of global var refs). Automatically offsets by
-    /// `global_var_count` so callers don't need to worry about the layout.
+    /// Set a closure variable reference by its closure-var index (0-based).
     #[inline(always)]
     pub(crate) fn set_closure(&mut self, nth: usize, vref: VarRef) {
-        let idx = self.global_var_count as usize + nth;
-        self.closure_var_refs[idx] = vref;
+        self.closure_var_refs[nth] = vref;
     }
 
-    /// Set value of closure its closure-var index (0-based,
-    /// relative to the end of global var refs). Automatically offsets by
-    /// `global_var_count` so callers don't need to worry about the layout.
+    /// Set value of closure by its closure-var index (0-based).
     #[inline(always)]
     pub(crate) fn store_closure_value(
         &mut self,
@@ -173,8 +165,7 @@ impl BFuncPayload {
         ctx: &mut ScopedContext,
         value: JSValue,
     ) {
-        let idx = self.global_var_count as usize + nth;
-        self.closure_var_refs[idx].set_value(&mut ctx.rt_ptr(), value);
+        self.closure_var_refs[nth].set_value(&mut ctx.rt_ptr(), value);
     }
 
     #[inline(always)]
