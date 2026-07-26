@@ -297,7 +297,9 @@ pub const JS_ATOM_HASH_MASK: u32 = (1 << 30) - 1;
 
 pub const JS_ATOM_TAG_INT: u32 = 1 << 31;
 pub const JS_ATOM_MAX_INT: u32 = JS_ATOM_TAG_INT - 1;
-pub const JS_ATOM_MAX: u32 = u16::MAX as u32 - 1;
+/// Max user/const atom id. Atom is a u32 whose highest bit is the small-int tag,
+/// so a regular (registered) atom id occupies `1..=i32::MAX` (bit31 clear; 0 is Atom::NULL).
+pub const JS_ATOM_MAX: u32 = i32::MAX as u32;
 
 impl StringImpl {
     /// convert string to atom. if string is not registered as atom yet, do registration.

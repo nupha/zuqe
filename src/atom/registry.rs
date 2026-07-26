@@ -4,7 +4,7 @@
 use std::{
     collections::{HashMap, hash_map::Entry},
     ffi::CStr,
-    num::NonZeroU16,
+    num::NonZeroU32,
 };
 
 use crate::{
@@ -31,7 +31,7 @@ pub(crate) struct AtomRegistry {
 
     /// atom hash lookup table, is dict { atom_hash: [atom_id] },
     /// slot index = atom_id - 1
-    hash_lut: HashMap<u32, Vec<u16>>,
+    hash_lut: HashMap<u32, Vec<u32>>,
 }
 
 impl AtomRegistry {
@@ -82,8 +82,7 @@ fn register_atom_common(
 
     // check for reuse: match registered atoms for (hash, atom_type, string_content)
     if let Some(kv) = a_reg.hash_lut.get(&hash) {
-        for &id in kv {
-            let atom_id = id as u32;
+        for &atom_id in kv {
             let ds = if is_const_atom(atom_id) {
                 &a_reg.const_atoms[atom_id as usize - 1]
             } else {
@@ -166,7 +165,7 @@ fn register_atom(
     // find a free slot
     let (idx, atom_id) =
         if let Some(i) = rt.atom_registry.user_atoms.iter().position(|p| p.is_none()) {
-            (Some(i), i as u16 + ATOM_USER_BASE_ID as u16)
+            (Some(i), i as u32 + ATOM_USER_BASE_ID)
         } else {
             if rt.atom_registry.user_atoms.len() == rt.atom_registry.user_atoms.capacity()
                 && rt.atom_registry.user_atoms.try_reserve(16).is_err()
@@ -177,10 +176,9 @@ fn register_atom(
                 return Err(-1);
             }
 
-            // [GUARDIAN] atom ids are stored in a u16 (NonZeroU16 in AtomInfo); assigning
-            // `len as u16` silently wraps past JS_ATOM_MAX and aliases an existing
-            // atom's id (use-after-free of the descriptor -> panic in descriptor()).
-            // Refuse to allocate past the representable range instead.
+            // [GUARDIAN] an atom id is a u32 whose highest bit is reserved for the small-int
+            // tag, so a registered atom id must stay within `1..=i32::MAX` (== JS_ATOM_MAX).
+            // Refuse to allocate past that range instead of overflowing into the tag bit.
             let new_id = rt.atom_registry.user_atoms.len() as u32 + ATOM_USER_BASE_ID;
             if new_id > JS_ATOM_MAX {
                 if let Some(c) = ctx {
@@ -189,7 +187,7 @@ fn register_atom(
                 return Err(-1);
             }
 
-            (None, new_id as u16)
+            (None, new_id)
         };
 
     match rt.atom_registry.hash_lut.entry(hash) {
@@ -202,7 +200,7 @@ fn register_atom(
     }
 
     desc_str.set_atom_info(AtomInfo::new(
-        unsafe { NonZeroU16::new_unchecked(atom_id) },
+        unsafe { NonZeroU32::new_unchecked(atom_id) },
         atom_kind,
         hash,
     ));
@@ -229,7 +227,7 @@ fn register_atom(
         desc_str.gc_head()
     );
 
-    Ok(Atom(atom_id as u32))
+    Ok(Atom(atom_id))
 }
 
 impl RuntimeImpl {
@@ -291,7 +289,7 @@ impl RuntimeImpl {
                     rt_ptr,
                     StringData::from_static(str),
                     Some(AtomInfo::new(
-                        unsafe { NonZeroU16::new_unchecked(atom_id as u16) },
+                        unsafe { NonZeroU32::new_unchecked(atom_id) },
                         atom_kind,
                         hash,
                     )),
@@ -305,10 +303,10 @@ impl RuntimeImpl {
 
             match lut.entry(hash) {
                 Entry::Vacant(kv) => {
-                    kv.insert(vec![atom_id as u16]);
+                    kv.insert(vec![atom_id]);
                 }
                 Entry::Occupied(kv) => {
-                    kv.into_mut().push(atom_id as u16);
+                    kv.into_mut().push(atom_id);
                 }
             }
 
@@ -334,19 +332,17 @@ impl RuntimeImpl {
         {
             let purge = if let Some(ids) = a_reg.hash_lut.get_mut(&atom_hash) {
                 if ids.len() == 1 {
-                    debug_assert_eq!(ids[0] as u32, atom_id);
+                    debug_assert_eq!(ids[0], atom_id);
                     true
                 } else {
                     let i = {
                         #[cfg(debug_assertions)]
                         {
-                            ids.iter().position(|&x| x == atom_id as u16).unwrap()
+                            ids.iter().position(|&x| x == atom_id).unwrap()
                         }
                         #[cfg(not(debug_assertions))]
                         unsafe {
-                            ids.iter()
-                                .position(|&x| x == atom_id as u16)
-                                .unwrap_unchecked()
+                            ids.iter().position(|&x| x == atom_id).unwrap_unchecked()
                         }
                     };
 

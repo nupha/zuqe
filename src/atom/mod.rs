@@ -10,7 +10,7 @@ pub(crate) use registry::*;
 
 include!(concat!(env!("OUT_DIR"), "/atoms.rs"));
 
-use std::num::NonZeroU16;
+use std::num::NonZeroU32;
 
 /// atom descriptor kind
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
@@ -34,7 +34,7 @@ pub enum AtomKind {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AtomInfo {
     /// atom id
-    id: NonZeroU16,
+    id: NonZeroU32,
     /// atom kind
     kind: AtomKind,
     /// atom hash
@@ -43,7 +43,7 @@ pub struct AtomInfo {
 
 impl AtomInfo {
     #[inline]
-    pub(super) const fn new(id: NonZeroU16, kind: AtomKind, hash: u32) -> Self {
+    pub(super) const fn new(id: NonZeroU32, kind: AtomKind, hash: u32) -> Self {
         Self { id, kind, hash }
     }
 
@@ -54,7 +54,7 @@ impl AtomInfo {
 
     #[inline(always)]
     pub const fn id(&self) -> u32 {
-        self.id.get() as u32
+        self.id.get()
     }
 
     #[inline(always)]
