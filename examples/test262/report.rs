@@ -125,6 +125,38 @@ fn month_lengths(y: i64) -> [i64; 12] {
     }
 }
 
+/// Escape `<`, `>`, `&` so error messages with these characters render safely
+/// inside the Markdown/HTML report instead of being parsed as tags.
+fn escape_html(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '&' => out.push_str("&amp;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Build a stable HTML anchor id for a feature name, used to link the feature
+/// table to the matching group in the Failed scripts section.
+fn anchor_for(name: &str) -> String {
+    if name == NO_FEATURE_KEY {
+        return "baseline-no-features".to_string();
+    }
+    let mut s = String::new();
+    for c in name.chars() {
+        if c.is_alphanumeric() {
+            s.push(c);
+        } else {
+            s.push('-');
+        }
+    }
+    format!("feat-{s}")
+}
+
 /// Build the Markdown run report and write it to `test262-report.md` in the
 /// current directory.
 ///
@@ -140,7 +172,7 @@ pub fn write_report(
     total: usize,
     failed_count: usize,
     feat_stats: &HashMap<String, (usize, usize)>,
-    failed_scripts: &[String],
+    failed_scripts: &[(String, String, Vec<String>)],
 ) {
     let success_count = total.saturating_sub(failed_count);
     let rate = if total > 0 {
@@ -241,6 +273,26 @@ pub fn write_report(
     };
     rows.sort_by(|a, b| a.0.cmp(&b.0));
 
+    // Group failed scripts by each feature they declare (a script with several
+    // `@features` appears under each), or under the baseline bucket when it has
+    // no `@features`. Used both for the table anchors and the grouped listing.
+    let mut fail_by_feature: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for (s, msg, feats) in failed_scripts {
+        if feats.is_empty() {
+            fail_by_feature
+                .entry(NO_FEATURE_KEY.to_string())
+                .or_default()
+                .push((s.clone(), msg.clone()));
+        } else {
+            for f in feats {
+                fail_by_feature
+                    .entry(f.clone())
+                    .or_default()
+                    .push((s.clone(), msg.clone()));
+            }
+        }
+    }
+
     if rows.is_empty() {
         md.push_str("| (none) | | | | |\n");
     } else {
@@ -252,12 +304,23 @@ pub fn write_report(
             };
             let fail = t - p;
             let fr = (*p as f64 / *t as f64) * 100.0;
+            // Features with failures get an anchor link to their group in the
+            // Failed scripts section below.
+            let name_cell = if fail > 0 {
+                format!(
+                    "<a href=\"#{}\">{}</a>",
+                    anchor_for(fname),
+                    escape_html(label)
+                )
+            } else {
+                escape_html(label)
+            };
             if fail > 0 {
                 md.push_str(&format!(
-                    "| {label} | {t} | {p} | <span style=\"color:#C62828;font-weight:bold;\">{fail}</span> | {fr:.2}% |\n"
+                    "| {name_cell} | {t} | {p} | <span style=\"color:#C62828;font-weight:bold;\">{fail}</span> | {fr:.2}% |\n"
                 ));
             } else {
-                md.push_str(&format!("| {label} | {t} | {p} | {fail} | {fr:.2}% |\n"));
+                md.push_str(&format!("| {name_cell} | {t} | {p} | {fail} | {fr:.2}% |\n"));
             }
         }
     }
@@ -284,8 +347,31 @@ pub fn write_report(
     if failed_scripts.is_empty() {
         md.push_str("(none)\n");
     } else {
-        for s in failed_scripts {
-            md.push_str(&format!("- {s}\n"));
+        // Group by feature: every feature that has at least one failure becomes a
+        // sub-header, with an anchor matching the link in the feature table above.
+        for (fname, (t, _p)) in &rows {
+            let fail = t - _p;
+            if fail == 0 {
+                continue;
+            }
+            let label = if fname == NO_FEATURE_KEY {
+                "(baseline — no @features)"
+            } else {
+                fname
+            };
+            let anchor = anchor_for(fname);
+            md.push_str(&format!("<a id=\"{anchor}\"></a>\n"));
+            md.push_str(&format!("### {label}\n\n"));
+            if let Some(scripts) = fail_by_feature.get(fname) {
+                for (s, msg) in scripts {
+                    md.push_str(&format!(
+                        "- {} <span style=\"color:#888888;font-size:0.9em;\">— {}</span>\n",
+                        escape_html(s),
+                        escape_html(msg)
+                    ));
+                }
+            }
+            md.push_str("\n");
         }
     }
 

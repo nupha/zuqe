@@ -328,14 +328,16 @@ async fn main_impl() {
     let total = run_list.len();
     let mut done: usize = 0;
     let mut failed_count: usize = 0;
-    let mut failed_scripts: Vec<String> = Vec::new();
+    // Failed scripts, each paired with its error message and the `@features`
+    // it declares (empty when the test has no `@features`), for grouped reporting.
+    let mut failed_scripts: Vec<(String, String, Vec<String>)> = Vec::new();
     // per-feature statistics: feature -> (total, pass)
     let mut feat_stats: HashMap<String, (usize, usize)> = HashMap::new();
 
     eprint!("Test 0 / {}, Fail 0", total);
 
     for (file_name, rel) in run_list {
-        let (status, feats) = run_test_file(
+        let (status, feats, err_msg) = run_test_file(
             &file_name,
             &harness_path,
             &dec,
@@ -348,7 +350,11 @@ async fn main_impl() {
         match status {
             TestStatus::Fail => {
                 failed_count += 1;
-                failed_scripts.push(rel.clone());
+                failed_scripts.push((
+                    rel.clone(),
+                    err_msg.unwrap_or_else(|| "(no error message)".to_string()),
+                    feats.clone(),
+                ));
             }
             TestStatus::Pass | TestStatus::Skip => {}
         }

@@ -376,7 +376,7 @@ pub async fn run_test_file(
     errf: &mut dyn Write,
     script_rel: &str,
     errjson: &mut File,
-) -> (TestStatus, Vec<String>) {
+) -> (TestStatus, Vec<String>, Option<String>) {
     PRINT_BUF.with(|b| b.borrow_mut().clear());
 
     write!(outf, "{} ... ", filename.display()).unwrap();
@@ -390,14 +390,14 @@ pub async fn run_test_file(
         serde_yaml::from_str::<TestConfig>(front_matter).unwrap()
     } else {
         writeln!(outf, "no-test").unwrap();
-        return (TestStatus::Skip, Vec::new());
+        return (TestStatus::Skip, Vec::new(), None);
     };
 
     let feats = config.features.clone().unwrap_or_default();
 
     if should_skip_test(config.features.as_deref(), dec) {
         writeln!(outf, "skip").unwrap();
-        return (TestStatus::Skip, feats.clone());
+        return (TestStatus::Skip, feats.clone(), None);
     }
 
     let mut harness_files = Vec::<PathBuf>::with_capacity(16);
@@ -432,6 +432,9 @@ pub async fn run_test_file(
 
     let mut has_err = false;
     let mut failed = false;
+    // Most recent error message, returned so the report can display it next to
+    // the failing script name.
+    let mut last_error: Option<String> = None;
 
     if !harness_files.is_empty() {
         #[cfg(debug_assertions)]
@@ -446,6 +449,7 @@ pub async fn run_test_file(
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&exc, false, false, false, errf);
             write_error_jsonl(errjson, script_rel, "harness", &exc);
+            last_error = Some(exc.message.clone());
 
             has_err = true;
         }
@@ -527,6 +531,7 @@ pub async fn run_test_file(
                             .unwrap();
                             dump_error(&exc, strict, is_module, is_async, errf);
                             write_error_jsonl(errjson, script_rel, scenario, &exc);
+                            last_error = Some(exc.message.clone());
                         }
                     } else {
                         writeln!(outf, "pass").unwrap();
@@ -539,6 +544,7 @@ pub async fn run_test_file(
                     failed = true;
                     dump_error(&exc, strict, is_module, is_async, errf);
                     write_error_jsonl(errjson, script_rel, scenario, &exc);
+                    last_error = Some(exc.message.clone());
                 }
             } else if let Some(neg) = &negative {
                 writeln!(
@@ -566,6 +572,10 @@ pub async fn run_test_file(
                     ),
                     "",
                 );
+                last_error = Some(format!(
+                    "[NEGATIVE] expects error {}",
+                    neg.type_.as_ref().map_or("", |s| s.as_str())
+                ));
             } else {
                 writeln!(outf, "pass").unwrap();
             }
@@ -582,5 +592,13 @@ pub async fn run_test_file(
         });
     }
 
-    (if failed { TestStatus::Fail } else { TestStatus::Pass }, feats)
+    (
+        if failed {
+            TestStatus::Fail
+        } else {
+            TestStatus::Pass
+        },
+        feats,
+        last_error,
+    )
 }
