@@ -536,7 +536,7 @@ In all cases, Promise settlement (state transitions and reaction execution) rema
 Promise–Future integration and async helpers are guarded by the Cargo feature `async_support`.
 
 - When `async_support` is **enabled** (the default), Zuqe exposes:
-  - `Runtime::run_async() -> RuntimeFuture<'_>` to drive the JS runtime as a `Future`.
+  - `Runtime::run_async() -> RunFuture<'_>` to drive the JS runtime as a `Future`.
   - `Promise::into_future` and `Promise::create_from_future` to bridge JS Promise and Rust async/await.
 - When `async_support` is **disabled**, you can still run JS code and Promises, but the host drives execution explicitly by looping `rt.tick()` or using high-level helpers like `eval_wait`.
 

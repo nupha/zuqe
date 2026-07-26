@@ -1,10 +1,109 @@
 # Running Loop
 
-The running loop is the core execution mechanism in the Zuqe runtime that manages the lifecycle of JavaScript execution, from simple scripts to complex asynchronous operations. This document explains how the loop works, starting from the simplest `eval_wait()` function to complex execution scenarios.
+The running loop is the core execution mechanism in the Zuqe runtime that manages the lifecycle of JavaScript execution, from simple scripts to complex asynchronous operations. When the `async_support` feature is enabled, the **recommended** way to drive the loop is as a Rust `Future` (section 1). The older synchronous APIs (`eval_wait()` and manual `tick()`) are documented at the end as a reference for hosts that cannot use an async runtime.
 
-## 1. Basic Execution with eval_wait()
+## 1. Async runtime mode (`async_support` feature)
 
-The simplest way to execute JavaScript code is through the `eval_wait()` method on a scoped context:
+When the `async_support` Cargo feature is enabled (by default), you can drive
+the runtime as a Rust `Future` with `Runtime::run_async()`. This allows your
+host application to `await` the runtime alongside other concurrent work in a
+Tokio (or other async runtime) context.
+
+```rust
+use zuqe::{EvalFlags, EvalType, Promise};
+
+async fn run_in_async_context(mut rt: Runtime, mut ctx: Context) {
+    let mut promise_future = None;
+
+    ctx.with_new_scope(|mut scope| {
+        let val = scope.eval(
+            b"Promise.resolve(42)",
+            "example.js",
+            EvalType::Global,
+            EvalFlags::empty(),
+        )?;
+
+        if let Ok(promise) = Promise::try_from(val) {
+            promise_future = Some(promise.into_future(&mut scope)?);
+        }
+        Ok(())
+    });
+
+    if let Some(js_fut) = promise_future {
+        // Drive the runtime loop and the JS Promise concurrently
+        let (_rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
+        // The JS Promise has now settled
+    }
+}
+```
+
+In this mode:
+
+- The runtime’s internal tick loop is driven by `RunFuture` (the return type
+  of `run_async()`), which integrates with the Rust async executor’s waker
+  mechanism.
+- JS Promises are converted to Rust `Future`s via `Promise::into_future()`.
+- `tokio::join!` (or `futures::join!`) runs them both until completion.
+
+## 2. The Tick
+
+The tick system is the heart-beat of the running loop — both in the async mode (where `RunFuture` repeatedly calls `tick()`) and in the synchronous mode. Each `tick()` call returns a status indicating whether more ticks are needed or the loop should stop:
+
+```rust
+pub enum TickStatus {
+    Continue,    // More ticks
+    Stop(i32),   // Execution should stop
+}
+```
+
+### Customized tick handler
+
+Tick callbacks let you register custom functions that run on every tick cycle. They're useful for implementing periodic tasks and async event handling.
+
+Use `ScopedContext::add_tick_handler()` to register a customized tick handler:
+
+```rust
+fn register_ticks(ctx: &mut ScopedContext) {
+    // Register a customized tick handler for periodic tasks.
+    ctx.add_tick_handler(|cx| -> bool {
+        // returns true to indicate more ticks are needed.
+        my_tick_poll(cx)
+    });
+}
+```
+
+### Handler Execution
+
+Each tick handler receives the current context and returns a boolean:
+
+- `true`: Continue ticking (more work pending)
+- `false`: No more work from this handler
+
+Following is the code snippet extracted from example `zjs`, which registers a customized tick handler inside a native module:
+
+```rust
+pub fn init_mod_os(ctx: &mut ScopedContext) -> Result<(), i32> {
+    ctx.create_module("os", MOD_OS_ENTRIES)?;
+    ctx.add_tick_handler(|cx| -> bool { js_os_poll(cx) });
+    Ok(())
+}
+```
+
+The tick handler registration design is especially useful for:
+
+- **Asynchronous Event Handling**: Processing events from native APIs
+- **Periodic Tasks**: Running background tasks at regular intervals
+- **I/O Operations**: Handling file descriptor readiness and network events
+
+## 3. Synchronous mode (reference)
+
+When `async_support` is disabled — or when a host cannot use an async runtime —
+the loop runs synchronously. The host calls `eval_wait()` (which polls `tick()`
+internally), or manually loops on `rt.tick()`.
+
+### 3.1 Basic Execution with eval_wait()
+
+The simplest way to execute JavaScript code is the `eval_wait()` method on a scoped context:
 
 ```rust
 // ...
@@ -75,105 +174,7 @@ pub fn eval_wait(
 }
 ```
 
-## 2. The Tick
-
-The tick system is the heart-beat of the running loop. Every execution cycle is driven by the `tick()` function. Each `tick()` call returns the status to indicate whether there need more ticks or stop:
-
-```rust
-pub enum TickStatus {
-    Continue,    // More ticks
-    Stop(i32),   // Execution should stop
-}
-```
-
-### Customized tick handler
-
-Tick callback allow you to register custom functions that run on every tick cycle. They're useful for implementing periodic tasks and async event handling.
-
-Use `ScopedContext::add_tick_handler()` method to register a customized tick handler.
-
-```rust
-fn register_ticks(ctx: &mut ScopedContext) {
-    // Register a customized tick handler for periodic tasks.
-    ctx.add_tick_handler(|cx| -> bool {
-        // returns true to indicate more ticks are needed.
-        my_tick_poll(cx)
-    });
-}
-```
-
-### Handler Execution
-
-Each tick handler receives the current context and returns a boolean:
-
-- `true`: Continue ticking (more work pending)
-- `false`: No more work from this handler
-
-Following is the code snippet extracted from example `zjs`, it registers a customized tick handler performed internally module native:
-
-```rust
-pub fn init_mod_os(ctx: &mut ScopedContext) -> Result<(), i32> {
-    ctx.create_module("os", MOD_OS_ENTRIES)?;
-    ctx.add_tick_handler(|cx| -> bool { js_os_poll(cx) });
-    Ok(())
-}
-```
-
-The tick handler registration design is especially useful for:
-
-- **Asynchronous Event Handling**: Processing events from native APIs
-- **Periodic Tasks**: Running background tasks at regular intervals
-- **I/O Operations**: Handling file descriptor readiness and network events
-
-## 3. Async runtime mode (`async_support` feature)
-
-When the `async_support` Cargo feature is enabled, you can drive
-the runtime as a Rust `Future` with `Runtime::run_async()`. This allows your
-host application to `await` the runtime alongside other concurrent work in a
-Tokio (or other async runtime) context.
-
-```rust
-use zuqe::{EvalFlags, EvalType, Promise};
-
-async fn run_in_async_context(mut rt: Runtime, mut ctx: Context) {
-    let mut promise_future = None;
-
-    ctx.with_new_scope(|mut scope| {
-        // Use non-blocking eval()
-        let val = scope.eval(
-            b"Promise.resolve(42)",
-            "example.js",
-            EvalType::Global,
-            EvalFlags::empty(),
-        )?;
-
-        if let Ok(promise) = Promise::try_from(val) {
-            promise_future = Some(promise.into_future(&mut scope)?);
-        }
-        Ok(())
-    });
-
-    if let Some(js_fut) = promise_future {
-        // Drive the runtime loop and the JS Promise concurrently
-        let (_rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
-        // The JS Promise has now settled
-    }
-}
-```
-
-In this mode:
-
-- The runtime’s internal tick loop is driven by `RuntimeFuture` (the return type
-  of `run_async()`), which integrates with the Rust async executor’s waker
-  mechanism.
-- JS Promises are converted to Rust `Future`s via `Promise::into_future()`.
-- `tokio::join!` (or `futures::join!`) runs them both until completion.
-
-When `async_support` is disabled, the runtime runs synchronously as
-shown in sections 1 and 2. The host calls `eval_wait()` or manually loops on
-`rt.tick()`.
-
-## 4. An example of complex loop
+### 3.2 A complex synchronous loop example
 
 Looking at `examples/zjs/main.rs` (synchronous variant), here's how a complex
 application sets up its execution loop:

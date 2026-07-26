@@ -1,14 +1,15 @@
 # Basic Usage
 
-This tutorial introduces the foundational concepts of integrating the `zuqe` crate into a Rust project. It covers adding the dependency, creating a runtime and context, and executing JavaScript code.
+This tutorial introduces the foundational concepts of integrating the `zuqe` crate into a Rust project and **running JavaScript in async mode**. It covers adding the dependency, creating a runtime and context, and executing JavaScript as a Rust `Future` inside an async runtime such as Tokio.
 
 ## 1. Setup Cargo.toml
 
-Add `zuqe` to your dependencies in `Cargo.toml`:
+Add `zuqe` to your dependencies and enable the `async_support` feature so the engine can be driven as a `Future`. You'll also need an async runtime (Tokio here) on the host side.
 
 ```toml
 [dependencies]
-zuqe = "0.8.0" # replace with the latest version
+zuqe = { version = "0.8.0" } # replace with the latest version
+tokio = { version = "1", features = ["full"] }
 ```
 
 ## 2. Initialize Runtime and Context
@@ -18,32 +19,33 @@ The core of any `zuqe` application is the `Runtime` and `Context`. The `Runtime`
 ```rust
 use zuqe::{Context, Runtime, ScopedContext};
 
-fn main() {
+fn build() -> (Runtime, Context) {
     let mut rt = Runtime::create().unwrap();
 
-    let mut ctx = rt
+    let ctx = rt
         .create_context(|cx| {
             ScopedContext::ECMA_CONTEXT_SETUP(cx)
         })
         .unwrap();
+
+    (rt, ctx)
 }
 ```
 
-Where `ScopedContext::ECMA_CONTEXT_SETUP` is the context setup handler that initializes a context to meet ECMA standard. You may also provide your own context setup callback.
+`ScopedContext::ECMA_CONTEXT_SETUP` is the context setup handler that initializes a context to meet the ECMA standard. You may also provide your own context setup callback.
 
-## 3. Run JavaScript
+## 3. Run JavaScript (async mode)
 
-Use `with_new_scope` and `eval_wait` to execute JavaScript inside a new scope.
+In async mode you drive the runtime with `Runtime::run_async()` and evaluate scripts with the non-blocking `eval()` (not the blocking `eval_wait()`). When a script returns a JS `Promise`, convert it to a Rust `Future` via `Promise::into_future()` and `await` it alongside `rt.run_async()`.
 
 ```rust
-use zuqe::{Context, EvalFlags, EvalType, Runtime, ScopedContext};
+use zuqe::{Context, EvalFlags, EvalType, JSValue, Promise, Runtime, ScopedContext};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let mut rt = Runtime::create().unwrap();
     let mut ctx = rt
-        .create_context(|cx| {
-            ScopedContext::ECMA_CONTEXT_SETUP(cx)
-        })
+        .create_context(|cx| ScopedContext::ECMA_CONTEXT_SETUP(cx))
         .unwrap();
 
     let script = r#"
@@ -51,48 +53,14 @@ fn main() {
         greet("Zuqe");
     "#;
 
-    ctx.with_new_scope(|mut scope| {
-        let res = scope.eval_wait(
-            script.as_bytes(),
-            "example.js",
-            EvalType::Global,
-            EvalFlags::empty(),
-        );
-
-        match res {
-            Ok(val) => {
-                println!("eval result: {}", val.inspect(&mut scope).unwrap());
-            }
-            Err(e) => {
-                let mut err_msg = e.message;
-                if let Some(tb) = e.traceback {
-                    err_msg = format!("{err_msg}\n{tb}");
-                }
-                println!("error: {err_msg}");
-            }
-        }
-    });
-}
-```
-
-This tutorial provides a starting point for using the `zuqe` crate. The following tutorials cover modules, native functions, classes, and more advanced usage.
-
-## 4. Async execution with `async_support`
-
-When the `async_support` Cargo feature is enabled, the runtime can
-also be driven as a Rust `Future` inside a Tokio (or other async runtime) context.
-This lets JS `Promise`s be `await`ed from Rust code:
-
-```rust
-use zuqe::{EvalFlags, EvalType, Promise};
-
-async fn run_async_example(mut rt: Runtime, mut ctx: Context) {
+    // Evaluate inside a scope. `eval()` is non-blocking: a plain value is
+    // returned immediately, while a Promise gives us a Rust Future to await.
     let mut promise_future = None;
+    let mut direct_value = None;
 
     ctx.with_new_scope(|mut scope| {
-        // Use eval() (non-blocking) instead of eval_wait() (blocking)
         let val = scope.eval(
-            b"Promise.resolve(42)",
+            script.as_bytes(),
             "example.js",
             EvalType::Global,
             EvalFlags::empty(),
@@ -100,27 +68,37 @@ async fn run_async_example(mut rt: Runtime, mut ctx: Context) {
 
         if let Ok(promise) = Promise::try_from(val) {
             promise_future = Some(promise.into_future(&mut scope)?);
+        } else {
+            direct_value = Some(val);
         }
         Ok(())
     });
 
-    if let Some(js_fut) = promise_future {
-        // Drive the runtime and the Promise future concurrently
+    // Await the JS Promise (if any) together with the runtime loop.
+    let value = if let Some(js_fut) = promise_future {
         let (_rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
-        // promise_res: Result<JSValue, JSValue>
-    }
+        match promise_res {
+            Ok(v) => v,
+            Err(e) => e, // the Promise rejected; `e` is the rejection reason
+        }
+    } else {
+        direct_value.unwrap_or(JSValue::UNDEFINED)
+    };
+
+    ctx.with_new_scope(|mut scope| {
+        println!("result: {}", value.inspect(&mut scope).unwrap());
+        Ok(())
+    });
 }
 ```
 
-Key differences from the synchronous approach:
+Key points of the async workflow:
 
-- Use **`scope.eval()`** instead of `scope.eval_wait()` to avoid blocking.
-- Convert the returned JS `Promise` into a Rust `Future` via `Promise::into_future()`.
-- Drive the runtime with **`rt.run_async().await`** instead of calling `eval_wait`.
+- Use **`scope.eval()`** (non-blocking) instead of the blocking `scope.eval_wait()`.
+- Convert a returned JS `Promise` into a Rust `Future` via `Promise::into_future()`.
+- Drive the runtime with **`rt.run_async().await`** — usually via `tokio::join!` so the runtime loop and the Promise future progress concurrently.
+- A plain (non-Promise) value from `eval()` is available immediately after the scope, with no need to await the runtime.
 
-When `async_support` is **disabled**, the runtime works purely synchronously as
-shown in section 3. The host calls `eval_wait()` which blocks until all JS
-Promises have settled.
+This tutorial provides a starting point for using the `zuqe` crate in async mode. The following tutorials cover modules, native functions, classes, and more advanced usage.
 
-See the [Promise documentation](promise.md) for a complete reference on
-Promise–Future integration.
+See the [Promise documentation](promise.md) for a complete reference on Promise–Future integration, and the [Running Loop](loop.md) document for the lower-level tick mechanism (including the synchronous mode as a reference).

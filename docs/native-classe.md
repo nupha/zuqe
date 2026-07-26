@@ -21,7 +21,7 @@ enum FileDesc {
 // - A struct `JSFile` wrapping the payload type `RefCell<FileDesc>`
 // - Class registration function `JSFile::register(rt)`
 // - Class ID accessor `JSFile::class_id()`
-// - Payload access via `as_native_object::<JSFile>()` and `as_native_object_mut::<JSFile>()`
+// - Payload access via `as_native_object::<JSFile>()` (then `.payload()` / `.take_payload()`)
 // - Instance creation via `JSFile::new_instance(ctx, new_target, payload)`
 // - Proper dispose/unregister lifecycle callbacks
 //
@@ -39,9 +39,8 @@ const CLASS_FILE_PROTO: &[FieldDef] = &[
 
 When using `def_native_object!`, the generated struct implements the `NativeObject` trait, which provides:
 
-- `as_native_object::<T>()` — borrow the Rust payload from a `JSValue`
-- `as_native_object_mut::<T>()` — mutably borrow the Rust payload
-- `take_payload()` — extract the payload (e.g., when closing a resource)
+- `as_native_object::<T>()` — recover the native object wrapper (`NativeObject`) from a `JSValue`; call `.payload()` to reach the Rust data
+- `take_payload()` — extract and take ownership of the Rust payload (e.g., when closing a resource), freeing its heap allocation
 
 The `def_native_object!` macro arguments are:
 
@@ -163,8 +162,8 @@ The `close` method demonstrates how to safely extract and drop the Rust payload:
 
 ```rust
 fn js_file_close(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut this = cc.this();
-    let jsfile = this.as_native_object_mut::<JSFile>().ok_or_else(|| {
+    let this = cc.this();
+    let mut jsfile = this.as_native_object::<JSFile>().ok_or_else(|| {
         ctx.throw_type_error("not a File instance");
         -1
     })?;
