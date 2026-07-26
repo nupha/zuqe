@@ -73,6 +73,7 @@ strip = "symbols"
 # for flamegraph
 [profile.release-with-debug]
 inherits = "release"
+panic = "unwind"
 debug = true
 strip = false
 [profile.release-with-debug.package."*"]

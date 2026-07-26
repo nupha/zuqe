@@ -63,7 +63,11 @@ impl Runtime {
         PANIC_RUNTIME.store(rt_ptr, Ordering::SeqCst);
 
         PANIC_HOOK.call_once(|| {
-            std::panic::set_hook(Box::new(|info| {
+            // Chain any previously installed hook (e.g. the test262 runner's
+            // "print the crashing script" hook) so it still runs after we do our
+            // panic-time GC cleanup.
+            let prev = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
                 if let Some(rt) = unsafe { PANIC_RUNTIME.load(Ordering::SeqCst).as_mut() } {
                     unsafe {
                         rt.panic_free_gc();
@@ -71,6 +75,7 @@ impl Runtime {
                 }
 
                 eprintln!("{info}");
+                prev(info);
             }));
         });
     }

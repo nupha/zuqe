@@ -11,6 +11,7 @@ use std::{
     collections::{HashMap, HashSet},
     io::{Read, Write},
     path::PathBuf,
+    sync::Mutex,
 };
 
 use clap::Parser;
@@ -24,6 +25,11 @@ use crate::{
     report::{NO_FEATURE_KEY, make_last_jsonl_path, write_report},
     runner::{TestStatus, run_test_file},
 };
+
+/// Relative path of the script currently being run. Set right before each
+/// `run_test_file` call so the panic hook below can print it if the runner
+/// crashes mid-run.
+static CURRENT_SCRIPT: Mutex<Option<String>> = Mutex::new(None);
 
 #[derive(Debug, Deserialize, Default)]
 pub struct TestConfig {
@@ -156,6 +162,23 @@ pub fn validate_config(cfg: &AppConfig, require_preset: bool) {
 async fn main_impl() {
     let args = Args::parse();
 
+    // Install a panic hook that prints the script currently being run. This is
+    // the zero-cost crash reporter in `panic = "unwind"` builds (debug and
+    // release-with-debug): on a panic it runs before the process aborts, so we
+    // see the offending script without the per-iteration log writes that
+    // `--log-file` does. In `panic = "abort"` builds (release) the hook never
+    // runs, so `--log-file` is the fallback there.
+    std::panic::set_hook(Box::new(|info| {
+        match CURRENT_SCRIPT.lock() {
+            Ok(g) => match g.as_ref() {
+                Some(s) => eprintln!("!!! test262 CRASH: current script = {s}"),
+                None => eprintln!("!!! test262 CRASH: (no script recorded)"),
+            },
+            Err(_) => eprintln!("!!! test262 CRASH: (script lock poisoned)"),
+        }
+        eprintln!("panic: {info}");
+    }));
+
     // Config is given via `--config` (default: test262.yml). Positional
     // arguments are test scripts/globs to run (matching mainstream test262
     // runners such as test262-harness, QuickJS, and Boa).
@@ -208,19 +231,34 @@ async fn main_impl() {
 
     // `--log-file`: open (truncate) a file that will record the relative path
     // of each script *before* it runs, so a mid-run crash leaves the crashing
-    // script on the last line.
+    // script on the last line. Only meaningful in `panic = "abort"` builds,
+    // where the panic hook above cannot run. In `panic = "unwind"` builds the
+    // panic hook already prints the crashing script for free, so we skip the
+    // per-iteration log writes (they are pure overhead there) and ignore
+    // `--log-file`.
     let mut logf: Option<std::fs::File> = if let Some(p) = &args.log_file {
-        match std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(p)
+        #[cfg(panic = "abort")]
         {
-            Ok(f) => Some(f),
-            Err(e) => {
-                eprintln!("error: cannot open --log-file {p}: {e}");
-                std::process::exit(1);
+            match std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(p)
+            {
+                Ok(f) => Some(f),
+                Err(e) => {
+                    eprintln!("error: cannot open --log-file {p}: {e}");
+                    std::process::exit(1);
+                }
             }
+        }
+        #[cfg(not(panic = "abort"))]
+        {
+            eprintln!(
+                "note: --log-file is ignored in panic=unwind builds; the panic hook prints the \
+                 crashing script on crash."
+            );
+            None
         }
     } else {
         None
@@ -381,9 +419,11 @@ async fn main_impl() {
     eprint!("Test 0 / {}, Fail 0", total);
 
     for (file_name, rel) in run_list {
-        // Record the script we are about to run. Written and flushed *before*
-        // `run_test_file` so that even a hard abort (panic = "abort") leaves the
-        // crashing script as the last line on disk.
+        // Record the script we are about to run so the panic hook can print it
+        // on a mid-run crash. In `panic = "abort"` builds we additionally write
+        // it to `--log-file` (and flush) before running, since the hook cannot
+        // run there.
+        *CURRENT_SCRIPT.lock().unwrap() = Some(rel.clone());
         if let Some(f) = logf.as_mut() {
             if writeln!(f, "{rel}").is_ok() {
                 let _ = f.flush();
