@@ -98,11 +98,15 @@ impl NFuncPayload {
             let ret_val: JSResult = match self.callback {
                 Callback::Func(f) => f(cx, cc),
                 Callback::Getter(f) => {
-                    debug_assert_eq!(cc.length(), 0);
+                    // A getter may be invoked directly as a function (e.g.
+                    // `desc.get.call(obj, extraArg)`), so the argument count is
+                    // not fixed. `cc.arg` is safe regardless of count.
                     f(cx, cc)
                 }
                 Callback::Setter(f) => {
-                    debug_assert_eq!(cc.length(), 1);
+                    // A setter may be called with 0 or more arguments when
+                    // invoked directly as a function; `cc.arg(0)` defaults to
+                    // UNDEFINED when no value is passed.
                     f(cx, cc)
                 }
                 Callback::IteratorNext(f) => {

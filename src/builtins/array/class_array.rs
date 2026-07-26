@@ -423,21 +423,25 @@ pub(crate) fn js_array_every(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let special = cc.magic();
 
-    let obj: JSValue;
+    let this = cc.this();
+    let this_obj: Object;
     let len: i64;
+
     if special & special_TA != 0 {
-        obj = cc.this();
-        len = js_typed_array_get_length_internal(ctx, obj)? as i64;
+        this_obj = this.as_object().ok_or_else(|| {
+            ctx.throw_type_error_not_an_object();
+            -1
+        })?;
+        len = js_typed_array_get_length_internal(ctx, this)? as i64;
     } else {
-        obj = cc.this().objectify(ctx)?.into();
-        len = obj.get_length_prop(ctx)?;
+        this_obj = this.objectify(ctx)?;
+        len = this_obj.get_length_prop(ctx)?;
     }
 
     let func = cc.arg(0);
     func.ensure_callable(ctx)?;
 
     let mut acc: JSValue;
-
     if special & special_TA != 0 {
         // typed arrays are dense: `len` is the exact element count, so iterate
         // the full range directly.
@@ -454,7 +458,7 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
             } else {
                 0
             };
-            acc = obj.get_property_i64(ctx, k1)?;
+            acc = this_obj.get_property_i64(ctx, k1)?;
             k = 1;
         }
 
@@ -467,9 +471,9 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
             };
             k += 1;
 
-            val = obj.get_property_i64(ctx, k1)?;
+            val = this_obj.get_property_i64(ctx, k1)?;
             let index_val = JSValue::from(k1);
-            acc = func.call(ctx, JSValue::UNDEFINED, &[acc, val, index_val, obj])?;
+            acc = func.call(ctx, JSValue::UNDEFINED, &[acc, val, index_val, this])?;
         }
 
         return Ok(acc);
@@ -494,7 +498,7 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
                     k
                 };
                 k += 1;
-                if let Some(r) = obj.try_get_property_i64(ctx, k1)? {
+                if let Some(r) = this_obj.try_get_property_i64(ctx, k1)? {
                     acc = r;
                     break;
                 }
@@ -507,9 +511,9 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
                 k
             };
             k += 1;
-            if let Some(v) = obj.try_get_property_i64(ctx, k1)? {
+            if let Some(v) = this_obj.try_get_property_i64(ctx, k1)? {
                 let index_val = JSValue::from(k1);
-                acc = func.call(ctx, JSValue::UNDEFINED, &[acc, v, index_val, obj])?;
+                acc = func.call(ctx, JSValue::UNDEFINED, &[acc, v, index_val, this])?;
             }
         }
         return Ok(acc);
@@ -519,8 +523,7 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     // exhaust the atom table. Enumerate only the actually-present integer
     // indices (own + inherited) instead. `reduce` already skips holes per
     // spec, so this is exactly equivalent.
-    let o = obj.as_object().unwrap();
-    let mut idxs = collect_present_indices(ctx, &o, len)?;
+    let mut idxs = collect_present_indices(ctx, this_obj, len)?;
     if special & special_reduceRight != 0 {
         idxs.reverse();
     }
@@ -531,7 +534,7 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     } else {
         match it.next() {
             Some(k1) => {
-                acc = obj
+                acc = this_obj
                     .try_get_property_i64(ctx, k1)?
                     .unwrap_or(JSValue::UNDEFINED);
             }
@@ -544,11 +547,11 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
 
     let mut val;
     for k1 in it {
-        val = obj
+        val = this_obj
             .try_get_property_i64(ctx, k1)?
             .unwrap_or(JSValue::UNDEFINED);
         let index_val = JSValue::from(k1);
-        acc = func.call(ctx, JSValue::UNDEFINED, &[acc, val, index_val, obj])?;
+        acc = func.call(ctx, JSValue::UNDEFINED, &[acc, val, index_val, this])?;
     }
 
     Ok(acc)
@@ -648,18 +651,20 @@ fn js_array_find(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 /// `HasProperty`/`Get` walk, and also honors inherited elements.
 fn collect_present_indices(
     ctx: &mut ScopedContext,
-    obj: &Object,
+    obj: Object,
     len: i64,
 ) -> Result<Vec<i64>, i32> {
     let mut idxs: Vec<i64> = Vec::new();
-    let mut current: Option<Object> = Some(obj.clone());
+    let mut current: Option<Object> = Some(obj);
     let mut depth: u32 = 0;
+
     while let Some(mut o) = current {
         // guard against pathological / cyclic prototype chains
         if depth > 128 {
             break;
         }
         depth += 1;
+
         let names = o.get_own_property_names(ctx, JS_GPN_STR_OR_INT_MASK)?;
         for pk in names.iter() {
             // `to_i64` resolves both genuine integer keys and canonical
@@ -668,22 +673,25 @@ fn collect_present_indices(
             // JS_ATOM_MAX_INT stored as string atoms), so inherited elements and
             // large-but-valid indices are honored while non-index keys
             // (`length`, `foo`, symbols) are skipped.
-            if let Some(idx) = pk.atom.to_i64(ctx.rt()) {
-                if idx >= 0 && idx < len {
-                    idxs.push(idx);
-                }
+            if let Some(idx) = pk.atom.to_i64(ctx.rt())
+                && idx >= 0
+                && idx < len
+            {
+                idxs.push(idx);
             }
         }
+
         current = o.prototype(ctx)?;
     }
+
     idxs.sort_unstable();
     idxs.dedup();
     Ok(idxs)
 }
 
 fn js_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this = cc.this().objectify(ctx)?;
-    let len = this.get_length_prop(ctx)?;
+    let this_obj = cc.this().objectify(ctx)?;
+    let len = this_obj.get_length_prop(ctx)?;
 
     if len > 0 {
         let start = if cc.length() > 1 {
@@ -695,8 +703,8 @@ fn js_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let target = cc.arg(0);
 
         // fast path: fast array
-        if this.is_fast_array()
-            && let Some((i, _)) = this.payload().array().and_then(|a| {
+        if this_obj.is_fast_array()
+            && let Some((i, _)) = this_obj.payload().array().and_then(|a| {
                 a.values()
                     .iter()
                     .enumerate()
@@ -714,7 +722,7 @@ fn js_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             // also matches the spec's sequential semantics (e.g. getters that
             // add properties while being visited).
             for i in start..len {
-                if this
+                if this_obj
                     .try_get_property_i64(ctx, i)?
                     .is_some_and(|v| target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT))
                 {
@@ -726,15 +734,15 @@ fn js_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             // index (past JS_ATOM_MAX_INT) and exhaust the atom table. Enumerate
             // only the actually-present integer indices (own + inherited)
             // instead; this is equivalent for every non-undefined search target.
-            let idxs = collect_present_indices(ctx, &this, len)?;
+            let idxs = collect_present_indices(ctx, this_obj, len)?;
             for i in idxs {
                 if i < start {
                     continue;
                 }
-                if let Some(v) = this.try_get_property_i64(ctx, i)? {
-                    if target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT) {
-                        return Ok(JSValue::from(i));
-                    }
+                if let Some(v) = this_obj.try_get_property_i64(ctx, i)?
+                    && target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT)
+                {
+                    return Ok(JSValue::from(i));
                 }
             }
         }
@@ -744,8 +752,8 @@ fn js_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 pub(crate) fn js_array_lastIndexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().objectify(ctx)?.into();
-    let len = obj.get_length_prop(ctx)?;
+    let this_obj: JSValue = cc.this().objectify(ctx)?.into();
+    let len = this_obj.get_length_prop(ctx)?;
     let target = cc.arg(0);
 
     let mut res: i64 = -1;
@@ -761,28 +769,28 @@ pub(crate) fn js_array_lastIndexOf(ctx: &mut ScopedContext, cc: CallContext) -> 
             // Sequential scan (descending). Every index is a small int, so no
             // atom is allocated; matches the spec's sequential semantics.
             for n in (0..=cnt).rev() {
-                if let Some(v) = obj.try_get_property_i64(ctx, n)? {
-                    if target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT) {
-                        res = n;
-                        break;
-                    }
+                if let Some(v) = this_obj.try_get_property_i64(ctx, n)?
+                    && target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT)
+                {
+                    res = n;
+                    break;
                 }
             }
         } else {
             // Huge length: scanning `0..=cnt` would allocate an atom per index
             // and exhaust the atom table. Enumerate only the actually-present
             // integer indices (own + inherited) instead, in descending order.
-            let o = obj.as_object().unwrap();
-            let idxs = collect_present_indices(ctx, &o, len)?;
+            let o = this_obj.as_object().unwrap();
+            let idxs = collect_present_indices(ctx, o, len)?;
             for n in idxs.iter().rev() {
                 if *n > cnt {
                     continue;
                 }
-                if let Some(v) = obj.try_get_property_i64(ctx, *n)? {
-                    if target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT) {
-                        res = *n;
-                        break;
-                    }
+                if let Some(v) = this_obj.try_get_property_i64(ctx, *n)?
+                    && target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT)
+                {
+                    res = *n;
+                    break;
                 }
             }
         }
@@ -834,9 +842,8 @@ fn js_array_includes(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let to_locale_string = cc.magic() == 1;
-
-    let obj = cc.this().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+    let this_obj = cc.this().objectify(ctx)?;
+    let len = this_obj.get_length_prop(ctx)?;
 
     let mut c = b',' as i32; // default separator
     let mut p: Option<StringRef> = None;
@@ -854,7 +861,6 @@ pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     }
 
     let mut sbuf = StringBuf::Empty;
-
     for i in 0..len {
         if i > 0 {
             // append separator
@@ -865,7 +871,7 @@ pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
             }
         }
 
-        let el = obj.get_property_i64(ctx, i)?;
+        let el = this_obj.get_property_i64(ctx, i)?;
         if !el.is_undefined_or_null() {
             let ss: StringRef = if to_locale_string {
                 el.to_locale_string(ctx)?.to_string(ctx)?
@@ -885,28 +891,28 @@ pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
 }
 
 pub(crate) fn js_array_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let obj = cc.this().objectify(ctx)?;
-    obj.invoke_callable(ctx, Atom::CONST_join, &[])?
+    let this_obj = cc.this().objectify(ctx)?;
+    this_obj
+        .invoke_callable(ctx, Atom::CONST_join, &[])?
         .unwrap_or_else(|| {
             // use builtin `Object.prototype.toString`
-            js_object_toString(ctx, CallContext::new_simple(obj.into(), &[]))
+            js_object_toString(ctx, CallContext::new_simple(this_obj.into(), &[]))
         })
 }
 
 pub(crate) fn js_array_pop(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let shift = cc.magic() == 1;
 
-    let mut this = cc.this().objectify(ctx)?;
-    let length = this.get_length_prop(ctx)?;
-
+    let mut this_obj = cc.this().objectify(ctx)?;
+    let length = this_obj.get_length_prop(ctx)?;
     let mut res = JSValue::UNDEFINED;
     let mut new_len = 0;
 
     if length > 0 {
         new_len = length - 1;
 
-        res = if this.is_fast_array()
-            && let Some(arr_data) = this.payload_mut().array_mut()
+        res = if this_obj.is_fast_array()
+            && let Some(arr_data) = this_obj.payload_mut().array_mut()
             && arr_data.len() == length as usize
         {
             // fast array
@@ -918,26 +924,26 @@ pub(crate) fn js_array_pop(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         } else {
             // slow path
             let val = if shift {
-                let v = this.get_property_i64(ctx, 0)?;
-                copy_sub_array(ctx, &mut this, 0, 1, length as usize - 1, 1)?;
+                let v = this_obj.get_property_i64(ctx, 0)?;
+                copy_sub_array(ctx, &mut this_obj, 0, 1, length as usize - 1, 1)?;
                 v
             } else {
-                this.get_property_i64(ctx, new_len)?
+                this_obj.get_property_i64(ctx, new_len)?
             };
-            this.delete_property_i64(ctx, new_len, JS_PROP_THROW)?;
+            this_obj.delete_property_i64(ctx, new_len, JS_PROP_THROW)?;
             val
         };
     }
 
-    this.set_property(ctx, Atom::CONST_length, JSValue::from(new_len))?;
+    this_obj.set_property(ctx, Atom::CONST_length, JSValue::from(new_len))?;
     Ok(res)
 }
 
 pub(crate) fn js_array_push(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let unshift = cc.magic();
 
-    let mut obj = cc.this().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+    let mut this_obj = cc.this().objectify(ctx)?;
+    let len = this_obj.get_length_prop(ctx)?;
 
     let new_len = len + cc.length() as i64;
     if new_len > MAX_SAFE_INTEGER {
@@ -947,15 +953,15 @@ pub(crate) fn js_array_push(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
 
     let mut from = len;
     if unshift != 0 && cc.length() > 0 {
-        copy_sub_array(ctx, &mut obj, cc.length() as _, 0, len as usize, -1)?;
+        copy_sub_array(ctx, &mut this_obj, cc.length() as _, 0, len as usize, -1)?;
         from = 0;
     }
 
     for i in 0..cc.length() {
-        obj.set_property_i64(ctx, from + i as i64, cc.arg(i))?;
+        this_obj.set_property_i64(ctx, from + i as i64, cc.arg(i))?;
     }
 
-    obj.set_property(ctx, Atom::CONST_length, JSValue::from(new_len))?;
+    this_obj.set_property(ctx, Atom::CONST_length, JSValue::from(new_len))?;
 
     Ok(JSValue::from(new_len))
 }
@@ -1138,8 +1144,8 @@ fn js_array_toSorted(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let is_splice = cc.magic() != 0;
 
-    let mut obj = cc.this().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+    let mut this_obj = cc.this().objectify(ctx)?;
+    let len = this_obj.get_length_prop(ctx)?;
     let start = cc.arg(0).to_number(ctx)?.to_i64_clamp(0, len, len);
 
     let item_count: u32;
@@ -1176,7 +1182,7 @@ pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 
     // make return Array
     let len_val = JSValue::from(count);
-    let mut res_arr = JS_ArraySpeciesCreate(ctx, obj.into(), len_val)?;
+    let mut res_arr = JS_ArraySpeciesCreate(ctx, this_obj.into(), len_val)?;
 
     let mut k = start;
     let mut n = 0;
@@ -1184,8 +1190,8 @@ pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     // Special case fast arrays
     if let Some(mut arr1) = res_arr.as_object_Array()
         && arr1.is_fast_array()
-        && obj.is_fast_array()
-        && let Some(arr_data) = obj.payload_mut().array_mut()
+        && this_obj.is_fast_array()
+        && let Some(arr_data) = this_obj.payload_mut().array_mut()
     {
         let lst = arr_data
             .values()
@@ -1208,7 +1214,7 @@ pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 
     // Copy the remaining elements if any (handle case of inherited properties)
     while k < end {
-        if let Some(v) = obj.try_get_property_i64(ctx, k)? {
+        if let Some(v) = this_obj.try_get_property_i64(ctx, k)? {
             res_arr.create_data_property_u32(ctx, n as _, v, JS_PROP_THROW)?;
         }
         k += 1;
@@ -1222,7 +1228,7 @@ pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         if item_count as i64 != del_count {
             copy_sub_array(
                 ctx,
-                &mut obj,
+                &mut this_obj,
                 start as usize + item_count as usize,
                 start as usize + del_count as usize,
                 len as usize - (start + del_count) as usize,
@@ -1234,23 +1240,23 @@ pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
             )?;
 
             for i in (new_len..len).rev() {
-                obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
+                this_obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
             }
         }
 
         for i in 0..item_count {
-            obj.set_property_i64(ctx, start + i as i64, cc.arg(i as usize + 2))?;
+            this_obj.set_property_i64(ctx, start + i as i64, cc.arg(i as usize + 2))?;
         }
 
-        obj.set_property(ctx, Atom::CONST_length, JSValue::from(new_len))?;
+        this_obj.set_property(ctx, Atom::CONST_length, JSValue::from(new_len))?;
     }
 
     Ok(res_arr)
 }
 
 fn js_array_toSpliced(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut obj = cc.this().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+    let mut this_obj = cc.this().objectify(ctx)?;
+    let len = this_obj.get_length_prop(ctx)?;
 
     let start = if cc.length() > 0 {
         cc.arg(0).to_number(ctx)?.to_i64_clamp(0, len, len)
@@ -1278,10 +1284,9 @@ fn js_array_toSpliced(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     let mut new_lst = alloc_fast_array_slots(ctx, new_len as usize)?;
-
     if new_len > 0 {
-        if obj.is_fast_array()
-            && let Some(arr_data) = obj.as_Array_mut().map(|a| a.payload_mut())
+        if this_obj.is_fast_array()
+            && let Some(arr_data) = this_obj.as_Array_mut().map(|a| a.payload_mut())
             && arr_data.len() == len as usize
         {
             // fast array
@@ -1293,7 +1298,7 @@ fn js_array_toSpliced(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         } else {
             // slow path: sparse array
             for i in 0..start {
-                let el = obj
+                let el = this_obj
                     .try_get_property_i64(ctx, i)
                     .inspect_err(|_| {
                         // error: fill rest with undefined
@@ -1311,7 +1316,7 @@ fn js_array_toSpliced(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }
 
             for i in (start + del)..len {
-                let el = obj
+                let el = this_obj
                     .try_get_property_i64(ctx, i)
                     .inspect_err(|_| {
                         // error: fill rest with undefined
@@ -1331,8 +1336,8 @@ fn js_array_toSpliced(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_array_copyWithin(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut obj = cc.this().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+    let mut this_obj = cc.this().objectify(ctx)?;
+    let len = this_obj.get_length_prop(ctx)?;
 
     let to: i64 = cc.arg(0).to_number(ctx)?.to_i64_clamp(0, len, len);
     let start: i64 = cc.arg(1).to_number(ctx)?.to_i64_clamp(0, len, len);
@@ -1346,7 +1351,7 @@ fn js_array_copyWithin(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if count > 0 {
         copy_sub_array(
             ctx,
-            &mut obj,
+            &mut this_obj,
             to as _,
             start as _,
             count as _,
@@ -1358,7 +1363,7 @@ fn js_array_copyWithin(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         )?;
     }
 
-    Ok(obj.into())
+    Ok(this_obj.into())
 }
 
 pub(crate) fn js_array_flatten(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
