@@ -168,7 +168,10 @@ async fn main_impl() {
     // see the offending script without the per-iteration log writes that
     // `--log-file` does. In `panic = "abort"` builds (release) the hook never
     // runs, so `--log-file` is the fallback there.
-    std::panic::set_hook(Box::new(|info| {
+    // Chain the previously-installed hook (the default, or the engine's
+    // panic-time GC hook) so the usual panic location + backtrace still print.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
         match CURRENT_SCRIPT.lock() {
             Ok(g) => match g.as_ref() {
                 Some(s) => eprintln!("!!! test262 CRASH: current script = {s}"),
@@ -176,7 +179,7 @@ async fn main_impl() {
             },
             Err(_) => eprintln!("!!! test262 CRASH: (script lock poisoned)"),
         }
-        eprintln!("panic: {info}");
+        prev_hook(info);
     }));
 
     // Config is given via `--config` (default: test262.yml). Positional

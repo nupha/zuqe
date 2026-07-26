@@ -454,7 +454,10 @@ impl TypedArray {
                                 }
                             }
                             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                                unimplemented!("BigInt64 and BigUint64 is not supported");
+                                ctx.throw_type_error(
+                                    "BigInt64Array, BigUint64Array is not supported",
+                                );
+                                return Err(-1);
                             }
                             c => {
                                 unreachable!("class_id: {c}");
