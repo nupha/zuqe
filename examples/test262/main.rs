@@ -86,6 +86,15 @@ pub struct Args {
     /// current failures (the previous file is backed up to `<name>-last.jsonl`).
     #[arg(long = "error-file")]
     pub error_file: Option<String>,
+
+    /// Log file that records the relative script path *before* each test runs.
+    /// Useful when the runner crashes mid-run: because the line is written (and
+    /// flushed) before the test executes, the last line of this file is exactly
+    /// the script that was running when it crashed — no need to re-run to find
+    /// it. Under `panic = "abort"` builds a panic hook cannot help (the process
+    /// aborts with no unwinding), so this on-disk record is the reliable way.
+    #[arg(long = "log-file")]
+    pub log_file: Option<String>,
 }
 
 /// Merge CLI flags onto the config loaded from the file. A CLI flag takes
@@ -196,6 +205,26 @@ async fn main_impl() {
         } else {
             (PathBuf::from("test262-errors.jsonl"), None)
         };
+
+    // `--log-file`: open (truncate) a file that will record the relative path
+    // of each script *before* it runs, so a mid-run crash leaves the crashing
+    // script on the last line.
+    let mut logf: Option<std::fs::File> = if let Some(p) = &args.log_file {
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(p)
+        {
+            Ok(f) => Some(f),
+            Err(e) => {
+                eprintln!("error: cannot open --log-file {p}: {e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
 
     // Merge CLI flags over the file config, then validate everything up front.
     apply_cli_overrides(&mut app_cfg, &args);
@@ -352,6 +381,15 @@ async fn main_impl() {
     eprint!("Test 0 / {}, Fail 0", total);
 
     for (file_name, rel) in run_list {
+        // Record the script we are about to run. Written and flushed *before*
+        // `run_test_file` so that even a hard abort (panic = "abort") leaves the
+        // crashing script as the last line on disk.
+        if let Some(f) = logf.as_mut() {
+            if writeln!(f, "{rel}").is_ok() {
+                let _ = f.flush();
+            }
+        }
+
         let (status, feats, err_msg) = run_test_file(
             &file_name,
             &harness_path,
