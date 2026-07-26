@@ -282,6 +282,21 @@ async fn main_impl() {
         }
     }
 
+    // A non-default `tests` filter (from CLI args or the config's `tests:`
+    // key) acts as a whitelist; the default `**/*.js` means "run everything"
+    // and is not reported as a filter.
+    let test_filter: Option<String> = if !args.test_files.is_empty() {
+        Some(args.test_files.join("\n"))
+    } else if let Some(tests) = &app_cfg.tests {
+        if tests.is_empty() {
+            None
+        } else {
+            Some(tests.join("\n"))
+        }
+    } else {
+        None
+    };
+
     let test_globs: Vec<String> = if !args.test_files.is_empty() {
         args.test_files.clone()
     } else if let Some(tests) = app_cfg.tests.take() {
@@ -401,6 +416,7 @@ async fn main_impl() {
     write_report(
         &preset_name,
         feature_list.as_deref(),
+        test_filter.as_deref(),
         total,
         failed_count,
         &feat_stats,
