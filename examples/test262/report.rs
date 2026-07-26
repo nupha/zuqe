@@ -149,6 +149,19 @@ pub fn write_report(
         0.0
     };
 
+    // Stable (baseline) pass rate: tests that declare no `@features` frontmatter.
+    // These are core-language tests always expected to pass; mainstream conformance
+    // dashboards surface this number separately from the overall (all-features) rate.
+    let (baseline_total, baseline_pass) = feat_stats
+        .get(NO_FEATURE_KEY)
+        .copied()
+        .unwrap_or((0, 0));
+    let baseline_rate = if baseline_total > 0 {
+        (baseline_pass as f64 / baseline_total as f64) * 100.0
+    } else {
+        0.0
+    };
+
     let mut md = String::new();
 
     // Title carries the timestamp.
@@ -178,6 +191,20 @@ pub fn write_report(
         "<td align=\"center\" style=\"background:#EF6C00;color:#FFFFFF;padding:14px 26px;border-radius:10px;\"><div style=\"font-size:12px;letter-spacing:2px;\">RATE</div><div style=\"font-size:30px;font-weight:bold;\">{rate:.2}%</div></td>\n"
     ));
     md.push_str("</tr>\n</table>\n\n</div>\n\n");
+
+    // Summary: distinguish the overall rate (all tests) from the stable/baseline
+    // rate (core-language tests with no `@features`), mirroring mainstream
+    // conformance dashboards.
+    md.push_str("## Summary\n\n");
+    md.push_str(&format!("- **Preset**: {preset_name}\n"));
+    md.push_str(&format!(
+        "- **Overall pass rate**: {rate:.2}% ({success_count}/{total})\n"
+    ));
+    if baseline_total > 0 {
+        md.push_str(&format!(
+            "- **Stable (baseline) pass rate**: {baseline_rate:.2}% ({baseline_pass}/{baseline_total})\n"
+        ));
+    }
 
     // Feature table: only features that were actually exercised.
     md.push_str("## Features tested\n\n");
@@ -218,14 +245,19 @@ pub fn write_report(
         md.push_str("| (none) | | | | |\n");
     } else {
         for (fname, (t, p)) in &rows {
+            let label = if fname == NO_FEATURE_KEY {
+                "(baseline — no @features)"
+            } else {
+                fname
+            };
             let fail = t - p;
             let fr = (*p as f64 / *t as f64) * 100.0;
             if fail > 0 {
                 md.push_str(&format!(
-                    "| {fname} | {t} | {p} | <span style=\"color:#C62828;font-weight:bold;\">{fail}</span> | {fr:.2}% |\n"
+                    "| {label} | {t} | {p} | <span style=\"color:#C62828;font-weight:bold;\">{fail}</span> | {fr:.2}% |\n"
                 ));
             } else {
-                md.push_str(&format!("| {fname} | {t} | {p} | {fail} | {fr:.2}% |\n"));
+                md.push_str(&format!("| {label} | {t} | {p} | {fail} | {fr:.2}% |\n"));
             }
         }
     }
