@@ -277,10 +277,6 @@ pub fn write_report(
     // Summary.
     html.push_str("<section class=\"summary\">\n<h2>Summary</h2>\n<ul>\n");
     html.push_str(&format!(
-        "<li><span class=\"k\">Preset</span><span class=\"v\">{}</span></li>\n",
-        escape_html(preset_name)
-    ));
-    html.push_str(&format!(
         "<li><span class=\"k\">Overall pass rate</span><span class=\"v\">{rate:.2}% ({success_count}/{total})</span></li>\n"
     ));
     if baseline_total > 0 {
