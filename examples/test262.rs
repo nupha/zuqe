@@ -5,6 +5,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    fs::File,
     io::{Read, Seek, Write},
     path::{Path, PathBuf},
     sync::{
@@ -15,6 +16,7 @@ use std::{
 
 use clap::Parser;
 use serde::Deserialize;
+use serde_json;
 use url::Url;
 use zuqe::{
     CallContext, Callback, Context, EvalFlags, EvalType, ExceptionText, JSResult, JSValue,
@@ -437,12 +439,47 @@ fn dump_error(
     }
 }
 
+/// Write one JSONL error record with an explicit message and stack string.
+fn write_jsonl_raw(w: &mut File, script_rel: &str, scenario: &str, message: &str, stack: &str) {
+    let entry = serde_json::json!({
+        "script": script_rel,
+        "error": message,
+        "stack": stack,
+        "scenario": scenario,
+    });
+    let _ = writeln!(w, "{}", entry);
+}
+
+/// Write one JSONL error record from an `ExceptionText` (message + raw stack).
+fn write_error_jsonl(w: &mut File, script_rel: &str, scenario: &str, exc: &ExceptionText) {
+    write_jsonl_raw(
+        w,
+        script_rel,
+        scenario,
+        &exc.message,
+        exc.traceback.as_deref().unwrap_or(""),
+    );
+}
+
+/// Given an error-file path `foo.jsonl`, return the backup path `foo-last.jsonl`.
+fn make_last_jsonl_path(path: &str) -> PathBuf {
+    let p = Path::new(path);
+    let stem = p
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let parent = p.parent().unwrap_or_else(|| Path::new(""));
+    parent.join(format!("{stem}-last.jsonl"))
+}
+
 async fn run_test_file(
     filename: &Path,
     harness_path: &Path,
     dec: &Decisions,
     outf: &mut dyn Write,
     errf: &mut dyn Write,
+    script_rel: &str,
+    errjson: &mut File,
 ) {
     write!(outf, "{} ... ", filename.display()).unwrap();
 
@@ -508,6 +545,7 @@ async fn run_test_file(
             writeln!(errf, "{}", filename.display()).unwrap();
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&exc, false, false, false, errf);
+            write_error_jsonl(errjson, script_rel, "harness", &exc);
 
             has_err = true;
         }
@@ -562,6 +600,8 @@ async fn run_test_file(
             #[cfg(debug_assertions)]
             debug_assert_eq!(ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()), 1);
 
+            let scenario = if strict { "strict" } else { "default" };
+
             if let Err(exc) = res {
                 if let Some(neg) = &negative {
                     if let Some(ty) = neg.type_.as_ref() {
@@ -585,6 +625,7 @@ async fn run_test_file(
                             )
                             .unwrap();
                             dump_error(&exc, strict, is_module, is_async, errf);
+                            write_error_jsonl(errjson, script_rel, scenario, &exc);
                         }
                     } else {
                         writeln!(outf, "pass").unwrap();
@@ -595,6 +636,7 @@ async fn run_test_file(
 
                     writeln!(errf, "{}", filename.display()).unwrap();
                     dump_error(&exc, strict, is_module, is_async, errf);
+                    write_error_jsonl(errjson, script_rel, scenario, &exc);
                 }
             } else if let Some(neg) = &negative {
                 writeln!(
@@ -611,6 +653,16 @@ async fn run_test_file(
                     neg.type_.as_ref().map_or("", |s| s.as_str())
                 )
                 .unwrap();
+                write_jsonl_raw(
+                    errjson,
+                    script_rel,
+                    scenario,
+                    &format!(
+                        "[NEGATIVE] expects error {}",
+                        neg.type_.as_ref().map_or("", |s| s.as_str())
+                    ),
+                    "",
+                );
             } else {
                 writeln!(outf, "pass").unwrap();
             }
@@ -921,22 +973,23 @@ fn apply_cli_overrides(cfg: &mut AppConfig, args: &Args) {
 
 /// Validate the (merged) config in one place, right before running. Any
 /// missing or invalid setting surfaces here instead of mid-run.
-fn validate_config(cfg: &AppConfig) {
-    // `preset` is required: either from the file or from `--preset`.
-    let preset = match cfg.preset.as_deref() {
-        Some(p) => p,
-        None => {
+/// `require_preset` is false in `--error-file` mode, where the preset no
+/// longer selects which scripts run.
+fn validate_config(cfg: &AppConfig, require_preset: bool) {
+    // `preset` is required: either from the file or from `--preset`. Skipped
+    // when re-running from an errors list, since preset-based filtering is off.
+    if let Some(preset) = cfg.preset.as_deref() {
+        if !is_known_preset(preset) {
             eprintln!(
-                "error: no preset specified. Set 'preset:' in the config file or pass --preset <NAME>.\n\
-                 available presets: {}",
+                "error: unknown preset '{preset}'. available presets: {}",
                 available_presets()
             );
             std::process::exit(1);
         }
-    };
-    if !is_known_preset(preset) {
+    } else if require_preset {
         eprintln!(
-            "error: unknown preset '{preset}'. available presets: {}",
+            "error: no preset specified. Set 'preset:' in the config file or pass --preset <NAME>.\n\
+             available presets: {}",
             available_presets()
         );
         std::process::exit(1);
@@ -1053,6 +1106,13 @@ struct Args {
     /// Specific test file(s) or glob(s) to run; overrides `tests` in the config.
     #[arg(trailing_var_arg = true)]
     test_files: Vec<String>,
+
+    /// Path to a JSONL error log produced by a previous run. When given, only
+    /// the scripts listed in that file are re-run (the config's `tests`/`preset`
+    /// script filtering is ignored), and the file is rewritten in place with the
+    /// current failures (the previous file is backed up to `<name>-last.jsonl`).
+    #[arg(long = "error-file")]
+    error_file: Option<String>,
 }
 
 async fn main_impl() {
@@ -1074,11 +1134,56 @@ async fn main_impl() {
         serde_yaml::from_str::<AppConfig>(txt.as_str()).unwrap()
     };
 
+    // If `--error-file` is given, read the previous error log and back it up.
+    // Only the listed scripts are re-run afterwards; the config's preset/tests
+    // filtering is ignored in that mode.
+    let (errjson_path, forced): (PathBuf, Option<Vec<String>>) =
+        if let Some(path) = args.error_file.clone() {
+            let content = std::fs::read_to_string(&path).unwrap_or_default();
+            let mut seen = HashSet::new();
+            let mut scripts = Vec::new();
+            for line in content.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line)
+                    && let Some(s) = v.get("script").and_then(|x| x.as_str())
+                    && seen.insert(s.to_string())
+                {
+                    scripts.push(s.to_string());
+                }
+            }
+
+            let backup = make_last_jsonl_path(&path);
+            let _ = std::fs::copy(&path, &backup);
+            log::info!(
+                "error-file: re-running {} script(s); backup -> {}",
+                scripts.len(),
+                backup.display()
+            );
+            (PathBuf::from(path), Some(scripts))
+        } else {
+            (PathBuf::from("test262-errors.jsonl"), None)
+        };
+
     // Merge CLI flags over the file config, then validate everything up front.
     apply_cli_overrides(&mut app_cfg, &args);
-    validate_config(&app_cfg);
+    validate_config(&app_cfg, forced.is_none());
 
-    let dec = resolve_decisions(&app_cfg);
+    let dec = if forced.is_some() {
+        // Re-run mode: run exactly the listed scripts, no preset/feature filtering.
+        let (_, max_index) = build_feature_edition();
+        Decisions {
+            feature_edition: HashMap::new(),
+            selected_index: max_index + 1,
+            max_index,
+            exclude: HashSet::new(),
+        }
+    } else {
+        resolve_decisions(&app_cfg)
+    };
 
     let log_tee: Option<TeeWriter<std::fs::File, std::fs::File>> = if let Some(log) = app_cfg.log {
         let log_file = std::fs::OpenOptions::new()
@@ -1150,6 +1255,13 @@ async fn main_impl() {
         .open("test262-fail.txt")
         .unwrap();
 
+    let mut errjson = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&errjson_path)
+        .unwrap();
+
     let mut exclude_tests = HashSet::<PathBuf>::with_capacity(128);
     if let Some(skip_tests) = app_cfg.exclude_tests.take() {
         for item in skip_tests {
@@ -1173,23 +1285,58 @@ async fn main_impl() {
         vec!["**/*.js".to_string()]
     };
 
-    for item in test_globs {
-        for path in glob::glob(base_path.join(format!("test/{item}")).to_str().unwrap()).unwrap() {
-            let file_name = path.unwrap();
-
-            if !exclude_tests.contains(&file_name) {
-                if let Some(f) = log_tee.as_ref().and_then(|t| t.a.clone()) {
-                    let mut fp = f.lock().unwrap();
-                    fp.flush().unwrap();
-                    fp.set_len(0).unwrap();
-                    fp.seek(std::io::SeekFrom::Start(0)).unwrap();
-                    fp.flush().unwrap();
+    // Build the list of (full_path, relative_path) scripts to run.
+    let run_list: Vec<(PathBuf, String)> = if let Some(scripts) = &forced {
+        // Re-run mode: the listed scripts are relative to `<base>/test`.
+        scripts
+            .iter()
+            .map(|rel| (base_path.join("test").join(rel), rel.clone()))
+            .collect()
+    } else {
+        let mut list = Vec::new();
+        for item in test_globs {
+            for path in
+                glob::glob(base_path.join(format!("test/{item}")).to_str().unwrap()).unwrap()
+            {
+                let file_name = path.unwrap();
+                if exclude_tests.contains(&file_name) {
+                    continue;
                 }
-
-                run_test_file(&file_name, &harness_path, &dec, &mut outf, &mut errf).await;
-                outf.flush().unwrap();
+                let rel = file_name
+                    .strip_prefix(base_path.join("test"))
+                    .map(|p| {
+                        p.to_string_lossy()
+                            .trim_start_matches(std::path::MAIN_SEPARATOR)
+                            .to_string()
+                    })
+                    .unwrap_or_else(|_| file_name.to_string_lossy().to_string());
+                list.push((file_name, rel));
             }
         }
+        list
+    };
+
+    for (file_name, rel) in run_list {
+        if let Some(f) = log_tee.as_ref().and_then(|t| t.a.clone()) {
+            let mut fp = f.lock().unwrap();
+            fp.flush().unwrap();
+            fp.set_len(0).unwrap();
+            fp.seek(std::io::SeekFrom::Start(0)).unwrap();
+            fp.flush().unwrap();
+        }
+
+        run_test_file(
+            &file_name,
+            &harness_path,
+            &dec,
+            &mut outf,
+            &mut errf,
+            &rel,
+            &mut errjson,
+        )
+        .await;
+        outf.flush().unwrap();
+        errjson.flush().unwrap();
     }
 }
 
