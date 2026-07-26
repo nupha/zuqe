@@ -348,3 +348,23 @@ pub fn should_skip_test(features: Option<&[String]>, dec: &Decisions) -> bool {
     }
     false
 }
+
+/// Sorted list of feature flags actually exercised by a run: every built-in
+/// feature whose introducing edition is at or before `selected_index`, minus the
+/// exclude set. For the `ALL` preset `selected_index` sits past every edition, so
+/// all non-excluded built-in features are listed.
+pub fn enabled_features(dec: &Decisions) -> Vec<String> {
+    let mut feats: Vec<String> = BUILTIN_PRESETS
+        .iter()
+        .enumerate()
+        .flat_map(|(idx, (_, fs))| {
+            fs.iter()
+                .filter(move |_| idx <= dec.selected_index)
+                .map(|f| (*f).to_string())
+        })
+        .filter(|f| !dec.exclude.contains(f))
+        .collect();
+    feats.sort();
+    feats.dedup();
+    feats
+}

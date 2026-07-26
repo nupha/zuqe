@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use std::{
+    cell::RefCell,
     fs::File,
     io::Write,
     path::{Path, PathBuf},
@@ -24,15 +25,33 @@ use crate::{
 /// counter of "Test262:AsyncTestComplete" messages
 pub static ASYNC_DONE: AtomicI32 = AtomicI32::new(0);
 
+/// Outcome of a single test file: it may be skipped (by preset filtering, or
+/// because it carries no test front matter), pass, or fail.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TestStatus {
+    Skip,
+    Pass,
+    Fail,
+}
+
+// Captured `print(...)` output of the test currently being run. Tests run one
+// at a time on the current thread, so a thread-local buffer is enough. The
+// output is kept out of stdout (which would break the progress line) and only
+// flushed to the failure log when the test fails.
+thread_local! {
+    static PRINT_BUF: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
 fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let mut line = String::new();
     for i in 0..cc.length() {
         if i > 0 {
-            print!(" ");
+            line.push(' ');
         }
         let arg = cc.arg(i);
         let repr = arg.inspect(ctx)?;
 
-        print!("{}", repr);
+        line.push_str(&repr);
 
         if repr.eq("Test262:AsyncTestComplete") {
             ASYNC_DONE.fetch_add(1, Ordering::SeqCst);
@@ -40,8 +59,9 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             ASYNC_DONE.store(2, Ordering::SeqCst);
         }
     }
+    line.push('\n');
 
-    println!();
+    PRINT_BUF.with(|b| b.borrow_mut().push_str(&line));
 
     Ok(JSValue::UNDEFINED)
 }
@@ -240,7 +260,7 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), Except
     for file in harness_files {
         let script = std::fs::read_to_string(file)
             .inspect_err(|_| {
-                println!("Failed to read file: {}", file.display());
+                eprintln!("Failed to read file: {}", file.display());
             })
             .unwrap();
 
@@ -356,7 +376,9 @@ pub async fn run_test_file(
     errf: &mut dyn Write,
     script_rel: &str,
     errjson: &mut File,
-) {
+) -> (TestStatus, Vec<String>) {
+    PRINT_BUF.with(|b| b.borrow_mut().clear());
+
     write!(outf, "{} ... ", filename.display()).unwrap();
 
     let content = std::fs::read_to_string(filename).unwrap();
@@ -368,15 +390,15 @@ pub async fn run_test_file(
         serde_yaml::from_str::<TestConfig>(front_matter).unwrap()
     } else {
         writeln!(outf, "no-test").unwrap();
-        return;
+        return (TestStatus::Skip, Vec::new());
     };
+
+    let feats = config.features.clone().unwrap_or_default();
 
     if should_skip_test(config.features.as_deref(), dec) {
         writeln!(outf, "skip").unwrap();
-        return;
+        return (TestStatus::Skip, feats.clone());
     }
-
-    println!("{}", filename.to_str().unwrap());
 
     let mut harness_files = Vec::<PathBuf>::with_capacity(16);
     harness_files.extend_from_slice(&[harness_path.join("assert.js"), harness_path.join("sta.js")]);
@@ -409,6 +431,7 @@ pub async fn run_test_file(
         .unwrap();
 
     let mut has_err = false;
+    let mut failed = false;
 
     if !harness_files.is_empty() {
         #[cfg(debug_assertions)]
@@ -419,6 +442,7 @@ pub async fn run_test_file(
             dump_error(&exc, false, false, false, outf);
 
             writeln!(errf, "{}", filename.display()).unwrap();
+            failed = true;
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&exc, false, false, false, errf);
             write_error_jsonl(errjson, script_rel, "harness", &exc);
@@ -494,6 +518,7 @@ pub async fn run_test_file(
                             dump_error(&exc, strict, is_module, is_async, outf);
 
                             writeln!(errf, "{}", filename.display()).unwrap();
+                            failed = true;
                             writeln!(
                                 outf,
                                 "fail: expects error class '{}', got '{}'",
@@ -511,6 +536,7 @@ pub async fn run_test_file(
                     dump_error(&exc, strict, is_module, is_async, outf);
 
                     writeln!(errf, "{}", filename.display()).unwrap();
+                    failed = true;
                     dump_error(&exc, strict, is_module, is_async, errf);
                     write_error_jsonl(errjson, script_rel, scenario, &exc);
                 }
@@ -523,6 +549,7 @@ pub async fn run_test_file(
                 .unwrap();
 
                 writeln!(errf, "{}", filename.display()).unwrap();
+                failed = true;
                 writeln!(
                     errf,
                     "fail: [NEGATIVE] expects error {}",
@@ -544,4 +571,16 @@ pub async fn run_test_file(
             }
         }
     }
+
+    if failed {
+        PRINT_BUF.with(|b| {
+            let s = b.borrow();
+            if !s.is_empty() {
+                let _ = writeln!(errf, "--- test output ---");
+                let _ = errf.write_all(s.as_bytes());
+            }
+        });
+    }
+
+    (if failed { TestStatus::Fail } else { TestStatus::Pass }, feats)
 }

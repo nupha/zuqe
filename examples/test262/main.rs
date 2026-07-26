@@ -18,10 +18,11 @@ use serde::Deserialize;
 
 use crate::{
     presets::{
-        Decisions, available_presets, build_feature_edition, is_known_preset, resolve_decisions,
+        Decisions, available_presets, build_feature_edition, enabled_features, is_known_preset,
+        resolve_decisions,
     },
-    report::make_last_jsonl_path,
-    runner::run_test_file,
+    report::{NO_FEATURE_KEY, make_last_jsonl_path, write_report},
+    runner::{TestStatus, run_test_file},
 };
 
 #[derive(Debug, Deserialize, Default)]
@@ -324,8 +325,17 @@ async fn main_impl() {
         list
     };
 
+    let total = run_list.len();
+    let mut done: usize = 0;
+    let mut failed_count: usize = 0;
+    let mut failed_scripts: Vec<String> = Vec::new();
+    // per-feature statistics: feature -> (total, pass)
+    let mut feat_stats: HashMap<String, (usize, usize)> = HashMap::new();
+
+    eprint!("Test 0 / {}, Fail 0", total);
+
     for (file_name, rel) in run_list {
-        run_test_file(
+        let (status, feats) = run_test_file(
             &file_name,
             &harness_path,
             &dec,
@@ -335,9 +345,61 @@ async fn main_impl() {
             &mut errjson,
         )
         .await;
+        match status {
+            TestStatus::Fail => {
+                failed_count += 1;
+                failed_scripts.push(rel.clone());
+            }
+            TestStatus::Pass | TestStatus::Skip => {}
+        }
+        // attribute the test to each of its features (skipped tests are not counted).
+        // Tests with no `@features` frontmatter are attributed to a synthetic key so
+        // their results (including failures) still appear in the feature table.
+        if matches!(status, TestStatus::Pass | TestStatus::Fail) {
+            let keys: Vec<&str> = if feats.is_empty() {
+                vec![NO_FEATURE_KEY]
+            } else {
+                feats.iter().map(|s| s.as_str()).collect()
+            };
+            for f in keys {
+                let e = feat_stats.entry(f.to_string()).or_insert((0, 0));
+                e.0 += 1;
+                if matches!(status, TestStatus::Pass) {
+                    e.1 += 1;
+                }
+            }
+        }
+        done += 1;
+        eprint!("\rTest {} / {}, Fail {}", done, total, failed_count);
+
         outf.flush().unwrap();
         errjson.flush().unwrap();
     }
+
+    eprintln!();
+    eprintln!("Done: {} tests, {} failed", total, failed_count);
+
+    // Generate the Markdown run report.
+    let is_error_update = forced.is_some();
+    let preset_name = if is_error_update {
+        "ERROR UPDATE".to_string()
+    } else {
+        app_cfg.preset.clone().unwrap_or_else(|| "N/A".to_string())
+    };
+    let feature_list: Option<Vec<String>> = if is_error_update {
+        None
+    } else {
+        Some(enabled_features(&dec))
+    };
+
+    write_report(
+        &preset_name,
+        feature_list.as_deref(),
+        total,
+        failed_count,
+        &feat_stats,
+        &failed_scripts,
+    );
 }
 
 #[tokio::main]
