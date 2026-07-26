@@ -293,7 +293,6 @@ impl ObjectImpl {
                 length,
                 magic,
             } => {
-                #[cfg(feature = "builtin_symbol")]
                 if atom == Atom::CONST_Symbol_toPrimitive {
                     prop_flags = JS_PROP_CONFIGURABLE as u8; // Symbol.toPrimitive functions are not writable
                 } else if atom == Atom::CONST_Symbol_hasInstance {
@@ -349,7 +348,6 @@ impl ObjectImpl {
                     }
                 };
 
-                #[cfg(feature = "builtin_symbol")]
                 if atom == Atom::CONST_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
@@ -381,25 +379,15 @@ impl JSValue {
 }
 
 pub(crate) fn prop_str_to_atom(ctx: &mut ScopedContext, str: &str) -> Result<Atom, i32> {
-    #[cfg(not(feature = "builtin_symbol"))]
-    debug_assert!(
-        !(str.starts_with('[') && str.ends_with(']')),
-        "can't use prop name '{str}': Symbol is not supported"
-    );
-
     if str.starts_with('[') && str.ends_with(']') {
         // check [Symbol.XXX] const atom
+        let name2 = &str[1..str.len() - 1]; // chop heading '[', tailing ']'
 
-        #[cfg(feature = "builtin_symbol")]
-        {
-            let name2 = &str[1..str.len() - 1]; // chop heading '[', tailing ']'
-
-            // We assume 8 bit non null strings, which is the case for these symbols
-            for id in crate::atom::ATOM_CONST_SYMBOL_RANGE {
-                let a = Atom::from_id(id);
-                if a.descriptor(ctx.rt()).content().eq_str(name2) {
-                    return Ok(a);
-                }
+        // We assume 8 bit non null strings, which is the case for these symbols
+        for id in crate::atom::ATOM_CONST_SYMBOL_RANGE {
+            let a = Atom::from_id(id);
+            if a.descriptor(ctx.rt()).content().eq_str(name2) {
+                return Ok(a);
             }
         }
 

@@ -1121,7 +1121,6 @@ fn js_date_toJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 pub const js_date_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("valueOf", 0, js_date_getTime, 0),
     FieldDef::FUNC("toString", 0, get_date_string, 0x13),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::FUNC("[Symbol.toPrimitive]", 1, js_date_Symbol_toPrimitive, 0),
     FieldDef::FUNC("toUTCString", 0, get_date_string, 0x03),
     FieldDef::ALIAS("toGMTString", "toUTCString"),

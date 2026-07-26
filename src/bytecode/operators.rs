@@ -85,7 +85,6 @@ pub(super) fn js_operator_in(
     }
 }
 
-#[cfg(feature = "builtin_symbol")]
 pub(super) fn js_operator_private_in(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
     let obj = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) }; // object
     let item = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) }; // field name or method function
@@ -209,7 +208,6 @@ pub(super) fn js_has_unscopable(
     obj: JSValue,
     atom: Atom,
 ) -> Result<bool, i32> {
-    #[cfg(feature = "builtin_symbol")]
     if let Some(o) = obj
         .get_property(ctx, Atom::CONST_Symbol_unscopables)?
         .as_object()
@@ -218,9 +216,6 @@ pub(super) fn js_has_unscopable(
     } else {
         Ok(false)
     }
-
-    #[cfg(not(feature = "builtin_symbol"))]
-    Ok(false)
 }
 
 pub(crate) fn js_get_function_name(ctx: &mut ScopedContext, name: Atom) -> Result<StringRef, i32> {
@@ -293,19 +288,12 @@ pub(super) unsafe fn js_append_enumerate(
     //       - check if array_iterator_prototype next method is built-in and
     //         avoid constructing actual iterator object?
     //       - build this into js_for_of_start and use in all `for (x of o)` loops
-    let is_array_iterator = {
-        #[cfg(feature = "builtin_symbol")]
-        {
-            src.get_property(ctx, Atom::CONST_Symbol_iterator)?
-                .match_native_callback(
-                    Callback::Func(js_create_array_iterator),
-                    JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
-                )
-        }
-
-        #[cfg(not(feature = "builtin_symbol"))]
-        false
-    };
+    let is_array_iterator = src
+        .get_property(ctx, Atom::CONST_Symbol_iterator)?
+        .match_native_callback(
+            Callback::Func(js_create_array_iterator),
+            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
+        );
 
     let it = src.iter(ctx)?;
 

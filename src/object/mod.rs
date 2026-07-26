@@ -4,12 +4,10 @@
 mod create;
 mod obj;
 mod payload;
+mod private;
 mod property;
 mod prototype;
 mod shape;
-
-#[cfg(feature = "builtin_symbol")]
-mod private;
 
 pub(crate) use shape::*;
 pub use {obj::*, payload::*, property::*};

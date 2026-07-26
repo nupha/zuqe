@@ -184,15 +184,7 @@ fn js_typed_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     // [Symbol.iterator]
-    let iterator = {
-        #[cfg(feature = "builtin_symbol")]
-        {
-            items.get_property(ctx, Atom::CONST_Symbol_iterator)?
-        }
-        #[cfg(not(feature = "builtin_symbol"))]
-        JSValue::UNDEFINED
-    };
-
+    let iterator = items.get_property(ctx, Atom::CONST_Symbol_iterator)?;
     let arr: JSValue = if !iterator.is_undefined() {
         // target is enumerable
         let mut fa = Array::create(ctx)?;
@@ -230,7 +222,6 @@ fn js_typed_array_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 pub const js_typed_array_base_funcs: &[FieldDef] = &[
     FieldDef::FUNC("from", 1, js_typed_array_from, 0),
     FieldDef::FUNC("of", 0, js_typed_array_of, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
@@ -1550,7 +1541,6 @@ pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::ALIAS("[Symbol.iterator]", "values"),
     FieldDef::FUNC(
         "keys",
@@ -1564,7 +1554,6 @@ pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16,
     ),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET(
         "[Symbol.toStringTag]",
         Some(js_typed_array_get_toStringTag),

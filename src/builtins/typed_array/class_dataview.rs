@@ -432,6 +432,5 @@ pub const js_dataview_proto_funcs: &[FieldDef] = &[
         js_dataview_setValue,
         JS_CLASS_FLOAT64_ARRAY as i16,
     ),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "DataView", JS_PROP_CONFIGURABLE),
 ];

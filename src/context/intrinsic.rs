@@ -202,7 +202,6 @@ impl<'c> ScopedContext<'c> {
 
         // initialize Array.prototype[Symbol.unscopables]
         // XXX: create auto_initializer
-        #[cfg(feature = "builtin_symbol")]
         {
             const unscopables: &[&str] = &[
                 "copyWithin",
@@ -330,7 +329,6 @@ impl<'c> ScopedContext<'c> {
             .unwrap();
     }
 
-    #[cfg(feature = "builtin_symbol")]
     pub(super) fn intrinsic_base_symbol(&mut self) {
         let mut proto = self.create_base_object().unwrap();
         proto

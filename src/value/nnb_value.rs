@@ -30,7 +30,6 @@ pub enum JSValue {
     EXCEPTION,
     Float64(f64),
     String(StringRef),
-    #[cfg(feature = "builtin_symbol")]
     Symbol(StringRef),
     Module(ModuleDef),
     Object(Object),
@@ -46,7 +45,6 @@ impl PartialEq for JSValue {
             (Self::String(s0), Self::String(s1)) => s0 == s1,
             (Self::Object(l0), Self::Object(r0)) => l0 == r0,
 
-            #[cfg(feature = "builtin_symbol")]
             (Self::Symbol(s0), Self::Symbol(s1)) => match (s0.atom_info(), s1.atom_info()) {
                 (Some(a0), Some(a1)) => a0.id() == a1.id(),
                 _ => false,
@@ -120,7 +118,6 @@ impl JSValue {
         matches!(self, Self::String(_))
     }
 
-    #[cfg(feature = "builtin_symbol")]
     #[inline(always)]
     pub const fn is_symbol(&self) -> bool {
         matches!(self, Self::Symbol(_))
@@ -160,7 +157,6 @@ impl JSValue {
         match self {
             Self::Object(_) | Self::Bytecode(_) | Self::Module(_) => true,
             Self::String(_) => true,
-            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => {
                 let aid = s.atom_info().unwrap().id();
                 !crate::atom::is_const_atom(aid) && !crate::atom::is_small_int_atom(aid)
@@ -173,7 +169,6 @@ impl JSValue {
         match self {
             Self::Object(o) => Some(o.gc_node_ptr()),
             Self::String(s) => Some(s.gc_node_ptr()),
-            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => {
                 let aid = s.atom_info().unwrap().id();
                 if !crate::atom::is_const_atom(aid) && !crate::atom::is_small_int_atom(aid) {
@@ -196,7 +191,6 @@ impl JSValue {
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
             Self::String(s) => s.hash(),
-            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => s.atom_info().unwrap().hash(),
 
             Self::Float64(d) => {
@@ -247,7 +241,6 @@ impl JSValue {
             Self::String(_) => {
                 Ok(*self) // as-is
             }
-            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => Ok(*self),
 
             Self::Int(i) => ctx
@@ -329,14 +322,12 @@ impl JSValue {
 
                 Ok(s)
             }
-            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => {
                 ctx.throw_type_error("cannot convert symbol to string");
                 Err(-1)
             }
             _ => match self.to_string_or_symbol(ctx)? {
                 JSValue::String(s) => Ok(s),
-                #[cfg(feature = "builtin_symbol")]
                 JSValue::Symbol(_) => {
                     ctx.throw_type_error("cannot convert symbol to string");
                     Err(-1)
@@ -373,7 +364,6 @@ impl JSValue {
                 Self::String(s) => {
                     return s.to_atom(ctx, AtomKind::String);
                 }
-                #[cfg(feature = "builtin_symbol")]
                 Self::Symbol(s) => {
                     return s.to_atom(ctx, AtomKind::Symbol);
                 }
@@ -405,7 +395,6 @@ impl JSValue {
             Self::Int(_) | Self::Float64(_) => ctx.class_proto(JS_CLASS_NUMBER),
             Self::Bool(_) => ctx.class_proto(JS_CLASS_BOOLEAN),
             Self::String(_) => ctx.class_proto(JS_CLASS_STRING),
-            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => ctx.class_proto(crate::JS_CLASS_SYMBOL),
             _ => None,
         }
@@ -512,7 +501,6 @@ impl JSValue {
             }
             Self::NULL => Atom::CONST_object,
             Self::UNDEFINED => Atom::CONST_undefined,
-            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => Atom::CONST_symbol,
             _ => Atom::CONST_unknown,
         }
@@ -523,7 +511,6 @@ impl JSValue {
         Self::String(s)
     }
 
-    #[cfg(feature = "builtin_symbol")]
     #[inline(always)]
     pub fn make_symbol(s: StringRef) -> Self {
         Self::Symbol(s)
@@ -550,7 +537,6 @@ impl JSValue {
             Self::Bool(b) => ctx
                 .create_instance_with_payload(ObjectPayload::BOOLEAN(*b))
                 .map_err(|_| -1),
-            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(s) => ctx
                 .create_instance_with_payload(ObjectPayload::SYMBOL(*s))
                 .map_err(|_| -1),

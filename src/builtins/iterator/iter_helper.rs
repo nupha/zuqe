@@ -316,9 +316,7 @@ fn take_next(ctx: &mut ScopedContext, ip: &IteratorHelperData) -> JSResult {
 pub(crate) const js_iterator_helper_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("next", 0, js_iterator_helper_next, 0),
     FieldDef::FUNC("return", 0, js_iterator_helper_next, 1),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::FUNC("[Symbol.iterator]", 0, js_iterator_proto_Symbol_iterator, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "Iterator Helper",

@@ -378,7 +378,6 @@ fn js_async_iterator_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
 const js_async_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("next", 1, js_async_iterator_next, 0),
     FieldDef::FUNC("return", 1, js_async_iterator_return, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "AsyncIterableIterator",

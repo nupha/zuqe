@@ -749,7 +749,6 @@ pub(super) const js_promise_funcs: &[FieldDef] = &[
     FieldDef::FUNC("race", 1, js_promise_race, 0),
     FieldDef::FUNC("try", 1, js_promise_try, 0),
     FieldDef::FUNC("withResolvers", 0, js_promise_withResolvers, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
@@ -769,6 +768,5 @@ pub(super) const js_promise_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("then", 2, js_promise_then, 0),
     FieldDef::FUNC("catch", 1, js_promise_catch, 0),
     FieldDef::FUNC("finally", 1, js_promise_finally, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Promise", JS_PROP_CONFIGURABLE),
 ];

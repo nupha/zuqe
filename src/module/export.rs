@@ -492,16 +492,13 @@ impl ModuleDef {
             }
         }
 
-        #[cfg(feature = "builtin_symbol")]
-        {
-            let mod_str = Atom::CONST_Module.force_string(ctx)?;
-            obj.define_property_value(
-                ctx,
-                Atom::CONST_Symbol_toStringTag,
-                JSValue::make_string(mod_str),
-                0,
-            )?;
-        }
+        let mod_str = Atom::CONST_Module.force_string(ctx)?;
+        obj.define_property_value(
+            ctx,
+            Atom::CONST_Symbol_toStringTag,
+            JSValue::make_string(mod_str),
+            0,
+        )?;
 
         obj.set_flag_extensible(false);
 

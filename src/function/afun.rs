@@ -245,11 +245,8 @@ impl AsyncState {
     }
 }
 
-const js_async_function_proto_funcs: &[FieldDef] = &[
-    #[cfg(feature = "builtin_symbol")]
-    FieldDef::STR(
-        "[Symbol.toStringTag]",
-        "AsyncFunction",
-        JS_PROP_CONFIGURABLE,
-    ),
-];
+const js_async_function_proto_funcs: &[FieldDef] = &[FieldDef::STR(
+    "[Symbol.toStringTag]",
+    "AsyncFunction",
+    JS_PROP_CONFIGURABLE,
+)];

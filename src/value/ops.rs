@@ -77,7 +77,6 @@ impl ObjectImpl {
     /// Equivalent to `self instanceof ctor`
     pub fn instance_of(&self, ctx: &mut ScopedContext, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
-            #[cfg(feature = "builtin_symbol")]
             if let Some(r) = o.invoke_defined(
                 ctx,
                 Atom::CONST_Symbol_hasInstance,
@@ -104,7 +103,6 @@ impl JSValue {
     /// Equivalent to `self instanceof ctor`
     pub fn instance_of(&self, ctx: &mut ScopedContext, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
-            #[cfg(feature = "builtin_symbol")]
             if let Some(r) = o.invoke_defined(
                 ctx,
                 Atom::CONST_Symbol_hasInstance,

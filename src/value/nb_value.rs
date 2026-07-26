@@ -90,7 +90,6 @@ impl PartialEq for JSValue {
                 self.0 == other.0 // raw pointer eq
             }
 
-            #[cfg(feature = "builtin_symbol")]
             JSValueTag::Symbol => unsafe {
                 match (
                     self.as_string_unchecked().atom_info(),
@@ -175,7 +174,6 @@ impl JSValue {
             | JSValueTag::FunctionBytecode
             | JSValueTag::Module => Some(unsafe { self.as_node_ptr() }),
 
-            #[cfg(feature = "builtin_symbol")]
             JSValueTag::Symbol => unsafe {
                 let sr = self.as_string_unchecked();
                 let aid = sr.atom_info().unwrap().id();
@@ -257,7 +255,6 @@ impl JSValue {
         js_value_get_tag(self.0) == (JSValueTag::Uninitialized as i32)
     }
 
-    #[cfg(feature = "builtin_symbol")]
     #[inline(always)]
     pub const fn is_symbol(&self) -> bool {
         js_value_get_tag(self.0) == (JSValueTag::Symbol as i32)
@@ -265,15 +262,7 @@ impl JSValue {
 
     pub const fn is_string_or_symbol(&self) -> bool {
         let t = js_value_get_tag(self.0);
-
-        #[cfg(not(feature = "builtin_symbol"))]
-        {
-            t == (JSValueTag::String as i32)
-        }
-        #[cfg(feature = "builtin_symbol")]
-        {
-            t == (JSValueTag::String as i32) || t == (JSValueTag::Symbol as i32)
-        }
+        t == (JSValueTag::String as i32) || t == (JSValueTag::Symbol as i32)
     }
 
     #[inline(always)]
@@ -287,7 +276,6 @@ impl JSValue {
             | JSValueTag::String
             | JSValueTag::FunctionBytecode
             | JSValueTag::Module => true,
-            #[cfg(feature = "builtin_symbol")]
             JSValueTag::Symbol => unsafe {
                 self.as_string_unchecked().atom_info().is_some_and(|a| {
                     !crate::atom::is_const_atom(a.id()) && !crate::atom::is_small_int_atom(a.id())
@@ -416,7 +404,6 @@ impl JSValue {
     /// When `allow_symbol_object` is `true`, also unwraps `Symbol` wrapper objects.
     /// With `false`, only a symbol *primitive* matches (equivalent to
     /// `is_symbol() && as_symbol()`).
-    #[cfg(feature = "builtin_symbol")]
     pub fn as_symbol(&self, allow_symbol_object: bool) -> Option<StringRef> {
         let tag = js_value_get_tag(self.0);
         if tag == (JSValueTag::Symbol as i32) {
@@ -469,7 +456,6 @@ impl JSValue {
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
             JSValueTag::String => unsafe { self.as_string_unchecked().hash() },
-            #[cfg(feature = "builtin_symbol")]
             JSValueTag::Symbol => unsafe { self.as_string_unchecked().atom_info().unwrap().hash() },
             JSValueTag::Float64 => {
                 let d = js_value_get_float64(self.0);
@@ -510,11 +496,9 @@ impl JSValue {
     /// Convert `self` to string or symbol value. (string is preferred)
     pub fn to_string_or_symbol(&self, ctx: &mut ScopedContext) -> Result<Self, i32> {
         match self.tag() {
-            JSValueTag::String => {
+            JSValueTag::String | JSValueTag::Symbol => {
                 Ok(*self) // as-is
             }
-            #[cfg(feature = "builtin_symbol")]
-            JSValueTag::Symbol => Ok(*self),
 
             JSValueTag::Int => ctx
                 .create_string_from_utf8(format!("{}", self.payload_i32()).into_bytes())
@@ -595,7 +579,6 @@ impl JSValue {
 
                 Ok(s)
             }
-            #[cfg(feature = "builtin_symbol")]
             JSValueTag::Symbol => {
                 ctx.throw_type_error("cannot convert symbol to string");
                 Err(-1)
@@ -604,7 +587,6 @@ impl JSValue {
                 let v = self.to_string_or_symbol(ctx)?;
                 match v.tag() {
                     JSValueTag::String => Ok(unsafe { v.as_string_unchecked() }),
-                    #[cfg(feature = "builtin_symbol")]
                     JSValueTag::Symbol => {
                         ctx.throw_type_error("cannot convert symbol to string");
                         Err(-1)
@@ -642,7 +624,6 @@ impl JSValue {
                 JSValueTag::String => unsafe {
                     return val.as_string_unchecked().to_atom(ctx, AtomKind::String);
                 },
-                #[cfg(feature = "builtin_symbol")]
                 JSValueTag::Symbol => unsafe {
                     return val.as_string_unchecked().to_atom(ctx, AtomKind::Symbol);
                 },
@@ -675,7 +656,6 @@ impl JSValue {
             JSValueTag::Int | JSValueTag::Float64 => ctx.class_proto(JS_CLASS_NUMBER),
             JSValueTag::Bool => ctx.class_proto(JS_CLASS_BOOLEAN),
             JSValueTag::String => ctx.class_proto(JS_CLASS_STRING),
-            #[cfg(feature = "builtin_symbol")]
             JSValueTag::Symbol => ctx.class_proto(crate::JS_CLASS_SYMBOL),
             _ => None,
         }
@@ -702,7 +682,6 @@ impl JSValue {
             }
             JSValueTag::Null => Atom::CONST_object,
             JSValueTag::Undefined => Atom::CONST_undefined,
-            #[cfg(feature = "builtin_symbol")]
             JSValueTag::Symbol => Atom::CONST_symbol,
             _ => Atom::CONST_unknown,
         }
@@ -731,7 +710,7 @@ impl JSValue {
             JSValueTag::Bool => ctx
                 .create_instance_with_payload(ObjectPayload::BOOLEAN(self.payload_i32() != 0))
                 .map_err(|_| -1),
-            #[cfg(feature = "builtin_symbol")]
+
             JSValueTag::Symbol => ctx
                 .create_instance_with_payload(ObjectPayload::SYMBOL(unsafe {
                     self.as_string_unchecked()
@@ -758,7 +737,7 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn make_catch_offset(pos: i32) -> Self {
+    pub const fn make_catch_offset(pos: i32) -> Self {
         Self::CatchOffset(pos)
     }
 
@@ -768,7 +747,6 @@ impl JSValue {
         Self(JSValueTag::String.mknode(p))
     }
 
-    #[cfg(feature = "builtin_symbol")]
     #[inline(always)]
     pub fn make_symbol(s: StringRef) -> Self {
         let p = s.gc_head_ptr();

@@ -28,7 +28,6 @@ pub fn js_string_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let str_val = if cc.length() == 0 {
         Atom::CONST_empty_string.force_string(ctx)?
     } else {
-        #[cfg(feature = "builtin_symbol")]
         if let Some(s) = cc.arg(0).as_symbol(false)
             && new_target.is_undefined()
         {
@@ -37,9 +36,6 @@ pub fn js_string_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         } else {
             cc.arg(0).to_string(ctx)?
         }
-
-        #[cfg(not(feature = "builtin_symbol"))]
-        cc.arg(0).to_string(ctx)?
     };
 
     if !new_target.is_undefined() {
@@ -214,7 +210,6 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             check_regexp_g_flag(ctx, search)?;
         }
 
-        #[cfg(feature = "builtin_symbol")]
         if let Some(o) = search.as_object() {
             let replacer = o.get_property(ctx, Atom::CONST_Symbol_replace)?;
             if !replacer.is_undefined_or_null() {
@@ -338,7 +333,6 @@ fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let separator = cc.arg(0);
     let limit = cc.arg(1);
 
-    #[cfg(feature = "builtin_symbol")]
     if !separator.is_undefined_or_null()
         && let Some(o) = separator.as_object()
         && let Some(r) = o.invoke_defined(ctx, Atom::CONST_Symbol_split, &[this, limit])?
@@ -695,25 +689,12 @@ fn js_string_match(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let method_name: Atom = {
-        #[cfg(feature = "builtin_symbol")]
-        match magic {
-            MAGIC_MATCH => Atom::CONST_Symbol_match,
-            MAGIC_MATCH_ALL => Atom::CONST_Symbol_matchAll,
-            MAGIC_MATCH_SEARCH => Atom::CONST_Symbol_search,
-            _ => {
-                unreachable!();
-            }
-        }
-
-        #[cfg(not(feature = "builtin_symbol"))]
-        match magic {
-            MAGIC_MATCH => Atom::new(ctx.rt_ptr(), "match")?,
-            MAGIC_MATCH_ALL => Atom::new(ctx.rt_ptr(), "matchAll")?,
-            MAGIC_MATCH_SEARCH => Atom::new(ctx.rt_ptr(), "search")?,
-            _ => {
-                unreachable!();
-            }
+    let method_name: Atom = match magic {
+        MAGIC_MATCH => Atom::CONST_Symbol_match,
+        MAGIC_MATCH_ALL => Atom::CONST_Symbol_matchAll,
+        MAGIC_MATCH_SEARCH => Atom::CONST_Symbol_search,
+        _ => {
+            unreachable!();
         }
     };
 
@@ -1020,15 +1001,12 @@ pub const js_string_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("toUpperCase", 0, js_string_toLowerCase, 0),
     FieldDef::FUNC("toLocaleLowerCase", 0, js_string_toLowerCase, 1),
     FieldDef::FUNC("toLocaleUpperCase", 0, js_string_toLowerCase, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::FUNC(
         "[Symbol.iterator]",
         0,
         js_create_array_iterator,
         (JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) | 4,
     ),
-    //
-    // all unicode
     #[cfg(feature = "all_unicode")]
     FieldDef::FUNC("normalize", 0, js_string_normalize, 0),
     #[cfg(feature = "all_unicode")]
@@ -1072,7 +1050,6 @@ fn js_string_iterator_next(
 
 pub const js_string_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 0, js_string_iterator_next, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "String Iterator",

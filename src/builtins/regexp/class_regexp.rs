@@ -108,17 +108,7 @@ fn js_get_regexp<'a>(
 
 pub(crate) fn is_regexp(ctx: &mut ScopedContext, obj: JSValue) -> Result<bool, i32> {
     if let Some(o) = obj.as_object() {
-        let m = {
-            #[cfg(feature = "builtin_symbol")]
-            {
-                o.get_property(ctx, Atom::CONST_Symbol_match)
-            }
-            #[cfg(not(feature = "builtin_symbol"))]
-            {
-                o.get_property_str(ctx, "match")
-            }
-        }?;
-
+        let m = o.get_property(ctx, Atom::CONST_Symbol_match)?;
         if !m.is_undefined() {
             m.to_bool()
         } else {
@@ -856,62 +846,19 @@ pub const js_regexp_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("compile", 2, js_regexp_compile, 0),
     FieldDef::FUNC("test", 1, js_regexp_test, 0),
     FieldDef::FUNC("toString", 0, js_regexp_toString, 0),
-    FieldDef::FUNC(
-        #[cfg(feature = "builtin_symbol")]
-        "[Symbol.replace]",
-        #[cfg(not(feature = "builtin_symbol"))]
-        "replace",
-        2,
-        js_regexp_Symbol_replace,
-        0,
-    ),
-    FieldDef::FUNC(
-        #[cfg(feature = "builtin_symbol")]
-        "[Symbol.match]",
-        #[cfg(not(feature = "builtin_symbol"))]
-        "match",
-        1,
-        js_regexp_Symbol_match,
-        0,
-    ),
-    FieldDef::FUNC(
-        #[cfg(feature = "builtin_symbol")]
-        "[Symbol.matchAll]",
-        #[cfg(not(feature = "builtin_symbol"))]
-        "matchAll",
-        1,
-        js_regexp_Symbol_matchAll,
-        0,
-    ),
-    FieldDef::FUNC(
-        #[cfg(feature = "builtin_symbol")]
-        "[Symbol.search]",
-        #[cfg(not(feature = "builtin_symbol"))]
-        "search",
-        1,
-        js_regexp_Symbol_search,
-        0,
-    ),
-    FieldDef::FUNC(
-        #[cfg(feature = "builtin_symbol")]
-        "[Symbol.split]",
-        #[cfg(not(feature = "builtin_symbol"))]
-        "split",
-        2,
-        js_regexp_Symbol_split,
-        0,
-    ),
+    FieldDef::FUNC("[Symbol.replace]", 2, js_regexp_Symbol_replace, 0),
+    FieldDef::FUNC("[Symbol.match]", 1, js_regexp_Symbol_match, 0),
+    FieldDef::FUNC("[Symbol.matchAll]", 1, js_regexp_Symbol_matchAll, 0),
+    FieldDef::FUNC("[Symbol.search]", 1, js_regexp_Symbol_search, 0),
+    FieldDef::FUNC("[Symbol.split]", 2, js_regexp_Symbol_split, 0),
 ];
 
-pub const js_regexp_funcs: &[FieldDef] = &[
-    #[cfg(feature = "builtin_symbol")]
-    FieldDef::GETSET(
-        "[Symbol.species]",
-        Some(crate::builtins::js_get_this),
-        None,
-        0,
-    ),
-];
+pub const js_regexp_funcs: &[FieldDef] = &[FieldDef::GETSET(
+    "[Symbol.species]",
+    Some(crate::builtins::js_get_this),
+    None,
+    0,
+)];
 
 fn regexp_exec_default(
     ctx: &mut ScopedContext,

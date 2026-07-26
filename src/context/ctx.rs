@@ -401,10 +401,7 @@ impl<'c> ScopedContext<'c> {
             ctx.intrinsic_base_number(); // Number
             ctx.intrinsic_base_boolean(); // Boolean
             ctx.intrinsic_base_string(); // String
-
-            // Symbol
-            #[cfg(feature = "builtin_symbol")]
-            ctx.intrinsic_base_symbol();
+            ctx.intrinsic_base_symbol(); // Symbol
 
             ctx.intrinsic_eval(); // `eval()` function
 

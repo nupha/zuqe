@@ -282,7 +282,6 @@ impl JSValue {
             }),
             crate::JSValueTag::String => unsafe { Ok(self.as_string_unchecked().to_number(ctx)) },
             crate::JSValueTag::Object => unsafe { self.as_object_unchecked().to_number(ctx) },
-            #[cfg(feature = "builtin_symbol")]
             crate::JSValueTag::Symbol => {
                 ctx.throw_type_error("cannot convert Symbol to number");
                 Err(-1)
@@ -319,7 +318,6 @@ impl JSValue {
             }),
             Self::String(s) => Ok(s.to_number(ctx)),
             Self::Object(o) => o.to_number(ctx),
-            #[cfg(feature = "builtin_symbol")]
             Self::Symbol(_) => {
                 ctx.throw_type_error("cannot convert Symbol to number");
                 Err(-1)

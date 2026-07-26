@@ -669,7 +669,6 @@ impl JSValue {
             | (crate::JSValueTag::Exception, crate::JSValueTag::Exception)
             | (crate::JSValueTag::Uninitialized, crate::JSValueTag::Uninitialized) => true,
 
-            #[cfg(feature = "builtin_symbol")]
             (crate::JSValueTag::Symbol, crate::JSValueTag::Symbol) => {
                 // Symbols are compared by identity (their unique atom id), not by the
                 // descriptor string content. `StringRef`'s `PartialEq` compares content,
@@ -706,7 +705,7 @@ impl JSValue {
             (JSValue::Bytecode(a), JSValue::Bytecode(b)) => a == b,
             (JSValue::Module(a), JSValue::Module(b)) => a == b,
             (JSValue::CatchOffset(a), JSValue::CatchOffset(b)) => a == b,
-            #[cfg(feature = "builtin_symbol")]
+
             // Symbols are compared by identity (their unique atom id), not by the
             // descriptor string content. `StringRef`'s `PartialEq` compares content,
             // so `a == b` here would wrongly equate two distinct `Symbol('x')` calls
@@ -758,7 +757,6 @@ impl JSValue {
                     return Ok(a.partial_cmp(&b).unwrap());
                 },
 
-                #[cfg(feature = "builtin_symbol")]
                 (crate::JSValueTag::Symbol, crate::JSValueTag::Symbol) => {
                     // compare atom descriptor content
                     let s1 = v1.as_symbol(true).unwrap();
@@ -803,11 +801,9 @@ impl JSValue {
                 }
 
                 // string is prior to symbol
-                #[cfg(feature = "builtin_symbol")]
                 (crate::JSValueTag::String, crate::JSValueTag::Symbol) => {
                     return Ok(Ordering::Less);
                 }
-                #[cfg(feature = "builtin_symbol")]
                 (crate::JSValueTag::Symbol, crate::JSValueTag::String) => {
                     return Ok(Ordering::Greater);
                 }
@@ -870,7 +866,6 @@ impl JSValue {
                 (JSValue::String(a), JSValue::String(b)) => {
                     return Ok(a.partial_cmp(b).unwrap());
                 }
-                #[cfg(feature = "builtin_symbol")]
                 (JSValue::Symbol(s1), JSValue::Symbol(s2)) => {
                     // compare atom descriptor content
                     return Ok(s1.content().partial_cmp(s2.content()).unwrap());
@@ -910,11 +905,9 @@ impl JSValue {
                 }
 
                 // string is prior to symbol
-                #[cfg(feature = "builtin_symbol")]
                 (JSValue::String(_), JSValue::Symbol(_)) => {
                     return Ok(Ordering::Less);
                 }
-                #[cfg(feature = "builtin_symbol")]
                 (JSValue::Symbol(_), JSValue::String(_)) => {
                     return Ok(Ordering::Greater);
                 }
@@ -1047,11 +1040,9 @@ fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, 
             },
 
             // object vs symbol
-            #[cfg(feature = "builtin_symbol")]
             (crate::JSValueTag::Object, crate::JSValueTag::Symbol) => unsafe {
                 op1 = op1.as_object_unchecked().to_primitive(ctx, HINT_NONE)?;
             },
-            #[cfg(feature = "builtin_symbol")]
             (crate::JSValueTag::Symbol, crate::JSValueTag::Object) => unsafe {
                 op2 = op2.as_object_unchecked().to_primitive(ctx, HINT_NONE)?;
             },
@@ -1146,11 +1137,9 @@ fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, 
             }
 
             // object vs symbol
-            #[cfg(feature = "builtin_symbol")]
             (JSValue::Object(o), JSValue::Symbol(_)) => {
                 op1 = o.to_primitive(ctx, HINT_NONE)?;
             }
-            #[cfg(feature = "builtin_symbol")]
             (JSValue::Symbol(_), JSValue::Object(o)) => {
                 op2 = o.to_primitive(ctx, HINT_NONE)?;
             }

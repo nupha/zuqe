@@ -130,13 +130,10 @@ fn js_map_iterator_next(
 
 pub const js_map_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 0, js_map_iterator_next, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Map Iterator", JS_PROP_CONFIGURABLE),
 ];
 
 pub const js_set_iterator_proto_funcs: &[FieldDef] = &[
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::ITERATOR_NEXT("next", 0, js_map_iterator_next, 1),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Set Iterator", JS_PROP_CONFIGURABLE),
 ];

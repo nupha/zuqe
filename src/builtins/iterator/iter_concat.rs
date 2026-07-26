@@ -147,7 +147,6 @@ pub(crate) fn js_iterator_concat_return(ctx: &mut ScopedContext, cc: CallContext
 pub(crate) const js_iterator_concat_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("next", 0, js_iterator_concat_next, 0),
     FieldDef::FUNC("return", 0, js_iterator_concat_return, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "Iterator Concat",

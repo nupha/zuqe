@@ -170,7 +170,6 @@ pub const js_array_buffer_proto_funcs: &[FieldDef] = &[
     ),
     FieldDef::FUNC("transfer", 0, js_array_buffer_transfer, 0),
     FieldDef::FUNC("transferToFixedLength", 0, js_array_buffer_transfer, 1),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE),
 ];
 
@@ -187,7 +186,6 @@ pub const js_shared_array_buffer_proto_funcs: &[FieldDef] = &[
         js_array_buffer_slice,
         JS_CLASS_SHARED_ARRAY_BUFFER as i16,
     ),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "SharedArrayBuffer",
@@ -209,11 +207,12 @@ fn js_array_buffer_isView(_: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub const js_array_buffer_funcs: &[FieldDef] = &[
     FieldDef::FUNC("isView", 1, js_array_buffer_isView, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
-pub const js_shared_array_buffer_funcs: &[FieldDef] = &[
-    #[cfg(feature = "builtin_symbol")]
-    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
-];
+pub const js_shared_array_buffer_funcs: &[FieldDef] = &[FieldDef::GETSET(
+    "[Symbol.species]",
+    Some(js_get_this),
+    None,
+    0,
+)];

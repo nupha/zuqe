@@ -387,7 +387,6 @@ impl TypedArray {
             }
             _ => {
                 // if source is iterable, retrieve values and create new typed array.
-                #[cfg(feature = "builtin_symbol")]
                 if let Some(it) = source.iter_maybe(ctx)? {
                     // Note: according to ECMAScript specification,
                     // must collect values from iterator first, then do number convert.

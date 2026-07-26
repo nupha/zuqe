@@ -18,7 +18,6 @@ async_support = []
 crossbeam_channel = ["crossbeam"]
 serde_json_support = ["serde_json"]
 
-builtin_symbol = []
 builtin_proxy = []
 builtin_mapset = []
 builtin_regexp = ["lre"]
@@ -46,7 +45,6 @@ default = [
     "all_unicode",
     "async_support",
 
-    "builtin_symbol",
     "builtin_mapset",
     "builtin_proxy",
     "builtin_regexp",

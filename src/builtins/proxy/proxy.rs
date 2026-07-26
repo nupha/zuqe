@@ -632,20 +632,12 @@ fn js_proxy_get_own_property_names(
 
     for i in 0..len {
         let val = prop_array.get_property_u32(ctx, i as u32)?;
-
-        #[cfg(feature = "builtin_symbol")]
         if !(val.is_string() || val.is_symbol()) {
             ctx.throw_type_error("proxy: properties must be strings or symbols");
             return Err(-1);
         }
-        #[cfg(not(feature = "builtin_symbol"))]
-        if !val.is_string() {
-            ctx.throw_type_error("proxy: properties must be strings");
-            return Err(-1);
-        }
 
         let atom = val.to_atom(ctx)?;
-
         if !tab.is_empty() && tab.iter().any(|k| k.atom == atom) {
             ctx.throw_type_error("proxy: duplicate property");
             return Err(-1);

@@ -273,7 +273,6 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         "crate::builtins::string::CLASS_DEF_STRING",
         PayloadKey::String,
     ),
-    #[cfg(feature = "builtin_symbol")]
     ClassInfo::class_def(
         "SYMBOL",
         "crate::builtins::symbol::CLASS_DEF_SYMBOL",

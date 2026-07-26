@@ -382,9 +382,7 @@ pub const js_map_proto_funcs: &[FieldDef] = &[
         js_create_map_iterator,
         (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2,
     ),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::ALIAS("[Symbol.iterator]", "entries"),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Map", JS_PROP_CONFIGURABLE),
 ];
 
@@ -402,7 +400,6 @@ pub const js_set_proto_funcs: &[FieldDef] = &[
         ((JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2) | 1,
     ),
     FieldDef::ALIAS("keys", "values"),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::ALIAS("[Symbol.iterator]", "values"),
     FieldDef::FUNC(
         "entries",
@@ -417,7 +414,6 @@ pub const js_set_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("difference", 1, js_set_difference, 0),
     FieldDef::FUNC("symmetricDifference", 1, js_set_symmetricDifference, 0),
     FieldDef::FUNC("union", 1, js_set_union, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Set", JS_PROP_CONFIGURABLE),
 ];
 
@@ -428,7 +424,6 @@ pub const js_weakmap_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("getOrInsertComputed", 2, js_map_getOrInsert, 3),
     FieldDef::FUNC("has", 1, js_map_has, 2),
     FieldDef::FUNC("delete", 1, js_map_delete, 2),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "WeakMap", JS_PROP_CONFIGURABLE),
 ];
 
@@ -436,7 +431,6 @@ pub const js_weakset_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("add", 1, js_map_set, 3),
     FieldDef::FUNC("has", 1, js_map_has, 3),
     FieldDef::FUNC("delete", 1, js_map_delete, 3),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "WeakSet", JS_PROP_CONFIGURABLE),
 ];
 
@@ -929,11 +923,12 @@ fn js_map_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub const js_map_funcs: &[FieldDef] = &[
     FieldDef::FUNC("groupBy", 2, js_map_groupBy, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
-pub const js_set_funcs: &[FieldDef] = &[
-    #[cfg(feature = "builtin_symbol")]
-    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
-];
+pub const js_set_funcs: &[FieldDef] = &[FieldDef::GETSET(
+    "[Symbol.species]",
+    Some(js_get_this),
+    None,
+    0,
+)];

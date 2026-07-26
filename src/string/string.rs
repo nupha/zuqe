@@ -100,18 +100,14 @@ impl PartialOrd for StringImpl {
 
         let r = match (a1.map(|x| x.kind()), a2.map(|x| x.kind())) {
             // symbol-atom vs non-atom: symbol is greater
-            #[cfg(feature = "builtin_symbol")]
             (None, Some(AtomKind::Symbol | AtomKind::GlobalSymbol)) => Ordering::Less,
-            #[cfg(feature = "builtin_symbol")]
             (Some(AtomKind::Symbol | AtomKind::GlobalSymbol), None) => Ordering::Greater,
 
             // symbol-atom vs string-atom: symbol is greater
-            #[cfg(feature = "builtin_symbol")]
             (
                 Some(AtomKind::String | AtomKind::Private),
                 Some(AtomKind::Symbol | AtomKind::GlobalSymbol),
             ) => Ordering::Less,
-            #[cfg(feature = "builtin_symbol")]
             (
                 Some(AtomKind::Symbol | AtomKind::GlobalSymbol),
                 Some(AtomKind::String | AtomKind::Private),

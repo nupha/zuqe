@@ -288,19 +288,8 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "builtin_symbol")]
     #[test]
     fn mknode_encodes_symbol() {
-        let raw = JSValueTag::Symbol.mknode(fake_node(0x1234));
-        assert_eq!(js_value_get_tag(raw), JSValueTag::Symbol as i32);
-        assert_eq!(JSValue(raw).tag(), JSValueTag::Symbol);
-    }
-
-    #[cfg(not(feature = "builtin_symbol"))]
-    #[test]
-    fn mknode_encodes_symbol_without_feature() {
-        // Without builtin_symbol, Symbol can still be encoded via mknode and
-        // should still be recognized by tag().
         let raw = JSValueTag::Symbol.mknode(fake_node(0x1234));
         assert_eq!(js_value_get_tag(raw), JSValueTag::Symbol as i32);
         assert_eq!(JSValue(raw).tag(), JSValueTag::Symbol);

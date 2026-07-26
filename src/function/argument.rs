@@ -47,7 +47,6 @@ pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) ->
         arr_data.extend(values.iter().copied());
     }
 
-    #[cfg(feature = "builtin_symbol")]
     obj.define_property_value(
         ctx,
         Atom::CONST_Symbol_iterator,

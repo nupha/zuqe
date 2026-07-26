@@ -171,7 +171,6 @@ pub(crate) fn js_iterator_class_init(
             .map(|_| ())?;
     }
 
-    #[cfg(feature = "builtin_symbol")]
     {
         let getter_fn2: JSValue = ctx
             .create_native_function(

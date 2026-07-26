@@ -277,7 +277,9 @@ pub(super) const js_async_from_sync_iterator_proto_funcs: &[FieldDef] = &[
     ),
 ];
 
-pub(crate) const js_async_iterator_proto_funcs: &[FieldDef] = &[
-    #[cfg(feature = "builtin_symbol")]
-    FieldDef::FUNC("[Symbol.asyncIterator]", 0, crate::builtins::js_get_this, 0),
-];
+pub(crate) const js_async_iterator_proto_funcs: &[FieldDef] = &[FieldDef::FUNC(
+    "[Symbol.asyncIterator]",
+    0,
+    crate::builtins::js_get_this,
+    0,
+)];

@@ -14,6 +14,7 @@ pub mod number;
 pub mod object;
 pub mod promise;
 pub mod string;
+pub mod symbol;
 pub mod typed_array;
 
 #[cfg(feature = "builtin_date")]
@@ -30,8 +31,6 @@ pub mod proxy;
 pub mod reflect;
 #[cfg(feature = "builtin_regexp")]
 pub mod regexp;
-#[cfg(feature = "builtin_symbol")]
-pub mod symbol;
 #[cfg(feature = "builtin_weakref")]
 pub mod weakref;
 

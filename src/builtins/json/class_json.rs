@@ -281,7 +281,6 @@ const js_json_funcs: &[FieldDef] = &[
     FieldDef::FUNC("stringify", 3, js_json_stringify, 0),
     FieldDef::FUNC("isRawJSON", 1, js_json_isRawJSON, 0),
     FieldDef::FUNC("rawJSON", 1, js_json_rawJSON, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "JSON", JS_PROP_CONFIGURABLE),
 ];
 

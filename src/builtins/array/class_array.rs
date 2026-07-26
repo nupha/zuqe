@@ -108,7 +108,6 @@ fn JS_ArraySpeciesCreate(ctx: &mut ScopedContext, obj: JSValue, len_val: JSValue
         }
     }
 
-    #[cfg(feature = "builtin_symbol")]
     if let Some(o) = ctor.as_object() {
         let species = o.get_property(ctx, Atom::CONST_Symbol_species)?;
         ctor = if species.is_null() {
@@ -129,7 +128,6 @@ fn JS_ArraySpeciesCreate(ctx: &mut ScopedContext, obj: JSValue, len_val: JSValue
 }
 
 /// check `obj[Symbol.isConcatSpreabable]` property
-#[cfg(feature = "builtin_symbol")]
 pub fn JS_isConcatSpreadable(ctx: &mut ScopedContext, obj: JSValue) -> Result<bool, i32> {
     if obj.is_object() {
         let s = obj.get_property(ctx, Atom::CONST_Symbol_isConcatSpreadable)?;
@@ -275,15 +273,7 @@ fn js_array_concat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     for i in -1..cc.length() as i32 {
         let v = if i < 0 { this } else { cc.arg(i as usize) };
 
-        let spreadable: bool = {
-            #[cfg(feature = "builtin_symbol")]
-            {
-                JS_isConcatSpreadable(ctx, v)?
-            }
-            #[cfg(not(feature = "builtin_symbol"))]
-            false
-        };
-        if spreadable {
+        if JS_isConcatSpreadable(ctx, v)? {
             let len = v.get_length_prop(ctx)?;
             if n + len > MAX_SAFE_INTEGER {
                 ctx.throw_type_error("Array loo long");
@@ -1385,7 +1375,6 @@ pub const js_array_proto_funcs: &[FieldDef] = &[
         js_create_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::ALIAS("[Symbol.iterator]", "values"),
     FieldDef::FUNC(
         "keys",
@@ -1403,7 +1392,6 @@ pub const js_array_proto_funcs: &[FieldDef] = &[
 
 pub const js_array_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::ITERATOR_NEXT("next", 0, js_array_iterator_next, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "Array Iterator",
@@ -1439,7 +1427,6 @@ fn js_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     // check and use [Symbol.iterator] method
     let has_iterator: bool = {
-        #[cfg(feature = "builtin_symbol")]
         {
             // protect items - NOT NEEDED ANY MORE
             // if let Some(n) = items.gc_node_ptr() {
@@ -1478,9 +1465,6 @@ fn js_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }
             has
         }
-
-        #[cfg(not(feature = "builtin_symbol"))]
-        false
     };
 
     if !has_iterator {
@@ -1544,7 +1528,6 @@ pub const js_array_funcs: &[FieldDef] = &[
     FieldDef::FUNC("isArray", 1, js_array_isArray, 0),
     FieldDef::FUNC("from", 1, js_array_from, 0),
     FieldDef::FUNC("of", 0, js_array_of, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 

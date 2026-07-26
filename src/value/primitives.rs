@@ -20,28 +20,25 @@ impl ObjectImpl {
 
         if !ignore_toPrimitive_method {
             // try [Symbol.toPrimitive] method
-            #[cfg(feature = "builtin_symbol")]
-            {
-                let method = self.get_property(ctx, Atom::CONST_Symbol_toPrimitive)?;
+            let method = self.get_property(ctx, Atom::CONST_Symbol_toPrimitive)?;
 
-                // ECMA says *If exoticToPrim is not undefined* but tests in
-                // test262 use null as a non-callable converter
-                if !method.is_undefined_or_null() {
-                    let hint_val = match hint {
-                        HINT_STRING => Atom::CONST_string,
-                        HINT_NUMBER => Atom::CONST_number,
-                        _ => Atom::CONST_default,
-                    }
-                    .force_string(ctx)?;
-
-                    let ret = method.call(ctx, this, &[JSValue::make_string(hint_val)])?;
-                    return if !ret.is_object() {
-                        Ok(ret)
-                    } else {
-                        ctx.throw_type_error("toPrimitive");
-                        Err(-1)
-                    };
+            // ECMA says *If exoticToPrim is not undefined* but tests in
+            // test262 use null as a non-callable converter
+            if !method.is_undefined_or_null() {
+                let hint_val = match hint {
+                    HINT_STRING => Atom::CONST_string,
+                    HINT_NUMBER => Atom::CONST_number,
+                    _ => Atom::CONST_default,
                 }
+                .force_string(ctx)?;
+
+                let ret = method.call(ctx, this, &[JSValue::make_string(hint_val)])?;
+                return if !ret.is_object() {
+                    Ok(ret)
+                } else {
+                    ctx.throw_type_error("toPrimitive");
+                    Err(-1)
+                };
             }
         }
 

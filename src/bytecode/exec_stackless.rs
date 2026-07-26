@@ -676,7 +676,6 @@ impl Bytecode {
                                     break ExecAction::Exception;
                                 }
 
-                                #[cfg(feature = "builtin_symbol")]
                                 if obj
                                     .define_property_value(
                                         realm_scope,
@@ -1273,7 +1272,6 @@ impl Bytecode {
                         }
                     }
                     OpCode::PRIVATE_IN => {
-                        #[cfg(feature = "builtin_symbol")]
                         if unlikely(
                             crate::bytecode::operators::js_operator_private_in(realm_scope, sp)
                                 .is_err(),
@@ -1281,11 +1279,6 @@ impl Bytecode {
                             break ExecAction::Exception;
                         } else {
                             SP_GO!(-1);
-                        }
-                        #[cfg(not(feature = "builtin_symbol"))]
-                        {
-                            realm_scope.throw_internal_error("Symbol is not supported");
-                            break ExecAction::Exception;
                         }
                     }
                     OpCode::INSTANCEOF => {
@@ -1530,7 +1523,6 @@ impl Bytecode {
                         }
                     }
                     OpCode::CHECK_BRAND => {
-                        #[cfg(feature = "builtin_symbol")]
                         if let Ok(b) = SP_REF!(-2).check_brand(realm_scope, SP_VAL!(-1)) {
                             if unlikely(!b) {
                                 realm_scope.throw_type_error("invalid brand on object");
@@ -1539,26 +1531,12 @@ impl Bytecode {
                         } else {
                             break ExecAction::Exception;
                         }
-                        #[cfg(not(feature = "builtin_symbol"))]
-                        {
-                            realm_scope.throw_internal_error("Symbol is not supported");
-                            break ExecAction::Exception;
-                        }
                     }
                     OpCode::ADD_BRAND => {
-                        #[cfg(feature = "builtin_symbol")]
-                        {
-                            let mut func_obj = SP_VAL!(-2);
-                            let home_object = SP_VAL!(-1);
-                            SP_GO!(-2);
-                            if unlikely(func_obj.add_brand(realm_scope, home_object).is_err()) {
-                                break ExecAction::Exception;
-                            }
-                        }
-                        #[cfg(not(feature = "builtin_symbol"))]
-                        {
-                            realm_scope
-                                .throw_internal_error("can't add brand: Symbol is not supported");
+                        let mut func_obj = SP_VAL!(-2);
+                        let home_object = SP_VAL!(-1);
+                        SP_GO!(-2);
+                        if unlikely(func_obj.add_brand(realm_scope, home_object).is_err()) {
                             break ExecAction::Exception;
                         }
                     }
@@ -2593,81 +2571,43 @@ impl Bytecode {
                     // Private Symbol (port from execute_with_realm_scope)
                     // ═══════════════════════════════════════════════════
                     OpCode::PRIVATE_SYMBOL => {
-                        #[cfg(feature = "builtin_symbol")]
+                        let atom = Atom::from_id(PC_FETCH!(u32));
+                        if let Ok(val) =
+                            realm_scope.create_symbol_from_atom(atom, AtomKind::Private)
                         {
-                            let atom = Atom::from_id(PC_FETCH!(u32));
-                            if let Ok(val) =
-                                realm_scope.create_symbol_from_atom(atom, AtomKind::Private)
-                            {
-                                SP_PUT!(0, val);
-                                SP_GO!(1);
-                            } else {
-                                break ExecAction::Exception;
-                            }
-                        }
-                        #[cfg(not(feature = "builtin_symbol"))]
-                        {
-                            realm_scope.throw_internal_error("Symbol is not supported");
+                            SP_PUT!(0, val);
+                            SP_GO!(1);
+                        } else {
                             break ExecAction::Exception;
                         }
                     }
                     OpCode::GET_PRIVATE_FIELD => {
-                        #[cfg(feature = "builtin_symbol")]
-                        {
-                            let op_2 = SP_VAL!(-2);
-                            let op_1 = SP_VAL!(-1);
-                            let val = op_2
-                                .get_private_field(realm_scope, op_1)
-                                .unwrap_or(JSValue::EXCEPTION);
-                            SP_PUT!(-2, val);
-                            SP_GO!(-1);
-                            if unlikely(SP_REF!(-1).is_exception()) {
-                                break ExecAction::Exception;
-                            }
-                        }
-                        #[cfg(not(feature = "builtin_symbol"))]
-                        {
-                            realm_scope.throw_internal_error("Symbol is not supported");
+                        let op_2 = SP_VAL!(-2);
+                        let op_1 = SP_VAL!(-1);
+                        let val = op_2
+                            .get_private_field(realm_scope, op_1)
+                            .unwrap_or(JSValue::EXCEPTION);
+                        SP_PUT!(-2, val);
+                        SP_GO!(-1);
+                        if unlikely(SP_REF!(-1).is_exception()) {
                             break ExecAction::Exception;
                         }
                     }
                     OpCode::PUT_PRIVATE_FIELD => {
                         // [this_obj, name, value, ^] -> [^]
-                        #[cfg(feature = "builtin_symbol")]
-                        {
-                            let ret = SP_MUT!(-3).set_private_field(
-                                realm_scope,
-                                SP_VAL!(-1),
-                                SP_VAL!(-2),
-                            );
-                            SP_GO!(-3);
-                            if unlikely(ret.is_err()) {
-                                break ExecAction::Exception;
-                            }
-                        }
-                        #[cfg(not(feature = "builtin_symbol"))]
-                        {
-                            realm_scope.throw_internal_error("Symbol is not supported");
+                        let ret =
+                            SP_MUT!(-3).set_private_field(realm_scope, SP_VAL!(-1), SP_VAL!(-2));
+                        SP_GO!(-3);
+                        if unlikely(ret.is_err()) {
                             break ExecAction::Exception;
                         }
                     }
                     OpCode::DEFINE_PRIVATE_FIELD => {
                         // [this_obj, name, value, ^] -> [this_obj, ^]
-                        #[cfg(feature = "builtin_symbol")]
-                        {
-                            let ret = SP_MUT!(-3).define_private_field(
-                                realm_scope,
-                                SP_VAL!(-2),
-                                SP_VAL!(-1),
-                            );
-                            SP_GO!(-2);
-                            if unlikely(ret.is_err()) {
-                                break ExecAction::Exception;
-                            }
-                        }
-                        #[cfg(not(feature = "builtin_symbol"))]
-                        {
-                            realm_scope.throw_internal_error("Symbol is not supported");
+                        let ret =
+                            SP_MUT!(-3).define_private_field(realm_scope, SP_VAL!(-2), SP_VAL!(-1));
+                        SP_GO!(-2);
+                        if unlikely(ret.is_err()) {
                             break ExecAction::Exception;
                         }
                     }

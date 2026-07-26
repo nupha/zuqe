@@ -80,9 +80,7 @@ impl Atom {
         } else {
             match self.descriptor(rt).atom_info().unwrap().kind() {
                 AtomKind::String => AtomDescKind::JS_ATOM_KIND_STRING,
-                #[cfg(feature = "builtin_symbol")]
                 AtomKind::Symbol | AtomKind::GlobalSymbol => AtomDescKind::JS_ATOM_KIND_SYMBOL,
-                #[cfg(feature = "builtin_symbol")]
                 AtomKind::Private => AtomDescKind::JS_ATOM_KIND_PRIVATE,
             }
         }
@@ -96,21 +94,12 @@ impl Atom {
         if self.is_small_int() {
             false
         } else {
-            #[cfg(feature = "builtin_symbol")]
-            {
-                let s = self.descriptor(rt);
-                !s.content().is_ident() && {
-                    let a = s.atom_info().unwrap();
-                    let k = a.kind();
-                    k == AtomKind::GlobalSymbol
-                        || (k == AtomKind::Symbol && a.hash() == JS_ATOM_HASH_SYMBOL)
-                }
-            }
-
-            #[cfg(not(feature = "builtin_symbol"))]
-            {
-                debug_assert!(!self.desc_string(rt).content().is_ident());
-                true
+            let s = self.descriptor(rt);
+            !s.content().is_ident() && {
+                let a = s.atom_info().unwrap();
+                let k = a.kind();
+                k == AtomKind::GlobalSymbol
+                    || (k == AtomKind::Symbol && a.hash() == JS_ATOM_HASH_SYMBOL)
             }
         }
     }
@@ -224,9 +213,7 @@ impl Atom {
             let s = self.descriptor(ctx.rt());
             match s.atom_info().unwrap().kind() {
                 AtomKind::String => Ok(JSValue::make_string(s)),
-                #[cfg(feature = "builtin_symbol")]
                 AtomKind::Private => Ok(JSValue::make_string(s)),
-                #[cfg(feature = "builtin_symbol")]
                 AtomKind::Symbol | AtomKind::GlobalSymbol => Ok(JSValue::make_symbol(s)),
             }
         }

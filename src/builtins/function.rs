@@ -113,7 +113,6 @@ pub(crate) const js_function_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("apply", 2, js_function_apply, 0),
     FieldDef::FUNC("bind", 1, js_function_bind, 0),
     FieldDef::FUNC("toString", 0, js_function_toString, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::FUNC("[Symbol.hasInstance]", 1, js_function_hasInstance, 0),
     FieldDef::GETSET("fileName", Some(js_function_proto_fileName), None, 0),
     FieldDef::GETSET("lineNumber", Some(js_function_proto_lineNumber), None, 0),

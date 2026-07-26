@@ -30,10 +30,8 @@ pub(super) struct ClassFieldsParse {
     pub(super) computed_fields_count: i32,
     pub(super) is_static: bool,
 
-    /// class private brand requires Symbol support
-    #[cfg(feature = "builtin_symbol")]
+    /// class private brand
     pub(super) need_brand: bool,
-    #[cfg(feature = "builtin_symbol")]
     pub(super) brand_push_pos: i32,
 }
 
@@ -51,10 +49,7 @@ impl Default for ClassFieldsParse {
             fields_init_fd: std::ptr::null_mut(),
             computed_fields_count: 0,
             is_static: false,
-
-            #[cfg(feature = "builtin_symbol")]
             need_brand: false,
-            #[cfg(feature = "builtin_symbol")]
             brand_push_pos: 0,
         }
     }
@@ -137,59 +132,50 @@ impl<'s> JSParseState<'s> {
         start_ptr: *const u8,
     ) -> Result<(), i32> {
         if is_private {
-            #[cfg(feature = "builtin_symbol")]
-            {
-                let fd = self.cur_func_mut();
+            let fd = self.cur_func_mut();
 
-                if let Some(idx) = find_private_class_field(fd, name, fd.scope_level) {
-                    let vd = fd.vars.get_mut(idx as usize).unwrap();
-                    let var_kind = vd.var_kind();
+            if let Some(idx) = find_private_class_field(fd, name, fd.scope_level) {
+                let vd = fd.vars.get_mut(idx as usize).unwrap();
+                let var_kind = vd.var_kind();
 
-                    if matches!(
-                        var_kind,
-                        JSVarKindEnum::JS_VAR_PRIVATE_FIELD
-                            | JSVarKindEnum::JS_VAR_PRIVATE_METHOD
-                            | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER
-                    ) || var_kind
-                        == if is_set {
-                            JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-                        } else {
-                            JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-                        }
-                        || (var_kind
-                            == if is_set {
-                                JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-                            } else {
-                                JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-                            }
-                            && is_static != vd.is_static_private())
-                    {
-                        self.throw_syntax_error("private class field is already defined");
-                        return Err(-1);
+                if matches!(
+                    var_kind,
+                    JSVarKindEnum::JS_VAR_PRIVATE_FIELD
+                        | JSVarKindEnum::JS_VAR_PRIVATE_METHOD
+                        | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER
+                ) || var_kind
+                    == if is_set {
+                        JSVarKindEnum::JS_VAR_PRIVATE_SETTER
+                    } else {
+                        JSVarKindEnum::JS_VAR_PRIVATE_GETTER
                     }
-
-                    vd.set_var_kind(JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER);
-                } else {
-                    add_private_class_field(
-                        self,
-                        name,
-                        if is_set {
-                            JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-                        } else {
+                    || (var_kind
+                        == if is_set {
                             JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-                        },
-                        is_static,
-                    )?;
+                        } else {
+                            JSVarKindEnum::JS_VAR_PRIVATE_SETTER
+                        }
+                        && is_static != vd.is_static_private())
+                {
+                    self.throw_syntax_error("private class field is already defined");
+                    return Err(-1);
                 }
 
-                cf.need_brand = true;
+                vd.set_var_kind(JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER);
+            } else {
+                add_private_class_field(
+                    self,
+                    name,
+                    if is_set {
+                        JSVarKindEnum::JS_VAR_PRIVATE_SETTER
+                    } else {
+                        JSVarKindEnum::JS_VAR_PRIVATE_GETTER
+                    },
+                    is_static,
+                )?;
             }
 
-            #[cfg(not(feature = "builtin_symbol"))]
-            {
-                self.throw_syntax_error("class can't have private field: Symbol is not supported");
-                return Err(-1);
-            }
+            cf.need_brand = true;
         }
 
         // parse getter or setter function
@@ -473,17 +459,7 @@ impl<'s> JSParseState<'s> {
                     };
 
                     if is_private {
-                        #[cfg(feature = "builtin_symbol")]
-                        {
-                            class_fields[is_static as usize].need_brand = true;
-                        }
-                        #[cfg(not(feature = "builtin_symbol"))]
-                        {
-                            self.throw_syntax_error(
-                                "class can't have private field: Symbol is not supported",
-                            );
-                            return Err(-1);
-                        }
+                        class_fields[is_static as usize].need_brand = true;
                     }
 
                     self.parse_function_decl_ex(
@@ -672,7 +648,6 @@ impl<'s> JSParseState<'s> {
         {
             let cf = &mut class_fields[0];
 
-            #[cfg(feature = "builtin_symbol")]
             if cf.need_brand {
                 // add a private brand to the prototype. add brand requires symbol support.
                 self.emit_op(OpCode::DUP);
@@ -710,7 +685,6 @@ impl<'s> JSParseState<'s> {
         // drop the prototype
         self.emit_op(OpCode::DROP);
 
-        #[cfg(feature = "builtin_symbol")]
         if class_fields[1].need_brand {
             // add a private brand to the class
             self.emit_op(OpCode::DUP);

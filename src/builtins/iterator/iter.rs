@@ -20,16 +20,6 @@ use crate::{
     value::JSValue,
 };
 
-#[cfg(not(feature = "builtin_symbol"))]
-use crate::{
-    ClassID, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_GENERATOR,
-    JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
-    JS_CLASS_INT32_ARRAY, JS_CLASS_STRING, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    builtins::{iterator::js_create_array_iterator, typed_array::js_create_typed_array_iterator},
-    function::CallbackFn,
-};
-
 use super::JSAsyncFromSyncIteratorData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -396,7 +386,6 @@ impl JSValue {
     ///
     /// - If neither `[Symbol.iterator]` nor `[Symbol.asyncIterator]` are defined,
     ///   returns None indicating that `self` is not iterable.
-    #[cfg(feature = "builtin_symbol")]
     pub fn get_iterator(
         &self,
         ctx: &mut ScopedContext,
@@ -423,88 +412,6 @@ impl JSValue {
                 .map_err(|_| -1)
             } else {
                 Ok(Some(sync_it))
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Get `self`'s iterator object
-    #[cfg(not(feature = "builtin_symbol"))]
-    pub fn get_iterator(
-        &self,
-        ctx: &mut ContextImpl,
-        is_async: bool,
-    ) -> Result<Option<Object>, i32> {
-        let it: Option<Object> = if self.is_string() {
-            let r = js_create_array_iterator(CallContext::new(
-                unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                *self,
-                &[],
-                (JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i32) | 4,
-                None,
-            ))?;
-            Some(Object::try_from(r).inspect_err(|_| {
-                ctx.throw_type_error_not_an_object();
-            })?)
-        } else if let Some(o) = self.as_object() {
-            let class_id = o.class_id();
-
-            if is_async
-                && let Some((_, f, m)) = CLASS_ASYNC_ITERATOR_HANDLER
-                    .iter()
-                    .find(|(c, _, _)| *c == class_id)
-            {
-                let r = f(CallContext::new(
-                    unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                    *self,
-                    &[],
-                    *m as _,
-                    None,
-                ))?;
-                return Object::try_from(r)
-                    .inspect_err(|_| {
-                        ctx.throw_type_error_not_an_object();
-                    })
-                    .map(Some);
-            }
-
-            if let Some((_, f, m)) = CLASS_ITERATOR_HANDLER
-                .iter()
-                .find(|(c, _, _)| *c == class_id)
-            {
-                let r = f(CallContext::new(
-                    unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                    *self,
-                    &[],
-                    *m as _,
-                    None,
-                ))?;
-                Some(Object::try_from(r).inspect_err(|_| {
-                    ctx.throw_type_error_not_an_object();
-                })?)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        if let Some(it) = it {
-            if is_async {
-                // make AsyncFromSyncIterator
-                let next_method = it.get_property(ctx, Atom::CONST_next)?;
-                ctx.create_object(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(Box::new(
-                    JSAsyncFromSyncIteratorData {
-                        obj: it,
-                        next_method,
-                        closed: Cell::new(false),
-                    },
-                )))
-                .map(Some)
-                .map_err(|_| -1)
-            } else {
-                Ok(Some(it))
             }
         } else {
             Ok(None)
@@ -618,85 +525,6 @@ impl Array {
 }
 
 pub(crate) const js_iterator_proto_funcs: &[FieldDef] = &[
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::FUNC("[Symbol.iterator]", 0, js_get_this, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Iterator", JS_PROP_CONFIGURABLE),
-];
-
-#[cfg(not(feature = "builtin_symbol"))]
-const CLASS_ITERATOR_HANDLER: &[(ClassID, CallbackFn, i16)] = &[
-    (
-        JS_CLASS_STRING,
-        js_create_array_iterator,
-        (JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) | 4,
-    ),
-    (
-        JS_CLASS_ARRAY,
-        js_create_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
-    ),
-    #[cfg(feature = "builtin_mapset")]
-    (
-        crate::JS_CLASS_MAP,
-        crate::builtins::mapset::js_create_map_iterator,
-        (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2,
-    ),
-    #[cfg(feature = "builtin_mapset")]
-    (
-        crate::JS_CLASS_SET,
-        crate::builtins::mapset::js_create_map_iterator,
-        ((JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2) | 1,
-    ),
-    (
-        JS_CLASS_UINT8C_ARRAY,
-        js_create_typed_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
-    ),
-    (
-        JS_CLASS_INT8_ARRAY,
-        js_create_typed_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
-    ),
-    (
-        JS_CLASS_UINT8_ARRAY,
-        js_create_typed_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
-    ),
-    (
-        JS_CLASS_INT16_ARRAY,
-        js_create_typed_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
-    ),
-    (
-        JS_CLASS_UINT16_ARRAY,
-        js_create_typed_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
-    ),
-    (
-        JS_CLASS_INT32_ARRAY,
-        js_create_typed_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
-    ),
-    (
-        JS_CLASS_UINT32_ARRAY,
-        js_create_typed_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
-    ),
-    (
-        JS_CLASS_FLOAT32_ARRAY,
-        js_create_typed_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
-    ),
-    (
-        JS_CLASS_FLOAT64_ARRAY,
-        js_create_typed_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
-    ),
-];
-
-#[cfg(not(feature = "builtin_symbol"))]
-const CLASS_ASYNC_ITERATOR_HANDLER: &[(ClassID, CallbackFn, i16)] = &[
-    (JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, js_get_this, 0),
-    (JS_CLASS_ASYNC_GENERATOR, js_get_this, 0),
 ];

@@ -250,7 +250,6 @@ pub const js_math_funcs: &[FieldDef] = &[
     FieldDef::FLOAT64("PI", std::f64::consts::PI, 0),
     FieldDef::FLOAT64("SQRT1_2", std::f64::consts::FRAC_1_SQRT_2, 0),
     FieldDef::FLOAT64("SQRT2", std::f64::consts::SQRT_2, 0),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR("[Symbol.toStringTag]", "Math", JS_PROP_CONFIGURABLE),
 ];
 

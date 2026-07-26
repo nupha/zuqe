@@ -595,7 +595,6 @@ const js_async_generator_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
     FieldDef::FUNC("return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
     FieldDef::FUNC("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
-    #[cfg(feature = "builtin_symbol")]
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "AsyncGenerator",
@@ -603,11 +602,8 @@ const js_async_generator_proto_funcs: &[FieldDef] = &[
     ),
 ];
 
-const js_async_generator_function_proto_funcs: &[FieldDef] = &[
-    #[cfg(feature = "builtin_symbol")]
-    FieldDef::STR(
-        "[Symbol.toStringTag]",
-        "AsyncGeneratorFunction",
-        JS_PROP_CONFIGURABLE,
-    ),
-];
+const js_async_generator_function_proto_funcs: &[FieldDef] = &[FieldDef::STR(
+    "[Symbol.toStringTag]",
+    "AsyncGeneratorFunction",
+    JS_PROP_CONFIGURABLE,
+)];
