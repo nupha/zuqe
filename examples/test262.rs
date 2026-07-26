@@ -4,7 +4,7 @@
 #![allow(non_snake_case)]
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     io::{Read, Seek, Write},
     path::{Path, PathBuf},
     sync::{
@@ -107,13 +107,12 @@ fn js_detachArrayBuffer(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let source = cc.arg(0).inspect(ctx)?;
     ctx.with_new_scope(|scope| {
-        let result = scope.eval(
+        scope.eval(
             source.as_bytes(),
             "<eval>",
             EvalType::Global,
             EvalFlags::empty(),
-        );
-        result
+        )
     })
 }
 
@@ -326,59 +325,6 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), Except
     Ok(())
 }
 
-#[cfg(not(feature = "async_support"))]
-fn run_test_script(
-    ctx: &mut Context<'_>,
-    script: &str,
-    filename: &Path,
-    is_module: bool,
-    is_async: bool,
-    is_strict: bool,
-) -> Result<i32, ExceptionText> {
-    if is_async {
-        ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    // Convert the entry filename to a canonical `file://` URL. `module_name`
-    // (and `import.meta.url`) is a URL, and a `file://` base is also required so
-    // that (top-level) dynamic `import()` from a *script* entry resolves relative
-    // specifiers correctly, instead of being handed a bare filesystem path.
-    let entry_name = zuqe::path_to_url(filename.to_str().unwrap())
-        .expect("entry path must convert to a file:// URL")
-        .to_string();
-
-    ctx.with_new_scope(|scope| {
-        let result = scope.eval_wait(
-            script.as_bytes(),
-            &entry_name,
-            if is_module {
-                EvalType::Module
-            } else {
-                EvalType::Global
-            },
-            if is_strict {
-                EvalFlags::STRICT
-            } else {
-                EvalFlags::empty()
-            },
-        );
-        result
-    })?;
-
-    if is_async {
-        let n = ASYNC_DONE.load(Ordering::SeqCst);
-        if n != 1 {
-            return Err(ExceptionText {
-                message: format!("TypeError: $DONE() not called {n}"),
-                traceback: None,
-            });
-        }
-    }
-
-    Ok(0)
-}
-
-#[cfg(feature = "async_support")]
 async fn run_test_script<'c>(
     rt: &'c mut Runtime,
     mut ctx: Context<'c>,
@@ -491,199 +437,10 @@ fn dump_error(
     }
 }
 
-#[cfg(not(feature = "async_support"))]
-fn run_test_file(
-    filename: &Path,
-    harness_path: &Path,
-    excludes: Option<&[String]>,
-    outf: &mut dyn Write,
-    errf: &mut dyn Write,
-) {
-    write!(outf, "{} ... ", filename.display()).unwrap();
-
-    // read source
-    let content = std::fs::read_to_string(filename).unwrap();
-
-    // parse front matter config
-    let start = content.find("/*---").unwrap_or(0);
-    let end = content.find("---*/").unwrap_or(0);
-    let config = if start < end {
-        let front_matter = content[start + 5..end].trim();
-        serde_yaml::from_str::<TestConfig>(front_matter).unwrap()
-    } else {
-        // no config, exit
-        writeln!(outf, "no-test").unwrap();
-        return;
-    };
-
-    if let (Some(features), Some(excl)) = (config.features.as_deref(), excludes)
-        && features.iter().any(|x| excl.contains(x))
-    {
-        writeln!(outf, "skip").unwrap();
-        return;
-    }
-
-    println!("{}", filename.to_str().unwrap());
-
-    // collect included harness files
-    let mut harness_files = Vec::<PathBuf>::with_capacity(16);
-    harness_files.extend_from_slice(&[harness_path.join("assert.js"), harness_path.join("sta.js")]);
-    if let Some(ff) = &config.flags
-        && ff.iter().any(|s| s == "async")
-    {
-        harness_files.push(harness_path.join("doneprintHandle.js"));
-    }
-
-    if let Some(includes) = config.includes {
-        for include in includes {
-            harness_files.push(harness_path.join(include));
-        }
-    }
-
-    // make runtime & context
-    let mut rt = Runtime::create().unwrap();
-
-    // for panic="abort" config, use install_panic_handler to free gc allocated nodes
-    #[cfg(debug_assertions)]
-    rt.install_panic_handler();
-
-    rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
-
-    // SAFETY: ctx is used within this function and dropped before rt.
-    let mut ctx = unsafe {
-        rt.create_context(|ctx| {
-            ContextImpl::ECMA_CONTEXT_SETUP(ctx)?;
-            setup_ctx_test262_helpers(ctx)?;
-            Ok(())
-        })
-    }
-    .unwrap();
-
-    let mut has_err = false;
-
-    if !harness_files.is_empty() {
-        #[cfg(debug_assertions)]
-        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
-
-        if let Err(exc) = run_harness(ctx, &harness_files) {
-            writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(&exc, false, false, false, outf);
-
-            writeln!(errf, "{}", filename.display()).unwrap();
-            writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(&exc, false, false, false, errf);
-
-            has_err = true;
-        }
-
-        #[cfg(debug_assertions)]
-        debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
-    }
-
-    if !has_err {
-        let mut use_strict = false;
-        let mut use_nostrict = true;
-        let mut is_async = false;
-        let mut is_module = false;
-        if let Some(flags) = config.flags {
-            if flags.iter().any(|s| s.as_str() == "module") {
-                is_module = true;
-            }
-            if flags.iter().any(|s| s.as_str() == "onlyStrict") {
-                use_strict = true;
-                use_nostrict = false;
-            }
-            if flags.iter().any(|s| s.as_str() == "noStrict") {
-                use_strict = false;
-                use_nostrict = true;
-            }
-            is_async = flags.iter().any(|s| s.as_str() == "async");
-        }
-
-        let negative = config.negative;
-
-        for strict in [
-            if use_nostrict { Some(false) } else { None },
-            if use_strict { Some(true) } else { None },
-        ]
-        .into_iter()
-        .flatten()
-        {
-            #[cfg(debug_assertions)]
-            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
-
-            let res = run_test_script(
-                &mut ctx,
-                content.as_str(),
-                filename,
-                is_module,
-                is_async,
-                strict,
-            );
-
-            #[cfg(debug_assertions)]
-            debug_assert_eq!(ctx.gc_heap().scope_max_depth(), 1);
-
-            if let Err(exc) = res {
-                if let Some(neg) = &negative {
-                    if let Some(ty) = neg.type_.as_ref() {
-                        let err_class = exc.message.split(":").next().unwrap();
-                        if err_class == ty {
-                            writeln!(outf, "pass").unwrap();
-                        } else {
-                            writeln!(
-                                outf,
-                                "fail: expects error class '{}', got '{}'",
-                                ty, err_class
-                            )
-                            .unwrap();
-                            dump_error(&exc, strict, is_module, is_async, outf);
-
-                            writeln!(errf, "{}", filename.display()).unwrap();
-                            writeln!(
-                                outf,
-                                "fail: expects error class '{}', got '{}'",
-                                ty, err_class
-                            )
-                            .unwrap();
-                            dump_error(&exc, strict, is_module, is_async, errf);
-                        }
-                    } else {
-                        writeln!(outf, "pass").unwrap();
-                    }
-                } else {
-                    writeln!(outf, "fail").unwrap();
-                    dump_error(&exc, strict, is_module, is_async, outf);
-
-                    writeln!(errf, "{}", filename.display()).unwrap();
-                    dump_error(&exc, strict, is_module, is_async, errf);
-                }
-            } else if let Some(neg) = &negative {
-                writeln!(
-                    outf,
-                    "fail: [NEGATIVE] expects error {}",
-                    neg.type_.as_ref().map_or("", |s| s.as_str())
-                )
-                .unwrap();
-                writeln!(errf, "{}", filename.display()).unwrap();
-                writeln!(
-                    errf,
-                    "fail: [NEGATIVE] expects error {}",
-                    neg.type_.as_ref().map_or("", |s| s.as_str())
-                )
-                .unwrap();
-            } else {
-                writeln!(outf, "pass").unwrap();
-            }
-        }
-    }
-}
-
-#[cfg(feature = "async_support")]
 async fn run_test_file(
     filename: &Path,
     harness_path: &Path,
-    excludes: Option<&[String]>,
+    dec: &Decisions,
     outf: &mut dyn Write,
     errf: &mut dyn Write,
 ) {
@@ -701,9 +458,7 @@ async fn run_test_file(
         return;
     };
 
-    if let (Some(features), Some(excl)) = (config.features.as_deref(), excludes)
-        && features.iter().any(|x| excl.contains(x))
-    {
+    if should_skip_test(config.features.as_deref(), dec) {
         writeln!(outf, "skip").unwrap();
         return;
     }
@@ -732,7 +487,7 @@ async fn run_test_file(
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
     // SAFETY: ctx is used within this function and dropped before rt.
-    let mut ctx = rt
+    let ctx = rt
         .create_context(|ctx| {
             ScopedContext::ECMA_CONTEXT_SETUP(ctx)?;
             setup_ctx_test262_helpers(ctx)?;
@@ -863,6 +618,405 @@ async fn run_test_file(
     }
 }
 
+/// Built-in edition presets.
+///
+/// Each entry lists the `features.txt` flags that were *newly* introduced in
+/// that edition. The set of features "covered" by an edition is the union of
+/// every entry up to and including it. A test is skipped when it requires a
+/// feature introduced in a strictly newer edition than the selected preset.
+///
+/// Feature flags not listed here (stage-3 proposals, Intl features, …) are
+/// treated as belonging to the *latest* edition, so they only run when the
+/// latest preset is selected and never run under older presets.
+const BUILTIN_PRESETS: &[(&str, &[&str])] = &[
+    (
+        "ES5",
+        &[
+            "IsHTMLDDA",
+            "host-gc-required",
+            "cross-realm",
+            "__proto__",
+            "__getter__",
+            "__setter__",
+        ],
+    ),
+    (
+        "ES2015",
+        &[
+            "let",
+            "const",
+            "arrow-function",
+            "class",
+            "generators",
+            "template",
+            "for-of",
+            "super",
+            "new.target",
+            "default-parameters",
+            "rest-parameters",
+            "destructuring-binding",
+            "destructuring-assignment",
+            "computed-property-names",
+            "Symbol",
+            "Symbol.iterator",
+            "Symbol.hasInstance",
+            "Symbol.isConcatSpreadable",
+            "Symbol.match",
+            "Symbol.replace",
+            "Symbol.search",
+            "Symbol.species",
+            "Symbol.split",
+            "Symbol.toPrimitive",
+            "Symbol.toStringTag",
+            "Symbol.unscopables",
+            "Map",
+            "Set",
+            "WeakMap",
+            "WeakSet",
+            "Proxy",
+            "Reflect",
+            "Reflect.construct",
+            "Reflect.set",
+            "Reflect.setPrototypeOf",
+            "Promise",
+            "ArrayBuffer",
+            "Int8Array",
+            "Uint8Array",
+            "Uint8ClampedArray",
+            "Int16Array",
+            "Uint16Array",
+            "Int32Array",
+            "Uint32Array",
+            "Float32Array",
+            "Float64Array",
+            "TypedArray",
+            "DataView",
+            "DataView.prototype.getFloat32",
+            "DataView.prototype.getFloat64",
+            "DataView.prototype.getInt16",
+            "DataView.prototype.getInt32",
+            "DataView.prototype.getInt8",
+            "DataView.prototype.getUint16",
+            "DataView.prototype.getUint32",
+            "DataView.prototype.setUint8",
+            "Array.prototype.values",
+            "Object.is",
+            "String.fromCodePoint",
+            "String.prototype.includes",
+            "String.prototype.endsWith",
+            "tail-call-optimization",
+        ],
+    ),
+    ("ES2016", &["Array.prototype.includes", "exponentiation"]),
+    (
+        "ES2017",
+        &["async-functions", "SharedArrayBuffer", "Atomics"],
+    ),
+    (
+        "ES2018",
+        &[
+            "async-iteration",
+            "object-rest",
+            "object-spread",
+            "Promise.prototype.finally",
+            "regexp-dotall",
+            "regexp-lookbehind",
+            "regexp-named-groups",
+            "regexp-unicode-property-escapes",
+            "Symbol.asyncIterator",
+        ],
+    ),
+    (
+        "ES2019",
+        &[
+            "Array.prototype.flat",
+            "Array.prototype.flatMap",
+            "Object.fromEntries",
+            "json-superset",
+            "optional-catch-binding",
+            "string-trimming",
+            "String.prototype.trimEnd",
+            "String.prototype.trimStart",
+            "Symbol.prototype.description",
+            "stable-array-sort",
+            "stable-typedarray-sort",
+            "well-formed-json-stringify",
+        ],
+    ),
+    (
+        "ES2020",
+        &[
+            "BigInt",
+            "coalesce-expression",
+            "dynamic-import",
+            "globalThis",
+            "export-star-as-namespace-from-module",
+            "import.meta",
+            "optional-chaining",
+            "Promise.allSettled",
+            "String.prototype.matchAll",
+            "Symbol.matchAll",
+        ],
+    ),
+    (
+        "ES2021",
+        &[
+            "AggregateError",
+            "FinalizationRegistry",
+            "logical-assignment-operators",
+            "numeric-separator-literal",
+            "Promise.any",
+            "String.prototype.replaceAll",
+            "WeakRef",
+        ],
+    ),
+    (
+        "ES2022",
+        &[
+            "arbitrary-module-namespace-names",
+            "Array.prototype.at",
+            "class-fields-private",
+            "class-fields-private-in",
+            "class-fields-public",
+            "class-methods-private",
+            "class-static-block",
+            "class-static-fields-private",
+            "class-static-fields-public",
+            "class-static-methods-private",
+            "error-cause",
+            "Object.hasOwn",
+            "regexp-match-indices",
+            "String.prototype.at",
+            "top-level-await",
+            "TypedArray.prototype.at",
+        ],
+    ),
+    (
+        "ES2023",
+        &[
+            "array-find-from-last",
+            "Atomics.waitAsync",
+            "change-array-by-copy",
+            "hashbang",
+            "String.prototype.isWellFormed",
+            "String.prototype.toWellFormed",
+            "symbols-as-weakmap-keys",
+        ],
+    ),
+    (
+        "ES2024",
+        &[
+            "Array.fromAsync",
+            "array-grouping",
+            "arraybuffer-transfer",
+            "Float16Array",
+            "promise-with-resolvers",
+            "regexp-v-flag",
+            "resizable-arraybuffer",
+            "set-methods",
+            "uint8array-base64",
+        ],
+    ),
+    (
+        "ES2025",
+        &[
+            "iterator-helpers",
+            "json-modules",
+            "json-parse-with-source",
+            "promise-try",
+            "RegExp.escape",
+            "regexp-modifiers",
+        ],
+    ),
+    (
+        "ES2026",
+        &[
+            "Error.isError",
+            "iterator-sequencing",
+            "joint-iteration",
+            "Math.sumPrecise",
+        ],
+    ),
+];
+
+/// Features excluded by default: stage-3 proposals and separate specs that are
+/// not part of any published ECMAScript edition. They are always skipped
+/// unless the user removes them from `exclude_features`.
+const DEFAULT_EXCLUDE_FEATURES: &[&str] = &[
+    "Intl.Era-monthcode",
+    "Intl.Locale-info",
+    "Intl.NumberFormat-v3",
+    "legacy-regexp",
+    "ShadowRealm",
+    "decorators",
+    "source-phase-imports",
+    "source-phase-imports-module-source",
+    "import-defer",
+    "export-defer",
+    "import-text",
+    "immutable-arraybuffer",
+    "import-bytes",
+    "nonextensible-applies-to-private",
+    "await-dictionary",
+    "error-stack-accessor",
+    "Temporal",
+];
+
+/// Resolved feature-selection decisions for a single run.
+struct Decisions {
+    /// Maps a feature flag to the index of the edition that introduced it.
+    /// Features absent from this map are treated as the latest edition.
+    feature_edition: HashMap<String, usize>,
+    /// Index of the selected preset in `BUILTIN_PRESETS`.
+    selected_index: usize,
+    /// Index of the latest preset.
+    max_index: usize,
+    /// Features that are always skipped.
+    exclude: HashSet<String>,
+}
+
+/// Build the `feature -> edition index` map from `BUILTIN_PRESETS`.
+fn build_feature_edition() -> (HashMap<String, usize>, usize) {
+    let mut map = HashMap::new();
+    for (idx, (_, feats)) in BUILTIN_PRESETS.iter().enumerate() {
+        for f in *feats {
+            map.insert((*f).to_string(), idx);
+        }
+    }
+    (map, BUILTIN_PRESETS.len() - 1)
+}
+
+/// Comma-separated list of all selectable presets (for error messages).
+fn available_presets() -> String {
+    BUILTIN_PRESETS
+        .iter()
+        .map(|(n, _)| *n)
+        .chain(std::iter::once("ALL"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Whether `name` names a valid preset (`ALL` or a built-in edition).
+fn is_known_preset(name: &str) -> bool {
+    name == "ALL" || BUILTIN_PRESETS.iter().any(|(n, _)| *n == name)
+}
+
+/// Merge CLI flags onto the config loaded from the file. A CLI flag takes
+/// precedence over the matching file setting; file settings stay untouched
+/// when the corresponding flag is absent.
+fn apply_cli_overrides(cfg: &mut AppConfig, args: &Args) {
+    if let Some(preset) = args.preset.clone() {
+        cfg.preset = Some(preset);
+    }
+    if !args.test_files.is_empty() {
+        cfg.tests = Some(args.test_files.clone());
+    }
+    if !args.exclude_features.is_empty() {
+        match cfg.exclude_features.as_mut() {
+            Some(list) => list.extend(args.exclude_features.iter().cloned()),
+            None => cfg.exclude_features = Some(args.exclude_features.clone()),
+        }
+    }
+}
+
+/// Validate the (merged) config in one place, right before running. Any
+/// missing or invalid setting surfaces here instead of mid-run.
+fn validate_config(cfg: &AppConfig) {
+    // `preset` is required: either from the file or from `--preset`.
+    let preset = match cfg.preset.as_deref() {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "error: no preset specified. Set 'preset:' in the config file or pass --preset <NAME>.\n\
+                 available presets: {}",
+                available_presets()
+            );
+            std::process::exit(1);
+        }
+    };
+    if !is_known_preset(preset) {
+        eprintln!(
+            "error: unknown preset '{preset}'. available presets: {}",
+            available_presets()
+        );
+        std::process::exit(1);
+    }
+
+    // `base_path` / `out_path`, if set, must be existing directories.
+    for (key, p) in [
+        ("base_path", cfg.base_path.as_deref()),
+        ("out_path", cfg.out_path.as_deref()),
+    ] {
+        if let Some(p) = p
+            && !std::fs::metadata(p).map(|m| m.is_dir()).unwrap_or(false)
+        {
+            eprintln!("error: invalid directory for '{key}': {p}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Resolve the preset, edition index, and exclude set for a run. Assumes the
+/// config has already been merged with CLI flags and validated.
+fn resolve_decisions(cfg: &AppConfig) -> Decisions {
+    let (feature_edition, max_index) = build_feature_edition();
+
+    let preset_name = cfg.preset.as_deref().expect("preset validated");
+
+    let selected_index = if preset_name == "ALL" {
+        // Sit past every edition so the edition gate never fires: a test is
+        // skipped only by `exclude` (this is the "ALL" preset).
+        max_index + 1
+    } else {
+        BUILTIN_PRESETS
+            .iter()
+            .position(|(name, _)| *name == preset_name)
+            .expect("preset validated")
+    };
+
+    let mut exclude = HashSet::new();
+    for f in DEFAULT_EXCLUDE_FEATURES {
+        exclude.insert((*f).to_string());
+    }
+    if let Some(list) = &cfg.exclude_features {
+        for f in list {
+            exclude.insert(f.clone());
+        }
+    }
+
+    Decisions {
+        feature_edition,
+        selected_index,
+        max_index,
+        exclude,
+    }
+}
+
+/// Decide whether a single test should be skipped.
+///
+/// A test is skipped when:
+/// * it requires a feature listed in the exclude set, or
+/// * it requires a feature introduced in a strictly newer edition than the
+///   selected preset (for the "ALL" preset `selected_index` is raised past every
+///   edition, so this gate never fires and only `exclude` applies).
+///
+/// Tests without any `features` annotation (baseline tests) are always run.
+fn should_skip_test(features: Option<&[String]>, dec: &Decisions) -> bool {
+    let Some(features) = features else {
+        return false;
+    };
+    for f in features {
+        if dec.exclude.contains(f) {
+            return true;
+        }
+        let edition = dec.feature_edition.get(f).copied().unwrap_or(dec.max_index);
+        if edition > dec.selected_index {
+            return true;
+        }
+    }
+    false
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct AppConfig {
     base_path: Option<String>,
@@ -870,24 +1024,49 @@ pub struct AppConfig {
     tests: Option<Vec<String>>,
     exclude_tests: Option<Vec<String>>,
     exclude_features: Option<Vec<String>>,
+    /// Optional edition preset (overridden by the `--preset` CLI flag).
+    preset: Option<String>,
     log: Option<String>,
 }
 
 #[derive(Debug, Parser)]
-#[command(version)]
+#[command(version, about = "Run test262 with edition presets")]
 struct Args {
-    #[arg(default_value_t = String::from("test262.yml"), help = "config file")]
+    /// config file (default: test262.yml in the current directory). All example
+    /// flags must follow `cargo run --example test262 --` so cargo does not
+    /// intercept them.
+    #[arg(long = "config", default_value_t = String::from("test262.yml"))]
     config_file: String,
+
+    /// Edition preset to run. One of the built-in presets: ES5, ES2015, ES2016,
+    /// ES2017, ES2018, ES2019, ES2020, ES2021, ES2022, ES2023, ES2024, ES2025,
+    /// ES2026, or `ALL` (run every feature, limited only by `exclude_features`).
+    /// Required: if `--preset` is omitted, the `preset:` setting from the config
+    /// file is used; if neither is set, the runner errors out.
+    #[arg(long)]
+    preset: Option<String>,
+
+    /// Exclude an additional feature (repeatable), e.g. --exclude-feature Temporal
+    #[arg(long = "exclude-feature")]
+    exclude_features: Vec<String>,
+
+    /// Specific test file(s) or glob(s) to run; overrides `tests` in the config.
+    #[arg(trailing_var_arg = true)]
+    test_files: Vec<String>,
 }
 
-#[cfg(not(feature = "async_support"))]
-fn main_impl() {
+async fn main_impl() {
     let args = Args::parse();
+
+    // Config is given via `--config` (default: test262.yml). Positional
+    // arguments are test scripts/globs to run (matching mainstream test262
+    // runners such as test262-harness, QuickJS, and Boa).
+    let config_file = &args.config_file;
 
     let mut app_cfg = {
         let mut fp = std::fs::OpenOptions::new()
             .read(true)
-            .open(args.config_file)
+            .open(config_file)
             .unwrap();
         let mut txt = String::new();
 
@@ -895,8 +1074,13 @@ fn main_impl() {
         serde_yaml::from_str::<AppConfig>(txt.as_str()).unwrap()
     };
 
+    // Merge CLI flags over the file config, then validate everything up front.
+    apply_cli_overrides(&mut app_cfg, &args);
+    validate_config(&app_cfg);
+
+    let dec = resolve_decisions(&app_cfg);
+
     let log_tee: Option<TeeWriter<std::fs::File, std::fs::File>> = if let Some(log) = app_cfg.log {
-        // create log file
         let log_file = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -916,21 +1100,10 @@ fn main_impl() {
         None
     };
 
+    // `base_path` was already validated as an existing directory in
+    // `validate_config`; here we just resolve it (or fall back to CWD).
     let mut base_path: PathBuf = if let Some(txt) = app_cfg.base_path.take() {
-        let p = PathBuf::from(txt);
-        match std::fs::metadata(&p) {
-            Ok(m) => {
-                if !m.is_dir() {
-                    log::error!("invalid directory: {}", p.display());
-                    std::process::exit(1);
-                }
-                p
-            }
-            Err(_) => {
-                log::error!("invalid directory '{}'", p.display());
-                std::process::exit(1);
-            }
-        }
+        PathBuf::from(txt)
     } else {
         std::env::current_dir().unwrap()
     };
@@ -946,21 +1119,10 @@ fn main_impl() {
 
     let harness_path = base_path.join("harness");
 
+    // `out_path` was already validated as an existing directory in
+    // `validate_config`; here we just resolve it (or fall back to CWD).
     let mut out_path: PathBuf = if let Some(txt) = app_cfg.out_path.take() {
-        let p = PathBuf::from(txt);
-        match std::fs::metadata(&p) {
-            Ok(m) => {
-                if !m.is_dir() {
-                    log::error!("invalid directory: {}", p.display());
-                    std::process::exit(1);
-                }
-                p
-            }
-            Err(_) => {
-                log::error!("invalid directory '{}'", p.display());
-                std::process::exit(1);
-            }
-        }
+        PathBuf::from(txt)
     } else {
         std::env::current_dir().unwrap()
     };
@@ -999,203 +1161,39 @@ fn main_impl() {
         }
     }
 
-    if let Some(tests) = app_cfg.tests.take() {
-        let excludes = app_cfg
-            .exclude_features
-            .take()
-            .filter(|lst| !lst.is_empty());
+    let test_globs: Vec<String> = if !args.test_files.is_empty() {
+        args.test_files.clone()
+    } else if let Some(tests) = app_cfg.tests.take() {
+        if tests.is_empty() {
+            vec!["**/*.js".to_string()]
+        } else {
+            tests
+        }
+    } else {
+        vec!["**/*.js".to_string()]
+    };
 
-        for item in tests {
-            for path in
-                glob::glob(base_path.join(format!("test/{item}")).to_str().unwrap()).unwrap()
-            {
-                let file_name = path.unwrap();
+    for item in test_globs {
+        for path in glob::glob(base_path.join(format!("test/{item}")).to_str().unwrap()).unwrap() {
+            let file_name = path.unwrap();
 
-                if !exclude_tests.contains(&file_name) {
-                    if let Some(f) = log_tee.as_ref().and_then(|t| t.a.clone()) {
-                        // truncate log file
-                        let mut fp = f.lock().unwrap();
-                        fp.flush().unwrap();
-                        fp.set_len(0).unwrap();
-                        fp.seek(std::io::SeekFrom::Start(0)).unwrap();
-                        fp.flush().unwrap();
-                    }
-
-                    run_test_file(
-                        &file_name,
-                        &harness_path,
-                        excludes.as_deref(),
-                        &mut outf,
-                        &mut errf,
-                    );
-                    outf.flush().unwrap();
+            if !exclude_tests.contains(&file_name) {
+                if let Some(f) = log_tee.as_ref().and_then(|t| t.a.clone()) {
+                    let mut fp = f.lock().unwrap();
+                    fp.flush().unwrap();
+                    fp.set_len(0).unwrap();
+                    fp.seek(std::io::SeekFrom::Start(0)).unwrap();
+                    fp.flush().unwrap();
                 }
+
+                run_test_file(&file_name, &harness_path, &dec, &mut outf, &mut errf).await;
+                outf.flush().unwrap();
             }
         }
     }
 }
 
-#[cfg(feature = "async_support")]
-async fn main_impl_async() {
-    let args = Args::parse();
-
-    let mut app_cfg = {
-        let mut fp = std::fs::OpenOptions::new()
-            .read(true)
-            .open(args.config_file)
-            .unwrap();
-        let mut txt = String::new();
-
-        fp.read_to_string(&mut txt).unwrap();
-        serde_yaml::from_str::<AppConfig>(txt.as_str()).unwrap()
-    };
-
-    let log_tee: Option<TeeWriter<std::fs::File, std::fs::File>> = if let Some(log) = app_cfg.log {
-        let log_file = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(log)
-            .unwrap();
-
-        let tee = TeeWriter::new(Some(log_file), Option::<std::fs::File>::None);
-
-        env_logger::Builder::new()
-            .filter_level(log::LevelFilter::Trace)
-            .target(env_logger::Target::Pipe(Box::new(tee.clone())))
-            .init();
-
-        Some(tee)
-    } else {
-        None
-    };
-
-    let mut base_path: PathBuf = if let Some(txt) = app_cfg.base_path.take() {
-        let p = PathBuf::from(txt);
-        match std::fs::metadata(&p) {
-            Ok(m) => {
-                if !m.is_dir() {
-                    log::error!("invalid directory: {}", p.display());
-                    std::process::exit(1);
-                }
-                p
-            }
-            Err(_) => {
-                log::error!("invalid directory '{}'", p.display());
-                std::process::exit(1);
-            }
-        }
-    } else {
-        std::env::current_dir().unwrap()
-    };
-    if !base_path
-        .to_str()
-        .unwrap()
-        .ends_with(std::path::MAIN_SEPARATOR)
-    {
-        let mut s = base_path.to_string_lossy().into_owned();
-        s.push(std::path::MAIN_SEPARATOR);
-        base_path = s.into()
-    }
-
-    let harness_path = base_path.join("harness");
-
-    let mut out_path: PathBuf = if let Some(txt) = app_cfg.out_path.take() {
-        let p = PathBuf::from(txt);
-        match std::fs::metadata(&p) {
-            Ok(m) => {
-                if !m.is_dir() {
-                    log::error!("invalid directory: {}", p.display());
-                    std::process::exit(1);
-                }
-                p
-            }
-            Err(_) => {
-                log::error!("invalid directory '{}'", p.display());
-                std::process::exit(1);
-            }
-        }
-    } else {
-        std::env::current_dir().unwrap()
-    };
-    if !out_path
-        .to_str()
-        .unwrap()
-        .ends_with(std::path::MAIN_SEPARATOR)
-    {
-        let mut s = out_path.to_string_lossy().into_owned();
-        s.push(std::path::MAIN_SEPARATOR);
-        out_path = s.into()
-    }
-
-    let mut outf = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open("test262-result.txt")
-        .unwrap();
-
-    let mut errf = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open("test262-fail.txt")
-        .unwrap();
-
-    let mut exclude_tests = HashSet::<PathBuf>::with_capacity(128);
-    if let Some(skip_tests) = app_cfg.exclude_tests.take() {
-        for item in skip_tests {
-            let pat = base_path.join(format!("./test/{item}"));
-            for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
-                let fname = fname.unwrap();
-                exclude_tests.insert(fname);
-            }
-        }
-    }
-
-    if let Some(tests) = app_cfg.tests.take() {
-        let excludes = app_cfg
-            .exclude_features
-            .take()
-            .filter(|lst| !lst.is_empty());
-
-        for item in tests {
-            for path in
-                glob::glob(base_path.join(format!("test/{item}")).to_str().unwrap()).unwrap()
-            {
-                let file_name = path.unwrap();
-
-                if !exclude_tests.contains(&file_name) {
-                    if let Some(f) = log_tee.as_ref().and_then(|t| t.a.clone()) {
-                        let mut fp = f.lock().unwrap();
-                        fp.flush().unwrap();
-                        fp.set_len(0).unwrap();
-                        fp.seek(std::io::SeekFrom::Start(0)).unwrap();
-                        fp.flush().unwrap();
-                    }
-
-                    run_test_file(
-                        &file_name,
-                        &harness_path,
-                        excludes.as_deref(),
-                        &mut outf,
-                        &mut errf,
-                    )
-                    .await;
-                    outf.flush().unwrap();
-                }
-            }
-        }
-    }
-}
-
-#[cfg(not(feature = "async_support"))]
-fn main() {
-    main_impl();
-}
-
-#[cfg(feature = "async_support")]
 #[tokio::main]
 async fn main() {
-    main_impl_async().await;
+    main_impl().await;
 }

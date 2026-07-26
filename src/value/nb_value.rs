@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-//! NaN-boxing `JSValue` implementation (64-bit encoding).
-
 use std::ptr::NonNull;
 
 use gc_lite::{GcHead, GcNode, GcRef};
@@ -434,7 +432,7 @@ impl JSValue {
         }
     }
 
-    pub(crate) fn as_catch_offset(&self) -> Option<i32> {
+    pub(crate) const fn as_catch_offset(&self) -> Option<i32> {
         if js_value_get_tag(self.0) == (JSValueTag::CatchOffset as i32) {
             Some(self.payload_i32())
         } else {
