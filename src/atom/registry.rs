@@ -18,7 +18,7 @@ use crate::{
 
 use super::{
     ATOM_CONST_CAPTIONS, ATOM_CONST_COUNT, ATOM_USER_BASE_ID, Atom, AtomInfo, AtomKind,
-    JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_MAX_INT, JS_ATOM_TAG_INT,
+    JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_MAX, JS_ATOM_MAX_INT, JS_ATOM_TAG_INT,
 };
 
 pub(crate) struct AtomRegistry {
@@ -169,10 +169,17 @@ fn register_atom(
                     .try_reserve(16)
                     .map_err(|_| -1)?;
             }
-            (
-                None,
-                rt.atom_registry.user_atoms.len() as u16 + ATOM_USER_BASE_ID as u16,
-            )
+
+            // [FIX] atom ids are stored in a u16 (NonZeroU16 in AtomInfo); assigning
+            // `len as u16` silently wraps past JS_ATOM_MAX and aliases an existing
+            // atom's id (use-after-free of the descriptor -> panic in descriptor()).
+            // Refuse to allocate past the representable range instead.
+            let new_id = rt.atom_registry.user_atoms.len() as u32 + ATOM_USER_BASE_ID;
+            if new_id > JS_ATOM_MAX {
+                return Err(-1);
+            }
+
+            (None, new_id as u16)
         };
 
     match rt.atom_registry.hash_lut.entry(hash) {

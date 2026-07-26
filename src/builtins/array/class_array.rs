@@ -7,7 +7,7 @@ use gc_lite::GcNode;
 use crate::{
     JS_CLASS_ARRAY,
     array::{Array, ArrayPayload, alloc_fast_array_slots},
-    atom::Atom,
+    atom::{Atom, JS_ATOM_MAX_INT},
     builtins::{
         iterator::{
             JSIteratorKindEnum, ObjectIter, js_array_iterator_next, js_create_array_iterator,
@@ -21,7 +21,10 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, Object, ObjectPayload},
+    object::{
+        JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, Object,
+        ObjectPayload,
+    },
     runtime::js_check_stack_overflow,
     string::{StringBuf, StringRef},
     value::JSValue,
@@ -434,17 +437,29 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     func.ensure_callable(ctx)?;
 
     let mut acc: JSValue;
-    let mut k = 0;
 
-    if cc.length() > 1 {
-        acc = cc.arg(1);
-    } else {
-        loop {
-            if k >= len {
+    if special & special_TA != 0 {
+        // typed arrays are dense: `len` is the exact element count, so iterate
+        // the full range directly.
+        let mut k = 0;
+        if cc.length() > 1 {
+            acc = cc.arg(1);
+        } else {
+            if len == 0 {
                 ctx.throw_type_error("empty array");
                 return Err(-1);
             }
+            let k1 = if special & special_reduceRight != 0 {
+                len - 1
+            } else {
+                0
+            };
+            acc = obj.get_property_i64(ctx, k1)?;
+            k = 1;
+        }
 
+        let mut val;
+        while k < len {
             let k1 = if special & special_reduceRight != 0 {
                 len - k - 1
             } else {
@@ -452,42 +467,88 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
             };
             k += 1;
 
-            if special & special_TA != 0 {
-                acc = obj.get_property_i64(ctx, k1)?;
-                break;
-            } else if let Some(r) = obj.try_get_property_i64(ctx, k1)? {
-                acc = r;
-                break;
+            val = obj.get_property_i64(ctx, k1)?;
+            let index_val = JSValue::from(k1);
+            acc = func.call(ctx, JSValue::UNDEFINED, &[acc, val, index_val, obj])?;
+        }
+
+        return Ok(acc);
+    }
+
+    if len <= JS_ATOM_MAX_INT as i64 {
+        // Sequential scan. Every index is a small int, so `try_get_property_i64`
+        // takes the allocation-free fast path; this also matches the spec's
+        // sequential semantics (e.g. getters that add properties while visited).
+        let mut k = 0;
+        if cc.length() > 1 {
+            acc = cc.arg(1);
+        } else {
+            loop {
+                if k >= len {
+                    ctx.throw_type_error("empty array");
+                    return Err(-1);
+                }
+                let k1 = if special & special_reduceRight != 0 {
+                    len - k - 1
+                } else {
+                    k
+                };
+                k += 1;
+                if let Some(r) = obj.try_get_property_i64(ctx, k1)? {
+                    acc = r;
+                    break;
+                }
+            }
+        }
+        while k < len {
+            let k1 = if special & special_reduceRight != 0 {
+                len - k - 1
+            } else {
+                k
+            };
+            k += 1;
+            if let Some(v) = obj.try_get_property_i64(ctx, k1)? {
+                let index_val = JSValue::from(k1);
+                acc = func.call(ctx, JSValue::UNDEFINED, &[acc, v, index_val, obj])?;
+            }
+        }
+        return Ok(acc);
+    }
+
+    // Huge length: scanning `0..len` would allocate an atom per index and
+    // exhaust the atom table. Enumerate only the actually-present integer
+    // indices (own + inherited) instead. `reduce` already skips holes per
+    // spec, so this is exactly equivalent.
+    let o = obj.as_object().unwrap();
+    let mut idxs = collect_present_indices(ctx, &o, len)?;
+    if special & special_reduceRight != 0 {
+        idxs.reverse();
+    }
+
+    let mut it = idxs.into_iter();
+    if cc.length() > 1 {
+        acc = cc.arg(1);
+    } else {
+        match it.next() {
+            Some(k1) => {
+                acc = obj
+                    .try_get_property_i64(ctx, k1)?
+                    .unwrap_or(JSValue::UNDEFINED);
+            }
+            None => {
+                ctx.throw_type_error("empty array");
+                return Err(-1);
             }
         }
     }
 
-    let mut val = JSValue::UNDEFINED;
-    while k < len {
-        let k1 = if special & special_reduceRight != 0 {
-            len - k - 1
-        } else {
-            k
-        };
-        k += 1;
-
-        let present = if special & special_TA != 0 {
-            val = obj.get_property_i64(ctx, k1)?;
-            true
-        } else {
-            match obj.try_get_property_i64(ctx, k1)? {
-                Some(r) => {
-                    val = r;
-                    true
-                }
-                None => false,
-            }
-        };
-
-        if present {
-            let index_val = JSValue::from(k1);
-            acc = func.call(ctx, JSValue::UNDEFINED, &[acc, val, index_val, obj])?;
-        }
+    let mut val;
+    for k1 in it {
+        val = obj
+            .try_get_property_i64(ctx, k1)?
+            .unwrap_or(JSValue::UNDEFINED);
+        let index_val = JSValue::from(k1);
+        acc = func.call(ctx, JSValue::UNDEFINED, &[acc, val, index_val, obj])?;
     }
 
     Ok(acc)
@@ -575,6 +636,51 @@ fn js_array_find(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     )
 }
 
+/// Collect the integer indices that are actually present on `obj`, including
+/// those inherited through the prototype chain, bounded to `0..len`.
+///
+/// `indexOf`/`lastIndexOf`/`reduce` must consider inherited integer-indexed
+/// properties (generic array-like receivers such as `Boolean`/`String` objects
+/// or custom prototypes). But scanning the full `0..len` range for a huge sparse
+/// array (length near 2^53) would allocate an atom per index and exhaust the
+/// atom table. Enumerating only the present integer keys stays cheap (their
+/// count is tiny) while remaining semantically equivalent to the spec's
+/// `HasProperty`/`Get` walk, and also honors inherited elements.
+fn collect_present_indices(
+    ctx: &mut ScopedContext,
+    obj: &Object,
+    len: i64,
+) -> Result<Vec<i64>, i32> {
+    let mut idxs: Vec<i64> = Vec::new();
+    let mut current: Option<Object> = Some(obj.clone());
+    let mut depth: u32 = 0;
+    while let Some(mut o) = current {
+        // guard against pathological / cyclic prototype chains
+        if depth > 128 {
+            break;
+        }
+        depth += 1;
+        let names = o.get_own_property_names(ctx, JS_GPN_STR_OR_INT_MASK)?;
+        for pk in names.iter() {
+            // `to_i64` resolves both genuine integer keys and canonical
+            // integer-string keys (e.g. generic array-likes that store elements
+            // as string properties on the prototype, or indices above
+            // JS_ATOM_MAX_INT stored as string atoms), so inherited elements and
+            // large-but-valid indices are honored while non-index keys
+            // (`length`, `foo`, symbols) are skipped.
+            if let Some(idx) = pk.atom.to_i64(ctx.rt()) {
+                if idx >= 0 && idx < len {
+                    idxs.push(idx);
+                }
+            }
+        }
+        current = o.prototype(ctx)?;
+    }
+    idxs.sort_unstable();
+    idxs.dedup();
+    Ok(idxs)
+}
+
 fn js_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this().objectify(ctx)?;
     let len = this.get_length_prop(ctx)?;
@@ -602,12 +708,34 @@ fn js_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
 
         // slow path
-        for i in start..len {
-            if this
-                .try_get_property_i64(ctx, i)?
-                .is_some_and(|v| target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT))
-            {
-                return Ok(JSValue::from(i));
+        if len <= JS_ATOM_MAX_INT as i64 {
+            // Sequential scan. Every index here is a small int, so
+            // `try_get_property_i64` takes the allocation-free fast path; this
+            // also matches the spec's sequential semantics (e.g. getters that
+            // add properties while being visited).
+            for i in start..len {
+                if this
+                    .try_get_property_i64(ctx, i)?
+                    .is_some_and(|v| target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT))
+                {
+                    return Ok(JSValue::from(i));
+                }
+            }
+        } else {
+            // Huge length: scanning `start..len` would allocate an atom per
+            // index (past JS_ATOM_MAX_INT) and exhaust the atom table. Enumerate
+            // only the actually-present integer indices (own + inherited)
+            // instead; this is equivalent for every non-undefined search target.
+            let idxs = collect_present_indices(ctx, &this, len)?;
+            for i in idxs {
+                if i < start {
+                    continue;
+                }
+                if let Some(v) = this.try_get_property_i64(ctx, i)? {
+                    if target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT) {
+                        return Ok(JSValue::from(i));
+                    }
+                }
             }
         }
     }
@@ -629,13 +757,32 @@ pub(crate) fn js_array_lastIndexOf(ctx: &mut ScopedContext, cc: CallContext) -> 
             len - 1
         };
 
-        // TODO: should special case fast arrays
-        for n in (0..=cnt).rev() {
-            if let Some(v) = obj.try_get_property_i64(ctx, n)? {
-                let b = target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT);
-                if b {
-                    res = n;
-                    break;
+        if cnt <= JS_ATOM_MAX_INT as i64 {
+            // Sequential scan (descending). Every index is a small int, so no
+            // atom is allocated; matches the spec's sequential semantics.
+            for n in (0..=cnt).rev() {
+                if let Some(v) = obj.try_get_property_i64(ctx, n)? {
+                    if target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT) {
+                        res = n;
+                        break;
+                    }
+                }
+            }
+        } else {
+            // Huge length: scanning `0..=cnt` would allocate an atom per index
+            // and exhaust the atom table. Enumerate only the actually-present
+            // integer indices (own + inherited) instead, in descending order.
+            let o = obj.as_object().unwrap();
+            let idxs = collect_present_indices(ctx, &o, len)?;
+            for n in idxs.iter().rev() {
+                if *n > cnt {
+                    continue;
+                }
+                if let Some(v) = obj.try_get_property_i64(ctx, *n)? {
+                    if target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT) {
+                        res = *n;
+                        break;
+                    }
                 }
             }
         }

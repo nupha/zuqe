@@ -5,8 +5,8 @@ use std::{borrow::Cow, ffi::CStr};
 
 use super::MAX_SAFE_INTEGER;
 
- // radix != 10 is only supported with flags = JS_DTOA_VAR_FORMAT 
- // use as many digits as necessary 
+// radix != 10 is only supported with flags = JS_DTOA_VAR_FORMAT
+// use as many digits as necessary
 pub const JS_DTOA_VAR_FORMAT: i32 = 0;
 /// use n_digits significant digits (1 <= n_digits <= 101)
 pub const JS_DTOA_FIXED_FORMAT: i32 = 1;
@@ -72,7 +72,7 @@ pub(crate) fn f64_stringify(
         && (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&(num as i64))
     {
         // safe integer
-        let mut buf = [0u8; 33];
+        let mut buf = [0u8; 65];
         unsafe {
             let p = i64toa(buf.as_mut_ptr(), num as i64, radix);
             return CStr::from_ptr(p.cast())
@@ -231,7 +231,7 @@ fn f64_round_is_tie(num: f64, precision: usize) -> bool {
     is_half && is_whole
 }
 
- // 2 <= base <= 36 
+// 2 <= base <= 36
 unsafe fn i64toa(buf: *mut u8, mut n: i64, base: u32) -> *mut u8 {
     let mut is_neg = 0;
 
@@ -244,7 +244,10 @@ unsafe fn i64toa(buf: *mut u8, mut n: i64, base: u32) -> *mut u8 {
 
     // 在 unsafe fn 里显式使用 unsafe 块包住原始指针操作
     unsafe {
-        q = q.offset(-1);
+        // 从缓冲区末尾向前写（NUL 终止符放在最后），保证所有写入都在 buf 范围内，
+        // 避免原先从 buf-1 向前写导致的栈缓冲区下溢（UB，会污染相邻栈内存，
+        // 使 ToString 大整数结果带前导 NUL，进而破坏基于整数键名的属性枚举）。
+        q = q.add(64);
         *q = b'\0';
 
         loop {
