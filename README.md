@@ -1,27 +1,32 @@
 <div align="center">
   <img src="docs/zuqe-logo.png" alt="Zuqe logo" width="200">
-  <h1>Zuqe JavaScript Engine</h1>
+  <h1>
+    Zuqe JavaScript Engine<br>
+    <span style="font-size:0.7em; color:#777;">Empower your Rust application with native JavaScript scripting.</span>
+  </h1>
 </div>
 
-**Zuqe** (pronounced `/zuːk/`, like "zook") is a lightweight JavaScript engine implemented in Rust. It is designed for embedded systems and general‑purpose use, balancing performance, memory safety, and a minimal footprint.
+Want to supercharge your Rust application with JavaScript scripting? Look no further than **Zuqe** — a JavaScript runtime that is immune to host‑stack overflow and integrates at minimal cost.
 
-Zuqe is named after **朱雀 (Zhuque)**, the Vermilion Bird of Chinese mythology, which represents fire and renewal.
+**Zuqe** (pronounced `/zuːk/`, like "zook") is a lightweight JavaScript engine implemented in Rust. It is designed to be embedded into Rust applications with low memory overhead and a small binary size, balancing efficiency, safety, and ease of embedding.
 
-Zuqe is inspired by QuickJS.
+**Conformance:** Zuqe implements a comprehensive set of ES2023+ features and passes a substantial portion of the [Test262](https://github.com/tc39/test262) conformance suite.
+
+**The name:** Zuqe is named after **朱雀 (Zhuque)**, the Vermilion Bird of Chinese mythology — a creature of fire, rebirth, and guardianship that shape the engine's design. In the spirit of QuickJS, Zuqe is a Rust‑native reimagining of the embeddable JavaScript engine. [Read the full story →](docs/about.md)
 
 ## 🎯 Design Goals
 
 - **Lightweight**: Small binary footprint and low memory overhead for IoT devices, edge computing, and resource-constrained environments
 - **Rust-Native**: Leverages Rust's memory safety, zero-cost abstractions and modern toolchain to boost engineering process, with seamless async bridging that connects JS Promises with Rust `Future`s in both directions
 - **Embedding-Friendly**: Easy to embed in and integrate with host applications
-- **Stackless Interpreter**: Call frames live in a managed bump-arena (spilling to the heap), not on the native Rust stack — deep recursion can't overflow the host stack, and stack usage is bounded by a precise, configurable quota
+- **Stackless Interpreter**: Call frames live off the native Rust stack, so deep recursion can't overflow the host — bounded by a precise, configurable quota
 - **Configurable Footprint**: Built-in objects and full Unicode support are individually gated behind Cargo features, so you can trim the binary down for embedded targets
-- **Fast Bytecode Execution**: Optimized interpreter (hidden-class objects, inline caches) with efficient scope-based garbage collection
+- **Fast Bytecode Execution**: Optimized interpreter with efficient scope-based garbage collection
 - **Standards Compliance**: Evolving implementation of modern JavaScript standards
 
 ## 🚀 ECMAScript Features
 
-Zuqe implements a comprehensive set of ES2023+ features, making it suitable for modern JavaScript development:
+Zuqe's JavaScript support spans modern syntax and a broad set of built-in objects and APIs:
 
 ### Core Language Features
 
@@ -34,33 +39,35 @@ Zuqe implements a comprehensive set of ES2023+ features, making it suitable for 
 
 ### Built-in Objects and APIs
 
-- **Arrays**: Complete Array.prototype methods including map, filter, reduce
-- **Collection Types**: Map, Set, WeakMap, WeakSet
-- **Promises**: Full Promise implementation with async/await support
-- **JSON**: JSON.parse() and JSON.stringify() with proper error handling
-- **Regular Expressions**: PCRE2-based regex engine with modern features
-- **Typed Arrays**: Int8Array, Uint8Array, Float32Array, etc., plus DataView
-- **Reflection APIs**: Reflect object with comprehensive reflection capabilities
-
-### Advanced Features
-
-- **Proxy**: Complete proxy implementation for object interception
+- **Arrays**: Complete `Array.prototype` methods (`map`, `filter`, `reduce`, …)
+- **Collections**: `Map`, `Set`, `WeakMap`, `WeakSet`
+- **Promises**: Full `Promise` implementation with `async`/`await` support
+- **JSON**: `JSON.parse()` and `JSON.stringify()` with proper error handling
+- **Regular Expressions**: PCRE2-based regex engine with modern ES features
+- **Typed Arrays**: `Int8Array`, `Uint8Array`, `Float32Array`, … plus `DataView`/`ArrayBuffer`
+- **Reflection**: `Reflect` object with comprehensive reflection capabilities
+- **Proxy**: Complete object-interception implementation (get/set/apply/… traps)
 - **Symbols**: Symbol primitives and well-known symbols
-- **Date and Time**: Date object with timezone support
-- **Math**: Comprehensive Math library implementation
-- **Error Handling**: Structured error types with stack traces
+- **Date & Time**: `Date` object with timezone support
+- **Math**: Comprehensive `Math` library
+- **Errors**: Structured error types with stack traces
 
-## 📋 Project Status
+### Design Highlights
 
-Zuqe is under active development. It currently passes a substantial portion of the [Test262](https://github.com/tc39/test262) test suite and is evolving toward production readiness.
+Engine-level design choices that set Zuqe apart:
 
-## 🎪 Use Cases
+- **Stackless Interpreter**: Call frames live in a managed bump-arena (spilling to the heap), so deep recursion can't overflow the host stack and stack usage is bounded by a precise, configurable quota
+- **Hidden Classes & Inline Caches**: Objects share `Shape`s and use per-opcode inline caches for fast, predictable property access
+- **String Ropes**: Concatenations are kept as lazy ropes rather than eagerly copied, keeping string operations memory-efficient
+- **NaN-Boxing Values**: JS values are encoded in a compact 64-bit NaN-boxed representation for cache-friendly, low-overhead storage
+- **Scope-Based Garbage Collection**: Generational, scope-bounded GC with a dedicated StackFrame GC partition
+- **Bidirectional Async Bridge**: JS `Promise`s and Rust `Future`s interoperate in both directions (feature `async_support`)
 
-- **IoT Devices**: Resource-constrained environments requiring JavaScript scripting
-- **Scripting Engine**: Embeddable scripting for applications
-- **Development Tools**: IDEs, build tools, and development utilities
-- **Serverless Functions**: Lightweight function execution environments
-- **Edge Runtime**: Distributed computing at network edge
+## 🔥 Where Zuqe Shines
+
+- **Scripting for Rust Services**: Hot-reload business logic, plugins, and user scripts into your Rust application — without restarting it
+- **Edge & Embedded Runtimes**: Tiny binary and low memory footprint let Zuqe fit IoT and edge devices
+- **Developer Tools & Sandboxes**: Safe in-process scripting for IDEs, CLIs, and build tooling
 
 ## 🏁 Getting Started
 
@@ -213,10 +220,11 @@ For more comprehensive examples, check the [examples](examples/) directory which
 ## 📚 Documentation
 
 - **[User Guide](docs/)**:
+  - [About Zuqe](docs/about.md) — the name, the philosophy, and the engine
   - [Basic Usage](docs/basic.md)
   - [Modules](docs/module.md)
   - [Native Functions](docs/native-function.md)
-  - [Native Classe](docs/native-classe.md)
+  - [Native Classes](docs/native-classe.md)
   - [Native Module](docs/native-module.md)
   - [Running Loop](docs/loop.md)
   - [Promise](docs/promise.md)

@@ -20,9 +20,6 @@ pub(crate) fn is_safe_integer(d: f64) -> bool {
 }
 
 /// Bit-level reinterpretation of an `f64` as `u64` / two `u32` lanes.
-///
-/// Used by number-conversion helpers (e.g. `js_f64_to_i32`, the f16 roundtrip)
-/// and by value codegen. `repr(C)` guarantees the three views share storage.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub(crate) union Float64Union {

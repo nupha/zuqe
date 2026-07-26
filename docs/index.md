@@ -1,5 +1,6 @@
 # Documentation Index
 
+- [About Zuqe](about.md) — the name, the design philosophy, and the engine.
 - [Basic Usage](basic.md) — embedding the `zuqe` crate and running JavaScript.
 - [ESM Module Support](module.md) — enabling and loading ES modules.
 - [Native Function](native-function.md) — exposing Rust functions to JavaScript.
