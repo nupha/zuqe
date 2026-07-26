@@ -392,6 +392,10 @@ async fn main() -> ExitCode {
             colorize_println("out of memory", RedFg);
             ExitCode::FAILURE
         }
+        ExitStatus::Exception(Exception::TooManyAtoms) => {
+            colorize_println("too many atoms", RedFg);
+            ExitCode::FAILURE
+        }
         ExitStatus::Exception(Exception::Error(err)) => {
             ctx.with_root_scope(|mut cx| {
                 colorize_println(err.to_string(&mut cx).unwrap().encode_utf8(false), RedFg);

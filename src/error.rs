@@ -23,6 +23,8 @@ pub enum Exception {
     OutOfMemory,
     /// Too many classes registered
     TooManyClasses,
+    /// User atom table exhausted (cannot allocate a new atom)
+    TooManyAtoms,
     /// JavaScript error value from one of context
     Error(JSValue),
 }
@@ -64,6 +66,10 @@ impl Exception {
                 message: String::from("Too many classes"),
                 traceback: None,
             },
+            Self::TooManyAtoms => ExceptionText {
+                message: String::from("Too many atoms"),
+                traceback: None,
+            },
             Self::Error(e) => {
                 let mut t = ExceptionText {
                     message: e
@@ -95,6 +101,9 @@ impl Exception {
                 .map_or(JSValue::from(-1), JSValue::make_string),
             Self::TooManyClasses => ctx
                 .create_string_from_static("too many classes")
+                .map_or(JSValue::from(-1), JSValue::make_string),
+            Self::TooManyAtoms => ctx
+                .create_string_from_static("too many atoms")
                 .map_or(JSValue::from(-1), JSValue::make_string),
             Self::Error(v) => v,
         }

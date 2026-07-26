@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    RuntimeImpl, ScopedContext,
+    Exception, RuntimeImpl, ScopedContext,
     atom::{is_const_atom, is_small_int_atom},
     number::parse_u32,
     runtime::RuntimePtr,
@@ -55,7 +55,7 @@ enum RegisterStringResult {
 /// register a atoms with string and kind - common logic
 fn register_atom_common(
     mut rt: RuntimePtr,
-    ctx: Option<&mut ScopedContext>,
+    ctx: &mut Option<&mut ScopedContext>,
     str: StringRef,
     atom_kind: AtomKind,
 ) -> Result<RegisterStringResult, i32> {
@@ -68,7 +68,7 @@ fn register_atom_common(
         }
 
         // dup string content without atom info
-        if let Some(cx) = ctx {
+        if let Some(cx) = ctx.as_mut() {
             StringRef::create(cx, str.content().clone())?
         } else {
             StringRef::create_root(rt, str.content().clone(), None)?
@@ -106,14 +106,14 @@ fn register_atom_common(
 /// Check for atom reuse in prior to perform real registering.
 fn register_atom(
     mut rt: RuntimePtr,
-    ctx: Option<&mut ScopedContext>,
+    mut ctx: Option<&mut ScopedContext>,
     str: StringRef,
     mut atom_kind: AtomKind,
 ) -> Result<Atom, i32> {
     // match for existing atoms, don't register twice for same content.
     let (desc_str, hash): (StringRef, u32) = match atom_kind {
         AtomKind::String | AtomKind::GlobalSymbol => {
-            match register_atom_common(rt, ctx, str, atom_kind)? {
+            match register_atom_common(rt, &mut ctx, str, atom_kind)? {
                 RegisterStringResult::Existing(atom_id) => {
                     return Ok(Atom(atom_id));
                 }
@@ -132,7 +132,7 @@ fn register_atom(
                 str
             } else if str.atom_info().is_some() {
                 // dup string content without atom info
-                if let Some(cx) = ctx {
+                if let Some(cx) = ctx.as_mut() {
                     StringRef::create(cx, str.content().clone())?
                 } else {
                     StringRef::create_root(rt, str.content().clone(), None)?
@@ -154,8 +154,13 @@ fn register_atom(
 
     debug_assert!(desc_str.atom_info().is_none());
 
-    if rt.atom_registry.hash_lut.len() == rt.atom_registry.hash_lut.capacity() {
-        rt.atom_registry.hash_lut.try_reserve(16).map_err(|_| -1)?;
+    if rt.atom_registry.hash_lut.len() == rt.atom_registry.hash_lut.capacity()
+        && rt.atom_registry.hash_lut.try_reserve(16).is_err()
+    {
+        if let Some(c) = ctx {
+            c.throw(Exception::OutOfMemory);
+        }
+        return Err(-1);
     }
 
     // find a free slot
@@ -163,19 +168,24 @@ fn register_atom(
         if let Some(i) = rt.atom_registry.user_atoms.iter().position(|p| p.is_none()) {
             (Some(i), i as u16 + ATOM_USER_BASE_ID as u16)
         } else {
-            if rt.atom_registry.user_atoms.len() == rt.atom_registry.user_atoms.capacity() {
-                rt.atom_registry
-                    .user_atoms
-                    .try_reserve(16)
-                    .map_err(|_| -1)?;
+            if rt.atom_registry.user_atoms.len() == rt.atom_registry.user_atoms.capacity()
+                && rt.atom_registry.user_atoms.try_reserve(16).is_err()
+            {
+                if let Some(c) = ctx {
+                    c.throw(Exception::OutOfMemory);
+                }
+                return Err(-1);
             }
 
-            // [FIX] atom ids are stored in a u16 (NonZeroU16 in AtomInfo); assigning
+            // [GUARDIAN] atom ids are stored in a u16 (NonZeroU16 in AtomInfo); assigning
             // `len as u16` silently wraps past JS_ATOM_MAX and aliases an existing
             // atom's id (use-after-free of the descriptor -> panic in descriptor()).
             // Refuse to allocate past the representable range instead.
             let new_id = rt.atom_registry.user_atoms.len() as u32 + ATOM_USER_BASE_ID;
             if new_id > JS_ATOM_MAX {
+                if let Some(c) = ctx {
+                    c.throw(Exception::TooManyAtoms);
+                }
                 return Err(-1);
             }
 
