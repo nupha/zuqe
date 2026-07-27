@@ -167,6 +167,7 @@ impl StackFrameArena {
 
         self.frames.push(StackFrame {
             prev: FrameIndex::NULL,
+            depth: 0,
             state: FrameState::Active,
             mode,
             func_obj,
@@ -326,6 +327,7 @@ impl StackFrameArena {
 
         let frame = StackFrame {
             prev: FrameIndex::NULL,
+            depth: head.depth,
             state: FrameState::Active,
             func_obj: head.func_obj,
             mode: head.mode,

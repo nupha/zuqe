@@ -9,6 +9,19 @@ use crate::{
     value::JSValue,
 };
 
+/// Maximum JS-to-JS call nesting depth before a `RangeError`-style
+/// "maximum call stack size exceeded" is raised.
+///
+/// The stackless interpreter reuses the active frame for tail calls
+/// (`TAIL_CALL`), so the *byte*-based virtual-stack limit
+/// (`max_stack_bytes`) never trips for an infinite tail-recursive loop —
+/// the frame is freed and reallocated in place, keeping `data_used`
+/// constant. A separate depth counter is therefore required to bound
+/// runaway recursion (e.g. `function f(){ f(); }`). The counter is the
+/// call-chain length, so a flat `for` loop that calls a function many
+/// times is unaffected (each call reuses the same caller depth).
+pub(crate) const MAX_CALL_DEPTH: u32 = 10000;
+
 /// Index into StackFrameArena::frames, equivalent to a pointer but not
 /// constrained by Rust's borrow rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -62,6 +75,10 @@ bitflags::bitflags! {
 pub(crate) struct StackFrame {
     /// Previous stack frame in the call chain (FrameIndex::NULL for root).
     pub(crate) prev: FrameIndex,
+    /// JS-to-JS call nesting depth (0 for the root frame). Each call sets the
+    /// callee's depth to `caller.depth + 1`, so an infinite (tail-)recursive
+    /// loop drives this toward `MAX_CALL_DEPTH` and trips a stack error.
+    pub(crate) depth: u32,
     pub(crate) state: FrameState,
     /// Execution mode flags (STRICT / STRIP / ASYNC).
     pub(crate) mode: ExecMode,

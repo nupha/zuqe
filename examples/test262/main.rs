@@ -40,7 +40,7 @@ pub struct TestConfig {
     pub flags: Option<Vec<String>>,
     pub esid: Option<String>,
     pub info: Option<String>,
-    pub locale: Option<String>,
+    pub locale: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,7 +56,6 @@ pub struct AppConfig {
     pub tests: Option<Vec<String>>,
     pub exclude_tests: Option<Vec<String>>,
     pub exclude_features: Option<Vec<String>>,
-    /// Optional edition preset (overridden by the `--preset` CLI flag).
     pub preset: Option<String>,
     pub log: Option<String>,
 }
@@ -240,28 +239,24 @@ async fn main_impl() {
     // per-iteration log writes (they are pure overhead there) and ignore
     // `--log-file`.
     let mut logf: Option<std::fs::File> = if let Some(p) = &args.log_file {
-        #[cfg(panic = "abort")]
+        // Open in all builds. In `panic = "abort"` builds the panic hook cannot
+        // run, so this on-disk heartbeat is the only reliable crash reporter. In
+        // `panic = "unwind"` builds the panic hook prints the crashing script for
+        // free on a Rust panic, but a hard crash such as a SIGSEGV bypasses the
+        // panic hook entirely, so the heartbeat log is still needed to recover the
+        // offending script. The write only happens when `--log-file` is passed, so
+        // there is no overhead in normal runs.
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(p)
         {
-            match std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(p)
-            {
-                Ok(f) => Some(f),
-                Err(e) => {
-                    eprintln!("error: cannot open --log-file {p}: {e}");
-                    std::process::exit(1);
-                }
+            Ok(f) => Some(f),
+            Err(e) => {
+                eprintln!("error: cannot open --log-file {p}: {e}");
+                std::process::exit(1);
             }
-        }
-        #[cfg(not(panic = "abort"))]
-        {
-            eprintln!(
-                "note: --log-file is ignored in panic=unwind builds; the panic hook prints the \
-                 crashing script on crash."
-            );
-            None
         }
     } else {
         None

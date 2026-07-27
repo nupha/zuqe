@@ -1000,11 +1000,19 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             return Err(-1);
         };
 
-        // Note: because callback handler may access array buffer,
-        // to avoid borrow conflict, we take buffer content out then run closure with underlaying bytes,
-        // after sorting, restore content back to array buffer.
-
+        // NOTE: the comparator (and any re-entrant `sort`) may read or write this
+        // array while we are sorting. We therefore take the buffer content out and
+        // sort it in isolation — this also avoids a borrow conflict, since the sort
+        // closure holds the taken-out content while the comparator accesses the
+        // array. Crucially, we re-attach a *copy* of the content immediately so the
+        // array's ArrayBuffer stays attached and usable; otherwise it would be left
+        // detached (length 0) and the element setter's `with_bytes_mut` would slice a
+        // zero-length buffer and panic (see staging/sm/TypedArray/sort_comparators.js).
         let mut abuf_content = ta.array_buffer().payload_mut().replace(ABufData::Empty);
+        let attached_copy = abuf_content.with_bytes(|b| b.to_vec());
+        ta.array_buffer()
+            .payload_mut()
+            .replace(ABufData::Owned(attached_copy.into_boxed_slice()));
 
         macro_rules! sort {
             ($ty:ident, $shift:expr, $cvt:expr) => {

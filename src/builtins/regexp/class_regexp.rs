@@ -865,12 +865,17 @@ fn regexp_exec_default(
     this: JSValue,
     str: StringRef,
 ) -> Result<Option<Array>, i32> {
-    let re = js_get_regexp(ctx, &this, true).ok_or(-1)?;
-    let re_flags = re.flags();
-
+    // Compute the start offset first. Reading `lastIndex` runs ToLength, which may
+    // invoke user code (e.g. `lastIndex.valueOf()`) that recompiles `this` via
+    // `RegExp.prototype.compile`, freeing the previously compiled bytecode. We must
+    // therefore fetch the compiled regexp *after* this call, not before, otherwise
+    // `re` would be a dangling reference (use-after-free -> SIGSEGV).
     let mut from = this
         .get_property(ctx, Atom::CONST_lastIndex)?
         .to_length(ctx)? as usize;
+
+    let re = js_get_regexp(ctx, &this, true).ok_or(-1)?;
+    let re_flags = re.flags();
 
     if !re_flags.has_global() && !re_flags.has_sticky() {
         from = 0;

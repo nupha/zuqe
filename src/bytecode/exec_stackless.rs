@@ -49,7 +49,9 @@ use crate::{
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
         JS_PROP_WRITABLE, JSProperty, Object, ObjectPayload,
     },
-    stack_frame::{ExecMode, FrameAllocError, FrameIndex, StackFrameArena, VirtualFrame},
+    stack_frame::{
+        ExecMode, FrameAllocError, FrameIndex, MAX_CALL_DEPTH, StackFrameArena, VirtualFrame,
+    },
     utils::{read_from_ptr, unlikely},
     value::JSValue,
 };
@@ -1026,21 +1028,25 @@ impl Bytecode {
 
                                 // Non-tail call: use build_callee_frame to
                                 // allocate and initialize the callee frame.
-                                let callee_frame_idx =
-                                    match build_callee_frame(arena, bfun.into(), bc, args_slice) {
-                                        Ok(idx) => idx,
-                                        Err(e) => {
-                                            match e {
-                                                FrameAllocError::Oom => {
-                                                    realm_scope.throw_stack_fail()
-                                                }
-                                                FrameAllocError::Exceeded => {
-                                                    realm_scope.throw_stack_exceeded()
-                                                }
+                                let caller_depth = arena.frame(cur_frame_idx).depth;
+                                let callee_frame_idx = match build_callee_frame(
+                                    arena,
+                                    caller_depth,
+                                    bfun.into(),
+                                    bc,
+                                    args_slice,
+                                ) {
+                                    Ok(idx) => idx,
+                                    Err(e) => {
+                                        match e {
+                                            FrameAllocError::Oom => realm_scope.throw_stack_fail(),
+                                            FrameAllocError::Exceeded => {
+                                                realm_scope.throw_stack_exceeded()
                                             }
-                                            return ExecAction::Unwind;
                                         }
-                                    };
+                                        return ExecAction::Unwind;
+                                    }
+                                };
                                 arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
 
                                 let return_sp = unsafe {
@@ -3106,15 +3112,28 @@ fn promote_to_parent(value: JSValue, scope: &ScopedContext<'_>) -> JSValue {
 ///
 /// Used by both CALL (non-tail) and TAIL_CALL to eliminate code duplication
 /// between the opcode inline dispatch and the trampoline handler.
+///
+/// `caller_depth` is the depth of the calling frame; the callee's depth is set
+/// to `caller_depth + 1` so that an infinite (tail-)recursive loop drives the
+/// depth toward `MAX_CALL_DEPTH` and trips a stack-depth error (see the note on
+/// `MAX_CALL_DEPTH`). Exceeding the limit returns `FrameAllocError::Exceeded`,
+/// which the callers translate into the "maximum call stack size exceeded"
+/// error.
 #[inline(always)]
 fn build_callee_frame(
     arena: &mut StackFrameArena,
+    caller_depth: u32,
     func_obj: Object,
     bc: Bytecode,
     args: &[JSValue],
 ) -> Result<FrameIndex, FrameAllocError> {
+    let callee_depth = caller_depth + 1;
+    if callee_depth > MAX_CALL_DEPTH {
+        return Err(FrameAllocError::Exceeded);
+    }
     let cap = std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
     let idx = arena.alloc_frame(func_obj, bc.mode(), cap)?;
+    arena.frame_mut(idx).depth = callee_depth;
     arena.init_frame_args(idx, bc.arg_count, bc.var_count, args);
     Ok(idx)
 }
@@ -3292,11 +3311,38 @@ pub(crate) fn execute_trampoline(
                         }
                     }
                 }
+                // Capture the caller depth before recycling its frame, so the
+                // tail-called frame continues the same call-chain depth (this is
+                // what makes `MAX_CALL_DEPTH` catch infinite tail recursion).
+                let caller_depth = arena.frame(cur_frame_idx).depth;
+                // Depth guard: must be checked *before* the frame is recycled.
+                // `build_callee_frame` also enforces it, but it runs after
+                // `free_frame`, so a tail call that would exceed the limit would
+                // otherwise trigger `throw_stack_exceeded` on an already-freed
+                // frame index (panicking in `frame()`). Check here while the
+                // frame is still alive and reuse the same unwind path.
+                if caller_depth + 1 > MAX_CALL_DEPTH {
+                    cur_trampoline_scope.scope_mut().throw_stack_exceeded();
+                    drop(cur_trampoline_scope.into_inner());
+                    while let Some(vf) = virtual_frames.pop() {
+                        if let Some(scope) = vf.caller_scope {
+                            drop(ManuallyDrop::into_inner(scope));
+                        }
+                    }
+                    rt_ptr.active_frame_index = FrameIndex::NULL;
+                    return (JSValue::EXCEPTION, true);
+                }
                 arena.free_frame(cur_frame_idx);
 
                 // Use build_callee_frame for consistent frame initialization
                 // (same path as non-tail CALL in execute_with_arena).
-                let new_idx = match build_callee_frame(arena, callee_func_obj, callee_bc, &args) {
+                let new_idx = match build_callee_frame(
+                    arena,
+                    caller_depth,
+                    callee_func_obj,
+                    callee_bc,
+                    &args,
+                ) {
                     Ok(idx) => idx,
                     Err(e) => {
                         match e {

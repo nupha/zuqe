@@ -358,7 +358,7 @@ fn find_substring(needle: &[u8], haystack: &[u8]) -> Option<usize> {
 
 fn string_get_month(sp: &[u8]) -> Option<(i64, usize)> {
     let p = skip_spaces(sp);
-    if p < sp.len() - 3 {
+    if p + 3 <= sp.len() {
         find_substring(&sp[p..p + 3], MONTH_NAMES.as_bytes()).map(|n| ((n / 3) as i64, p + 3))
     } else {
         None
@@ -1026,7 +1026,7 @@ fn get_date_field(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn set_date_field_internal(
     ctx: &mut ScopedContext,
-    mut this: JSValue,
+    this: JSValue,
     args: &[JSValue],
     magic: i32,
 ) -> JSResult {

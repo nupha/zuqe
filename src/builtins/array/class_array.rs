@@ -191,6 +191,7 @@ fn js_array_with(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let new_lst = if obj.is_fast_array()
         && let Some(src) = obj.as_Array().map(|a| a.payload())
+        && src.len() == len as usize
     {
         // `this` is fast array: copy list
         debug_assert_eq!(src.len(), len as usize);
