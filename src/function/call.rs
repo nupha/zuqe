@@ -5,7 +5,7 @@ use crate::{
     atom::Atom,
     context::ScopedContext,
     error::JSResult,
-    object::{Object, ObjectImpl, ObjectPayload},
+    object::{JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ObjectImpl, ObjectPayload},
     utils::unlikely,
     value::JSValue,
 };
@@ -243,7 +243,7 @@ impl ObjectImpl {
                 if new_target != self_val   // new_target differs from this constructor → called as super()
                    && let Ok(ref mut val) = result
                         && let Some(mut obj) = val.as_object ()
-                        && let Ok(proto_val) = new_target.get_property(ctx, Atom::CONST_prototype)
+                        && let Some(proto_val) = new_target.as_object().and_then(get_prototype_no_side_effect)
                         && proto_val.is_object()
                 {
                     // Per ES OrdinaryCreateFromConstructor:
@@ -365,6 +365,24 @@ impl ObjectImpl {
         } else {
             Ok(None)
         }
+    }
+}
+
+/// Read `func_obj.prototype` without observable side effects: only a plain
+/// data property on the object's own shape counts. Proxies, getters and other
+/// exotic lookups return None — the prototype safety net in `call_internal` is
+/// not allowed to re-run user code (the spec performs Get(newTarget,
+/// "prototype") exactly once, inside the constructor; a second Get would be
+/// observable, e.g. by a proxy `get` trap, and its exception would be lost).
+fn get_prototype_no_side_effect(func_obj: Object) -> Option<JSValue> {
+    let (idx, prs_flags) = func_obj.find_shape_property(Atom::CONST_prototype)?;
+    if prs_flags & JS_PROP_TMASK != JS_PROP_NORMAL {
+        return None;
+    }
+    if let JSProperty::Normal(v) = func_obj.prop_slot(idx) {
+        Some(*v)
+    } else {
+        None
     }
 }
 
