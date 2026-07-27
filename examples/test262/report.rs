@@ -281,7 +281,7 @@ pub fn write_report(
     ));
     if baseline_total > 0 {
         html.push_str(&format!(
-            "<li><span class=\"k\">Stable (baseline) pass rate</span><span class=\"v\">{baseline_rate:.2}% ({baseline_pass}/{baseline_total})</span></li>\n"
+            "<li><span class=\"k\">Baseline pass rate</span><span class=\"v\">{baseline_rate:.2}% ({baseline_pass}/{baseline_total})</span></li>\n"
         ));
     }
     if let Some(tf) = test_filter {

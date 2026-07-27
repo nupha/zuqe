@@ -83,11 +83,18 @@ const fn year_from_days(days: &mut i64) -> i64 {
 
 /// make unix timestamp from fields of [year, mon, day, hour, min, sec, ms]
 fn make_timestamp(fields: &[f64; 7], is_local: bool) -> Option<i64> {
+    // MakeDay: ym = y + floor(m / 12) is computed in the float domain first;
+    // huge but finite year/month may overflow i64 (tc39/ecma262#1087). Years
+    // outside -271821..=275760 always clip to NaN, so bail out early.
+    let ym = fields[0] + (fields[1] / 12.0).floor();
+    if !ym.is_finite() || !(-271821.0..=275760.0).contains(&ym) {
+        return None;
+    }
+    let y = ym as i64;
     let mut m = (fields[1] % 12.0) as i32;
     if m < 0 {
         m += 12;
     }
-    let y = fields[0] as i64 + (fields[1] / 12.0).floor() as i64;
     let mut days = days_from_year(y) as f64;
 
     for i in 0..m {
@@ -392,51 +399,92 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
 
     match buf[0] {
         b'0'..=b'9' | b'+' | b'-' => {
-            // ISO format
+            // ISO format YYYY-MM-DDTHH:mm:ss.sssZ, plus the lenient W3C
+            // "NOTE-datetime" variant where the 'T' separator may be a
+            // space and month/day/time fields may be 1 or 2 digits wide
+            // (SpiderMonkey bug 1205298)
             // year field can be negative
             let (n, mut idx) = string_get_signed_digits(buf)?;
             fields[0] = n as f64;
 
-            for i in 1..7 {
-                if idx >= buf.len() {
+            // date part: -M[M][-D[D]]
+            let mut date_strict = true;
+            for f in 1..3 {
+                if idx >= buf.len() || buf[idx] != b'-' {
                     break;
                 }
-
-                let expect = match i {
-                    1 | 2 => b'-',
-                    3 => b'T',
-                    4 | 5 => b':',
-                    6 => b'.',
-                    _ => {
-                        unreachable!()
-                    }
-                };
-                if buf[idx] != expect {
-                    break;
-                }
-
                 idx += 1;
-                if i > 3 {
-                    is_local = true;
-                }
 
-                if i == 6 {
-                    let (n, adv) = string_get_milliseconds(&buf[idx..])?;
-                    fields[6] = n as f64;
-                    idx += adv;
-                } else {
-                    let (n, adv) = string_get_digits(&buf[idx..]);
-                    if adv == 0 {
-                        return None;
-                    };
-                    fields[i as usize] = n as f64;
-                    idx += adv;
+                let (n, adv) = string_get_digits(&buf[idx..]);
+                if !matches!(adv, 1 | 2) {
+                    return None;
                 }
+                date_strict &= adv == 2;
+                fields[f] = n as f64;
+                idx += adv;
             }
 
             fields[1] -= 1.0; // month is 0-based
 
-            // parse the time zone offset if present: [+-]HH:mm or [+-]HHmm
+            // time part: 'T' keeps strict ISO rules, ' ' switches to the
+            // lenient variant
+            let mut strict = true;
+            let has_time = match buf.get(idx) {
+                Some(b'T') => true,
+                Some(b' ') => {
+                    strict = false;
+                    true
+                }
+                _ => false,
+            };
+
+            if has_time {
+                if strict && !date_strict {
+                    return None; // 'T' form requires 2-digit month/day
+                }
+                idx += 1;
+                is_local = true;
+
+                let width_ok = |adv: usize| adv == 2 || (!strict && adv == 1);
+
+                // hours and (mandatory) minutes: H[H]:m[m]
+                for f in 3..5 {
+                    if f == 4 {
+                        if buf.get(idx) != Some(&b':') {
+                            return None;
+                        }
+                        idx += 1;
+                    }
+                    let (n, adv) = string_get_digits(&buf[idx..]);
+                    if !width_ok(adv) {
+                        return None;
+                    }
+                    fields[f] = n as f64;
+                    idx += adv;
+                }
+
+                // optional seconds: :s[s]
+                if buf.get(idx) == Some(&b':') {
+                    idx += 1;
+                    let (n, adv) = string_get_digits(&buf[idx..]);
+                    if !width_ok(adv) {
+                        return None;
+                    }
+                    fields[5] = n as f64;
+                    idx += adv;
+
+                    // optional fractional milliseconds: .sss
+                    if buf.get(idx) == Some(&b'.') {
+                        idx += 1;
+                        let (n, adv) = string_get_milliseconds(&buf[idx..])?;
+                        fields[6] = n as f64;
+                        idx += adv;
+                    }
+                }
+            }
+
+            // parse the time zone offset if present: Z, [+-]HH:mm, [+-]HHmm
+            // or (lenient form only) [+-]HH
             tz = 0;
             if idx < buf.len() {
                 match buf[idx] {
@@ -444,22 +492,25 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
                         idx += 1;
 
                         let l = buf.len() - idx;
-                        if !matches!(l, 4 | 5) {
+                        if !(matches!(l, 4 | 5) || (!strict && l == 2)) {
                             return None;
                         }
 
                         let (hh, adv) = string_get_fixed_width_digits(&buf[idx..], 2)?;
                         idx += adv;
 
-                        if l == 5 {
-                            if buf[idx] != b':' {
-                                return None;
+                        let mut mm = 0;
+                        if l > 2 {
+                            if l == 5 {
+                                if buf[idx] != b':' {
+                                    return None;
+                                }
+                                idx += 1;
                             }
-                            idx += 1;
+                            let (n, adv) = string_get_fixed_width_digits(&buf[idx..], 2)?;
+                            mm = n;
+                            idx += adv;
                         }
-
-                        let (mm, adv) = string_get_fixed_width_digits(buf, 2)?;
-                        idx += adv;
 
                         tz = hh * 60 + mm;
                         if sgn == b'-' {
@@ -894,16 +945,17 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
             let mut fields: [f64; 7] = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
             let mut has_invalid = false;
 
+            // all arguments must be converted (observable side effects)
+            // even after a non-finite one is seen
             for i in 0..std::cmp::min(n, 7) {
                 let d = cc.arg(i).to_number(ctx)?.to_f64();
                 if d.is_finite() {
                     fields[i] = d.trunc();
                     if i == 0 && (0.0..100.0).contains(&fields[0]) {
-                        fields[0] += 100.0;
+                        fields[0] += 1900.0;
                     }
                 } else {
                     has_invalid = true;
-                    break;
                 }
             }
             if has_invalid {
@@ -1180,23 +1232,31 @@ fn js_Date_parse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_Date_UTC(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let dt = if cc.length() == 0 {
-        Datetime::INVALID
-    } else {
-        let mut fields: [f64; 7] = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
-        for (i, a) in cc.arguments().iter().take(7).enumerate() {
-            let v = a.to_number(ctx)?.to_f64();
-            if !v.is_finite() {
-                return Ok(JSValue::NAN);
-            }
-            fields[i] = v.trunc();
-            if i == 0 && (0.0..100.0).contains(&fields[0]) {
-                fields[0] += 1900.0;
-            }
+    if cc.length() == 0 {
+        return Ok(JSValue::NAN);
+    }
+
+    let mut fields: [f64; 7] = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
+    let mut has_invalid = false;
+
+    // all arguments must be converted (observable side effects)
+    // even after a non-finite one is seen
+    for (i, a) in cc.arguments().iter().take(7).enumerate() {
+        let v = a.to_number(ctx)?.to_f64();
+        if !v.is_finite() {
+            has_invalid = true;
+            continue;
         }
-        Datetime::from_fields(&fields, false)
-    };
-    Ok(dt.into())
+        fields[i] = v.trunc();
+        if i == 0 && (0.0..100.0).contains(&fields[0]) {
+            fields[0] += 1900.0;
+        }
+    }
+
+    if has_invalid {
+        return Ok(JSValue::NAN);
+    }
+    Ok(Datetime::from_fields(&fields, false).into())
 }
 
 const js_date_funcs: &[FieldDef] = &[
