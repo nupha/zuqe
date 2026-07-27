@@ -20,7 +20,9 @@ use crate::{
 /// runaway recursion (e.g. `function f(){ f(); }`). The counter is the
 /// call-chain length, so a flat `for` loop that calls a function many
 /// times is unaffected (each call reuses the same caller depth).
-pub(crate) const MAX_CALL_DEPTH: u32 = 10_000;
+///
+/// 0 means no limit.
+pub(crate) const MAX_CALL_DEPTH: u32 = 0;
 
 /// Index into StackFrameArena::frames, equivalent to a pointer but not
 /// constrained by Rust's borrow rules.

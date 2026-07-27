@@ -294,8 +294,11 @@ impl<'c> ScopedContext<'c> {
         // "invalid opcode" panics. The error message already states the cause,
         // so we mark the error with a `stack` property (empty) to stop any
         // later backtrace pass (is_backtrace_needed) from re-walking the frames.
-        const MSG: &str = "maximum call stack size exceeded";
-        if let Some(mut err_obj) = self.create_error_object(ErrorKind::Internal, MSG, false) {
+        if let Some(mut err_obj) = self.create_error_object(
+            ErrorKind::Internal,
+            "maximum call stack size exceeded",
+            false,
+        ) {
             let stack_val = Atom::CONST_empty_string
                 .force_string(self)
                 .map_or(JSValue::UNDEFINED, JSValue::make_string);

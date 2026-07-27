@@ -3351,13 +3351,15 @@ fn build_callee_frame(
     args: &[JSValue],
 ) -> Result<FrameIndex, FrameAllocError> {
     let callee_depth = caller_depth + 1;
-    if callee_depth > MAX_CALL_DEPTH {
+    if MAX_CALL_DEPTH > 0 && callee_depth > MAX_CALL_DEPTH {
         return Err(FrameAllocError::Exceeded);
     }
+
     let cap = std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
     let idx = arena.alloc_frame(func_obj, bc.mode(), cap)?;
     arena.frame_mut(idx).depth = callee_depth;
     arena.init_frame_args(idx, bc.arg_count, bc.var_count, args);
+
     Ok(idx)
 }
 
