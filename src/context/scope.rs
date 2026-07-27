@@ -205,6 +205,23 @@ impl<'a> ScopedContext<'a> {
         s.clear();
     }
 
+    /// Run `f` with `active_frame_index` protected: the current value is
+    /// saved before the closure runs and restored after it returns.
+    ///
+    /// `execute_trampoline` clears `active_frame_index` on exit, so every
+    /// caller must restore the outer frame — and some call paths bypass
+    /// `call_internal`'s protection (e.g. `ObjectIter::apply_next`'s
+    /// IteratorNext shortcut for generator `.next()` in for-of). Manual
+    /// save/call/restore is easy to break during maintenance; wrapping the
+    /// call in this guard makes the restore impossible to forget.
+    #[inline]
+    pub(crate) fn with_active_frame_guard<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let saved_frame = self.rt().active_frame_index;
+        let r = f(self);
+        self.rt_mut().active_frame_index = saved_frame;
+        r
+    }
+
     /// run closure in a new child scope.
     ///
     /// The closure receives a `&mut ScopedContext` and returns a value directly.

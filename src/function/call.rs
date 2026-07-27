@@ -119,8 +119,9 @@ pub(crate) const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 impl ObjectImpl {
     /// Dispatch a function call (bytecode or native, normal or constructor).
     ///
-    /// Saves/restores `active_trampoline_frame` because nested
-    /// `execute_trampoline` (async/generator) clears it on exit.
+    /// Runs under `with_active_frame_guard` because nested
+    /// `execute_trampoline` (async/generator) clears `active_frame_index`
+    /// on exit.
     ///
     /// For bytecode functions, creates a new scope for execution.
     /// Return value is valid within the current scope.
@@ -132,10 +133,9 @@ impl ObjectImpl {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let saved = ctx.rt().active_frame_index;
-        let result = self.do_call_internal(ctx, this_obj, new_target, args, flags);
-        ctx.rt_mut().active_frame_index = saved;
-        result
+        ctx.with_active_frame_guard(|cx| {
+            self.do_call_internal(cx, this_obj, new_target, args, flags)
+        })
     }
 
     fn do_call_internal(

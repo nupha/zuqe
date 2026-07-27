@@ -448,7 +448,6 @@ impl BytecodeFunction {
         let mut rt = ctx.rt_ptr();
 
         let parent_frame = rt.active_frame_index;
-        let saved_frame = rt.active_frame_index;
         let arena_ptr: *mut StackFrameArena = &raw mut rt.frame_arena;
 
         // init_frame_args uses max(bc.arg_count, actual_args.len()) as the arg region size.
@@ -477,10 +476,10 @@ impl BytecodeFunction {
         }
 
         // execute_trampoline manages active_trampoline_frame internally,
-        // save and restore the outer value.
-        let (ret_val, is_completed) = execute_trampoline(bc, frame_idx, ctx, this_obj, new_target);
-
-        rt.active_frame_index = saved_frame;
+        // the guard saves and restores the outer value.
+        let (ret_val, is_completed) = ctx.with_active_frame_guard(|cx| {
+            execute_trampoline(bc, frame_idx, cx, this_obj, new_target)
+        });
 
         debug_assert!(
             is_completed,

@@ -338,19 +338,19 @@ impl AsyncStateImpl {
         // closure_vars comes from BytecodeFunction's closure_var_refs,
         // which serves the same role as var_ref_list in the legacy path.
         //
-        // execute_trampoline clears active_frame_index on exit; resume can be
-        // reached through fast paths that bypass call_internal's save/restore
-        // (e.g. ObjectIter::apply_next's IteratorNext shortcut for generator
-        // .next() in for-of), so the caller's frame must be restored here.
-        let saved_frame = ctx.rt().active_frame_index;
-        let (ret_val, is_completed) = execute_trampoline(
-            bc,
-            frame_idx,
-            ctx,
-            this_val,           // this_obj
-            JSValue::UNDEFINED, // new_target
-        );
-        ctx.rt_mut().active_frame_index = saved_frame;
+        // The guard restores active_frame_index (cleared by execute_trampoline
+        // on exit) — resume can be reached through fast paths that bypass
+        // call_internal's protection (e.g. ObjectIter::apply_next's
+        // IteratorNext shortcut for generator .next() in for-of).
+        let (ret_val, is_completed) = ctx.with_active_frame_guard(|cx| {
+            execute_trampoline(
+                bc,
+                frame_idx,
+                cx,
+                this_val,           // this_obj
+                JSValue::UNDEFINED, // new_target
+            )
+        });
 
         if is_completed {
             // Function completed (normal return or exception).
