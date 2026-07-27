@@ -1637,6 +1637,7 @@ impl Bytecode {
                                 let obj = unsafe { &*call_argv };
                                 obj.eval_object(
                                     realm_scope,
+                                    cur_frame_idx,
                                     JSValue::UNDEFINED,
                                     EvalType::Direct,
                                     EvalFlags::empty(),
@@ -1667,14 +1668,49 @@ impl Bytecode {
                                     let args_slice = unsafe {
                                         std::slice::from_raw_parts(call_argv, call_argc as usize)
                                     };
-                                    // Use TailCall: the trampoline will recycle the current
-                                    // frame and reuse it for the callee, avoiding VirtualFrame
-                                    // push. Since eval(...) is immediately followed by RETURN
-                                    // in the bytecode, this is semantically correct.
-                                    break ExecAction::TailCall {
+                                    // Treat as a normal non-tail call: push a fresh callee
+                                    // frame via build_callee_frame. We must NOT use TailCall
+                                    // here — `OP_eval` is a single opcode and the runtime
+                                    // handler cannot tell whether the call is in tail position
+                                    // (it often is not, e.g. `try { eval(); }`). A TailCall would
+                                    // recycle the *current* frame, which is wrong when the call
+                                    // is not a tail call and fatal when the current frame is the
+                                    // outermost script frame (it would be freed, then the later
+                                    // unwind dereferences a stale/empty frame -> panic in
+                                    // BytecodeFunction::call). build_callee_frame enforces the
+                                    // call-depth and byte limits itself, so runaway recursion is
+                                    // still caught (and the error remains catchable).
+                                    let caller_depth = arena.frame(cur_frame_idx).depth;
+                                    let callee_frame_idx = match build_callee_frame(
+                                        arena,
+                                        caller_depth,
+                                        bfun.into(),
+                                        bc,
+                                        args_slice,
+                                    ) {
+                                        Ok(idx) => idx,
+                                        Err(e) => {
+                                            match e {
+                                                FrameAllocError::Oom => {
+                                                    realm_scope.throw_stack_fail()
+                                                }
+                                                FrameAllocError::Exceeded => {
+                                                    realm_scope.throw_stack_exceeded()
+                                                }
+                                            }
+                                            return ExecAction::Unwind;
+                                        }
+                                    };
+                                    arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+                                    let return_sp = unsafe {
+                                        sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
+                                    } as usize;
+                                    break ExecAction::CallBytecode {
                                         callee_bc: bc,
-                                        callee_func_obj: bfun.into(),
-                                        args: args_slice.to_vec(),
+                                        callee_frame_idx,
+                                        return_sp,
+                                        this_obj: JSValue::UNDEFINED,
+                                        new_target: JSValue::UNDEFINED,
                                     };
                                 }
                             }
@@ -1707,6 +1743,7 @@ impl Bytecode {
                                     if !arg_list.is_empty() {
                                         arg_list[0].eval_object(
                                             realm_scope,
+                                            cur_frame_idx,
                                             JSValue::UNDEFINED,
                                             EvalType::Direct,
                                             EvalFlags::empty(),
@@ -3314,28 +3351,20 @@ pub(crate) fn execute_trampoline(
                 // Capture the caller depth before recycling its frame, so the
                 // tail-called frame continues the same call-chain depth (this is
                 // what makes `MAX_CALL_DEPTH` catch infinite tail recursion).
+                // `build_callee_frame` enforces the limit itself and returns
+                // `Err(Exceeded)` once it would be exceeded.
                 let caller_depth = arena.frame(cur_frame_idx).depth;
-                // Depth guard: must be checked *before* the frame is recycled.
-                // `build_callee_frame` also enforces it, but it runs after
-                // `free_frame`, so a tail call that would exceed the limit would
-                // otherwise trigger `throw_stack_exceeded` on an already-freed
-                // frame index (panicking in `frame()`). Check here while the
-                // frame is still alive and reuse the same unwind path.
-                if caller_depth + 1 > MAX_CALL_DEPTH {
-                    cur_trampoline_scope.scope_mut().throw_stack_exceeded();
-                    drop(cur_trampoline_scope.into_inner());
-                    while let Some(vf) = virtual_frames.pop() {
-                        if let Some(scope) = vf.caller_scope {
-                            drop(ManuallyDrop::into_inner(scope));
-                        }
-                    }
-                    rt_ptr.active_frame_index = FrameIndex::NULL;
-                    return (JSValue::EXCEPTION, true);
-                }
+
+                // Recycle the caller frame *before* allocating the callee so the
+                // bump arena's live region stays bounded (TCO).
                 arena.free_frame(cur_frame_idx);
 
                 // Use build_callee_frame for consistent frame initialization
-                // (same path as non-tail CALL in execute_with_arena).
+                // (same path as non-tail CALL in execute_with_arena). On failure
+                // we must propagate the error as a normal *uncaught* exception
+                // (not tear the whole trampoline down), so that enclosing
+                // try/catch and finally blocks still run — `test262`'s
+                // recursion.js relies on the recursion error being catchable.
                 let new_idx = match build_callee_frame(
                     arena,
                     caller_depth,
@@ -3353,14 +3382,32 @@ pub(crate) fn execute_trampoline(
                                 cur_trampoline_scope.scope_mut().throw_stack_exceeded()
                             }
                         }
-                        drop(cur_trampoline_scope.into_inner());
-                        while let Some(vf) = virtual_frames.pop() {
-                            if let Some(scope) = vf.caller_scope {
-                                drop(ManuallyDrop::into_inner(scope));
+                        // The caller frame was already recycled above (TCO), so
+                        // unwind it directly to the caller's caller. This mirrors
+                        // the successful TailCall path (the tail call replaces the
+                        // frame) while keeping the error catchable: each enclosing
+                        // frame's `execute_with_arena` will run its catch/finally.
+                        if let Some(caller_vf) = virtual_frames.pop() {
+                            if let Some(saved_caller_scope) = caller_vf.caller_scope {
+                                drop(cur_trampoline_scope.into_inner());
+                                cur_trampoline_scope = unsafe {
+                                    TrampolineScope::from_ctx(ManuallyDrop::into_inner(
+                                        saved_caller_scope,
+                                    ))
+                                };
                             }
+                            cur_bc = caller_vf.caller_bc;
+                            cur_frame_idx = caller_vf.frame_idx;
+                            let caller_head = arena.frame(caller_vf.frame_idx);
+                            pc_offset = caller_head.cur_pc_offset;
+                            sp_offset = caller_head.cur_sp_offset as usize;
+                            throwed = true;
+                            continue 'trampoline;
+                        } else {
+                            drop(cur_trampoline_scope.into_inner());
+                            rt_ptr.active_frame_index = FrameIndex::NULL;
+                            return (JSValue::EXCEPTION, true);
                         }
-                        rt_ptr.active_frame_index = FrameIndex::NULL;
-                        return (JSValue::EXCEPTION, true);
                     }
                 };
 

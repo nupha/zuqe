@@ -11,6 +11,7 @@ use crate::{
     eval::{Compiled, EvalFlags, EvalType},
     function::{CallContext, NativeFunction},
     runtime::js_check_stack_overflow,
+    stack_frame::FrameIndex,
     utils::unlikely,
     value::JSValue,
 };
@@ -608,6 +609,7 @@ impl<'c> ScopedContext<'c> {
         strip: bool,
     ) -> Result<ModuleDef, i32> {
         if let Compiled::Module(md) = self.compile(
+            FrameIndex::NULL,
             source,
             filename,
             EvalType::Module,

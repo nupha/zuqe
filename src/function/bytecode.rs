@@ -13,7 +13,7 @@ use crate::{
     eval::EvalType,
     function::{FunctionDef, VarRef},
     gcref_wrapper,
-    stack_frame::ExecMode,
+    stack_frame::{ExecMode, FrameIndex},
     utils::{get_leb128, get_sleb128, read_from_ptr},
     value::JSValue,
 };
@@ -641,6 +641,7 @@ impl Bytecode {
     pub(crate) fn run_as_function(
         &self,
         ctx: &mut ScopedContext,
+        parent_frame_idx: FrameIndex,
         this_obj: JSValue,
         captured_vars: &[VarRef],
     ) -> JSResult {
@@ -650,25 +651,22 @@ impl Bytecode {
         // the trampoline, and closure variable resolution from arena frames
         // is handled by `make_closure_for_arena`.
         //
-        // When `active_trampoline_frame` is null (top-level entry from the
-        // test runner or eval), FrameIndex::NULL serves as the parent — the
-        // callee has no closure variables, so no parent frame resolution is
-        // needed.
-        //
-        // Legacy fallback (preserved for reference):
-        // if !ctx.is_arena_mode() {
-        //     let f = self.make_closure(ctx, None, captured_vars, parent_stack_frame)?;
-        //     f.call(ctx, this_obj, &[])
-        // } else { ... }
+        // `parent_frame_idx` is the frame the created closure captures from.
+        // It is passed explicitly by the caller (e.g. eval passes the caller's
+        // frame) rather than read from the global `active_frame_index`, which
+        // may be NULL when clobbered by a nested call (such as a `to_string`
+        // performed while preparing a direct eval). When there is genuinely no
+        // caller frame (top-level entry from the test runner or eval), pass
+        // `FrameIndex::NULL` — the callee has no closure variables to resolve
+        // from a parent frame.
 
         let mut rt = ctx.rt_ptr();
-        let parent_frame = rt.active_frame_index;
         self.make_closure_for_arena(
             ctx,
             None,
             captured_vars,
             rt.stack_frame_arena_mut(),
-            parent_frame,
+            parent_frame_idx,
         )?
         .call(ctx, this_obj, &[])
     }

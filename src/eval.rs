@@ -11,7 +11,7 @@ use crate::{
     function::{BCWrapper, Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
     parse::JSParseState,
-    stack_frame::ExecMode,
+    stack_frame::{ExecMode, FrameIndex},
     value::JSValue,
 };
 
@@ -57,6 +57,7 @@ impl<'c> ScopedContext<'c> {
     #[inline(never)]
     pub(crate) fn compile(
         &mut self,
+        caller_frame_idx: FrameIndex,
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
@@ -65,25 +66,31 @@ impl<'c> ScopedContext<'c> {
     ) -> Result<Compiled, i32> {
         // get (bytecode, module, js_mode) of current stack frame
         let (frame_func_bc, frame_module, js_mode) = if eval_type == EvalType::Direct {
-            // Determine the calling function's BCWrapper based on execution mode.
-            // - Arena (trampoline) path: get func_obj from the current arena frame.
-            // - Non-arena path: get func_obj from the StackFrame stack (legacy
-            //   callers like native eval from non-trampoline context).
-            let cur_func: BCWrapper = if self.is_arena_mode() {
-                let rt = self.rt();
-                let head = rt.stack_frame_arena().frame(rt.active_frame_index);
-                BCWrapper::try_from(JSValue::from(head.func_obj))
-                    .expect("arena frame func_obj must be a BCWrapper")
+            // Determine the calling function's BCWrapper.
+            //
+            // The EVAL / APPLY_EVAL opcodes pass the real running frame index
+            // (`caller_frame_idx`), which is always valid while a function body
+            // is executing. Fall back to the global `active_frame_index`, which
+            // may be NULL when clobbered by a nested trampoline call that reset
+            // it on return. If neither is available we cannot capture the
+            // caller's lexical scope, so we fall back to compiling without a
+            // caller frame (the resulting eval degrades to indirect; see
+            // `effective_eval_type` below). This avoids panicking when direct
+            // eval is reached with no resolvable caller frame.
+            let idx = if !caller_frame_idx.is_null() {
+                caller_frame_idx
             } else {
-                unreachable!(
-                    "eval: BytecodeFunction::call always uses arena mode; legacy stack_frame lookup should not be reachable"
-                );
+                self.rt().active_frame_index
             };
-
-            let bc = cur_func.payload().bytecode();
-            let mode = bc.mode();
-
-            (Some(bc), None, mode)
+            if idx.is_null() {
+                (None, None, ExecMode::empty())
+            } else {
+                let head = self.rt().stack_frame_arena().frame(idx);
+                let cur_func = BCWrapper::try_from(JSValue::from(head.func_obj))
+                    .expect("arena frame func_obj must be a BCWrapper");
+                let bc = cur_func.payload().bytecode();
+                (Some(bc), None, bc.mode())
+            }
         } else {
             let mut mode = ExecMode::empty();
             if flags.contains(EvalFlags::STRICT) {
@@ -101,12 +108,24 @@ impl<'c> ScopedContext<'c> {
             }
         };
 
+        // Effective eval type: a direct eval only captures the caller's lexical
+        // scope when we actually resolved a caller frame. Otherwise it degrades
+        // to an indirect (global-scope) eval so we never crash on a missing
+        // caller frame.
+        let effective_eval_type = if frame_module.is_some() {
+            EvalType::Module
+        } else if frame_func_bc.is_some() {
+            EvalType::Direct
+        } else {
+            EvalType::Indirect
+        };
+
         // create root function def.
         let mut fd = FunctionDef::new(self, std::ptr::null_mut(), true, false, filename, 1)?;
 
-        fd.eval_type = eval_type;
+        fd.eval_type = effective_eval_type;
         fd.func_name = Atom::CONST__eval_;
-        fd.has_this_binding = eval_type != EvalType::Direct;
+        fd.has_this_binding = effective_eval_type != EvalType::Direct;
         fd.attrs.backtrace_barrier = flags.contains(EvalFlags::BACKTRACE_BARRIER);
         fd.attrs.exec_mode = js_mode;
 
@@ -121,7 +140,11 @@ impl<'c> ScopedContext<'c> {
 
             add_closure_variables(self, &mut fd, bc, var_scope_idx)?;
         } else {
-            debug_assert_ne!(eval_type, EvalType::Direct, "can't be direct eval type");
+            debug_assert_ne!(
+                effective_eval_type,
+                EvalType::Direct,
+                "can't be direct eval type"
+            );
             fd.attrs.arguments_allowed = true;
         }
 
@@ -221,8 +244,10 @@ impl<'c> ScopedContext<'c> {
     }
 
     /// Compile source first, then run as function
+    #[allow(clippy::too_many_arguments)]
     fn compile_then_run(
         &mut self,
+        caller_frame_idx: FrameIndex,
         this_obj: JSValue,
         source: &[u8],
         filename: &str,
@@ -231,29 +256,40 @@ impl<'c> ScopedContext<'c> {
         var_scope_idx: i32,
     ) -> JSResult {
         if self.allow_eval {
-            let compiled = self.compile(source, filename, eval_type, eval_flags, var_scope_idx)?;
-            match compiled {
-                Compiled::GlobalOrIndirect(bc) => bc.run_as_function(self, this_obj, &[]),
-                Compiled::Direct(bc) => {
-                    if self.is_arena_mode() {
-                        let rt = self.rt_ptr();
-                        let idx = rt.active_frame_index;
-                        if idx.is_null() {
-                            bc.run_as_function(self, this_obj, &[])
-                        } else {
-                            // get captured_vars from the trampoline frame
-                            let head = rt.stack_frame_arena().frame(idx);
-                            let bfun = BCWrapper::try_from(JSValue::from(head.func_obj))
-                                .expect("eval: caller must be bytecode function");
-                            let captured_vars = bfun.payload().captured_vars();
+            let compiled = self.compile(
+                caller_frame_idx,
+                source,
+                filename,
+                eval_type,
+                eval_flags,
+                var_scope_idx,
+            )?;
 
-                            bc.run_as_function(self, this_obj, captured_vars)
-                        }
+            match compiled {
+                Compiled::GlobalOrIndirect(bc) => {
+                    bc.run_as_function(self, FrameIndex::NULL, this_obj, &[])
+                }
+                Compiled::Direct(bc) => {
+                    // Resolve the calling frame the same way `compile` did:
+                    // prefer the explicit frame passed by the EVAL opcode, then
+                    // the global active_frame_index (which may be clobbered to
+                    // NULL by a nested trampoline). Without a valid caller frame
+                    // we run the eval as a fresh function without captured vars.
+                    let idx = if !caller_frame_idx.is_null() {
+                        caller_frame_idx
                     } else {
-                        unreachable!(
-                            "eval: BytecodeFunction::call always uses arena mode; \
-                            legacy captured_vars from StackFrame should not be reachable"
-                        );
+                        self.rt().active_frame_index
+                    };
+
+                    if idx.is_null() {
+                        bc.run_as_function(self, FrameIndex::NULL, this_obj, &[])
+                    } else {
+                        // get captured_vars from the trampoline frame
+                        let bfun =
+                            BCWrapper::try_from(self.rt().stack_frame_arena().frame(idx).func_obj)
+                                .expect("eval: caller must be bytecode function");
+                        let captured_vars = bfun.payload().captured_vars();
+                        bc.run_as_function(self, idx, this_obj, captured_vars)
                     }
                 }
                 Compiled::Module(mut md) => {
@@ -290,8 +326,15 @@ impl<'c> ScopedContext<'c> {
             md.evaluate(self).map(JSValue::from)
         } else {
             let global = self.global_obj();
-            let r =
-                self.compile_then_run(global.into(), source, filename, EvalType::Global, flags, -1);
+            let r = self.compile_then_run(
+                FrameIndex::NULL,
+                global.into(),
+                source,
+                filename,
+                EvalType::Global,
+                flags,
+                -1,
+            );
             r
         }
     }
@@ -420,6 +463,7 @@ impl JSValue {
     pub(crate) fn eval_object(
         &self,
         ctx: &mut ScopedContext,
+        caller_frame_idx: FrameIndex,
         this_obj: JSValue,
         eval_type: EvalType,
         eval_flags: EvalFlags,
@@ -429,6 +473,7 @@ impl JSValue {
         // object (new String(...)) is returned as-is (`as_string(false)`), not coerced.
         if let Some(s) = self.as_string(false) {
             ctx.compile_then_run(
+                caller_frame_idx,
                 this_obj,
                 s.content().encode_utf8_bytes(true).as_ref(),
                 "<string>",

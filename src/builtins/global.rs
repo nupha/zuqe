@@ -9,6 +9,7 @@ use crate::{
     error::JSResult,
     eval::{EvalFlags, EvalType},
     function::{CallContext, FieldDef},
+    stack_frame::FrameIndex,
     string::{CharCode, CharCodeDecoder, StringBuf},
     utils::unlikely,
     value::JSValue,
@@ -19,14 +20,14 @@ pub(crate) fn js_global_eval(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let val = cc.arg(0);
 
     ctx.with_new_scope(|cx| {
-        let res = val.eval_object(
+        val.eval_object(
             cx,
+            FrameIndex::NULL,
             global.into(),
             EvalType::Indirect,
             EvalFlags::empty(),
             -1,
-        );
-        res
+        )
     })
 }
 
