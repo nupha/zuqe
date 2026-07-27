@@ -214,7 +214,7 @@ impl<'a> ScopedContext<'a> {
     /// IteratorNext shortcut for generator `.next()` in for-of). Manual
     /// save/call/restore is easy to break during maintenance; wrapping the
     /// call in this guard makes the restore impossible to forget.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn with_active_frame_guard<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
         let saved_frame = self.rt().active_frame_index;
         let r = f(self);

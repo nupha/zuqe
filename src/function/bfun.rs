@@ -20,6 +20,7 @@ use crate::{
         ObjectPayload,
     },
     object_cast,
+    runtime::js_check_stack_overflow,
     stack_frame::{FrameAllocError, FrameState, StackFrameArena},
     string::JS_ConcatString3,
     value::JSValue,
@@ -31,7 +32,6 @@ use super::{Bytecode, CallContext, VarRef};
 /// This is same to `FunctionDef::body_scope`, which was automatically pushed
 /// when creating root function def in `compile_and_run()`.
 pub const ARG_SCOPE_INDEX: i32 = 1;
-
 /// to mark end of arugment vars chain.
 pub const ARG_SCOPE_END: i32 = -2;
 
@@ -436,6 +436,18 @@ impl BytecodeFunction {
     ) -> JSResult {
         let bc = self.payload().bytecode();
 
+        // Each BytecodeFunction::call nests a native execute_trampoline
+        // invocation. Most JS-to-JS calls are flattened inside the trampoline
+        // (CALL/CALL_METHOD/CALL_CONSTRUCTOR inline dispatch), but the
+        // remaining nested paths (generator resume, calls re-entering
+        // through native code, Proxy traps, etc.) still consume native
+        // stack — turn an impending overflow into a catchable error
+        // instead of a hard crash.
+        if js_check_stack_overflow(ctx.rt(), 0) {
+            ctx.throw_stack_overflow();
+            return Err(-1);
+        }
+
         // ── Allocate arena frame and execute via trampoline ──
         // BytecodeFunction::call always uses the arena/trampoline path.
         // The legacy StackFrame path has been removed — all bytecode
@@ -471,8 +483,7 @@ impl BytecodeFunction {
 
         // Copy all args into arena frame buffer
         unsafe {
-            let arena = &mut *arena_ptr;
-            arena.init_frame_args(frame_idx, bc.arg_count, bc.var_count, args);
+            (&mut *arena_ptr).init_frame_args(frame_idx, bc.arg_count, bc.var_count, args);
         }
 
         // execute_trampoline manages active_trampoline_frame internally,

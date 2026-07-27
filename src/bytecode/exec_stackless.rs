@@ -72,6 +72,10 @@ pub(crate) enum ExecAction {
         return_sp: usize,
         this_obj: JSValue,
         new_target: JSValue,
+        /// `Some(instance)` for a flattened legacy (non-derived) constructor
+        /// call: the trampoline replaces a non-object return value with the
+        /// instance created at the call site (mirrors `do_call_internal`).
+        ctor_this: Option<JSValue>,
     },
     /// Cross-realm call: trampoline switches to callee's context scope.
     CallBytecodeCrossRealm {
@@ -81,6 +85,8 @@ pub(crate) enum ExecAction {
         return_sp: usize,
         this_obj: JSValue,
         new_target: JSValue,
+        /// Same as `CallBytecode::ctor_this`.
+        ctor_this: Option<JSValue>,
     },
     /// Tail-call optimization: recycle current frame, switch to callee
     /// without pushing a VirtualFrame.
@@ -88,6 +94,8 @@ pub(crate) enum ExecAction {
         callee_bc: Bytecode,
         callee_func_obj: Object,
         args: Vec<JSValue>,
+        /// `this` for the callee (TAIL_CALL_METHOD); UNDEFINED for TAIL_CALL.
+        this_obj: JSValue,
     },
     /// Frame returned normally or yielded (generator/async suspension).
     /// bool = true means the frame suspended (yield/await), not completed.
@@ -1023,6 +1031,7 @@ impl Bytecode {
                                         callee_bc: bc,
                                         callee_func_obj: bfun.into(),
                                         args: args_slice.to_vec(),
+                                        this_obj: JSValue::UNDEFINED,
                                     };
                                 }
 
@@ -1066,6 +1075,7 @@ impl Bytecode {
                                         return_sp,
                                         this_obj: JSValue::UNDEFINED,
                                         new_target: JSValue::UNDEFINED,
+                                        ctor_this: None,
                                     }
                                 } else {
                                     ExecAction::CallBytecode {
@@ -1074,6 +1084,7 @@ impl Bytecode {
                                         return_sp,
                                         this_obj: JSValue::UNDEFINED,
                                         new_target: JSValue::UNDEFINED,
+                                        ctor_this: None,
                                     }
                                 };
                             }
@@ -1111,10 +1122,103 @@ impl Bytecode {
                         }
 
                         let func = unsafe { *call_argv.offset(-2) };
+                        let ctor_new_target = unsafe { *call_argv.offset(-1) };
+
+                        // ── Inline bytecode dispatch (mirrors CALL) ──
+                        // Constructor chains (e.g. 100-level `super()` chains)
+                        // must not recurse on the C stack through call_internal.
+                        // Non-constructors fall through to call_internal, which
+                        // throws the proper TypeError.
+                        if let Ok(bfun) = BCWrapper::try_from(func)
+                            && bfun.flags().is_constructor()
+                            && bfun.payload().bytecode().func_kind() == FunctionKind::Normal
+                        {
+                            let bc = bfun.payload().bytecode();
+
+                            // Legacy (non-derived) constructor: create the
+                            // instance at the call site; on frame return a
+                            // non-object result is replaced with the instance
+                            // (mirrors do_call_internal). Derived constructors
+                            // start with `this` uninitialized (TDZ until
+                            // super() returns).
+                            let (callee_this, ctor_this) = if !bc.attrs.is_derived_class_constructor
+                            {
+                                match realm_scope.create_instance_with_ctor(
+                                    ctor_new_target,
+                                    ObjectPayload::OBJECT,
+                                ) {
+                                    Ok(o) => {
+                                        let v = JSValue::from(o);
+                                        (v, Some(v))
+                                    }
+                                    Err(_) => {
+                                        realm_scope
+                                            .throw_type_error("constructor must return an object");
+                                        break ExecAction::Exception;
+                                    }
+                                }
+                            } else {
+                                (JSValue::UNDEFINED, None)
+                            };
+
+                            let args_slice = unsafe {
+                                std::slice::from_raw_parts(call_argv, call_argc as usize)
+                            };
+                            let caller_depth = arena.frame(cur_frame_idx).depth;
+                            let callee_frame_idx = match build_callee_frame(
+                                arena,
+                                caller_depth,
+                                bfun.into(),
+                                bc,
+                                args_slice,
+                            ) {
+                                Ok(idx) => idx,
+                                Err(e) => {
+                                    match e {
+                                        FrameAllocError::Oom => realm_scope.throw_stack_fail(),
+                                        FrameAllocError::Exceeded => {
+                                            realm_scope.throw_stack_exceeded()
+                                        }
+                                    }
+                                    return ExecAction::Unwind;
+                                }
+                            };
+                            arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+
+                            let return_sp = unsafe {
+                                sp.offset(-(call_argc as isize + 2)).offset_from(sp_base)
+                            } as usize;
+
+                            let callee_ctx = bc.realm();
+
+                            break if callee_ctx != realm_scope.ctx_ptr {
+                                ExecAction::CallBytecodeCrossRealm {
+                                    callee_bc: bc,
+                                    callee_frame_idx,
+                                    callee_ctx_ptr: callee_ctx,
+                                    return_sp,
+                                    this_obj: callee_this,
+                                    new_target: ctor_new_target,
+                                    ctor_this,
+                                }
+                            } else {
+                                ExecAction::CallBytecode {
+                                    callee_bc: bc,
+                                    callee_frame_idx,
+                                    return_sp,
+                                    this_obj: callee_this,
+                                    new_target: ctor_new_target,
+                                    ctor_this,
+                                }
+                            };
+                        }
+
+                        // Native function, non-Normal bytecode or non-constructor:
+                        // use call_internal.
                         let ret_val = func.call_internal(
                             realm_scope,
                             JSValue::UNDEFINED,
-                            unsafe { *call_argv.offset(-1) },
+                            ctor_new_target,
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             JS_CALL_FLAG_CONSTRUCTOR,
                         );
@@ -1134,9 +1238,84 @@ impl Bytecode {
                         }
 
                         let func = unsafe { *call_argv.offset(-1) };
+                        let method_this = unsafe { *call_argv.offset(-2) };
+
+                        // ── Inline bytecode dispatch (mirrors CALL) ──
+                        // Method calls must not recurse on the C stack either
+                        // (e.g. deep `o.m()` recursion or `super.m()` chains).
+                        if let Ok(bfun) = BCWrapper::try_from(func) {
+                            let bc = bfun.payload().bytecode();
+
+                            if bc.func_kind() == FunctionKind::Normal {
+                                let args_slice = unsafe {
+                                    std::slice::from_raw_parts(call_argv, call_argc as usize)
+                                };
+
+                                if unlikely(opcode == OpCode::TAIL_CALL_METHOD) {
+                                    break ExecAction::TailCall {
+                                        callee_bc: bc,
+                                        callee_func_obj: bfun.into(),
+                                        args: args_slice.to_vec(),
+                                        this_obj: method_this,
+                                    };
+                                }
+
+                                let caller_depth = arena.frame(cur_frame_idx).depth;
+                                let callee_frame_idx = match build_callee_frame(
+                                    arena,
+                                    caller_depth,
+                                    bfun.into(),
+                                    bc,
+                                    args_slice,
+                                ) {
+                                    Ok(idx) => idx,
+                                    Err(e) => {
+                                        match e {
+                                            FrameAllocError::Oom => realm_scope.throw_stack_fail(),
+                                            FrameAllocError::Exceeded => {
+                                                realm_scope.throw_stack_exceeded()
+                                            }
+                                        }
+                                        return ExecAction::Unwind;
+                                    }
+                                };
+                                arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+
+                                let return_sp = unsafe {
+                                    sp.offset(-(call_argc as isize + 2)).offset_from(sp_base)
+                                } as usize;
+
+                                let callee_ctx = bc.realm();
+                                break if callee_ctx != realm_scope.ctx_ptr {
+                                    ExecAction::CallBytecodeCrossRealm {
+                                        callee_bc: bc,
+                                        callee_frame_idx,
+                                        callee_ctx_ptr: callee_ctx,
+                                        return_sp,
+                                        this_obj: method_this,
+                                        new_target: JSValue::UNDEFINED,
+                                        ctor_this: None,
+                                    }
+                                } else {
+                                    ExecAction::CallBytecode {
+                                        callee_bc: bc,
+                                        callee_frame_idx,
+                                        return_sp,
+                                        this_obj: method_this,
+                                        new_target: JSValue::UNDEFINED,
+                                        ctor_this: None,
+                                    }
+                                };
+                            }
+
+                            // Generator/async function: fall through to
+                            // call_internal for proper class_call handling.
+                        }
+
+                        // Native function or non-Normal bytecode: use call_internal.
                         let ret_val = func.call_internal(
                             realm_scope,
-                            unsafe { *call_argv.offset(-2) },
+                            method_this,
                             JSValue::UNDEFINED,
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             0,
@@ -1711,6 +1890,7 @@ impl Bytecode {
                                         return_sp,
                                         this_obj: JSValue::UNDEFINED,
                                         new_target: JSValue::UNDEFINED,
+                                        ctor_this: None,
                                     };
                                 }
                             }
@@ -3067,6 +3247,7 @@ impl Bytecode {
                     return_sp,
                     this_obj,
                     new_target,
+                    ctor_this,
                 } => {
                     unsafe {
                         *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
@@ -3078,6 +3259,7 @@ impl Bytecode {
                         return_sp,
                         this_obj,
                         new_target,
+                        ctor_this,
                     };
                 }
 
@@ -3088,6 +3270,7 @@ impl Bytecode {
                     return_sp,
                     this_obj,
                     new_target,
+                    ctor_this,
                 } => {
                     unsafe {
                         *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
@@ -3100,6 +3283,7 @@ impl Bytecode {
                         return_sp,
                         this_obj,
                         new_target,
+                        ctor_this,
                     };
                 }
 
@@ -3113,11 +3297,13 @@ impl Bytecode {
                     callee_bc,
                     callee_func_obj,
                     args,
+                    this_obj,
                 } => {
                     return ExecAction::TailCall {
                         callee_bc,
                         callee_func_obj,
                         args,
+                        this_obj,
                     };
                 }
             }
@@ -3280,6 +3466,7 @@ pub(crate) fn execute_trampoline(
                 return_sp,
                 this_obj: callee_this,
                 new_target: callee_new_target,
+                ctor_this,
             } => {
                 let callee_gc_kind = callee_bc.gc_scope_kind();
 
@@ -3309,6 +3496,7 @@ pub(crate) fn execute_trampoline(
                     caller_bc: cur_bc,
                     return_sp,
                     caller_scope,
+                    ctor_this,
                 });
 
                 cur_bc = callee_bc;
@@ -3325,6 +3513,7 @@ pub(crate) fn execute_trampoline(
                 callee_bc,
                 callee_func_obj,
                 args,
+                this_obj: callee_this,
             } => {
                 let arena = unsafe { &mut *arena_ptr };
 
@@ -3419,7 +3608,7 @@ pub(crate) fn execute_trampoline(
                 cur_frame_idx = new_idx;
                 pc_offset = 0;
                 sp_offset = 0;
-                this_obj = JSValue::UNDEFINED;
+                this_obj = callee_this;
                 new_target = JSValue::UNDEFINED;
                 throwed = false;
             }
@@ -3533,6 +3722,16 @@ pub(crate) fn execute_trampoline(
                     // No promote needed (callee had no LOCAL nodes),
                     // no drop needed (no callee scope was created).
 
+                    // Legacy (non-derived) constructor call: a non-object
+                    // return value is replaced with the instance created at
+                    // the CALL_CONSTRUCTOR site (mirrors do_call_internal).
+                    // The instance is LOCAL in the caller's scope, so it is
+                    // still GC-protected here.
+                    let ret_val = match caller_vf.ctor_this {
+                        Some(inst) if !ret_val.is_object() => inst,
+                        _ => ret_val,
+                    };
+
                     cur_bc = caller_vf.caller_bc;
                     cur_frame_idx = caller_vf.frame_idx;
 
@@ -3642,6 +3841,7 @@ pub(crate) fn execute_trampoline(
                 return_sp,
                 this_obj: callee_this,
                 new_target: callee_new_target,
+                ctor_this,
             } => {
                 // ── Cross-realm call ──
                 let callee_gc_kind = callee_bc.gc_scope_kind();
@@ -3668,6 +3868,7 @@ pub(crate) fn execute_trampoline(
                     caller_bc: cur_bc,
                     return_sp,
                     caller_scope,
+                    ctor_this,
                 });
 
                 cur_bc = callee_bc;

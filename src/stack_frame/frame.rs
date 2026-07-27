@@ -20,7 +20,7 @@ use crate::{
 /// runaway recursion (e.g. `function f(){ f(); }`). The counter is the
 /// call-chain length, so a flat `for` loop that calls a function many
 /// times is unaffected (each call reuses the same caller depth).
-pub(crate) const MAX_CALL_DEPTH: u32 = 10000;
+pub(crate) const MAX_CALL_DEPTH: u32 = 10_000;
 
 /// Index into StackFrameArena::frames, equivalent to a pointer but not
 /// constrained by Rust's borrow rules.
@@ -199,6 +199,10 @@ pub(crate) struct VirtualFrame {
     /// was pushed and the caller's scope was saved here for later restoration.
     pub(crate) caller_scope: Option<ManuallyDrop<ScopedContext<'static>>>,
     pub(crate) return_sp: usize,
+    /// `Some(instance)` when the callee is a flattened legacy (non-derived)
+    /// constructor call: on return, a non-object result is replaced with the
+    /// instance (mirrors `do_call_internal`'s legacy-constructor behavior).
+    pub(crate) ctor_this: Option<JSValue>,
 }
 
 /// Complete snapshot of a suspended async frame.
