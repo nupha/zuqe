@@ -239,6 +239,14 @@ impl StackFrameArena {
         &self.frames[idx.0 as usize]
     }
 
+    /// Non-panicking `frame`: returns `None` if `idx` no longer refers to a
+    /// live slot (e.g. a tail call popped the frame and the replacement
+    /// allocation failed).
+    #[inline(always)]
+    pub(crate) fn try_frame(&self, idx: FrameIndex) -> Option<&StackFrame> {
+        self.frames.get(idx.0 as usize)
+    }
+
     #[inline(always)]
     pub(crate) fn frame_mut(&mut self, idx: FrameIndex) -> &mut StackFrame {
         &mut self.frames[idx.0 as usize]

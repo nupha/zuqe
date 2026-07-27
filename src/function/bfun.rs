@@ -500,9 +500,10 @@ impl BytecodeFunction {
         // ── Frame lifecycle cleanup ──
         // The trampoline's Return/Unwind handlers skip free_frame for the
         // outermost frame (start_frame_idx). We own the frame — detach and
-        // free it here. Only free if the frame is still Active (may be
-        // Suspended if a nested BytecodeFunction::call's free_frame took
-        // the non-LIFO path).
+        // free it here. Only free if the frame still exists and is Active:
+        // it may be Suspended if a nested BytecodeFunction::call's free_frame
+        // took the non-LIFO path, or already popped entirely if a TailCall
+        // recycled it and the replacement allocation then failed (Oom).
         unsafe {
             let arena = &mut *arena_ptr;
             if let Some(var_refs) = arena.try_var_refs_mut(frame_idx) {
@@ -510,7 +511,11 @@ impl BytecodeFunction {
                     vr.detach();
                 }
             }
-            if arena.frame(frame_idx).state == FrameState::Active {
+
+            if arena
+                .try_frame(frame_idx)
+                .is_some_and(|f| f.state == FrameState::Active)
+            {
                 arena.free_frame(frame_idx);
             }
         }

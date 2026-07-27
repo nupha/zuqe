@@ -1027,66 +1027,86 @@ impl Bytecode {
                                     // frame and allocate the callee frame using
                                     // build_callee_frame, so we only need to pass
                                     // the copied arguments.
-                                    break ExecAction::TailCall {
-                                        callee_bc: bc,
-                                        callee_func_obj: bfun.into(),
-                                        args: args_slice.to_vec(),
-                                        this_obj: JSValue::UNDEFINED,
-                                    };
-                                }
-
-                                // Non-tail call: use build_callee_frame to
-                                // allocate and initialize the callee frame.
-                                let caller_depth = arena.frame(cur_frame_idx).depth;
-                                let callee_frame_idx = match build_callee_frame(
-                                    arena,
-                                    caller_depth,
-                                    bfun.into(),
-                                    bc,
-                                    args_slice,
-                                ) {
-                                    Ok(idx) => idx,
-                                    Err(e) => {
-                                        match e {
-                                            FrameAllocError::Oom => realm_scope.throw_stack_fail(),
-                                            FrameAllocError::Exceeded => {
-                                                realm_scope.throw_stack_exceeded()
-                                            }
-                                        }
-                                        return ExecAction::Unwind;
-                                    }
-                                };
-                                arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
-
-                                let return_sp = unsafe {
-                                    sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
-                                } as usize;
-
-                                // Detect cross-realm calls: if the callee's realm
-                                // differs from the current realm, use the
-                                // CallBytecodeCrossRealm path so the trampoline
-                                // can properly switch GC scopes.
-                                let callee_ctx = bc.realm();
-                                break if callee_ctx != realm_scope.ctx_ptr {
-                                    ExecAction::CallBytecodeCrossRealm {
-                                        callee_bc: bc,
-                                        callee_frame_idx,
-                                        callee_ctx_ptr: callee_ctx,
-                                        return_sp,
-                                        this_obj: JSValue::UNDEFINED,
-                                        new_target: JSValue::UNDEFINED,
-                                        ctor_this: None,
+                                    //
+                                    // Cross-realm tail calls skip TCO: the TailCall
+                                    // handler reuses the current TrampolineScope, so
+                                    // a cross-realm callee would run against the
+                                    // wrong realm (globals, error prototypes). Fall
+                                    // through to call_internal instead — the nested
+                                    // trampoline creates a scope bound to the
+                                    // callee's own realm.
+                                    if bc.realm() == realm_scope.ctx_ptr {
+                                        break ExecAction::TailCall {
+                                            callee_bc: bc,
+                                            callee_func_obj: bfun.into(),
+                                            args: args_slice.to_vec(),
+                                            this_obj: JSValue::UNDEFINED,
+                                        };
                                     }
                                 } else {
-                                    ExecAction::CallBytecode {
-                                        callee_bc: bc,
-                                        callee_frame_idx,
-                                        return_sp,
-                                        this_obj: JSValue::UNDEFINED,
-                                        new_target: JSValue::UNDEFINED,
-                                        ctor_this: None,
-                                    }
-                                };
+                                    // Non-tail call: use build_callee_frame to
+                                    // allocate and initialize the callee frame.
+                                    let caller_depth = arena.frame(cur_frame_idx).depth;
+                                    let callee_frame_idx = match build_callee_frame(
+                                        arena,
+                                        caller_depth,
+                                        bfun.into(),
+                                        bc,
+                                        args_slice,
+                                    ) {
+                                        Ok(idx) => idx,
+                                        Err(e) => {
+                                            match e {
+                                                FrameAllocError::Oom => {
+                                                    realm_scope.throw_stack_fail()
+                                                }
+                                                FrameAllocError::Exceeded => {
+                                                    realm_scope.throw_stack_exceeded()
+                                                }
+                                            }
+                                            // Route through the Exception
+                                            // handler: find_catch_in_frame must
+                                            // scan (and cleanse) this frame's
+                                            // operand stack first. A bare Unwind
+                                            // would let find_finally_in_frame
+                                            // misread stray Ints (e.g. `1 + f()`)
+                                            // as GOSUB markers and jump to a
+                                            // garbage pc.
+                                            break ExecAction::Exception;
+                                        }
+                                    };
+                                    arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+
+                                    let return_sp = unsafe {
+                                        sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
+                                    } as usize;
+
+                                    // Detect cross-realm calls: if the callee's realm
+                                    // differs from the current realm, use the
+                                    // CallBytecodeCrossRealm path so the trampoline
+                                    // can properly switch GC scopes.
+                                    let callee_ctx = bc.realm();
+                                    break if callee_ctx != realm_scope.ctx_ptr {
+                                        ExecAction::CallBytecodeCrossRealm {
+                                            callee_bc: bc,
+                                            callee_frame_idx,
+                                            callee_ctx_ptr: callee_ctx,
+                                            return_sp,
+                                            this_obj: JSValue::UNDEFINED,
+                                            new_target: JSValue::UNDEFINED,
+                                            ctor_this: None,
+                                        }
+                                    } else {
+                                        ExecAction::CallBytecode {
+                                            callee_bc: bc,
+                                            callee_frame_idx,
+                                            return_sp,
+                                            this_obj: JSValue::UNDEFINED,
+                                            new_target: JSValue::UNDEFINED,
+                                            ctor_this: None,
+                                        }
+                                    };
+                                }
                             }
 
                             // Generator/async function: fall through to
@@ -1180,7 +1200,9 @@ impl Bytecode {
                                             realm_scope.throw_stack_exceeded()
                                         }
                                     }
-                                    return ExecAction::Unwind;
+                                    // Route through the Exception handler: see
+                                    // the matching comment in the CALL branch.
+                                    break ExecAction::Exception;
                                 }
                             };
                             arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
@@ -1252,60 +1274,77 @@ impl Bytecode {
                                 };
 
                                 if unlikely(opcode == OpCode::TAIL_CALL_METHOD) {
-                                    break ExecAction::TailCall {
-                                        callee_bc: bc,
-                                        callee_func_obj: bfun.into(),
-                                        args: args_slice.to_vec(),
-                                        this_obj: method_this,
-                                    };
-                                }
-
-                                let caller_depth = arena.frame(cur_frame_idx).depth;
-                                let callee_frame_idx = match build_callee_frame(
-                                    arena,
-                                    caller_depth,
-                                    bfun.into(),
-                                    bc,
-                                    args_slice,
-                                ) {
-                                    Ok(idx) => idx,
-                                    Err(e) => {
-                                        match e {
-                                            FrameAllocError::Oom => realm_scope.throw_stack_fail(),
-                                            FrameAllocError::Exceeded => {
-                                                realm_scope.throw_stack_exceeded()
-                                            }
-                                        }
-                                        return ExecAction::Unwind;
-                                    }
-                                };
-                                arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
-
-                                let return_sp = unsafe {
-                                    sp.offset(-(call_argc as isize + 2)).offset_from(sp_base)
-                                } as usize;
-
-                                let callee_ctx = bc.realm();
-                                break if callee_ctx != realm_scope.ctx_ptr {
-                                    ExecAction::CallBytecodeCrossRealm {
-                                        callee_bc: bc,
-                                        callee_frame_idx,
-                                        callee_ctx_ptr: callee_ctx,
-                                        return_sp,
-                                        this_obj: method_this,
-                                        new_target: JSValue::UNDEFINED,
-                                        ctor_this: None,
+                                    // Cross-realm tail calls skip TCO (same reason
+                                    // as TAIL_CALL above): fall through to the
+                                    // call_internal fallback, which runs the callee
+                                    // under its own realm scope and returns via
+                                    // ExecAction::Return.
+                                    if bc.realm() == realm_scope.ctx_ptr {
+                                        break ExecAction::TailCall {
+                                            callee_bc: bc,
+                                            callee_func_obj: bfun.into(),
+                                            args: args_slice.to_vec(),
+                                            this_obj: method_this,
+                                        };
                                     }
                                 } else {
-                                    ExecAction::CallBytecode {
-                                        callee_bc: bc,
-                                        callee_frame_idx,
-                                        return_sp,
-                                        this_obj: method_this,
-                                        new_target: JSValue::UNDEFINED,
-                                        ctor_this: None,
-                                    }
-                                };
+                                    let caller_depth = arena.frame(cur_frame_idx).depth;
+                                    let callee_frame_idx = match build_callee_frame(
+                                        arena,
+                                        caller_depth,
+                                        bfun.into(),
+                                        bc,
+                                        args_slice,
+                                    ) {
+                                        Ok(idx) => idx,
+                                        Err(e) => {
+                                            match e {
+                                                FrameAllocError::Oom => {
+                                                    realm_scope.throw_stack_fail()
+                                                }
+                                                FrameAllocError::Exceeded => {
+                                                    realm_scope.throw_stack_exceeded()
+                                                }
+                                            }
+                                            // Route through the Exception
+                                            // handler: find_catch_in_frame must
+                                            // scan (and cleanse) this frame's
+                                            // operand stack first. A bare Unwind
+                                            // would let find_finally_in_frame
+                                            // misread stray Ints (e.g. `1 + f()`)
+                                            // as GOSUB markers and jump to a
+                                            // garbage pc.
+                                            break ExecAction::Exception;
+                                        }
+                                    };
+                                    arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+
+                                    let return_sp = unsafe {
+                                        sp.offset(-(call_argc as isize + 2)).offset_from(sp_base)
+                                    } as usize;
+
+                                    let callee_ctx = bc.realm();
+                                    break if callee_ctx != realm_scope.ctx_ptr {
+                                        ExecAction::CallBytecodeCrossRealm {
+                                            callee_bc: bc,
+                                            callee_frame_idx,
+                                            callee_ctx_ptr: callee_ctx,
+                                            return_sp,
+                                            this_obj: method_this,
+                                            new_target: JSValue::UNDEFINED,
+                                            ctor_this: None,
+                                        }
+                                    } else {
+                                        ExecAction::CallBytecode {
+                                            callee_bc: bc,
+                                            callee_frame_idx,
+                                            return_sp,
+                                            this_obj: method_this,
+                                            new_target: JSValue::UNDEFINED,
+                                            ctor_this: None,
+                                        }
+                                    };
+                                }
                             }
 
                             // Generator/async function: fall through to
@@ -1847,6 +1886,7 @@ impl Bytecode {
                                     let args_slice = unsafe {
                                         std::slice::from_raw_parts(call_argv, call_argc as usize)
                                     };
+
                                     // Treat as a normal non-tail call: push a fresh callee
                                     // frame via build_callee_frame. We must NOT use TailCall
                                     // here — `OP_eval` is a single opcode and the runtime
@@ -1877,13 +1917,23 @@ impl Bytecode {
                                                     realm_scope.throw_stack_exceeded()
                                                 }
                                             }
-                                            return ExecAction::Unwind;
+                                            // Route through the Exception
+                                            // handler: find_catch_in_frame must
+                                            // scan (and cleanse) this frame's
+                                            // operand stack first. A bare Unwind
+                                            // would let find_finally_in_frame
+                                            // misread stray Ints (e.g. `1 + f()`)
+                                            // as GOSUB markers and jump to a
+                                            // garbage pc.
+                                            break ExecAction::Exception;
                                         }
                                     };
                                     arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+
                                     let return_sp = unsafe {
                                         sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
                                     } as usize;
+
                                     break ExecAction::CallBytecode {
                                         callee_bc: bc,
                                         callee_frame_idx,
@@ -3337,11 +3387,12 @@ fn promote_to_parent(value: JSValue, scope: &ScopedContext<'_>) -> JSValue {
 /// between the opcode inline dispatch and the trampoline handler.
 ///
 /// `caller_depth` is the depth of the calling frame; the callee's depth is set
-/// to `caller_depth + 1` so that an infinite (tail-)recursive loop drives the
-/// depth toward `MAX_CALL_DEPTH` and trips a stack-depth error (see the note on
+/// to `caller_depth + 1` so that runaway non-tail recursion drives the depth
+/// toward `MAX_CALL_DEPTH` and trips a stack-depth error (see the note on
 /// `MAX_CALL_DEPTH`). Exceeding the limit returns `FrameAllocError::Exceeded`,
 /// which the callers translate into the "maximum call stack size exceeded"
-/// error.
+/// error. The tail-call path passes `depth - 1` so the replacement frame
+/// keeps the caller's depth — tail calls never deepen the chain (TCO).
 #[inline(always)]
 fn build_callee_frame(
     arena: &mut StackFrameArena,
@@ -3350,7 +3401,9 @@ fn build_callee_frame(
     bc: Bytecode,
     args: &[JSValue],
 ) -> Result<FrameIndex, FrameAllocError> {
-    let callee_depth = caller_depth + 1;
+    // saturating_add: with MAX_CALL_DEPTH = 0 (unlimited) an infinite tail-call
+    // loop increments depth forever — saturate instead of overflowing u32.
+    let callee_depth = caller_depth.saturating_add(1);
     if MAX_CALL_DEPTH > 0 && callee_depth > MAX_CALL_DEPTH {
         return Err(FrameAllocError::Exceeded);
     }
@@ -3539,12 +3592,13 @@ pub(crate) fn execute_trampoline(
                         }
                     }
                 }
-                // Capture the caller depth before recycling its frame, so the
-                // tail-called frame continues the same call-chain depth (this is
-                // what makes `MAX_CALL_DEPTH` catch infinite tail recursion).
-                // `build_callee_frame` enforces the limit itself and returns
-                // `Err(Exceeded)` once it would be exceeded.
-                let caller_depth = arena.frame(cur_frame_idx).depth;
+                // Tail calls replace the frame instead of deepening the call
+                // chain, so the callee inherits the caller's depth unchanged:
+                // `MAX_CALL_DEPTH` only bounds non-tail calls, and unbounded
+                // tail recursion runs at constant depth (true TCO).
+                // `build_callee_frame` adds 1, so pass `depth - 1`;
+                // saturating_sub keeps a root-frame depth of 0 stable.
+                let tail_depth = arena.frame(cur_frame_idx).depth.saturating_sub(1);
 
                 // Recycle the caller frame *before* allocating the callee so the
                 // bump arena's live region stays bounded (TCO).
@@ -3558,7 +3612,7 @@ pub(crate) fn execute_trampoline(
                 // recursion.js relies on the recursion error being catchable.
                 let new_idx = match build_callee_frame(
                     arena,
-                    caller_depth,
+                    tail_depth,
                     callee_func_obj,
                     callee_bc,
                     &args,
@@ -3573,6 +3627,7 @@ pub(crate) fn execute_trampoline(
                                 cur_trampoline_scope.scope_mut().throw_stack_exceeded()
                             }
                         }
+
                         // The caller frame was already recycled above (TCO), so
                         // unwind it directly to the caller's caller. This mirrors
                         // the successful TailCall path (the tail call replaces the
@@ -3593,6 +3648,7 @@ pub(crate) fn execute_trampoline(
                             pc_offset = caller_head.cur_pc_offset;
                             sp_offset = caller_head.cur_sp_offset as usize;
                             throwed = true;
+
                             continue 'trampoline;
                         } else {
                             drop(cur_trampoline_scope.into_inner());

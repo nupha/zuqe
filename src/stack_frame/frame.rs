@@ -12,17 +12,18 @@ use crate::{
 /// Maximum JS-to-JS call nesting depth before a `RangeError`-style
 /// "maximum call stack size exceeded" is raised.
 ///
-/// The stackless interpreter reuses the active frame for tail calls
-/// (`TAIL_CALL`), so the *byte*-based virtual-stack limit
-/// (`max_stack_bytes`) never trips for an infinite tail-recursive loop —
-/// the frame is freed and reallocated in place, keeping `data_used`
-/// constant. A separate depth counter is therefore required to bound
-/// runaway recursion (e.g. `function f(){ f(); }`). The counter is the
-/// call-chain length, so a flat `for` loop that calls a function many
-/// times is unaffected (each call reuses the same caller depth).
+/// The limit only applies to non-tail calls: a tail call (`TAIL_CALL` /
+/// `TAIL_CALL_METHOD`) replaces the active frame and the callee inherits
+/// the caller's depth, so unbounded tail recursion runs at constant depth
+/// and never trips this limit (true TCO). The counter is the call-chain
+/// length, so a flat `for` loop that calls a function many times is also
+/// unaffected (each call reuses the same caller depth). What it bounds is
+/// runaway non-tail recursion (e.g. `function f(){ f(); }`), which the
+/// *byte*-based virtual-stack limit (`max_stack_bytes`) also catches —
+/// this counter provides a deterministic, size-independent cap.
 ///
 /// 0 means no limit.
-pub(crate) const MAX_CALL_DEPTH: u32 = 0;
+pub(crate) const MAX_CALL_DEPTH: u32 = 10_000;
 
 /// Index into StackFrameArena::frames, equivalent to a pointer but not
 /// constrained by Rust's borrow rules.
@@ -77,10 +78,13 @@ bitflags::bitflags! {
 pub(crate) struct StackFrame {
     /// Previous stack frame in the call chain (FrameIndex::NULL for root).
     pub(crate) prev: FrameIndex,
-    /// JS-to-JS call nesting depth (0 for the root frame). Each call sets the
-    /// callee's depth to `caller.depth + 1`, so an infinite (tail-)recursive
-    /// loop drives this toward `MAX_CALL_DEPTH` and trips a stack error.
+
+    /// JS-to-JS call nesting depth (0 for the root frame). Each non-tail
+    /// call sets the callee's depth to `caller.depth + 1`; a tail call
+    /// replaces the frame and keeps the caller's depth, so only non-tail
+    /// recursion drives this toward `MAX_CALL_DEPTH` and trips a stack error.
     pub(crate) depth: u32,
+
     pub(crate) state: FrameState,
     /// Execution mode flags (STRICT / STRIP / ASYNC).
     pub(crate) mode: ExecMode,
