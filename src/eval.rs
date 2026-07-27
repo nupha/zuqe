@@ -112,10 +112,18 @@ impl<'c> ScopedContext<'c> {
         // scope when we actually resolved a caller frame. Otherwise it degrades
         // to an indirect (global-scope) eval so we never crash on a missing
         // caller frame.
+        //
+        // Host-requested Global keeps Script semantics: top-level let/const
+        // become global lexical bindings (global_var_obj) visible to later
+        // scripts, var/function declarations are non-configurable globals, and
+        // strict scripts still declare globals (unlike strict indirect eval,
+        // which keeps all its declarations local).
         let effective_eval_type = if frame_module.is_some() {
             EvalType::Module
         } else if frame_func_bc.is_some() {
             EvalType::Direct
+        } else if eval_type == EvalType::Global {
+            EvalType::Global
         } else {
             EvalType::Indirect
         };
@@ -306,7 +314,14 @@ impl<'c> ScopedContext<'c> {
 
     /// Compile source and run to get result.
     ///
-    /// Eval in either global or module mode, eval in `self` scope.
+    /// Eval in `self` scope, with `eval_type` semantics:
+    /// - `Global`: script — top-level let/const become global lexical
+    ///   bindings, var/function declarations are non-configurable globals.
+    /// - `Module`: compile and evaluate as a module, returns a Promise.
+    /// - `Indirect`: indirect eval — all top-level declarations stay local
+    ///   in strict mode, var/function declarations are configurable globals.
+    /// - `Direct` is not supported here (needs a caller frame); it degrades
+    ///   to `Indirect` in `compile`.
     pub fn eval(
         &mut self,
         source: &[u8],
@@ -314,6 +329,12 @@ impl<'c> ScopedContext<'c> {
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> JSResult {
+        debug_assert_ne!(
+            eval_type,
+            EvalType::Direct,
+            "direct eval needs a caller frame, use Global or Indirect"
+        );
+
         if eval_type == EvalType::Module {
             // compile source into module def, then run the module def. returns Promise
             //
@@ -325,17 +346,19 @@ impl<'c> ScopedContext<'c> {
             md.set_import_meta(self, true)?;
             md.evaluate(self).map(JSValue::from)
         } else {
+            // Pass `eval_type` through: Global keeps Script semantics,
+            // Indirect (e.g. the Function constructor in bfun.rs) keeps
+            // indirect-eval semantics instead of being coerced to Global.
             let global = self.global_obj();
-            let r = self.compile_then_run(
+            self.compile_then_run(
                 FrameIndex::NULL,
                 global.into(),
                 source,
                 filename,
-                EvalType::Global,
+                eval_type,
                 flags,
                 -1,
-            );
-            r
+            )
         }
     }
 
