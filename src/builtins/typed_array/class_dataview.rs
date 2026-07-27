@@ -23,25 +23,35 @@ pub(super) fn js_dataview_constructor(ctx: &mut ScopedContext, cc: CallContext) 
         return Err(-1);
     };
 
-    let offset = if cc.length() > 1 {
-        let n = cc.arg(1).to_index(ctx)? as usize;
-        // guard array buffer after reading arg #1
-        if buffer.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+    // ES §25.3.2.1: ToIndex may run user code that detaches the buffer,
+    // so the detach check comes right after the byteOffset conversion
+    let offset = cc.arg(1).to_index(ctx)? as usize;
+    if buffer.is_detached() {
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        return Err(-1);
+    }
+
+    // the buffer length is captured *before* the byteLength argument is
+    // converted; a detach during that conversion is only caught after
+    // instance creation (in DataView::create)
+    let buffer_len = buffer.payload().byte_length();
+    if offset > buffer_len {
+        ctx.throw_range_error("invalid byteOffset");
+        return Err(-1);
+    }
+
+    let length = if !cc.arg(2).is_undefined() {
+        let l = cc.arg(2).to_index(ctx)? as usize;
+        if l > buffer_len - offset {
+            ctx.throw_range_error("invalid byteLength");
             return Err(-1);
         }
-        n
+        l
     } else {
-        0
+        buffer_len - offset
     };
 
-    let length: Option<usize> = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        Some(cc.arg(2).to_index(ctx)? as usize)
-    } else {
-        None
-    };
-
-    DataView::create(ctx, cc.this(), buffer, offset as _, length).map(|o| o.into())
+    DataView::create(ctx, cc.this(), buffer, offset, length).map(|o| o.into())
 }
 
 fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

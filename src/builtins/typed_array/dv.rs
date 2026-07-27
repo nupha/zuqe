@@ -33,12 +33,13 @@ impl DataViewPayload {
     /// create typed array payload with underlying array buffer `buffer`,
     /// offset in array buffer and type array element count.
     fn new(buffer: ArrayBuffer, offset: usize, len: usize) -> Box<Self> {
-        let abuf = buffer.payload();
-        let byte_length = abuf.byte_length();
-
-        debug_assert!(!abuf.is_detached());
-        debug_assert!(offset <= byte_length);
-        debug_assert!(offset + len <= byte_length);
+        // the buffer may already be detached: argument coercion in the
+        // constructor can run user code. DataView::create() throws right
+        // after instance creation, and every accessor re-checks detachment
+        // before touching the bytes.
+        debug_assert!(
+            buffer.payload().is_detached() || offset + len <= buffer.payload().byte_length()
+        );
 
         Box::new(Self {
             buffer,
@@ -90,40 +91,27 @@ pub struct DataView(GcRef<ObjectImpl>);
 object_cast!(DataView, JS_CLASS_DATAVIEW);
 
 impl DataView {
-    /// create a DataView with AarrayBuffer, offset and length.
+    /// create a DataView with ArrayBuffer, byte offset and byte length.
+    /// `offset`/`length` must have been validated by the caller. The buffer
+    /// may already be detached (the byteLength argument coercion can run
+    /// user code) — per ES §25.3.2.1 this is only caught here, after
+    /// instance creation.
     pub(crate) fn create(
         ctx: &mut ScopedContext,
         ctor: JSValue,
         array_buffer: ArrayBuffer,
         offset: usize,
-        length: Option<usize>,
+        length: usize,
     ) -> Result<Self, i32> {
-        debug_assert!(!array_buffer.payload().is_detached());
-
-        let byte_length = array_buffer.payload().byte_length();
-        if offset > byte_length {
-            ctx.throw_range_error("invalid byteOffset");
-            return Err(-1);
-        }
-
-        let mut len = byte_length - offset;
-        if let Some(l) = length {
-            if l > len {
-                ctx.throw_range_error("invalid byteLength");
-                return Err(-1);
-            } else {
-                len = l;
-            }
-        }
-
         let o = ctx
             .create_instance_with_ctor(
                 ctor,
-                ObjectPayload::DATAVIEW(DataViewPayload::new(array_buffer, offset, len)),
+                ObjectPayload::DATAVIEW(DataViewPayload::new(array_buffer, offset, length)),
             )
             .map_err(|_| -1)?;
 
-        // could have been detached in create_object_from_ctor(), reading prototype method.
+        // the buffer could have been detached by the byteLength argument
+        // coercion, or in create_instance_with_ctor() reading the prototype
         if array_buffer.payload().is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
