@@ -536,36 +536,24 @@ impl Drop for StackFrameArena {
 
         // async 帧固定走 heap 是设计选择（需存活跨越 suspend/resume），
         // 不影响性能。仅检查容量不足导致的 heap fallback。
+        //
+        // 只警告不断言：深递归（如 test262 的无限递归用例，靠 stack-exceeded
+        // 异常终止）会合法地占满 arena 数据区，之后每层调用都 fallback，
+        // 命中率暴跌。Drop 处无法区分这种负载与容量配置过小。
         let cap_total = self.stats_bump + self.stats_heap_capacity;
         if cap_total > 0 {
             let cap_bump_pct = self.stats_bump as f64 / cap_total as f64 * 100.0;
             if cap_bump_pct < 99.5 {
                 eprintln!(
-                    "[WARN] StackFrameArena bump_rate={:.1}% (bump={}, non_bump: async={}, cap={}, total={})",
+                    "[WARN] StackFrameArena bump_rate={:.1}% (bump={}, non_bump: async={}, cap={}, total={}, data_cap={})",
                     cap_bump_pct,
                     self.stats_bump,
                     self.stats_heap_async,
                     self.stats_heap_capacity,
                     total,
+                    self.data.len(),
                 );
             }
-        }
-
-        // async 帧固定走 heap 是设计选择（需存活跨越 suspend/resume），
-        // 不影响性能。仅检查容量不足导致的 heap fallback。
-        let cap_total = self.stats_bump + self.stats_heap_capacity;
-        if cap_total > 0 {
-            let cap_bump_pct = self.stats_bump as f64 / cap_total as f64 * 100.0;
-            debug_assert!(
-                cap_bump_pct >= 95.0,
-                "StackFrameArena bump_rate too low (capacity fallback): {:.1}% (bump={}, cap={}). \
-                 Arena data capacity ({}) exhausted too often — each fallback adds heap alloc \
-                 overhead per function call.",
-                cap_bump_pct,
-                self.stats_bump,
-                self.stats_heap_capacity,
-                self.data.len(),
-            );
         }
     }
 }
