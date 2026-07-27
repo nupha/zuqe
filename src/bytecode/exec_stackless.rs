@@ -3844,23 +3844,21 @@ pub(crate) fn execute_trampoline(
                 ctor_this,
             } => {
                 // ── Cross-realm call ──
-                let callee_gc_kind = callee_bc.gc_scope_kind();
+                // Always push a scope bound to the callee's realm, even for
+                // GcScopeKind::None callees: the callee may still throw (e.g.
+                // a private brand-check TypeError), and the error object must
+                // be created with the callee realm's prototypes — which come
+                // from the active TrampolineScope. Cross-realm calls are rare,
+                // so the extra scope push costs nothing in practice.
+                let caller_scope = {
+                    let mut callee_realm_ctx = callee_ctx_ptr;
+                    let callee_trampoline_scope =
+                        unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
 
-                let caller_scope = match callee_gc_kind {
-                    GcScopeKind::None => {
-                        // NoScope: don't push a new scope (same logic as CallBytecode).
-                        None
-                    }
-                    GcScopeKind::Light | GcScopeKind::Full => {
-                        let mut callee_realm_ctx = callee_ctx_ptr;
-                        let callee_trampoline_scope =
-                            unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
-
-                        Some(ManuallyDrop::new(
-                            std::mem::replace(&mut cur_trampoline_scope, callee_trampoline_scope)
-                                .into_inner(),
-                        ))
-                    }
+                    Some(ManuallyDrop::new(
+                        std::mem::replace(&mut cur_trampoline_scope, callee_trampoline_scope)
+                            .into_inner(),
+                    ))
                 };
 
                 virtual_frames.push(VirtualFrame {
