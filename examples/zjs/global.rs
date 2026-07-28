@@ -26,7 +26,15 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let arg = cc.arg(i);
         colorize_print(
             if inspect {
-                arg.inspect(ctx)?.to_string()
+                // Node console.log 行为：顶层字符串参数裸打印，其余走 util.inspect
+                match arg.as_string(false) {
+                    Some(s) => s.encode_utf8(false).into_owned(),
+                    None => crate::inspect::js_inspect_value(
+                        ctx,
+                        arg,
+                        &crate::inspect::InspectOptions::default(),
+                    ),
+                }
             } else {
                 format!("{}", arg.to_string(ctx)?)
             },
