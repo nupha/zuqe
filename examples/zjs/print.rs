@@ -1,25 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Human-readable printing of `JSValue`, modeled after QuickJS `JS_PrintValue`.
-//! Side-effect free (no user toString/getter), except Date's `toISOString`.
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
+
+// Human-readable printing of `JSValue`
 
 use std::fmt;
 
-use zuqe::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JSValue, Object, ScopedContext};
+use zuqe::{
+    Atom, JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_GETSET, JSValue,
+    Object, ScopedContext,
+};
 
-/// Defaults match QuickJS: depth 2, string 1000, items 100.
+/// Default recursion depth before collapsing to `[ClassName]`.
+const DEFAULT_MAX_DEPTH: usize = 2;
+/// Default max total chars shown for a string value (node/bun use 10000).
+const DEFAULT_MAX_STRING_LENGTH: usize = 10000;
+/// Default max items shown before truncating a container with `...`.
+const DEFAULT_MAX_ITEM_COUNT: usize = 100;
+
 #[derive(Clone, Copy)]
-pub struct PrintOptions {
-    pub max_depth: usize,
-    pub max_string_length: usize,
-    pub max_item_count: usize,
+struct PrintOptions {
+    max_depth: usize,
+    max_string_length: usize,
+    max_item_count: usize,
 }
 
 impl Default for PrintOptions {
     fn default() -> Self {
         PrintOptions {
-            max_depth: 2,
-            max_string_length: 1000,
-            max_item_count: 100,
+            max_depth: DEFAULT_MAX_DEPTH,
+            max_string_length: DEFAULT_MAX_STRING_LENGTH,
+            max_item_count: DEFAULT_MAX_ITEM_COUNT,
         }
     }
 }
@@ -38,10 +48,12 @@ fn print_float(v: f64, out: &mut dyn fmt::Write) -> fmt::Result {
 }
 
 /// Quoted/escaped string, truncated with `... N more characters`.
+/// `max_len` is the total budget including the surrounding quotes.
 fn print_js_string(s: &str, out: &mut dyn fmt::Write, max_len: usize) -> fmt::Result {
+    let content_budget = max_len.saturating_sub(2);
     let chars: Vec<char> = s.chars().collect();
-    let truncated = chars.len() > max_len;
-    let shown: String = chars.iter().take(max_len).collect();
+    let truncated = chars.len() > content_budget;
+    let shown: String = chars.iter().take(content_budget).collect();
     out.write_char('"')?;
     for c in shown.chars() {
         match c {
@@ -58,7 +70,7 @@ fn print_js_string(s: &str, out: &mut dyn fmt::Write, max_len: usize) -> fmt::Re
     }
     out.write_char('"')?;
     if truncated {
-        write!(out, "... {} more characters", chars.len() - max_len)?;
+        write!(out, "... {} more characters", chars.len() - content_budget)?;
     }
     Ok(())
 }
@@ -78,6 +90,44 @@ fn get_str_opt(ctx: &mut ScopedContext, obj: &Object, prop: &str) -> Option<Stri
 
 fn class_name_str(obj: &Object, ctx: &mut ScopedContext) -> String {
     obj.class_name().to_utf8(ctx.rt()).to_string()
+}
+
+/// Write a property value. For accessor properties show `[Getter]`/`
+/// [Getter/Setter]` *without* calling the getter/setter (mirrors the default
+/// `getters: false` of Node/Deno/Bun `inspect`).
+fn write_prop_value(
+    ctx: &mut ScopedContext,
+    obj: &mut Object,
+    atom: Atom,
+    out: &mut dyn fmt::Write,
+    opts: &PrintOptions,
+    level: usize,
+    stack: &mut Vec<Object>,
+) -> fmt::Result {
+    match obj.get_own_property(ctx, atom) {
+        Ok(Some(desc)) if desc.flags & JS_PROP_GETSET != 0 => {
+            if desc.setter.is_undefined() {
+                out.write_str("[Getter]")
+            } else {
+                out.write_str("[Getter/Setter]")
+            }
+        }
+        Ok(Some(desc)) => print_value(ctx, desc.value, out, opts, level + 1, stack),
+        _ => {
+            ctx.clear_exception();
+            out.write_char('?')
+        }
+    }
+}
+
+/// Depth-collapse placeholder: `[Object]`/`[Array]`, or `[Object ClassName]`
+/// for other classes (keeps the class name, like Node's tag style).
+fn collapse_label(name: &str) -> String {
+    match name {
+        "Object" => "[Object]".to_string(),
+        "Array" => "[Array]".to_string(),
+        other => format!("[Object {}]", other),
+    }
 }
 
 fn print_value(
@@ -121,9 +171,9 @@ fn print_value(
     if let Some(bc) = val.as_bytecode() {
         let name = bc.func_name(ctx.rt());
         if name.is_empty() {
-            return out.write_str("[Function (anonymous)]");
+            return out.write_str("[Function: (anonymous)]");
         }
-        return write!(out, "[Function {}]", name);
+        return write!(out, "[Function: {}]", name);
     }
     if val.is_exception() {
         return out.write_str("[exception]");
@@ -137,7 +187,7 @@ fn print_value(
             return out.write_str("[circular]");
         }
         if level > opts.max_depth {
-            return write!(out, "[{}]", class_name_str(&obj, ctx));
+            return write!(out, "{}", collapse_label(&class_name_str(&obj, ctx)));
         }
         stack.push(obj);
         let r = print_object(ctx, val, &mut obj, out, opts, level, stack);
@@ -158,22 +208,55 @@ fn print_object(
     level: usize,
     stack: &mut Vec<Object>,
 ) -> fmt::Result {
-    // Array: [ e0, e1, ... ]
+    // Array: [ e0, e1, ... ]  (sparse holes merge into <N empty items>, like Node)
     if let Some(arr) = obj.payload().array() {
-        let values = arr.values();
-        let len = values.len();
+        // Use the real array length, not just the dense buffer: a sparse array
+        // keeps its elements in the shape, so arr.values() may be empty.
+        let len = obj.get_length_prop(ctx).unwrap_or(arr.len() as i64) as usize;
         out.write_char('[')?;
-        for (i, item) in values.iter().enumerate() {
-            if i >= opts.max_item_count {
-                write!(out, ", ... {} more items", len - opts.max_item_count)?;
-                break;
-            }
+        let n = len.min(opts.max_item_count);
+        let mut i = 0;
+        while i < n {
             if i > 0 {
                 out.write_str(", ")?;
             }
-            print_value(ctx, *item, out, opts, level + 1, stack)?;
+            let idx = Atom::from_small_int(i as u32);
+            // A hole is absent as a property even though length counts it.
+            let is_hole = !matches!(obj.has_property(ctx, idx), Ok(true));
+            if is_hole {
+                // Merge consecutive holes: <1 empty item>, <2 empty items>, ...
+                let mut j = i + 1;
+                while j < n {
+                    let idxj = Atom::from_small_int(j as u32);
+                    if matches!(obj.has_property(ctx, idxj), Ok(true)) {
+                        break;
+                    }
+                    j += 1;
+                }
+                let cnt = j - i;
+                if cnt == 1 {
+                    out.write_str("<empty>")?;
+                } else {
+                    write!(out, "<{} empty items>", cnt)?;
+                }
+                i = j;
+            } else {
+                match obj.get_property(ctx, idx) {
+                    Ok(v) => print_value(ctx, v, out, opts, level + 1, stack)?,
+                    Err(_) => {
+                        ctx.clear_exception();
+                        out.write_char('?')?;
+                    }
+                }
+                i += 1;
+            }
+        }
+
+        if len > opts.max_item_count {
+            write!(out, ", ... {} more items", len - opts.max_item_count)?;
         }
         out.write_char(']')?;
+
         return Ok(());
     }
 
@@ -204,13 +287,43 @@ fn print_object(
         return Ok(());
     }
 
-    // Map/Set: only size is printed (entries are not publicly iterable here).
+    // Map/Set/WeakMap/WeakSet
     if let Some(ms) = obj.payload().mapset() {
-        let len = ms.len();
         let name = class_name_str(obj, ctx);
-        return write!(out, "{}(", name)
-            .and_then(|_| write!(out, "{}", len))
-            .and_then(|_| out.write_str(")"));
+        let len = ms.len();
+        // Weak collections keep weak refs; just show the size.
+        if ms.is_weak() {
+            return write!(out, "{}(", name)
+                .and_then(|_| write!(out, "{}", len))
+                .and_then(|_| out.write_str(")"));
+        }
+        // Map/Set: expand live entries.
+        write!(out, "{}(", name)?;
+        write!(out, "{}", len)?;
+        out.write_str(") {")?;
+        let mut count = 0;
+        for e in ms.iter() {
+            if count >= opts.max_item_count {
+                break;
+            }
+            if count > 0 {
+                out.write_str(", ")?;
+            }
+            if name == "Map" {
+                print_value(ctx, e.key(), out, opts, level + 1, stack)?;
+                out.write_str(" => ")?;
+                print_value(ctx, e.value(), out, opts, level + 1, stack)?;
+            } else {
+                // Set stores the element as the key.
+                print_value(ctx, e.key(), out, opts, level + 1, stack)?;
+            }
+            count += 1;
+        }
+        if len > opts.max_item_count {
+            write!(out, ", ... {} more items", len - opts.max_item_count)?;
+        }
+        out.write_char('}')?;
+        return Ok(());
     }
 
     // RegExp: /source/flags
@@ -242,11 +355,11 @@ fn print_object(
         return write!(out, "{}", name);
     }
 
-    // Callable: [Function name] / [Function (anonymous)]
+    // Callable: [Function: name] / [Function: (anonymous)]
     if obj.is_callable() {
         return match get_str_opt(ctx, obj, "name") {
-            Some(name) if !name.is_empty() => write!(out, "[Function {}]", name),
-            _ => out.write_str("[Function (anonymous)]"),
+            Some(name) if !name.is_empty() => write!(out, "[Function: {}]", name),
+            _ => out.write_str("[Function: (anonymous)]"),
         };
     }
 
@@ -268,8 +381,11 @@ fn print_object(
         return Ok(());
     }
 
-    // Plain object: { key: value, ... }
-    match obj.get_own_property_names(ctx, JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK) {
+    // Plain object: { key: value, ... } (incl. symbol keys; no getter invocation)
+    match obj.get_own_property_names(
+        ctx,
+        JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK,
+    ) {
         Ok(keys) => {
             out.write_char('{')?;
             let n = keys.len();
@@ -281,15 +397,33 @@ fn print_object(
                 if i > 0 {
                     out.write_str(", ")?;
                 }
+
+                // 符号键渲染为 Symbol(name)，数字键不加引号，字符串键加引号
+                // (与 Node util.inspect 一致：数字键裸写、字符串键带双引号)。
+                if !pk.atom.is_small_int() {
+                    if let Ok(kv) = pk.atom.to_value(ctx) {
+                        if kv.is_symbol() {
+                            match kv.as_symbol(false) {
+                                Some(d) => write!(out, "Symbol({})", d.encode_utf8(false))?,
+                                None => out.write_str("Symbol()")?,
+                            }
+                            out.write_str(": ")?;
+                            write_prop_value(ctx, obj, pk.atom, out, opts, level, stack)?;
+                            continue;
+                        }
+                    }
+                    ctx.clear_exception();
+                    // 字符串键：加双引号并转义
+                    let key_str = pk.atom.to_utf8(ctx.rt());
+                    print_js_string(key_str.as_ref(), out, opts.max_string_length)?;
+                    out.write_str(": ")?;
+                    write_prop_value(ctx, obj, pk.atom, out, opts, level, stack)?;
+                    continue;
+                }
+
                 out.write_str(pk.atom.to_utf8(ctx.rt()).as_ref())?;
                 out.write_str(": ")?;
-                match obj.get_property(ctx, pk.atom) {
-                    Ok(v) => print_value(ctx, v, out, opts, level + 1, stack)?,
-                    Err(_) => {
-                        ctx.clear_exception();
-                        out.write_char('?')?;
-                    }
-                }
+                write_prop_value(ctx, obj, pk.atom, out, opts, level, stack)?;
             }
             out.write_char('}')?;
         }

@@ -60,6 +60,32 @@ impl MapPair {
     }
 }
 
+/// A borrowed view of a single live Map/Set entry, used for inspection.
+///
+/// Unlike [`Object::get_property`], reading an entry through this view never
+/// invokes user code (accessor getters/setters are not called).
+pub struct MapEntry<'a> {
+    pair: &'a MapPair,
+}
+
+impl<'a> MapEntry<'a> {
+    /// The key of a Map entry. For a Set this is the stored element.
+    pub fn key(&self) -> JSValue {
+        match self.pair {
+            MapPair::Strong { key, .. } => *key,
+            _ => JSValue::UNDEFINED,
+        }
+    }
+
+    /// The value of a Map entry. For a Set this is `undefined`; use [`key`].
+    pub fn value(&self) -> JSValue {
+        match self.pair {
+            MapPair::Strong { value, .. } => *value,
+            _ => JSValue::UNDEFINED,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct JSMapState {
     /// is WeakSet/WeakMap?
@@ -323,6 +349,15 @@ impl JSMapState {
             .iter()
             .filter(|kv| !matches!(kv, MapPair::Removed))
             .count()
+    }
+
+    /// Iterate over the live (strong) entries of the Map/Set. Weak entries
+    /// (WeakMap/WeakSet) and removed slots are skipped.
+    pub fn iter(&self) -> impl Iterator<Item = MapEntry<'_>> {
+        self.slots.iter().filter_map(|p| match p {
+            MapPair::Strong { .. } => Some(MapEntry { pair: p }),
+            _ => None,
+        })
     }
 
     #[inline(always)]

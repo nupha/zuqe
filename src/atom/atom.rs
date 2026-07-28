@@ -45,6 +45,14 @@ impl Atom {
         Self(id)
     }
 
+    /// Build a small-int atom for an array index (`0..=JS_ATOM_MAX_INT`).
+    /// Allocation-free, for per-index property lookups (e.g. sparse-array hole checks).
+    #[inline]
+    pub fn from_small_int(idx: u32) -> Self {
+        debug_assert!((0..=JS_ATOM_MAX_INT).contains(&idx));
+        Self(JS_ATOM_TAG_INT | idx)
+    }
+
     #[inline(always)]
     pub const fn id(&self) -> u32 {
         self.0
