@@ -9,7 +9,6 @@ use std::{
 };
 
 use url::Url;
-
 use zuqe::{
     CallContext, Callback, Context, EvalFlags, EvalType, ExceptionText, JSResult, JSValue,
     ModuleDef, Runtime, ScopedContext,
@@ -20,6 +19,35 @@ use crate::{
     presets::{Decisions, should_skip_test},
     report::{write_error_jsonl, write_jsonl_raw},
 };
+
+/// Minimal value printer: no options, no coloring; covers only the basic
+/// types and Symbol. Objects/numbers fall back to JS string coercion (same as
+/// `to_string`). Used by the harness `print` and eval echo.
+fn val_to_string(ctx: &mut ScopedContext, v: JSValue) -> String {
+    if v.is_undefined() {
+        return "undefined".to_string();
+    }
+    if v.is_null() {
+        return "null".to_string();
+    }
+    if let Some(b) = v.as_bool() {
+        return b.to_string();
+    }
+    if let Some(s) = v.as_string(false) {
+        return s.content().encode_utf8(false).to_string();
+    }
+    if let Some(sym) = v.as_symbol(false) {
+        return if sym.content().is_ident() {
+            "Symbol()".to_string()
+        } else {
+            format!("Symbol({})", sym.content().encode_utf8(false))
+        };
+    }
+    // numbers / objects: fall back to JS string coercion
+    v.to_string(ctx)
+        .map(|s| s.content().encode_utf8(false).to_string())
+        .unwrap_or_else(|_| "<...>".to_string())
+}
 
 /// counter of "Test262:AsyncTestComplete" messages
 pub static ASYNC_DONE: AtomicI32 = AtomicI32::new(0);
@@ -48,7 +76,7 @@ fn js_print(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             line.push(' ');
         }
         let arg = cc.arg(i);
-        let repr = arg.inspect(ctx)?;
+        let repr = val_to_string(ctx, arg);
 
         line.push_str(&repr);
 
@@ -73,7 +101,7 @@ fn js_detachArrayBuffer(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let source = cc.arg(0).inspect(ctx)?;
+    let source = val_to_string(ctx, cc.arg(0));
     ctx.with_new_scope(|scope| {
         scope.eval(
             source.as_bytes(),

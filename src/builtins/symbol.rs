@@ -84,8 +84,13 @@ fn js_symbol_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     // formatted as 'Symbol(XXX)'
-    let repr = JSValue::make_symbol(sym).inspect(ctx)?.into_bytes();
-    ctx.create_string_from_utf8(repr).map(JSValue::make_string)
+    let repr = if sym.content().is_ident() {
+        "Symbol()".to_string()
+    } else {
+        format!("Symbol({})", sym.content().encode_utf8(false))
+    };
+    ctx.create_string_from_utf8(repr.into_bytes())
+        .map(JSValue::make_string)
 }
 
 fn js_symbol_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

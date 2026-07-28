@@ -82,9 +82,9 @@ impl Exception {
 
                 if let Ok(s) = e.get_property(ctx, Atom::CONST_stack)
                     && !s.is_undefined_or_null()
-                    && let Ok(ss) = s.inspect(ctx)
+                    && let Some(ss) = s.as_string(false)
                 {
-                    t.traceback.replace(ss);
+                    t.traceback.replace(ss.content().encode_utf8(false).to_string());
                 }
 
                 t

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
-//
+
 // A Node.js `util.inspect` compatible value formatter for zuqe.
 //
 // Implements the main behaviors of Node's `util.inspect(val, opts)`:
@@ -21,58 +21,45 @@ use zuqe::{
     Object, ScopedContext,
 };
 
-/// 何时求值访问器（getter/setter）。
+/// When to evaluate accessors (getter/setter).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GettersOpt {
-    /// 不求值，显示 `[Getter]` / `[Setter]` / `[Getter/Setter]`。
+    /// Do not evaluate; show `[Getter]` / `[Setter]` / `[Getter/Setter]`.
     Off,
-    /// 仅求值 getter，纯 setter 显示 `[Setter]`。
+    /// Evaluate only getters; pure setters show `[Setter]`.
     Get,
-    /// 仅求值 setter，纯 getter 显示 `[Getter]`（无法读取值，仅占位）。
+    /// Evaluate only setters; pure getters show `[Getter]` (value unreadable, placeholder only).
     Set,
-    /// 求值所有可访问的访问器。
+    /// Evaluate all accessible accessors.
     All,
 }
 
-impl GettersOpt {
-    pub fn from_bool(b: bool) -> Self {
-        if b { GettersOpt::All } else { GettersOpt::Off }
-    }
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "get" => GettersOpt::Get,
-            "set" => GettersOpt::Set,
-            _ => GettersOpt::Off,
-        }
-    }
-}
-
-/// `util.inspect` 的选项集合（Node 默认值为基准）。
+/// Options for `util.inspect` (based on Node's defaults).
 #[derive(Clone, Debug)]
 pub struct InspectOptions {
-    /// 递归深度，`None` 表示无限（`Infinity`）。默认 `Some(2)`。
+    /// Recursion depth; `None` means unlimited (`Infinity`). Default `Some(2)`.
     pub depth: Option<usize>,
-    /// 数组/Map/Set 最多展开条目。默认 `100`。
+    /// Max entries to expand for arrays/Map/Set. Default `100`.
     pub max_array_length: usize,
-    /// 字符串截断上限。默认 `10000`。
+    /// String truncation limit. Default `10000`.
     pub max_string_length: usize,
-    /// 单行超过该长度且非 compact 时折行。默认 `80`。
+    /// Wrap to multiple lines when a single line exceeds this length and not compact. Default `80`.
     pub break_length: usize,
-    /// 单行（紧凑）还是多行缩进。Node 默认 `true`（近似）。
+    /// Single-line (compact) or multi-line indented. Node default `true` (approx).
     pub compact: bool,
-    /// 属性按 key 排序。默认 `false`。
+    /// Sort properties by key. Default `false`.
     pub sorted: bool,
-    /// ANSI 上色。默认 `false`。
+    /// ANSI colors. Default `false`.
     pub colors: bool,
-    /// 调用对象的自定义 inspect 方法。默认 `true`。
+    /// Invoke the object's custom inspect method. Default `true`.
     pub custom_inspect: bool,
-    /// 访问器求值策略。默认 `Off`。
+    /// Accessor evaluation policy. Default `Off`.
     pub getters: GettersOpt,
-    /// 包含不可枚举属性。默认 `false`。
+    /// Include non-enumerable properties. Default `false`.
     pub show_hidden: bool,
-    /// 数字千位加 `_`。默认 `false`。
+    /// Add `_` as thousands separator in numbers. Default `false`.
     pub numeric_separator: bool,
-    /// 展开 Proxy 的 target/handler。引擎若不支持则退化为标记。默认 `false`。
+    /// Expand a Proxy's target/handler. Falls back to a marker if the engine does not expose them. Default `false`.
     pub show_proxy: bool,
 }
 
@@ -95,7 +82,6 @@ impl Default for InspectOptions {
     }
 }
 
-// ---- ANSI 颜色（近似 Node 默认调色板）----
 const C_STRING: u8 = 32; // green
 const C_NUMBER: u8 = 33; // yellow
 const C_DATE: u8 = 35; // magenta
@@ -115,8 +101,6 @@ fn colorize(s: &str, code: u8, opts: &InspectOptions) -> String {
 fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
-
-// ---- 数字格式化 ----
 
 fn format_int(n: i64, opts: &InspectOptions) -> String {
     if !opts.numeric_separator {
@@ -152,9 +136,9 @@ fn format_float(f: f64) -> String {
     }
 }
 
-// ---- 字符串转义 / 加引号（Node 风格）----
+// ---- string escaping / quoting (Node style) ----
 
-/// 选择引号：单引号默认，若字符串包含更多单引号则改用双引号（最小化转义）。
+/// Choose the quote: single by default; switch to double if the string contains more single quotes (minimize escaping).
 fn choose_quote(s: &str) -> char {
     let sq = s.chars().filter(|&c| c == '\'').count();
     let dq = s.chars().filter(|&c| c == '"').count();
@@ -200,12 +184,6 @@ fn quote_string(s: &str, budget: usize, _sep: char) -> String {
     out
 }
 
-// ---- 通用辅助 ----
-
-fn is_callable_val(v: JSValue) -> bool {
-    v.as_object().map(|o| o.is_callable()).unwrap_or(false)
-}
-
 fn get_str_opt(ctx: &mut ScopedContext, obj: &Object, key: &str) -> Option<String> {
     obj.get_property_str(ctx, key)
         .ok()
@@ -217,7 +195,7 @@ fn class_name_str(ctx: &mut ScopedContext, obj: &Object) -> String {
     obj.class_name().to_utf8(ctx.rt()).to_string()
 }
 
-/// 把一组条目排布成 `open ... close`，根据 compact / breakLength 决定单行或多行。
+/// Lay out a group of entries as `open ... close`, choosing single-line or multi-line based on compact / breakLength.
 fn format_block(
     open: &str,
     entries: &[String],
@@ -254,9 +232,9 @@ fn format_block(
     }
 }
 
-// ---- 键渲染 ----
+// ---- key rendering ----
 
-/// 返回 (排序键, 显示串)。
+/// Returns (sort key, display string).
 fn key_rendering(ctx: &mut ScopedContext, atom: &Atom, opts: &InspectOptions) -> (String, String) {
     if atom.is_small_int() {
         let s = atom.to_utf8(ctx.rt()).to_string();
@@ -282,7 +260,7 @@ fn key_rendering(ctx: &mut ScopedContext, atom: &Atom, opts: &InspectOptions) ->
     (format!("1:{}", s), display)
 }
 
-// ---- 自定义 inspect 钩子 ----
+// ---- custom inspect hook ----
 
 fn try_custom_inspect(
     ctx: &mut ScopedContext,
@@ -295,12 +273,13 @@ fn try_custom_inspect(
         .get_own_property_names(ctx, JS_GPN_SYMBOL_MASK)
         .ok()?
         .to_vec();
+
     for pk in syms {
         let desc = obj.get_own_property(ctx, pk.atom).ok().flatten()?;
         if desc.flags & JS_PROP_GETSET != 0 {
             continue;
         }
-        if !is_callable_val(desc.value) {
+        if !desc.value.is_callable() {
             continue;
         }
         let d = pk
@@ -325,7 +304,7 @@ fn try_custom_inspect(
                                 .unwrap_or_default(),
                         );
                     }
-                    // 自定义方法返回非字符串：用默认规则再格式化（独立栈避免误判循环）
+                    // custom method returned a non-string: re-format with default rules (fresh stack to avoid false circular detection)
                     let mut fresh = Vec::new();
                     return Some(inspect(ctx, r, opts, level, &mut fresh));
                 }
@@ -339,7 +318,7 @@ fn try_custom_inspect(
     None
 }
 
-// ---- 访问器求值 ----
+// ---- accessor evaluation ----
 
 fn invoke_getter(
     ctx: &mut ScopedContext,
@@ -413,7 +392,7 @@ fn read_prop_value(
     }
 }
 
-// ---- 容器格式化 ----
+// ---- container formatting ----
 
 fn format_object(
     ctx: &mut ScopedContext,
@@ -568,7 +547,7 @@ fn format_mapset(
     stack.push(obj.clone());
     for e in ms.iter() {
         if is_set {
-            // Set 的元素存于 key()（value() 恒为 undefined）
+            // Set elements are stored in key() (value() is always undefined)
             entries.push(inspect(ctx, e.key(), opts, level + 1, stack));
         } else {
             let k = inspect(ctx, e.key(), opts, level + 1, stack);
@@ -586,12 +565,16 @@ fn format_mapset(
 }
 
 fn format_error(ctx: &mut ScopedContext, obj: &mut Object, opts: &InspectOptions) -> String {
-    // Node: inspect(Error) 输出 err.stack（形如 "Name: message\n    at ..."）。
+    // Node: inspect(Error) prints err.stack (of the form "Name: message\n    at ...").
     let name = get_str_opt(ctx, obj, "name")
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| class_name_str(ctx, obj));
     let msg = get_str_opt(ctx, obj, "message").unwrap_or_default();
-    let mut s = if msg.is_empty() { name } else { format!("{}: {}", name, msg) };
+    let mut s = if msg.is_empty() {
+        name
+    } else {
+        format!("{}: {}", name, msg)
+    };
     if let Some(stack) = get_str_opt(ctx, obj, "stack") {
         let stack = stack.trim_end();
         if !stack.is_empty() {
@@ -614,8 +597,6 @@ fn collapse_tag(ctx: &mut ScopedContext, obj: &Object, opts: &InspectOptions) ->
     colorize(&s, C_SPECIAL, opts)
 }
 
-// ---- 主入口 ----
-
 fn inspect(
     ctx: &mut ScopedContext,
     val: JSValue,
@@ -623,7 +604,6 @@ fn inspect(
     level: usize,
     stack: &mut Vec<Object>,
 ) -> String {
-    // 基础类型
     if val.is_undefined() {
         return colorize("undefined", C_SPECIAL, opts);
     }
@@ -661,7 +641,7 @@ fn inspect(
             .unwrap_or_default();
         return colorize(&format!("Symbol({})", d), C_SYMBOL, opts);
     }
-    if is_callable_val(val) {
+    if val.is_callable() {
         let name = val
             .as_bytecode()
             .map(|bc| bc.func_name(ctx.rt()))
@@ -680,17 +660,17 @@ fn inspect(
         return "[unknown]".to_string();
     };
 
-    // 循环引用
+    // circular reference
     if stack.iter().any(|o| *o == obj) {
         return colorize("[Circular]", C_SPECIAL, opts);
     }
-    // 深度折叠
+    // depth collapse
     if let Some(d) = opts.depth {
         if level > d {
             return collapse_tag(ctx, &obj, opts);
         }
     }
-    // 自定义 inspect 钩子
+    // custom inspect hook
     if opts.custom_inspect {
         if let Some(s) = try_custom_inspect(ctx, val, &mut obj, opts, level) {
             return s;
@@ -704,7 +684,7 @@ fn inspect(
         if !opts.show_proxy {
             return colorize("[Proxy]", C_SPECIAL, opts);
         }
-        // 引擎未直接暴露 target/handler：退化为普通对象遍历
+        // engine does not directly expose target/handler: fall back to plain object traversal
     }
     // TypedArray
     if obj.payload().typed_array().is_some() {
@@ -734,17 +714,17 @@ fn inspect(
     if obj.payload().mapset().is_some() {
         return format_mapset(ctx, &mut obj, opts, level, stack);
     }
-    // 普通对象
+    // plain object
     format_object(ctx, val, &mut obj, opts, level, stack)
 }
 
-/// 按 Node `util.inspect` 规范格式化任意 JS 值。
+/// Format an arbitrary JS value per Node `util.inspect` semantics.
 pub fn js_inspect_value(ctx: &mut ScopedContext, val: JSValue, opts: &InspectOptions) -> String {
     let mut stack = Vec::new();
     inspect(ctx, val, opts, 0, &mut stack)
 }
 
-/// 使用默认选项（`InspectOptions::default()`）格式化。
+/// Format using default options (`InspectOptions::default()`).
 pub fn js_inspect(ctx: &mut ScopedContext, val: JSValue) -> String {
     js_inspect_value(ctx, val, &InspectOptions::default())
 }

@@ -16,6 +16,44 @@ use super::{
     OP_COUNT_FINAL, OP_COUNT_INTERMEDIATE, opcode_info_final, opcode_info_intermediate, opcodes,
 };
 
+/// Minimal JS value rendering (strings quoted), used by the bytecode dumper.
+/// Does not depend on `JSValue::inspect`; objects render as `[object <Tag>]`,
+/// and revoked Proxies are handled safely.
+fn dump_val(ctx: &mut ScopedContext, v: JSValue) -> String {
+    if v.is_undefined() {
+        return "undefined".to_string();
+    }
+    if v.is_null() {
+        return "null".to_string();
+    }
+    if let Some(b) = v.as_bool() {
+        return b.to_string();
+    }
+    if let Some(s) = v.as_string(false) {
+        return format!("\"{}\"", s.content().encode_utf8(true));
+    }
+    if v.is_symbol() {
+        if let Some(sym) = v.as_symbol(false) {
+            return if sym.content().is_ident() {
+                "Symbol()".to_string()
+            } else {
+                format!("Symbol({})", sym.content().encode_utf8(false))
+            };
+        }
+    }
+    if v.is_object() {
+        if let Some(o) = v.as_object() {
+            if let Ok(s) = o.repr(ctx) {
+                return s.content().encode_utf8(false).to_string();
+            }
+        }
+        return "[object]".to_string();
+    }
+    v.to_string(ctx)
+        .map(|s| s.content().encode_utf8(false).to_string())
+        .unwrap_or_else(|_| "<...>".to_string())
+}
+
 /// dump opcodes binary in pass 1,2,3
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn dump_opcodes(
@@ -310,7 +348,7 @@ pub(crate) fn dump_opcodes(
                 let idx = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) as usize };
                 print!(
                     " {idx}  ; {}",
-                    consts[idx].inspect_internal(ctx, true).unwrap()
+                    dump_val(ctx, consts[idx])
                 );
             }
             OpcodeFormat::ATOM => {
@@ -758,10 +796,10 @@ pub(super) fn dump_run_instruction(
             let idx = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
             print!(
                 " {idx}  ; {}",
-                b.load_const(idx as usize)
-                    .unwrap()
-                    .inspect_internal(ctx, true)
-                    .unwrap()
+                dump_val(
+                    ctx,
+                    b.load_const(idx as usize).unwrap(),
+                )
             );
         }
         OpcodeFormat::ATOM => {
@@ -915,18 +953,7 @@ pub(super) fn dump_run_stack(
             if i >= mark_start { mark } else { ' ' },
             // value repr
             {
-                let s = {
-                    #[cfg(feature = "builtin_proxy")]
-                    if v.as_object_Proxy().is_some() {
-                        "[object Proxy]".to_string() // to avoid ::inspect() on a revoked Proxy returnes error
-                    } else {
-                        v.inspect_internal(ctx, true).unwrap()
-                    }
-                    #[cfg(not(feature = "builtin_proxy"))]
-                    {
-                        v.inspect_internal(ctx, true).unwrap()
-                    }
-                };
+                let s = dump_val(ctx, v);
 
                 if s.chars().count() > 80 {
                     s.chars().take(80).collect::<String>() + "…"
