@@ -174,6 +174,10 @@ pub fn write_report(
         0.0
     };
 
+    // Total number of distinct *real* features exercised in this run. The
+    // synthetic `NO_FEATURE_KEY` bucket is not a feature, so it is excluded.
+    let features_count = feat_stats.keys().filter(|k| *k != NO_FEATURE_KEY).count();
+
     let mut rows: Vec<(String, (usize, usize))> = match feature_list {
         Some(list) => {
             let mut v: Vec<(String, (usize, usize))> = list
@@ -264,6 +268,10 @@ pub fn write_report(
             "<li><span class=\"k\">Baseline pass rate</span><span class=\"v\">{baseline_rate:.2}% ({baseline_pass}/{baseline_total})</span></li>\n"
         ));
     }
+    html.push_str(&format!(
+        "<li><span class=\"k\">Features count</span><span class=\"v\">{}</span></li>\n",
+        features_count
+    ));
     if let Some(tf) = test_filter {
         let tf_html = escape_html(tf).replace('\n', "<br>\n");
         html.push_str(&format!(
