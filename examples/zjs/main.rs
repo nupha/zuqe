@@ -8,6 +8,7 @@ mod class_file;
 mod global;
 mod mod_os;
 mod mod_std;
+mod print;
 
 use std::{io::Write, process::ExitCode};
 
@@ -277,7 +278,7 @@ fn main() -> ExitCode {
 
         let code = match result {
             Ok(val) => {
-                colorize_println(val.inspect(scope.rt_mut()).unwrap(), GreenFg);
+                colorize_println(print::js_print_value_to_string(&mut scope, val), GreenFg);
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -335,7 +336,7 @@ async fn main() -> ExitCode {
                     Err(_) => Err(cx.take_exception().to_text(&mut cx)),
                 }
             } else {
-                colorize_println(val.inspect(&mut cx).unwrap(), GreenFg);
+                colorize_println(print::js_print_value_to_string(&mut cx, val), GreenFg);
                 Ok(())
             }
         }
@@ -364,7 +365,7 @@ async fn main() -> ExitCode {
         // print result or error
         ctx.with_root_scope(|mut cx| match promise_res {
             Ok(val) => {
-                colorize_println(val.inspect(&mut cx).unwrap(), GreenFg);
+                colorize_println(print::js_print_value_to_string(&mut cx, val), GreenFg);
             }
             Err(reason) => {
                 let err_msg = reason

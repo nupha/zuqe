@@ -283,7 +283,7 @@ impl JSValue {
         }
     }
 
-    pub(crate) const fn as_int(&self) -> Option<i32> {
+    pub const fn as_int(&self) -> Option<i32> {
         if js_value_get_tag(self.0) == JSValueTag::Int as i32 {
             Some(self.payload_i32())
         } else {
@@ -309,7 +309,7 @@ impl JSValue {
         js_value_get_float64(self.0)
     }
 
-    pub(crate) const fn as_float(&self) -> Option<f64> {
+    pub const fn as_float(&self) -> Option<f64> {
         if JSValueTag::is_float64(js_value_get_tag(self.0)) {
             Some(js_value_get_float64(self.0))
         } else {

@@ -633,6 +633,13 @@ impl std::fmt::Debug for Bytecode {
 }
 
 impl Bytecode {
+    /// Returns the function's name as a UTF-8 string (empty for anonymous).
+    pub fn func_name(&self, rt: &crate::RuntimeImpl) -> String {
+        self.func_name.to_utf8(rt)
+    }
+}
+
+impl Bytecode {
     /// Create Function from `self` Bytecode with captured variables, then calls the function.
     /// Always executes via arena (trampoline) path — `BytecodeFunction::call` no longer
     /// has a legacy fallback. Closure creation still routes based on `ctx.is_arena_mode()`:
