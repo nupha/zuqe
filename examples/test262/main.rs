@@ -56,6 +56,7 @@ pub struct AppConfig {
     pub tests: Option<Vec<String>>,
     pub exclude_tests: Option<Vec<String>>,
     pub exclude_features: Option<Vec<String>>,
+    pub features: Option<Vec<String>>,
     pub preset: Option<String>,
     pub log: Option<String>,
 }
@@ -72,10 +73,19 @@ pub struct Args {
     /// Edition preset to run. One of the built-in presets: ES5, ES2015, ES2016,
     /// ES2017, ES2018, ES2019, ES2020, ES2021, ES2022, ES2023, ES2024, ES2025,
     /// ES2026, or `ALL` (run every feature, limited only by `exclude_features`).
-    /// Required: if `--preset` is omitted, the `preset:` setting from the config
-    /// file is used; if neither is set, the runner errors out.
+    /// If `--preset` is omitted, the `preset:` setting from the config file is
+    /// used; when a `features` whitelist is given (see `--features`) the preset
+    /// is ignored and the run is reported as preset `USER`. If neither a preset
+    /// nor a features whitelist is set, the runner errors out.
     #[arg(long)]
     pub preset: Option<String>,
+
+    /// Feature(s) to test (repeatable or comma-separated), e.g.
+    /// --features iterator-helpers,set-methods. Merged with the config's
+    /// `features:` list. When given, only tests declaring at least one of these
+    /// features run and the preset is reported as `USER`.
+    #[arg(long = "features", value_delimiter = ',')]
+    pub features: Vec<String>,
 
     /// Exclude an additional feature (repeatable), e.g. --exclude-feature Temporal
     #[arg(long = "exclude-feature")]
@@ -118,6 +128,12 @@ pub fn apply_cli_overrides(cfg: &mut AppConfig, args: &Args) {
             None => cfg.exclude_features = Some(args.exclude_features.clone()),
         }
     }
+    if !args.features.is_empty() {
+        match cfg.features.as_mut() {
+            Some(list) => list.extend(args.features.iter().cloned()),
+            None => cfg.features = Some(args.features.clone()),
+        }
+    }
 }
 
 /// Validate the (merged) config in one place, right before running. Any
@@ -125,19 +141,25 @@ pub fn apply_cli_overrides(cfg: &mut AppConfig, args: &Args) {
 /// `require_preset` is false in `--error-file` mode, where the preset no
 /// longer selects which scripts run.
 pub fn validate_config(cfg: &AppConfig, require_preset: bool) {
-    // `preset` is required: either from the file or from `--preset`. Skipped
-    // when re-running from an errors list, since preset-based filtering is off.
+    // A non-empty `features` whitelist (from the file or `--features`) selects
+    // what runs on its own (USER preset mode), so `preset` becomes optional.
+    let has_features = cfg.features.as_ref().is_some_and(|l| !l.is_empty());
+
+    // `preset` is required unless a features whitelist is given: either from
+    // the file or from `--preset`. Skipped when re-running from an errors
+    // list, since preset-based filtering is off.
     if let Some(preset) = cfg.preset.as_deref() {
-        if !is_known_preset(preset) {
+        if !has_features && !is_known_preset(preset) {
             eprintln!(
                 "error: unknown preset '{preset}'. available presets: {}",
                 available_presets()
             );
             std::process::exit(1);
         }
-    } else if require_preset {
+    } else if require_preset && !has_features {
         eprintln!(
-            "error: no preset specified. Set 'preset:' in the config file or pass --preset <NAME>.\n\
+            "error: no preset or features specified. Set 'preset:'/'features:' in the config file \
+             or pass --preset <NAME> / --features <LIST>.\n\
              available presets: {}",
             available_presets()
         );
@@ -274,6 +296,7 @@ async fn main_impl() {
             selected_index: max_index + 1,
             max_index,
             exclude: HashSet::new(),
+            user_features: None,
         }
     } else {
         resolve_decisions(&app_cfg)
@@ -297,37 +320,6 @@ async fn main_impl() {
     }
 
     let harness_path = base_path.join("harness");
-
-    // `out_path` was already validated as an existing directory in
-    // `validate_config`; here we just resolve it (or fall back to CWD).
-    let mut out_path: PathBuf = if let Some(txt) = app_cfg.out_path.take() {
-        PathBuf::from(txt)
-    } else {
-        std::env::current_dir().unwrap()
-    };
-    if !out_path
-        .to_str()
-        .unwrap()
-        .ends_with(std::path::MAIN_SEPARATOR)
-    {
-        let mut s = out_path.to_string_lossy().into_owned();
-        s.push(std::path::MAIN_SEPARATOR);
-        out_path = s.into()
-    }
-
-    let mut outf = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open("test262-result.txt")
-        .unwrap();
-
-    let mut errf = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open("test262-fail.txt")
-        .unwrap();
 
     let mut errjson = std::fs::OpenOptions::new()
         .create(true)
@@ -422,22 +414,14 @@ async fn main_impl() {
         // it to `--log-file` (and flush) before running, since the hook cannot
         // run there.
         *CURRENT_SCRIPT.lock().unwrap() = Some(rel.clone());
-        if let Some(f) = logf.as_mut() {
-            if writeln!(f, "{rel}").is_ok() {
-                let _ = f.flush();
-            }
+        if let Some(f) = logf.as_mut()
+            && writeln!(f, "{rel}").is_ok()
+        {
+            let _ = f.flush();
         }
 
-        let (status, feats, err_msg) = run_test_file(
-            &file_name,
-            &harness_path,
-            &dec,
-            &mut outf,
-            &mut errf,
-            &rel,
-            &mut errjson,
-        )
-        .await;
+        let (status, feats, err_msg) =
+            run_test_file(&file_name, &harness_path, &dec, &rel, &mut errjson).await;
         match status {
             TestStatus::Fail => {
                 failed_count += 1;
@@ -469,7 +453,6 @@ async fn main_impl() {
         done += 1;
         eprint!("\rTest {} / {}, Fail {}", done, total, failed_count);
 
-        outf.flush().unwrap();
         errjson.flush().unwrap();
     }
 
@@ -480,6 +463,10 @@ async fn main_impl() {
     let is_error_update = forced.is_some();
     let preset_name = if is_error_update {
         "ERROR UPDATE".to_string()
+    } else if dec.user_features.is_some() {
+        // Explicit features whitelist: the run is driven by the user's list,
+        // not by an edition preset.
+        "USER".to_string()
     } else {
         app_cfg.preset.clone().unwrap_or_else(|| "N/A".to_string())
     };

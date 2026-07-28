@@ -260,6 +260,10 @@ pub struct Decisions {
     pub max_index: usize,
     /// Features that are always skipped.
     pub exclude: HashSet<String>,
+    /// Explicit feature whitelist (`features:` in the config or `--features`).
+    /// When set, only tests declaring at least one of these features run, the
+    /// edition gate is bypassed, and the run is reported as preset `USER`.
+    pub user_features: Option<HashSet<String>>,
 }
 
 /// Build the `feature -> edition index` map from `BUILTIN_PRESETS`.
@@ -293,19 +297,6 @@ pub fn is_known_preset(name: &str) -> bool {
 pub fn resolve_decisions(cfg: &AppConfig) -> Decisions {
     let (feature_edition, max_index) = build_feature_edition();
 
-    let preset_name = cfg.preset.as_deref().expect("preset validated");
-
-    let selected_index = if preset_name == "ALL" {
-        // Sit past every edition so the edition gate never fires: a test is
-        // skipped only by `exclude` (this is the "ALL" preset).
-        max_index + 1
-    } else {
-        BUILTIN_PRESETS
-            .iter()
-            .position(|(name, _)| *name == preset_name)
-            .expect("preset validated")
-    };
-
     let mut exclude = HashSet::new();
     for f in DEFAULT_EXCLUDE_FEATURES {
         exclude.insert((*f).to_string());
@@ -316,24 +307,74 @@ pub fn resolve_decisions(cfg: &AppConfig) -> Decisions {
         }
     }
 
+    // Explicit `features:` / `--features` whitelist (USER preset mode). An
+    // explicitly requested feature overrides the exclude list: asking for a
+    // feature means the user wants it tested even if it is excluded by default.
+    let user_features: Option<HashSet<String>> = cfg
+        .features
+        .as_ref()
+        .filter(|list| !list.is_empty())
+        .map(|list| {
+            let set: HashSet<String> = list.iter().cloned().collect();
+            for f in &set {
+                exclude.remove(f);
+            }
+            set
+        });
+
+    let selected_index = if user_features.is_some() {
+        // USER mode bypasses the edition gate entirely; sit past every edition
+        // so only the whitelist (and the exclude set) decides what runs.
+        max_index + 1
+    } else {
+        let preset_name = cfg.preset.as_deref().expect("preset validated");
+        if preset_name == "ALL" {
+            // Sit past every edition so the edition gate never fires: a test is
+            // skipped only by `exclude` (this is the "ALL" preset).
+            max_index + 1
+        } else {
+            BUILTIN_PRESETS
+                .iter()
+                .position(|(name, _)| *name == preset_name)
+                .expect("preset validated")
+        }
+    };
+
     Decisions {
         feature_edition,
         selected_index,
         max_index,
         exclude,
+        user_features,
     }
 }
 
 /// Decide whether a single test should be skipped.
 ///
-/// A test is skipped when:
+/// In USER mode (an explicit `features` whitelist) a test runs only when it
+/// declares at least one whitelisted feature and none of its features is in
+/// the exclude set; baseline tests without a `features` annotation are skipped
+/// because they exercise no targeted feature.
+///
+/// Otherwise (preset mode) a test is skipped when:
 /// * it requires a feature listed in the exclude set, or
 /// * it requires a feature introduced in a strictly newer edition than the
 ///   selected preset (for the "ALL" preset `selected_index` is raised past every
 ///   edition, so this gate never fires and only `exclude` applies).
 ///
-/// Tests without any `features` annotation (baseline tests) are always run.
+/// Tests without any `features` annotation (baseline tests) are always run in
+/// preset mode.
 pub fn should_skip_test(features: Option<&[String]>, dec: &Decisions) -> bool {
+    if let Some(user) = &dec.user_features {
+        let Some(features) = features else {
+            return true;
+        };
+        // Any co-required excluded feature still skips the test; otherwise run
+        // it when at least one declared feature is whitelisted.
+        return features.iter().any(|f| dec.exclude.contains(f))
+            || !features.iter().any(|f| user.contains(f));
+    }
+
     let Some(features) = features else {
         return false;
     };
@@ -349,11 +390,18 @@ pub fn should_skip_test(features: Option<&[String]>, dec: &Decisions) -> bool {
     false
 }
 
-/// Sorted list of feature flags actually exercised by a run: every built-in
-/// feature whose introducing edition is at or before `selected_index`, minus the
-/// exclude set. For the `ALL` preset `selected_index` sits past every edition, so
-/// all non-excluded built-in features are listed.
+/// Sorted list of feature flags actually exercised by a run. In USER mode this
+/// is exactly the whitelist; otherwise it is every built-in feature whose
+/// introducing edition is at or before `selected_index`, minus the exclude set.
+/// For the `ALL` preset `selected_index` sits past every edition, so all
+/// non-excluded built-in features are listed.
 pub fn enabled_features(dec: &Decisions) -> Vec<String> {
+    if let Some(user) = &dec.user_features {
+        let mut feats: Vec<String> = user.iter().cloned().collect();
+        feats.sort();
+        return feats;
+    }
+
     let mut feats: Vec<String> = BUILTIN_PRESETS
         .iter()
         .enumerate()

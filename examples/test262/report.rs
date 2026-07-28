@@ -17,26 +17,6 @@ use zuqe::ExceptionText;
 /// all-green while the overall fail rate is non-zero.
 pub const NO_FEATURE_KEY: &str = "(no @features)";
 
-pub fn dump_error(
-    exc_text: &ExceptionText,
-    strict: bool,
-    is_module: bool,
-    is_async: bool,
-    outf: &mut dyn Write,
-) {
-    writeln!(
-        outf,
-        "[ENV] strict={strict}, module={is_module}, async={is_async}"
-    )
-    .unwrap();
-
-    writeln!(outf, "{}", exc_text.message).unwrap();
-
-    if let Some(tb) = exc_text.traceback.as_ref() {
-        writeln!(outf, "{tb}").unwrap();
-    }
-}
-
 /// Write one JSONL error record with an explicit message and stack string.
 pub fn write_jsonl_raw(w: &mut File, script_rel: &str, scenario: &str, message: &str, stack: &str) {
     let entry = serde_json::json!({

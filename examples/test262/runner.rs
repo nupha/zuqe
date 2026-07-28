@@ -4,7 +4,6 @@
 use std::{
     cell::RefCell,
     fs::File,
-    io::Write,
     path::{Path, PathBuf},
     sync::atomic::{AtomicI32, Ordering},
 };
@@ -19,7 +18,7 @@ use zuqe::{
 use crate::{
     TestConfig,
     presets::{Decisions, should_skip_test},
-    report::{dump_error, write_error_jsonl, write_jsonl_raw},
+    report::{write_error_jsonl, write_jsonl_raw},
 };
 
 /// counter of "Test262:AsyncTestComplete" messages
@@ -36,8 +35,8 @@ pub enum TestStatus {
 
 // Captured `print(...)` output of the test currently being run. Tests run one
 // at a time on the current thread, so a thread-local buffer is enough. The
-// output is kept out of stdout (which would break the progress line) and only
-// flushed to the failure log when the test fails.
+// buffer keeps `print` output off stdout (which would break the progress
+// line); async completion markers are detected while capturing.
 thread_local! {
     static PRINT_BUF: RefCell<String> = const { RefCell::new(String::new()) };
 }
@@ -372,14 +371,10 @@ pub async fn run_test_file(
     filename: &Path,
     harness_path: &Path,
     dec: &Decisions,
-    outf: &mut dyn Write,
-    errf: &mut dyn Write,
     script_rel: &str,
     errjson: &mut File,
 ) -> (TestStatus, Vec<String>, Option<String>) {
     PRINT_BUF.with(|b| b.borrow_mut().clear());
-
-    write!(outf, "{} ... ", filename.display()).unwrap();
 
     let content = std::fs::read_to_string(filename).unwrap();
 
@@ -389,14 +384,12 @@ pub async fn run_test_file(
         let front_matter = content[start + 5..end].trim();
         serde_yaml::from_str::<TestConfig>(front_matter).unwrap()
     } else {
-        writeln!(outf, "no-test").unwrap();
         return (TestStatus::Skip, Vec::new(), None);
     };
 
     let feats = config.features.clone().unwrap_or_default();
 
     if should_skip_test(config.features.as_deref(), dec) {
-        writeln!(outf, "skip").unwrap();
         return (TestStatus::Skip, feats.clone(), None);
     }
 
@@ -441,13 +434,7 @@ pub async fn run_test_file(
         debug_assert_eq!(ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()), 1);
 
         if let Err(exc) = run_harness(ctx, &harness_files) {
-            writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(&exc, false, false, false, outf);
-
-            writeln!(errf, "{}", filename.display()).unwrap();
             failed = true;
-            writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(&exc, false, false, false, errf);
             write_error_jsonl(errjson, script_rel, "harness", &exc);
             last_error = Some(exc.message.clone());
 
@@ -508,60 +495,23 @@ pub async fn run_test_file(
 
             if let Err(exc) = res {
                 if let Some(neg) = &negative {
+                    // Negative test: only a mismatched error class is a failure;
+                    // a matching class (or no expected class) is a pass.
                     if let Some(ty) = neg.type_.as_ref() {
                         let err_class = exc.message.split(':').next().unwrap();
-                        if err_class == ty {
-                            writeln!(outf, "pass").unwrap();
-                        } else {
-                            writeln!(
-                                outf,
-                                "fail: expects error class '{}', got '{}'",
-                                ty, err_class
-                            )
-                            .unwrap();
-                            dump_error(&exc, strict, is_module, is_async, outf);
-
-                            writeln!(errf, "{}", filename.display()).unwrap();
+                        if err_class != ty {
                             failed = true;
-                            writeln!(
-                                outf,
-                                "fail: expects error class '{}', got '{}'",
-                                ty, err_class
-                            )
-                            .unwrap();
-                            dump_error(&exc, strict, is_module, is_async, errf);
                             write_error_jsonl(errjson, script_rel, scenario, &exc);
                             last_error = Some(exc.message.clone());
                         }
-                    } else {
-                        writeln!(outf, "pass").unwrap();
                     }
                 } else {
-                    writeln!(outf, "fail").unwrap();
-                    dump_error(&exc, strict, is_module, is_async, outf);
-
-                    writeln!(errf, "{}", filename.display()).unwrap();
                     failed = true;
-                    dump_error(&exc, strict, is_module, is_async, errf);
                     write_error_jsonl(errjson, script_rel, scenario, &exc);
                     last_error = Some(exc.message.clone());
                 }
             } else if let Some(neg) = &negative {
-                writeln!(
-                    outf,
-                    "fail: [NEGATIVE] expects error {}",
-                    neg.type_.as_ref().map_or("", |s| s.as_str())
-                )
-                .unwrap();
-
-                writeln!(errf, "{}", filename.display()).unwrap();
                 failed = true;
-                writeln!(
-                    errf,
-                    "fail: [NEGATIVE] expects error {}",
-                    neg.type_.as_ref().map_or("", |s| s.as_str())
-                )
-                .unwrap();
                 write_jsonl_raw(
                     errjson,
                     script_rel,
@@ -576,20 +526,8 @@ pub async fn run_test_file(
                     "[NEGATIVE] expects error {}",
                     neg.type_.as_ref().map_or("", |s| s.as_str())
                 ));
-            } else {
-                writeln!(outf, "pass").unwrap();
             }
         }
-    }
-
-    if failed {
-        PRINT_BUF.with(|b| {
-            let s = b.borrow();
-            if !s.is_empty() {
-                let _ = writeln!(errf, "--- test output ---");
-                let _ = errf.write_all(s.as_bytes());
-            }
-        });
     }
 
     (
