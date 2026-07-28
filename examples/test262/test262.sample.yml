@@ -1,0 +1,42 @@
+# test262 runner config
+
+# location of the official test262 checkout (must contain test/ and harness/)
+base_path: "/path/to/test262"
+
+# edition preset to run.
+# Built-in presets (each extends all previous ones):
+# ES5, ES2015, ES2016, ES2017, ES2018, ES2019, ES2020, ES2021, ES2022, ES2023, ES2024, ES2025, ES2026
+preset: ES2026
+
+#log: "./test262.log"
+
+# Features excluded: stage-3 proposals and separate specs that are
+# not part of any published ECMAScript edition.
+exclude_features:
+  [
+    "Intl.Era-monthcode",
+    "Intl.Locale-info",
+    "Intl.NumberFormat-v3",
+    "legacy-regexp",
+    "ShadowRealm",
+    "decorators",
+    "source-phase-imports",
+    "source-phase-imports-module-source",
+    "import-defer",
+    "export-defer",
+    "import-text",
+    "immutable-arraybuffer",
+    "import-bytes",
+    "nonextensible-applies-to-private",
+    "await-dictionary",
+    "error-stack-accessor",
+    "Temporal",
+  ]
+
+# test scripts whitelist.
+# glob paths to select test scripts, empty means all.
+tests: []
+
+# test scripts blacklist.
+# glob paths to skip entirely (e.g. very slow tests)
+exclude_tests: ["annexB/**/*", "staging/**/*"]

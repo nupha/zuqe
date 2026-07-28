@@ -226,29 +226,6 @@ const BUILTIN_PRESETS: &[(&str, &[&str])] = &[
     ),
 ];
 
-/// Features excluded by default: stage-3 proposals and separate specs that are
-/// not part of any published ECMAScript edition. They are always skipped
-/// unless the user removes them from `exclude_features`.
-const DEFAULT_EXCLUDE_FEATURES: &[&str] = &[
-    "Intl.Era-monthcode",
-    "Intl.Locale-info",
-    "Intl.NumberFormat-v3",
-    "legacy-regexp",
-    "ShadowRealm",
-    "decorators",
-    "source-phase-imports",
-    "source-phase-imports-module-source",
-    "import-defer",
-    "export-defer",
-    "import-text",
-    "immutable-arraybuffer",
-    "import-bytes",
-    "nonextensible-applies-to-private",
-    "await-dictionary",
-    "error-stack-accessor",
-    "Temporal",
-];
-
 /// Resolved feature-selection decisions for a single run.
 pub struct Decisions {
     /// Maps a feature flag to the index of the edition that introduced it.
@@ -298,9 +275,6 @@ pub fn resolve_decisions(cfg: &AppConfig) -> Decisions {
     let (feature_edition, max_index) = build_feature_edition();
 
     let mut exclude = HashSet::new();
-    for f in DEFAULT_EXCLUDE_FEATURES {
-        exclude.insert((*f).to_string());
-    }
     if let Some(list) = &cfg.exclude_features {
         for f in list {
             exclude.insert(f.clone());
