@@ -696,6 +696,9 @@ pub fn gen_class_payload(outfile: &Path) {
     // get payload methods
     let mut get_payload_methods = Vec::<String>::with_capacity(CLASS_DEF_LIST.len() + 8);
     let mut gc_trace_arms = Vec::<String>::with_capacity(CLASS_DEF_LIST.len() + 8);
+    // PayloadType impls: map each payload data type back to its variant accessor,
+    // enabling generic extraction via class_payload()/class_payload_mut().
+    let mut payload_type_impls = Vec::<String>::with_capacity(CLASS_PAYLOAD_TYPE.len());
 
     let mut kvs = CLASS_PAYLOAD_TYPE.iter().collect::<Vec<_>>();
     kvs.sort();
@@ -728,6 +731,15 @@ pub fn gen_class_payload(outfile: &Path) {
             ));
 
             gc_trace_arms.push(format!("{} => {{ x.trace(tr); }}", arms.join("|")));
+
+            payload_type_impls.push(format!(
+                r#"impl crate::object::PayloadType for {ty} {{
+                    #[inline(always)]
+                    fn from_payload(p: &ObjectPayload) -> Option<&Self> {{ p.{k}() }}
+                    #[inline(always)]
+                    fn from_payload_mut(p: &mut ObjectPayload) -> Option<&mut Self> {{ p.{k}_mut() }}
+                }}"#
+            ));
         }
     }
 
@@ -754,6 +766,9 @@ pub fn gen_class_payload(outfile: &Path) {
         // get payload methods
         get_payload_methods.join("\n\n"),
         "}".to_string(),
+        // PayloadType impls
+        "\n\n".to_string(),
+        payload_type_impls.join("\n\n"),
         // impl collect trait
         "\n\n".to_string(),
         format!(

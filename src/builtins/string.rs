@@ -7,10 +7,10 @@ use unicode_normalization::UnicodeNormalization;
 use crate::{
     Array, ClassDef, JS_CLASS_STRING_ITERATOR, ScopedContext,
     atom::Atom,
-    builtins::iterator::{JSIteratorKindEnum, js_create_array_iterator},
+    builtins::iterator::{ArrayIterPayload, JSIteratorKindEnum, js_create_array_iterator},
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW},
     string::{
         CharCode, CharCodeDecoder, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringData,
         StringRef, Utf16Stream, js_string_exotic_methods,
@@ -117,7 +117,8 @@ fn js_string_toWellFormed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         let stream = Utf16Stream::new(s16);
         if !stream.is_well_formed() {
             let mut buf = Vec::<u16>::new();
-            buf.try_reserve_exact(s16.len() * 3 / 2).map_err(|_| ctx.throw_out_of_memory())?;
+            buf.try_reserve_exact(s16.len() * 3 / 2)
+                .map_err(|_| ctx.throw_out_of_memory())?;
             for (_, cc) in stream {
                 // invalid code point is replaced with U+FFFD
                 buf.extend_from_slice(cc.char().unwrap_or('\u{FFFD}').encode_utf16(&mut [0; 2]));
@@ -484,7 +485,9 @@ fn js_string_pad(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     let mut sbuf = if is_pad_end {
-        str.content().to_buf().map_err(|_| ctx.throw_out_of_memory())?
+        str.content()
+            .to_buf()
+            .map_err(|_| ctx.throw_out_of_memory())?
     } else {
         StringBuf::Empty
     };
@@ -517,7 +520,8 @@ fn js_string_pad(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     .map_err(|_| ctx.throw_out_of_memory())?;
 
     if !is_pad_end {
-        sbuf.push_content(str.content()).map_err(|_| ctx.throw_out_of_memory())?;
+        sbuf.push_content(str.content())
+            .map_err(|_| ctx.throw_out_of_memory())?;
     }
 
     ctx.create_string_with_buf(sbuf).map(JSValue::make_string)
@@ -540,7 +544,8 @@ fn js_string_repeat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(ctx.throw_internal_error("string too long"));
     }
 
-    let mut res_string = StringBuf::with_capacity(repeat * len, false).map_err(|_| ctx.throw_out_of_memory())?;
+    let mut res_string =
+        StringBuf::with_capacity(repeat * len, false).map_err(|_| ctx.throw_out_of_memory())?;
 
     let sdata = p.content();
     for _ in 0..repeat {
@@ -730,7 +735,10 @@ fn js_string_match(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_string_trim(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let str = this.to_string_non_undefined_or_null(ctx)?;
-    let mut s = str.content().to_buf().map_err(|_| ctx.throw_out_of_memory())?;
+    let mut s = str
+        .content()
+        .to_buf()
+        .map_err(|_| ctx.throw_out_of_memory())?;
     s.trim(cc.magic() & 1 != 0, cc.magic() & 2 != 0);
     ctx.create_string_with_buf(s).map(JSValue::make_string)
 }
@@ -772,7 +780,9 @@ fn js_string_toString(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValu
 
 #[inline]
 fn js_thisStringValue(ctx: &mut ScopedContext, this_val: JSValue) -> Result<StringRef, i32> {
-    this_val.as_string(true).ok_or_else(|| ctx.throw_type_error("not a string"))
+    this_val
+        .as_string(true)
+        .ok_or_else(|| ctx.throw_type_error("not a string"))
 }
 
 fn js_string_toLowerCase(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -797,7 +807,8 @@ fn js_string_toLowerCase(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             )
         }
         StringData::Utf16(s) => {
-            let mut buf = StringBuf::with_capacity(s.len(), false).map_err(|_| ctx.throw_out_of_memory())?;
+            let mut buf =
+                StringBuf::with_capacity(s.len(), false).map_err(|_| ctx.throw_out_of_memory())?;
             let s8 = String::from_utf16_lossy(s);
             buf.push_u16_iter(
                 if to_lower {
@@ -971,31 +982,27 @@ fn js_string_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    if let ObjectPayload::STRING_ITERATOR(it) = cc
-        .this()
-        .retrive_object_payload(ctx, JS_CLASS_STRING_ITERATOR)?
-    {
-        let val = it.value();
+    let this = cc.this();
+    let it: &ArrayIterPayload = this.class_payload(ctx, JS_CLASS_STRING_ITERATOR)?;
 
-        if val.is_undefined() {
+    let val = it.value();
+
+    if val.is_undefined() {
+        *state = IteratorState::Done;
+        Ok(JSValue::UNDEFINED)
+    } else if let Some(ss) = val.as_string(true) {
+        // iterate over string buf to get char or code at `idx`
+        if let Some((span, c)) = ss.content().chars_since(it.index() as usize).next() {
+            it.set_index(span.end as u32);
+            *state = IteratorState::NotDone;
+            ctx.create_string_from_char(c).map(JSValue::make_string)
+        } else {
+            it.set_value(JSValue::UNDEFINED);
             *state = IteratorState::Done;
             Ok(JSValue::UNDEFINED)
-        } else if let Some(ss) = val.as_string(true) {
-            // iterate over string buf to get char or code at `idx`
-            if let Some((span, c)) = ss.content().chars_since(it.index() as usize).next() {
-                it.set_index(span.end as u32);
-                *state = IteratorState::NotDone;
-                ctx.create_string_from_char(c).map(JSValue::make_string)
-            } else {
-                it.set_value(JSValue::UNDEFINED);
-                *state = IteratorState::Done;
-                Ok(JSValue::UNDEFINED)
-            }
-        } else {
-            unreachable!();
         }
     } else {
-        unreachable!()
+        unreachable!();
     }
 }
 
@@ -1021,7 +1028,8 @@ fn js_string_fromCodePoint(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     let mut sbuf = StringBuf::Empty;
 
     if cc.length() > 0 {
-        sbuf.try_reserve_exact(cc.length()).map_err(|_| ctx.throw_out_of_memory())?;
+        sbuf.try_reserve_exact(cc.length())
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         for a in cc.arguments() {
             let code: i32 = if let Some(i) = a.as_int() {
@@ -1045,7 +1053,8 @@ fn js_string_fromCodePoint(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
             };
 
             if code >= 0 {
-                sbuf.push_u32(code as u32).map_err(|_| ctx.throw_out_of_memory())?;
+                sbuf.push_u32(code as u32)
+                    .map_err(|_| ctx.throw_out_of_memory())?;
             } else {
                 return Err(ctx.throw_range_error("invalid code point"));
             }
@@ -1066,12 +1075,14 @@ fn js_string_raw(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     for i in 0..n {
         let str = raw.get_property_i64(ctx, i)?.to_string(ctx)?;
-        sbuf.push_content(str.content()).map_err(|_| ctx.throw_out_of_memory())?;
+        sbuf.push_content(str.content())
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         if i < n - 1 && i + 1 < cc.length() as i64 {
             let val = cc.arg(i as usize + 1);
             let s = val.to_string(ctx)?;
-            sbuf.push_content(s.content()).map_err(|_| ctx.throw_out_of_memory())?;
+            sbuf.push_content(s.content())
+                .map_err(|_| ctx.throw_out_of_memory())?;
         }
     }
 

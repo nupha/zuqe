@@ -181,114 +181,109 @@ fn js_generator_next(
     *iter_state = IteratorState::Done;
     let mut this = cc.this();
 
-    if let ObjectPayload::GENERATOR(g) = this.retrive_object_payload_mut(ctx, JS_CLASS_GENERATOR)? {
-        enum WhatToDo {
-            ExecNoArg,
-            Done,
-        }
+    let g: &mut GeneratorPayload = this.class_payload_mut(ctx, JS_CLASS_GENERATOR)?;
 
-        let action: WhatToDo = match g.state() {
-            GenState::JS_GENERATOR_STATE_SUSPENDED_START => {
-                if magic == GEN_MAGIC_NEXT {
-                    g.async_state.set_throw_flag(false);
-                    WhatToDo::ExecNoArg
-                } else {
-                    WhatToDo::Done
-                }
-            }
-            GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR
-            | GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD => {
-                // SP[-1] was set to UNDEFINED in the previous call
-                let val = cc.arg(0);
+    enum WhatToDo {
+        ExecNoArg,
+        Done,
+    }
 
-                if magic == GEN_MAGIC_THROW
-                    && g.state() == GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD
-                {
-                    ctx.throw_value(val);
-                    g.async_state.set_throw_flag(true);
-                } else {
-                    // Read current SP offset to verify SP[-1] is UNDEFINED.
-                    {
-                        let arena = ctx.rt_mut().stack_frame_arena_mut();
-                        let sp_off = g.async_state.cur_sp_offset(arena);
-                        debug_assert!(sp_off > 0);
-
-                        let head = g.async_state.frame(arena);
-                        let sp_base = head.stack_base_ptr();
-                        debug_assert_eq!(
-                            unsafe { *sp_base.add(sp_off as usize - 1) },
-                            JSValue::UNDEFINED,
-                            "SP[-1] was set to UNDEFINED in the previous call"
-                        );
-                    }
-                    // Write val to SP[-1], magic to SP[0], then advance SP by 1.
-                    {
-                        let arena = ctx.rt_mut().stack_frame_arena_mut();
-                        g.async_state.stack_store_value(arena, -1, val);
-                        g.async_state
-                            .stack_store_value(arena, 0, JSValue::from(magic));
-                        g.async_state.bump_sp(arena, 1);
-                    }
-
-                    g.async_state.set_throw_flag(false);
-                }
+    let action: WhatToDo = match g.state() {
+        GenState::JS_GENERATOR_STATE_SUSPENDED_START => {
+            if magic == GEN_MAGIC_NEXT {
+                g.async_state.set_throw_flag(false);
                 WhatToDo::ExecNoArg
+            } else {
+                WhatToDo::Done
             }
-            GenState::JS_GENERATOR_STATE_COMPLETED => WhatToDo::Done,
-            GenState::JS_GENERATOR_STATE_EXECUTING => {
-                return Err(ctx.throw_type_error("cannot invoke a running generator"));
-            }
-        };
+        }
+        GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR
+        | GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD => {
+            // SP[-1] was set to UNDEFINED in the previous call
+            let val = cc.arg(0);
 
-        match action {
-            WhatToDo::ExecNoArg => {
-                g.set_state(GenState::JS_GENERATOR_STATE_EXECUTING);
-                let res = g.resume(ctx);
-                g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD);
+            if magic == GEN_MAGIC_THROW && g.state() == GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD
+            {
+                ctx.throw_value(val);
+                g.async_state.set_throw_flag(true);
+            } else {
+                // Read current SP offset to verify SP[-1] is UNDEFINED.
+                {
+                    let arena = ctx.rt_mut().stack_frame_arena_mut();
+                    let sp_off = g.async_state.cur_sp_offset(arena);
+                    debug_assert!(sp_off > 0);
 
-                if g.is_completed() {
-                    // finalize the execution in case of exception or normal return
-                    g.complete();
-                    return res;
+                    let head = g.async_state.frame(arena);
+                    let sp_base = head.stack_base_ptr();
+                    debug_assert_eq!(
+                        unsafe { *sp_base.add(sp_off as usize - 1) },
+                        JSValue::UNDEFINED,
+                        "SP[-1] was set to UNDEFINED in the previous call"
+                    );
+                }
+                // Write val to SP[-1], magic to SP[0], then advance SP by 1.
+                {
+                    let arena = ctx.rt_mut().stack_frame_arena_mut();
+                    g.async_state.stack_store_value(arena, -1, val);
+                    g.async_state
+                        .stack_store_value(arena, 0, JSValue::from(magic));
+                    g.async_state.bump_sp(arena, 1);
                 }
 
-                debug_assert!(res.unwrap().is_int());
-
-                // Get the returned yield value at the top of the stack.
-                // Uses take_top which replaces SP[-1] with UNDEFINED and
-                // protects the GC node in the current scope.
-                let ret_val = {
-                    let arena = ctx.rt().stack_frame_arena();
-                    g.async_state.take_top_value(arena, ctx)
-                };
-
-                *iter_state = if let Ok(Some(FUNC_RET_YIELD_STAR)) = res.map(|v| v.as_int()) {
-                    g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR);
-                    IteratorState::NotParsed // should return (value, done) object
-                } else {
-                    IteratorState::NotDone
-                };
-
-                ret_val.err()
+                g.async_state.set_throw_flag(false);
             }
-            WhatToDo::Done => {
-                // execution is finished, mark generator as completed
-                g.complete();
+            WhatToDo::ExecNoArg
+        }
+        GenState::JS_GENERATOR_STATE_COMPLETED => WhatToDo::Done,
+        GenState::JS_GENERATOR_STATE_EXECUTING => {
+            return Err(ctx.throw_type_error("cannot invoke a running generator"));
+        }
+    };
 
-                match magic {
-                    GEN_MAGIC_NEXT => Ok(JSValue::UNDEFINED),
-                    GEN_MAGIC_RETURN => Ok(cc.arg(0)),
-                    GEN_MAGIC_THROW => {
-                        Err(ctx.throw_value(cc.arg(0)))
-                    }
-                    _ => {
-                        unreachable!()
-                    }
+    match action {
+        WhatToDo::ExecNoArg => {
+            g.set_state(GenState::JS_GENERATOR_STATE_EXECUTING);
+            let res = g.resume(ctx);
+            g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD);
+
+            if g.is_completed() {
+                // finalize the execution in case of exception or normal return
+                g.complete();
+                return res;
+            }
+
+            debug_assert!(res.unwrap().is_int());
+
+            // Get the returned yield value at the top of the stack.
+            // Uses take_top which replaces SP[-1] with UNDEFINED and
+            // protects the GC node in the current scope.
+            let ret_val = {
+                let arena = ctx.rt().stack_frame_arena();
+                g.async_state.take_top_value(arena, ctx)
+            };
+
+            *iter_state = if let Ok(Some(FUNC_RET_YIELD_STAR)) = res.map(|v| v.as_int()) {
+                g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR);
+                IteratorState::NotParsed // should return (value, done) object
+            } else {
+                IteratorState::NotDone
+            };
+
+            ret_val.err()
+        }
+        WhatToDo::Done => {
+            // execution is finished, mark generator as completed
+            g.complete();
+
+            match magic {
+                GEN_MAGIC_NEXT => Ok(JSValue::UNDEFINED),
+                GEN_MAGIC_RETURN => Ok(cc.arg(0)),
+                GEN_MAGIC_THROW => Err(ctx.throw_value(cc.arg(0))),
+                _ => {
+                    unreachable!()
                 }
             }
         }
-    } else {
-        unreachable!()
     }
 }
 

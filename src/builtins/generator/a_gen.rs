@@ -567,11 +567,7 @@ fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     let (promise, resolving_funcs) = Promise::create(ctx)?;
 
     let mut this = cc.this();
-    if let Ok(isa) = this.retrive_object_payload_mut(ctx, JS_CLASS_ASYNC_GENERATOR) {
-        let ObjectPayload::ASYNC_GENERATOR(s) = isa else {
-            unreachable!()
-        };
-
+    if let Ok(s) = this.class_payload_mut::<AGenPayload>(ctx, JS_CLASS_ASYNC_GENERATOR) {
         let req = Box::new(JSAsyncGeneratorRequest {
             completion_type: cc.magic(),
             result: cc.arg(0),

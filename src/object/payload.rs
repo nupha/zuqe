@@ -1,57 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use crate::{context::ScopedContext, object::ObjectImpl, value::JSValue};
+use crate::{context::ScopedContext, error::ErrCode, value::JSValue};
 
 include!(concat!(env!("OUT_DIR"), "/class_payload.rs"));
 
-impl ObjectImpl {
-    /// get object's payload.
-    /// if the object is not the required class_id (optional),
-    /// returns None
-    pub(crate) const fn retrive_payload0(&self, class_id: ClassID) -> Option<&ObjectPayload> {
-        if class_id == self.class_id() {
-            Some(self.payload())
-        } else {
-            None
-        }
-    }
-
-    /// get object's payload.
-    /// if the object is not the required class_id (optional),
-    /// returns None
-    pub(crate) const fn retrive_payload0_mut(
-        &mut self,
-        class_id: ClassID,
-    ) -> Option<&mut ObjectPayload> {
-        if class_id == self.class_id() {
-            Some(self.payload_mut())
-        } else {
-            None
-        }
-    }
-
-    /// get object's payload borrow ref.
-    /// if the object is not the required class_id (optional),
-    /// throws type error.
-    pub fn retrive_payload(
-        &self,
-        ctx: &mut ScopedContext,
-        class_id: ClassID,
-    ) -> Result<&ObjectPayload, i32> {
-        self.retrive_payload0(class_id).ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))
-    }
-
-    /// get object's payload borrow ref.
-    /// if the object is not the required class_id (optional),
-    /// throws type error.
-    pub(crate) fn retrive_payload_mut(
-        &mut self,
-        ctx: &mut ScopedContext,
-        class_id: ClassID,
-    ) -> Result<&mut ObjectPayload, i32> {
-        self.retrive_payload0_mut(class_id).ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))
-    }
+/// Payload data types stored in `ObjectPayload` variants.
+///
+/// Implemented (via build_stdclass.rs codegen) for every payload data type,
+/// mapping the type back to its variant accessor. Enables generic extraction
+/// through [`JSValue::class_payload`] / [`JSValue::class_payload_mut`].
+pub(crate) trait PayloadType {
+    fn from_payload(p: &ObjectPayload) -> Option<&Self>;
+    fn from_payload_mut(p: &mut ObjectPayload) -> Option<&mut Self>;
 }
 
 impl JSValue {
@@ -71,52 +32,59 @@ impl JSValue {
         })
     }
 
-    /// get object value's payload.
-    /// if the value is not an object, or optionally is not the required class_id,
-    /// throws type error.
-    pub(crate) fn retrive_object_payload0(&self, class_id: ClassID) -> Option<&ObjectPayload> {
-        if let Some(o) = self.as_object() {
-            unsafe {
-                std::mem::transmute::<Option<&ObjectPayload>, Option<&ObjectPayload>>(
-                    o.retrive_payload0(class_id),
-                )
-            }
-        } else {
-            None
+    /// Get the payload data `T` of a class instance value (no error thrown).
+    ///
+    /// Returns `None` if the value is not an object of `class_id`.
+    ///
+    /// # Panics
+    /// Panics if `class_id` does not correspond to payload type `T` (a caller bug).
+    pub(crate) fn try_class_payload<'a, T: PayloadType>(
+        &'a self,
+        class_id: ClassID,
+    ) -> Option<&'a T> {
+        let o = self.as_object()?;
+        if o.class_id() != class_id {
+            return None;
         }
+        let p = unsafe { std::mem::transmute::<&ObjectPayload, &'a ObjectPayload>(o.payload()) };
+        Some(T::from_payload(p).expect("class_id does not match payload type T"))
     }
 
-    /// get object value's payload borrow ref.
-    /// if the value is not an object, or optionally is not the required class_id,
-    /// throws type error.
-    pub fn retrive_object_payload(
-        &self,
+    /// Get the payload data `T` of a class instance value (throws if not the target class).
+    ///
+    /// If the value is not an object of `class_id`, throws a type error via
+    /// `throw_type_error_invalid_class`.
+    ///
+    /// # Panics
+    /// Panics if `class_id` does not correspond to payload type `T` (a caller bug).
+    pub(crate) fn class_payload<'a, T: PayloadType>(
+        &'a self,
         ctx: &mut ScopedContext,
         class_id: ClassID,
-    ) -> Result<&ObjectPayload, i32> {
-        if let Some(o) = self.as_object() {
-            unsafe {
-                std::mem::transmute::<Result<&ObjectPayload, i32>, Result<&ObjectPayload, i32>>(
-                    o.retrive_payload(ctx, class_id),
-                )
-            }
-        } else {
-            Err(ctx.throw_type_error_invalid_class(class_id))
-        }
+    ) -> Result<&'a T, ErrCode> {
+        self.try_class_payload(class_id)
+            .ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))
     }
 
-    /// get object value's payload borrow ref.
-    /// if the value is not an object, or optionally is not the required class_id,
-    /// throws type error.
-    pub fn retrive_object_payload_mut<'a>(
+    /// Get the mutable payload data `T` of a class instance value (throws if not the target class).
+    ///
+    /// If the value is not an object of `class_id`, throws a type error via
+    /// `throw_type_error_invalid_class`.
+    ///
+    /// # Panics
+    /// Panics if `class_id` does not correspond to payload type `T` (a caller bug).
+    pub(crate) fn class_payload_mut<'a, T: PayloadType>(
         &'a mut self,
         ctx: &mut ScopedContext,
         class_id: ClassID,
-    ) -> Result<&'a mut ObjectPayload, i32> {
-        if let Some(mut o) = self.as_object() {
-            o.retrive_payload_mut(ctx, class_id).map(|p| unsafe {
-                std::mem::transmute::<&mut ObjectPayload, &'a mut ObjectPayload>(p)
-            })
+    ) -> Result<&'a mut T, ErrCode> {
+        if let Some(mut o) = self.as_object()
+            && o.class_id() == class_id
+        {
+            let p = unsafe {
+                std::mem::transmute::<&mut ObjectPayload, &'a mut ObjectPayload>(o.payload_mut())
+            };
+            Ok(T::from_payload_mut(p).expect("class_id does not match payload type T"))
         } else {
             Err(ctx.throw_type_error_invalid_class(class_id))
         }

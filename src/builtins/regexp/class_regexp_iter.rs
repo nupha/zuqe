@@ -6,68 +6,65 @@ use crate::{
     atom::Atom,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::JS_PROP_CONFIGURABLE,
     value::JSValue,
 };
 
-use super::regexp_exec;
+use super::{RegExpStringIterPayload, regexp_exec};
 
 fn js_regexp_string_iterator_next(
     ctx: &mut ScopedContext,
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = cc
-        .this()
-        .retrive_object_payload(ctx, JS_CLASS_REGEXP_STRING_ITERATOR)?
-    {
-        if it.done() {
-            *state = IteratorState::Done;
-            return Ok(JSValue::UNDEFINED);
-        }
+    let this = cc.this();
+    let it: &RegExpStringIterPayload =
+        this.class_payload(ctx, JS_CLASS_REGEXP_STRING_ITERATOR)?;
 
-        // initialize state
-        *state = IteratorState::NotDone;
+    if it.done() {
+        *state = IteratorState::Done;
+        return Ok(JSValue::UNDEFINED);
+    }
 
-        if let Some(mat) = regexp_exec(ctx, it.regexp().into(), it.string())? {
-            if it.is_global() {
-                let str = mat
-                    .get_property_i64(ctx, 0)
-                    .and_then(|x| x.to_string(ctx))?;
+    // initialize state
+    *state = IteratorState::NotDone;
 
-                if str.is_empty() {
-                    // if matched is empty, advance index to next char
-                    let last_index = it
-                        .regexp()
-                        .get_property(ctx, Atom::CONST_lastIndex)
-                        .and_then(|v| v.to_length(ctx))
-                        .inspect_err(|_| {
-                            *state = IteratorState::NotDone;
-                        })?;
+    if let Some(mat) = regexp_exec(ctx, it.regexp().into(), it.string())? {
+        if it.is_global() {
+            let str = mat
+                .get_property_i64(ctx, 0)
+                .and_then(|x| x.to_string(ctx))?;
 
-                    let next_index = it
-                        .string()
-                        .index_of_next_i64(last_index, it.is_unicode())
-                        .unwrap_or(last_index + 1);
+            if str.is_empty() {
+                // if matched is empty, advance index to next char
+                let last_index = it
+                    .regexp()
+                    .get_property(ctx, Atom::CONST_lastIndex)
+                    .and_then(|v| v.to_length(ctx))
+                    .inspect_err(|_| {
+                        *state = IteratorState::NotDone;
+                    })?;
 
-                    it.regexp()
-                        .set_property(ctx, Atom::CONST_lastIndex, JSValue::from(next_index))
-                        .inspect_err(|_| {
-                            *state = IteratorState::NotDone;
-                        })?;
-                }
-            } else {
-                it.set_done(true);
+                let next_index = it
+                    .string()
+                    .index_of_next_i64(last_index, it.is_unicode())
+                    .unwrap_or(last_index + 1);
+
+                it.regexp()
+                    .set_property(ctx, Atom::CONST_lastIndex, JSValue::from(next_index))
+                    .inspect_err(|_| {
+                        *state = IteratorState::NotDone;
+                    })?;
             }
-
-            Ok(mat.into())
         } else {
             it.set_done(true);
-            *state = IteratorState::Done;
-            Ok(JSValue::UNDEFINED)
         }
+
+        Ok(mat.into())
     } else {
-        unreachable!()
+        it.set_done(true);
+        *state = IteratorState::Done;
+        Ok(JSValue::UNDEFINED)
     }
 }
 

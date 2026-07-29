@@ -14,7 +14,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::MapPair;
+use super::{JSMapState, MapPair};
 
 #[derive(Debug)]
 pub struct JSMapIteratorData {
@@ -54,17 +54,15 @@ fn js_map_iterator_next(
 
     *state = IteratorState::NotDone;
 
-    let isa = this.retrive_object_payload_mut(ctx, JS_CLASS_MAP_ITERATOR + magic as ClassID)?;
-    let Some(it) = isa.mapset_iterator_mut() else {
-        return Err(-1);
-    };
+    let it: &mut JSMapIteratorData =
+        this.class_payload_mut(ctx, JS_CLASS_MAP_ITERATOR + magic as ClassID)?;
 
     let mut ret: Option<JSValue> = None;
     let mut end = false;
 
-    if let Some(mut obj) = it.obj {
-        let r1 = obj.retrive_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)?;
-        let ms = r1.mapset_mut().unwrap();
+    if let Some(obj) = it.obj {
+        let mut objv: JSValue = obj.into();
+        let ms: &mut JSMapState = objv.class_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)?;
 
         if it.index < ms.slots.len() {
             let slice = &ms.slots[it.index..];

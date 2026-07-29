@@ -119,11 +119,7 @@ pub(crate) fn js_promise_resolve(ctx: &mut ScopedContext, cc: CallContext) -> JS
 
     let resolution = cc.arg(0);
 
-    if !is_reject
-        && resolution
-            .retrive_object_payload0(JS_CLASS_PROMISE)
-            .is_some()
-    {
+    if !is_reject && resolution.as_object_Promise().is_some() {
         // resolve and argument #0 is Promise
         let ctor = resolution.get_property(ctx, Atom::CONST_constructor)?;
         if ctor.is_same(this) {

@@ -40,7 +40,7 @@ pub fn js_regexp_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let mut pattern = StringData::Empty;
     let mut flags_str = StringData::Empty;
 
-    let re = if let Some(re) = js_get_regexp(ctx, &pat, false) {
+    let re = if let Some(re) = js_get_regexp(&pat) {
         if flags1.is_undefined() {
             Some(re)
         } else {
@@ -91,19 +91,9 @@ pub fn js_regexp_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     Ok(obj.into())
 }
 
-fn js_get_regexp<'a>(
-    ctx: &mut ScopedContext,
-    obj: &'a JSValue,
-    throw_error: bool,
-) -> Option<&'a RegExpData> {
-    if let Some(ObjectPayload::REGEXP(re)) = obj.retrive_object_payload0(JS_CLASS_REGEXP) {
-        Some(re)
-    } else {
-        if throw_error {
-            ctx.throw_type_error_invalid_class(JS_CLASS_REGEXP);
-        }
-        None
-    }
+/// Get the RegExpData payload if `obj` is a RegExp instance (no error thrown).
+fn js_get_regexp<'a>(obj: &'a JSValue) -> Option<&'a RegExpData> {
+    obj.try_class_payload(JS_CLASS_REGEXP)
 }
 
 pub(crate) fn is_regexp(ctx: &mut ScopedContext, obj: JSValue) -> Result<bool, i32> {
@@ -112,7 +102,7 @@ pub(crate) fn is_regexp(ctx: &mut ScopedContext, obj: JSValue) -> Result<bool, i
         if !m.is_undefined() {
             m.to_bool()
         } else {
-            Ok(js_get_regexp(ctx, &obj, false).is_some())
+            Ok(js_get_regexp(&obj).is_some())
         }
     } else {
         Ok(false)
@@ -131,13 +121,13 @@ pub fn js_regexp_get_source(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
             return ctx.create_string_from_str("(?:)").map(JSValue::make_string);
         }
 
-        let re = js_get_regexp(ctx, &this, true).ok_or(-1)?;
+        let re: &RegExpData = this.class_payload(ctx, JS_CLASS_REGEXP)?;
         if re.pattern.is_empty() {
             return ctx.create_string_from_str("(?:)").map(JSValue::make_string);
         }
 
-        let mut buf =
-            StringBuf::with_capacity(re.pattern.len(), re.pattern.is_wide()).map_err(|_| ctx.throw_out_of_memory())?;
+        let mut buf = StringBuf::with_capacity(re.pattern.len(), re.pattern.is_wide())
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         // Escape '/' and newline sequences as needed
         let mut bra = false;
@@ -197,7 +187,7 @@ pub fn js_regexp_get_flag(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
     let this = cc.this();
     if this.is_object() {
-        if let Some(re) = js_get_regexp(ctx, &this, false) {
+        if let Some(re) = js_get_regexp(&this) {
             Ok(JSValue::from(!(re.flags() & mask).is_empty()))
         } else if this.is_same(
             ctx.class_proto(JS_CLASS_REGEXP)
@@ -258,7 +248,8 @@ pub fn js_regexp_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
             .get_property(ctx, Atom::CONST_source)
             .and_then(|v| v.to_string(ctx))?;
 
-        buf.push_content(pattern.content()).map_err(|_| ctx.throw_out_of_memory())?;
+        buf.push_content(pattern.content())
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         buf.push_u8(b'/').map_err(|_| ctx.throw_out_of_memory())?;
 
@@ -267,7 +258,8 @@ pub fn js_regexp_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
             .get_property(ctx, Atom::CONST_flags)
             .and_then(|v| v.to_string(ctx))?;
 
-        buf.push_content(flags.content()).map_err(|_| ctx.throw_out_of_memory())?;
+        buf.push_content(flags.content())
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         buf.shrink_to_fit();
         ctx.create_string_with_buf(buf).map(JSValue::make_string)
@@ -278,7 +270,7 @@ pub fn js_regexp_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
 fn js_regexp_compile(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let _ = js_get_regexp(ctx, &this, true).ok_or(-1)?;
+    let _: &RegExpData = this.class_payload(ctx, JS_CLASS_REGEXP)?;
 
     let pattern1 = cc.arg(0);
     let flags1 = cc.arg(1);
@@ -286,7 +278,7 @@ fn js_regexp_compile(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let pattern: StringData;
     let flags_str: StringData;
 
-    if let Some(re1) = js_get_regexp(ctx, &pattern1, false) {
+    if let Some(re1) = js_get_regexp(&pattern1) {
         if flags1.is_undefined() {
             return Err(ctx.throw_type_error("flags must be undefined"));
         }
@@ -457,7 +449,8 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     //     // return JS_RegExpDelete(ctx, this, rp);
     // }
 
-    let mut sbuf = StringBuf::with_capacity(str.len(), false).map_err(|_| ctx.throw_out_of_memory())?;
+    let mut sbuf =
+        StringBuf::with_capacity(str.len(), false).map_err(|_| ctx.throw_out_of_memory())?;
 
     // regexp match results list
     let mut matche_list = SmallVec::<[Object; 10]>::new();
@@ -600,7 +593,8 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
         if pos <= index {
             sbuf.push_content_range(str.content(), pos..index)
                 .map_err(|_| ctx.throw_out_of_memory())?;
-            sbuf.push_content(&repl).map_err(|_| ctx.throw_out_of_memory())?;
+            sbuf.push_content(&repl)
+                .map_err(|_| ctx.throw_out_of_memory())?;
 
             pos = index + matched.len();
         }
@@ -840,7 +834,7 @@ fn regexp_exec_default(
         .get_property(ctx, Atom::CONST_lastIndex)?
         .to_length(ctx)? as usize;
 
-    let re = js_get_regexp(ctx, &this, true).ok_or(-1)?;
+    let re: &RegExpData = this.class_payload(ctx, JS_CLASS_REGEXP)?;
     let re_flags = re.flags();
 
     if !re_flags.has_global() && !re_flags.has_sticky() {

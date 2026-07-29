@@ -23,13 +23,12 @@ fn get_jsmap_state<'s>(
     class_id: ClassID,
     ctx: &mut ScopedContext,
 ) -> Result<&'s JSMapState, i32> {
-    Ok(val.retrive_object_payload(ctx, class_id)?.mapset().unwrap())
+    val.class_payload(ctx, class_id)
 }
 
 /// Try to get the internal JSMapState (returns None if not the target class).
 fn try_get_jsmap_state(val: &JSValue, class_id: ClassID) -> Option<&JSMapState> {
-    val.retrive_object_payload0(class_id)
-        .and_then(|p| p.mapset())
+    val.try_class_payload(class_id)
 }
 
 /// Get the mutable internal JSMapState from a Map/Set/WeakMap/WeakSet value (throws if not the target class).
@@ -38,10 +37,7 @@ fn get_jsmap_state_mut<'s>(
     class_id: ClassID,
     ctx: &mut ScopedContext,
 ) -> Result<&'s mut JSMapState, i32> {
-    Ok(val
-        .retrive_object_payload_mut(ctx, class_id)?
-        .mapset_mut()
-        .unwrap())
+    val.class_payload_mut(ctx, class_id)
 }
 
 /// Iterate over all Strong keys in a JSMapState.
@@ -170,7 +166,10 @@ pub(crate) fn js_map_getOrInsert(ctx: &mut ScopedContext, cc: CallContext) -> JS
     let this_obj = cc.this().as_object().unwrap();
     let self_node = this_obj.gc_node_ptr();
     this_obj.rt_ptr().gc_heap_mut().bind_value(self_node, &key);
-    this_obj.rt_ptr().gc_heap_mut().bind_value(self_node, &value);
+    this_obj
+        .rt_ptr()
+        .gc_heap_mut()
+        .bind_value(self_node, &value);
 
     Ok(value)
 }
@@ -207,7 +206,10 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this_obj = cc.this().as_object().unwrap();
     let self_node = this_obj.gc_node_ptr();
     this_obj.rt_ptr().gc_heap_mut().bind_value(self_node, &key);
-    this_obj.rt_ptr().gc_heap_mut().bind_value(self_node, &map_val);
+    this_obj
+        .rt_ptr()
+        .gc_heap_mut()
+        .bind_value(self_node, &map_val);
 
     Ok(this)
 }
@@ -326,7 +328,7 @@ pub(crate) fn js_create_map_iterator(ctx: &mut ScopedContext, cc: CallContext) -
 
     // ensure `this` is an object of expected class_id
     let this = cc.this();
-    let _ = this.retrive_object_payload(ctx, JS_CLASS_MAP + (cc.magic() & 3) as ClassID)?;
+    let _: &JSMapState = this.class_payload(ctx, JS_CLASS_MAP + (cc.magic() & 3) as ClassID)?;
 
     // create iterator object
     let isa = Box::new(JSMapIteratorData {

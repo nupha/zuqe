@@ -105,48 +105,44 @@ pub(crate) fn js_array_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    if let ObjectPayload::ARRAY_ITERATOR(it) = cc
-        .this()
-        .retrive_object_payload(ctx, JS_CLASS_ARRAY_ITERATOR)?
-    {
-        let obj = it.value();
-        if obj.is_undefined() {
-            *state = IteratorState::Done;
-            return Ok(JSValue::UNDEFINED);
+    let this = cc.this();
+    let it: &ArrayIterPayload = this.class_payload(ctx, JS_CLASS_ARRAY_ITERATOR)?;
+
+    let obj = it.value();
+    if obj.is_undefined() {
+        *state = IteratorState::Done;
+        return Ok(JSValue::UNDEFINED);
+    }
+
+    // eval array length
+    let len = if let Ok(tao) = TypedArray::try_from(obj) {
+        // is typed array
+        if tao.is_detached() {
+            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
         }
-
-        // eval array length
-        let len = if let Ok(tao) = TypedArray::try_from(obj) {
-            // is typed array
-            if tao.is_detached() {
-                return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-            }
-            tao.length() as u32
-        } else {
-            // is Array or String
-            it.value().get_length_prop(ctx)? as u32
-        };
-
-        let idx = it.index();
-        if idx >= len {
-            it.set_value(JSValue::UNDEFINED);
-            *state = IteratorState::Done;
-            return Ok(JSValue::UNDEFINED);
-        }
-
-        *state = IteratorState::NotDone;
-        it.inc_index();
-
-        match it.kind {
-            JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => Ok(JSValue::from(idx)),
-            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => it.value().get_property_u32(ctx, idx),
-            JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                let val = it.value().get_property_u32(ctx, idx)?;
-                let num = JSValue::from(idx);
-                crate::array::Array::from_values(ctx, vec![num, val]).map(|a| a.into())
-            }
-        }
+        tao.length() as u32
     } else {
-        unreachable!("")
+        // is Array or String
+        it.value().get_length_prop(ctx)? as u32
+    };
+
+    let idx = it.index();
+    if idx >= len {
+        it.set_value(JSValue::UNDEFINED);
+        *state = IteratorState::Done;
+        return Ok(JSValue::UNDEFINED);
+    }
+
+    *state = IteratorState::NotDone;
+    it.inc_index();
+
+    match it.kind {
+        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => Ok(JSValue::from(idx)),
+        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => it.value().get_property_u32(ctx, idx),
+        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
+            let val = it.value().get_property_u32(ctx, idx)?;
+            let num = JSValue::from(idx);
+            crate::array::Array::from_values(ctx, vec![num, val]).map(|a| a.into())
+        }
     }
 }

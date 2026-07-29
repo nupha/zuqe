@@ -9,7 +9,7 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    ClassDef,
+    ClassDef, JS_CLASS_DATE,
     atom::{Atom, AtomKind},
     context::ScopedContext,
     error::JSResult,
@@ -673,7 +673,8 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
                     &MONTH_NAMES[mon as usize * 3..(mon as usize * 3 + 3)],
                     width = if y < 0 { 5 } else { 4 }
                 );
-                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
+                buf.push_str(s.as_str())
+                    .map_err(|_| ctx.throw_out_of_memory())?;
                 if part == 3 {
                     // space beteween date and time
                     buf.push_char(' ').map_err(|_| ctx.throw_out_of_memory())?;
@@ -686,7 +687,8 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
                     &MONTH_NAMES[mon as usize * 3..(mon as usize * 3 + 3)],
                     width = if y < 0 { 5 } else { 4 }
                 );
-                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
+                buf.push_str(s.as_str())
+                    .map_err(|_| ctx.throw_out_of_memory())?;
                 if part == 3 {
                     // space beteween date and time
                     buf.push_char(' ').map_err(|_| ctx.throw_out_of_memory())?;
@@ -698,7 +700,8 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
                 } else {
                     format!("{y:+07}-{:02}-{d:02}T", mon + 1)
                 };
-                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
+                buf.push_str(s.as_str())
+                    .map_err(|_| ctx.throw_out_of_memory())?;
             }
             3 => {
                 let s = format!(
@@ -706,7 +709,8 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
                     mon + 1,
                     width = if y < 0 { 5 } else { 4 }
                 );
-                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
+                buf.push_str(s.as_str())
+                    .map_err(|_| ctx.throw_out_of_memory())?;
                 if part == 3 {
                     buf.push_str(", ").map_err(|_| ctx.throw_out_of_memory())?;
                 }
@@ -720,7 +724,8 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
         match fmt {
             0 => {
                 let s = format!("{h:02}:{m:02}:{s:02} GMT");
-                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
+                buf.push_str(s.as_str())
+                    .map_err(|_| ctx.throw_out_of_memory())?;
             }
             1 => {
                 let s = format!("{h:02}:{m:02}:{s:02} GMT");
@@ -734,7 +739,8 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
             }
             2 => {
                 let s = format!("{h:02}:{m:02}:{s:02}.{ms:03}Z");
-                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
+                buf.push_str(s.as_str())
+                    .map_err(|_| ctx.throw_out_of_memory())?;
             }
             3 => {
                 let s = format!(
@@ -742,7 +748,8 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
                     (h + 11) % 12 + 1,
                     if h < 12 { 'A' } else { 'P' }
                 );
-                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
+                buf.push_str(s.as_str())
+                    .map_err(|_| ctx.throw_out_of_memory())?;
             }
             _ => {}
         }
@@ -886,13 +893,12 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     let tm: Datetime = match nargs {
         0 => Datetime::now(),
         1 => {
-            if let Some(ts) = cc.arg(0).as_object().and_then(|p| {
-                if let ObjectPayload::DATE(dt) = p.payload() {
-                    Some(*dt)
-                } else {
-                    None
-                }
-            }) {
+            if let Some(ts) = cc
+                .arg(0)
+                .payload()
+                .and_then(ObjectPayload::datetime)
+                .copied()
+            {
                 ts
             } else {
                 let v = cc.arg(0).to_primitive(ctx, HINT_NONE)?;
@@ -940,17 +946,7 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 }
 
 fn JS_ThisTimeValue(ctx: &mut ScopedContext, this: JSValue) -> Result<Datetime, i32> {
-    if let Some(t) = this.as_object().and_then(|o| {
-        if let ObjectPayload::DATE(dt) = o.payload() {
-            Some(*dt)
-        } else {
-            None
-        }
-    }) {
-        Ok(t)
-    } else {
-        Err(ctx.throw_type_error("not a Date object"))
-    }
+    this.class_payload(ctx, JS_CLASS_DATE).copied()
 }
 
 fn js_date_getTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -967,12 +963,9 @@ fn js_date_setTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         Datetime::INVALID
     };
 
-    if let ObjectPayload::DATE(dt) = cc.this().as_object().unwrap().payload_mut() {
-        *dt = dt2;
-        Ok(dt2.into())
-    } else {
-        Err(ctx.throw_type_error("not a Date object"))
-    }
+    let mut this = cc.this();
+    *this.class_payload_mut(ctx, JS_CLASS_DATE)? = dt2;
+    Ok(dt2.into())
 }
 
 fn get_date_string(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -1037,7 +1030,7 @@ fn get_date_field(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn set_date_field_internal(
     ctx: &mut ScopedContext,
-    this: JSValue,
+    mut this: JSValue,
     args: &[JSValue],
     magic: i32,
 ) -> JSResult {
@@ -1079,18 +1072,15 @@ fn set_date_field_internal(
         Datetime::INVALID
     };
 
-    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().payload_mut() {
-        // Note: to pass test262
-        // only `this` timestamp is invalid, and not setting `year`, do update the timestamp.
-        // `this` timestamp could have been updated in valueOf() method.
-        if first_field == 0 || !this_is_bad {
-            *dt = dt2;
-        }
-
-        Ok(dt2.into())
-    } else {
-        Err(ctx.throw_type_error("not a Date object"))
+    let dt: &mut Datetime = this.class_payload_mut(ctx, JS_CLASS_DATE)?;
+    // Note: to pass test262
+    // only `this` timestamp is invalid, and not setting `year`, do update the timestamp.
+    // `this` timestamp could have been updated in valueOf() method.
+    if first_field == 0 || !this_is_bad {
+        *dt = dt2;
     }
+
+    Ok(dt2.into())
 }
 
 fn set_date_field(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

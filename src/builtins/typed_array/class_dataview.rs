@@ -15,7 +15,10 @@ use crate::{
     value::JSValue,
 };
 
-use super::{TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, TypedArray, dv::DataView};
+use super::{
+    TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, TypedArray,
+    dv::{DataView, DataViewPayload},
+};
 
 pub(super) fn js_dataview_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Some(buffer) = cc.arg(0).as_object_ArrayBuffer() else {
@@ -121,9 +124,7 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 };
                 Ok(JSValue::from(n))
             }
-            JS_CLASS_BIG_INT64_ARRAY => {
-                Err(ctx.throw_type_error("BigInt64Array is not supported"))
-            }
+            JS_CLASS_BIG_INT64_ARRAY => Err(ctx.throw_type_error("BigInt64Array is not supported")),
             JS_CLASS_BIG_UINT64_ARRAY => {
                 Err(ctx.throw_type_error("BigUint64Array is not supported"))
             }
@@ -164,10 +165,7 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut this = cc.this();
 
-    let dv = this
-        .retrive_object_payload(ctx, JS_CLASS_DATAVIEW)?
-        .data_view()
-        .unwrap();
+    let dv: &DataViewPayload = this.class_payload(ctx, JS_CLASS_DATAVIEW)?;
 
     let class_id = cc.magic() as ClassID;
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
@@ -210,10 +208,7 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(ctx.throw_range_error("out of bound"));
     }
 
-    let dv_mut = this
-        .retrive_object_payload_mut(ctx, JS_CLASS_DATAVIEW)?
-        .data_view_mut()
-        .unwrap();
+    let dv_mut: &mut DataViewPayload = this.class_payload_mut(ctx, JS_CLASS_DATAVIEW)?;
 
     dv_mut.with_bytes_mut(|buf| -> Result<(), i32> {
         unsafe {
