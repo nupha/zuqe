@@ -230,6 +230,7 @@ impl<'c> ScopedContext<'c> {
     }
 
     /// Throw a JS value as exception.
+    #[must_use]
     #[inline(always)]
     pub(crate) fn throw_value(&mut self, val: JSValue) -> ErrCode {
         self.throw(Exception::Error(val));
@@ -237,6 +238,7 @@ impl<'c> ScopedContext<'c> {
     }
 
     /// make error object and throw it as current exception.
+    #[must_use]
     #[inline(never)]
     #[cold]
     pub(crate) fn throw_error_internal(
@@ -265,25 +267,30 @@ impl<'c> ScopedContext<'c> {
 
     /// make error object and throw it as current exception.
     /// old exception will be freed.
+    #[must_use]
     pub fn throw_error(&mut self, kind: ErrorKind, message: &str) -> ErrCode {
         self.throw_error_internal(kind, message, self.throw_need_backtrace())
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_range_error(&mut self, message: &str) -> ErrCode {
         self.throw_error(ErrorKind::Range, message)
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_internal_error(&mut self, message: &str) -> ErrCode {
         self.throw_error(ErrorKind::Internal, message)
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_stack_overflow(&mut self) -> ErrCode {
         self.throw_internal_error("stack overflow")
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_stack_fail(&mut self) -> ErrCode {
         self.throw_internal_error("execution stack allocation failed")
@@ -291,6 +298,7 @@ impl<'c> ScopedContext<'c> {
 
     #[cold]
     #[inline(never)]
+    #[must_use]
     pub fn throw_stack_exceeded(&mut self) -> ErrCode {
         // Do NOT build a backtrace here: this is thrown from a CALL instruction
         // mid-dispatch (pc still points at CALL, sp holds unconsumed args), so
@@ -313,64 +321,75 @@ impl<'c> ScopedContext<'c> {
                 stack_val,
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             );
-            self.throw_value(err_obj.into());
+            self.throw_value(err_obj.into())
         } else {
             self.rt_mut().set_exception(Exception::OutOfMemory);
+            -1
         }
-        -1
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_type_error(&mut self, message: &str) -> ErrCode {
         self.throw_error(ErrorKind::Type, message)
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_uri_error(&mut self, message: &str) -> ErrCode {
         self.throw_error(ErrorKind::Uri, message)
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_type_error_not_an_object(&mut self) -> ErrCode {
         self.throw_type_error("not an object")
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_type_error_not_a_symbol(&mut self) -> ErrCode {
         self.throw_type_error("not a symbol")
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_type_error_revoked_proxy(&mut self) -> ErrCode {
         self.throw_type_error("revoked proxy")
     }
 
+    #[must_use]
     pub fn throw_type_error_invalid_class(&mut self, class_id: ClassID) -> ErrCode {
         let name = self.rt_ptr().class_registry[class_id as usize].name_atom;
         self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt())))
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_type_error_read_only(&mut self, atom: Atom) -> ErrCode {
         self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8(self.rt())))
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_reference_error(&mut self, message: &str) -> ErrCode {
         self.throw_error(ErrorKind::Reference, message)
     }
 
+    #[must_use]
     #[inline(always)]
     pub fn throw_syntax_error(&mut self, message: &str) -> ErrCode {
         self.throw_error(ErrorKind::Syntax, message)
     }
 
+    #[must_use]
     #[cold]
     pub fn throw_out_of_memory(&mut self) -> ErrCode {
         if self.rt().exception() != Exception::OutOfMemory {
-            self.throw_internal_error("out of memory");
+            self.throw_internal_error("out of memory")
+        } else {
+            -1
         }
-        -1
     }
 
     #[inline(never)]
@@ -539,10 +558,12 @@ pub fn JS_ThrowReferenceErrorUninitialized2(
     JS_ThrowReferenceErrorUninitialized(ctx, atom)
 }
 
+#[must_use]
 pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &mut ScopedContext) -> ErrCode {
     ctx.throw_type_error("ArrayBuffer is detached")
 }
 
+#[must_use]
 pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &mut ScopedContext, atom: Atom) -> ErrCode {
     ctx.throw_type_error(&format!(
         "private class field '{}' does not exist",
@@ -550,9 +571,9 @@ pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &mut ScopedContext, atom: Atom) -> 
     ))
 }
 
+#[must_use]
 pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &mut ScopedContext, prop: Atom) -> ErrCode {
-    ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())));
-    -1
+    ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())))
 }
 
 pub fn JS_SetUncatchableError(error_val: JSValue, is_uncatchable: bool) {
