@@ -19,8 +19,8 @@ use serde::Deserialize;
 
 use crate::{
     presets::{
-        Decisions, available_presets, build_feature_edition, enabled_features, is_known_preset,
-        resolve_decisions,
+        Decisions, PresetDef, available_presets, build_feature_edition, enabled_features,
+        is_known_preset, resolve_decisions,
     },
     report::{NO_FEATURE_KEY, make_last_jsonl_path, write_report},
     runner::{TestStatus, run_test_file},
@@ -58,6 +58,9 @@ pub struct AppConfig {
     pub exclude_features: Option<Vec<String>>,
     pub features: Option<Vec<String>>,
     pub preset: Option<String>,
+    /// Ordered edition presets; each entry inherits the features of every
+    /// entry before it (see `PresetDef`).
+    pub presets: Option<Vec<PresetDef>>,
     pub log: Option<String>,
 }
 
@@ -70,9 +73,7 @@ pub struct Args {
     #[arg(long = "config", default_value_t = String::from("test262.yml"))]
     pub config_file: String,
 
-    /// Edition preset to run. One of the built-in presets: ES5, ES2015, ES2016,
-    /// ES2017, ES2018, ES2019, ES2020, ES2021, ES2022, ES2023, ES2024, ES2025,
-    /// ES2026, or `ALL` (run every feature, limited only by `exclude_features`).
+    /// Edition preset to run; must name an entry in the config's `presets:`
     /// If `--preset` is omitted, the `preset:` setting from the config file is
     /// used; when a `features` whitelist is given (see `--features`) the preset
     /// is ignored and the run is reported as preset `USER`. If neither a preset
@@ -140,7 +141,7 @@ pub fn apply_cli_overrides(cfg: &mut AppConfig, args: &Args) {
 /// missing or invalid setting surfaces here instead of mid-run.
 /// `require_preset` is false in `--error-file` mode, where the preset no
 /// longer selects which scripts run.
-pub fn validate_config(cfg: &AppConfig, require_preset: bool) {
+pub fn validate_config(cfg: &AppConfig, presets: &[PresetDef], require_preset: bool) {
     // A non-empty `features` whitelist (from the file or `--features`) selects
     // what runs on its own (USER preset mode), so `preset` becomes optional.
     let has_features = cfg.features.as_ref().is_some_and(|l| !l.is_empty());
@@ -149,19 +150,29 @@ pub fn validate_config(cfg: &AppConfig, require_preset: bool) {
     // the file or from `--preset`. Skipped when re-running from an errors
     // list, since preset-based filtering is off.
     if let Some(preset) = cfg.preset.as_deref() {
-        if !has_features && !is_known_preset(preset) {
-            eprintln!(
-                "error: unknown preset '{preset}'. available presets: {}",
-                available_presets()
-            );
-            std::process::exit(1);
+        if !has_features {
+            // Resolving a preset name requires the config's `presets:` list.
+            if presets.is_empty() {
+                eprintln!(
+                    "error: config file defines no 'presets:' list; cannot resolve preset \
+                     '{preset}'. Add a 'presets:' section to the config file."
+                );
+                std::process::exit(1);
+            }
+            if !is_known_preset(presets, preset) {
+                eprintln!(
+                    "error: unknown preset '{preset}'. available presets: {}",
+                    available_presets(presets)
+                );
+                std::process::exit(1);
+            }
         }
     } else if require_preset && !has_features {
         eprintln!(
             "error: no preset or features specified. Set 'preset:'/'features:' in the config file \
              or pass --preset <NAME> / --features <LIST>.\n\
              available presets: {}",
-            available_presets()
+            available_presets(presets)
         );
         std::process::exit(1);
     }
@@ -285,13 +296,16 @@ async fn main_impl() {
     };
 
     // Merge CLI flags over the file config, then validate everything up front.
+    // The ordered preset list comes from the config's `presets:` section.
     apply_cli_overrides(&mut app_cfg, &args);
-    validate_config(&app_cfg, forced.is_none());
+    let preset_list: Vec<PresetDef> = app_cfg.presets.take().unwrap_or_default();
+    validate_config(&app_cfg, &preset_list, forced.is_none());
 
     let dec = if forced.is_some() {
         // Re-run mode: run exactly the listed scripts, no preset/feature filtering.
-        let (_, max_index) = build_feature_edition();
+        let (_, max_index) = build_feature_edition(&preset_list);
         Decisions {
+            presets: preset_list,
             feature_edition: HashMap::new(),
             selected_index: max_index + 1,
             max_index,
@@ -299,7 +313,7 @@ async fn main_impl() {
             user_features: None,
         }
     } else {
-        resolve_decisions(&app_cfg)
+        resolve_decisions(&app_cfg, preset_list)
     };
 
     // `base_path` was already validated as an existing directory in
