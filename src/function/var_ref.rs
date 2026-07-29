@@ -5,7 +5,7 @@ use std::ptr::NonNull;
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
-use crate::{RuntimeImpl, context::ScopedContext, gcref_wrapper, value::JSValue};
+use crate::{RuntimeImpl, context::ScopedContext, gc::GcHeapExt, gcref_wrapper, value::JSValue};
 
 #[repr(u8)]
 #[derive(Debug)]
@@ -134,9 +134,7 @@ impl VarRef {
 
     pub(crate) fn set_value(&mut self, rt: &mut RuntimeImpl, new_value: JSValue) {
         self.set_value_internal(new_value);
-        if let Some(n) = new_value.as_gc_node() {
-            rt.gc_heap_mut().bind(self.gc_node_ptr(), n);
-        }
+        rt.gc_heap_mut().bind_value(self.gc_node_ptr(), &new_value);
     }
 
     pub(crate) fn create(ctx: &mut ScopedContext, value: JSValue) -> Result<Self, i32> {

@@ -10,6 +10,7 @@ use crate::{
     atom::Atom,
     context::{ContextImpl, ScopedContext},
     error::JSResult,
+    gc::GcHeapExt,
     object::{JS_SpeciesConstructor, Object, ObjectImpl, ObjectPayload},
     object_cast,
     utils::unlikely,
@@ -198,19 +199,17 @@ impl Promise {
         match state {
             PromiseState::Pending => {
                 // bind write barrier
-                [
+                let self_node = self.gc_node_ptr();
+                for v in [
                     success.resolving_funcs[0],
                     success.resolving_funcs[1],
                     success.handler,
                     fail.resolving_funcs[0],
                     fail.resolving_funcs[1],
                     fail.handler,
-                ]
-                .iter()
-                .filter_map(|v| v.as_gc_node())
-                .for_each(|n| {
-                    ctx.gc_heap_mut().bind(self.gc_node_ptr(), n);
-                });
+                ] {
+                    ctx.gc_heap_mut().bind_value(self_node, &v);
+                }
 
                 self.payload_mut().add_reaction(success, fail);
             }
@@ -265,9 +264,7 @@ impl Promise {
     /// Save result `value` and update promise status to 'fulfilled' or 'rejected'.
     /// Call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     fn settle(&mut self, ctx: &mut ScopedContext, value: JSValue, is_reject: bool) {
-        if let Some(n) = value.as_gc_node() {
-            ctx.gc_heap_mut().bind(self.gc_node_ptr(), n); // write barrier
-        }
+        ctx.gc_heap_mut().bind_value(self.gc_node_ptr(), &value); // write barrier
 
         let (state, is_handled) = {
             let p = self.payload_mut();

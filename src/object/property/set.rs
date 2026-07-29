@@ -13,6 +13,7 @@ use crate::{
     context::ScopedContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized},
     function::prop_str_to_atom,
+    gc::GcHeapExt,
     object::{
         JS_PROP_FORCE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE,
         JS_PROP_LAZYINIT, JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF,
@@ -361,10 +362,8 @@ impl ObjectImpl {
                                 // update existing
                                 arr_data.set_nth(index, val);
                                 // bind reference relation
-                                if let Some(n) = val.as_gc_node() {
-                                    let self_node = self.gc_head_ptr();
-                                    self.rt_ptr().gc_heap_mut().bind(self_node, n);
-                                }
+                                let self_node = self.gc_head_ptr();
+                                self.rt_ptr().gc_heap_mut().bind_value(self_node, &val);
                                 Some(Ok(true)) // fast array exit
                             }
                             std::cmp::Ordering::Equal => {
@@ -419,10 +418,8 @@ impl ObjectImpl {
                     if index < arr_data.len() {
                         arr_data.set_nth(index, val);
                         // bind reference relation
-                        if let Some(n) = val.as_gc_node() {
-                            let self_node = self.gc_head_ptr();
-                            self.rt_ptr().gc_heap_mut().bind(self_node, n);
-                        }
+                        let self_node = self.gc_head_ptr();
+                        self.rt_ptr().gc_heap_mut().bind_value(self_node, &val);
                         Some(Ok(true))
                     } else {
                         None

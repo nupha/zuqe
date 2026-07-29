@@ -9,6 +9,7 @@ use crate::{
     class::ClassID,
     error::JSResult,
     function::{CallContext, FieldDef},
+    gc::GcHeapExt,
     number::MAX_SAFE_INTEGER,
     object::{JS_PROP_CONFIGURABLE, Object, ObjectPayload},
     value::JSValue,
@@ -168,12 +169,8 @@ pub(crate) fn js_map_getOrInsert(ctx: &mut ScopedContext, cc: CallContext) -> JS
     // Bind GC reference relations
     let this_obj = cc.this().as_object().unwrap();
     let self_node = this_obj.gc_node_ptr();
-    if let Some(n) = key.as_gc_node() {
-        this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
-    }
-    if let Some(n) = value.as_gc_node() {
-        this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
-    }
+    this_obj.rt_ptr().gc_heap_mut().bind_value(self_node, &key);
+    this_obj.rt_ptr().gc_heap_mut().bind_value(self_node, &value);
 
     Ok(value)
 }
@@ -209,12 +206,8 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // bind reference relation for gc values
     let this_obj = cc.this().as_object().unwrap();
     let self_node = this_obj.gc_node_ptr();
-    if let Some(n) = key.as_gc_node() {
-        this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
-    }
-    if let Some(n) = map_val.as_gc_node() {
-        this_obj.rt_ptr().gc_heap_mut().bind(self_node, n);
-    }
+    this_obj.rt_ptr().gc_heap_mut().bind_value(self_node, &key);
+    this_obj.rt_ptr().gc_heap_mut().bind_value(self_node, &map_val);
 
     Ok(this)
 }

@@ -9,6 +9,7 @@ use crate::{
     bytecode::operators::js_get_function_name,
     context::ScopedContext,
     function::prop_str_to_atom,
+    gc::GcHeapExt,
     number::IntOrFloat,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSProperty,
@@ -137,10 +138,8 @@ impl ObjectImpl {
                                     // in case the array has already been marked Black and a new White
                                     // value is set_nth(), calling bind() ensures the value is grayed
                                     // before GC proceeds, preventing it from being swept.
-                                    if let Some(n) = val.as_gc_node() {
-                                        let self_node = self.gc_head_ptr();
-                                        ctx.gc_heap_mut().bind(self_node, n);
-                                    }
+                                    let self_node = self.gc_head_ptr();
+                                    ctx.gc_heap_mut().bind_value(self_node, &val);
                                 }
                                 return Ok(true);
                             }

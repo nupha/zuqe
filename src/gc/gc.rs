@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ptr::NonNull;
+
 use gc_lite::{
-    GcError, GcHeap, GcNode, GcPartitionId, GcRef, GcTrace, GcTraceFn, gc_type_register,
+    GcError, GcHead, GcHeap, GcNode, GcPartitionId, GcRef, GcTrace, GcTraceFn, gc_type_register,
 };
 
 use crate::{
@@ -27,6 +29,22 @@ gc_type_register! {
     RopeImpl;
     AsyncStateImpl;
     ShapeImpl, drop_pass = 1;
+}
+
+/// zhuque-side extension of [`GcHeap`] for [`JSValue`] write barriers.
+pub(crate) trait GcHeapExt {
+    /// Write barrier for a value write: if `val` is a gc node, `bind` it to
+    /// `owner`; no-op for non-gc values.
+    fn bind_value(&mut self, owner: NonNull<GcHead>, val: &JSValue);
+}
+
+impl GcHeapExt for GcHeap {
+    #[inline(always)]
+    fn bind_value(&mut self, owner: NonNull<GcHead>, val: &JSValue) {
+        if let Some(n) = val.as_gc_node() {
+            self.bind(owner, n);
+        }
+    }
 }
 
 impl RuntimeImpl {

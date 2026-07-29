@@ -11,6 +11,7 @@ use crate::{
     IntOrFloat, JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY,
     atom::Atom,
     context::ScopedContext,
+    gc::GcHeapExt,
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
@@ -281,9 +282,7 @@ impl Array {
         let self_node = self.gc_node_ptr();
         let mut rt = self.rt_ptr();
         for v in values.iter() {
-            if let Some(n) = v.as_gc_node() {
-                rt.gc_heap_mut().bind(self_node, n);
-            }
+            rt.gc_heap_mut().bind_value(self_node, v);
         }
 
         self.payload_mut().replace_values(values);
@@ -681,10 +680,8 @@ impl ObjectImpl {
             .map_err(|_| ctx.throw_out_of_memory())?;
 
         // bind reference relation
-        if let Some(n) = value.as_gc_node() {
-            let self_node = self.gc_head_ptr();
-            ctx.rt_ptr().gc_heap_mut().bind(self_node, n);
-        }
+        let self_node = self.gc_head_ptr();
+        ctx.rt_ptr().gc_heap_mut().bind_value(self_node, &value);
 
         Ok(true)
     }

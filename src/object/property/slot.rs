@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ptr::NonNull;
-
-use gc_lite::{GcHead, GcNode};
+use gc_lite::GcNode;
 
 use crate::{
     JS_CLASS_MODULE_NS,
     atom::Atom,
     context::ScopedContext,
+    gc::GcHeapExt,
     object::{LazyInit, Object, ObjectImpl},
     utils::unlikely,
     value::JSValue,
@@ -58,34 +57,36 @@ impl ObjectImpl {
         }
     }
 
+    /// Write barrier for the property just stored at slot `idx`: bind every
+    /// gc node it references to `self`.
+    fn bind_prop_slot(&self, idx: usize) {
+        let self_node = self.gc_head_ptr();
+        let mut rt = self.rt_ptr();
+        let heap = rt.gc_heap_mut();
+
+        match self.prop_slot(idx) {
+            JSProperty::Normal(val) => heap.bind_value(self_node, val),
+            JSProperty::GetSet { getter, setter } => {
+                for o in [getter, setter].into_iter().flatten() {
+                    heap.bind(self_node, o.gc_node_ptr());
+                }
+            }
+            JSProperty::VarRef(vr) => heap.bind(self_node, vr.gc_node_ptr()),
+            JSProperty::LazyInit {
+                init: LazyInit::ModuleNS(m),
+                ..
+            } => heap.bind(self_node, m.gc_node_ptr()),
+            _ => {}
+        }
+    }
+
     /// set property at slot `idx`, returns the old one
     pub(crate) fn replace_prop_slot(&mut self, idx: usize, p: JSProperty) -> JSProperty {
         debug_assert!(idx < self.prop_values.len());
 
-        let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
-            JSProperty::Normal(val) => [val.as_gc_node(), None],
-            JSProperty::GetSet { getter, setter } => [
-                getter.map(|o| o.gc_node_ptr()),
-                setter.map(|o| o.gc_node_ptr()),
-            ],
-            JSProperty::VarRef(vr) => [Some(vr.gc_node_ptr()), None],
-            JSProperty::LazyInit {
-                init: LazyInit::ModuleNS(m),
-                ..
-            } => [Some(m.gc_node_ptr()), None],
-            _ => [None, None],
-        };
-
         let old = unsafe { std::ptr::replace(self.prop_values.get_unchecked_mut(idx), p) };
 
-        if gc_node[0].is_some() || gc_node[1].is_some() {
-            let self_node = self.gc_head_ptr();
-            let mut rt = self.rt_ptr();
-
-            for node in gc_node.into_iter().flatten() {
-                rt.gc_heap_mut().bind(self_node, node);
-            }
-        }
+        self.bind_prop_slot(idx);
 
         old
     }
@@ -94,32 +95,11 @@ impl ObjectImpl {
     pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
         debug_assert!(idx < self.prop_values.len());
 
-        let gc_node: [Option<NonNull<GcHead>>; 2] = match &p {
-            JSProperty::Normal(val) => [val.as_gc_node(), None],
-            JSProperty::GetSet { getter, setter } => [
-                getter.map(|o| o.gc_node_ptr()),
-                setter.map(|o| o.gc_node_ptr()),
-            ],
-            JSProperty::VarRef(vr) => [Some(vr.gc_node_ptr()), None],
-            JSProperty::LazyInit {
-                init: LazyInit::ModuleNS(m),
-                ..
-            } => [Some(m.gc_node_ptr()), None],
-            _ => [None, None],
-        };
-
         unsafe {
             *self.prop_values.get_unchecked_mut(idx) = p;
         }
 
-        if gc_node[0].is_some() || gc_node[1].is_some() {
-            let self_node = self.gc_head_ptr();
-            let mut rt = self.rt_ptr();
-
-            for node in gc_node.into_iter().flatten() {
-                rt.gc_heap_mut().bind(self_node, node);
-            }
-        }
+        self.bind_prop_slot(idx);
     }
 
     /// extend property slot
