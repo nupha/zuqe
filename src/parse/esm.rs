@@ -28,15 +28,13 @@ impl<'s> JSParseState<'s> {
     /// returned atom is duplicated, caller should free it after use.
     fn parse_from_clause(&mut self) -> Result<(Atom, JSValue), i32> {
         if !self.token_is_pseudo_keyword(Atom::CONST_from) {
-            self.throw_syntax_error("from clause expected");
-            return Err(-1);
+            return Err(self.throw_syntax_error("from clause expected"));
         }
 
         self.next_token()?;
 
         if self.token.kind != TokenKind::STRING {
-            self.throw_syntax_error("string expected");
-            return Err(-1);
+            return Err(self.throw_syntax_error("string expected"));
         }
 
         let module_name = {
@@ -81,21 +79,18 @@ impl<'s> JSParseState<'s> {
             } else if self.token.kind == TokenKind::IDENT || self.token.kind.is_keyword() {
                 self.token.atom().unwrap()
             } else {
-                self.throw_syntax_error("identifier or string expected");
-                return Err(-1);
+                return Err(self.throw_syntax_error("identifier or string expected"));
             };
 
             self.next_token()?;
 
             if self.token.kind != TokenKind::Char(':') {
-                self.throw_syntax_error("expected ':'");
-                return Err(-1);
+                return Err(self.throw_syntax_error("expected ':'"));
             }
             self.next_token()?;
 
             if self.token.kind != TokenKind::STRING {
-                self.throw_syntax_error("string expected");
-                return Err(-1);
+                return Err(self.throw_syntax_error("string expected"));
             }
 
             // --- Parse value (extract token data before acquiring ctx) ---
@@ -108,8 +103,7 @@ impl<'s> JSParseState<'s> {
 
             // Check for duplicate keys
             if keys.contains(&key) {
-                self.throw_syntax_error("duplicate with key");
-                return Err(-1);
+                return Err(self.throw_syntax_error("duplicate with key"));
             }
             keys.push(key);
 
@@ -165,8 +159,7 @@ impl<'s> JSParseState<'s> {
             let done = if self.token.kind == TokenKind::IDENT {
                 // import <default>
                 if self.token.data.is_reserved() {
-                    self.throw_reserved_identifier_error();
-                    return Err(-1);
+                    return Err(self.throw_reserved_identifier_error());
                 }
 
                 let local_name = self.token.atom().unwrap();
@@ -192,15 +185,13 @@ impl<'s> JSParseState<'s> {
                         self.next_token()?;
 
                         if !self.token_is_pseudo_keyword(Atom::CONST_as) {
-                            self.throw_syntax_error("expecting 'as'");
-                            return Err(-1);
+                            return Err(self.throw_syntax_error("expecting 'as'"));
                         }
 
                         self.next_token()?;
 
                         if !self.token.kind.is_ident() {
-                            self.throw_syntax_error("identifier expected");
-                            return Err(-1);
+                            return Err(self.throw_syntax_error("identifier expected"));
                         }
 
                         let local_name = self.token.atom().unwrap();
@@ -222,8 +213,7 @@ impl<'s> JSParseState<'s> {
                                 }
                                 t if t.is_keyword() => t.keyword_atom().unwrap(),
                                 _ => {
-                                    self.throw_syntax_error("identifier or string expected");
-                                    return Err(-1);
+                                    return Err(self.throw_syntax_error("identifier or string expected"));
                                 }
                             };
 
@@ -233,8 +223,7 @@ impl<'s> JSParseState<'s> {
                                 self.next_token()?;
 
                                 if !self.token.kind.is_ident() {
-                                    self.throw_syntax_error("identifier expected");
-                                    return Err(-1);
+                                    return Err(self.throw_syntax_error("identifier expected"));
                                 }
 
                                 let ln = self.token.atom().unwrap();
@@ -327,8 +316,7 @@ impl<'s> JSParseState<'s> {
                         }
                         t if t.is_keyword() => t.keyword_atom().unwrap(),
                         _ => {
-                            self.throw_syntax_error("identifier or string expected");
-                            return Err(-1);
+                            return Err(self.throw_syntax_error("identifier or string expected"));
                         }
                     };
 
@@ -347,8 +335,7 @@ impl<'s> JSParseState<'s> {
                             }
                             t if t.is_keyword() => t.keyword_atom().unwrap(),
                             _ => {
-                                self.throw_syntax_error("identifier or string expected");
-                                return Err(-1);
+                                return Err(self.throw_syntax_error("identifier or string expected"));
                             }
                         };
 
@@ -430,8 +417,7 @@ impl<'s> JSParseState<'s> {
                         }
                         t if t.is_keyword() => t.keyword_atom().unwrap(),
                         _ => {
-                            self.throw_syntax_error("identifier or string expected");
-                            return Err(-1);
+                            return Err(self.throw_syntax_error("identifier or string expected"));
                         }
                     };
 
@@ -498,8 +484,7 @@ impl<'s> JSParseState<'s> {
             }
 
             _ => {
-                self.throw_syntax_error("invalid export syntax");
-                return Err(-1);
+                return Err(self.throw_syntax_error("invalid export syntax"));
             }
         }
 
@@ -554,8 +539,7 @@ impl<'s> JSParseState<'s> {
         import_name: Atom,
     ) -> Result<(), i32> {
         if matches!(local_name, Atom::CONST_arguments | Atom::CONST_eval) {
-            self.throw_syntax_error("invalid import binding");
-            return Err(-1);
+            return Err(self.throw_syntax_error("invalid import binding"));
         }
 
         if local_name != Atom::CONST_default
@@ -565,8 +549,7 @@ impl<'s> JSParseState<'s> {
                 .as_ref()
                 .is_some_and(|lst| lst.iter().any(|cv| cv.var_name == local_name))
         {
-            self.throw_syntax_error("duplicate import binding");
-            return Err(-1);
+            return Err(self.throw_syntax_error("duplicate import binding"));
         }
 
         let is_local = import_name == Atom::CONST__star_;

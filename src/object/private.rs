@@ -26,18 +26,15 @@ impl ObjectImpl {
                 {
                     Atom::from_id(s.atom_info().unwrap().id())
                 } else {
-                    ctx.throw_type_error_not_an_object();
-                    return Err(-1);
+                    return Err(ctx.throw_type_error_not_an_object());
                 };
                 Ok(self.has_shape_property(atom))
             } else {
-                ctx.throw_type_error("expecting <brand> private field");
-                Err(-1)
+                Err(ctx.throw_type_error("expecting <brand> private field"))
             }
         } else {
             // Not a function object or can't find function's home object
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 
@@ -48,8 +45,7 @@ impl ObjectImpl {
         val: JSValue,
     ) -> Result<(), i32> {
         let Some(s) = name.as_symbol(true) else {
-            ctx.throw_type_error_not_a_symbol();
-            return Err(-1);
+            return Err(ctx.throw_type_error_not_a_symbol());
         };
 
         let atom = Atom::from_id(s.atom_info().unwrap().id());
@@ -57,15 +53,13 @@ impl ObjectImpl {
             self.set_prop_slot(idx, JSProperty::Normal(val));
             Ok(())
         } else {
-            JS_ThrowTypeErrorPrivateNotFound(ctx, atom);
-            Err(-1)
+            Err(JS_ThrowTypeErrorPrivateNotFound(ctx, atom))
         }
     }
 
     fn get_private_field(&self, ctx: &mut ScopedContext, name: JSValue) -> JSResult {
         let Some(s) = name.as_symbol(true) else {
-            ctx.throw_type_error_not_a_symbol();
-            return Err(-1);
+            return Err(ctx.throw_type_error_not_a_symbol());
         };
 
         let atom = Atom::from_id(s.atom_info().unwrap().id());
@@ -76,8 +70,7 @@ impl ObjectImpl {
                 unreachable!()
             }
         } else {
-            JS_ThrowTypeErrorPrivateNotFound(ctx, atom);
-            Err(-1)
+            Err(JS_ThrowTypeErrorPrivateNotFound(ctx, atom))
         }
     }
 
@@ -89,8 +82,7 @@ impl ObjectImpl {
         val: JSValue,
     ) -> Result<(), i32> {
         let Some(s) = name.as_symbol(true) else {
-            ctx.throw_type_error_not_a_symbol();
-            return Err(-1);
+            return Err(ctx.throw_type_error_not_a_symbol());
         };
 
         let a = Atom::from_id(s.atom_info().unwrap().id());
@@ -98,16 +90,14 @@ impl ObjectImpl {
         // Per ECMAScript PrivateFieldAdd (O, P, value):
         //   1. If O.[[Extensible]] is false, throw a TypeError exception.
         if !self.is_extensible_obj(ctx)? {
-            ctx.throw_type_error("private field on non-extensible object");
-            return Err(-1);
+            return Err(ctx.throw_type_error("private field on non-extensible object"));
         }
 
         if self.has_shape_property(a) {
-            ctx.throw_type_error(&format!(
+            Err(ctx.throw_type_error(&format!(
                 "private class field '{}' already exists",
                 s.content().encode_utf8(false)
-            ));
-            Err(-1)
+            )))
         } else {
             self.add_own_property(ctx, a, JS_PROP_C_W_E, JSProperty::Normal(val))
         }
@@ -120,8 +110,7 @@ impl JSValue {
         if let Some(ob) = self.as_object() {
             ob.check_brand(ctx, func)
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 
@@ -153,11 +142,9 @@ impl JSValue {
             if let Some(mut ob) = self.as_object() {
                 let brand_atom = brand_sym.to_atom(ctx).unwrap();
                 if ob.has_shape_property(brand_atom) {
-                    ctx.throw_type_error("private method is already present");
-                    Err(-1)
+                    Err(ctx.throw_type_error("private method is already present"))
                 } else if !ob.is_extensible_obj(ctx)? {
-                    ctx.throw_type_error("cannot add private fields to non-extensible object");
-                    Err(-1)
+                    Err(ctx.throw_type_error("cannot add private fields to non-extensible object"))
                 } else {
                     ob.add_own_property(
                         ctx,
@@ -170,8 +157,7 @@ impl JSValue {
                 Ok(())
             }
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 
@@ -183,14 +169,12 @@ impl JSValue {
     ) -> Result<(), i32> {
         if let Some(mut o) = self.as_object() {
             if unlikely(!o.flags().extensible()) {
-                ctx.throw_type_error("object is nonextensible for private field");
-                Err(-1)
+                Err(ctx.throw_type_error("object is nonextensible for private field"))
             } else {
                 o.set_private_field(ctx, name, val)
             }
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 
@@ -198,8 +182,7 @@ impl JSValue {
         if let Some(ob) = self.as_object() {
             ob.get_private_field(ctx, name)
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 
@@ -213,8 +196,7 @@ impl JSValue {
         if let Some(mut ob) = self.as_object() {
             ob.define_private_field(ctx, name, val)
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 }

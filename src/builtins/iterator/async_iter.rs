@@ -316,12 +316,10 @@ fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     let this = cc.this();
 
     let Some(o) = this.as_object() else {
-        ctx.throw_type_error("not an AsyncIterableIterator");
-        return Err(-1);
+        return Err(ctx.throw_type_error("not an AsyncIterableIterator"));
     };
     let Some(ait) = o.payload().async_iterator() else {
-        ctx.throw_type_error("not an AsyncIterableIterator");
-        return Err(-1);
+        return Err(ctx.throw_type_error("not an AsyncIterableIterator"));
     };
 
     if ait.completed() {

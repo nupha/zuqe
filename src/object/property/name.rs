@@ -104,8 +104,7 @@ impl ObjectImpl {
                         && let JSProperty::VarRef(vref) = self.prop_slot(idx)
                         && unlikely(vref.value().is_uninitialized())
                     {
-                        JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
-                        return Err(-1);
+                        return Err(JS_ThrowReferenceErrorUninitialized(ctx, prs.atom));
                     }
 
                     let pk = PropertyKey::new(ctx, prs.atom, is_enumerable, false);
@@ -215,10 +214,7 @@ impl ObjectImpl {
 
         self.own_property_names_foreach(ctx, flags, |cx, pp| {
             if unlikely(lst.len() == lst.capacity()) {
-                lst.try_reserve(1).map_err(|_| {
-                    cx.throw_out_of_memory();
-                    -1
-                })?;
+                lst.try_reserve(1).map_err(|_| cx.throw_out_of_memory())?;
             }
 
             if !pp.is_exotic {
@@ -272,10 +268,7 @@ impl ObjectImpl {
         let pkeys = self.get_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
 
         let mut ret = Vec::<(JSValue, JSValue)>::new();
-        ret.try_reserve_exact(pkeys.len()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        ret.try_reserve_exact(pkeys.len()).map_err(|_| ctx.throw_out_of_memory())?;
 
         for pk in pkeys.iter() {
             if flags & JS_GPN_ENUM_ONLY != 0 {

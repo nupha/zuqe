@@ -50,16 +50,14 @@ pub(crate) fn limit_to_count(
 ) -> Result<i64, i32> {
     let limit: f64 = val.to_number(ctx)?.to_f64();
     if limit.is_nan() {
-        ctx.throw_range_error(&format!("{name} value must be a non-negative number"));
-        return Err(-1);
+        return Err(ctx.throw_range_error(&format!("{name} value must be a non-negative number")));
     }
     if limit.is_infinite() {
         Ok(MAX_SAFE_INTEGER)
     } else {
         let int_limit = limit.trunc() as i64;
         if int_limit < 0 {
-            ctx.throw_range_error(&format!("{name} value must be a non-negative number"));
-            return Err(-1);
+            return Err(ctx.throw_range_error(&format!("{name} value must be a non-negative number")));
         }
         Ok(int_limit)
     }

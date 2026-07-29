@@ -342,10 +342,7 @@ pub(crate) fn js_atom_concat_str(
 
     let mut buf = String::new();
     buf.try_reserve_exact(astr.len() + str1.len())
-        .map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        .map_err(|_| ctx.throw_out_of_memory())?;
 
     buf.push_str(&astr);
     buf.push_str(str1);

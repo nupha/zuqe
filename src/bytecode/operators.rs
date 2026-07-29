@@ -77,8 +77,7 @@ pub(super) fn js_operator_in(
     prop: &JSValue,
 ) -> Result<bool, i32> {
     if unlikely(!obj.is_object()) {
-        ctx.throw_type_error("invalid 'in' operand");
-        Err(-1)
+        Err(ctx.throw_type_error("invalid 'in' operand"))
     } else {
         let atom = prop.to_atom(ctx)?;
         obj.has_property(ctx, atom)
@@ -103,8 +102,7 @@ pub(super) fn js_operator_private_in(ctx: &mut ScopedContext, sp: *mut JSValue) 
         }
         Ok(())
     } else {
-        ctx.throw_type_error("invalid 'in' operand");
-        Err(-1)
+        Err(ctx.throw_type_error("invalid 'in' operand"))
     }
 }
 
@@ -136,8 +134,7 @@ pub(super) fn js_op_define_class_for_arena(
             parent_proto = None;
             parent_class = ctx.function_proto().into();
         } else if unlikely(!parent_class.is_constructor()) {
-            ctx.throw_type_error("parent class must be constructor ");
-            return Err(-1);
+            return Err(ctx.throw_type_error("parent class must be constructor "));
         } else {
             let pt = parent_class.get_property(ctx, Atom::CONST_prototype)?;
             parent_proto = if let Some(o) = pt.as_object() {
@@ -145,8 +142,7 @@ pub(super) fn js_op_define_class_for_arena(
             } else if pt.is_null() {
                 None
             } else {
-                ctx.throw_type_error("parent prototype must be an object or null");
-                return Err(-1);
+                return Err(ctx.throw_type_error("parent prototype must be an object or null"));
             };
         }
     } else {
@@ -269,8 +265,7 @@ pub(super) unsafe fn js_append_enumerate(
 ) -> Result<(), i32> {
     // the index where append starts
     let Some(mut pos) = unsafe { &*sp.offset(-2) }.as_int() else {
-        ctx.throw_internal_error("invalid index for append");
-        return Err(-1);
+        return Err(ctx.throw_internal_error("invalid index for append"));
     };
 
     let (src, dest) = unsafe {

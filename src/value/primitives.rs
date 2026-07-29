@@ -36,8 +36,7 @@ impl ObjectImpl {
                 return if !ret.is_object() {
                     Ok(ret)
                 } else {
-                    ctx.throw_type_error("toPrimitive");
-                    Err(-1)
+                    Err(ctx.throw_type_error("toPrimitive"))
                 };
             }
         }
@@ -60,8 +59,7 @@ impl ObjectImpl {
             }
         }
 
-        ctx.throw_type_error("cannot coerce to primitive");
-        Err(-1)
+        Err(ctx.throw_type_error("cannot coerce to primitive"))
     }
 
     /// Coerce object to number

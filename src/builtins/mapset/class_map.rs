@@ -90,8 +90,7 @@ pub(crate) fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JS
         )?;
 
         if !adder.is_callable() {
-            ctx.throw_type_error("set/add is not a function");
-            return Err(-1);
+            return Err(ctx.throw_type_error("set/add is not a function"));
         }
 
         for el in arr.iter(ctx)? {
@@ -103,8 +102,7 @@ pub(crate) fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JS
                 let value = o.get_property_u32(ctx, 1)?;
                 adder.call(ctx, obj, &[key, value])?;
             } else {
-                ctx.throw_type_error_not_an_object();
-                return Err(-1);
+                return Err(ctx.throw_type_error_not_an_object());
             }
         }
     }
@@ -137,8 +135,7 @@ pub(crate) fn js_map_getOrInsert(ctx: &mut ScopedContext, cc: CallContext) -> JS
 
     // For WeakMap, validate key can be held weakly before any callback invocation
     if class_offset == 2 && !key.is_object() {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     }
 
     // Check if key already exists
@@ -191,8 +188,7 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let s = get_jsmap_state_mut(&mut this, JS_CLASS_MAP + magic as ClassID, ctx)?;
 
     if s.is_weak() && !key.is_object() {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     }
 
     let map_val = if magic & 1 == 1 {
@@ -457,8 +453,7 @@ fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i3
     let has_obj = match has_val.ensure_callable(ctx) {
         Ok(o) => o,
         Err(_) => {
-            ctx.throw_type_error("Set.prototype.has is not a function");
-            return Err(-1);
+            return Err(ctx.throw_type_error("Set.prototype.has is not a function"));
         }
     };
 
@@ -467,14 +462,12 @@ fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i3
     let keys_val = val.get_property(ctx, keys_str)?;
     // GetMethod returns undefined for null/undefined
     if keys_val.is_undefined_or_null() {
-        ctx.throw_type_error("Set.prototype.keys is not a function");
-        return Err(-1);
+        return Err(ctx.throw_type_error("Set.prototype.keys is not a function"));
     }
     let keys_obj = match keys_val.ensure_callable(ctx) {
         Ok(o) => o,
         Err(_) => {
-            ctx.throw_type_error("Set.prototype.keys is not a function");
-            return Err(-1);
+            return Err(ctx.throw_type_error("Set.prototype.keys is not a function"));
         }
     };
 
@@ -894,8 +887,7 @@ fn js_map_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     for (idx, val) in it.enumerate() {
         if idx as i64 >= MAX_SAFE_INTEGER {
-            ctx.throw_type_error("too many elements");
-            return Err(-1);
+            return Err(ctx.throw_type_error("too many elements"));
         }
 
         let val = val?;

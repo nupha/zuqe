@@ -236,8 +236,7 @@ fn js_generator_next(
             }
             GenState::JS_GENERATOR_STATE_COMPLETED => WhatToDo::Done,
             GenState::JS_GENERATOR_STATE_EXECUTING => {
-                ctx.throw_type_error("cannot invoke a running generator");
-                return Err(-1);
+                return Err(ctx.throw_type_error("cannot invoke a running generator"));
             }
         };
 
@@ -280,8 +279,7 @@ fn js_generator_next(
                     GEN_MAGIC_NEXT => Ok(JSValue::UNDEFINED),
                     GEN_MAGIC_RETURN => Ok(cc.arg(0)),
                     GEN_MAGIC_THROW => {
-                        ctx.throw_value(cc.arg(0));
-                        Err(-1)
+                        Err(ctx.throw_value(cc.arg(0)))
                     }
                     _ => {
                         unreachable!()

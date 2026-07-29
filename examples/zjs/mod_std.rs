@@ -50,8 +50,7 @@ fn js_std_open(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             opts.read(true).write(true).create(true);
         }
         _ => {
-            ctx.throw_type_error("invalid file mode");
-            return Err(-1);
+            return Err(ctx.throw_type_error("invalid file mode"));
         }
     }
 

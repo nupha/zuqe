@@ -153,10 +153,7 @@ impl ShapeImpl {
     pub(crate) fn dup(&self, ctx: &mut ScopedContext) -> Result<Shape, i32> {
         // clone properties
         let mut props = HashList::<ShapeProperty>::new();
-        props.try_reserve(self.prop_defs.count()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        props.try_reserve(self.prop_defs.count()).map_err(|_| ctx.throw_out_of_memory())?;
         for (_, prs) in self.prop_defs.iter() {
             props.push(*prs);
         }
@@ -231,10 +228,7 @@ impl Shape {
                 debug_assert_eq!(unsafe { s.as_ref() }.use_count, 1);
                 Self(s)
             })
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })
+            .map_err(|_| ctx.throw_out_of_memory())
     }
 
     /// create a shape with prototype 'proto' and property capacity.
@@ -247,10 +241,7 @@ impl Shape {
         prop_cap: i32,
     ) -> Result<Self, i32> {
         let mut prop_defs = HashList::<ShapeProperty>::new();
-        prop_defs.try_reserve(prop_cap as _).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        prop_defs.try_reserve(prop_cap as _).map_err(|_| ctx.throw_out_of_memory())?;
 
         let shape = Self::create_internal(ctx, proto, prop_defs)?;
         ctx.rt_mut().register_shape(&shape)?;

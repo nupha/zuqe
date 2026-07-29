@@ -13,6 +13,8 @@ use crate::{
     value::JSValue,
 };
 
+pub type ErrCode = i32;
+
 #[repr(u8)]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum Exception {
@@ -84,7 +86,8 @@ impl Exception {
                     && !s.is_undefined_or_null()
                     && let Some(ss) = s.as_string(false)
                 {
-                    t.traceback.replace(ss.content().encode_utf8(false).to_string());
+                    t.traceback
+                        .replace(ss.content().encode_utf8(false).to_string());
                 }
 
                 t
@@ -130,7 +133,7 @@ pub enum ErrorKind {
     Aggregate,
 }
 
-pub type JSResult = Result<JSValue, i32>;
+pub type JSResult = Result<JSValue, ErrCode>;
 
 pub(crate) const STD_ERROR_COUNT: usize = ErrorKind::Aggregate as usize + 1;
 pub(crate) const STD_ERROR_NAMES: [&str; STD_ERROR_COUNT] = [
@@ -228,8 +231,9 @@ impl<'c> ScopedContext<'c> {
 
     /// Throw a JS value as exception.
     #[inline(always)]
-    pub(crate) fn throw_value(&mut self, val: JSValue) {
+    pub(crate) fn throw_value(&mut self, val: JSValue) -> ErrCode {
         self.throw(Exception::Error(val));
+        -1
     }
 
     /// make error object and throw it as current exception.
@@ -240,12 +244,13 @@ impl<'c> ScopedContext<'c> {
         kind: ErrorKind,
         message: &str,
         add_backtrace: bool,
-    ) {
+    ) -> ErrCode {
         if let Some(err_obj) = self.create_error_object(kind, message, add_backtrace) {
-            self.throw_value(err_obj.into());
+            self.throw_value(err_obj.into())
         } else {
             // out of memory: set exception directly to avoid recursing
             self.rt_mut().set_exception(Exception::OutOfMemory);
+            -1
         }
     }
 
@@ -260,33 +265,33 @@ impl<'c> ScopedContext<'c> {
 
     /// make error object and throw it as current exception.
     /// old exception will be freed.
-    pub fn throw_error(&mut self, kind: ErrorKind, message: &str) {
-        self.throw_error_internal(kind, message, self.throw_need_backtrace());
+    pub fn throw_error(&mut self, kind: ErrorKind, message: &str) -> ErrCode {
+        self.throw_error_internal(kind, message, self.throw_need_backtrace())
     }
 
     #[inline(always)]
-    pub fn throw_range_error(&mut self, message: &str) {
-        self.throw_error(ErrorKind::Range, message);
+    pub fn throw_range_error(&mut self, message: &str) -> ErrCode {
+        self.throw_error(ErrorKind::Range, message)
     }
 
     #[inline(always)]
-    pub fn throw_internal_error(&mut self, message: &str) {
-        self.throw_error(ErrorKind::Internal, message);
+    pub fn throw_internal_error(&mut self, message: &str) -> ErrCode {
+        self.throw_error(ErrorKind::Internal, message)
     }
 
     #[inline(always)]
-    pub fn throw_stack_overflow(&mut self) {
-        self.throw_internal_error("stack overflow");
+    pub fn throw_stack_overflow(&mut self) -> ErrCode {
+        self.throw_internal_error("stack overflow")
     }
 
     #[inline(always)]
-    pub fn throw_stack_fail(&mut self) {
-        self.throw_internal_error("execution stack allocation failed");
+    pub fn throw_stack_fail(&mut self) -> ErrCode {
+        self.throw_internal_error("execution stack allocation failed")
     }
 
     #[cold]
     #[inline(never)]
-    pub fn throw_stack_exceeded(&mut self) {
+    pub fn throw_stack_exceeded(&mut self) -> ErrCode {
         // Do NOT build a backtrace here: this is thrown from a CALL instruction
         // mid-dispatch (pc still points at CALL, sp holds unconsumed args), so
         // the frame state is not clean. Walking the deep virtual stack for a
@@ -312,58 +317,60 @@ impl<'c> ScopedContext<'c> {
         } else {
             self.rt_mut().set_exception(Exception::OutOfMemory);
         }
+        -1
     }
 
     #[inline(always)]
-    pub fn throw_type_error(&mut self, message: &str) {
-        self.throw_error(ErrorKind::Type, message);
+    pub fn throw_type_error(&mut self, message: &str) -> ErrCode {
+        self.throw_error(ErrorKind::Type, message)
     }
 
     #[inline(always)]
-    pub fn throw_uri_error(&mut self, message: &str) {
-        self.throw_error(ErrorKind::Uri, message);
+    pub fn throw_uri_error(&mut self, message: &str) -> ErrCode {
+        self.throw_error(ErrorKind::Uri, message)
     }
 
     #[inline(always)]
-    pub fn throw_type_error_not_an_object(&mut self) {
-        self.throw_type_error("not an object");
+    pub fn throw_type_error_not_an_object(&mut self) -> ErrCode {
+        self.throw_type_error("not an object")
     }
 
     #[inline(always)]
-    pub fn throw_type_error_not_a_symbol(&mut self) {
-        self.throw_type_error("not a symbol");
+    pub fn throw_type_error_not_a_symbol(&mut self) -> ErrCode {
+        self.throw_type_error("not a symbol")
     }
 
     #[inline(always)]
-    pub fn throw_type_error_revoked_proxy(&mut self) {
-        self.throw_type_error("revoked proxy");
+    pub fn throw_type_error_revoked_proxy(&mut self) -> ErrCode {
+        self.throw_type_error("revoked proxy")
     }
 
-    pub fn throw_type_error_invalid_class(&mut self, class_id: ClassID) {
+    pub fn throw_type_error_invalid_class(&mut self, class_id: ClassID) -> ErrCode {
         let name = self.rt_ptr().class_registry[class_id as usize].name_atom;
         self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt())))
     }
 
     #[inline(always)]
-    pub fn throw_type_error_read_only(&mut self, atom: Atom) {
+    pub fn throw_type_error_read_only(&mut self, atom: Atom) -> ErrCode {
         self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8(self.rt())))
     }
 
     #[inline(always)]
-    pub fn throw_reference_error(&mut self, message: &str) {
+    pub fn throw_reference_error(&mut self, message: &str) -> ErrCode {
         self.throw_error(ErrorKind::Reference, message)
     }
 
     #[inline(always)]
-    pub fn throw_syntax_error(&mut self, message: &str) {
-        self.throw_error(ErrorKind::Syntax, message);
+    pub fn throw_syntax_error(&mut self, message: &str) -> ErrCode {
+        self.throw_error(ErrorKind::Syntax, message)
     }
 
     #[cold]
-    pub fn throw_out_of_memory(&mut self) {
+    pub fn throw_out_of_memory(&mut self) -> ErrCode {
         if self.rt().exception() != Exception::OutOfMemory {
             self.throw_internal_error("out of memory");
         }
+        -1
     }
 
     #[inline(never)]
@@ -373,7 +380,7 @@ impl<'c> ScopedContext<'c> {
         mut error_obj: JSValue,
         file_line: Option<(&str, i32)>, // filename and line number
         mut backtrace_flags: i32,
-    ) -> Result<String, i32> {
+    ) -> Result<String, ErrCode> {
         let mut buf = Vec::<u8>::with_capacity(128);
         let mut dbuf = std::io::Cursor::new(&mut buf);
 
@@ -503,15 +510,15 @@ pub(crate) fn is_backtrace_needed(obj: JSValue) -> bool {
     }
 }
 
-pub fn JS_ThrowReferenceErrorUninitialized(ctx: &mut ScopedContext, name: Atom) {
+pub fn JS_ThrowReferenceErrorUninitialized(ctx: &mut ScopedContext, name: Atom) -> ErrCode {
     if name.is_null() {
-        ctx.throw_reference_error("lexical variable is not initialized");
+        ctx.throw_reference_error("lexical variable is not initialized")
     } else {
-        ctx.throw_reference_error(&format!("{} is not initialized", name.to_utf8(ctx.rt())));
+        ctx.throw_reference_error(&format!("{} is not initialized", name.to_utf8(ctx.rt())))
     }
 }
 
-pub fn JS_ThrowReferenceErrorNotDefined(ctx: &mut ScopedContext, name: Atom) {
+pub fn JS_ThrowReferenceErrorNotDefined(ctx: &mut ScopedContext, name: Atom) -> ErrCode {
     ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8(ctx.rt())))
 }
 
@@ -520,7 +527,7 @@ pub fn JS_ThrowReferenceErrorUninitialized2(
     b: &Bytecode,
     idx: u16,
     is_ref: bool,
-) {
+) -> ErrCode {
     let atom = if is_ref {
         b.get_closure_var(idx).map(|c| c.var_name)
     } else {
@@ -529,22 +536,23 @@ pub fn JS_ThrowReferenceErrorUninitialized2(
     }
     .unwrap_or(Atom::NULL);
 
-    JS_ThrowReferenceErrorUninitialized(ctx, atom);
+    JS_ThrowReferenceErrorUninitialized(ctx, atom)
 }
 
-pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &mut ScopedContext) {
-    ctx.throw_type_error("ArrayBuffer is detached");
+pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &mut ScopedContext) -> ErrCode {
+    ctx.throw_type_error("ArrayBuffer is detached")
 }
 
-pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &mut ScopedContext, atom: Atom) {
+pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &mut ScopedContext, atom: Atom) -> ErrCode {
     ctx.throw_type_error(&format!(
         "private class field '{}' does not exist",
         atom.to_utf8(ctx.rt())
-    ));
+    ))
 }
 
-pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &mut ScopedContext, prop: Atom) {
+pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &mut ScopedContext, prop: Atom) -> ErrCode {
     ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())));
+    -1
 }
 
 pub fn JS_SetUncatchableError(error_val: JSValue, is_uncatchable: bool) {

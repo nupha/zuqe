@@ -39,8 +39,7 @@ pub(crate) fn js_object_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
 pub(crate) fn js_object_create(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let proto = cc.arg(0);
     if !proto.is_object() && !proto.is_null() {
-        ctx.throw_type_error("not a prototype");
-        return Err(-1);
+        return Err(ctx.throw_type_error("not a prototype"));
     }
 
     let mut obj = ctx.create_base_object_with_proto(proto.as_object())?;
@@ -59,8 +58,7 @@ pub(crate) fn js_object_getPrototypeOf(ctx: &mut ScopedContext, cc: CallContext)
     if !val.is_object() {
         // ES6 feature non-compatible with ES5.1: primitive types are accepted
         if magic != 0 || val.is_undefined_or_null() {
-            ctx.throw_type_error_not_an_object();
-            return Err(-1);
+            return Err(ctx.throw_type_error_not_an_object());
         }
     }
     val.prototype(ctx)
@@ -92,8 +90,7 @@ pub(crate) fn js_object_defineProperty(ctx: &mut ScopedContext, cc: CallContext)
             JSValue::from(obj)
         })
     } else {
-        ctx.throw_type_error_not_an_object();
-        Err(-1)
+        Err(ctx.throw_type_error_not_an_object())
     }
 }
 
@@ -105,8 +102,7 @@ pub(crate) fn js_object_defineProperties(ctx: &mut ScopedContext, cc: CallContex
         o.define_properties(ctx, arg1)?;
         Ok(o.into())
     } else {
-        ctx.throw_type_error_not_an_object();
-        Err(-1)
+        Err(ctx.throw_type_error_not_an_object())
     }
 }
 
@@ -178,8 +174,7 @@ pub(crate) fn js_object_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSR
 
     for (idx, val) in it.enumerate() {
         if idx >= MAX_SAFE_INTEGER as usize {
-            ctx.throw_type_error("too many elements");
-            return Err(-1);
+            return Err(ctx.throw_type_error("too many elements"));
         }
 
         let val = val?;
@@ -242,8 +237,7 @@ pub(crate) fn js_object_isExtensible(ctx: &mut ScopedContext, cc: CallContext) -
     let obj = cc.arg(0);
     if !obj.is_object() {
         return if reflect != 0 {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         } else {
             Ok(JSValue::from(false))
         };
@@ -262,14 +256,12 @@ pub(crate) fn js_object_preventExtensions(ctx: &mut ScopedContext, cc: CallConte
         if reflect {
             Ok(JSValue::from(ret))
         } else if !ret {
-            ctx.throw_type_error("proxy preventExtensions handler returned false");
-            Err(-1)
+            Err(ctx.throw_type_error("proxy preventExtensions handler returned false"))
         } else {
             Ok(obj.into())
         }
     } else if reflect {
-        ctx.throw_type_error_not_an_object();
-        Err(-1)
+        Err(ctx.throw_type_error_not_an_object())
     } else {
         Ok(arg)
     }
@@ -286,14 +278,12 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(
         if let Some(p) = cc.arg(0).as_object() {
             p
         } else {
-            ctx.throw_type_error_not_an_object();
-            return Err(-1);
+            return Err(ctx.throw_type_error_not_an_object());
         }
     } else if let Ok(o) = cc.arg(0).objectify(ctx) {
         o
     } else {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     };
 
     let prop = cc.arg(1);
@@ -413,8 +403,7 @@ pub(crate) fn js_object_fromEntries(ctx: &mut ScopedContext, cc: CallContext) ->
                 ret.define_property_value(ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
             }
             Ok(_) => {
-                ctx.throw_type_error_not_an_object();
-                return Err(-1);
+                return Err(ctx.throw_type_error_not_an_object());
             }
             Err(_) => {
                 // fail calling next()

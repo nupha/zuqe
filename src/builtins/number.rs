@@ -44,10 +44,7 @@ fn js_thisNumberValue(ctx: &mut ScopedContext, this_val: JSValue) -> JSResult {
             .as_object()
             .and_then(|p| p.payload().value().cloned());
 
-        val.filter(|v| v.is_number()).ok_or_else(|| {
-            ctx.throw_type_error("not a number");
-            -1
-        })
+        val.filter(|v| v.is_number()).ok_or_else(|| ctx.throw_type_error("not a number"))
     }
 }
 
@@ -118,8 +115,7 @@ fn js_number_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     } else {
         let r = cc.arg(0).to_number(ctx)?.to_i32_saturating();
         if !(2..=36).contains(&r) {
-            ctx.throw_range_error("radix must be between 2 and 36");
-            return Err(-1);
+            return Err(ctx.throw_range_error("radix must be between 2 and 36"));
         }
         r
     };
@@ -159,8 +155,7 @@ fn js_number_toPrecision(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }
             .into()
         } else if unlikely(!(1..=100).contains(&f)) {
-            ctx.throw_range_error("invalid number of digits");
-            return Err(-1);
+            return Err(ctx.throw_range_error("invalid number of digits"));
         } else {
             f64_stringify(d, 10, Some(f as u32), JS_DTOA_FIXED_FORMAT)
         }
@@ -188,8 +183,7 @@ fn js_number_toExponential(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     } else if unlikely(a0.is_undefined()) {
         f64_stringify(d, 10, None, JS_DTOA_FORCE_EXP)
     } else if unlikely(!(0..=100).contains(&f)) {
-        ctx.throw_range_error("invalid number of digits");
-        return Err(-1);
+        return Err(ctx.throw_range_error("invalid number of digits"));
     } else {
         f64_stringify(
             d,
@@ -207,8 +201,7 @@ fn js_number_toFixed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let f = cc.arg(0).to_number(ctx)?.to_i32_saturating();
 
     let s = if unlikely(!(0..=100).contains(&f)) {
-        ctx.throw_range_error("invalid number of digits");
-        return Err(-1);
+        return Err(ctx.throw_range_error("invalid number of digits"));
     } else if unlikely(d.abs() >= 1e21) {
         // ES spec step 9: when x >= 10^21, toFixed returns ToString(x),
         // which uses variable-format exponential notation (positive

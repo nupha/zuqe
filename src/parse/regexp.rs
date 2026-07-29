@@ -32,8 +32,7 @@ impl<'s> JSParseState<'s> {
 
             match sc {
                 CharCode::Char('\n' | '\r' | '\u{2028}' | '\u{2029}') => {
-                    self.throw_syntax_error("unexpected line terminator in regexp");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("unexpected line terminator in regexp"));
                 }
                 CharCode::Char('/') => {
                     if !in_class {
@@ -57,8 +56,7 @@ impl<'s> JSParseState<'s> {
                     if let Some((_, sc2)) = inp.next_char() {
                         match sc2 {
                             CharCode::Char('\n' | '\r' | '\u{2028}' | '\u{2029}') => {
-                                self.throw_syntax_error("unexpected line terminator in regexp");
-                                return Err(-1);
+                                return Err(self.throw_syntax_error("unexpected line terminator in regexp"));
                             }
                             CharCode::Char(_) => {
                                 pattern_str.push_char(sc2).map_err(|_| {
@@ -86,8 +84,7 @@ impl<'s> JSParseState<'s> {
         }
 
         if !pattern_ok {
-            self.throw_syntax_error("expected end of regexp");
-            return Err(-1);
+            return Err(self.throw_syntax_error("expected end of regexp"));
         }
 
         // flags
@@ -106,8 +103,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Code(_) => {
-                    self.throw_syntax_error("invalid utf-8 sequence");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid utf-8 sequence"));
                 }
             }
         }

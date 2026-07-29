@@ -97,8 +97,7 @@ impl JSValue {
         if let Some(bc) = self.as_object_BCWrapper() {
             bc.execute_async(ctx, this_obj, args, flags)
         } else {
-            ctx.throw_type_error("not bytecode function");
-            Err(-1)
+            Err(ctx.throw_type_error("not bytecode function"))
         }
     }
 }

@@ -57,8 +57,7 @@ impl<'s> JSParseState<'s> {
                             })?;
                         }
                         None => {
-                            self.throw_syntax_error("unexpected end of string");
-                            return Err(-1);
+                            return Err(self.throw_syntax_error("unexpected end of string"));
                         }
                     }
                 }
@@ -79,8 +78,7 @@ impl<'s> JSParseState<'s> {
                     })?;
                 }
                 CharCode::Code(_) => {
-                    self.throw_syntax_error("invalid UTF-8 sequence");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid UTF-8 sequence"));
                 }
             }
         }
@@ -88,8 +86,7 @@ impl<'s> JSParseState<'s> {
         debug_assert!(matches!(sep, '\0' | '`' | '$'));
 
         if unlikely(sep == '\0') {
-            self.throw_syntax_error("unexpected end of string");
-            Err(-1)
+            Err(self.throw_syntax_error("unexpected end of string"))
         } else {
             self.token.kind = TokenKind::TEMPLATE;
             self.token.data = TokenData::Str {
@@ -225,8 +222,7 @@ impl<'s> JSParseState<'s> {
 
             depth += 1;
             if self.token.kind != TokenKind::Char('}') {
-                self.throw_syntax_error("expected '}' after template expression");
-                return Err(-1);
+                return Err(self.throw_syntax_error("expected '}' after template expression"));
             }
 
             // XXX: should convert to string at this stage?

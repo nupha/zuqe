@@ -249,8 +249,7 @@ pub fn js_module_loader(
     let path = match zuqe::url_to_abspath(module_name) {
         Some(p) => p,
         None => {
-            ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
-            return Err(-1);
+            return Err(ctx.throw_reference_error(&format!("could not load module '{module_name}'")));
         }
     };
 
@@ -271,14 +270,12 @@ pub fn js_module_loader(
                 ctx.compile_module(src.as_bytes(), module_name.as_str(), false)
             }
             Some(other) => {
-                ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other));
-                Err(-1)
+                Err(ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other)))
             }
             None => ctx.compile_module(content.as_bytes(), module_name.as_str(), false),
         },
         Err(_) => {
-            ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
-            Err(-1)
+            Err(ctx.throw_reference_error(&format!("could not load module '{module_name}'")))
         }
     }
 }

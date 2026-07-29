@@ -26,8 +26,7 @@ impl<'c> ScopedContext<'c> {
         let v0: JSValue = if let Some((idx, prs_flags)) = gvobj.find_shape_property(prop) {
             // check writable flag
             if prs_flags & JS_PROP_WRITABLE == 0 {
-                self.throw_type_error_read_only(prop);
-                return Err(-1);
+                return Err(self.throw_type_error_read_only(prop));
             }
 
             // XXX: should handle JS_PROP_LAZYINIT properties?
@@ -35,8 +34,7 @@ impl<'c> ScopedContext<'c> {
             if let JSProperty::Normal(v) = gvobj.prop_slot(idx)
                 && JSValue::UNINITIALIZED.eq(v)
             {
-                JS_ThrowReferenceErrorUninitialized(self, prop);
-                return Err(-1);
+                return Err(JS_ThrowReferenceErrorUninitialized(self, prop));
             }
 
             JSValue::from(gvobj)
@@ -104,8 +102,7 @@ impl<'c> ScopedContext<'c> {
 
             // Check if already declared on global_var_obj (e.g. double `let x; let x;`).
             if gvobj.has_shape_property(prop) {
-                JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
-                return Err(-1);
+                return Err(JS_ThrowSyntaxErrorVarRedeclaration(self, prop));
             }
 
             // Check for non-configurable property on global_obj.
@@ -113,8 +110,7 @@ impl<'c> ScopedContext<'c> {
             let gobj = self.global_obj();
             if let Some((_, prs_flags)) = gobj.find_shape_property(prop) {
                 if prs_flags & JS_PROP_CONFIGURABLE == 0 {
-                    JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
-                    return Err(-1);
+                    return Err(JS_ThrowSyntaxErrorVarRedeclaration(self, prop));
                 }
             }
 
@@ -136,17 +132,15 @@ impl<'c> ScopedContext<'c> {
                 Ok(())
             } else if !gobj.flags().extensible() {
                 // Non-extensible global object: throw TypeError (CanDeclareGlobalVar).
-                self.throw_type_error(&format!(
+                Err(self.throw_type_error(&format!(
                     "cannot define variable '{}'",
                     prop.to_utf8(self.rt())
-                ));
-                Err(-1)
+                )))
             } else {
                 // Check for existing lexical declaration on global_var_obj.
                 // e.g. `let x; var x;` → SyntaxError.
                 if self.global_var_obj().has_shape_property(prop) {
-                    JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
-                    return Err(-1);
+                    return Err(JS_ThrowSyntaxErrorVarRedeclaration(self, prop));
                 }
                 gobj.add_own_property(self, prop, gv_flags, JSProperty::Normal(JSValue::UNDEFINED))
             }
@@ -172,17 +166,15 @@ impl<'c> ScopedContext<'c> {
         if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
             // HasRestrictedGlobalProperty check: non-configurable global → SyntaxError
             if prs.is_some_and(|f| f & JS_PROP_CONFIGURABLE == 0) {
-                JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
-                return Err(-1);
+                return Err(JS_ThrowSyntaxErrorVarRedeclaration(self, prop));
             }
         } else {
             // CanDeclareGlobalVar check: non-extensible + no existing prop → TypeError
             if prs.is_none() && !gobj.flags().extensible() {
-                self.throw_type_error(&format!(
+                return Err(self.throw_type_error(&format!(
                     "cannot define variable '{}'",
                     prop.to_utf8(self.rt())
-                ));
-                return Err(-1);
+                )));
             }
 
             // CanDeclareGlobalFunction check (DEFINE_GLOBAL_FUNC_VAR)
@@ -195,11 +187,10 @@ impl<'c> ScopedContext<'c> {
                             || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
                                 != (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE))
                     {
-                        self.throw_type_error(&format!(
+                        return Err(self.throw_type_error(&format!(
                             "cannot define variable '{}'",
                             prop.to_utf8(self.rt())
-                        ));
-                        return Err(-1);
+                        )));
                     }
                 }
             }
@@ -207,8 +198,7 @@ impl<'c> ScopedContext<'c> {
 
         // HasLexicalDeclaration check: already declared on global_var_obj → SyntaxError
         if self.global_var_obj().has_shape_property(prop) {
-            JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
-            return Err(-1);
+            return Err(JS_ThrowSyntaxErrorVarRedeclaration(self, prop));
         }
 
         Ok(())
@@ -224,8 +214,7 @@ impl<'c> ScopedContext<'c> {
             match gvobj.prop_slot(idx) {
                 JSProperty::Normal(v) => {
                     if JSValue::UNINITIALIZED.eq(v) {
-                        JS_ThrowReferenceErrorUninitialized(self, prop);
-                        Err(-1)
+                        Err(JS_ThrowReferenceErrorUninitialized(self, prop))
                     } else {
                         Ok(*v)
                     }
@@ -270,13 +259,11 @@ impl<'c> ScopedContext<'c> {
             if flag != 1 {
                 match gv.prop_slot(idx) {
                     JSProperty::Normal(v) if JSValue::UNINITIALIZED.eq(v) => {
-                        JS_ThrowReferenceErrorUninitialized(self, prop);
-                        return Err(-1);
+                        return Err(JS_ThrowReferenceErrorUninitialized(self, prop));
                     }
                     _ => {
                         if prs_flags & JS_PROP_WRITABLE == 0 {
-                            self.throw_type_error_read_only(prop);
-                            return Err(-1);
+                            return Err(self.throw_type_error_read_only(prop));
                         }
                     }
                 }

@@ -59,8 +59,7 @@ impl<'s> JSParseState<'s> {
             let mut be = self.cur_func().top_break;
             while !be.is_null() {
                 if unsafe { (*be).label_name.eq(&label_name) } {
-                    self.throw_syntax_error("duplicate label name");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("duplicate label name"));
                 }
                 be = unsafe { (*be).prev };
             }
@@ -107,11 +106,9 @@ impl<'s> JSParseState<'s> {
             TokenKind::RETURN => {
                 let fd = self.cur_func();
                 if fd.is_eval {
-                    self.throw_syntax_error("return not in a function");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("return not in a function"));
                 } else if fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
-                    self.throw_syntax_error("return in a static initializer block");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("return in a static initializer block"));
                 }
 
                 self.next_token()?;
@@ -128,8 +125,7 @@ impl<'s> JSParseState<'s> {
             TokenKind::THROW => {
                 self.next_token()?;
                 if self.got_lf {
-                    self.throw_syntax_error("line terminator not allowed after throw");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("line terminator not allowed after throw"));
                 }
                 self.parse_expr()?;
                 self.emit_op(OpCode::THROW);
@@ -201,10 +197,9 @@ impl<'s> JSParseState<'s> {
             }
             TokenKind::CLASS => {
                 if decl_mask & DECL_MASK_OTHER == 0 {
-                    self.throw_syntax_error(
+                    return Err(self.throw_syntax_error(
                         "class declarations can't appear in single-statement context",
-                    );
-                    return Err(-1);
+                    ));
                 }
                 self.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_NONE)?;
             }
@@ -229,10 +224,9 @@ impl<'s> JSParseState<'s> {
                     if matches!(t, TokenKind::LET | TokenKind::CONST)
                         && (decl_mask & DECL_MASK_OTHER) == 0
                     {
-                        self.throw_syntax_error(
+                        return Err(self.throw_syntax_error(
                             "lexical declarations can't appear in single-statement context",
-                        );
-                        return Err(-1);
+                        ));
                     }
                     self.next_token()?;
                     self.parse_var(1, t, false)?;
@@ -259,10 +253,9 @@ impl<'s> JSParseState<'s> {
                     )?;
                 }
                 TodoState::FuncDeclError => {
-                    self.throw_syntax_error(
+                    return Err(self.throw_syntax_error(
                         "function declarations can't appear in single-statement context",
-                    );
-                    return Err(-1);
+                    ));
                 }
             }
         }
@@ -391,8 +384,7 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
             s.cur_func().attrs.func_kind,
             FunctionKind::Async | FunctionKind::AsyncGenerator
         ) {
-            s.throw_syntax_error("for await is only valid in asynchronous functions");
-            return Err(-1);
+            return Err(s.throw_syntax_error("for await is only valid in asynchronous functions"));
         }
         is_async = true;
         s.next_token()?;
@@ -648,8 +640,7 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
                     // XXX: LET is not completely correct
                     s.parse_destructuring_element(TokenKind::LET, false, true, -1, true, false)?;
                 } else {
-                    s.throw_syntax_error("identifier expected");
-                    return Err(-1);
+                    return Err(s.throw_syntax_error("identifier expected"));
                 }
             } else {
                 // must dup the atom because later next_token() will free it
@@ -710,8 +701,7 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         s.emit_goto(OpCode::GOSUB, label_finally);
         s.emit_op(OpCode::THROW);
     } else {
-        s.throw_syntax_error("expecting catch or finally");
-        return Err(-1);
+        return Err(s.throw_syntax_error("expecting catch or finally"));
     }
 
     s.emit_label(label_finally);
@@ -811,8 +801,7 @@ fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
             s.parse_expect(TokenKind::Char(':'))?;
 
             if default_label_pos >= 0 {
-                s.throw_syntax_error("duplicate default");
-                return Err(-1);
+                return Err(s.throw_syntax_error("duplicate default"));
             }
             if label_case < 0 {
                 // falling thru direct from switch expression
@@ -828,8 +817,7 @@ fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
         } else {
             if label_case < 0 {
                 // falling thru direct from switch expression
-                s.throw_syntax_error("invalid switch statement");
-                return Err(-1);
+                return Err(s.throw_syntax_error("invalid switch statement"));
             }
             s.parse_stmt_or_decl(DECL_MASK_ALL)?;
         }
@@ -861,8 +849,7 @@ fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
 
 fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
     if s.cur_func().attrs.exec_mode.contains(ExecMode::STRICT) {
-        s.throw_syntax_error("invalid keyword: with");
-        Err(-1)
+        Err(s.throw_syntax_error("invalid keyword: with"))
     } else {
         s.next_token()?;
         s.parse_expr_parens()?;
@@ -887,8 +874,7 @@ fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
 
 fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<TodoState, i32> {
     if s.token.data.is_reserved() {
-        s.throw_reserved_identifier_error();
-        return Err(-1);
+        return Err(s.throw_reserved_identifier_error());
     }
 
     // Determine if `let` introduces a Declaration or an ExpressionStatement
@@ -898,8 +884,7 @@ fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<TodoState, i32> {
 
     if s.token_is_pseudo_keyword(Atom::CONST_async) && s.peek_token(true) == TokenKind::FUNCTION {
         if decl_mask & DECL_MASK_OTHER == 0 {
-            s.throw_syntax_error("function declarations can't appear in single-statement context");
-            return Err(-1);
+            return Err(s.throw_syntax_error("function declarations can't appear in single-statement context"));
         }
         return Ok(TodoState::ParseFuncVar);
     }
@@ -965,8 +950,7 @@ fn parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Re
                 s.parse_destructuring_element(tok, false, true, -1, false, false)?;
                 has_destructuring = true;
             } else {
-                s.throw_syntax_error("variable name expected");
-                return Err(-1);
+                return Err(s.throw_syntax_error("variable name expected"));
             }
             var_name = Atom::NULL;
         } else {
@@ -987,8 +971,7 @@ fn parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Re
             && s.token_is_pseudo_keyword(Atom::CONST_async)
             && s.peek_token(false) == TokenKind::OF,
     ) {
-        s.throw_syntax_error("'for of' expression cannot start with 'async'");
-        return Err(-1);
+        return Err(s.throw_syntax_error("'for of' expression cannot start with 'async'"));
     } else {
         let mut skip_bits: i32 = 0;
         if matches!(s.token.kind, TokenKind::Char('[' | '{'))
@@ -1069,31 +1052,27 @@ fn parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Re
             break_entry.drop_count += 2;
         }
         if has_initializer {
-            s.throw_syntax_error(&format!(
+            return Err(s.throw_syntax_error(&format!(
                 "a declaration in the head of a for-{} loop can't have an initializer",
                 if is_for_of { "of" } else { "in" }
-            ));
-            return Err(-1);
+            )));
         }
     } else if s.token.kind == TokenKind::IN {
         if is_async {
-            s.throw_syntax_error("'for await' loop should be used with 'of'");
-            return Err(-1);
+            return Err(s.throw_syntax_error("'for await' loop should be used with 'of'"));
         }
         if has_initializer
             && (tok != TokenKind::VAR
                 || s.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                 || has_destructuring)
         {
-            s.throw_syntax_error(&format!(
+            return Err(s.throw_syntax_error(&format!(
                 "a declaration in the head of a for-{} loop can't have an initializer",
                 if is_for_of { "of" } else { "in" }
-            ));
-            return Err(-1);
+            )));
         }
     } else {
-        s.throw_syntax_error("expected 'of' or 'in' in for control expression");
-        return Err(-1);
+        return Err(s.throw_syntax_error("expected 'of' or 'in' in for control expression"));
     }
 
     s.next_token()?;

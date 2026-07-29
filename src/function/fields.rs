@@ -372,8 +372,7 @@ impl JSValue {
         if let Some(mut o) = self.as_object() {
             o.install_fields(ctx, entries)
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 }
@@ -391,8 +390,7 @@ pub(crate) fn prop_str_to_atom(ctx: &mut ScopedContext, str: &str) -> Result<Ato
             }
         }
 
-        ctx.throw_internal_error(&format!("unknown atom '{str}'"));
-        return Err(-1);
+        return Err(ctx.throw_internal_error(&format!("unknown atom '{str}'")));
     }
 
     Atom::from_str(ctx, str)

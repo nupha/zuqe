@@ -142,10 +142,7 @@ impl VarRef {
     pub(crate) fn create(ctx: &mut ScopedContext, value: JSValue) -> Result<Self, i32> {
         ctx.alloc_local(VarRefImpl::Detached(value))
             .map(Self)
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })
+            .map_err(|_| ctx.throw_out_of_memory())
     }
 
     pub(crate) fn create_bind(
@@ -160,9 +157,6 @@ impl VarRef {
             pvalue,
         })
         .map(Self)
-        .map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })
+        .map_err(|_| ctx.throw_out_of_memory())
     }
 }

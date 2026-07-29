@@ -52,19 +52,12 @@ pub(crate) fn js_iterator_concat_class_init(
 
 pub(crate) fn js_iterator_concat_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let this_obj = this.as_object().ok_or_else(|| {
-        ctx.throw_type_error_not_an_object();
-        -1
-    })?;
+    let this_obj = this.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let cd = this_obj.payload().iterator_concat().ok_or_else(|| {
-        ctx.throw_type_error("not an Iterator Concat");
-        -1
-    })?;
+    let cd = this_obj.payload().iterator_concat().ok_or_else(|| ctx.throw_type_error("not an Iterator Concat"))?;
 
     if cd.running.get() {
-        ctx.throw_type_error("Iterator Concat is already executing");
-        return Err(-1);
+        return Err(ctx.throw_type_error("Iterator Concat is already executing"));
     }
 
     cd.running.set(true);
@@ -110,19 +103,12 @@ pub(crate) fn js_iterator_concat_next(ctx: &mut ScopedContext, cc: CallContext) 
 
 pub(crate) fn js_iterator_concat_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let this_obj = this.as_object().ok_or_else(|| {
-        ctx.throw_type_error_not_an_object();
-        -1
-    })?;
+    let this_obj = this.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let cd = this_obj.payload().iterator_concat().ok_or_else(|| {
-        ctx.throw_type_error("not an Iterator Concat");
-        -1
-    })?;
+    let cd = this_obj.payload().iterator_concat().ok_or_else(|| ctx.throw_type_error("not an Iterator Concat"))?;
 
     if cd.running.get() {
-        ctx.throw_type_error("Iterator Concat is already executing");
-        return Err(-1);
+        return Err(ctx.throw_type_error("Iterator Concat is already executing"));
     }
 
     cd.running.set(true);

@@ -29,8 +29,7 @@ impl ObjectImpl {
         }
 
         let Some(proto) = ctor.get_property(ctx, Atom::CONST_prototype)?.as_object() else {
-            ctx.throw_type_error("operand 'prototype' property is not an object");
-            return Err(-1);
+            return Err(ctx.throw_type_error("operand 'prototype' property is not an object"));
         };
 
         let mut p = Object::from_ref(self);
@@ -93,8 +92,7 @@ impl ObjectImpl {
             };
         }
 
-        ctx.throw_type_error("invalid 'instanceof' right operand");
-        Err(-1)
+        Err(ctx.throw_type_error("invalid 'instanceof' right operand"))
     }
 }
 
@@ -121,7 +119,6 @@ impl JSValue {
             }
         }
 
-        ctx.throw_type_error("invalid 'instanceof' right operand");
-        Err(-1)
+        Err(ctx.throw_type_error("invalid 'instanceof' right operand"))
     }
 }

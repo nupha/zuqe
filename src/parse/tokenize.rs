@@ -216,8 +216,7 @@ impl<'s> JSParseState<'s> {
     #[inline(never)]
     pub(super) fn next_token(&mut self) -> Result<TokenKind, i32> {
         if js_check_stack_overflow(self.ctx().rt_mut(), 0) {
-            self.throw_syntax_error("stack overflow");
-            return Err(-1);
+            return Err(self.throw_syntax_error("stack overflow"));
         }
 
         self.clear_token_data();
@@ -344,8 +343,7 @@ impl<'s> JSParseState<'s> {
                         };
 
                         if is_bad {
-                            self.throw_syntax_error("Invalid Unicode escape sequence");
-                            return Err(-1);
+                            return Err(self.throw_syntax_error("Invalid Unicode escape sequence"));
                         }
                     } else {
                         todo = Some(Todo::Ascii(b'\\'));
@@ -368,8 +366,7 @@ impl<'s> JSParseState<'s> {
                                         input.seek_relative(consumed as _);
                                         x
                                     } else {
-                                        self.throw_syntax_error("Invalid Unicode escape sequence");
-                                        return Err(-1);
+                                        return Err(self.throw_syntax_error("Invalid Unicode escape sequence"));
                                     }
                                 } else {
                                     '\\'
@@ -377,8 +374,7 @@ impl<'s> JSParseState<'s> {
                             }
                             CharCode::Char(c) => c,
                             CharCode::Code(_) => {
-                                self.throw_syntax_error("Invalid Unicode escape sequence");
-                                return Err(-1);
+                                return Err(self.throw_syntax_error("Invalid Unicode escape sequence"));
                             }
                         };
 
@@ -752,8 +748,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 CharCode::Code(_) => {
-                    self.throw_syntax_error("Invalid Unicode escape sequence");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("Invalid Unicode escape sequence"));
                 }
             }
 
@@ -834,16 +829,12 @@ impl<'s> JSParseState<'s> {
 
         // reject `10instanceof Number`
         if let Some(c) = std::str::from_utf8(&bytes[consumed..])
-            .map_err(|_| {
-                self.throw_syntax_error("invalid UTF-8 sequence");
-                -1
-            })?
+            .map_err(|_| self.throw_syntax_error("invalid UTF-8 sequence"))?
             .chars()
             .next()
             && Self::is_ident_next(c)
         {
-            self.throw_syntax_error("invalid number literal");
-            return Err(-1);
+            return Err(self.throw_syntax_error("invalid number literal"));
         }
 
         self.token.kind = TokenKind::NUMBER;

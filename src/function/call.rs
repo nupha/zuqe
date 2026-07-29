@@ -154,8 +154,7 @@ impl ObjectImpl {
 
         let is_ctor = flags & JS_CALL_FLAG_CONSTRUCTOR != 0;
         if unlikely(is_ctor && !self.flags().is_constructor()) {
-            ctx.throw_type_error("not a constructor");
-            return Err(-1);
+            return Err(ctx.throw_type_error("not a constructor"));
         }
 
         let self_obj = Object::from_ref(self);
@@ -169,10 +168,7 @@ impl ObjectImpl {
             let this: JSValue = if is_legacy_ctor {
                 // legacy constructor behavior.
                 ctx.create_instance_with_ctor(new_target, ObjectPayload::OBJECT)
-                    .map_err(|_| {
-                        ctx.throw_type_error("constructor must return an object");
-                        -1
-                    })?
+                    .map_err(|_| ctx.throw_type_error("constructor must return an object"))?
                     .into()
             } else {
                 this_obj

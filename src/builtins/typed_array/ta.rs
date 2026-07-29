@@ -316,15 +316,14 @@ impl TypedArray {
             JS_CLASS_FLOAT32_ARRAY => ObjectPayload::FLOAT32_ARRAY(ta),
             JS_CLASS_FLOAT64_ARRAY => ObjectPayload::FLOAT64_ARRAY(ta),
             c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
-                ctx.throw_type_error(&format!(
+                return Err(ctx.throw_type_error(&format!(
                     "typed array for {} is unsupported",
                     if c == JS_CLASS_BIG_INT64_ARRAY {
                         "BigInt"
                     } else {
                         "BigUint"
                     }
-                ));
-                return Err(-1);
+                )));
             }
             c => {
                 unreachable!("{c}")
@@ -454,10 +453,9 @@ impl TypedArray {
                                 }
                             }
                             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                                ctx.throw_type_error(
+                                return Err(ctx.throw_type_error(
                                     "BigInt64Array, BigUint64Array is not supported",
-                                );
-                                return Err(-1);
+                                ));
                             }
                             c => {
                                 unreachable!("class_id: {c}");
@@ -687,8 +685,7 @@ impl TypedArray {
         class_id: ClassID,
     ) -> Result<Self, i32> {
         if self.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            return Err(-1);
+            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
         }
 
         let count = self.length();
@@ -697,8 +694,7 @@ impl TypedArray {
 
         // Note: necessary to check detacth again, because it could have been detached by side effect.
         if self.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            return Err(-1);
+            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
         }
 
         // create an empty typed array with count capacity.

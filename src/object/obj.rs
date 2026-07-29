@@ -680,8 +680,7 @@ impl ObjectImpl {
     /// Seal the object.
     pub fn seal(&mut self, ctx: &mut ScopedContext, freeze: bool) -> Result<(), i32> {
         if unlikely(!self.prevent_extensions(ctx)?) {
-            ctx.throw_type_error("proxy preventExtensions handler returned false");
-            Err(-1)
+            Err(ctx.throw_type_error("proxy preventExtensions handler returned false"))
         } else {
             let mut target = Object::from_ref(self);
 
@@ -801,17 +800,14 @@ pub(crate) fn JS_SpeciesConstructor(
             if species.is_undefined_or_null() {
                 Ok(default_constructor)
             } else if unlikely(!species.is_constructor()) {
-                ctx.throw_type_error("not a constructor");
-                Err(-1)
+                Err(ctx.throw_type_error("not a constructor"))
             } else {
                 Ok(species)
             }
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     } else {
-        ctx.throw_type_error_not_an_object();
-        Err(-1)
+        Err(ctx.throw_type_error_not_an_object())
     }
 }

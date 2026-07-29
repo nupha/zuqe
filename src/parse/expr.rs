@@ -144,8 +144,7 @@ impl<'s> JSParseState<'s> {
 
                 #[cfg(not(feature = "builtin_regexp"))]
                 {
-                    self.throw_syntax_error("regex not supported");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("regex not supported"));
                 }
             }
 
@@ -208,8 +207,7 @@ impl<'s> JSParseState<'s> {
             }
             TokenKind::IDENT => {
                 if self.token.data.is_reserved() {
-                    self.throw_reserved_identifier_error();
-                    return Err(-1);
+                    return Err(self.throw_reserved_identifier_error());
                 }
                 if (parse_flags & PF_ARROW_FUNC) != 0 && self.peek_token(true) == TokenKind::ARROW {
                     self.parse_function_decl(
@@ -260,10 +258,9 @@ impl<'s> JSParseState<'s> {
                     if unlikely(
                         name == Atom::CONST_arguments && !self.cur_func().attrs.arguments_allowed,
                     ) {
-                        self.throw_syntax_error(
+                        return Err(self.throw_syntax_error(
                             "'arguments' identifier is not allowed in class field initializer",
-                        );
-                        return Err(-1);
+                        ));
                     } else {
                         self.next_token()?;
 
@@ -297,12 +294,10 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     if !self.token_is_pseudo_keyword(Atom::CONST_target) {
-                        self.throw_syntax_error("expecting target");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("expecting target"));
                     }
                     if !self.cur_func().attrs.new_target_allowed {
-                        self.throw_syntax_error("new.target only allowed within functions");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("new.target only allowed within functions"));
                     }
 
                     self.next_token()?;
@@ -328,16 +323,14 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 if self.token.kind == TokenKind::Char('(') {
                     if !self.cur_func().attrs.super_call_allowed {
-                        self.throw_syntax_error(
+                        return Err(self.throw_syntax_error(
                             "super() is only valid in a derived class constructor",
-                        );
-                        return Err(-1);
+                        ));
                     }
                     call_type = FuncCallType::FUNC_CALL_SUPER_CTOR;
                 } else if matches!(self.token.kind, TokenKind::Char('.' | '[')) {
                     if !self.cur_func().attrs.super_allowed {
-                        self.throw_syntax_error("'super' is only valid in a method");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("'super' is only valid in a method"));
                     }
 
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
@@ -348,8 +341,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_u16(0);
                     self.emit_op(OpCode::GET_SUPER);
                 } else {
-                    self.throw_syntax_error("invalid use of 'super'");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid use of 'super'"));
                 }
             }
             TokenKind::IMPORT => {
@@ -358,12 +350,10 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     if !self.token_is_pseudo_keyword(Atom::CONST_meta) {
-                        self.throw_syntax_error("meta expected");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("meta expected"));
                     }
                     if !self.is_module {
-                        self.throw_syntax_error("import.meta only valid in module code");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("import.meta only valid in module code"));
                     }
                     self.next_token()?;
 
@@ -372,8 +362,7 @@ impl<'s> JSParseState<'s> {
                 } else {
                     self.parse_expect(TokenKind::Char('('))?;
                     if !accept_lparen {
-                        self.throw_syntax_error("invalid use of 'import()'");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("invalid use of 'import()'"));
                     }
                     self.parse_assign_expr()?;
 
@@ -406,8 +395,7 @@ impl<'s> JSParseState<'s> {
                     String::from_utf8_lossy(std::slice::from_raw_parts(self.token.ptr, len))
                         .as_ref(),
                 );
-                self.throw_syntax_error(&msg);
-                return Err(-1);
+                return Err(self.throw_syntax_error(&msg));
             },
         }
 
@@ -445,8 +433,7 @@ impl<'s> JSParseState<'s> {
                 && call_type == FuncCallType::FUNC_CALL_NORMAL
             {
                 if optional_chaining_label >= 0 {
-                    self.throw_syntax_error("template literal cannot appear in an optional chain");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("template literal cannot appear in an optional chain"));
                 }
                 let opcode = unsafe {
                     self.parse_func_call2(
@@ -592,11 +579,9 @@ impl<'s> JSParseState<'s> {
             self.cur_func().attrs.func_kind,
             FunctionKind::Generator | FunctionKind::AsyncGenerator
         ) {
-            self.throw_syntax_error("unexpected 'yield' keyword");
-            return Err(-1);
+            return Err(self.throw_syntax_error("unexpected 'yield' keyword"));
         } else if !self.cur_func().in_function_body {
-            self.throw_syntax_error("yield in default expression");
-            return Err(-1);
+            return Err(self.throw_syntax_error("yield in default expression"));
         }
 
         self.next_token()?;
@@ -788,8 +773,7 @@ impl<'s> JSParseState<'s> {
 
                 self.next_token()?;
                 if self.token.kind != TokenKind::IN {
-                    self.throw_syntax_error("expect 'in'");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("expect 'in'"));
                 }
 
                 self.next_token()?;
@@ -977,8 +961,7 @@ impl<'s> JSParseState<'s> {
                 }
                 if self.token.kind != TokenKind::LOR {
                     if self.token.kind == TokenKind::DOUBLE_QUESTION_MARK {
-                        self.throw_syntax_error("cannot mix ?? with && or ||");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("cannot mix ?? with && or ||"));
                     }
                     break;
                 }
@@ -1189,12 +1172,10 @@ impl<'s> JSParseState<'s> {
             }
             TokenKind::AWAIT => {
                 if !self.cur_func().attrs.func_kind.is_async() {
-                    self.throw_syntax_error("unexpected 'await' keyword");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("unexpected 'await' keyword"));
                 }
                 if !self.cur_func().in_function_body {
-                    self.throw_syntax_error("await in default expression");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("await in default expression"));
                 }
 
                 self.next_token()?;
@@ -1225,10 +1206,9 @@ impl<'s> JSParseState<'s> {
             && self.token.kind == TokenKind::POW
         {
             if parse_flags & PF_POW_FORBIDDEN != 0 {
-                self.throw_syntax_error(
+                return Err(self.throw_syntax_error(
                     "unparenthesized unary expression can't appear on the left-hand side of '**'",
-                );
-                return Err(-1);
+                ));
             }
 
             self.next_token()?;
@@ -1347,15 +1327,13 @@ impl<'s> JSParseState<'s> {
                     return Ok(());
                 }
                 if fd.attrs.exec_mode.contains(ExecMode::STRICT) {
-                    self.throw_syntax_error("cannot delete a direct reference in strict mode");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("cannot delete a direct reference in strict mode"));
                 } else {
                     fd.byte_code[fd.last_opcode_pos as usize] = OpCodeTemp::SCOPE_DELETE_VAR as u8;
                 }
             }
             opcodes::op_scope_get_private_field => {
-                self.throw_syntax_error("cannot delete a private class field");
-                return Err(-1);
+                return Err(self.throw_syntax_error("cannot delete a private class field"));
             }
             opcodes::OP_get_super_value => {
                 fd.byte_code.truncate(fd.last_opcode_pos as _);

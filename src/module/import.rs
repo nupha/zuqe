@@ -50,15 +50,11 @@ fn extract_import_attrs(ctx: &mut ScopedContext, options: JSValue) -> JSResult {
             return Ok(JSValue::UNDEFINED);
         }
         _ => {
-            ctx.throw_type_error("import() options.with must be an object");
-            return Err(-1);
+            return Err(ctx.throw_type_error("import() options.with must be an object"));
         }
     };
 
-    let mut obj = Object::try_from(attrs).map_err(|_| {
-        ctx.throw_type_error("import() options.with must be an object");
-        -1
-    })?;
+    let mut obj = Object::try_from(attrs).map_err(|_| ctx.throw_type_error("import() options.with must be an object"))?;
 
     let keys = obj.get_own_property_names(ctx, JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK)?;
 
@@ -141,8 +137,7 @@ fn js_dynamic_import_job(
             );
         })
     } else {
-        ctx.throw_type_error("no function filename for import()");
-        Err(-1)
+        Err(ctx.throw_type_error("no function filename for import()"))
     };
 
     if r.is_err() {

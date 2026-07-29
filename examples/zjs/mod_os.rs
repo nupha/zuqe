@@ -438,8 +438,7 @@ fn js_os_setReadHandler(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         });
         Ok(JSValue::UNDEFINED)
     } else {
-        ctx.throw_type_error("not a function");
-        Err(-1)
+        Err(ctx.throw_type_error("not a function"))
     }
 }
 
@@ -450,16 +449,12 @@ fn js_os_read_write(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let pos = cc.arg(2).to_index(ctx)? as u64;
     let len = cc.arg(3).to_index(ctx)? as u64;
 
-    let mut ab = cc.arg(1).as_object_ArrayBuffer().ok_or_else(|| {
-        ctx.throw_type_error("expect ArrayBuffer or SharedArrayBuffer instance");
-        -1
-    })?;
+    let mut ab = cc.arg(1).as_object_ArrayBuffer().ok_or_else(|| ctx.throw_type_error("expect ArrayBuffer or SharedArrayBuffer instance"))?;
     let buf = ab.payload_mut();
     let size = buf.byte_length();
 
     if pos + len > size as u64 {
-        ctx.throw_range_error("read/write array buffer overflow");
-        return Err(-1);
+        return Err(ctx.throw_range_error("read/write array buffer overflow"));
     }
 
     let r = buf.with_bytes_mut(|b| unsafe {
@@ -482,8 +477,7 @@ fn js_os_read_write(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_os_signal(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let sig_num = cc.arg(0).to_number(ctx)?.to_u32();
     if sig_num >= 64 {
-        ctx.throw_range_error("invalid signal number");
-        return Err(-1);
+        return Err(ctx.throw_range_error("invalid signal number"));
     }
 
     let func = cc.arg(1);

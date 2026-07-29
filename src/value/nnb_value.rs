@@ -283,8 +283,7 @@ impl JSValue {
                 }
             }
             _ => {
-                ctx.throw_type_error("can't convert to string or symbol");
-                Err(-1)
+                Err(ctx.throw_type_error("can't convert to string or symbol"))
             }
         }
     }
@@ -323,14 +322,12 @@ impl JSValue {
                 Ok(s)
             }
             Self::Symbol(_) => {
-                ctx.throw_type_error("cannot convert symbol to string");
-                Err(-1)
+                Err(ctx.throw_type_error("cannot convert symbol to string"))
             }
             _ => match self.to_string_or_symbol(ctx)? {
                 JSValue::String(s) => Ok(s),
                 JSValue::Symbol(_) => {
-                    ctx.throw_type_error("cannot convert symbol to string");
-                    Err(-1)
+                    Err(ctx.throw_type_error("cannot convert symbol to string"))
                 }
                 _ => unreachable!(),
             },
@@ -375,8 +372,7 @@ impl JSValue {
                 | Self::CatchOffset(_)
                 | Self::Module(_)
                 | Self::Bytecode(_) => {
-                    ctx.throw_type_error("cannot convert to atom");
-                    return Err(-1);
+                    return Err(ctx.throw_type_error("cannot convert to atom"));
                 }
                 Self::EXCEPTION => {
                     #[cfg(debug_assertions)]
@@ -548,8 +544,7 @@ impl JSValue {
                 Err(-1)
             }
             _ => {
-                ctx.throw_type_error_not_an_object();
-                Err(-1)
+                Err(ctx.throw_type_error_not_an_object())
             }
         }
     }

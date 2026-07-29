@@ -46,10 +46,7 @@ fn get_file_fd<'a>(
     ctx: &mut ScopedContext,
     val: &'a JSValue,
 ) -> Result<&'a RefCell<FileDesc>, i32> {
-    JSFile::payload_of(val).ok_or_else(|| {
-        ctx.throw_type_error("not a File instance");
-        -1
-    })
+    JSFile::payload_of(val).ok_or_else(|| ctx.throw_type_error("not a File instance"))
 }
 
 fn js_file_fileno(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -72,10 +69,7 @@ fn js_file_readAsString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let mut buf = Vec::<u8>::new();
     if let Some(len) = max_size {
-        buf.try_reserve_exact(len).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        buf.try_reserve_exact(len).map_err(|_| ctx.throw_out_of_memory())?;
         unsafe {
             buf.set_len(len);
         }
@@ -85,31 +79,19 @@ fn js_file_readAsString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     match &mut *fdesc {
         FileDesc::File(fh) => {
             if max_size.is_some() {
-                let n = fh.read(&mut buf).map_err(|e| {
-                    ctx.throw_internal_error(&e.to_string());
-                    -1
-                })?;
+                let n = fh.read(&mut buf).map_err(|e| ctx.throw_internal_error(&e.to_string()))?;
                 buf.truncate(n);
             } else {
-                fh.read_to_end(&mut buf).map_err(|e| {
-                    ctx.throw_internal_error(&e.to_string());
-                    -1
-                })?;
+                fh.read_to_end(&mut buf).map_err(|e| ctx.throw_internal_error(&e.to_string()))?;
             }
         }
         FileDesc::Stdin => {
             let mut f = std::io::stdin();
             if max_size.is_some() {
-                let n = f.read(&mut buf).map_err(|e| {
-                    ctx.throw_internal_error(&e.to_string());
-                    -1
-                })?;
+                let n = f.read(&mut buf).map_err(|e| ctx.throw_internal_error(&e.to_string()))?;
                 buf.truncate(n);
             } else {
-                f.read_to_end(&mut buf).map_err(|e| {
-                    ctx.throw_internal_error(&e.to_string());
-                    -1
-                })?;
+                f.read_to_end(&mut buf).map_err(|e| ctx.throw_internal_error(&e.to_string()))?;
             }
         }
         FileDesc::Stdout | FileDesc::Stderr => {}
@@ -131,22 +113,13 @@ pub(super) fn js_file_puts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 
             match &mut *fdesc {
                 FileDesc::File(f) => {
-                    f.write_all(s.as_bytes()).map_err(|e| {
-                        ctx.throw_internal_error(&e.to_string());
-                        -1
-                    })?;
+                    f.write_all(s.as_bytes()).map_err(|e| ctx.throw_internal_error(&e.to_string()))?;
                 }
                 FileDesc::Stdout => {
-                    std::io::stdout().write_all(s.as_bytes()).map_err(|e| {
-                        ctx.throw_internal_error(&e.to_string());
-                        -1
-                    })?;
+                    std::io::stdout().write_all(s.as_bytes()).map_err(|e| ctx.throw_internal_error(&e.to_string()))?;
                 }
                 FileDesc::Stderr => {
-                    std::io::stderr().write_all(s.as_bytes()).map_err(|e| {
-                        ctx.throw_internal_error(&e.to_string());
-                        -1
-                    })?;
+                    std::io::stderr().write_all(s.as_bytes()).map_err(|e| ctx.throw_internal_error(&e.to_string()))?;
                 }
                 FileDesc::Stdin => {}
             }
@@ -155,10 +128,7 @@ pub(super) fn js_file_puts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         for arg in cc.arguments() {
             let s = arg.to_string(ctx)?;
             let s = s.content().encode_utf8(false);
-            std::io::stdout().write_all(s.as_bytes()).map_err(|e| {
-                ctx.throw_internal_error(&e.to_string());
-                -1
-            })?;
+            std::io::stdout().write_all(s.as_bytes()).map_err(|e| ctx.throw_internal_error(&e.to_string()))?;
         }
     }
 
@@ -194,10 +164,7 @@ fn js_file_flush(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_file_close(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let mut jsfile = this.as_native_object::<JSFile>().ok_or_else(|| {
-        ctx.throw_type_error("not a File instance");
-        -1
-    })?;
+    let mut jsfile = this.as_native_object::<JSFile>().ok_or_else(|| ctx.throw_type_error("not a File instance"))?;
     let _ = jsfile.take_payload();
     Ok(JSValue::UNDEFINED)
 }

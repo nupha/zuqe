@@ -106,8 +106,7 @@ impl ObjectImpl {
         } else {
             // can't delete (not configurable)
             if ctx.rt().can_throw(flags) {
-                ctx.throw_type_error("could not delete property");
-                Err(-1)
+                Err(ctx.throw_type_error("could not delete property"))
             } else {
                 Ok(false)
             }

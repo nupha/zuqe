@@ -212,8 +212,7 @@ impl FunctionDef {
         name: Atom,
     ) -> Result<&mut JSGlobalVar, i32> {
         if self.global_vars.try_reserve(1).is_err() {
-            ctx.throw_out_of_memory();
-            return Err(-1);
+            return Err(ctx.throw_out_of_memory());
         }
 
         let mut hf = JSGlobalVar {
@@ -257,14 +256,10 @@ impl FunctionDef {
     pub fn add_arg(&mut self, ctx: &mut ScopedContext, name: Atom) -> Result<u16, i32> {
         // the local variable indexes are currently stored on 16 bits
         if self.args.len() >= JS_MAX_LOCAL_VARS as usize {
-            ctx.throw_internal_error("too many arguments");
-            return Err(-1);
+            return Err(ctx.throw_internal_error("too many arguments"));
         }
 
-        self.args.try_reserve(1).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        self.args.try_reserve(1).map_err(|_| ctx.throw_out_of_memory())?;
 
         self.args.push(JSVarDef {
             var_name: name,
@@ -281,13 +276,11 @@ impl FunctionDef {
     /// `name` is not consumed
     pub fn add_var(&mut self, ctx: &mut ScopedContext, name: Atom) -> Result<u16, i32> {
         if self.vars.len() >= JS_MAX_LOCAL_VARS as usize {
-            ctx.throw_internal_error("too many local variables");
-            return Err(-1);
+            return Err(ctx.throw_internal_error("too many local variables"));
         }
 
         if self.vars.len() == self.vars.capacity() && self.vars.try_reserve_exact(4).is_err() {
-            ctx.throw_out_of_memory();
-            return Err(-1);
+            return Err(ctx.throw_out_of_memory());
         }
 
         self.vars.push(JSVarDef {

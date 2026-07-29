@@ -12,7 +12,7 @@ impl<'s> JSParseState<'s> {
     /// given an exception value, build traceback and throw it as current exception.
     /// old exception will be freed.
     #[cold]
-    pub(super) fn throw_parse_error(&mut self, err_val: JSValue) {
+    pub(super) fn throw_parse_error(&mut self, err_val: JSValue) -> i32 {
         let backtrace_flags =
             if !self.cur_func_def.is_null() && self.cur_func().attrs.backtrace_barrier {
                 JS_BACKTRACE_FLAG_SINGLE_LEVEL
@@ -24,11 +24,11 @@ impl<'s> JSParseState<'s> {
         let ctx = self.ctx();
 
         ctx.build_backtrace_to(err_val, Some(fln), backtrace_flags);
-        ctx.throw_value(err_val);
+        ctx.throw_value(err_val)
     }
 
     #[cold]
-    pub(super) fn throw_syntax_error(&mut self, message: &str) {
+    pub(super) fn throw_syntax_error(&mut self, message: &str) -> i32 {
         self.ctx()
             .throw_error_internal(ErrorKind::Syntax, message, false);
 
@@ -44,14 +44,15 @@ impl<'s> JSParseState<'s> {
         let fln = (self.filename, self.line_num);
         self.ctx()
             .build_backtrace_to(err_val, Some(fln), backtrace_flags);
+        -1
     }
 
     #[cold]
-    pub(super) fn throw_reserved_identifier_error(&mut self) {
+    pub(super) fn throw_reserved_identifier_error(&mut self) -> i32 {
         let msg = format!(
             "'{}' is a reserved identifier",
             self.token.atom().unwrap().to_utf8(self.ctx().rt()),
         );
-        self.throw_syntax_error(&msg);
+        self.throw_syntax_error(&msg)
     }
 }

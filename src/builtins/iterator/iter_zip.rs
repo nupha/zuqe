@@ -114,27 +114,19 @@ fn close_all_remaining(ctx: &mut ScopedContext, zd: &IteratorZipData) -> Result<
 
 pub(crate) fn js_iterator_zip_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let this_obj = this.as_object().ok_or_else(|| {
-        ctx.throw_type_error_not_an_object();
-        -1
-    })?;
+    let this_obj = this.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let zd = this_obj.payload().iterator_zip().ok_or_else(|| {
-        ctx.throw_type_error("not an Iterator Zip");
-        -1
-    })?;
+    let zd = this_obj.payload().iterator_zip().ok_or_else(|| ctx.throw_type_error("not an Iterator Zip"))?;
 
     // Reentrancy guard
     if zd.running.get() {
-        ctx.throw_type_error("Iterator Zip is already executing");
-        return Err(-1);
+        return Err(ctx.throw_type_error("Iterator Zip is already executing"));
     }
 
     if zd.closed.get() {
         // Strict: throw if lengths were unequal
         if zd.mode.get() == 2 && zd.unequal_length.get() {
-            ctx.throw_type_error("Iterator Zip already completed with unequal lengths");
-            return Err(-1);
+            return Err(ctx.throw_type_error("Iterator Zip already completed with unequal lengths"));
         }
         return make_iterator_next_result(ctx, JSValue::UNDEFINED, true);
     }
@@ -331,20 +323,13 @@ pub(crate) fn js_iterator_zip_next(ctx: &mut ScopedContext, cc: CallContext) -> 
 
 pub(crate) fn js_iterator_zip_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let this_obj = this.as_object().ok_or_else(|| {
-        ctx.throw_type_error_not_an_object();
-        -1
-    })?;
+    let this_obj = this.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let zd = this_obj.payload().iterator_zip().ok_or_else(|| {
-        ctx.throw_type_error("not an Iterator Zip");
-        -1
-    })?;
+    let zd = this_obj.payload().iterator_zip().ok_or_else(|| ctx.throw_type_error("not an Iterator Zip"))?;
 
     // Reentrancy guard
     if zd.running.get() {
-        ctx.throw_type_error("Iterator Zip is already executing");
-        return Err(-1);
+        return Err(ctx.throw_type_error("Iterator Zip is already executing"));
     }
 
     if zd.closed.get() {
@@ -390,10 +375,7 @@ pub(crate) fn js_iterator_zip_class_init(
     class_id: ClassID,
 ) -> Result<(), i32> {
     // Zip results share IteratorHelper proto so next/return dispatch based on payload
-    let helper_proto = ctx.class_proto(JS_CLASS_ITERATOR_HELPER).ok_or_else(|| {
-        ctx.throw_internal_error("IteratorHelper proto not initialized");
-        -1
-    })?;
+    let helper_proto = ctx.class_proto(JS_CLASS_ITERATOR_HELPER).ok_or_else(|| ctx.throw_internal_error("IteratorHelper proto not initialized"))?;
     ctx.set_class_proto(class_id, helper_proto);
     Ok(())
 }

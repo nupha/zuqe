@@ -55,8 +55,7 @@ impl ObjectImpl {
 
                 if !check_define_prop_flags(prs_flags, flags) {
                     return if ctx.rt().can_throw(flags) {
-                        ctx.throw_type_error("property is not configurable");
-                        Err(-1)
+                        Err(ctx.throw_type_error("property is not configurable"))
                     } else {
                         Ok(false)
                     };
@@ -152,8 +151,7 @@ impl ObjectImpl {
                             // if the typed array is detached, p->u.array.count = 0
                             if idx >= self.fast_array_count() {
                                 return if ctx.rt().can_throw(flags) {
-                                    ctx.throw_type_error("out-of-bound index in typed array");
-                                    Err(-1)
+                                    Err(ctx.throw_type_error("out-of-bound index in typed array"))
                                 } else {
                                     Ok(false)
                                 };
@@ -172,8 +170,7 @@ impl ObjectImpl {
                                             | JS_PROP_CONFIGURABLE),
                             ) {
                                 if ctx.rt().can_throw(flags) {
-                                    ctx.throw_type_error("invalid descriptor flags");
-                                    Err(-1)
+                                    Err(ctx.throw_type_error("invalid descriptor flags"))
                                 } else {
                                     Ok(false)
                                 }
@@ -192,18 +189,16 @@ impl ObjectImpl {
                                 IntOrFloat::Int64(i) => {
                                     if i < 0 {
                                         return if ctx.rt().can_throw(flags) {
-                                            ctx.throw_type_error("negative index in typed array");
-                                            Err(-1)
+                                            Err(ctx.throw_type_error("negative index in typed array"))
                                         } else {
                                             Ok(false)
                                         };
                                     }
                                     if i > JS_ATOM_TAG_INT as i64 {
                                         return if ctx.rt().can_throw(flags) {
-                                            ctx.throw_type_error(
+                                            Err(ctx.throw_type_error(
                                                 "out-of-bound index in typed array",
-                                            );
-                                            Err(-1)
+                                            ))
                                         } else {
                                             Ok(false)
                                         };
@@ -211,8 +206,7 @@ impl ObjectImpl {
                                 }
                                 IntOrFloat::Float64(_) => {
                                     return if ctx.rt().can_throw(flags) {
-                                        ctx.throw_type_error("non integer index in typed array");
-                                        Err(-1)
+                                        Err(ctx.throw_type_error("non integer index in typed array"))
                                     } else {
                                         Ok(false)
                                     };
@@ -365,8 +359,7 @@ impl ObjectImpl {
         flags: u32,
     ) -> Result<bool, i32> {
         if name.is_null() {
-            ctx.throw_type_error("invalid name");
-            Err(-1)
+            Err(ctx.throw_type_error("invalid name"))
         } else if !self.has_name() {
             let name_str = name.force_string(ctx)?;
             self.define_property_value(ctx, Atom::CONST_name, JSValue::make_string(name_str), flags)
@@ -440,8 +433,7 @@ impl JSValue {
         if let Some(mut p) = self.as_object() {
             p.define_property(ctx, prop, val, getter, setter, flags)
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 

@@ -162,8 +162,7 @@ impl Array {
             .is_writable()
         {
             return if throw {
-                ctx.throw_type_error_read_only(Atom::CONST_length);
-                Err(-1)
+                Err(ctx.throw_type_error_read_only(Atom::CONST_length))
             } else {
                 Ok(false)
             };
@@ -236,8 +235,7 @@ impl Array {
 
             if cur_len > length {
                 return if throw {
-                    ctx.throw_type_error("not configurable");
-                    Err(-1)
+                    Err(ctx.throw_type_error("not configurable"))
                 } else {
                     Ok(false)
                 };
@@ -334,8 +332,7 @@ impl Array {
         {
             Ok(arr)
         } else {
-            ctx.throw_out_of_memory();
-            Err(-1)
+            Err(ctx.throw_out_of_memory())
         }
     }
 
@@ -351,8 +348,7 @@ impl Array {
             }
             Ok(fa)
         } else {
-            ctx.throw_range_error("invalid array length");
-            Err(-1)
+            Err(ctx.throw_range_error("invalid array length"))
         }
     }
 
@@ -401,19 +397,13 @@ impl Array {
                     .filter(|v| !v.is_undefined())
                     .copied()
                     .try_collect::<Vec<JSValue>>()
-                    .map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    .map_err(|_| ctx.throw_out_of_memory())?;
 
                 sort_values_by(ctx, &mut slots, cmp)?;
                 rebuild(&mut arr_data.values, slots.into_iter(), length);
             } else {
                 let mut slots = Vec::<(JSValue, StringData)>::new();
-                slots.try_reserve_exact(length).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                slots.try_reserve_exact(length).map_err(|_| ctx.throw_out_of_memory())?;
 
                 for v in arr_data.values().iter().filter(|v| !v.is_undefined()) {
                     slots.push((*v, v.to_string(ctx)?.content().clone()));
@@ -474,10 +464,7 @@ impl Array {
             }
         } else {
             let mut slots = Vec::<(JSValue, StringData)>::with_capacity(16);
-            slots.try_reserve_exact(arr_len as usize).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            slots.try_reserve_exact(arr_len as usize).map_err(|_| ctx.throw_out_of_memory())?;
 
             for i in 0..arr_len {
                 if let Some(v) = obj.try_get_property_i64(ctx, i)? {
@@ -676,8 +663,7 @@ impl ObjectImpl {
 
             if unlikely(r & JS_PROP_WRITABLE == 0) {
                 return if ctx.rt().can_throw(flags) {
-                    ctx.throw_type_error_read_only(Atom::CONST_length);
-                    Err(-1)
+                    Err(ctx.throw_type_error_read_only(Atom::CONST_length))
                 } else {
                     Ok(false)
                 };
@@ -692,10 +678,7 @@ impl ObjectImpl {
             .array_mut()
             .unwrap()
             .push(value)
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         // bind reference relation
         if let Some(n) = value.as_gc_node() {
@@ -749,24 +732,21 @@ impl JSValue {
             len = 0;
         } else if let Some(n) = self.as_int() {
             if n < 0 {
-                ctx.throw_range_error("invalid array length");
-                return Err(-1);
+                return Err(ctx.throw_range_error("invalid array length"));
             }
             len = n as u32;
         } else if let Some(d) = self.as_float() {
             len = d as u32;
             if len as f64 != d {
                 // f64 can't convert to u32
-                ctx.throw_range_error("invalid array length");
-                return Err(-1);
+                return Err(ctx.throw_range_error("invalid array length"));
             }
         } else {
             if is_array_ctor {
                 match self.to_number(ctx)? {
                     IntOrFloat::Int64(n) => {
                         if n < 0 {
-                            ctx.throw_range_error("invalid array length");
-                            return Err(-1);
+                            return Err(ctx.throw_range_error("invalid array length"));
                         }
                         len = n as u32;
                     }
@@ -774,8 +754,7 @@ impl JSValue {
                         len = d as u32;
                         if len as f64 != d {
                             // f64 can't convert to u32
-                            ctx.throw_range_error("invalid array length");
-                            return Err(-1);
+                            return Err(ctx.throw_range_error("invalid array length"));
                         }
                     }
                 }
@@ -783,8 +762,7 @@ impl JSValue {
                 // 1) ECMA legacy behavior: must do ::to_number() conversion twice and compare
                 len = self.to_number(ctx)?.to_u32();
                 if len != JSValue::from(self.to_number(ctx)?).to_array_length(ctx, false)? {
-                    ctx.throw_range_error("invalid array length");
-                    return Err(-1);
+                    return Err(ctx.throw_range_error("invalid array length"));
                 }
                 // 2) non-ECMA compatible, but cleaner
                 // len = self.to_number(ctx)?.to_u32();
@@ -855,8 +833,7 @@ impl JSValue {
         if (0..=MAX_SAFE_INTEGER).contains(&i) {
             Ok(i)
         } else {
-            ctx.throw_range_error("invalid array index");
-            Err(-1)
+            Err(ctx.throw_range_error("invalid array index"))
         }
     }
 }
@@ -866,16 +843,12 @@ pub(crate) fn alloc_fast_array_slots(
     cap: usize,
 ) -> Result<Vec<JSValue>, i32> {
     if cap > i32::MAX as usize {
-        ctx.throw_range_error("invalid array length");
-        Err(-1)
+        Err(ctx.throw_range_error("invalid array length"))
     } else {
         let mut lst = Vec::<JSValue>::new();
         if cap > 0 {
             lst.try_reserve_exact(std::cmp::max(cap, 0) as usize)
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                .map_err(|_| ctx.throw_out_of_memory())?;
         }
         Ok(lst)
     }

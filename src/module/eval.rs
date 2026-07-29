@@ -562,8 +562,7 @@ fn gather_module_ancestors(
     exec_list: &mut Vec<ModuleDef>,
 ) -> Result<(), i32> {
     if js_check_stack_overflow(ctx.rt(), 0) {
-        ctx.throw_stack_overflow();
-        return Err(-1);
+        return Err(ctx.throw_stack_overflow());
     }
 
     for mut m in module.async_parent_modules.iter().copied() {
@@ -584,8 +583,7 @@ fn gather_module_ancestors(
             if adep == 1 {
                 // pending_async_dependencies == 0
                 if exec_list.len() == exec_list.capacity() && exec_list.try_reserve(8).is_err() {
-                    ctx.throw_out_of_memory();
-                    return Err(-1);
+                    return Err(ctx.throw_out_of_memory());
                 }
 
                 exec_list.push(m);

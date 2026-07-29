@@ -159,8 +159,7 @@ impl RegExpData {
                     ff |= LRE_FLAG_STICKY as u8;
                 }
                 _ => {
-                    ctx.throw_syntax_error("Invalid regular expression flags");
-                    return Err(-1);
+                    return Err(ctx.throw_syntax_error("Invalid regular expression flags"));
                 }
             }
         }
@@ -180,10 +179,7 @@ impl RegExpData {
             opts,
             Syntax::emacs(),
         )
-        .map_err(|e| {
-            ctx.throw_syntax_error(&e.to_string());
-            -1
-        })?;
+        .map_err(|e| ctx.throw_syntax_error(&e.to_string()))?;
 
         Ok((re, ff))
     }
@@ -386,17 +382,11 @@ pub(super) fn make_regexp_capture_array(
     let mut last_index = 0;
 
     let mut lst = Vec::<JSValue>::new();
-    lst.try_reserve(range_and_name.len()).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    lst.try_reserve(range_and_name.len()).map_err(|_| ctx.throw_out_of_memory())?;
 
     let mut indices = if with_indices {
         let mut idx_lst = Vec::<JSValue>::new();
-        idx_lst.try_reserve(range_and_name.len()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        idx_lst.try_reserve(range_and_name.len()).map_err(|_| ctx.throw_out_of_memory())?;
         Some((idx_lst, JSValue::UNDEFINED))
     } else {
         None

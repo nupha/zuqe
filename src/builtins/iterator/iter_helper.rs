@@ -75,10 +75,7 @@ fn js_iterator_helper_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     let is_return = cc.magic() == 1;
     let this_val = cc.this();
 
-    let this_obj = this_val.as_object().ok_or_else(|| {
-        ctx.throw_type_error_not_an_object();
-        -1
-    })?;
+    let this_obj = this_val.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
     // Check for IteratorZip payload first (zip results share IteratorHelper proto)
     if this_obj.payload().iterator_zip().is_some() {
@@ -89,14 +86,10 @@ fn js_iterator_helper_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         };
     }
 
-    let ip = this_obj.payload().iterator_helper().ok_or_else(|| {
-        ctx.throw_type_error("not an Iterator Helper");
-        -1
-    })?;
+    let ip = this_obj.payload().iterator_helper().ok_or_else(|| ctx.throw_type_error("not an Iterator Helper"))?;
 
     if ip.executing.get() {
-        ctx.throw_type_error("Iterator Helper is already executing");
-        return Err(-1);
+        return Err(ctx.throw_type_error("Iterator Helper is already executing"));
     }
 
     if ip.done.get() {
@@ -215,10 +208,7 @@ fn flatmap_next(ctx: &mut ScopedContext, ip: &IteratorHelperData) -> JSResult {
                 }
             };
 
-            let inner_obj = mapped.as_object().ok_or_else(|| {
-                ctx.throw_type_error("flatMap mapper must return an iterable");
-                -1
-            })?;
+            let inner_obj = mapped.as_object().ok_or_else(|| ctx.throw_type_error("flatMap mapper must return an iterable"))?;
 
             // Get [Symbol.iterator]; fallback to direct .next if null/undefined
             let inner_method =

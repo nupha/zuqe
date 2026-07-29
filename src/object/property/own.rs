@@ -122,8 +122,7 @@ impl ObjectImpl {
                 JS_PROP_VARREF => {
                     desc.value = self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?;
                     if unlikely(desc.value.is_uninitialized()) {
-                        JS_ThrowReferenceErrorUninitialized(ctx, prop);
-                        return Err(-1);
+                        return Err(JS_ThrowReferenceErrorUninitialized(ctx, prop));
                     }
                 }
                 JS_PROP_LAZYINIT => {
@@ -249,8 +248,7 @@ impl ObjectImpl {
                             if idx == list_count {
                                 if unlikely(!self.flags().extensible()) {
                                     return if ctx.rt().can_throw(flags) {
-                                        ctx.throw_type_error("object is not extensible");
-                                        Err(-1)
+                                        Err(ctx.throw_type_error("object is not extensible"))
                                     } else {
                                         Ok(false)
                                     };
@@ -350,8 +348,7 @@ impl ObjectImpl {
                 JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
                     if prop.is_numeric_index(ctx)? {
                         return if ctx.rt().can_throw(flags) {
-                            ctx.throw_type_error("cannot create numeric index in typed array");
-                            Err(-1)
+                            Err(ctx.throw_type_error("cannot create numeric index in typed array"))
                         } else {
                             Ok(false)
                         };
@@ -376,8 +373,7 @@ impl ObjectImpl {
 
                         if unlikely(!self.is_extensible_obj(ctx)?) {
                             return if ctx.rt().can_throw(flags) {
-                                ctx.throw_type_error("object is not extensible");
-                                Err(-1)
+                                Err(ctx.throw_type_error("object is not extensible"))
                             } else {
                                 Ok(false)
                             };
@@ -392,8 +388,7 @@ impl ObjectImpl {
 
         if unlikely(!obj_flags.extensible()) {
             if ctx.rt().can_throw(flags) {
-                ctx.throw_type_error("object is not extensible");
-                Err(-1)
+                Err(ctx.throw_type_error("object is not extensible"))
             } else {
                 Ok(false)
             }
@@ -440,8 +435,7 @@ impl JSValue {
         if let Some(p) = self.as_object() {
             p.has_own_property(ctx, prop)
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 
@@ -449,8 +443,7 @@ impl JSValue {
         if let Some(p) = self.as_object() {
             p.has_own_property_str(ctx, prop)
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 
@@ -463,8 +456,7 @@ impl JSValue {
         if let Some(mut p) = self.as_object() {
             p.get_own_property(ctx, prop)
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 }

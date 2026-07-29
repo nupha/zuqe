@@ -28,8 +28,7 @@ fn js_promise_then(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(mut p) = this.as_object_Promise() {
         p.then(ctx, cc.arg(0), cc.arg(1)).map(|p| p.into())
     } else {
-        ctx.throw_type_error_invalid_class(JS_CLASS_PROMISE);
-        Err(-1)
+        Err(ctx.throw_type_error_invalid_class(JS_CLASS_PROMISE))
     }
 }
 
@@ -115,8 +114,7 @@ pub(crate) fn js_promise_resolve(ctx: &mut ScopedContext, cc: CallContext) -> JS
 
     let this = cc.this();
     if !this.is_object() {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     }
 
     let resolution = cc.arg(0);
@@ -148,8 +146,7 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let this = cc.this();
     if !this.is_object() {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     }
 
     let (result_promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;
@@ -360,8 +357,7 @@ pub fn js_promise_all_keyed(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
 
     let this = cc.this();
     if !this.is_object() {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     }
 
     let (result_promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;
@@ -613,8 +609,7 @@ pub(crate) fn js_promise_all_keyed_resolve_element(
 pub fn js_promise_race(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     if !this.is_object() {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     }
 
     let (promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;
@@ -674,8 +669,7 @@ pub fn js_promise_race(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 pub fn js_promise_withResolvers(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     if !this.is_object() {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     }
 
     let (result_promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;
@@ -698,8 +692,7 @@ pub fn js_promise_withResolvers(ctx: &mut ScopedContext, cc: CallContext) -> JSR
 fn js_promise_try(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     if !this.is_object() {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     }
 
     let (result_promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;

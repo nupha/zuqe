@@ -108,8 +108,7 @@ impl RopeImpl {
     ) -> Result<StringRef, i32> {
         let len = left.len() + right.len();
         if unlikely(len > JS_STRING_LEN_MAX) {
-            ctx.throw_internal_error("string too long");
-            return Err(-1);
+            return Err(ctx.throw_internal_error("string too long"));
         }
 
         let is_wide = left.is_wide() || right.is_wide();
@@ -130,8 +129,7 @@ impl RopeImpl {
         let g = match ctx.alloc_local(node) {
             Ok(g) => g,
             Err(_) => {
-                ctx.throw_out_of_memory();
-                return Err(-1);
+                return Err(ctx.throw_out_of_memory());
             }
         };
 

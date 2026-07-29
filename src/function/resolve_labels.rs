@@ -40,10 +40,7 @@ impl FunctionDef {
 
         // new buf to generate bytecode
         let mut bc_out = Vec::<u8>::new();
-        bc_out.try_reserve_exact(bc_len).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        bc_out.try_reserve_exact(bc_len).map_err(|_| ctx.throw_out_of_memory())?;
 
         #[cfg(feature = "short_opcode")]
         if self.jump_slots_cap != 0 {
@@ -61,10 +58,7 @@ impl FunctionDef {
         if self.line_number_slots_cap != 0 && !self.attrs.exec_mode.contains(ExecMode::STRIP) {
             self.line_number_slots
                 .try_reserve(self.line_number_slots_cap)
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                .map_err(|_| ctx.throw_out_of_memory())?;
 
             self.line_number_last = self.line_num;
             self.line_number_last_pc = 0;

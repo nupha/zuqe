@@ -47,8 +47,7 @@ impl ObjectImpl {
         macro_rules! fail {
             ($msg:expr) => {
                 return if ctx.rt().can_throw(flags) {
-                    ctx.throw_type_error($msg);
-                    Err(-1)
+                    Err(ctx.throw_type_error($msg))
                 } else {
                     Ok(false)
                 }
@@ -57,8 +56,7 @@ impl ObjectImpl {
         macro_rules! fail_read_only {
             ($prop:expr) => {
                 return if ctx.rt().can_throw(flags) {
-                    ctx.throw_type_error_read_only($prop);
-                    Err(-1)
+                    Err(ctx.throw_type_error_read_only($prop))
                 } else {
                     Ok(false)
                 }
@@ -104,8 +102,7 @@ impl ObjectImpl {
                                 .prop_slot(idx)
                                 .value(ctx, receiver.unwrap().into())?;
                             if unlikely(v.is_uninitialized()) {
-                                JS_ThrowReferenceErrorUninitialized(ctx, prop);
-                                return Err(-1);
+                                return Err(JS_ThrowReferenceErrorUninitialized(ctx, prop));
                             }
                             fail_read_only!(prop)
                         } else if let JSProperty::VarRef(vref) = cur_obj.prop_slot_mut(idx) {
@@ -255,8 +252,7 @@ impl ObjectImpl {
         // property is not defined, add the property
         //
         if unlikely(flags & JS_PROP_NO_ADD != 0) {
-            JS_ThrowReferenceErrorNotDefined(ctx, prop);
-            return Err(-1);
+            return Err(JS_ThrowReferenceErrorNotDefined(ctx, prop));
         }
 
         // receiver must be provided in order to add new property on it.
@@ -584,18 +580,16 @@ impl JSValue {
         if let Some(o) = self.as_object() {
             o.set_property_internal(ctx, prop, val, receiver.or(Some(o)), flags)
         } else if self.is_undefined_or_null() {
-            ctx.throw_type_error(if self.is_undefined() {
+            Err(ctx.throw_type_error(if self.is_undefined() {
                 "cannot set property of undefined"
             } else {
                 "cannot set property of null"
-            });
-            Err(-1)
+            }))
         } else {
             if let Some(p) = self.get_prototype_primitive(ctx).as_object() {
                 p.set_property_internal(ctx, prop, val, receiver, flags)
             } else if unlikely(ctx.rt().can_throw(flags)) {
-                ctx.throw_type_error_not_an_object();
-                Err(-1)
+                Err(ctx.throw_type_error_not_an_object())
             } else {
                 Ok(false)
             }
@@ -680,8 +674,7 @@ fn call_setter(
         func.call(ctx, this_obj, std::slice::from_ref(&value))?;
         Ok(true)
     } else if unlikely(ctx.rt().can_throw(flags)) {
-        ctx.throw_type_error("no setter for property");
-        Err(-1)
+        Err(ctx.throw_type_error("no setter for property"))
     } else {
         Ok(false)
     }

@@ -122,8 +122,7 @@ impl NFuncPayload {
                 }
                 Callback::Constructor(f) => {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                        cx.throw_type_error("must be called with new");
-                        Err(-1)
+                        Err(cx.throw_type_error("must be called with new"))
                     } else {
                         f(cx, cc)
                     }
@@ -194,8 +193,7 @@ impl NativeFunction {
 
         // better to always check stack overflow
         if js_check_stack_overflow(&rt, std::mem::size_of::<JSValue>() * args_length) {
-            ctx.throw_stack_overflow();
-            return Err(-1);
+            return Err(ctx.throw_stack_overflow());
         }
 
         // Allocates a lightweight arena frame for argument passing, skipping the
@@ -209,11 +207,10 @@ impl NativeFunction {
             let idx = match rt.frame_arena.alloc_frame(*nfunc, ExecMode::empty(), cap) {
                 Ok(idx) => idx,
                 Err(e) => {
-                    match e {
+                    return Err(match e {
                         FrameAllocError::Oom => ctx.throw_stack_fail(),
                         FrameAllocError::Exceeded => ctx.throw_stack_exceeded(),
-                    }
-                    return Err(-1);
+                    });
                 }
             };
             rt.frame_arena.frame_mut(idx).prev = prev_frame;
@@ -288,11 +285,10 @@ impl NativeFunction {
             let idx = match arena.alloc_frame(obj, ExecMode::empty(), buf_cap) {
                 Ok(idx) => idx,
                 Err(e) => {
-                    match e {
+                    return Err(match e {
                         FrameAllocError::Oom => ctx.throw_stack_fail(),
                         FrameAllocError::Exceeded => ctx.throw_stack_exceeded(),
-                    }
-                    return Err(-1);
+                    });
                 }
             };
             arena.frame_mut(idx).prev = saved_active;

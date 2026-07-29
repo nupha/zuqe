@@ -31,14 +31,12 @@ impl GcTrace for WeakRefData {
 fn js_weakref_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
     if new_target.is_undefined() {
-        ctx.throw_type_error("constructor WeakRef requires 'new'");
-        return Err(-1);
+        return Err(ctx.throw_type_error("constructor WeakRef requires 'new'"));
     }
 
     let target_val = cc.arg(0);
     let Some(target_obj) = target_val.as_object() else {
-        ctx.throw_type_error("WeakRef target must be an object");
-        return Err(-1);
+        return Err(ctx.throw_type_error("WeakRef target must be an object"));
     };
 
     let weak = target_obj.downgrade();
@@ -55,15 +53,13 @@ fn js_weakref_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
 fn js_weakref_deref(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Some(this_obj) = cc.this().as_object() else {
-        ctx.throw_type_error("WeakRef.prototype.deref requires a WeakRef");
-        return Err(-1);
+        return Err(ctx.throw_type_error("WeakRef.prototype.deref requires a WeakRef"));
     };
 
     let wrd = match this_obj.payload().weak_ref() {
         Some(d) => d,
         None => {
-            ctx.throw_type_error("WeakRef.prototype.deref called on non-WeakRef");
-            return Err(-1);
+            return Err(ctx.throw_type_error("WeakRef.prototype.deref called on non-WeakRef"));
         }
     };
 
@@ -163,14 +159,12 @@ impl FinalizationRegistryData {
 fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
     if new_target.is_undefined() {
-        ctx.throw_type_error("constructor FinalizationRegistry requires 'new'");
-        return Err(-1);
+        return Err(ctx.throw_type_error("constructor FinalizationRegistry requires 'new'"));
     }
 
     let cb = cc.arg(0);
     if !cb.is_callable() {
-        ctx.throw_type_error("FinalizationRegistry argument must be a function");
-        return Err(-1);
+        return Err(ctx.throw_type_error("FinalizationRegistry argument must be a function"));
     }
 
     let ctx_ptr = ctx.ctx_ptr;
@@ -193,19 +187,17 @@ fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Some(mut this_obj) = cc.this().as_object() else {
-        ctx.throw_type_error(
+        return Err(ctx.throw_type_error(
             "FinalizationRegistry.prototype.register requires a FinalizationRegistry",
-        );
-        return Err(-1);
+        ));
     };
 
     let frd = match this_obj.payload_mut().finalization_registry_mut() {
         Some(d) => d,
         None => {
-            ctx.throw_type_error(
+            return Err(ctx.throw_type_error(
                 "FinalizationRegistry.prototype.register called on non-FinalizationRegistry",
-            );
-            return Err(-1);
+            ));
         }
     };
 
@@ -214,8 +206,7 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let token_val = cc.arg(2);
 
     let Some(mut target_obj) = target_val.as_object() else {
-        ctx.throw_type_error("FinalizationRegistry.prototype.register: target must be an object");
-        return Err(-1);
+        return Err(ctx.throw_type_error("FinalizationRegistry.prototype.register: target must be an object"));
     };
 
     // held_value cannot be the same object as target (SameValue check)
@@ -223,19 +214,17 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         && held_val.is_object()
         && target_val.as_object().unwrap() == held_val.as_object().unwrap()
     {
-        ctx.throw_type_error(
+        return Err(ctx.throw_type_error(
             "FinalizationRegistry.prototype.register: held value cannot be the target",
-        );
-        return Err(-1);
+        ));
     }
 
     // Validate unregister token: CanBeHeldWeakly check
     // Only objects can be held weakly; null, booleans, numbers, strings, symbols throw TypeError.
     if !token_val.is_undefined() && token_val.as_object().is_none() {
-        ctx.throw_type_error(
+        return Err(ctx.throw_type_error(
             "FinalizationRegistry.prototype.register: unregisterToken must be an object or undefined",
-        );
-        return Err(-1);
+        ));
     }
 
     let target_weak = target_obj.downgrade();
@@ -261,19 +250,17 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_finrec_unregister(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Some(mut this_obj) = cc.this().as_object() else {
-        ctx.throw_type_error(
+        return Err(ctx.throw_type_error(
             "FinalizationRegistry.prototype.unregister requires a FinalizationRegistry",
-        );
-        return Err(-1);
+        ));
     };
 
     let frd = match this_obj.payload_mut().finalization_registry_mut() {
         Some(d) => d,
         None => {
-            ctx.throw_type_error(
+            return Err(ctx.throw_type_error(
                 "FinalizationRegistry.prototype.unregister called on non-FinalizationRegistry",
-            );
-            return Err(-1);
+            ));
         }
     };
 
@@ -281,10 +268,9 @@ fn js_finrec_unregister(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // CanBeHeldWeakly check — only objects can be held weakly.
     // Unlike register(), there is no exception for undefined in unregister.
     let Some(token_obj) = token_val.as_object() else {
-        ctx.throw_type_error(
+        return Err(ctx.throw_type_error(
             "FinalizationRegistry.prototype.unregister: unregister token must be an object",
-        );
-        return Err(-1);
+        ));
     };
 
     let heap = ctx.rt().gc_heap();

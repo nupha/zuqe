@@ -142,8 +142,7 @@ impl RegExpData {
                         opts = opts.sticky();
                     }
                     _ => {
-                        ctx.throw_syntax_error("Invalid regular expression flags");
-                        return Err(-1);
+                        return Err(ctx.throw_syntax_error("Invalid regular expression flags"));
                     }
                 }
             }
@@ -153,10 +152,7 @@ impl RegExpData {
             &pattern.encode_utf8_bytes_internal(0..pattern.len(), true, !opts.is_unicode()),
             opts,
         )
-        .map_err(|e| {
-            ctx.throw_syntax_error(&e.to_string());
-            -1
-        })?;
+        .map_err(|e| ctx.throw_syntax_error(&e.to_string()))?;
 
         Ok(Self {
             regex: Rc::new(regex),
@@ -334,10 +330,7 @@ pub(super) fn make_regexp_capture_array(
 
     let mut indices: Option<(Vec<JSValue>, Option<Object>)> = if with_indices {
         let mut lst = Vec::new();
-        lst.try_reserve(range_and_name.len()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        lst.try_reserve(range_and_name.len()).map_err(|_| ctx.throw_out_of_memory())?;
         Some((lst, None))
     } else {
         None

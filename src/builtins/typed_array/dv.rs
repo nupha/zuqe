@@ -113,8 +113,7 @@ impl DataView {
         // the buffer could have been detached by the byteLength argument
         // coercion, or in create_instance_with_ctor() reading the prototype
         if array_buffer.payload().is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            return Err(-1);
+            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
         }
 
         Ok(Self(o.0))
@@ -148,8 +147,7 @@ impl DataView {
     /// When underlaying array buffer is detached, returns Err.
     pub(super) fn array_buffer_byte_offset(&self, ctx: &mut ScopedContext) -> Result<usize, i32> {
         if self.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            Err(-1)
+            Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx))
         } else {
             Ok(self.payload().offset as usize)
         }

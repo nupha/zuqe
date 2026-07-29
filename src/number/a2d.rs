@@ -115,8 +115,7 @@ pub(crate) fn js_aton(
 ) -> Result<(IntOrFloat, usize), i32> {
     macro_rules! fail {
         () => {
-            ctx.throw_type_error("invalid number literal");
-            return Err(-1);
+            return Err(ctx.throw_type_error("invalid number literal"));
         };
     }
 
@@ -330,8 +329,7 @@ pub(crate) fn js_aton(
     if len_digits + 1 > buf.capacity() as i32
         && buf.try_reserve_exact(len_digits as usize + 1).is_err()
     {
-        ctx.throw_out_of_memory();
-        return Err(-1);
+        return Err(ctx.throw_out_of_memory());
     }
 
     if is_neg {
@@ -387,8 +385,7 @@ pub(crate) fn js_aton(
             }
         }
         ATOD_TYPE_BIG_INT => {
-            ctx.throw_type_error("big int is not supported");
-            Err(-1)
+            Err(ctx.throw_type_error("big int is not supported"))
         }
 
         _ => unreachable!(),
@@ -412,8 +409,7 @@ unsafe fn js_atof(
                 if !pp.is_null() {
                     *pp = p;
                 }
-                ctx.throw_type_error("invalid number literal");
-                return Err(-1);
+                return Err(ctx.throw_type_error("invalid number literal"));
             };
         }
 
@@ -575,8 +571,7 @@ unsafe fn js_atof(
             if !pp.is_null() {
                 *pp = p;
             }
-            ctx.throw_out_of_memory();
-            return Err(-1);
+            return Err(ctx.throw_out_of_memory());
         }
 
         if is_neg {

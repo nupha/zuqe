@@ -307,8 +307,7 @@ impl AsyncStateImpl {
         debug_assert!(!self.is_completed);
 
         if js_check_stack_overflow(ctx.rt(), 0) {
-            ctx.throw_stack_overflow();
-            return Err(-1);
+            return Err(ctx.throw_stack_overflow());
         }
 
         // Put suspended frame back into arena if needed.
@@ -394,10 +393,7 @@ impl AsyncState {
         let inner = AsyncStateImpl::new(ctx.into(), resolvings, bytecode_func, this_obj, args)?;
         let a_state: AsyncState = ctx
             .alloc_local(inner)
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?
+            .map_err(|_| ctx.throw_out_of_memory())?
             .into();
 
         // Backref link is no longer needed: in the arena model, GC tracing

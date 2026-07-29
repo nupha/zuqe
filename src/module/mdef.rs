@@ -366,10 +366,7 @@ impl ModuleDef {
         let md = ctx
             .alloc_local(ModuleDefImpl::new(name))
             .map(Self)
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         ctx.loaded_modules.push(md);
         Ok(md)
@@ -383,10 +380,7 @@ impl ModuleDef {
         init_fn: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
         let payload = ModuleDefImpl::create(ctx, module_name, init_fn)?;
-        let mut md = ctx.alloc_local(payload).map(Self).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        let mut md = ctx.alloc_local(payload).map(Self).map_err(|_| ctx.throw_out_of_memory())?;
 
         ctx.loaded_modules.push(md);
 
@@ -620,11 +614,9 @@ pub fn js_import_meta(ctx: &mut ScopedContext) -> Result<Object, i32> {
         if let Some(mut m) = ctx.find_module_def(filename) {
             m.import_meta(ctx)
         } else {
-            ctx.throw_type_error("import.meta not supported in this context");
-            Err(-1)
+            Err(ctx.throw_type_error("import.meta not supported in this context"))
         }
     } else {
-        ctx.throw_type_error("import.meta not supported in this context");
-        Err(-1)
+        Err(ctx.throw_type_error("import.meta not supported in this context"))
     }
 }

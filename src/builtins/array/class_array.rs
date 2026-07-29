@@ -136,10 +136,7 @@ fn try_collect_values(
     ctx: &mut ScopedContext,
     iter: impl Iterator<Item = JSValue>,
 ) -> Result<Vec<JSValue>, i32> {
-    iter.try_collect::<Vec<_>>().map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })
+    iter.try_collect::<Vec<_>>().map_err(|_| ctx.throw_out_of_memory())
 }
 
 /// Create an Array instance honoring `new_target`'s prototype, seeded with
@@ -159,8 +156,7 @@ fn new_array_with_ctor(
 /// (`with`/`toReversed`/`toSorted`) is willing to materialize.
 fn ensure_u32_len(ctx: &mut ScopedContext, len: i64) -> Result<(), i32> {
     if len > u32::MAX as i64 {
-        ctx.throw_range_error("invalid array length");
-        return Err(-1);
+        return Err(ctx.throw_range_error("invalid array length"));
     }
     Ok(())
 }
@@ -168,8 +164,7 @@ fn ensure_u32_len(ctx: &mut ScopedContext, len: i64) -> Result<(), i32> {
 /// Throw TypeError when `new_len` exceeds the spec's 2^53-1 array length limit.
 fn ensure_array_len_limit(ctx: &mut ScopedContext, new_len: i64) -> Result<(), i32> {
     if new_len > MAX_SAFE_INTEGER {
-        ctx.throw_type_error("Array loo long");
-        return Err(-1);
+        return Err(ctx.throw_type_error("Array loo long"));
     }
     Ok(())
 }
@@ -320,8 +315,7 @@ fn js_array_with(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         idx += len;
     }
     if idx < 0 || idx >= len {
-        ctx.throw_range_error("out of bound");
-        return Err(-1);
+        return Err(ctx.throw_range_error("out of bound"));
     }
     ensure_u32_len(ctx, len)?;
 
@@ -489,10 +483,7 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let len: i64;
 
     if special & special_TA != 0 {
-        this_obj = this.as_object().ok_or_else(|| {
-            ctx.throw_type_error_not_an_object();
-            -1
-        })?;
+        this_obj = this.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
         len = js_typed_array_get_length_internal(ctx, this)? as i64;
     } else {
         this_obj = this.objectify(ctx)?;
@@ -557,10 +548,7 @@ fn reduce_fold(
         });
     }
 
-    acc.ok_or_else(|| {
-        ctx.throw_type_error("empty array");
-        -1
-    })
+    acc.ok_or_else(|| ctx.throw_type_error("empty array"))
 }
 
 fn js_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -849,10 +837,7 @@ pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
             } else {
                 el.to_string(ctx)?
             };
-            sbuf.push_content(ss.content()).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?
+            sbuf.push_content(ss.content()).map_err(|_| ctx.throw_out_of_memory())?
         }
     }
 
@@ -1127,8 +1112,7 @@ fn js_array_toSpliced(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let new_len = len + add - del;
     if new_len > MAX_SAFE_INTEGER {
-        ctx.throw_type_error("invalid array length");
-        return Err(-1);
+        return Err(ctx.throw_type_error("invalid array length"));
     }
 
     let mut new_lst = alloc_fast_array_slots(ctx, new_len as usize)?;
@@ -1229,8 +1213,7 @@ fn JS_FlattenIntoArray(
     this_arg: JSValue,
 ) -> Result<i64, i32> {
     if js_check_stack_overflow(ctx.rt(), 0) {
-        ctx.throw_stack_overflow();
-        return Err(-1);
+        return Err(ctx.throw_stack_overflow());
     }
 
     let mut sourceIndex: i64 = 0;
@@ -1265,8 +1248,7 @@ fn JS_FlattenIntoArray(
                 }
 
                 if target_index >= MAX_SAFE_INTEGER {
-                    ctx.throw_type_error("Array too long");
-                    return Err(-1);
+                    return Err(ctx.throw_type_error("Array too long"));
                 }
 
                 target.define_property_value_i64(

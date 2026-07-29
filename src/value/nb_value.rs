@@ -538,8 +538,7 @@ impl JSValue {
                 }
             }
             _ => {
-                ctx.throw_type_error("can't convert to string or symbol");
-                Err(-1)
+                Err(ctx.throw_type_error("can't convert to string or symbol"))
             }
         }
     }
@@ -578,16 +577,14 @@ impl JSValue {
                 Ok(s)
             }
             JSValueTag::Symbol => {
-                ctx.throw_type_error("cannot convert symbol to string");
-                Err(-1)
+                Err(ctx.throw_type_error("cannot convert symbol to string"))
             }
             _ => {
                 let v = self.to_string_or_symbol(ctx)?;
                 match v.tag() {
                     JSValueTag::String => Ok(unsafe { v.as_string_unchecked() }),
                     JSValueTag::Symbol => {
-                        ctx.throw_type_error("cannot convert symbol to string");
-                        Err(-1)
+                        Err(ctx.throw_type_error("cannot convert symbol to string"))
                     }
                     _ => unreachable!(),
                 }
@@ -633,8 +630,7 @@ impl JSValue {
                 | JSValueTag::CatchOffset
                 | JSValueTag::Module
                 | JSValueTag::FunctionBytecode => {
-                    ctx.throw_type_error("cannot convert to atom");
-                    return Err(-1);
+                    return Err(ctx.throw_type_error("cannot convert to atom"));
                 }
 
                 JSValueTag::StringRope | JSValueTag::Exception => {
@@ -722,8 +718,7 @@ impl JSValue {
                 Err(-1)
             }
             _ => {
-                ctx.throw_type_error_not_an_object();
-                Err(-1)
+                Err(ctx.throw_type_error_not_an_object())
             }
         }
     }

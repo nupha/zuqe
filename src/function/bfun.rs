@@ -239,8 +239,7 @@ impl ObjectImpl {
         if self.is_callable() {
             Ok(self)
         } else {
-            ctx.throw_type_error("not a function");
-            Err(-1)
+            Err(ctx.throw_type_error("not a function"))
         }
     }
 
@@ -444,8 +443,7 @@ impl BytecodeFunction {
         // stack — turn an impending overflow into a catchable error
         // instead of a hard crash.
         if js_check_stack_overflow(ctx.rt(), 0) {
-            ctx.throw_stack_overflow();
-            return Err(-1);
+            return Err(ctx.throw_stack_overflow());
         }
 
         // ── Allocate arena frame and execute via trampoline ──
@@ -470,11 +468,10 @@ impl BytecodeFunction {
             let idx = match arena.alloc_frame(func_obj, bc.mode(), buf_cap) {
                 Ok(idx) => idx,
                 Err(e) => {
-                    match e {
+                    return Err(match e {
                         FrameAllocError::Oom => ctx.throw_stack_fail(),
                         FrameAllocError::Exceeded => ctx.throw_stack_exceeded(),
-                    }
-                    return Err(-1);
+                    });
                 }
             };
             arena.frame_mut(idx).prev = parent_frame;

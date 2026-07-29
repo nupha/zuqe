@@ -117,10 +117,7 @@ fn js_string_toWellFormed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         let stream = Utf16Stream::new(s16);
         if !stream.is_well_formed() {
             let mut buf = Vec::<u16>::new();
-            buf.try_reserve_exact(s16.len() * 3 / 2).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            buf.try_reserve_exact(s16.len() * 3 / 2).map_err(|_| ctx.throw_out_of_memory())?;
             for (_, cc) in stream {
                 // invalid code point is replaced with U+FFFD
                 buf.extend_from_slice(cc.char().unwrap_or('\u{FFFD}').encode_utf16(&mut [0; 2]));
@@ -197,8 +194,7 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
 
     if this.is_undefined_or_null() {
-        ctx.throw_type_error("cannot convert to object");
-        return Err(-1);
+        return Err(ctx.throw_type_error("cannot convert to object"));
     }
 
     let search = cc.arg(0);
@@ -283,17 +279,11 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
             res_string
                 .push_content_range(cc, endOfLastMatch..pos)
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                .map_err(|_| ctx.throw_out_of_memory())?;
 
             res_string
                 .push_content(replacement.content())
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                .map_err(|_| ctx.throw_out_of_memory())?;
 
             endOfLastMatch = pos + search_for.len();
             is_first = false;
@@ -312,10 +302,7 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if endOfLastMatch < str.len() {
         res_string
             .push_chars_iter(cc.chars_since(endOfLastMatch).map(|(_, c)| c))
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            .map_err(|_| ctx.throw_out_of_memory())?;
     }
 
     // create result string
@@ -326,8 +313,7 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     if this.is_undefined_or_null() {
-        ctx.throw_type_error("cannot convert to object");
-        return Err(-1);
+        return Err(ctx.throw_type_error("cannot convert to object"));
     }
 
     let separator = cc.arg(0);
@@ -494,15 +480,11 @@ fn js_string_pad(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     if ttl_len > JS_STRING_LEN_MAX as i32 {
-        ctx.throw_internal_error("string too long");
-        return Err(-1);
+        return Err(ctx.throw_internal_error("string too long"));
     }
 
     let mut sbuf = if is_pad_end {
-        str.content().to_buf().map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?
+        str.content().to_buf().map_err(|_| ctx.throw_out_of_memory())?
     } else {
         StringBuf::Empty
     };
@@ -532,16 +514,10 @@ fn js_string_pad(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         // fill with char
         sbuf.push_chars_iter(std::iter::repeat_n(fill_char, ttl_len as usize))
     }
-    .map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    .map_err(|_| ctx.throw_out_of_memory())?;
 
     if !is_pad_end {
-        sbuf.push_content(str.content()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        sbuf.push_content(str.content()).map_err(|_| ctx.throw_out_of_memory())?;
     }
 
     ctx.create_string_with_buf(sbuf).map(JSValue::make_string)
@@ -552,8 +528,7 @@ fn js_string_repeat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let repeat: i64 = cc.arg(0).to_number(ctx)?.to_i64_saturating();
     if !(0..=0x7fffffff).contains(&repeat) {
-        ctx.throw_range_error("invalid repeat count");
-        return Err(-1);
+        return Err(ctx.throw_range_error("invalid repeat count"));
     }
 
     let repeat = repeat as usize;
@@ -562,14 +537,10 @@ fn js_string_repeat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Ok(JSValue::make_string(p));
     }
     if repeat * len > JS_STRING_LEN_MAX {
-        ctx.throw_internal_error("string too long");
-        return Err(-1);
+        return Err(ctx.throw_internal_error("string too long"));
     }
 
-    let mut res_string = StringBuf::with_capacity(repeat * len, false).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    let mut res_string = StringBuf::with_capacity(repeat * len, false).map_err(|_| ctx.throw_out_of_memory())?;
 
     let sdata = p.content();
     for _ in 0..repeat {
@@ -589,8 +560,7 @@ fn js_string_includes(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     #[cfg(feature = "builtin_regexp")]
     if super::regexp::is_regexp(ctx, arg0)? {
-        ctx.throw_type_error("regex not supported");
-        return Err(-1);
+        return Err(ctx.throw_type_error("regex not supported"));
     }
 
     let pat = arg0.to_string(ctx)?;
@@ -662,13 +632,11 @@ fn check_regexp_g_flag(ctx: &mut ScopedContext, obj: JSValue) -> Result<(), i32>
     if super::regexp::is_regexp(ctx, obj)? {
         let flags = obj.get_property(ctx, Atom::CONST_flags)?;
         if flags.is_undefined_or_null() {
-            ctx.throw_type_error("cannot convert to object");
-            return Err(-1);
+            return Err(ctx.throw_type_error("cannot convert to object"));
         } else {
             let s = flags.to_string(ctx)?;
             if s.index_of_char('g', 0).is_none() {
-                ctx.throw_type_error("regexp must have the 'g' flag");
-                return Err(-1);
+                return Err(ctx.throw_type_error("regexp must have the 'g' flag"));
             }
         }
     }
@@ -685,8 +653,7 @@ fn js_string_match(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
 
     if this.is_undefined_or_null() {
-        ctx.throw_type_error("cannot convert to object");
-        return Err(-1);
+        return Err(ctx.throw_type_error("cannot convert to object"));
     }
 
     let method_name: Atom = match magic {
@@ -756,18 +723,14 @@ fn js_string_match(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     #[cfg(not(feature = "builtin_regexp"))]
     {
-        ctx.throw_internal_error("regex not supported");
-        Err(-1)
+        Err(ctx.throw_internal_error("regex not supported"))
     }
 }
 
 fn js_string_trim(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let str = this.to_string_non_undefined_or_null(ctx)?;
-    let mut s = str.content().to_buf().map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    let mut s = str.content().to_buf().map_err(|_| ctx.throw_out_of_memory())?;
     s.trim(cc.magic() & 1 != 0, cc.magic() & 2 != 0);
     ctx.create_string_with_buf(s).map(JSValue::make_string)
 }
@@ -809,10 +772,7 @@ fn js_string_toString(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValu
 
 #[inline]
 fn js_thisStringValue(ctx: &mut ScopedContext, this_val: JSValue) -> Result<StringRef, i32> {
-    this_val.as_string(true).ok_or_else(|| {
-        ctx.throw_type_error("not a string");
-        -1
-    })
+    this_val.as_string(true).ok_or_else(|| ctx.throw_type_error("not a string"))
 }
 
 fn js_string_toLowerCase(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -837,10 +797,7 @@ fn js_string_toLowerCase(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             )
         }
         StringData::Utf16(s) => {
-            let mut buf = StringBuf::with_capacity(s.len(), false).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            let mut buf = StringBuf::with_capacity(s.len(), false).map_err(|_| ctx.throw_out_of_memory())?;
             let s8 = String::from_utf16_lossy(s);
             buf.push_u16_iter(
                 if to_lower {
@@ -850,10 +807,7 @@ fn js_string_toLowerCase(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 }
                 .encode_utf16(),
             )
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
             buf
         }
@@ -922,8 +876,7 @@ fn js_string_normalize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     } else {
         let form = cc.arg(0);
         if form.is_null() {
-            ctx.throw_range_error("bad normalization form");
-            return Err(-1);
+            return Err(ctx.throw_range_error("bad normalization form"));
         } else {
             match form.to_string(ctx)?.content().encode_utf8(false).as_ref() {
                 "NFC" => UnicodeNormalizationEnum::NFC,
@@ -931,8 +884,7 @@ fn js_string_normalize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 "NFKC" => UnicodeNormalizationEnum::NFKC,
                 "NFKD" => UnicodeNormalizationEnum::NFKD,
                 _ => {
-                    ctx.throw_range_error("bad normalization form");
-                    return Err(-1);
+                    return Err(ctx.throw_range_error("bad normalization form"));
                 }
             }
         }
@@ -954,8 +906,7 @@ fn js_string_normalize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_string__quote(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let val = cc.this();
     if val.is_undefined_or_null() {
-        ctx.throw_type_error("undefined or null is not allowed");
-        Err(-1)
+        Err(ctx.throw_type_error("undefined or null is not allowed"))
     } else {
         let s = val.to_string(ctx)?;
         let s = s.content().encode_utf8(true);
@@ -1061,10 +1012,7 @@ fn js_string_fromCharCode(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     let mut sbuf = StringBuf::Empty;
     for a in cc.arguments() {
         let cp = a.to_number(ctx)?.to_u16();
-        sbuf.push_u16(cp).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        sbuf.push_u16(cp).map_err(|_| ctx.throw_out_of_memory())?;
     }
     ctx.create_string_with_buf(sbuf).map(JSValue::make_string)
 }
@@ -1073,10 +1021,7 @@ fn js_string_fromCodePoint(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     let mut sbuf = StringBuf::Empty;
 
     if cc.length() > 0 {
-        sbuf.try_reserve_exact(cc.length()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        sbuf.try_reserve_exact(cc.length()).map_err(|_| ctx.throw_out_of_memory())?;
 
         for a in cc.arguments() {
             let code: i32 = if let Some(i) = a.as_int() {
@@ -1100,13 +1045,9 @@ fn js_string_fromCodePoint(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
             };
 
             if code >= 0 {
-                sbuf.push_u32(code as u32).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                sbuf.push_u32(code as u32).map_err(|_| ctx.throw_out_of_memory())?;
             } else {
-                ctx.throw_range_error("invalid code point");
-                return Err(-1);
+                return Err(ctx.throw_range_error("invalid code point"));
             }
         }
     }
@@ -1125,18 +1066,12 @@ fn js_string_raw(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     for i in 0..n {
         let str = raw.get_property_i64(ctx, i)?.to_string(ctx)?;
-        sbuf.push_content(str.content()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        sbuf.push_content(str.content()).map_err(|_| ctx.throw_out_of_memory())?;
 
         if i < n - 1 && i + 1 < cc.length() as i64 {
             let val = cc.arg(i as usize + 1);
             let s = val.to_string(ctx)?;
-            sbuf.push_content(s.content()).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            sbuf.push_content(s.content()).map_err(|_| ctx.throw_out_of_memory())?;
         }
     }
 

@@ -113,30 +113,24 @@ impl ResolveExport {
         ctx: &mut ScopedContext,
         m: &ModuleDefImpl,
         export_name: &Atom,
-    ) {
+    ) -> i32 {
         match self {
-            Self::Found { .. } => {}
-            Self::NotFound => {
-                ctx.throw_syntax_error(&format!(
-                    "Could not find export '{}' in module '{}'",
-                    export_name.to_utf8(ctx.rt()),
-                    m.module_name.to_utf8(ctx.rt()),
-                ));
-            }
-            Self::Circular => {
-                ctx.throw_syntax_error(&format!(
-                    "circular reference when looking for export '{}' in module '{}'",
-                    export_name.to_utf8(ctx.rt()),
-                    m.module_name.to_utf8(ctx.rt()),
-                ));
-            }
-            Self::Ambiguous => {
-                ctx.throw_syntax_error(&format!(
-                    "export '{}' in module '{}' is ambiguous",
-                    export_name.to_utf8(ctx.rt()),
-                    m.module_name.to_utf8(ctx.rt()),
-                ));
-            }
+            Self::Found { .. } => -1,
+            Self::NotFound => ctx.throw_syntax_error(&format!(
+                "Could not find export '{}' in module '{}'",
+                export_name.to_utf8(ctx.rt()),
+                m.module_name.to_utf8(ctx.rt()),
+            )),
+            Self::Circular => ctx.throw_syntax_error(&format!(
+                "circular reference when looking for export '{}' in module '{}'",
+                export_name.to_utf8(ctx.rt()),
+                m.module_name.to_utf8(ctx.rt()),
+            )),
+            Self::Ambiguous => ctx.throw_syntax_error(&format!(
+                "export '{}' in module '{}' is ambiguous",
+                export_name.to_utf8(ctx.rt()),
+                m.module_name.to_utf8(ctx.rt()),
+            )),
         }
     }
 }
@@ -307,10 +301,9 @@ impl ModuleDef {
         req_module_idx: u16,
     ) -> Result<(), i32> {
         if self.star_export_entries.len() == self.star_export_entries.capacity() {
-            self.star_export_entries.try_reserve(4).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            self.star_export_entries
+                .try_reserve(4)
+                .map_err(|_| ctx.throw_out_of_memory())?;
         }
 
         self.star_export_entries.push(req_module_idx);
@@ -328,10 +321,9 @@ impl ModuleDef {
             return Ok(());
         }
 
-        s.modules.try_reserve(1).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        s.modules
+            .try_reserve(1)
+            .map_err(|_| ctx.throw_out_of_memory())?;
         s.modules.push(*self);
 
         for exp in self.export_entries.iter() {
@@ -361,10 +353,9 @@ impl ModuleDef {
                 entry.cached.take();
             } else {
                 if s.exported_names.len() == s.exported_names.capacity() {
-                    s.exported_names.try_reserve(1).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    s.exported_names
+                        .try_reserve(1)
+                        .map_err(|_| ctx.throw_out_of_memory())?;
                 }
                 s.exported_names.push(ExportedNameEntry {
                     export_name: exp.export_name,
@@ -448,8 +439,7 @@ impl ModuleDef {
                     export.export_type = ExportedNameKind::EXPORTED_NAME_AMBIGUOUS;
                 }
                 ResolveExport::NotFound | ResolveExport::Circular => {
-                    resolv.throw_syntax_error_export(ctx, self, &export.export_name);
-                    return Err(-1);
+                    return Err(resolv.throw_syntax_error_export(ctx, self, &export.export_name));
                 }
             }
         }

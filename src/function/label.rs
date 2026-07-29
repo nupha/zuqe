@@ -43,8 +43,7 @@ impl Label {
         if self.pending_relocs.len() == self.pending_relocs.capacity()
             && self.pending_relocs.try_reserve(1).is_err()
         {
-            ctx.throw_out_of_memory();
-            return Err(-1);
+            return Err(ctx.throw_out_of_memory());
         }
 
         self.pending_relocs.push(RelocEntry { addr, size });

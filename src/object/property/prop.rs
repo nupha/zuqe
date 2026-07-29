@@ -155,8 +155,7 @@ impl JSPropertyDescriptor {
             flags |= JS_PROP_HAS_GET;
             getter = desc.get_property(ctx, Atom::CONST_get)?;
             if unlikely(!(getter.is_undefined() || getter.is_callable())) {
-                ctx.throw_type_error("invalid getter");
-                return Err(-1);
+                return Err(ctx.throw_type_error("invalid getter"));
             }
         }
 
@@ -164,8 +163,7 @@ impl JSPropertyDescriptor {
             flags |= JS_PROP_HAS_SET;
             setter = desc.get_property(ctx, Atom::CONST_set)?;
             if unlikely(!(setter.is_undefined() || setter.is_callable())) {
-                ctx.throw_type_error("invalid setter");
-                return Err(-1);
+                return Err(ctx.throw_type_error("invalid setter"));
             }
         }
 
@@ -173,8 +171,7 @@ impl JSPropertyDescriptor {
             flags & (JS_PROP_HAS_SET | JS_PROP_HAS_GET) != 0
                 && flags & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE) != 0,
         ) {
-            ctx.throw_type_error("cannot have setter/getter and value or writable");
-            Err(-1)
+            Err(ctx.throw_type_error("cannot have setter/getter and value or writable"))
         } else {
             Ok(Self {
                 flags,
@@ -191,8 +188,7 @@ impl JSPropertyDescriptor {
         if let Some(o) = desc.as_object() {
             Self::parse(ctx, o)
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 
@@ -455,8 +451,7 @@ impl JSValue {
             } else if let Some(mut p) = self.get_prototype_primitive(ctx).as_object() {
                 p.copy_data_properties_from(ctx, src_obj, excluded.as_object(), setprop)
             } else {
-                ctx.throw_type_error_not_an_object();
-                Err(-1)
+                Err(ctx.throw_type_error_not_an_object())
             }
         } else {
             Ok(())

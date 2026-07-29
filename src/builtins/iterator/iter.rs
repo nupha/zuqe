@@ -293,8 +293,7 @@ impl<'a> ObjectIter<'a> {
         if let Some(o) = call_result.as_object() {
             Ok((o.into(), IteratorState::NotParsed))
         } else {
-            ctx.throw_type_error("iterator must return an object");
-            Err(-1)
+            Err(ctx.throw_type_error("iterator must return an object"))
         }
     }
 
@@ -347,8 +346,7 @@ impl<'a> ObjectIter<'a> {
             if !method.is_undefined_or_null() {
                 let ret = method.call(ctx, obj.into(), &[]);
                 if !has_exception && !ret?.is_object() {
-                    ctx.throw_type_error_not_an_object();
-                    return Err(-1);
+                    return Err(ctx.throw_type_error_not_an_object());
                 }
             }
         } else if !has_exception {
@@ -424,14 +422,11 @@ impl JSValue {
         ctx: &mut ScopedContext,
         is_async: bool,
     ) -> Result<Object, i32> {
-        self.get_iterator(ctx, is_async)?.ok_or_else(|| {
-            ctx.throw_type_error(if is_async {
+        self.get_iterator(ctx, is_async)?.ok_or_else(|| ctx.throw_type_error(if is_async {
                 "value has neither [Symbol.asyncIterator] nor [Symbol.iterator] property"
             } else {
                 "value has no [Symbol.iterator] property"
-            });
-            -1
-        })
+            }))
     }
 
     /// Return ObjectIter used to iterate, if `self` value has [Symbol.iterator] method.

@@ -48,8 +48,7 @@ impl JSValue {
         if let Some(o) = self.as_object() {
             Ok(o)
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 
@@ -59,8 +58,7 @@ impl JSValue {
             if o.is_callable() {
                 Ok(o)
             } else {
-                ctx.throw_type_error("not a function");
-                Err(-1)
+                Err(ctx.throw_type_error("not a function"))
             }
         })
     }
@@ -229,8 +227,7 @@ mod serde_json_support {
 
             // Check for circular reference
             if stack.iter().any(|v| obj.eq(v)) {
-                ctx.throw_type_error("circular reference");
-                return Err(-1);
+                return Err(ctx.throw_type_error("circular reference"));
             }
 
             stack.push(*obj);

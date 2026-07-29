@@ -31,32 +31,28 @@ fn ss_check(
     catch_pos: i32,
 ) -> Result<(), i32> {
     if pos >= s.bc_len {
-        ctx.throw_internal_error(&format!("bytecode buffer overflow 1 (op={op}, pc={pos})"));
-        return Err(-1);
+        return Err(ctx.throw_internal_error(&format!("bytecode buffer overflow 1 (op={op}, pc={pos})")));
     }
 
     if stack_len > s.stack_len_max {
         s.stack_len_max = stack_len;
         if s.stack_len_max > STACK_LEN_MAX {
-            ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})\0"));
-            return Err(-1);
+            return Err(ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})\0")));
         }
     }
 
     if s.stack_level_tab[pos] != 0xffff {
         // already explored: check that the stack size is consistent
         return if s.stack_level_tab[pos] != stack_len {
-            ctx.throw_internal_error(&format!(
+            Err(ctx.throw_internal_error(&format!(
                 "inconsistent stack size: {} {} (pc={pos})",
                 s.stack_level_tab[pos], stack_len
-            ));
-            Err(-1)
+            )))
         } else if s.catch_pos_tab[pos] != catch_pos {
-            ctx.throw_internal_error(&format!(
+            Err(ctx.throw_internal_error(&format!(
                 "inconsistent catch position: {} {} (pc={pos})",
                 s.catch_pos_tab[pos], catch_pos
-            ));
-            Err(-1)
+            )))
         } else {
             Ok(())
         };
@@ -68,8 +64,7 @@ fn ss_check(
 
     // queue the new PC to explore
     if s.pc_stack.len() == s.pc_stack.capacity() && s.pc_stack.try_reserve(4).is_err() {
-        ctx.throw_out_of_memory();
-        return Err(-1);
+        return Err(ctx.throw_out_of_memory());
     }
 
     s.pc_stack.push(pos);
@@ -106,8 +101,7 @@ impl FunctionDef {
             let op = self.byte_code[pos];
 
             if op == 0 || op >= OP_COUNT_FINAL {
-                ctx.throw_internal_error(&format!("invalid opcode (op={op}, pc={pos})"));
-                return Err(-1);
+                return Err(ctx.throw_internal_error(&format!("invalid opcode (op={op}, pc={pos})")));
             }
 
             let oi = opcode_info_final(op);
@@ -117,10 +111,9 @@ impl FunctionDef {
 
             let mut pos_next = pos + oi.size as usize;
             if pos_next > s.bc_len {
-                ctx.throw_internal_error(&format!(
+                return Err(ctx.throw_internal_error(&format!(
                     "bytecode buffer overflow 2 (op={op}, pc={pos})"
-                ));
-                return Err(-1);
+                )));
             }
 
             let mut n_pop = oi.n_pop as u16;
@@ -136,10 +129,9 @@ impl FunctionDef {
             }
 
             if stack_len < n_pop {
-                ctx.throw_internal_error(&format!(
+                return Err(ctx.throw_internal_error(&format!(
                     "bytecode buffer overflow 3 (op={op}, pc={pos})"
-                ));
-                return Err(-1);
+                )));
             }
 
             stack_len = stack_len + oi.n_push as u16 - n_pop;
@@ -147,8 +139,7 @@ impl FunctionDef {
             if stack_len > s.stack_len_max {
                 s.stack_len_max = stack_len;
                 if s.stack_len_max > STACK_LEN_MAX {
-                    ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})"));
-                    return Err(-1);
+                    return Err(ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})")));
                 }
             }
 
@@ -290,8 +281,7 @@ impl FunctionDef {
                 }
                 opcodes::OP_nip_catch => {
                     if catch_pos < 0 {
-                        ctx.throw_internal_error(&format!("nip_catch: no catch op (pc={pos})"));
-                        return Err(-1);
+                        return Err(ctx.throw_internal_error(&format!("nip_catch: no catch op (pc={pos})")));
                     }
                     stack_len = s.stack_level_tab[catch_pos as usize];
                     if self.byte_code[catch_pos as usize] != opcodes::OP_catch {

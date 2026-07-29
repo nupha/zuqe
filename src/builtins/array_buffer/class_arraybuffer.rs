@@ -25,10 +25,7 @@ fn get_array_buffer(
     this.as_object()
         .filter(|o| o.class_id() == class_id)
         .map(|o| ArrayBuffer(o.gc_ref()))
-        .ok_or_else(|| {
-            ctx.throw_type_error_invalid_class(class_id);
-            -1
-        })
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))
 }
 
 fn js_array_buffer_get_byteLength(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -50,8 +47,7 @@ fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let abuf = ab.payload();
 
     if abuf.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-        return Err(-1);
+        return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
     }
 
     let len = abuf.byte_length() as i64;
@@ -81,19 +77,15 @@ fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut new_ab = get_array_buffer(new_obj, ctx, class_id)?;
 
     if unlikely(new_obj.is_same(this)) {
-        ctx.throw_type_error("cannot use identical ArrayBuffer");
-        Err(-1)
+        Err(ctx.throw_type_error("cannot use identical ArrayBuffer"))
     } else if unlikely(new_ab.payload().is_detached()) {
-        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-        Err(-1)
+        Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx))
     } else if unlikely(new_ab.payload().byte_length() < new_len as usize) {
-        ctx.throw_type_error("new ArrayBuffer is too small");
-        Err(-1)
+        Err(ctx.throw_type_error("new ArrayBuffer is too small"))
     } else {
         // must test again because of side effects
         if abuf.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            return Err(-1);
+            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
         }
 
         let new_abuf_mut = new_ab.payload_mut();
@@ -116,8 +108,7 @@ fn js_array_buffer_transfer(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     let mut ab = get_array_buffer(cc.this(), ctx, JS_CLASS_ARRAY_BUFFER)?;
 
     if ab.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-        return Err(-1);
+        return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
     }
 
     let old_len = ab.payload().byte_length();

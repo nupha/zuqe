@@ -431,10 +431,9 @@ fn js_module_loader(
     let path = match zuqe::url_to_abspath(file_name) {
         Some(p) => p,
         None => {
-            ctx.throw_reference_error(&format!(
+            return Err(ctx.throw_reference_error(&format!(
                 "could not load module '{file_name}': not a file:// URL"
-            ));
-            return Err(-1);
+            )));
         }
     };
 
@@ -444,21 +443,17 @@ fn js_module_loader(
         .is_some_and(|e| matches!(e, "dylib" | "so" | "dll"));
 
     if is_native_lib {
-        let lib = unsafe { Library::new(&path) }.map_err(|_| {
-            ctx.throw_reference_error(&format!(
+        let lib = unsafe { Library::new(&path) }.map_err(|_| ctx.throw_reference_error(&format!(
                 "could not load module filename '{file_name}' as shared library"
-            ));
-            -1
-        })?;
+            )))?;
 
         unsafe {
             let init_fn = match lib.get::<JsInitModuleFn>(b"js_init_module\0") {
                 Ok(sym) => sym,
                 Err(_) => {
-                    ctx.throw_reference_error(&format!(
+                    return Err(ctx.throw_reference_error(&format!(
                         "could not load module filename '{file_name}': js_init_module not found"
-                    ));
-                    return Err(-1);
+                    )));
                 }
             };
 
@@ -498,14 +493,12 @@ fn js_module_loader(
                     ctx.compile_module(src.as_bytes(), file_name.as_str(), false)
                 }
                 Some(other) => {
-                    ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other));
-                    Err(-1)
+                    Err(ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other)))
                 }
                 None => ctx.compile_module(content.as_bytes(), file_name.as_str(), false),
             },
             Err(_) => {
-                ctx.throw_reference_error(&format!("could not load module '{file_name}'"));
-                Err(-1)
+                Err(ctx.throw_reference_error(&format!("could not load module '{file_name}'")))
             }
         }
     }

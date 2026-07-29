@@ -178,8 +178,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if self.token.kind != TokenKind::Char('}') {
-                    self.throw_syntax_error("assignment rest property must be last");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("assignment rest property must be last"));
                 }
 
                 self.emit_op(OpCode::OBJECT); // target
@@ -308,8 +307,7 @@ impl<'s> JSParseState<'s> {
                     self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                         && matches!(prop_name, Atom::CONST_eval | Atom::CONST_arguments),
                 ) {
-                    self.throw_syntax_error("invalid destructuring target");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid destructuring target"));
                 }
 
                 if has_ellipsis {
@@ -401,8 +399,7 @@ impl<'s> JSParseState<'s> {
             if self.token.kind == TokenKind::ELLIPSIS {
                 self.next_token()?;
                 if matches!(self.token.kind, TokenKind::Char(',' | ']')) {
-                    self.throw_syntax_error("missing binding pattern...");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("missing binding pattern..."));
                 }
                 has_spread = true;
             }
@@ -425,10 +422,9 @@ impl<'s> JSParseState<'s> {
                         TokenKind::Char(c @ (',' | '=' | ']')) => {
                             if has_spread {
                                 if c == '=' {
-                                    self.throw_syntax_error(
+                                    return Err(self.throw_syntax_error(
                                         "rest element cannot have a default value",
-                                    );
-                                    return Err(-1);
+                                    ));
                                 }
                                 self.emit_spread_code(0);
                             } else {
@@ -520,8 +516,7 @@ impl<'s> JSParseState<'s> {
                 break;
             }
             if has_spread {
-                self.throw_syntax_error("rest element must be the last one");
-                return Err(-1);
+                return Err(self.throw_syntax_error("rest element must be the last one"));
             }
 
             // accept a trailing comma before the ']'
@@ -585,8 +580,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_destructuring_square(tok, is_arg, skip_bits, export)?;
             }
             _ => {
-                self.throw_syntax_error("invalid assignment syntax");
-                return Err(-1);
+                return Err(self.throw_syntax_error("invalid assignment syntax"));
             }
         }
 
@@ -606,8 +600,7 @@ impl<'s> JSParseState<'s> {
         } else {
             // normally hasval is true except if js_parse_skip_parens_token() was wrong in the parsing
             if !hasval {
-                self.throw_syntax_error("too complicated destructuring expression");
-                return Err(-1);
+                return Err(self.throw_syntax_error("too complicated destructuring expression"));
             }
 
             {
@@ -630,8 +623,7 @@ impl<'s> JSParseState<'s> {
                         Atom::CONST_eval | Atom::CONST_arguments
                     )),
         ) {
-            self.throw_syntax_error("invalid destructuring target");
-            Err(-1)
+            Err(self.throw_syntax_error("invalid destructuring target"))
         } else {
             let name = self.token.atom().unwrap();
             if is_arg {
@@ -645,13 +637,11 @@ impl<'s> JSParseState<'s> {
     fn parse_check_duplicate_parameter(&mut self, name: Atom) -> Result<(), i32> {
         // Check for duplicate parameter names
         if self.cur_func().args.iter().any(|vd| vd.var_name == name) {
-            self.throw_syntax_error("duplicate parameter names not allowed in this context");
-            return Err(-1);
+            return Err(self.throw_syntax_error("duplicate parameter names not allowed in this context"));
         }
 
         if self.cur_func().vars.iter().any(|vd| vd.var_name == name) {
-            self.throw_syntax_error("duplicate parameter names not allowed in this context");
-            return Err(-1);
+            return Err(self.throw_syntax_error("duplicate parameter names not allowed in this context"));
         }
 
         Ok(())

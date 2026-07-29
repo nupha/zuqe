@@ -119,8 +119,7 @@ pub(crate) fn js_array_iterator_next(
         let len = if let Ok(tao) = TypedArray::try_from(obj) {
             // is typed array
             if tao.is_detached() {
-                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-                return Err(-1);
+                return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
             }
             tao.length() as u32
         } else {

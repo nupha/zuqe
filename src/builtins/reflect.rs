@@ -39,8 +39,7 @@ fn js_reflect_construct(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = if cc.length() > 2 {
         let target = cc.arg(2);
         if !target.is_constructor() {
-            ctx.throw_type_error("not a constructor");
-            return Err(-1);
+            return Err(ctx.throw_type_error("not a constructor"));
         }
         target
     } else {
@@ -57,8 +56,7 @@ fn js_reflect_deleteProperty(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         let ret = obj.delete_property(ctx, atom, 0);
         ret.map(JSValue::from)
     } else {
-        ctx.throw_type_error_not_an_object();
-        Err(-1)
+        Err(ctx.throw_type_error_not_an_object())
     }
 }
 
@@ -78,16 +76,12 @@ fn js_reflect_has(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let atom = prop.to_atom(ctx)?;
         obj.has_property(ctx, atom).map(JSValue::from)
     } else {
-        ctx.throw_type_error_not_an_object();
-        Err(-1)
+        Err(ctx.throw_type_error_not_an_object())
     }
 }
 
 fn js_reflect_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let target = cc.arg(0).as_object().ok_or_else(|| {
-        ctx.throw_type_error_not_an_object();
-        -1
-    })?;
+    let target = cc.arg(0).as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
     let prop = cc.arg(1);
     let val = cc.arg(2);
@@ -118,8 +112,7 @@ fn js_reflect_ownKeys(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
         )
     } else {
-        ctx.throw_type_error_not_an_object();
-        Err(-1)
+        Err(ctx.throw_type_error_not_an_object())
     }
 }
 

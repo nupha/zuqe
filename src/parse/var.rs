@@ -41,20 +41,17 @@ impl<'s> JSParseState<'s> {
                                 && var_def_type == JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
                                 && vd.var_kind() == JSVarKindEnum::JS_VAR_FUNCTION_DECL)
                             {
-                                self.throw_syntax_error(
+                                return Err(self.throw_syntax_error(
                                     "invalid redefinition of lexical identifier",
-                                );
-                                return Err(-1);
+                                ));
                             }
                         } else if vd.var_kind() == JSVarKindEnum::JS_VAR_CATCH
                             && vd.scope_level + 2 == fd.scope_level
                         {
-                            self.throw_syntax_error("invalid redefinition of lexical identifier");
-                            return Err(-1);
+                            return Err(self.throw_syntax_error("invalid redefinition of lexical identifier"));
                         }
                     } else if fd.scope_level == fd.body_scope {
-                        self.throw_syntax_error("invalid redefinition of lexical identifier");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("invalid redefinition of lexical identifier"));
                     }
                 }
 
@@ -64,21 +61,18 @@ impl<'s> JSParseState<'s> {
                     && fd.find_arg(name).is_some()
                 {
                     // lexical variable redefines a parameter name
-                    self.throw_syntax_error("invalid redefinition of parameter name");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid redefinition of parameter name"));
                 }
 
                 if fd.find_var_in_child_scope(name, fd.scope_level).is_some() {
-                    self.throw_syntax_error("invalid redefinition of a variable");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid redefinition of a variable"));
                 }
 
                 if fd.is_global_var
                     && let Some(hf) = fd.find_global_var(name)
                     && fd.is_child_scope(hf.scope_level, fd.scope_level)
                 {
-                    self.throw_syntax_error("invalid redefinition of global identifier");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid redefinition of global identifier"));
                 }
 
                 if fd.is_eval
@@ -108,8 +102,7 @@ impl<'s> JSParseState<'s> {
             }
             JSVarDefEnum::JS_VAR_DEF_VAR => {
                 if fd.find_lexical_decl(name, fd.scope_first, false).is_some() {
-                    self.throw_syntax_error("invalid redefinition of lexical identifier");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid redefinition of lexical identifier"));
                 }
 
                 if fd.is_global_var {
@@ -118,8 +111,7 @@ impl<'s> JSParseState<'s> {
                         && hf.scope_level == fd.scope_level
                         && fd.eval_type == EvalType::Module
                     {
-                        self.throw_syntax_error("invalid redefinition of lexical identifier");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("invalid redefinition of lexical identifier"));
                     }
 
                     fd.add_global_var(self.ctx(), name)?;
@@ -154,20 +146,17 @@ impl<'s> JSParseState<'s> {
             let func = self.cur_func();
             match name {
                 Atom::CONST_yield if func.attrs.func_kind == FunctionKind::Generator => {
-                    self.throw_syntax_error("yield is a reserved identifier");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("yield is a reserved identifier"));
                 }
                 Atom::CONST_arguments | Atom::CONST_eval
                     if func.attrs.exec_mode.contains(ExecMode::STRICT) =>
                 {
-                    self.throw_syntax_error("invalid variable name in strict mode");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid variable name in strict mode"));
                 }
                 Atom::CONST_let | Atom::CONST_undefined
                     if matches!(tok, TokenKind::LET | TokenKind::CONST) =>
                 {
-                    self.throw_syntax_error("invalid lexical variable name");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid lexical variable name"));
                 }
                 _ => {}
             }

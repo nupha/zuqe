@@ -70,8 +70,7 @@ impl ObjectImpl {
                         JS_PROP_VARREF => {
                             let val = cur_obj.prop_slot(idx).value(ctx, this_obj)?;
                             return if unlikely(val.is_uninitialized()) {
-                                JS_ThrowReferenceErrorUninitialized(ctx, prop);
-                                Err(-1)
+                                Err(JS_ThrowReferenceErrorUninitialized(ctx, prop))
                             } else {
                                 Ok(val)
                             };
@@ -166,8 +165,7 @@ impl ObjectImpl {
         }
 
         if unlikely(throw_ref_error) {
-            JS_ThrowReferenceErrorNotDefined(ctx, prop);
-            Err(-1)
+            Err(JS_ThrowReferenceErrorNotDefined(ctx, prop))
         } else {
             Ok(JSValue::UNDEFINED)
         }
@@ -378,12 +376,10 @@ impl JSValue {
                 }
             }
             crate::JSValueTag::Null => {
-                ctx.throw_type_error("cannot read property of null");
-                Err(-1)
+                Err(ctx.throw_type_error("cannot read property of null"))
             }
             crate::JSValueTag::Undefined => {
-                ctx.throw_type_error("cannot read property of undefined");
-                Err(-1)
+                Err(ctx.throw_type_error("cannot read property of undefined"))
             }
             crate::JSValueTag::Exception => {
                 #[cfg(debug_assertions)]
@@ -429,12 +425,11 @@ impl JSValue {
                 }
             }
             Self::NULL | Self::UNDEFINED => {
-                ctx.throw_type_error(if self.is_undefined() {
+                Err(ctx.throw_type_error(if self.is_undefined() {
                     "cannot read property of undefined"
                 } else {
                     "cannot read property of null"
-                });
-                Err(-1)
+                }))
             }
             Self::EXCEPTION => {
                 #[cfg(debug_assertions)]
@@ -461,12 +456,11 @@ impl JSValue {
         if let Some(o) = self.as_object() {
             o.get_property_value(ctx, prop)
         } else if self.is_undefined_or_null() {
-            ctx.throw_type_error(if self.is_undefined() {
+            Err(ctx.throw_type_error(if self.is_undefined() {
                 "cannot read property of undefined"
             } else {
                 "cannot read property of null"
-            });
-            Err(-1)
+            }))
         } else {
             let atom = prop.to_atom(ctx)?;
             self.get_property_internal(ctx, atom, *self, false)

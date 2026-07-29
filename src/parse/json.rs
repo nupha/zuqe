@@ -68,8 +68,7 @@ impl JSONParseRecord {
 impl<'s> JSParseState<'s> {
     fn json_next_token(&mut self) -> Result<(), i32> {
         if js_check_stack_overflow(self.ctx().rt_mut(), 0) {
-            self.throw_syntax_error("stack overflow");
-            return Err(-1);
+            return Err(self.throw_syntax_error("stack overflow"));
         }
 
         self.clear_token_data();
@@ -350,8 +349,7 @@ impl<'s> JSParseState<'s> {
                         } else if self.ext_json && self.token.kind == TokenKind::IDENT {
                             self.token.data.ident_atom().unwrap()
                         } else {
-                            self.throw_syntax_error("expecting property name");
-                            return Err(-1);
+                            return Err(self.throw_syntax_error("expecting property name"));
                         };
 
                         self.json_next_token()?;
@@ -530,8 +528,7 @@ impl<'s> JSParseState<'s> {
         let val = self.json_parse_value(record)?;
 
         if unlikely(self.token.kind != TokenKind::EOF) {
-            self.throw_syntax_error("unexpected data at the end");
-            Err(-1)
+            Err(self.throw_syntax_error("unexpected data at the end"))
         } else {
             Ok(val)
         }
@@ -540,8 +537,7 @@ impl<'s> JSParseState<'s> {
 
 fn json_parse_expect(s: &mut JSParseState, ch: u8) -> Result<(), i32> {
     if s.token.kind != TokenKind::Char(ch as _) {
-        s.throw_syntax_error(&format!("expecting '{ch}'"));
-        Err(-1)
+        Err(s.throw_syntax_error(&format!("expecting '{ch}'")))
     } else {
         s.json_next_token()
     }

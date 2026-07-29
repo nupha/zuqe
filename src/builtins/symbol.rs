@@ -27,10 +27,8 @@ impl<'c> ScopedContext<'c> {
             Atom::from_string_as_is(self, s, atom_kind)?
         } else {
             debug_assert_eq!(atom_kind, AtomKind::Symbol);
-            let s = StringRef::create(self, StringData::Ident).map_err(|_| {
-                self.throw_out_of_memory();
-                -1
-            })?;
+            let s = StringRef::create(self, StringData::Ident)
+                .map_err(|_| self.throw_out_of_memory())?;
             Atom::from_string_as_is(self, s, atom_kind)?
         };
 
@@ -40,8 +38,7 @@ impl<'c> ScopedContext<'c> {
 
     pub fn create_symbol_from_atom(&mut self, atom: Atom, atom_kind: AtomKind) -> JSResult {
         if atom.is_small_int() || atom.is_null() {
-            self.throw_type_error("invalid atom");
-            Err(-1)
+            Err(self.throw_type_error("invalid atom"))
         } else {
             let s = atom.descriptor(self.rt());
             self.create_symbol(Some(s), atom_kind)
@@ -49,20 +46,10 @@ impl<'c> ScopedContext<'c> {
     }
 }
 
-// /// returned atom is not cloned. caller should clone to keep its reference.
-// fn symbol_to_atom(val: JSValue) -> Atom {
-//     if let JSValue::Symbol(a) = val {
-//         a
-//     } else {
-//         unreachable!()
-//     }
-// }
-
 pub fn js_symbol_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
     if !new_target.is_undefined() {
-        ctx.throw_type_error("not a constructor");
-        return Err(-1);
+        return Err(ctx.throw_type_error("not a constructor"));
     }
 
     let str: Option<StringRef> = if cc.arg(0).is_undefined() {
@@ -79,8 +66,7 @@ pub fn js_symbol_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 
 fn js_symbol_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Some(sym) = cc.this().as_symbol(true) else {
-        ctx.throw_type_error_not_a_symbol();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_a_symbol());
     };
 
     // formatted as 'Symbol(XXX)'
@@ -96,17 +82,13 @@ fn js_symbol_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_symbol_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     cc.this()
         .as_symbol(true)
-        .ok_or_else(|| {
-            ctx.throw_type_error_not_a_symbol();
-            -1
-        })
+        .ok_or_else(|| ctx.throw_type_error_not_a_symbol())
         .map(JSValue::make_symbol)
 }
 
 fn js_symbol_get_description(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Some(sym) = cc.this().as_symbol(true) else {
-        ctx.throw_type_error_not_a_symbol();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_a_symbol());
     };
     if sym.content().is_ident() {
         Ok(JSValue::UNDEFINED)
@@ -132,8 +114,7 @@ fn js_symbol_for(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_symbol_keyFor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let arg = cc.arg(0);
     if !arg.is_symbol() {
-        ctx.throw_type_error_not_a_symbol();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_a_symbol());
     }
     let s = arg.as_symbol(false).unwrap();
     if s.atom_info().unwrap().kind() != AtomKind::GlobalSymbol {

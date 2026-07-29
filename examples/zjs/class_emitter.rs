@@ -13,10 +13,7 @@ struct EmitterData {
 }
 
 fn get_emitter<'a>(ctx: &mut ScopedContext, val: &'a JSValue) -> Result<&'a EmitterData, i32> {
-    JSEmitter::payload_of(val).ok_or_else(|| {
-        ctx.throw_internal_error("not an Emitter instance");
-        -1
-    })
+    JSEmitter::payload_of(val).ok_or_else(|| ctx.throw_internal_error("not an Emitter instance"))
 }
 
 fn js_emitter_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

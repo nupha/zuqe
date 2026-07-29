@@ -86,8 +86,7 @@ impl<'s> JSParseState<'s> {
                     Atom::CONST_arguments | Atom::CONST_eval
                         if self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT) =>
                     {
-                        self.throw_syntax_error("invalid lvalue in strict mode");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("invalid lvalue in strict mode"));
                     }
                     Atom::CONST_this | Atom::CONST_new_target => {
                         throw_error!();

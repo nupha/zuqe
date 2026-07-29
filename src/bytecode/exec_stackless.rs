@@ -772,10 +772,7 @@ impl Bytecode {
                             .skip(start as usize)
                             .copied()
                             .try_collect::<Vec<_>>()
-                            .map_err(|_| {
-                                realm_scope.throw_out_of_memory();
-                                -1
-                            })
+                            .map_err(|_| realm_scope.throw_out_of_memory())
                             .and_then(|vv| Array::from_values(realm_scope, vv))
                         {
                             SP_PUT!(0, JSValue::from(arr));
@@ -1058,10 +1055,10 @@ impl Bytecode {
                                         Err(e) => {
                                             match e {
                                                 FrameAllocError::Oom => {
-                                                    realm_scope.throw_stack_fail()
+                                                    realm_scope.throw_stack_fail();
                                                 }
                                                 FrameAllocError::Exceeded => {
-                                                    realm_scope.throw_stack_exceeded()
+                                                    realm_scope.throw_stack_exceeded();
                                                 }
                                             }
                                             // Route through the Exception
@@ -1195,9 +1192,11 @@ impl Bytecode {
                                 Ok(idx) => idx,
                                 Err(e) => {
                                     match e {
-                                        FrameAllocError::Oom => realm_scope.throw_stack_fail(),
+                                        FrameAllocError::Oom => {
+                                            realm_scope.throw_stack_fail();
+                                        }
                                         FrameAllocError::Exceeded => {
-                                            realm_scope.throw_stack_exceeded()
+                                            realm_scope.throw_stack_exceeded();
                                         }
                                     }
                                     // Route through the Exception handler: see
@@ -1300,12 +1299,13 @@ impl Bytecode {
                                         Err(e) => {
                                             match e {
                                                 FrameAllocError::Oom => {
-                                                    realm_scope.throw_stack_fail()
+                                                    realm_scope.throw_stack_fail();
                                                 }
                                                 FrameAllocError::Exceeded => {
-                                                    realm_scope.throw_stack_exceeded()
+                                                    realm_scope.throw_stack_exceeded();
                                                 }
                                             }
+
                                             // Route through the Exception
                                             // handler: find_catch_in_frame must
                                             // scan (and cleanse) this frame's
@@ -1911,10 +1911,10 @@ impl Bytecode {
                                         Err(e) => {
                                             match e {
                                                 FrameAllocError::Oom => {
-                                                    realm_scope.throw_stack_fail()
+                                                    realm_scope.throw_stack_fail();
                                                 }
                                                 FrameAllocError::Exceeded => {
-                                                    realm_scope.throw_stack_exceeded()
+                                                    realm_scope.throw_stack_exceeded();
                                                 }
                                             }
                                             // Route through the Exception
@@ -3621,10 +3621,10 @@ pub(crate) fn execute_trampoline(
                     Err(e) => {
                         match e {
                             FrameAllocError::Oom => {
-                                cur_trampoline_scope.scope_mut().throw_stack_fail()
+                                cur_trampoline_scope.scope_mut().throw_stack_fail();
                             }
                             FrameAllocError::Exceeded => {
-                                cur_trampoline_scope.scope_mut().throw_stack_exceeded()
+                                cur_trampoline_scope.scope_mut().throw_stack_exceeded();
                             }
                         }
 

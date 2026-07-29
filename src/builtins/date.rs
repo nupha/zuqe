@@ -645,8 +645,7 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
 
     let Some(fields) = timestamp_to_fields(tm_val, fmt & 1 != 0) else {
         return if fmt == 2 {
-            ctx.throw_range_error("Date value is NaN");
-            Err(-1)
+            Err(ctx.throw_range_error("Date value is NaN"))
         } else {
             ctx.create_string_from_str("Invalid Date")
         };
@@ -662,10 +661,7 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
     let wd = fields[7] as i32;
     let tz = fields[8] as i32;
 
-    let mut buf = StringBuf::with_capacity(64, false).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    let mut buf = StringBuf::with_capacity(64, false).map_err(|_| ctx.throw_out_of_memory())?;
 
     if part & 1 != 0 {
         // date part
@@ -677,16 +673,10 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
                     &MONTH_NAMES[mon as usize * 3..(mon as usize * 3 + 3)],
                     width = if y < 0 { 5 } else { 4 }
                 );
-                buf.push_str(s.as_str()).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
                 if part == 3 {
                     // space beteween date and time
-                    buf.push_char(' ').map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    buf.push_char(' ').map_err(|_| ctx.throw_out_of_memory())?;
                 }
             }
             1 => {
@@ -696,16 +686,10 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
                     &MONTH_NAMES[mon as usize * 3..(mon as usize * 3 + 3)],
                     width = if y < 0 { 5 } else { 4 }
                 );
-                buf.push_str(s.as_str()).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
                 if part == 3 {
                     // space beteween date and time
-                    buf.push_char(' ').map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    buf.push_char(' ').map_err(|_| ctx.throw_out_of_memory())?;
                 }
             }
             2 => {
@@ -714,10 +698,7 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
                 } else {
                     format!("{y:+07}-{:02}-{d:02}T", mon + 1)
                 };
-                buf.push_str(s.as_str()).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
             }
             3 => {
                 let s = format!(
@@ -725,15 +706,9 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
                     mon + 1,
                     width = if y < 0 { 5 } else { 4 }
                 );
-                buf.push_str(s.as_str()).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
                 if part == 3 {
-                    buf.push_str(", ").map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    buf.push_str(", ").map_err(|_| ctx.throw_out_of_memory())?;
                 }
             }
             _ => {}
@@ -745,10 +720,7 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
         match fmt {
             0 => {
                 let s = format!("{h:02}:{m:02}:{s:02} GMT");
-                buf.push_str(s.as_str()).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
             }
             1 => {
                 let s = format!("{h:02}:{m:02}:{s:02} GMT");
@@ -758,17 +730,11 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
                         .chain(format!("{:02}{:02}", tz.abs() / 60, tz.abs() % 60).chars())
                         .map(CharCode::Char),
                 )
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                .map_err(|_| ctx.throw_out_of_memory())?;
             }
             2 => {
                 let s = format!("{h:02}:{m:02}:{s:02}.{ms:03}Z");
-                buf.push_str(s.as_str()).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
             }
             3 => {
                 let s = format!(
@@ -776,10 +742,7 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
                     (h + 11) % 12 + 1,
                     if h < 12 { 'A' } else { 'P' }
                 );
-                buf.push_str(s.as_str()).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_str(s.as_str()).map_err(|_| ctx.throw_out_of_memory())?;
             }
             _ => {}
         }
@@ -986,8 +949,7 @@ fn JS_ThisTimeValue(ctx: &mut ScopedContext, this: JSValue) -> Result<Datetime, 
     }) {
         Ok(t)
     } else {
-        ctx.throw_type_error("not a Date object");
-        Err(-1)
+        Err(ctx.throw_type_error("not a Date object"))
     }
 }
 
@@ -1009,8 +971,7 @@ fn js_date_setTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         *dt = dt2;
         Ok(dt2.into())
     } else {
-        ctx.throw_type_error("not a Date object");
-        Err(-1)
+        Err(ctx.throw_type_error("not a Date object"))
     }
 }
 
@@ -1023,8 +984,7 @@ fn js_date_Symbol_toPrimitive(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     // Symbol_toPrimitive(hint)
 
     let Some(obj) = cc.this().as_object() else {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     };
 
     // The hint must be a *string primitive* ("string" | "default" | "number").
@@ -1042,8 +1002,7 @@ fn js_date_Symbol_toPrimitive(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         Atom::CONST_number => HINT_NUMBER,
         Atom::CONST_string | Atom::CONST_default => HINT_STRING,
         _ => {
-            ctx.throw_type_error("invalid hint ");
-            return Err(-1);
+            return Err(ctx.throw_type_error("invalid hint "));
         }
     };
     obj.to_primitive(ctx, hint_num | HINT_FORCE_ORDINARY)
@@ -1130,8 +1089,7 @@ fn set_date_field_internal(
 
         Ok(dt2.into())
     } else {
-        ctx.throw_type_error("not a Date object");
-        Err(-1)
+        Err(ctx.throw_type_error("not a Date object"))
     }
 }
 
@@ -1165,8 +1123,7 @@ fn js_date_toJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if method.is_callable() {
         method.call(ctx, obj.into(), &[])
     } else {
-        ctx.throw_type_error("object needs toISOString method");
-        Err(-1)
+        Err(ctx.throw_type_error("object needs toISOString method"))
     }
 }
 

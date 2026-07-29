@@ -307,8 +307,7 @@ impl<'c> ScopedContext<'c> {
                 }
             }
         } else {
-            self.throw_type_error("eval is not supported");
-            Err(-1)
+            Err(self.throw_type_error("eval is not supported"))
         }
     }
 

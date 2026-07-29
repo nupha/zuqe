@@ -55,8 +55,7 @@ impl<'s> JSParseState<'s> {
         let mut arg_count = 0;
         while self.token.kind != TokenKind::Char(')') {
             if arg_count >= 0xFFFF {
-                self.throw_syntax_error("Too many call arguments");
-                return Err(-1);
+                return Err(self.throw_syntax_error("Too many call arguments"));
             }
             if self.token.kind == TokenKind::ELLIPSIS {
                 break;

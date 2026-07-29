@@ -122,10 +122,7 @@ impl<'s> JSParseState<'s> {
         let mut consumed = 0;
 
         let mut it = std::str::from_utf8(bytes)
-            .map_err(|_| {
-                self.throw_syntax_error("invalid UTF-8 sequence");
-                -1
-            })?
+            .map_err(|_| self.throw_syntax_error("invalid UTF-8 sequence"))?
             .char_indices()
             .peekable();
 
@@ -145,8 +142,7 @@ impl<'s> JSParseState<'s> {
                     consumed += adv;
                     has_escape = true;
                 } else {
-                    self.throw_syntax_error("invalid char for ident");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid char for ident"));
                 };
             } else if !Self::is_ident_next(c) {
                 break;
@@ -215,14 +211,12 @@ impl<'s> JSParseState<'s> {
         loop {
             if self.token.kind == TokenKind::IDENT {
                 if self.token.data.is_reserved() {
-                    self.throw_reserved_identifier_error();
-                    return Err(-1);
+                    return Err(self.throw_reserved_identifier_error());
                 }
 
                 let name = self.token.atom().unwrap();
                 if name == Atom::CONST_let && matches!(tok, TokenKind::LET | TokenKind::CONST) {
-                    self.throw_syntax_error("'let' is not a valid lexical identifier");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("'let' is not a valid lexical identifier"));
                 }
 
                 self.next_token()?;
@@ -273,8 +267,7 @@ impl<'s> JSParseState<'s> {
                         self.emit_u16(self.cur_func().scope_level as u16);
                     }
                 } else if tok == TokenKind::CONST {
-                    self.throw_syntax_error("missing initializer for const variable");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("missing initializer for const variable"));
                 } else if tok == TokenKind::LET {
                     // initialize lexical variable upon entering its scope
                     self.emit_op(OpCode::UNDEFINED);
@@ -299,8 +292,7 @@ impl<'s> JSParseState<'s> {
                         export,
                     )?;
                 } else {
-                    self.throw_syntax_error("variable name expected");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("variable name expected"));
                 }
             }
 
@@ -339,8 +331,7 @@ impl<'s> JSParseState<'s> {
                 // automatic insertion of ';'
                 Ok(self.token.kind)
             } else {
-                self.throw_syntax_error("expecting ';'");
-                Err(-1)
+                Err(self.throw_syntax_error("expecting ';'"))
             }
         } else {
             self.next_token()
@@ -441,8 +432,7 @@ impl<'s> JSParseState<'s> {
 
                     #[cfg(not(feature = "builtin_regexp"))]
                     {
-                        self.throw_syntax_error("regex not supported");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("regex not supported"));
                     }
                 }
                 TokenKind::TEMPLATE if self.token.data.string_sep().unwrap() != '`' as i32 => {

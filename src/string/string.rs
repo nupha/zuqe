@@ -269,10 +269,7 @@ impl StringImpl {
             .content()
             .to_buf()
             .and_then(|mut sb| sb.push_content(s2.content()).map(|_| sb))
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         StringRef::create(ctx, StringData::from_buf(buf))
     }
@@ -296,8 +293,7 @@ impl StringImpl {
                 {
                     Ok(s)
                 } else {
-                    ctx.throw_out_of_memory();
-                    Err(-1)
+                    Err(ctx.throw_out_of_memory())
                 }
             } else {
                 ctx.create_string_with_content(StringData::Empty)
@@ -859,10 +855,7 @@ impl<'c> ScopedContext<'c> {
             Atom::CONST_empty_string.force_string(self)
         } else {
             let data = StringData::from_buf(sbuf);
-            StringRef::create(self, data).map_err(|_| {
-                self.throw_out_of_memory();
-                -1
-            })
+            StringRef::create(self, data).map_err(|_| self.throw_out_of_memory())
         }
     }
 
@@ -874,10 +867,7 @@ impl<'c> ScopedContext<'c> {
         if content.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
-            StringRef::create(self, content).map_err(|_| {
-                self.throw_out_of_memory();
-                -1
-            })
+            StringRef::create(self, content).map_err(|_| self.throw_out_of_memory())
         }
     }
 
@@ -886,8 +876,7 @@ impl<'c> ScopedContext<'c> {
         if utf8_bytes.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else if utf8_bytes.len() > JS_STRING_LEN_MAX {
-            self.throw_internal_error("string too long");
-            Err(-1)
+            Err(self.throw_internal_error("string too long"))
         } else {
             StringRef::create_utf8(self, utf8_bytes).inspect_err(|_| {
                 self.throw_out_of_memory();
@@ -900,8 +889,7 @@ impl<'c> ScopedContext<'c> {
         if unlikely(str.is_empty()) {
             Atom::CONST_empty_string.force_string(self)
         } else if unlikely(str.len() > JS_STRING_LEN_MAX) {
-            self.throw_internal_error("string too long");
-            Err(-1)
+            Err(self.throw_internal_error("string too long"))
         } else {
             StringRef::create_str(self, str).inspect_err(|_| {
                 self.throw_out_of_memory();
@@ -953,10 +941,7 @@ pub(crate) fn JS_ConcatString3(
                 .and_then(|_| s.push_str(str3.to_string_lossy().as_ref()))
                 .map(|_| s)
         })
-        .map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        .map_err(|_| ctx.throw_out_of_memory())?;
 
     ctx.create_string_with_buf(res_string)
 }
@@ -983,8 +968,7 @@ impl JSValue {
         ctx: &mut ScopedContext,
     ) -> Result<StringRef, i32> {
         if unlikely(self.is_undefined_or_null()) {
-            ctx.throw_type_error("null or undefined are forbidden");
-            Err(-1)
+            Err(ctx.throw_type_error("null or undefined are forbidden"))
         } else {
             self.to_string(ctx)
         }
@@ -1016,8 +1000,7 @@ fn string_define_own_property(
     macro_rules! fail {
         () => {
             return if ctx.rt().can_throw(flags as _) {
-                ctx.throw_type_error("property is not configurable");
-                Err(-1)
+                Err(ctx.throw_type_error("property is not configurable"))
             } else {
                 Ok(false)
             };

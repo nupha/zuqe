@@ -71,8 +71,7 @@ impl<'c> ScopedContext<'c> {
                         .unwrap_or(true);
 
                     if throw {
-                        ctx.throw_type_error("invalid property access");
-                        Err(-1)
+                        Err(ctx.throw_type_error("invalid property access"))
                     } else {
                         Ok(JSValue::UNDEFINED)
                     }

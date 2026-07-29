@@ -44,10 +44,7 @@ impl<'a> ScopedContext<'a> {
             let n = replacer.get_length_prop(self)?;
 
             let mut keylst = Vec::<StringRef>::new();
-            keylst.try_reserve_exact(n as usize).map_err(|_| {
-                self.throw_out_of_memory();
-                -1
-            })?;
+            keylst.try_reserve_exact(n as usize).map_err(|_| self.throw_out_of_memory())?;
 
             for i in 0..n {
                 let k: StringRef = {
@@ -107,14 +104,8 @@ impl<'a> ScopedContext<'a> {
                 })
             };
         } else if let Some(s) = space.as_string(true) {
-            let mut b = StringBuf::with_capacity(s.len(), false).map_err(|_| {
-                self.throw_out_of_memory();
-                -1
-            })?;
-            b.push_content_range(s.content(), 0..10).map_err(|_| {
-                self.throw_out_of_memory();
-                -1
-            })?;
+            let mut b = StringBuf::with_capacity(s.len(), false).map_err(|_| self.throw_out_of_memory())?;
+            b.push_content_range(s.content(), 0..10).map_err(|_| self.throw_out_of_memory())?;
             jsc.gap = self.create_string_with_buf(b)?.content().clone();
         } else {
             jsc.gap = StringData::Empty;
@@ -193,62 +184,43 @@ fn js_json_to_str(
                         .content()
                         .quote()
                         .and_then(|qs| jsc.buf.push(&qs))
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        });
+                        .map_err(|_| ctx.throw_out_of_memory());
                 }
                 JS_CLASS_NUMBER => {
                     return jsc
                         .buf
                         .push_str(&format!("{}", o.to_number(ctx)?))
                         // .push_content(JSValue::from(o.to_number(ctx)?).to_string(ctx)?.content())
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        });
+                        .map_err(|_| ctx.throw_out_of_memory());
                 }
                 JS_CLASS_BOOLEAN => {
                     return jsc
                         .buf
                         .push_content(val.to_string(ctx)?.content())
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        });
+                        .map_err(|_| ctx.throw_out_of_memory());
                 }
                 JS_CLASS_RAWJSON => {
                     let raw = val.get_property(ctx, Atom::CONST_rawJSON)?;
                     return jsc
                         .buf
                         .push_content(raw.to_string(ctx)?.content())
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        });
+                        .map_err(|_| ctx.throw_out_of_memory());
                 }
                 _ => {}
             }
 
             // check for circular ref
             if jsc.stack.iter().any(|v| val.eq(v)) {
-                ctx.throw_type_error("circular reference");
-                return Err(-1);
+                return Err(ctx.throw_type_error("circular reference"));
             }
 
             let mut indent1 = StringBuf::with_capacity(indent.len() + jsc.gap.len(), false)
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                .map_err(|_| ctx.throw_out_of_memory())?;
             indent1.push(indent).unwrap();
             indent1.push_content(&jsc.gap).unwrap();
 
             let (sep, sep1) = if !jsc.gap.is_empty() {
-                let mut s1 = StringBuf::with_capacity(indent1.len() + 1, false).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                let mut s1 = StringBuf::with_capacity(indent1.len() + 1, false).map_err(|_| ctx.throw_out_of_memory())?;
                 if !jsc.gap.is_empty() {
                     s1.push_u8(b'\n').unwrap();
                 }
@@ -259,31 +231,19 @@ fn js_json_to_str(
             };
 
             // push current val to stack
-            jsc.stack.try_reserve(16).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            jsc.stack.try_reserve(16).map_err(|_| ctx.throw_out_of_memory())?;
             jsc.stack.push(val);
 
             if val.is_array(ctx)? {
                 let len = val.get_length_prop(ctx)?;
-                jsc.buf.push_u8(b'[').map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                jsc.buf.push_u8(b'[').map_err(|_| ctx.throw_out_of_memory())?;
 
                 for i in 0..len {
                     if i > 0 {
-                        jsc.buf.push_u8(b',').map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
+                        jsc.buf.push_u8(b',').map_err(|_| ctx.throw_out_of_memory())?;
                     }
 
-                    jsc.buf.push(&sep).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    jsc.buf.push(&sep).map_err(|_| ctx.throw_out_of_memory())?;
 
                     let nth = ctx.create_string_from_str(&format!("{i}"))?;
                     let prop_val = val.get_property_i64(ctx, i)?;
@@ -294,10 +254,7 @@ fn js_json_to_str(
                     js_json_to_str(ctx, jsc, v, &indent1)?;
                 }
 
-                jsc.buf.try_reserve(indent.len() + 2).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                jsc.buf.try_reserve(indent.len() + 2).map_err(|_| ctx.throw_out_of_memory())?;
                 if len > 0 && !jsc.gap.is_empty() {
                     jsc.buf.push_u8(b'\n').unwrap();
                     jsc.buf.push(indent).unwrap();
@@ -319,20 +276,14 @@ fn js_json_to_str(
                     )?;
 
                     let mut lst = Vec::<StringRef>::new();
-                    lst.try_reserve_exact(kvs.len()).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    lst.try_reserve_exact(kvs.len()).map_err(|_| ctx.throw_out_of_memory())?;
                     for (key, _) in kvs {
                         lst.push(key.as_string(true).unwrap());
                     }
                     lst.into()
                 };
 
-                jsc.buf.push_u8(b'{').map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                jsc.buf.push_u8(b'{').map_err(|_| ctx.throw_out_of_memory())?;
 
                 let mut has_content = false;
                 for k in tab.iter() {
@@ -342,23 +293,14 @@ fn js_json_to_str(
                     let v = js_json_check(ctx, jsc, val, prop_val, key)?;
                     if !v.is_undefined() {
                         if has_content {
-                            jsc.buf.push_u8(b',').map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            })?;
+                            jsc.buf.push_u8(b',').map_err(|_| ctx.throw_out_of_memory())?;
                         }
 
-                        let qkey = key.content().quote().map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
+                        let qkey = key.content().quote().map_err(|_| ctx.throw_out_of_memory())?;
 
                         jsc.buf
                             .try_reserve(sep.len() + qkey.len() + sep1.len() + 1)
-                            .map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            })?;
+                            .map_err(|_| ctx.throw_out_of_memory())?;
                         jsc.buf.push(&sep).unwrap();
                         jsc.buf.push(&qkey).unwrap();
                         jsc.buf.push_u8(b':').unwrap();
@@ -370,18 +312,12 @@ fn js_json_to_str(
                 }
 
                 if has_content && !jsc.gap.is_empty() {
-                    jsc.buf.try_reserve(indent.len() + 1).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    jsc.buf.try_reserve(indent.len() + 1).map_err(|_| ctx.throw_out_of_memory())?;
                     jsc.buf.push_u8(b'\n').unwrap();
                     jsc.buf.push(indent).unwrap();
                 }
 
-                jsc.buf.push_u8(b'}').map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                jsc.buf.push_u8(b'}').map_err(|_| ctx.throw_out_of_memory())?;
             }
 
             jsc.stack.pop();
@@ -393,19 +329,13 @@ fn js_json_to_str(
             s.content()
                 .quote()
                 .and_then(|qs| jsc.buf.push(&qs))
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })
+                .map_err(|_| ctx.throw_out_of_memory())
         }
 
         crate::JSValueTag::Int | crate::JSValueTag::Bool | crate::JSValueTag::Null => jsc
             .buf
             .push_content(val.to_string(ctx)?.content())
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            }),
+            .map_err(|_| ctx.throw_out_of_memory()),
         crate::JSValueTag::Float64 => {
             let d = unsafe { val.as_float_unchecked() };
             if !d.is_finite() {
@@ -413,10 +343,7 @@ fn js_json_to_str(
             } else {
                 jsc.buf.push_content(val.to_string(ctx)?.content())
             }
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })
+            .map_err(|_| ctx.throw_out_of_memory())
         }
 
         _ => Ok(()),
@@ -439,62 +366,43 @@ fn js_json_to_str(
                         .content()
                         .quote()
                         .and_then(|qs| jsc.buf.push(&qs))
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        });
+                        .map_err(|_| ctx.throw_out_of_memory());
                 }
                 JS_CLASS_NUMBER => {
                     return jsc
                         .buf
                         .push_str(&format!("{}", o.to_number(ctx)?))
                         // .push_content(JSValue::from(o.to_number(ctx)?).to_string(ctx)?.content())
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        });
+                        .map_err(|_| ctx.throw_out_of_memory());
                 }
                 JS_CLASS_BOOLEAN => {
                     return jsc
                         .buf
                         .push_content(val.to_string(ctx)?.content())
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        });
+                        .map_err(|_| ctx.throw_out_of_memory());
                 }
                 JS_CLASS_RAWJSON => {
                     let raw = val.get_property(ctx, Atom::CONST_rawJSON)?;
                     return jsc
                         .buf
                         .push_content(raw.to_string(ctx)?.content())
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        });
+                        .map_err(|_| ctx.throw_out_of_memory());
                 }
                 _ => {}
             }
 
             // check for circular ref
             if jsc.stack.iter().any(|v| val.eq(v)) {
-                ctx.throw_type_error("circular reference");
-                return Err(-1);
+                return Err(ctx.throw_type_error("circular reference"));
             }
 
             let mut indent1 = StringBuf::with_capacity(indent.len() + jsc.gap.len(), false)
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                .map_err(|_| ctx.throw_out_of_memory())?;
             indent1.push(indent).unwrap();
             indent1.push_content(&jsc.gap).unwrap();
 
             let (sep, sep1) = if !jsc.gap.is_empty() {
-                let mut s1 = StringBuf::with_capacity(indent1.len() + 1, false).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                let mut s1 = StringBuf::with_capacity(indent1.len() + 1, false).map_err(|_| ctx.throw_out_of_memory())?;
                 if !jsc.gap.is_empty() {
                     s1.push_u8(b'\n').unwrap();
                 }
@@ -505,31 +413,19 @@ fn js_json_to_str(
             };
 
             // push current val to stack
-            jsc.stack.try_reserve(16).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            jsc.stack.try_reserve(16).map_err(|_| ctx.throw_out_of_memory())?;
             jsc.stack.push(val);
 
             if val.is_array(ctx)? {
                 let len = val.get_length_prop(ctx)?;
-                jsc.buf.push_u8(b'[').map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                jsc.buf.push_u8(b'[').map_err(|_| ctx.throw_out_of_memory())?;
 
                 for i in 0..len {
                     if i > 0 {
-                        jsc.buf.push_u8(b',').map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
+                        jsc.buf.push_u8(b',').map_err(|_| ctx.throw_out_of_memory())?;
                     }
 
-                    jsc.buf.push(&sep).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    jsc.buf.push(&sep).map_err(|_| ctx.throw_out_of_memory())?;
 
                     let nth = ctx.create_string_from_str(&format!("{i}"))?;
                     let prop_val = val.get_property_i64(ctx, i)?;
@@ -540,10 +436,7 @@ fn js_json_to_str(
                     js_json_to_str(ctx, jsc, v, &indent1)?;
                 }
 
-                jsc.buf.try_reserve(indent.len() + 2).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                jsc.buf.try_reserve(indent.len() + 2).map_err(|_| ctx.throw_out_of_memory())?;
                 if len > 0 && !jsc.gap.is_empty() {
                     jsc.buf.push_u8(b'\n').unwrap();
                     jsc.buf.push(indent).unwrap();
@@ -565,20 +458,14 @@ fn js_json_to_str(
                     )?;
 
                     let mut lst = Vec::<StringRef>::new();
-                    lst.try_reserve_exact(kvs.len()).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    lst.try_reserve_exact(kvs.len()).map_err(|_| ctx.throw_out_of_memory())?;
                     for (key, _) in kvs {
                         lst.push(key.as_string(true).unwrap());
                     }
                     lst.into()
                 };
 
-                jsc.buf.push_u8(b'{').map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                jsc.buf.push_u8(b'{').map_err(|_| ctx.throw_out_of_memory())?;
 
                 let mut has_content = false;
                 for k in tab.iter() {
@@ -588,23 +475,14 @@ fn js_json_to_str(
                     let v = js_json_check(ctx, jsc, val, prop_val, key)?;
                     if !v.is_undefined() {
                         if has_content {
-                            jsc.buf.push_u8(b',').map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            })?;
+                            jsc.buf.push_u8(b',').map_err(|_| ctx.throw_out_of_memory())?;
                         }
 
-                        let qkey = key.content().quote().map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
+                        let qkey = key.content().quote().map_err(|_| ctx.throw_out_of_memory())?;
 
                         jsc.buf
                             .try_reserve(sep.len() + qkey.len() + sep1.len() + 1)
-                            .map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            })?;
+                            .map_err(|_| ctx.throw_out_of_memory())?;
                         jsc.buf.push(&sep).unwrap();
                         jsc.buf.push(&qkey).unwrap();
                         jsc.buf.push_u8(b':').unwrap();
@@ -616,18 +494,12 @@ fn js_json_to_str(
                 }
 
                 if has_content && !jsc.gap.is_empty() {
-                    jsc.buf.try_reserve(indent.len() + 1).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    jsc.buf.try_reserve(indent.len() + 1).map_err(|_| ctx.throw_out_of_memory())?;
                     jsc.buf.push_u8(b'\n').unwrap();
                     jsc.buf.push(indent).unwrap();
                 }
 
-                jsc.buf.push_u8(b'}').map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                jsc.buf.push_u8(b'}').map_err(|_| ctx.throw_out_of_memory())?;
             }
 
             jsc.stack.pop();
@@ -638,26 +510,17 @@ fn js_json_to_str(
             .content()
             .quote()
             .and_then(|qs| jsc.buf.push(&qs))
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            }),
+            .map_err(|_| ctx.throw_out_of_memory()),
         JSValue::Int(_) | JSValue::Bool(_) | JSValue::NULL => jsc
             .buf
             .push_content(val.to_string(ctx)?.content())
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            }),
+            .map_err(|_| ctx.throw_out_of_memory()),
         JSValue::Float64(d) => if !d.is_finite() {
             jsc.buf.push_str("null")
         } else {
             jsc.buf.push_content(val.to_string(ctx)?.content())
         }
-        .map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        }),
+        .map_err(|_| ctx.throw_out_of_memory()),
         _ => Ok(()),
     }
 }

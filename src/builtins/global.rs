@@ -95,10 +95,7 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     // Slow path: non-ASCII content → char-level iteration
-    let mut buf = StringBuf::with_capacity(content.len(), false).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    let mut buf = StringBuf::with_capacity(content.len(), false).map_err(|_| ctx.throw_out_of_memory())?;
 
     let mut char_it = content.chars();
     while let Some((_, ch)) = char_it.next() {
@@ -113,8 +110,7 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                         Some(a @ 'A'..='F') => (a, a as u32 - 'A' as u32 + 10),
                         Some(a @ 'a'..='f') => (a, a as u32 - 'a' as u32 + 10),
                         _ => {
-                            ctx.throw_uri_error("expecting hex digit");
-                            return Err(-1);
+                            return Err(ctx.throw_uri_error("expecting hex digit"));
                         }
                     };
                     d = d << 4 | n;
@@ -125,15 +121,9 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 if d < 0x80 {
                     if !is_component && is_uri_reserved(d as _) {
                         buf.push_u8_slice([b'%', hh[0], hh[1]].as_slice())
-                            .map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            })?;
+                            .map_err(|_| ctx.throw_out_of_memory())?;
                     } else {
-                        buf.push_u8(d as u8).map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
+                        buf.push_u8(d as u8).map_err(|_| ctx.throw_out_of_memory())?;
                     }
                 } else {
                     // decode utf8 sequence with following bytes
@@ -144,8 +134,7 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     } else if (0xf0..=0xf7).contains(&d) {
                         (3, 0x10000, d & 0x7)
                     } else {
-                        ctx.throw_uri_error("malformed UTF-8");
-                        return Err(-1);
+                        return Err(ctx.throw_uri_error("malformed UTF-8"));
                     };
 
                     for _ in 0..reminder {
@@ -157,46 +146,33 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                                     Some(a @ 'A'..='F') => a as u8 - b'A' + 10,
                                     Some(a @ 'a'..='f') => a as u8 - b'a' + 10,
                                     _ => {
-                                        ctx.throw_uri_error("expecting hex digit");
-                                        return Err(-1);
+                                        return Err(ctx.throw_uri_error("expecting hex digit"));
                                     }
                                 };
                                 d = d << 4 | n;
                             }
 
                             if d & 0xc0 != 0x80 {
-                                ctx.throw_uri_error("malformed UTF-8");
-                                return Err(-1);
+                                return Err(ctx.throw_uri_error("malformed UTF-8"));
                             }
                             uc = (uc << 6) | (d as u32 & 0x3f);
                         } else {
-                            ctx.throw_uri_error("malformed UTF-8");
-                            return Err(-1);
+                            return Err(ctx.throw_uri_error("malformed UTF-8"));
                         }
                     }
 
                     if unlikely(uc < c_min || uc > 0x10FFFF || (0xd800..0xe000).contains(&uc)) {
-                        ctx.throw_uri_error("malformed UTF-8");
-                        return Err(-1);
+                        return Err(ctx.throw_uri_error("malformed UTF-8"));
                     }
-                    buf.push_u32(uc).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    buf.push_u32(uc).map_err(|_| ctx.throw_out_of_memory())?;
                 }
             }
             CharCode::Char(c) => {
-                buf.push_char(c).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_char(c).map_err(|_| ctx.throw_out_of_memory())?;
             }
             CharCode::Code(_) => {
                 buf.push_u16_slice(ch.encode_utf16(&mut [0; 2]))
-                    .map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    .map_err(|_| ctx.throw_out_of_memory())?;
             }
         }
     }
@@ -206,40 +182,24 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 /// Fast path: decodeURI on ASCII-only input using byte scanning.
 fn decode_uri_ascii(ctx: &mut ScopedContext, bytes: &[u8], is_component: bool) -> JSResult {
-    let mut buf = StringBuf::with_capacity(bytes.len(), false).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    let mut buf = StringBuf::with_capacity(bytes.len(), false).map_err(|_| ctx.throw_out_of_memory())?;
 
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' {
             if i + 2 >= bytes.len() {
-                ctx.throw_uri_error("expecting hex digit");
-                return Err(-1);
+                return Err(ctx.throw_uri_error("expecting hex digit"));
             }
-            let hi = hex_byte_val(bytes[i + 1]).map_err(|_| {
-                ctx.throw_uri_error("expecting hex digit");
-                -1
-            })?;
-            let lo = hex_byte_val(bytes[i + 2]).map_err(|_| {
-                ctx.throw_uri_error("expecting hex digit");
-                -1
-            })?;
+            let hi = hex_byte_val(bytes[i + 1]).map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
+            let lo = hex_byte_val(bytes[i + 2]).map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
             let d = (hi << 4) | lo;
             i += 3;
 
             if d < 0x80 {
                 if !is_component && is_uri_reserved(d as _) {
-                    buf.push_u8_slice(&bytes[i - 3..i]).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    buf.push_u8_slice(&bytes[i - 3..i]).map_err(|_| ctx.throw_out_of_memory())?;
                 } else {
-                    buf.push_u8(d).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                    buf.push_u8(d).map_err(|_| ctx.throw_out_of_memory())?;
                 }
             } else {
                 let (reminder, c_min, mut uc) = if (0xc0..=0xdf).contains(&d) {
@@ -249,47 +209,31 @@ fn decode_uri_ascii(ctx: &mut ScopedContext, bytes: &[u8], is_component: bool) -
                 } else if (0xf0..=0xf7).contains(&d) {
                     (3, 0x10000u32, (d & 0x7) as u32)
                 } else {
-                    ctx.throw_uri_error("malformed UTF-8");
-                    return Err(-1);
+                    return Err(ctx.throw_uri_error("malformed UTF-8"));
                 };
 
                 for _ in 0..reminder {
                     if i + 2 >= bytes.len() || bytes[i] != b'%' {
-                        ctx.throw_uri_error("malformed UTF-8");
-                        return Err(-1);
+                        return Err(ctx.throw_uri_error("malformed UTF-8"));
                     }
-                    let hi = hex_byte_val(bytes[i + 1]).map_err(|_| {
-                        ctx.throw_uri_error("expecting hex digit");
-                        -1
-                    })?;
-                    let lo = hex_byte_val(bytes[i + 2]).map_err(|_| {
-                        ctx.throw_uri_error("expecting hex digit");
-                        -1
-                    })?;
+                    let hi = hex_byte_val(bytes[i + 1]).map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
+                    let lo = hex_byte_val(bytes[i + 2]).map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
                     let cb = (hi << 4) | lo;
                     i += 3;
 
                     if cb & 0xc0 != 0x80 {
-                        ctx.throw_uri_error("malformed UTF-8");
-                        return Err(-1);
+                        return Err(ctx.throw_uri_error("malformed UTF-8"));
                     }
                     uc = (uc << 6) | (cb & 0x3f) as u32;
                 }
 
                 if unlikely(uc < c_min || uc > 0x10FFFF || (0xd800..0xe000).contains(&uc)) {
-                    ctx.throw_uri_error("malformed UTF-8");
-                    return Err(-1);
+                    return Err(ctx.throw_uri_error("malformed UTF-8"));
                 }
-                buf.push_u32(uc).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_u32(uc).map_err(|_| ctx.throw_out_of_memory())?;
             }
         } else {
-            buf.push_u8(bytes[i]).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            buf.push_u8(bytes[i]).map_err(|_| ctx.throw_out_of_memory())?;
             i += 1;
         }
     }
@@ -318,12 +262,10 @@ fn js_global_encodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     continue;
                 }
                 // Lone high surrogate
-                ctx.throw_uri_error("malformed URI");
-                return Err(-1);
+                return Err(ctx.throw_uri_error("malformed URI"));
             } else if (0xdc00..0xe000).contains(&u) {
                 // Lone low surrogate (not preceded by a high surrogate)
-                ctx.throw_uri_error("malformed URI");
-                return Err(-1);
+                return Err(ctx.throw_uri_error("malformed URI"));
             }
             i += 1;
         }
@@ -333,27 +275,18 @@ fn js_global_encodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let bytes = bytes.as_ref();
 
     // Worst case: every byte expands to 3 percent-encoded bytes (%XX)
-    let mut buf = StringBuf::with_capacity(bytes.len() * 3, false).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    let mut buf = StringBuf::with_capacity(bytes.len() * 3, false).map_err(|_| ctx.throw_out_of_memory())?;
 
     for &b in bytes {
         if is_uri_unescaped(b as u32) || (!is_component && is_uri_reserved(b as u32)) {
-            buf.push_u8(b).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            buf.push_u8(b).map_err(|_| ctx.throw_out_of_memory())?;
         } else {
             buf.push_u8_slice(&[
                 b'%',
                 HEX_UPPER[(b >> 4) as usize],
                 HEX_UPPER[(b & 0xf) as usize],
             ])
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            .map_err(|_| ctx.throw_out_of_memory())?;
         }
     }
 
@@ -368,10 +301,7 @@ fn js_global_escape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let str = cc.arg(0).to_string(ctx)?;
     let len = str.len();
 
-    let mut buf = StringBuf::with_capacity(len * 3, false).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    let mut buf = StringBuf::with_capacity(len * 3, false).map_err(|_| ctx.throw_out_of_memory())?;
 
     for (_, ch) in str.content().chars() {
         let cp = match ch {
@@ -393,20 +323,14 @@ fn js_global_escape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 | b'/'
         ) && cp < 128
         {
-            buf.push_u8(cp as u8).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            buf.push_u8(cp as u8).map_err(|_| ctx.throw_out_of_memory())?;
         } else if cp < 256 {
             buf.push_u8_slice(&[
                 b'%',
                 HEX_UPPER[(cp >> 4) as usize],
                 HEX_UPPER[(cp & 0xf) as usize],
             ])
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            .map_err(|_| ctx.throw_out_of_memory())?;
         } else {
             buf.push_u8_slice(&[
                 b'%',
@@ -416,10 +340,7 @@ fn js_global_escape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 HEX_UPPER[((cp >> 4) & 0xf) as usize],
                 HEX_UPPER[(cp & 0xf) as usize],
             ])
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            .map_err(|_| ctx.throw_out_of_memory())?;
         }
     }
 
@@ -443,10 +364,7 @@ fn js_global_unescape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let str = cc.arg(0).to_string(ctx)?;
     let len = str.len();
 
-    let mut buf = StringBuf::with_capacity(len, false).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    let mut buf = StringBuf::with_capacity(len, false).map_err(|_| ctx.throw_out_of_memory())?;
 
     let mut it = str.content().chars();
     while let Some((_, ch)) = it.next() {
@@ -467,10 +385,7 @@ fn js_global_unescape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     ];
                     if let [Some(h0), Some(h1), Some(h2), Some(h3)] = h {
                         let cp = (h0 << 12) | (h1 << 8) | (h2 << 4) | h3;
-                        buf.push_u16(cp as u16).map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
+                        buf.push_u16(cp as u16).map_err(|_| ctx.throw_out_of_memory())?;
                         continue;
                     }
                 } else {
@@ -480,33 +395,21 @@ fn js_global_unescape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                         let h1 = it.next().and_then(|(_, c)| c.char()).and_then(hex_val);
                         if let Some(h1) = h1 {
                             let cp = (h0 << 4) | h1;
-                            buf.push_u16(cp as u16).map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            })?;
+                            buf.push_u16(cp as u16).map_err(|_| ctx.throw_out_of_memory())?;
                             continue;
                         }
                     }
                 }
 
                 // no valid escape → output literal '%', restore position to just after '%'
-                buf.push_u8(b'%').map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_u8(b'%').map_err(|_| ctx.throw_out_of_memory())?;
                 it.set_pos(base);
             }
             CharCode::Char(c) => {
-                buf.push_char(c).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_char(c).map_err(|_| ctx.throw_out_of_memory())?;
             }
             CharCode::Code(v) => {
-                buf.push_u16(v as u16).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                buf.push_u16(v as u16).map_err(|_| ctx.throw_out_of_memory())?;
             }
         }
     }

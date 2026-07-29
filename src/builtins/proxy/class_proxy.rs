@@ -14,13 +14,11 @@ use super::ProxyPayload;
 
 pub fn js_proxy_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Some(target) = cc.arg(0).as_object() else {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     };
 
     let Some(handler) = cc.arg(1).as_object() else {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     };
 
     let mut obj = ctx

@@ -93,12 +93,9 @@ impl LazyInit {
                     .get(class_id as usize)
                     .and_then(|x| x.ctor)
                     .map(JSValue::from)
-                    .ok_or_else(|| {
-                        ctx.throw_internal_error(&format!(
+                    .ok_or_else(|| ctx.throw_internal_error(&format!(
                             "can't get constructor for class {class_id}: either class is not registered, not used or has no constructor"
-                        ));
-                       -1
-                    })
+                        )))
             }
 
             Self::Object(entries) => {

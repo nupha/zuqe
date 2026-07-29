@@ -39,10 +39,7 @@ impl ObjectImpl {
         ctx: &mut ScopedContext,
         class_id: ClassID,
     ) -> Result<&ObjectPayload, i32> {
-        self.retrive_payload0(class_id).ok_or_else(|| {
-            ctx.throw_type_error_invalid_class(class_id);
-            -1
-        })
+        self.retrive_payload0(class_id).ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))
     }
 
     /// get object's payload borrow ref.
@@ -53,10 +50,7 @@ impl ObjectImpl {
         ctx: &mut ScopedContext,
         class_id: ClassID,
     ) -> Result<&mut ObjectPayload, i32> {
-        self.retrive_payload0_mut(class_id).ok_or_else(|| {
-            ctx.throw_type_error_invalid_class(class_id);
-            -1
-        })
+        self.retrive_payload0_mut(class_id).ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))
     }
 }
 
@@ -107,8 +101,7 @@ impl JSValue {
                 )
             }
         } else {
-            ctx.throw_type_error_invalid_class(class_id);
-            Err(-1)
+            Err(ctx.throw_type_error_invalid_class(class_id))
         }
     }
 
@@ -125,8 +118,7 @@ impl JSValue {
                 std::mem::transmute::<&mut ObjectPayload, &'a mut ObjectPayload>(p)
             })
         } else {
-            ctx.throw_type_error_invalid_class(class_id);
-            Err(-1)
+            Err(ctx.throw_type_error_invalid_class(class_id))
         }
     }
 }

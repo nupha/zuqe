@@ -64,8 +64,7 @@ impl<'s> JSParseState<'s> {
     ) -> Result<Atom, i32> {
         if self.token.kind == TokenKind::IDENT {
             if self.token.data.is_reserved() {
-                self.throw_reserved_identifier_error();
-                return Err(-1);
+                return Err(self.throw_reserved_identifier_error());
             }
 
             // Note: calling `next_token()` will free the current atom, so we must dup atom in advance.
@@ -73,8 +72,7 @@ impl<'s> JSParseState<'s> {
             self.next_token()?;
             Ok(name)
         } else if !is_class_expr && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT {
-            self.throw_syntax_error("class statement requires a name");
-            Err(-1)
+            Err(self.throw_syntax_error("class statement requires a name"))
         } else {
             Ok(Atom::NULL)
         }
@@ -157,8 +155,7 @@ impl<'s> JSParseState<'s> {
                         }
                         && is_static != vd.is_static_private())
                 {
-                    self.throw_syntax_error("private class field is already defined");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("private class field is already defined"));
                 }
 
                 vd.set_var_kind(JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER);
@@ -322,8 +319,7 @@ impl<'s> JSParseState<'s> {
                 || (name == Atom::CONST_prototype && is_static)
                 || name == Atom::CONST_hash_constructor
             {
-                self.throw_syntax_error("invalid method name");
-                return Err(-1);
+                return Err(self.throw_syntax_error("invalid method name"));
             }
 
             match prop_type {
@@ -345,16 +341,14 @@ impl<'s> JSParseState<'s> {
 
                     // XXX: spec: not consistent with method name checks
                     if matches!(name, Atom::CONST_constructor | Atom::CONST_prototype) {
-                        self.throw_syntax_error("invalid field name");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("invalid field name"));
                     }
 
                     if is_private {
                         {
                             let fd = self.cur_func();
                             if find_private_class_field(fd, name, fd.scope_level).is_some() {
-                                self.throw_syntax_error(MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED);
-                                return Err(-1);
+                                return Err(self.throw_syntax_error(MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED));
                             }
                         }
 
@@ -443,10 +437,9 @@ impl<'s> JSParseState<'s> {
                         _ => {
                             if name == Atom::CONST_constructor && !is_static {
                                 if !ctor_fd.is_null() {
-                                    self.throw_syntax_error(
+                                    return Err(self.throw_syntax_error(
                                         "property constructor appears more than once",
-                                    );
-                                    return Err(-1);
+                                    ));
                                 }
                                 func_type = if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
                                     JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
@@ -487,8 +480,7 @@ impl<'s> JSParseState<'s> {
                         {
                             let fd = self.cur_func();
                             if find_private_class_field(fd, name, fd.scope_level).is_some() {
-                                self.throw_syntax_error(MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED);
-                                return Err(-1);
+                                return Err(self.throw_syntax_error(MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED));
                             }
                         }
 
@@ -524,8 +516,7 @@ impl<'s> JSParseState<'s> {
         }
 
         if self.token.kind != TokenKind::Char('}') {
-            self.throw_syntax_error("expecting '}'");
-            return Err(-1);
+            return Err(self.throw_syntax_error("expecting '}'"));
         }
 
         if ctor_fd.is_null() {

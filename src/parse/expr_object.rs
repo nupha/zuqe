@@ -30,8 +30,7 @@ impl<'s> JSParseState<'s> {
         if self.token.kind == TokenKind::PRIVATE_NAME {
             // private class field
             if fd.get_prev_opcode() == opcodes::OP_get_super {
-                self.throw_syntax_error("private class field forbidden after super");
-                return Err(-1);
+                return Err(self.throw_syntax_error("private class field forbidden after super"));
             }
             if has_optional_chain {
                 self.optional_chain_test(optional_chaining_label, 1);
@@ -41,8 +40,7 @@ impl<'s> JSParseState<'s> {
             self.emit_u16(self.cur_func().scope_level as _);
         } else {
             if !self.token.kind.is_ident() {
-                self.throw_syntax_error("expecting field name");
-                return Err(-1);
+                return Err(self.throw_syntax_error("expecting field name"));
             }
             if fd.get_prev_opcode() == opcodes::OP_get_super {
                 let val = self.token.atom().unwrap().to_value(self.ctx())?;
@@ -179,8 +177,7 @@ impl<'s> JSParseState<'s> {
                         self.emit_op(OpCode::DROP);
                     } else if name == Atom::CONST___proto__ {
                         if has_proto {
-                            self.throw_syntax_error("duplicate __proto__ property name");
-                            return Err(-1);
+                            return Err(self.throw_syntax_error("duplicate __proto__ property name"));
                         }
                         self.emit_op(OpCode::SET_PROTO);
                         has_proto = true;
@@ -312,8 +309,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
                 }
                 _ => {
-                    self.throw_syntax_error("invalid property name");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("invalid property name"));
                 }
             }
         }
@@ -330,8 +326,7 @@ impl<'s> JSParseState<'s> {
         if !matches!(prop_type, PROP_TYPE_IDENT | PROP_TYPE_VAR)
             && self.token.kind != TokenKind::Char('(')
         {
-            self.throw_syntax_error("invalid property name");
-            return Err(-1);
+            return Err(self.throw_syntax_error("invalid property name"));
         }
 
         Ok((name.unwrap_or(Atom::NULL), prop_type | private))

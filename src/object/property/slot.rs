@@ -158,8 +158,7 @@ impl ObjectImpl {
                 ) {
                     return if !val.is_same(self.prop_slot(idx).value(ctx, JSValue::UNDEFINED)?) {
                         if ctx.rt().can_throw(flags) {
-                            ctx.throw_type_error("property is not configurable");
-                            Err(-1)
+                            Err(ctx.throw_type_error("property is not configurable"))
                         } else {
                             Ok(false)
                         }
@@ -200,8 +199,7 @@ impl ObjectImpl {
                         // but they are write protected in module name spaces.
                         if !val.is_same(vref.value()) {
                             return if ctx.rt().can_throw(flags) {
-                                ctx.throw_type_error("property is not configurable");
-                                Err(-1)
+                                Err(ctx.throw_type_error("property is not configurable"))
                             } else {
                                 Ok(false)
                             };
@@ -216,10 +214,9 @@ impl ObjectImpl {
                     // 'writable' is set to false, no longer a reference (for mapped arguments)
                     if unlikely(class_id == JS_CLASS_MODULE_NS) {
                         return if ctx.rt().can_throw(flags) {
-                            ctx.throw_type_error(
+                            Err(ctx.throw_type_error(
                                 "module namespace properties have writable = false",
-                            );
-                            Err(-1)
+                            ))
                         } else {
                             Ok(false)
                         };
@@ -315,8 +312,7 @@ impl ObjectImpl {
                             || (flags & JS_PROP_HAS_SET != 0 && new_setter != *setter)),
                 ) {
                     return if ctx.rt().can_throw(flags) {
-                        ctx.throw_type_error("property is not configurable");
-                        Err(-1)
+                        Err(ctx.throw_type_error("property is not configurable"))
                     } else {
                         Ok(false)
                     };

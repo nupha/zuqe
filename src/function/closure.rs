@@ -205,14 +205,10 @@ impl FunctionDef {
 
         if let Some(lst) = self.closure_vars.as_mut() {
             if lst.len() == JS_MAX_LOCAL_VARS as usize {
-                ctx.throw_internal_error("too many closure variables");
-                return Err(-1);
+                return Err(ctx.throw_internal_error("too many closure variables"));
             }
             if lst.len() == lst.capacity() {
-                lst.try_reserve(1).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+                lst.try_reserve(1).map_err(|_| ctx.throw_out_of_memory())?;
             }
             lst.push(cv);
             Ok(lst.len() as u16 - 1)
@@ -386,10 +382,7 @@ impl Bytecode {
             let parent_var_refs = arena.var_refs_or_default(parent_frame_idx);
 
             let mut lst = Vec::new();
-            lst.try_reserve_exact(closure_count).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            lst.try_reserve_exact(closure_count).map_err(|_| ctx.throw_out_of_memory())?;
 
             for cv in self.closure_vars() {
                 lst.push(if cv.is_local() {
@@ -505,10 +498,7 @@ pub(crate) fn add_closure_variables(
     }
 
     let mut cvars = Vec::<ClosureVar>::new();
-    cvars.try_reserve_exact(count as usize).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    cvars.try_reserve_exact(count as usize).map_err(|_| ctx.throw_out_of_memory())?;
 
     // Add lexical variables in scope at the point of evaluation
     let vardefs = bc.local_vars();

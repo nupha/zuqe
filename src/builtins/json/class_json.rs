@@ -72,8 +72,7 @@ fn internalize_json_property(
     parent_record: Option<&JSONParseRecord>,
 ) -> JSResult {
     if js_check_stack_overflow(ctx.rt(), 0) {
-        ctx.throw_stack_overflow();
-        return Err(-1);
+        return Err(ctx.throw_stack_overflow());
     }
 
     let mut val = holder.get_property(ctx, name)?;
@@ -224,8 +223,7 @@ fn js_json_rawJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // Spec: empty string → SyntaxError
     // Spec: first/last char is \t(0x09), \n(0x0A), \r(0x0D), space(0x20) → SyntaxError
     if bytes.is_empty() {
-        ctx.throw_syntax_error("invalid rawJSON string");
-        return Err(-1);
+        return Err(ctx.throw_syntax_error("invalid rawJSON string"));
     }
     let first = bytes[0];
     let last = bytes[bytes.len() - 1];
@@ -238,8 +236,7 @@ fn js_json_rawJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         || last == 0x0D
         || last == 0x20
     {
-        ctx.throw_syntax_error("invalid rawJSON string");
-        return Err(-1);
+        return Err(ctx.throw_syntax_error("invalid rawJSON string"));
     }
 
     // Validate the string is parseable as JSON
@@ -253,8 +250,7 @@ fn js_json_rawJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         res.promote(&scope_back)
     };
     if result.is_err() {
-        ctx.throw_syntax_error("invalid rawJSON string");
-        return Err(-1);
+        return Err(ctx.throw_syntax_error("invalid rawJSON string"));
     }
 
     // Create a RAWJSON object

@@ -101,8 +101,7 @@ pub(crate) fn js_object_getset___proto__(ctx: &mut ScopedContext, cc: CallContex
     } else {
         // setter
         if this.is_undefined_or_null() {
-            ctx.throw_type_error_not_an_object();
-            return Err(-1);
+            return Err(ctx.throw_type_error_not_an_object());
         }
 
         let proto = cc.arg(0);

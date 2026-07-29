@@ -75,14 +75,12 @@ pub(crate) fn build_arg_list(
     array_arg: JSValue,
 ) -> Result<Box<[JSValue]>, i32> {
     let Some(array_arg) = array_arg.as_object() else {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        return Err(ctx.throw_type_error_not_an_object());
     };
 
     let length = array_arg.get_length_prop(ctx)? as u32;
     if length > JS_MAX_LOCAL_VARS as u32 {
-        ctx.throw_internal_error("too many arguments");
-        return Err(-1);
+        return Err(ctx.throw_internal_error("too many arguments"));
     }
 
     let mut lst = alloc_fast_array_slots(ctx, length as usize)?;

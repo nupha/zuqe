@@ -55,8 +55,7 @@ impl<'s> JSParseState<'s> {
         // guards most parser recursion, but an explicit check here also
         // covers the function-definition nesting chain.
         if js_check_stack_overflow(self.ctx().rt_mut(), 0) {
-            self.throw_syntax_error("stack overflow");
-            return Err(-1);
+            return Err(self.throw_syntax_error("stack overflow"));
         }
 
         let filename_ptr = self.filename.as_ptr();
@@ -164,8 +163,7 @@ impl<'s> JSParseState<'s> {
             && self.token.kind == TokenKind::IDENT
         {
             if self.token.data.is_reserved() {
-                self.throw_reserved_identifier_error();
-                return Err(-1);
+                return Err(self.throw_reserved_identifier_error());
             }
 
             let name = self.token.atom().unwrap();
@@ -232,15 +230,13 @@ impl<'s> JSParseState<'s> {
                     }
                 } else if self.token.kind == TokenKind::IDENT {
                     if self.token.data.is_reserved() {
-                        self.throw_reserved_identifier_error();
-                        return Err(-1);
+                        return Err(self.throw_reserved_identifier_error());
                     }
 
                     let name = self.token.atom().unwrap();
 
                     if name == Atom::CONST_yield && fd1.attrs.func_kind == FunctionKind::Generator {
-                        self.throw_reserved_identifier_error();
-                        return Err(-1);
+                        return Err(self.throw_reserved_identifier_error());
                     }
                     if fd1.has_parameter_expressions {
                         // fd1 is the cur_func
@@ -325,8 +321,7 @@ impl<'s> JSParseState<'s> {
                         }
                     }
                 } else {
-                    self.throw_syntax_error("missing formal parameter");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("missing formal parameter"));
                 }
 
                 if rest && self.token.kind != TokenKind::Char(')') {
@@ -343,8 +338,7 @@ impl<'s> JSParseState<'s> {
             if (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_GETTER && !fd1.args.is_empty())
                 || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_SETTER && fd1.args.len() != 1)
             {
-                self.throw_syntax_error("invalid number of arguments for getter or setter");
-                return Err(-1);
+                return Err(self.throw_syntax_error("invalid number of arguments for getter or setter"));
             }
         }
 
@@ -567,8 +561,7 @@ impl<'s> JSParseState<'s> {
                                 || func_type
                                     == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT))
                     {
-                        self.throw_reserved_identifier_error();
-                        return Err(-1);
+                        return Err(self.throw_reserved_identifier_error());
                     }
                 }
 
@@ -584,8 +577,7 @@ impl<'s> JSParseState<'s> {
                     func_type != JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                         && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT,
                 ) {
-                    self.throw_syntax_error("function name expected");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("function name expected"));
                 }
             }
             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW => {}
@@ -602,8 +594,7 @@ impl<'s> JSParseState<'s> {
             && let Some(v) = cur_fd.find_global_var(func_name)
             && v.scope_level == cur_fd.scope_level
         {
-            self.throw_syntax_error("invalid redefinition of global identifier in module code");
-            return Err(-1);
+            return Err(self.throw_syntax_error("invalid redefinition of global identifier in module code"));
         }
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
@@ -629,8 +620,7 @@ impl<'s> JSParseState<'s> {
                 if let Some(hf) = cur_fd.find_global_var(func_name) {
                     // XXX: should check scope chain
                     if hf.scope_level == cur_fd.scope_level {
-                        self.throw_syntax_error("invalid redefinition of global identifier");
-                        return Err(-1);
+                        return Err(self.throw_syntax_error("invalid redefinition of global identifier"));
                     }
                 }
             } else {
@@ -833,20 +823,17 @@ impl<'s> JSParseState<'s> {
     fn parse_function_check_names(&mut self, fd: &FunctionDef, func_name: Atom) -> Result<(), i32> {
         if fd.attrs.exec_mode.contains(ExecMode::STRICT) {
             if !fd.attrs.has_simple_parameter_list && fd.has_use_strict {
-                self.throw_syntax_error(
+                return Err(self.throw_syntax_error(
                     "'use strict' not allowed in function with default or destructuring parameter",
-                );
-                return Err(-1);
+                ));
             } else if matches!(func_name, Atom::CONST_eval | Atom::CONST_arguments) {
-                self.throw_syntax_error("invalid function name in strict code");
-                return Err(-1);
+                return Err(self.throw_syntax_error("invalid function name in strict code"));
             } else if fd
                 .args
                 .iter()
                 .any(|vd| matches!(vd.var_name, Atom::CONST_eval | Atom::CONST_arguments))
             {
-                self.throw_syntax_error("invalid argument name in strict code");
-                return Err(-1);
+                return Err(self.throw_syntax_error("invalid argument name in strict code"));
             }
         }
 
@@ -869,8 +856,7 @@ impl<'s> JSParseState<'s> {
                 }
             }) {
                 if fd.args.iter().take(idx).any(|d| d.var_name.eq(&name)) {
-                    self.throw_syntax_error("duplicate argument names not allowed in this context");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("duplicate argument names not allowed in this context"));
                 }
 
                 // Check if argument name duplicates a destructuring parameter
@@ -880,8 +866,7 @@ impl<'s> JSParseState<'s> {
                     .iter()
                     .any(|d| d.var_name.eq(&name) && d.scope_level == 0)
                 {
-                    self.throw_syntax_error("duplicate argument names not allowed in this context");
-                    return Err(-1);
+                    return Err(self.throw_syntax_error("duplicate argument names not allowed in this context"));
                 }
             }
         }

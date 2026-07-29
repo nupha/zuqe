@@ -284,8 +284,7 @@ impl ArrayBuffer {
         } else {
             // we are currently limited to 2 GB
             if capacity > i32::MAX as usize {
-                ctx.throw_range_error("invalid array buffer length");
-                return Err(-1);
+                return Err(ctx.throw_range_error("invalid array buffer length"));
             }
 
             match (shared, &ctx.rt().sab_funcs) {
@@ -299,8 +298,7 @@ impl ArrayBuffer {
                 _ => {
                     let mut chunk = Vec::<u8>::new();
                     if chunk.try_reserve_exact(capacity).is_err() {
-                        ctx.throw_out_of_memory();
-                        return Err(-1);
+                        return Err(ctx.throw_out_of_memory());
                     }
                     chunk.resize(capacity, 0);
                     ABufData::Owned(chunk.into_boxed_slice())

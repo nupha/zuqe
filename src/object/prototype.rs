@@ -97,8 +97,7 @@ impl ObjectImpl {
         } else if proto_val.is_null() {
             None
         } else {
-            ctx.throw_type_error_not_an_object();
-            return Err(-1);
+            return Err(ctx.throw_type_error_not_an_object());
         };
 
         let obj = Object::from(self.gc_ref());
@@ -114,8 +113,7 @@ impl ObjectImpl {
             // exotic handler: Proxy
             let ret = f(ctx, JSValue::from(obj), proto_val);
             return if ret == Ok(false) && throw_flag {
-                ctx.throw_type_error("proxy: bad prototype");
-                Err(-1)
+                Err(ctx.throw_type_error("proxy: bad prototype"))
             } else {
                 ret
             };
@@ -128,15 +126,13 @@ impl ObjectImpl {
         let flags = self.flags();
         if flags.immutable_prototype() {
             return if throw_flag {
-                ctx.throw_type_error("prototype is immutable");
-                Err(-1)
+                Err(ctx.throw_type_error("prototype is immutable"))
             } else {
                 Ok(false)
             };
         } else if !flags.extensible() {
             return if throw_flag {
-                ctx.throw_type_error("object is not extensible");
-                Err(-1)
+                Err(ctx.throw_type_error("object is not extensible"))
             } else {
                 Ok(false)
             };
@@ -149,8 +145,7 @@ impl ObjectImpl {
             loop {
                 if p1.id() == self.id() {
                     if throw_flag {
-                        ctx.throw_type_error("circular prototype chain");
-                        return Err(-1);
+                        return Err(ctx.throw_type_error("circular prototype chain"));
                     } else {
                         return Ok(false);
                     }
@@ -205,15 +200,13 @@ impl JSValue {
         throw_flag: bool,
     ) -> Result<bool, i32> {
         if unlikely(throw_flag && self.is_undefined_or_null()) {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         } else if let Some(mut o) = self.as_object() {
             o.set_prototype_internal(ctx, proto_val, throw_flag)
         } else if throw_flag {
             Ok(true)
         } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
+            Err(ctx.throw_type_error_not_an_object())
         }
     }
 

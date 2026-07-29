@@ -28,8 +28,7 @@ impl FunctionDef {
             .try_reserve(bc_buf_len + std::cmp::max(bc_buf_len >> 3, 64))
             .is_err()
         {
-            ctx.throw_out_of_memory();
-            return Err(-1);
+            return Err(ctx.throw_out_of_memory());
         };
 
         let mut line_num = 0_i32;
@@ -272,10 +271,9 @@ impl FunctionDef {
                             for hf in &self.global_vars {
                                 for cv in cvars {
                                     if cv.var_name == hf.var_name && cv.is_lexical() {
-                                        ctx.throw_syntax_error(
+                                        return Err(ctx.throw_syntax_error(
                                             "invalid redefinition of lexical identifier",
-                                        );
-                                        return Err(-1);
+                                        ));
                                     }
                                 }
                             }
@@ -618,8 +616,7 @@ impl FunctionDef {
             // check buffer capacity, if no more space left, grow the buffer
             if bc_out.capacity() - bc_out.len() < 16 && bc_out.try_reserve(64).is_err() {
                 // can't alloc memory, fail
-                ctx.throw_out_of_memory();
-                return Err(-1);
+                return Err(ctx.throw_out_of_memory());
             }
 
             pos = pos_next;

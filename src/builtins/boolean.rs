@@ -26,8 +26,7 @@ pub fn js_boolean_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
 
 fn js_boolean_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Some(b) = cc.this().as_bool() else {
-        ctx.throw_type_error("not a boolean");
-        return Err(-1);
+        return Err(ctx.throw_type_error("not a boolean"));
     };
 
     if b {
@@ -42,10 +41,7 @@ fn js_boolean_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_boolean_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     cc.this()
         .as_bool()
-        .ok_or_else(|| {
-            ctx.throw_type_error("not a boolean");
-            -1
-        })
+        .ok_or_else(|| ctx.throw_type_error("not a boolean"))
         .map(JSValue::from)
 }
 

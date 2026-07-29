@@ -154,8 +154,7 @@ impl JSMapState {
         let key = MapPair::normalize_key(key);
 
         if self.is_weak && !key.is_object() {
-            ctx.throw_type_error_not_an_object();
-            return Err(-1);
+            return Err(ctx.throw_type_error_not_an_object());
         }
 
         let hash = key.hash();

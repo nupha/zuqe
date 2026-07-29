@@ -374,14 +374,12 @@ impl Promise {
                         let v = conv(cx, data)?;
                         Ok(Some(v))
                     } else {
-                        cx.throw_internal_error("result already handled");
-                        Err(-1)
+                        Err(cx.throw_internal_error("result already handled"))
                     }
                 }
                 Err(TryRecvError::Empty) => Ok(None),
                 Err(TryRecvError::Disconnected) => {
-                    cx.throw_internal_error("channel disconnected");
-                    Err(-1)
+                    Err(cx.throw_internal_error("channel disconnected"))
                 }
             }
         })?;
@@ -418,8 +416,7 @@ impl Promise {
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
     ) -> Result<Self, i32> {
         if !data_slot.is_empty() {
-            ctx.throw_internal_error("promise data slot is not empty");
-            return Err(-1);
+            return Err(ctx.throw_internal_error("promise data slot is not empty"));
         }
 
         let convert_slot = Rc::new(RefCell::new(Some(convert)));
@@ -435,8 +432,7 @@ impl Promise {
                         unreachable!("slot value already handled");
                         #[cfg(not(debug_assertions))]
                         {
-                            cx.throw_internal_error("slot value already handled");
-                            Err(-1)
+                            Err(cx.throw_internal_error("slot value already handled"))
                         }
                     }
                 }
@@ -536,8 +532,7 @@ impl Promise {
     fn executor_handler(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
         for i in 0..2 {
             if !cc.data(i).is_undefined() {
-                ctx.throw_type_error("resolving function already set");
-                return Err(-1);
+                return Err(ctx.throw_type_error("resolving function already set"));
             } else {
                 let _ = cc.replace_data(i, cc.arg(i));
             }
