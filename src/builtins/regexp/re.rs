@@ -330,7 +330,8 @@ pub(super) fn make_regexp_capture_array(
 
     let mut indices: Option<(Vec<JSValue>, Option<Object>)> = if with_indices {
         let mut lst = Vec::new();
-        lst.try_reserve(range_and_name.len()).map_err(|_| ctx.throw_out_of_memory())?;
+        lst.try_reserve(range_and_name.len())
+            .map_err(|_| ctx.throw_out_of_memory())?;
         Some((lst, None))
     } else {
         None

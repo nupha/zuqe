@@ -75,7 +75,8 @@ impl ObjectImpl {
                     .find_shape_with_extend_prop(self.shape().unwrap(), prop, prop_flags)
         {
             debug_assert_eq!(new_len, found.len());
-            self.try_extend_prop_slot(1).map_err(|_| ctx.throw_out_of_memory())?;
+            self.try_extend_prop_slot(1)
+                .map_err(|_| ctx.throw_out_of_memory())?;
             debug_assert_eq!(self.prop_values.len(), new_len);
             self.set_shape(found);
             return Ok(new_len);
@@ -83,7 +84,8 @@ impl ObjectImpl {
 
         // Not found (or exclusive shape — lookup skipped above).
         // Extend slot first, then branch by exclusivity.
-        self.try_extend_prop_slot(1).map_err(|_| ctx.throw_out_of_memory())?;
+        self.try_extend_prop_slot(1)
+            .map_err(|_| ctx.throw_out_of_memory())?;
         debug_assert_eq!(self.prop_values.len(), new_len);
 
         let mut use_shape = if use_count != 1 {

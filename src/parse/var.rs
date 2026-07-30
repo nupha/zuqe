@@ -48,10 +48,13 @@ impl<'s> JSParseState<'s> {
                         } else if vd.var_kind() == JSVarKindEnum::JS_VAR_CATCH
                             && vd.scope_level + 2 == fd.scope_level
                         {
-                            return Err(self.throw_syntax_error("invalid redefinition of lexical identifier"));
+                            return Err(self
+                                .throw_syntax_error("invalid redefinition of lexical identifier"));
                         }
                     } else if fd.scope_level == fd.body_scope {
-                        return Err(self.throw_syntax_error("invalid redefinition of lexical identifier"));
+                        return Err(
+                            self.throw_syntax_error("invalid redefinition of lexical identifier")
+                        );
                     }
                 }
 
@@ -72,7 +75,9 @@ impl<'s> JSParseState<'s> {
                     && let Some(hf) = fd.find_global_var(name)
                     && fd.is_child_scope(hf.scope_level, fd.scope_level)
                 {
-                    return Err(self.throw_syntax_error("invalid redefinition of global identifier"));
+                    return Err(
+                        self.throw_syntax_error("invalid redefinition of global identifier")
+                    );
                 }
 
                 if fd.is_eval
@@ -102,7 +107,9 @@ impl<'s> JSParseState<'s> {
             }
             JSVarDefEnum::JS_VAR_DEF_VAR => {
                 if fd.find_lexical_decl(name, fd.scope_first, false).is_some() {
-                    return Err(self.throw_syntax_error("invalid redefinition of lexical identifier"));
+                    return Err(
+                        self.throw_syntax_error("invalid redefinition of lexical identifier")
+                    );
                 }
 
                 if fd.is_global_var {
@@ -111,7 +118,9 @@ impl<'s> JSParseState<'s> {
                         && hf.scope_level == fd.scope_level
                         && fd.eval_type == EvalType::Module
                     {
-                        return Err(self.throw_syntax_error("invalid redefinition of lexical identifier"));
+                        return Err(
+                            self.throw_syntax_error("invalid redefinition of lexical identifier")
+                        );
                     }
 
                     fd.add_global_var(self.ctx(), name)?;

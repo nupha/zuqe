@@ -4,8 +4,8 @@
 use std::{cell::Cell, process::ExitCode};
 
 use zuqe::{
-    CallContext, EvalFlags, EvalType, Exception, FieldDef, JS_PROP_ENUMERABLE,
-    JS_SetUncatchableError, JSResult, JSValue, ScopedContext,
+    CallContext, EvalFlags, EvalType, Exception, FieldDef, JS_PROP_ENUMERABLE, JSResult, JSValue,
+    ScopedContext,
 };
 
 use crate::{
@@ -146,7 +146,7 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             // convert the uncatchable "interrupted" error into a normal error
             // so that it can be caught by the REPL
             if let Exception::Error(v) = ctx.rt().exception() {
-                JS_SetUncatchableError(v, false);
+                Exception::set_uncatchable(v, false);
             }
         }
     }

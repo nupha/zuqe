@@ -277,9 +277,10 @@ impl<'s> JSParseState<'s> {
                     self.got_lf = true;
                     self.line_num += 1;
                     // Track where the next line starts (byte offset into source)
-                    self.line_start_offset = unsafe {
-                        self.buf_ptr.offset_from(self.input.as_ptr()) as usize
-                    } + span.start + advance;
+                    self.line_start_offset =
+                        unsafe { self.buf_ptr.offset_from(self.input.as_ptr()) as usize }
+                            + span.start
+                            + advance;
                     continue;
                 }
                 // 0x0c='\f', 0x0b='\v'
@@ -366,7 +367,9 @@ impl<'s> JSParseState<'s> {
                                         input.seek_relative(consumed as _);
                                         x
                                     } else {
-                                        return Err(self.throw_syntax_error("Invalid Unicode escape sequence"));
+                                        return Err(self.throw_syntax_error(
+                                            "Invalid Unicode escape sequence",
+                                        ));
                                     }
                                 } else {
                                     '\\'
@@ -374,7 +377,9 @@ impl<'s> JSParseState<'s> {
                             }
                             CharCode::Char(c) => c,
                             CharCode::Code(_) => {
-                                return Err(self.throw_syntax_error("Invalid Unicode escape sequence"));
+                                return Err(
+                                    self.throw_syntax_error("Invalid Unicode escape sequence")
+                                );
                             }
                         };
 
@@ -724,9 +729,10 @@ impl<'s> JSParseState<'s> {
                     self.got_lf = true;
                     self.line_num += 1;
                     // 3-byte UTF-8 line separator
-                    self.line_start_offset = unsafe {
-                        self.buf_ptr.offset_from(self.input.as_ptr()) as usize
-                    } + span.start + span.len();
+                    self.line_start_offset =
+                        unsafe { self.buf_ptr.offset_from(self.input.as_ptr()) as usize }
+                            + span.start
+                            + span.len();
                     continue;
                 }
                 CharCode::Char(ch) => {

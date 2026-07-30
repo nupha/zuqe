@@ -74,7 +74,9 @@ pub(crate) fn limit_to_count(
     } else {
         let int_limit = limit.trunc() as i64;
         if int_limit < 0 {
-            return Err(ctx.throw_range_error(&format!("{name} value must be a non-negative number")));
+            return Err(
+                ctx.throw_range_error(&format!("{name} value must be a non-negative number"))
+            );
         }
         Ok(int_limit)
     }

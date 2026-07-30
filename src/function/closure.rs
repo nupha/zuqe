@@ -382,7 +382,8 @@ impl Bytecode {
             let parent_var_refs = arena.var_refs_or_default(parent_frame_idx);
 
             let mut lst = Vec::new();
-            lst.try_reserve_exact(closure_count).map_err(|_| ctx.throw_out_of_memory())?;
+            lst.try_reserve_exact(closure_count)
+                .map_err(|_| ctx.throw_out_of_memory())?;
 
             for cv in self.closure_vars() {
                 lst.push(if cv.is_local() {
@@ -498,7 +499,9 @@ pub(crate) fn add_closure_variables(
     }
 
     let mut cvars = Vec::<ClosureVar>::new();
-    cvars.try_reserve_exact(count as usize).map_err(|_| ctx.throw_out_of_memory())?;
+    cvars
+        .try_reserve_exact(count as usize)
+        .map_err(|_| ctx.throw_out_of_memory())?;
 
     // Add lexical variables in scope at the point of evaluation
     let vardefs = bc.local_vars();

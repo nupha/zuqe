@@ -117,7 +117,7 @@ pub(super) fn js_promise_reaction_job(
 ) -> Result<(), i32> {
     let mut result = if action.handler.is_undefined() {
         if is_reject {
-            ctx.throw_value(arg);
+            let _ = ctx.throw_value(arg);
             JSValue::EXCEPTION
         } else {
             arg

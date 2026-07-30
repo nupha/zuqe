@@ -411,7 +411,9 @@ impl<'c> ScopedContext<'c> {
                 if mx as usize >= n {
                     // grow slot
                     let extra = mx as usize - n + 1;
-                    self.class_slots.try_reserve_exact(extra).map_err(|_| self.throw_out_of_memory())?;
+                    self.class_slots
+                        .try_reserve_exact(extra)
+                        .map_err(|_| self.throw_out_of_memory())?;
                     self.class_slots
                         .extend(std::iter::repeat_n(ProtoCtorPair::default(), extra));
                 }
@@ -424,7 +426,9 @@ impl<'c> ScopedContext<'c> {
                     {
                         class_def.initialize(self, class_id)?;
                     } else {
-                        return Err(self.throw_internal_error(&format!("unknown class id {class_id}")));
+                        return Err(
+                            self.throw_internal_error(&format!("unknown class id {class_id}"))
+                        );
                     }
                 }
 

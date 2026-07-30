@@ -51,7 +51,9 @@ impl ModuleDef {
         }
 
         if self.dependencies.len() == self.dependencies.capacity() {
-            self.dependencies.try_reserve(1).map_err(|_| ctx.throw_out_of_memory())?;
+            self.dependencies
+                .try_reserve(1)
+                .map_err(|_| ctx.throw_out_of_memory())?;
         }
 
         self.dependencies.push(ModuleDependency {
@@ -119,10 +121,12 @@ pub(super) fn js_host_resolve_imported_module(
     // script to be rejected before the target module is even loaded.
     let base_url = match Url::parse(base_name) {
         Ok(u) if matches!(u.scheme(), "file" | "http" | "https") => u,
-        _ => path_to_url(base_name).map_err(|e| ctx.throw_reference_error(&format!(
+        _ => path_to_url(base_name).map_err(|e| {
+            ctx.throw_reference_error(&format!(
                 "could not resolve module base '{}': {}",
                 base_name, e
-            )))?,
+            ))
+        })?,
     };
     let norm_name = if let Some(cb) = ctx.rt().module_normalize_func {
         cb(ctx, &base_url, name, ctx.rt_ptr().module_load_opaque)

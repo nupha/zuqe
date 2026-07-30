@@ -6,5 +6,5 @@ mod prop;
 mod registry;
 mod shape;
 
-pub(crate) use {prop::*, shape::*};
 pub(crate) use registry::ShapeRegistry;
+pub(crate) use {prop::*, shape::*};

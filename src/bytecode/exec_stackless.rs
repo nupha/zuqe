@@ -34,8 +34,8 @@ use crate::{
     error::{
         Exception, JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
-        JS_ThrowReferenceErrorUninitialized, JS_ThrowReferenceErrorUninitialized2,
-        JS_ThrowSyntaxErrorVarRedeclaration, is_backtrace_needed,
+        JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration,
+        is_backtrace_needed,
     },
     eval::{EvalFlags, EvalType},
     function::{
@@ -1064,10 +1064,10 @@ impl Bytecode {
                                         Err(e) => {
                                             match e {
                                                 FrameAllocError::Oom => {
-                                                    realm_scope.throw_stack_fail();
+                                                    let _ = realm_scope.throw_stack_fail();
                                                 }
                                                 FrameAllocError::Exceeded => {
-                                                    realm_scope.throw_stack_exceeded();
+                                                    let _ = realm_scope.throw_stack_exceeded();
                                                 }
                                             }
                                             // Route through the Exception
@@ -1178,7 +1178,7 @@ impl Bytecode {
                                         (v, Some(v))
                                     }
                                     Err(_) => {
-                                        realm_scope
+                                        let _ = realm_scope
                                             .throw_type_error("constructor must return an object");
                                         break ExecAction::Exception;
                                     }
@@ -1202,10 +1202,10 @@ impl Bytecode {
                                 Err(e) => {
                                     match e {
                                         FrameAllocError::Oom => {
-                                            realm_scope.throw_stack_fail();
+                                            let _ = realm_scope.throw_stack_fail();
                                         }
                                         FrameAllocError::Exceeded => {
-                                            realm_scope.throw_stack_exceeded();
+                                            let _ = realm_scope.throw_stack_exceeded();
                                         }
                                     }
                                     // Route through the Exception handler: see
@@ -1308,10 +1308,10 @@ impl Bytecode {
                                         Err(e) => {
                                             match e {
                                                 FrameAllocError::Oom => {
-                                                    realm_scope.throw_stack_fail();
+                                                    let _ = realm_scope.throw_stack_fail();
                                                 }
                                                 FrameAllocError::Exceeded => {
-                                                    realm_scope.throw_stack_exceeded();
+                                                    let _ = realm_scope.throw_stack_exceeded();
                                                 }
                                             }
 
@@ -1600,17 +1600,15 @@ impl Bytecode {
                                 if let Ok(bfun) = BCWrapper::try_from(JSValue::from(prev_func)) {
                                     let mut caller_ctx_ptr = bfun.payload().bytecode().realm();
                                     let mut caller_scope = caller_ctx_ptr.new_scope();
-                                    JS_ThrowReferenceErrorUninitialized2(
-                                        &mut caller_scope,
-                                        self,
-                                        idx,
-                                        false,
-                                    );
+                                    let _ = caller_scope
+                                        .throw_reference_error_uninitialized2(self, idx, false);
                                     // caller_scope dropped → GC scope popped
                                     break ExecAction::Exception;
                                 }
                             }
-                            JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, false);
+
+                            let _ =
+                                realm_scope.throw_reference_error_uninitialized2(self, idx, false);
                             break ExecAction::Exception;
                         } else {
                             SP_PUT!(0, *value);
@@ -1621,7 +1619,8 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
                         let pval = VAR_REF![idx];
                         if unlikely(pval.is_uninitialized()) {
-                            JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, false);
+                            let _ =
+                                realm_scope.throw_reference_error_uninitialized2(self, idx, false);
                             break ExecAction::Exception;
                         } else {
                             *pval = SP_VAL!(-1);
@@ -1632,7 +1631,7 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
                         let pval = VAR_REF![idx];
                         if unlikely(!pval.is_uninitialized()) {
-                            realm_scope
+                            let _ = realm_scope
                                 .throw_reference_error("'this' can be initialized only once");
                             break ExecAction::Exception;
                         } else {
@@ -1648,7 +1647,8 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
                         let pval = VAR_REF![idx];
                         if unlikely(pval.is_uninitialized()) {
-                            JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, false);
+                            let _ =
+                                realm_scope.throw_reference_error_uninitialized2(self, idx, false);
                             break ExecAction::Exception;
                         }
                         *pval = SP_VAL!(-1);
@@ -1658,7 +1658,8 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
                         let val = captured_vars[idx as usize].value();
                         if unlikely(val.is_uninitialized()) {
-                            JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, true);
+                            let _ =
+                                realm_scope.throw_reference_error_uninitialized2(self, idx, true);
                             break ExecAction::Exception;
                         } else if opcode == OpCode::GET_VAR_REF_CHECK {
                             SP_PUT!(0, val);
@@ -1671,7 +1672,8 @@ impl Bytecode {
                     OpCode::PUT_VAR_REF_CHECK_INIT => {
                         let idx = PC_FETCH!(u16);
                         if unlikely(!captured_vars[idx as usize].value().is_uninitialized()) {
-                            JS_ThrowReferenceErrorUninitialized2(realm_scope, self, idx, true);
+                            let _ =
+                                realm_scope.throw_reference_error_uninitialized2(self, idx, true);
                             break ExecAction::Exception;
                         } else {
                             captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
@@ -1695,7 +1697,7 @@ impl Bytecode {
                                     {
                                         let mut caller_ctx_ptr = bfun.payload().bytecode().realm();
                                         let mut caller_scope = caller_ctx_ptr.new_scope();
-                                        caller_scope.throw_type_error(
+                                        let _ = caller_scope.throw_type_error(
                                             "derived class constructor must return \
                                              an object or undefined",
                                         );
@@ -1705,7 +1707,7 @@ impl Bytecode {
                                 }
 
                                 // Fallback: no caller frame available.
-                                realm_scope.throw_type_error(
+                                let _ = realm_scope.throw_type_error(
                                     "derived class constructor must return an object or undefined",
                                 );
                                 break ExecAction::Exception;
@@ -1720,7 +1722,7 @@ impl Bytecode {
                     }
                     OpCode::CHECK_CTOR => {
                         if new_target.is_undefined() {
-                            realm_scope
+                            let _ = realm_scope
                                 .throw_type_error("class constructors must be invoked with 'new'");
                             break ExecAction::Exception;
                         }
@@ -1730,7 +1732,7 @@ impl Bytecode {
                         // Used at the start of derived class constructors,
                         // equivalent to `super(...arguments)`.
                         if new_target.is_undefined() {
-                            realm_scope
+                            let _ = realm_scope
                                 .throw_type_error("class constructors must be invoked with 'new'");
                             break ExecAction::Exception;
                         }
@@ -1775,7 +1777,7 @@ impl Bytecode {
                     }
                     OpCode::THROW => {
                         SP_GO!(-1);
-                        realm_scope.throw_value(SP_VAL!(0));
+                        let _ = realm_scope.throw_value(SP_VAL!(0));
                         break ExecAction::Exception;
                     }
                     OpCode::THROW_ERROR => {
@@ -2277,7 +2279,7 @@ impl Bytecode {
                         if !arr.is_int() && !arr.is_string_or_symbol() {
                             // must be tested before ToPropertyKey
                             if arr.is_undefined_or_null() {
-                                realm_scope.throw_type_error("value has no property ");
+                                let _ = realm_scope.throw_type_error("value has no property ");
                                 break ExecAction::Exception;
                             }
 
@@ -2385,7 +2387,7 @@ impl Bytecode {
                             SP_GO!(-1);
                         }
                         if unlikely(sp == sp_base) {
-                            realm_scope.throw_internal_error("nip_catch");
+                            let _ = realm_scope.throw_internal_error("nip_catch");
                             break ExecAction::Exception;
                         } else {
                             SP_PUT!(-1, ret_val);
@@ -2459,7 +2461,7 @@ impl Bytecode {
                     }
                     OpCode::ITERATOR_CHECK_OBJECT => {
                         if !SP_REF!(-1).is_object() {
-                            realm_scope.throw_type_error("iterator must return an object");
+                            let _ = realm_scope.throw_type_error("iterator must return an object");
                             break ExecAction::Exception;
                         }
                     }
@@ -2587,14 +2589,14 @@ impl Bytecode {
                         if let Some(i) = SP_REF!(-1).as_int() {
                             let pos = i;
                             if unlikely(pos >= bytecodes.len() as i32) {
-                                realm_scope.throw_internal_error("invalid ret value");
+                                let _ = realm_scope.throw_internal_error("invalid ret value");
                                 break ExecAction::Exception;
                             } else {
                                 SP_GO!(-1);
                                 pc = unsafe { pc_base.offset(pos as isize) };
                             }
                         } else {
-                            realm_scope.throw_internal_error("invalid ret value");
+                            let _ = realm_scope.throw_internal_error("invalid ret value");
                             break ExecAction::Exception;
                         }
                     }
@@ -2704,7 +2706,7 @@ impl Bytecode {
                         // [obj, prop, ^] -> [obj, value, ^]
                         if unlikely(SP_REF!(-2).is_undefined()) {
                             if let Ok(atom) = SP_REF!(-1).to_atom(realm_scope) {
-                                JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                                let _ = JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
                             }
                             break ExecAction::Exception;
                         }
@@ -2717,7 +2719,7 @@ impl Bytecode {
                         if let Ok(false) = obj_has_prop {
                             if rt.is_strict_mode() {
                                 if let Ok(atom) = SP_REF!(-1).to_atom(realm_scope) {
-                                    JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                                    let _ = JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
                                 }
                                 break ExecAction::Exception;
                             }
@@ -2760,7 +2762,7 @@ impl Bytecode {
                         if unlikely(obj.is_undefined()) {
                             if rt.is_strict_mode() {
                                 if let Ok(atom) = prop.to_atom(realm_scope) {
-                                    JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                                    let _ = JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
                                 }
                                 break ExecAction::Exception;
                             }
@@ -2772,7 +2774,7 @@ impl Bytecode {
                         if let Ok(atom) = prop.to_atom(realm_scope) {
                             match obj.has_property(realm_scope, atom) {
                                 Ok(false) | Err(_) if rt.is_strict_mode() => {
-                                    JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                                    let _ = JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
                                     break ExecAction::Exception;
                                 }
                                 _ => {}
@@ -2791,7 +2793,7 @@ impl Bytecode {
                         let val = SP_VAL!(-1);
                         SP_GO!(-4);
                         if unlikely(!obj.is_object()) {
-                            realm_scope.throw_type_error_not_an_object();
+                            let _ = realm_scope.throw_type_error_not_an_object();
                             break ExecAction::Exception;
                         }
                         if let Ok(atom) = prop.to_atom(realm_scope) {
@@ -3098,7 +3100,10 @@ impl Bytecode {
                                         // SetMutableBinding step 2: HasProperty (ECMA-262 9.1.1.2.5)
                                         match env_obj.has_property(realm_scope, atom) {
                                             Ok(false) | Err(_) if rt.is_strict_mode() => {
-                                                JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                                                let _ = JS_ThrowReferenceErrorNotDefined(
+                                                    realm_scope,
+                                                    atom,
+                                                );
                                                 break ExecAction::Exception;
                                             }
                                             _ => {}
@@ -3239,7 +3244,7 @@ impl Bytecode {
 
                     _ => {
                         let err_pc = unsafe { pc.offset_from(pc_base) - 1 } as usize;
-                        realm_scope.throw_internal_error(&format!(
+                        let _ = realm_scope.throw_internal_error(&format!(
                             "invalid opcode: 0x{:02x}, pc={err_pc}",
                             opcode as u8,
                         ));

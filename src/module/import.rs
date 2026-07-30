@@ -54,7 +54,8 @@ fn extract_import_attrs(ctx: &mut ScopedContext, options: JSValue) -> JSResult {
         }
     };
 
-    let mut obj = Object::try_from(attrs).map_err(|_| ctx.throw_type_error("import() options.with must be an object"))?;
+    let mut obj = Object::try_from(attrs)
+        .map_err(|_| ctx.throw_type_error("import() options.with must be an object"))?;
 
     let keys = obj.get_own_property_names(ctx, JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK)?;
 

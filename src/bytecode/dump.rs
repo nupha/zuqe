@@ -346,10 +346,7 @@ pub(crate) fn dump_opcodes(
 
             OpcodeFormat::CONST => {
                 let idx = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) as usize };
-                print!(
-                    " {idx}  ; {}",
-                    dump_val(ctx, consts[idx])
-                );
+                print!(" {idx}  ; {}", dump_val(ctx, consts[idx]));
             }
             OpcodeFormat::ATOM => {
                 let a = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) };
@@ -796,10 +793,7 @@ pub(super) fn dump_run_instruction(
             let idx = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
             print!(
                 " {idx}  ; {}",
-                dump_val(
-                    ctx,
-                    b.load_const(idx as usize).unwrap(),
-                )
+                dump_val(ctx, b.load_const(idx as usize).unwrap(),)
             );
         }
         OpcodeFormat::ATOM => {

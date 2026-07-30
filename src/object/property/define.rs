@@ -188,7 +188,8 @@ impl ObjectImpl {
                                 IntOrFloat::Int64(i) => {
                                     if i < 0 {
                                         return if ctx.rt().can_throw(flags) {
-                                            Err(ctx.throw_type_error("negative index in typed array"))
+                                            Err(ctx
+                                                .throw_type_error("negative index in typed array"))
                                         } else {
                                             Ok(false)
                                         };
@@ -205,7 +206,8 @@ impl ObjectImpl {
                                 }
                                 IntOrFloat::Float64(_) => {
                                     return if ctx.rt().can_throw(flags) {
-                                        Err(ctx.throw_type_error("non integer index in typed array"))
+                                        Err(ctx
+                                            .throw_type_error("non integer index in typed array"))
                                     } else {
                                         Ok(false)
                                     };

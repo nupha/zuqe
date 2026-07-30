@@ -595,7 +595,8 @@ fn js_proxy_get_own_property_names(
 
     let mut tab = Vec::<PropertyKey>::new();
     if len > 0 {
-        tab.try_reserve_exact(len).map_err(|_| ctx.throw_out_of_memory())?;
+        tab.try_reserve_exact(len)
+            .map_err(|_| ctx.throw_out_of_memory())?;
     }
 
     for i in 0..len {
@@ -627,7 +628,9 @@ fn js_proxy_get_own_property_names(
                         p.is_enumerable = true;
                     }
                 } else {
-                    return Err(ctx.throw_type_error("proxy: target property must be present in proxy ownKeys"));
+                    return Err(ctx.throw_type_error(
+                        "proxy: target property must be present in proxy ownKeys",
+                    ));
                 }
             }
         }

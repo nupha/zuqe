@@ -95,7 +95,8 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     // Slow path: non-ASCII content → char-level iteration
-    let mut buf = StringBuf::with_capacity(content.len(), false).map_err(|_| ctx.throw_out_of_memory())?;
+    let mut buf =
+        StringBuf::with_capacity(content.len(), false).map_err(|_| ctx.throw_out_of_memory())?;
 
     let mut char_it = content.chars();
     while let Some((_, ch)) = char_it.next() {
@@ -123,7 +124,8 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                         buf.push_u8_slice([b'%', hh[0], hh[1]].as_slice())
                             .map_err(|_| ctx.throw_out_of_memory())?;
                     } else {
-                        buf.push_u8(d as u8).map_err(|_| ctx.throw_out_of_memory())?;
+                        buf.push_u8(d as u8)
+                            .map_err(|_| ctx.throw_out_of_memory())?;
                     }
                 } else {
                     // decode utf8 sequence with following bytes
@@ -182,7 +184,8 @@ fn js_global_decodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 /// Fast path: decodeURI on ASCII-only input using byte scanning.
 fn decode_uri_ascii(ctx: &mut ScopedContext, bytes: &[u8], is_component: bool) -> JSResult {
-    let mut buf = StringBuf::with_capacity(bytes.len(), false).map_err(|_| ctx.throw_out_of_memory())?;
+    let mut buf =
+        StringBuf::with_capacity(bytes.len(), false).map_err(|_| ctx.throw_out_of_memory())?;
 
     let mut i = 0;
     while i < bytes.len() {
@@ -190,14 +193,17 @@ fn decode_uri_ascii(ctx: &mut ScopedContext, bytes: &[u8], is_component: bool) -
             if i + 2 >= bytes.len() {
                 return Err(ctx.throw_uri_error("expecting hex digit"));
             }
-            let hi = hex_byte_val(bytes[i + 1]).map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
-            let lo = hex_byte_val(bytes[i + 2]).map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
+            let hi = hex_byte_val(bytes[i + 1])
+                .map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
+            let lo = hex_byte_val(bytes[i + 2])
+                .map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
             let d = (hi << 4) | lo;
             i += 3;
 
             if d < 0x80 {
                 if !is_component && is_uri_reserved(d as _) {
-                    buf.push_u8_slice(&bytes[i - 3..i]).map_err(|_| ctx.throw_out_of_memory())?;
+                    buf.push_u8_slice(&bytes[i - 3..i])
+                        .map_err(|_| ctx.throw_out_of_memory())?;
                 } else {
                     buf.push_u8(d).map_err(|_| ctx.throw_out_of_memory())?;
                 }
@@ -216,8 +222,10 @@ fn decode_uri_ascii(ctx: &mut ScopedContext, bytes: &[u8], is_component: bool) -
                     if i + 2 >= bytes.len() || bytes[i] != b'%' {
                         return Err(ctx.throw_uri_error("malformed UTF-8"));
                     }
-                    let hi = hex_byte_val(bytes[i + 1]).map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
-                    let lo = hex_byte_val(bytes[i + 2]).map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
+                    let hi = hex_byte_val(bytes[i + 1])
+                        .map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
+                    let lo = hex_byte_val(bytes[i + 2])
+                        .map_err(|_| ctx.throw_uri_error("expecting hex digit"))?;
                     let cb = (hi << 4) | lo;
                     i += 3;
 
@@ -233,7 +241,8 @@ fn decode_uri_ascii(ctx: &mut ScopedContext, bytes: &[u8], is_component: bool) -
                 buf.push_u32(uc).map_err(|_| ctx.throw_out_of_memory())?;
             }
         } else {
-            buf.push_u8(bytes[i]).map_err(|_| ctx.throw_out_of_memory())?;
+            buf.push_u8(bytes[i])
+                .map_err(|_| ctx.throw_out_of_memory())?;
             i += 1;
         }
     }
@@ -275,7 +284,8 @@ fn js_global_encodeURI(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let bytes = bytes.as_ref();
 
     // Worst case: every byte expands to 3 percent-encoded bytes (%XX)
-    let mut buf = StringBuf::with_capacity(bytes.len() * 3, false).map_err(|_| ctx.throw_out_of_memory())?;
+    let mut buf =
+        StringBuf::with_capacity(bytes.len() * 3, false).map_err(|_| ctx.throw_out_of_memory())?;
 
     for &b in bytes {
         if is_uri_unescaped(b as u32) || (!is_component && is_uri_reserved(b as u32)) {
@@ -301,7 +311,8 @@ fn js_global_escape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let str = cc.arg(0).to_string(ctx)?;
     let len = str.len();
 
-    let mut buf = StringBuf::with_capacity(len * 3, false).map_err(|_| ctx.throw_out_of_memory())?;
+    let mut buf =
+        StringBuf::with_capacity(len * 3, false).map_err(|_| ctx.throw_out_of_memory())?;
 
     for (_, ch) in str.content().chars() {
         let cp = match ch {
@@ -323,7 +334,8 @@ fn js_global_escape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 | b'/'
         ) && cp < 128
         {
-            buf.push_u8(cp as u8).map_err(|_| ctx.throw_out_of_memory())?;
+            buf.push_u8(cp as u8)
+                .map_err(|_| ctx.throw_out_of_memory())?;
         } else if cp < 256 {
             buf.push_u8_slice(&[
                 b'%',
@@ -385,7 +397,8 @@ fn js_global_unescape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     ];
                     if let [Some(h0), Some(h1), Some(h2), Some(h3)] = h {
                         let cp = (h0 << 12) | (h1 << 8) | (h2 << 4) | h3;
-                        buf.push_u16(cp as u16).map_err(|_| ctx.throw_out_of_memory())?;
+                        buf.push_u16(cp as u16)
+                            .map_err(|_| ctx.throw_out_of_memory())?;
                         continue;
                     }
                 } else {
@@ -395,7 +408,8 @@ fn js_global_unescape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                         let h1 = it.next().and_then(|(_, c)| c.char()).and_then(hex_val);
                         if let Some(h1) = h1 {
                             let cp = (h0 << 4) | h1;
-                            buf.push_u16(cp as u16).map_err(|_| ctx.throw_out_of_memory())?;
+                            buf.push_u16(cp as u16)
+                                .map_err(|_| ctx.throw_out_of_memory())?;
                             continue;
                         }
                     }
@@ -409,7 +423,8 @@ fn js_global_unescape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 buf.push_char(c).map_err(|_| ctx.throw_out_of_memory())?;
             }
             CharCode::Code(v) => {
-                buf.push_u16(v as u16).map_err(|_| ctx.throw_out_of_memory())?;
+                buf.push_u16(v as u16)
+                    .map_err(|_| ctx.throw_out_of_memory())?;
             }
         }
     }

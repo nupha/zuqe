@@ -40,7 +40,9 @@ impl FunctionDef {
 
         // new buf to generate bytecode
         let mut bc_out = Vec::<u8>::new();
-        bc_out.try_reserve_exact(bc_len).map_err(|_| ctx.throw_out_of_memory())?;
+        bc_out
+            .try_reserve_exact(bc_len)
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         #[cfg(feature = "short_opcode")]
         if self.jump_slots_cap != 0 {

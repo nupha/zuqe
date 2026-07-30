@@ -268,7 +268,8 @@ impl ObjectImpl {
         let pkeys = self.get_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
 
         let mut ret = Vec::<(JSValue, JSValue)>::new();
-        ret.try_reserve_exact(pkeys.len()).map_err(|_| ctx.throw_out_of_memory())?;
+        ret.try_reserve_exact(pkeys.len())
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         for pk in pkeys.iter() {
             if flags & JS_GPN_ENUM_ONLY != 0 {

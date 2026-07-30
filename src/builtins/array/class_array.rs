@@ -136,7 +136,8 @@ fn try_collect_values(
     ctx: &mut ScopedContext,
     iter: impl Iterator<Item = JSValue>,
 ) -> Result<Vec<JSValue>, i32> {
-    iter.try_collect::<Vec<_>>().map_err(|_| ctx.throw_out_of_memory())
+    iter.try_collect::<Vec<_>>()
+        .map_err(|_| ctx.throw_out_of_memory())
 }
 
 /// Create an Array instance honoring `new_target`'s prototype, seeded with
@@ -465,7 +466,9 @@ pub(crate) fn js_array_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let len: i64;
 
     if special & special_TA != 0 {
-        this_obj = this.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
+        this_obj = this
+            .as_object()
+            .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
         len = js_typed_array_get_length_internal(ctx, this)? as i64;
     } else {
         this_obj = this.objectify(ctx)?;
@@ -811,7 +814,8 @@ pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
             } else {
                 el.to_string(ctx)?
             };
-            sbuf.push_content(ss.content()).map_err(|_| ctx.throw_out_of_memory())?
+            sbuf.push_content(ss.content())
+                .map_err(|_| ctx.throw_out_of_memory())?
         }
     }
 

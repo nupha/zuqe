@@ -18,8 +18,7 @@ fn js_regexp_string_iterator_next(
     state: &mut IteratorState,
 ) -> JSResult {
     let this = cc.this();
-    let it: &RegExpStringIterPayload =
-        this.class_payload(ctx, JS_CLASS_REGEXP_STRING_ITERATOR)?;
+    let it: &RegExpStringIterPayload = this.class_payload(ctx, JS_CLASS_REGEXP_STRING_ITERATOR)?;
 
     if it.done() {
         *state = IteratorState::Done;

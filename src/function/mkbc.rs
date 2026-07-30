@@ -192,7 +192,8 @@ impl FunctionDef {
 
         // alloc binary buffer
         let mut bin = Vec::<u8>::new();
-        bin.try_reserve_exact(bin_size).map_err(|_| ctx.throw_out_of_memory())?;
+        bin.try_reserve_exact(bin_size)
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         unsafe {
             // initialize buf with zero: don't change order.
@@ -354,7 +355,10 @@ impl FunctionDef {
         // Inject GC scope classification result computed before bytecode.
         bc_impl.attrs.gc_scope_kind = gc_scope_kind;
 
-        let bc = ctx.alloc_local(bc_impl).map(Bytecode::from).map_err(|_| ctx.throw_out_of_memory())?;
+        let bc = ctx
+            .alloc_local(bc_impl)
+            .map(Bytecode::from)
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         #[cfg(feature = "dump_bytecode")]
         if !self.attrs.exec_mode.contains(ExecMode::STRIP) {

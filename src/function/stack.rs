@@ -31,7 +31,9 @@ fn ss_check(
     catch_pos: i32,
 ) -> Result<(), i32> {
     if pos >= s.bc_len {
-        return Err(ctx.throw_internal_error(&format!("bytecode buffer overflow 1 (op={op}, pc={pos})")));
+        return Err(
+            ctx.throw_internal_error(&format!("bytecode buffer overflow 1 (op={op}, pc={pos})"))
+        );
     }
 
     if stack_len > s.stack_len_max {
@@ -101,7 +103,9 @@ impl FunctionDef {
             let op = self.byte_code[pos];
 
             if op == 0 || op >= OP_COUNT_FINAL {
-                return Err(ctx.throw_internal_error(&format!("invalid opcode (op={op}, pc={pos})")));
+                return Err(
+                    ctx.throw_internal_error(&format!("invalid opcode (op={op}, pc={pos})"))
+                );
             }
 
             let oi = opcode_info_final(op);
@@ -139,7 +143,9 @@ impl FunctionDef {
             if stack_len > s.stack_len_max {
                 s.stack_len_max = stack_len;
                 if s.stack_len_max > STACK_LEN_MAX {
-                    return Err(ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})")));
+                    return Err(
+                        ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})"))
+                    );
                 }
             }
 
@@ -211,8 +217,7 @@ impl FunctionDef {
                         catch_pos,
                     )?;
                 }
-                opcodes::OP_with_make_ref
-                | opcodes::OP_with_get_ref => {
+                opcodes::OP_with_make_ref | opcodes::OP_with_get_ref => {
                     let diff = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 5)) };
                     ss_check(
                         ctx,
@@ -248,7 +253,7 @@ impl FunctionDef {
                 }
                 opcodes::OP_for_of_start | opcodes::OP_for_await_of_start => {
                     catch_pos = pos as _;
-                     // we assume the catch offset entry is only removed with some op codes 
+                    // we assume the catch offset entry is only removed with some op codes
                 }
                 opcodes::OP_drop
                 | opcodes::OP_nip
@@ -281,7 +286,9 @@ impl FunctionDef {
                 }
                 opcodes::OP_nip_catch => {
                     if catch_pos < 0 {
-                        return Err(ctx.throw_internal_error(&format!("nip_catch: no catch op (pc={pos})")));
+                        return Err(
+                            ctx.throw_internal_error(&format!("nip_catch: no catch op (pc={pos})"))
+                        );
                     }
                     stack_len = s.stack_level_tab[catch_pos as usize];
                     if self.byte_code[catch_pos as usize] != opcodes::OP_catch {

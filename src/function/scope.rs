@@ -31,7 +31,11 @@ impl FunctionDef {
     ///
     ///  * The new scope id.
     /// * Err(-1) when alloc fail, in this case, current_exception has the exception.
-    pub(crate) fn push_scope(&mut self, last_line_num: i32, last_line_pos: u32) -> Result<u16, i32> {
+    pub(crate) fn push_scope(
+        &mut self,
+        last_line_num: i32,
+        last_line_pos: u32,
+    ) -> Result<u16, i32> {
         let scope_id = self.scopes.len(); // new scope id
 
         if self.scopes.len() == self.scopes.capacity() {
@@ -77,7 +81,13 @@ impl FunctionDef {
     /// # Arguments
     /// * `scope_from` - Starting scope ID to close from
     /// * `scope_stop` - Stop closing scopes at this ID
-    pub(crate) fn close_scopes(&mut self, scope_from: u16, scope_stop: u16, last_line_num: i32, last_line_pos: u32) {
+    pub(crate) fn close_scopes(
+        &mut self,
+        scope_from: u16,
+        scope_stop: u16,
+        last_line_num: i32,
+        last_line_pos: u32,
+    ) {
         let mut scope = scope_from as i32;
 
         while scope > scope_stop as i32 {

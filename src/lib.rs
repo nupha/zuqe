@@ -32,9 +32,7 @@ pub use {
     atom::Atom,
     class::{ClassCtorDef, ClassDef, ClassID, NativeObject},
     context::{Context, ContextImpl, ScopeResult, ScopedContext},
-    error::{
-        ErrCode, ErrorKind, Exception, ExceptionText, ExitStatus, JS_SetUncatchableError, JSResult,
-    },
+    error::{ErrCode, ErrorKind, Exception, ExceptionText, ExitStatus, JSResult},
     eval::{EvalFlags, EvalType},
     function::{BoundFunction, Bytecode, CallContext, Callback, FieldDef},
     microtask::*,

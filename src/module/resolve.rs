@@ -31,7 +31,9 @@ impl ModuleDef {
 
         // add resolving
         if resolving.len() == resolving.capacity() {
-            resolving.try_reserve(4).map_err(|_| ctx.throw_out_of_memory())?;
+            resolving
+                .try_reserve(4)
+                .map_err(|_| ctx.throw_out_of_memory())?;
         }
         resolving.push((*self, export_name));
 

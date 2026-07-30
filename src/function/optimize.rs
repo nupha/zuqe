@@ -499,14 +499,14 @@ impl FunctionDef {
         let mut label = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
         (label, _, _) = self.find_jump_target(label);
 
-         // transform if_false/if_true(l1) label(l1) -> drop label(l1) 
+        // transform if_false/if_true(l1) label(l1) -> drop label(l1)
         if self.code_has_label(*pos_next, label) {
             self.update_label_ref_count(label, -1);
             push_vec_u8(bc_out, OpCode::DROP as u8);
             return None;
         }
 
-         // transform if_false(l1) goto(l2) label(l1) -> if_false(l2) label(l1) 
+        // transform if_false(l1) goto(l2) label(l1) -> if_false(l2) label(l1)
         if let Some(cc) = self.code_match(*pos_next, &[OpCode::GOTO as i32]) {
             let pos1 = cc.pos;
             let line1 = cc.line_num;
@@ -632,12 +632,12 @@ pub(super) fn optimize_scope_make_ref(
     const put_ref_size: usize = opcode_info_final(opcodes::OP_put_ref_value).size as usize; // 1B
     const get_ref_size: usize = opcode_info_final(opcodes::OP_get_ref_value).size as usize; // 1B
 
-     // XXX: should optimize `loc(a) += expr` as `expr add_loc(a)`
-      // but only if expr does not modify `a`.
-      // should scan the code between pos_next and label_pos
-      // for operations that can potentially change `a`:
-      // OP_scope_make_ref(a), function calls, jumps and gosub.
-     // replace the reference get/put with normal variable accesses 
+    // XXX: should optimize `loc(a) += expr` as `expr add_loc(a)`
+    // but only if expr does not modify `a`.
+    // should scan the code between pos_next and label_pos
+    // for operations that can potentially change `a`:
+    // OP_scope_make_ref(a), function calls, jumps and gosub.
+    // replace the reference get/put with normal variable accesses
     if unsafe { *bc_orig.add(pos_next) } == opcodes::OP_get_ref_value {
         push_vec_u8(bc, get_op as u8);
         push_vec_u16(bc, var_idx as u16);
@@ -651,11 +651,11 @@ pub(super) fn optimize_scope_make_ref(
     let mut pos = label_pos - label_op_size;
     debug_assert_eq!(unsafe { *bc_orig.add(pos) }, opcodes::op_label);
 
-     // label points to an instruction pair:
-      // - insert3 + put_ref_value => dup + put_var_ref
-      // - perm4 / put_ref_value
-      // - rot3l / put_ref_value
-      // - nop / put_ref_value
+    // label points to an instruction pair:
+    // - insert3 + put_ref_value => dup + put_var_ref
+    // - perm4 / put_ref_value
+    // - rot3l / put_ref_value
+    // - nop / put_ref_value
     let end_pos = label_pos + stack_op_size + put_ref_size;
 
     let op_size: usize;

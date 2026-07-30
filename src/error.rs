@@ -54,6 +54,14 @@ impl Exception {
         }
     }
 
+    pub fn set_uncatchable(error: JSValue, is_uncatchable: bool) {
+        if let Some(mut o) = error.as_object()
+            && o.class_id() == JS_CLASS_ERROR
+        {
+            o.set_flag_uncatchable_error(is_uncatchable);
+        }
+    }
+
     pub fn to_text(self, ctx: &mut ScopedContext) -> ExceptionText {
         match self {
             Self::No => ExceptionText {
@@ -392,6 +400,25 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
+    #[must_use]
+    #[cold]
+    pub(crate) fn throw_reference_error_uninitialized2(
+        &mut self,
+        b: &Bytecode,
+        idx: u16,
+        is_ref: bool,
+    ) -> ErrCode {
+        let atom = if is_ref {
+            b.get_closure_var(idx).map(|c| c.var_name)
+        } else {
+            // not present if the function is stripped and contains no eval()
+            b.get_var(idx).map(|vd| vd.var_name)
+        }
+        .unwrap_or(Atom::NULL);
+
+        JS_ThrowReferenceErrorUninitialized(self, atom)
+    }
+
     #[inline(never)]
     #[cold]
     fn do_build_backtrace(
@@ -544,24 +571,6 @@ pub fn JS_ThrowReferenceErrorNotDefined(ctx: &mut ScopedContext, name: Atom) -> 
 }
 
 #[must_use]
-pub fn JS_ThrowReferenceErrorUninitialized2(
-    ctx: &mut ScopedContext,
-    b: &Bytecode,
-    idx: u16,
-    is_ref: bool,
-) -> ErrCode {
-    let atom = if is_ref {
-        b.get_closure_var(idx).map(|c| c.var_name)
-    } else {
-        // not present if the function is stripped and contains no eval()
-        b.get_var(idx).map(|vd| vd.var_name)
-    }
-    .unwrap_or(Atom::NULL);
-
-    JS_ThrowReferenceErrorUninitialized(ctx, atom)
-}
-
-#[must_use]
 pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &mut ScopedContext) -> ErrCode {
     ctx.throw_type_error("ArrayBuffer is detached")
 }
@@ -577,12 +586,4 @@ pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &mut ScopedContext, atom: Atom) -> 
 #[must_use]
 pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &mut ScopedContext, prop: Atom) -> ErrCode {
     ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())))
-}
-
-pub fn JS_SetUncatchableError(error_val: JSValue, is_uncatchable: bool) {
-    if let Some(mut o) = error_val.as_object()
-        && o.class_id() == JS_CLASS_ERROR
-    {
-        o.set_flag_uncatchable_error(is_uncatchable);
-    }
 }

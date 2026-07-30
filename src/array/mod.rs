@@ -402,7 +402,9 @@ impl Array {
                 rebuild(&mut arr_data.values, slots.into_iter(), length);
             } else {
                 let mut slots = Vec::<(JSValue, StringData)>::new();
-                slots.try_reserve_exact(length).map_err(|_| ctx.throw_out_of_memory())?;
+                slots
+                    .try_reserve_exact(length)
+                    .map_err(|_| ctx.throw_out_of_memory())?;
 
                 for v in arr_data.values().iter().filter(|v| !v.is_undefined()) {
                     slots.push((*v, v.to_string(ctx)?.content().clone()));
@@ -463,7 +465,9 @@ impl Array {
             }
         } else {
             let mut slots = Vec::<(JSValue, StringData)>::with_capacity(16);
-            slots.try_reserve_exact(arr_len as usize).map_err(|_| ctx.throw_out_of_memory())?;
+            slots
+                .try_reserve_exact(arr_len as usize)
+                .map_err(|_| ctx.throw_out_of_memory())?;
 
             for i in 0..arr_len {
                 if let Some(v) = obj.try_get_property_i64(ctx, i)? {

@@ -6,9 +6,9 @@
 mod class_emitter;
 mod class_file;
 mod global;
+mod inspect;
 mod mod_os;
 mod mod_std;
-mod inspect;
 
 use std::{io::Write, process::ExitCode};
 
@@ -443,9 +443,11 @@ fn js_module_loader(
         .is_some_and(|e| matches!(e, "dylib" | "so" | "dll"));
 
     if is_native_lib {
-        let lib = unsafe { Library::new(&path) }.map_err(|_| ctx.throw_reference_error(&format!(
+        let lib = unsafe { Library::new(&path) }.map_err(|_| {
+            ctx.throw_reference_error(&format!(
                 "could not load module filename '{file_name}' as shared library"
-            )))?;
+            ))
+        })?;
 
         unsafe {
             let init_fn = match lib.get::<JsInitModuleFn>(b"js_init_module\0") {
@@ -492,9 +494,9 @@ fn js_module_loader(
                     src.push_str("\";\n");
                     ctx.compile_module(src.as_bytes(), file_name.as_str(), false)
                 }
-                Some(other) => {
-                    Err(ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other)))
-                }
+                Some(other) => Err(
+                    ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other))
+                ),
                 None => ctx.compile_module(content.as_bytes(), file_name.as_str(), false),
             },
             Err(_) => {

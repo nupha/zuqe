@@ -449,7 +449,10 @@ fn js_os_read_write(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let pos = cc.arg(2).to_index(ctx)? as u64;
     let len = cc.arg(3).to_index(ctx)? as u64;
 
-    let mut ab = cc.arg(1).as_object_ArrayBuffer().ok_or_else(|| ctx.throw_type_error("expect ArrayBuffer or SharedArrayBuffer instance"))?;
+    let mut ab = cc
+        .arg(1)
+        .as_object_ArrayBuffer()
+        .ok_or_else(|| ctx.throw_type_error("expect ArrayBuffer or SharedArrayBuffer instance"))?;
     let buf = ab.payload_mut();
     let size = buf.byte_length();
 

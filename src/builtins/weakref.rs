@@ -206,7 +206,9 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let token_val = cc.arg(2);
 
     let Some(mut target_obj) = target_val.as_object() else {
-        return Err(ctx.throw_type_error("FinalizationRegistry.prototype.register: target must be an object"));
+        return Err(ctx.throw_type_error(
+            "FinalizationRegistry.prototype.register: target must be an object",
+        ));
     };
 
     // held_value cannot be the same object as target (SameValue check)

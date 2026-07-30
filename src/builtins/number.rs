@@ -44,7 +44,8 @@ fn js_thisNumberValue(ctx: &mut ScopedContext, this_val: JSValue) -> JSResult {
             .as_object()
             .and_then(|p| p.payload().value().cloned());
 
-        val.filter(|v| v.is_number()).ok_or_else(|| ctx.throw_type_error("not a number"))
+        val.filter(|v| v.is_number())
+            .ok_or_else(|| ctx.throw_type_error("not a number"))
     }
 }
 
