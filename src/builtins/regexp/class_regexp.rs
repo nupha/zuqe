@@ -8,6 +8,7 @@ use crate::{
     JS_CLASS_REGEXP,
     array::Array,
     atom::Atom,
+    builtins::common::SPECIES_FIELD,
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, Callback, FieldDef, js_function_apply},
@@ -20,6 +21,12 @@ use crate::{
 };
 
 use super::{RegExpData, RegExpStringIterPayload, make_regexp_capture_array};
+
+/// `ToLength(Get(obj, "lastIndex"))`: the shared prologue of the RegExp
+/// methods that resume matching from the current position.
+pub(crate) fn get_last_index(ctx: &mut ScopedContext, obj: JSValue) -> Result<i64, i32> {
+    obj.get_property(ctx, Atom::CONST_lastIndex)?.to_length(ctx)
+}
 
 pub fn js_regexp_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let pat = cc.arg(0);
@@ -346,9 +353,7 @@ pub fn js_regexp_Symbol_match(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
 
             if match_str.is_empty() {
                 // advance to next char
-                let last_index = this
-                    .get_property(ctx, Atom::CONST_lastIndex)
-                    .and_then(|v| v.to_length(ctx))?;
+                let last_index = get_last_index(ctx, this)?;
 
                 this.set_property(
                     ctx,
@@ -381,9 +386,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
     let ctor = JS_SpeciesConstructor(ctx, this, ctx.regexp_ctor().into())?;
     let regexp = ctor.call_ctor(ctx, &[this, JSValue::make_string(flags)])?;
 
-    let last_index = this
-        .get_property(ctx, Atom::CONST_lastIndex)?
-        .to_length(ctx)?;
+    let last_index = get_last_index(ctx, this)?;
 
     regexp.set_property(ctx, Atom::CONST_lastIndex, last_index.into())?;
 
@@ -469,9 +472,7 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
             .is_empty()
         {
             // empty match: advance to next char
-            let last_index = this_obj
-                .get_property(ctx, Atom::CONST_lastIndex)?
-                .to_length(ctx)?;
+            let last_index = get_last_index(ctx, this_obj.into())?;
 
             let next_index = str
                 .index_of_next_i64(last_index, is_unicode)
@@ -694,9 +695,7 @@ pub fn js_regexp_Symbol_split(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         splitter.set_property(ctx, Atom::CONST_lastIndex, JSValue::from(last_index as i32))?;
 
         if let Some(m) = regexp_exec(ctx, splitter.into(), str.into())? {
-            let mut next_index = splitter
-                .get_property(ctx, Atom::CONST_lastIndex)?
-                .to_length(ctx)? as usize;
+            let mut next_index = get_last_index(ctx, splitter.into())? as usize;
 
             if next_index > len {
                 next_index = len;
@@ -721,7 +720,7 @@ pub fn js_regexp_Symbol_split(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
                 }
 
                 // append captures 1.. to array
-                let ncaps = m.get_property(ctx, Atom::CONST_length)?.to_length(ctx)? as usize;
+                let ncaps = m.get_length_prop(ctx)? as usize;
                 for c in 1..ncaps {
                     let sub = m.get_property_u32(ctx, c as u32)?;
                     arr.define_property_value_u32(ctx, idx as _, sub, prop_flags)?;
@@ -813,12 +812,7 @@ pub const js_regexp_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("[Symbol.split]", 2, js_regexp_Symbol_split, 0),
 ];
 
-pub const js_regexp_funcs: &[FieldDef] = &[FieldDef::GETSET(
-    "[Symbol.species]",
-    Some(crate::builtins::js_get_this),
-    None,
-    0,
-)];
+pub const js_regexp_funcs: &[FieldDef] = &[SPECIES_FIELD];
 
 fn regexp_exec_default(
     ctx: &mut ScopedContext,
@@ -830,9 +824,7 @@ fn regexp_exec_default(
     // `RegExp.prototype.compile`, freeing the previously compiled bytecode. We must
     // therefore fetch the compiled regexp *after* this call, not before, otherwise
     // `re` would be a dangling reference (use-after-free -> SIGSEGV).
-    let mut from = this
-        .get_property(ctx, Atom::CONST_lastIndex)?
-        .to_length(ctx)? as usize;
+    let mut from = get_last_index(ctx, this)? as usize;
 
     let re: &RegExpData = this.class_payload(ctx, JS_CLASS_REGEXP)?;
     let re_flags = re.flags();

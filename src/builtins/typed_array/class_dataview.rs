@@ -8,7 +8,7 @@ use crate::{
     JS_CLASS_UINT32_ARRAY, ScopedContext,
     builtins::typed_array::{f16_to_f64, f64_to_f16},
     class::ClassID,
-    error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
+    error::JSResult,
     function::{CallContext, FieldDef},
     number::Float64Union,
     object::JS_PROP_CONFIGURABLE,
@@ -28,9 +28,7 @@ pub(super) fn js_dataview_constructor(ctx: &mut ScopedContext, cc: CallContext) 
     // ES §25.3.2.1: ToIndex may run user code that detaches the buffer,
     // so the detach check comes right after the byteOffset conversion
     let offset = cc.arg(1).to_index(ctx)? as usize;
-    if buffer.is_detached() {
-        return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-    }
+    buffer.validate_attached(ctx)?;
 
     // the buffer length is captured *before* the byteLength argument is
     // converted; a detach during that conversion is only caught after
@@ -73,9 +71,7 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let ab = dataview.array_buffer();
     let abuf = ab.payload();
-    if abuf.is_detached() {
-        return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-    }
+    abuf.ensure_attached(ctx)?;
 
     let dv = dataview.payload();
     if pos + size > dv.byte_length() {
@@ -202,9 +198,8 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         false
     };
 
-    if dv.is_detached() {
-        return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-    } else if pos + size > dv.byte_length() {
+    dv.validate_attached(ctx)?;
+    if pos + size > dv.byte_length() {
         return Err(ctx.throw_range_error("out of bound"));
     }
 
@@ -260,11 +255,8 @@ fn js_dataview_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         match cc.magic() {
             TA_GET_BUFFER => Ok(dv.array_buffer().into()),
             TA_GET_BYTE_LENGTH => {
-                if !dv.is_detached() {
-                    Ok(JSValue::from(dv.byte_length() as i32))
-                } else {
-                    Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx))
-                }
+                dv.validate_attached(ctx)?;
+                Ok(JSValue::from(dv.byte_length() as i32))
             }
             TA_GET_BYTE_OFFSET => dv
                 .array_buffer_byte_offset(ctx)

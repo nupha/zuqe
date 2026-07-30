@@ -210,9 +210,7 @@ impl<'s> JSParseState<'s> {
     ) -> Result<(), i32> {
         loop {
             if self.token.kind == TokenKind::IDENT {
-                if self.token.data.is_reserved() {
-                    return Err(self.throw_reserved_identifier_error());
-                }
+                self.check_not_reserved()?;
 
                 let name = self.token.atom().unwrap();
                 if name == Atom::CONST_let && matches!(tok, TokenKind::LET | TokenKind::CONST) {
@@ -227,9 +225,11 @@ impl<'s> JSParseState<'s> {
 
                     if tok == TokenKind::VAR {
                         // Must make a reference for proper `with` semantics
-                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom(name);
-                        self.emit_u16(self.cur_func().scope_level as u16);
+                        self.emit_scope_var(
+                            OpCodeTemp::SCOPE_GET_VAR,
+                            name,
+                            self.cur_func().scope_level as u16,
+                        );
 
                         let mut opcode: i32 = 0;
                         let mut scope: i32 = 0;
@@ -258,22 +258,26 @@ impl<'s> JSParseState<'s> {
                     } else {
                         self.parse_assign_expr2(parse_flags)?;
                         self.set_object_name(name);
-                        self.emit_op_temp(if matches!(tok, TokenKind::CONST | TokenKind::LET) {
-                            OpCodeTemp::SCOPE_PUT_VAR_INIT
-                        } else {
-                            OpCodeTemp::SCOPE_PUT_VAR
-                        });
-                        self.emit_atom(name);
-                        self.emit_u16(self.cur_func().scope_level as u16);
+                        self.emit_scope_var(
+                            if matches!(tok, TokenKind::CONST | TokenKind::LET) {
+                                OpCodeTemp::SCOPE_PUT_VAR_INIT
+                            } else {
+                                OpCodeTemp::SCOPE_PUT_VAR
+                            },
+                            name,
+                            self.cur_func().scope_level as u16,
+                        );
                     }
                 } else if tok == TokenKind::CONST {
                     return Err(self.throw_syntax_error("missing initializer for const variable"));
                 } else if tok == TokenKind::LET {
                     // initialize lexical variable upon entering its scope
                     self.emit_op(OpCode::UNDEFINED);
-                    self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                    self.emit_atom(name);
-                    self.emit_u16(self.cur_func().scope_level as u16);
+                    self.emit_scope_var(
+                        OpCodeTemp::SCOPE_PUT_VAR_INIT,
+                        name,
+                        self.cur_func().scope_level as u16,
+                    );
                 }
             } else {
                 let mut skip_bits: i32 = 0;
@@ -336,6 +340,40 @@ impl<'s> JSParseState<'s> {
         } else {
             self.next_token()
         }
+    }
+
+    /// Check-only variant of [Self::parse_expect]: verify the current token
+    /// kind without consuming it, throwing a syntax error with `msg` on
+    /// mismatch. The token is left in place so the caller can still read its
+    /// data before advancing.
+    pub(super) fn parse_expect_msg(&mut self, tok: TokenKind, msg: &str) -> Result<(), i32> {
+        if self.token.kind != tok {
+            return Err(self.throw_syntax_error(msg));
+        }
+        Ok(())
+    }
+
+    /// Throw a syntax error if the current IDENT token is a reserved word.
+    /// The caller must have checked `token.kind == TokenKind::IDENT` already.
+    pub(super) fn check_not_reserved(&mut self) -> Result<(), i32> {
+        if self.token.data.is_reserved() {
+            return Err(self.throw_reserved_identifier_error());
+        }
+        Ok(())
+    }
+
+    /// Run `f` as a look-ahead scan: the tokenizer position is saved before
+    /// and restored afterwards, so the caller observes no token movement.
+    /// On error the position is intentionally NOT restored, matching the
+    /// historical hand-written save/seek pattern.
+    pub(super) fn with_lookahead<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, i32>,
+    ) -> Result<T, i32> {
+        let pos = self.get_pos();
+        let res = f(self)?;
+        self.seek_token(&pos)?;
+        Ok(res)
     }
 
     // XXX: improve speed with early bailout
@@ -485,6 +523,13 @@ impl<'s> JSParseState<'s> {
         self.seek_token(&pos)?;
         Ok(tok)
     }
+}
+
+/// True for `eval` / `arguments`, the binding names restricted in
+/// strict-mode code.
+#[inline]
+pub(super) fn is_eval_or_arguments(name: Atom) -> bool {
+    matches!(name, Atom::CONST_eval | Atom::CONST_arguments)
 }
 
 pub(super) fn skip_shebang(buf: &[u8]) -> usize {

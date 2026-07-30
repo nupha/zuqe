@@ -8,7 +8,7 @@ use gc_lite::{GcTrace, GcTraceCtx};
 use crate::{
     JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR, ScopedContext,
     builtins::typed_array::TypedArray,
-    error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
+    error::JSResult,
     function::{CallContext, IteratorState},
     object::ObjectPayload,
     value::JSValue,
@@ -117,9 +117,7 @@ pub(crate) fn js_array_iterator_next(
     // eval array length
     let len = if let Ok(tao) = TypedArray::try_from(obj) {
         // is typed array
-        if tao.is_detached() {
-            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-        }
+        tao.validate_attached(ctx)?;
         tao.length() as u32
     } else {
         // is Array or String

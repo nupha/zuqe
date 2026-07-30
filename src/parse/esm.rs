@@ -13,7 +13,10 @@ use crate::{
 };
 
 use super::{
-    function::JSParseFunctionEnum, parse::skip_shebang, state::JSParseState, tokenize::TokenKind,
+    function::JSParseFunctionEnum,
+    parse::{is_eval_or_arguments, skip_shebang},
+    state::JSParseState,
+    tokenize::TokenKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +27,22 @@ pub enum JSParseExportEnum {
 }
 
 impl<'s> JSParseState<'s> {
+    /// Parse a ModuleExportName at the current token: an identifier, a string
+    /// literal or any keyword (reserved words are accepted as export names).
+    /// The token is NOT consumed; callers advance after using the atom.
+    fn module_export_name(&mut self) -> Result<Atom, i32> {
+        match self.token.kind {
+            TokenKind::IDENT => Ok(self.token.atom().unwrap()),
+            TokenKind::STRING => {
+                let t = self.token.data.string().unwrap().to_utf8().to_string();
+                let s = StringRef::create_utf8(self.ctx(), t.into())?;
+                Atom::from_string(self.ctx(), s, AtomKind::String)
+            }
+            t if t.is_keyword() => Ok(t.keyword_atom().unwrap()),
+            _ => Err(self.throw_syntax_error("identifier or string expected")),
+        }
+    }
+
     /// return (module_name, attributes).
     /// returned atom is duplicated, caller should free it after use.
     fn parse_from_clause(&mut self) -> Result<(Atom, JSValue), i32> {
@@ -33,9 +52,7 @@ impl<'s> JSParseState<'s> {
 
         self.next_token()?;
 
-        if self.token.kind != TokenKind::STRING {
-            return Err(self.throw_syntax_error("string expected"));
-        }
+        self.parse_expect_msg(TokenKind::STRING, "string expected")?;
 
         let module_name = {
             let sbuf = self.token.data.take_string().unwrap();
@@ -84,14 +101,10 @@ impl<'s> JSParseState<'s> {
 
             self.next_token()?;
 
-            if self.token.kind != TokenKind::Char(':') {
-                return Err(self.throw_syntax_error("expected ':'"));
-            }
+            self.parse_expect_msg(TokenKind::Char(':'), "expected ':'")?;
             self.next_token()?;
 
-            if self.token.kind != TokenKind::STRING {
-                return Err(self.throw_syntax_error("string expected"));
-            }
+            self.parse_expect_msg(TokenKind::STRING, "string expected")?;
 
             // --- Parse value (extract token data before acquiring ctx) ---
             let sbuf = self.token.data.take_string().unwrap();
@@ -158,9 +171,7 @@ impl<'s> JSParseState<'s> {
         } else {
             let done = if self.token.kind == TokenKind::IDENT {
                 // import <default>
-                if self.token.data.is_reserved() {
-                    return Err(self.throw_reserved_identifier_error());
-                }
+                self.check_not_reserved()?;
 
                 let local_name = self.token.atom().unwrap();
                 self.next_token()?;
@@ -204,18 +215,7 @@ impl<'s> JSParseState<'s> {
                         self.next_token()?;
 
                         while self.token.kind != TokenKind::Char('}') {
-                            let import_name = match self.token.kind {
-                                TokenKind::IDENT => self.token.atom().unwrap(),
-                                TokenKind::STRING => {
-                                    let t = self.token.data.string().unwrap().to_utf8().to_string();
-                                    let s = StringRef::create_utf8(self.ctx(), t.into())?;
-                                    Atom::from_string(self.ctx(), s, AtomKind::String)?
-                                }
-                                t if t.is_keyword() => t.keyword_atom().unwrap(),
-                                _ => {
-                                    return Err(self.throw_syntax_error("identifier or string expected"));
-                                }
-                            };
+                            let import_name = self.module_export_name()?;
 
                             self.next_token()?;
 
@@ -307,18 +307,7 @@ impl<'s> JSParseState<'s> {
                 let first_export = md.export_entries.len();
 
                 while self.token.kind != TokenKind::Char('}') {
-                    let local_name = match self.token.kind {
-                        TokenKind::IDENT => self.token.atom().unwrap(),
-                        TokenKind::STRING => {
-                            let t = self.token.data.string().unwrap().to_utf8().to_string();
-                            let s = StringRef::create_utf8(self.ctx(), t.into())?;
-                            Atom::from_string(self.ctx(), s, AtomKind::String)?
-                        }
-                        t if t.is_keyword() => t.keyword_atom().unwrap(),
-                        _ => {
-                            return Err(self.throw_syntax_error("identifier or string expected"));
-                        }
-                    };
+                    let local_name = self.module_export_name()?;
 
                     self.next_token()?;
 
@@ -326,18 +315,7 @@ impl<'s> JSParseState<'s> {
                         // <local_name> as <export_name>
                         self.next_token()?;
 
-                        let n = match self.token.kind {
-                            TokenKind::IDENT => self.token.atom().unwrap(),
-                            TokenKind::STRING => {
-                                let t = self.token.data.string().unwrap().to_utf8().to_string();
-                                let s = StringRef::create_utf8(self.ctx(), t.into())?;
-                                Atom::from_string(self.ctx(), s, AtomKind::String)?
-                            }
-                            t if t.is_keyword() => t.keyword_atom().unwrap(),
-                            _ => {
-                                return Err(self.throw_syntax_error("identifier or string expected"));
-                            }
-                        };
+                        let n = self.module_export_name()?;
 
                         self.next_token()?;
                         n
@@ -405,21 +383,8 @@ impl<'s> JSParseState<'s> {
                     // export ns from
                     self.next_token()?;
 
-                    let export_name = match self.token.kind {
-                        TokenKind::IDENT => {
-                            // Accept ident, keywords and reserved words as property names
-                            self.token.atom().unwrap()
-                        }
-                        TokenKind::STRING => {
-                            let t = self.token.data.string().unwrap().to_utf8().to_string();
-                            let s = StringRef::create_utf8(self.ctx(), t.into())?;
-                            Atom::from_string(self.ctx(), s, AtomKind::String)?
-                        }
-                        t if t.is_keyword() => t.keyword_atom().unwrap(),
-                        _ => {
-                            return Err(self.throw_syntax_error("identifier or string expected"));
-                        }
-                    };
+                    // Accept ident, keywords and reserved words as property names
+                    let export_name = self.module_export_name()?;
 
                     self.next_token()?;
 
@@ -468,9 +433,7 @@ impl<'s> JSParseState<'s> {
                 // store the value in the _default_ global variable and export it
                 let loc = Atom::CONST__default_;
                 self.define_var_cur_func(loc, JSVarDefEnum::JS_VAR_DEF_LET)?;
-                self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                self.emit_atom(loc);
-                self.emit_u16(0);
+                self.emit_scope_var(OpCodeTemp::SCOPE_PUT_VAR_INIT, loc, 0);
 
                 self.add_module_export(
                     Some(md),
@@ -538,7 +501,7 @@ impl<'s> JSParseState<'s> {
         local_name: Atom,
         import_name: Atom,
     ) -> Result<(), i32> {
-        if matches!(local_name, Atom::CONST_arguments | Atom::CONST_eval) {
+        if is_eval_or_arguments(local_name) {
             return Err(self.throw_syntax_error("invalid import binding"));
         }
 

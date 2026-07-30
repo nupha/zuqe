@@ -14,7 +14,6 @@ use crate::{
     builtins::array_buffer::ArrayBuffer,
     class::ClassID,
     context::ScopedContext,
-    error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::{Callback, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
     object_cast,
@@ -102,6 +101,12 @@ impl TypedArrayPayload {
     #[inline]
     pub fn is_detached(&self) -> bool {
         self.array_buffer().payload().is_detached()
+    }
+
+    /// Throw a TypeError if the underlying buffer has been detached.
+    #[inline]
+    pub fn validate_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+        self.array_buffer().payload().ensure_attached(ctx)
     }
 
     #[inline(always)]
@@ -550,6 +555,12 @@ impl TypedArray {
         self.payload().is_detached()
     }
 
+    /// Throw a TypeError if the underlying buffer has been detached.
+    #[inline]
+    pub fn validate_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+        self.payload().validate_attached(ctx)
+    }
+
     /// Get elements count of typed array.
     /// If underlaying array buffer is detached, returns 0.
     #[inline]
@@ -684,18 +695,14 @@ impl TypedArray {
         new_target: JSValue,
         class_id: ClassID,
     ) -> Result<Self, i32> {
-        if self.is_detached() {
-            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-        }
+        self.validate_attached(ctx)?;
 
         let count = self.length();
         let size_log2 = Self::SIZE_LOG2(class_id as _);
         let new_buf = ArrayBuffer::create(ctx, false, count << size_log2)?;
 
         // Note: necessary to check detacth again, because it could have been detached by side effect.
-        if self.is_detached() {
-            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-        }
+        self.validate_attached(ctx)?;
 
         // create an empty typed array with count capacity.
         let mut new_ta = Self::create_from(ctx, new_target, new_buf.into(), 0, count, class_id)?;

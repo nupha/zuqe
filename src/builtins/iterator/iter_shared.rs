@@ -35,6 +35,23 @@ pub(crate) fn call_iterator_next(
     }
 }
 
+/// Advance a manually driven iterator: call `next` on `iterator` and unpack
+/// the IteratorResult, returning `Some(value)` or `None` when done. Unlike
+/// [call_iterator_next] the result is not required to be an object and errors
+/// from the `done` conversion are propagated as-is.
+pub(crate) fn iterator_step(
+    ctx: &mut ScopedContext,
+    iterator: JSValue,
+    next: Object,
+) -> Result<Option<JSValue>, i32> {
+    let item = next.call(ctx, iterator, &[])?;
+    let done = item.get_property(ctx, Atom::CONST_done)?;
+    if done.to_bool()? {
+        return Ok(None);
+    }
+    Ok(Some(item.get_property(ctx, Atom::CONST_value)?))
+}
+
 pub(crate) fn iterator_return(ctx: &mut ScopedContext, obj: Object) -> Result<(), i32> {
     let method = obj.get_property(ctx, Atom::CONST_return)?;
     if !method.is_undefined_or_null() {

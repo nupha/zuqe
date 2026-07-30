@@ -9,10 +9,10 @@ use crate::{
     array::{Array, ArrayPayload, alloc_fast_array_slots},
     atom::{Atom, JS_ATOM_MAX_INT},
     builtins::{
+        common::{SPECIES_FIELD, arg_rel_index},
         iterator::{
             JSIteratorKindEnum, ObjectIter, js_array_iterator_next, js_create_array_iterator,
         },
-        js_get_this,
         object::js_object_toString,
         typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
     },
@@ -193,24 +193,6 @@ fn opt_comparefn(ctx: &mut ScopedContext, cc: &CallContext) -> Result<Option<JSV
     } else {
         f.ensure_callable(ctx)?;
         Ok(Some(f))
-    }
-}
-
-/// Optional start/end style index argument: `undefined` (or absent) yields
-/// `default`, otherwise `ToNumber` + clamp into `[0, len]` with negative
-/// values offset by `len` (the spec's relative-index conversion).
-fn arg_clamped_or(
-    ctx: &mut ScopedContext,
-    cc: &CallContext,
-    nth: usize,
-    len: i64,
-    default: i64,
-) -> Result<i64, i32> {
-    let v = cc.arg(nth);
-    if v.is_undefined() {
-        Ok(default)
-    } else {
-        Ok(v.to_number(ctx)?.to_i64_clamp(0, len, len))
     }
 }
 
@@ -555,8 +537,8 @@ fn js_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let (obj, len) = this_obj_and_len(ctx, &cc)?;
     let mut obj: JSValue = obj.into();
 
-    let mut start = arg_clamped_or(ctx, &cc, 1, len, 0)?;
-    let end = arg_clamped_or(ctx, &cc, 2, len, len)?;
+    let mut start = arg_rel_index(ctx, &cc, 1, len, 0)?;
+    let end = arg_rel_index(ctx, &cc, 2, len, len)?;
 
     // XXX: should special case fast arrays
     while start < end {
@@ -655,11 +637,7 @@ fn js_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let (this_obj, len) = this_obj_and_len(ctx, &cc)?;
 
     if len > 0 {
-        let start = if cc.length() > 1 {
-            cc.arg(1).to_number(ctx)?.to_i64_clamp(0, len, len)
-        } else {
-            0
-        };
+        let start = arg_rel_index(ctx, &cc, 1, len, 0)?;
 
         let target = cc.arg(0);
 
@@ -763,11 +741,7 @@ fn js_array_includes(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let target = cc.arg(0);
 
     if length > 0 {
-        let start = if cc.length() > 1 {
-            cc.arg(1).to_number(ctx)?.to_i64_clamp(0, length, length)
-        } else {
-            0
-        };
+        let start = arg_rel_index(ctx, &cc, 1, length, 0)?;
 
         // fast path: fast array
         if obj.is_fast_array()
@@ -995,7 +969,7 @@ pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let is_splice = cc.magic() != 0;
 
     let (mut this_obj, len) = this_obj_and_len(ctx, &cc)?;
-    let start = cc.arg(0).to_number(ctx)?.to_i64_clamp(0, len, len);
+    let start = arg_rel_index(ctx, &cc, 0, len, 0)?;
 
     let item_count: u32;
     let del_count: i64;
@@ -1016,7 +990,7 @@ pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     } else {
         item_count = 0;
         del_count = 0;
-        let end = arg_clamped_or(ctx, &cc, 1, len, len)?;
+        let end = arg_rel_index(ctx, &cc, 1, len, len)?;
         std::cmp::max(end - start, 0)
     };
 
@@ -1097,11 +1071,7 @@ pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 fn js_array_toSpliced(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let (mut this_obj, len) = this_obj_and_len(ctx, &cc)?;
 
-    let start = if cc.length() > 0 {
-        cc.arg(0).to_number(ctx)?.to_i64_clamp(0, len, len)
-    } else {
-        0
-    };
+    let start = arg_rel_index(ctx, &cc, 0, len, 0)?;
 
     let mut del = if cc.length() > 0 { len - start } else { 0 };
     if cc.length() > 1 {
@@ -1144,9 +1114,9 @@ fn js_array_toSpliced(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_array_copyWithin(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let (mut this_obj, len) = this_obj_and_len(ctx, &cc)?;
 
-    let to: i64 = cc.arg(0).to_number(ctx)?.to_i64_clamp(0, len, len);
-    let start: i64 = cc.arg(1).to_number(ctx)?.to_i64_clamp(0, len, len);
-    let end = arg_clamped_or(ctx, &cc, 2, len, len)?;
+    let to: i64 = arg_rel_index(ctx, &cc, 0, len, 0)?;
+    let start: i64 = arg_rel_index(ctx, &cc, 1, len, 0)?;
+    let end = arg_rel_index(ctx, &cc, 2, len, len)?;
 
     let count = std::cmp::min(end - start, len - to);
     if count > 0 {
@@ -1444,7 +1414,7 @@ pub const js_array_funcs: &[FieldDef] = &[
     FieldDef::FUNC("isArray", 1, js_array_isArray, 0),
     FieldDef::FUNC("from", 1, js_array_from, 0),
     FieldDef::FUNC("of", 0, js_array_of, 0),
-    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
+    SPECIES_FIELD,
 ];
 
 /// 将数组 obj 中从 start_pos 开始的 count 个元素复制到 to_pos 开始的位置。

@@ -7,7 +7,10 @@ use unicode_normalization::UnicodeNormalization;
 use crate::{
     Array, ClassDef, JS_CLASS_STRING_ITERATOR, ScopedContext,
     atom::Atom,
-    builtins::iterator::{ArrayIterPayload, JSIteratorKindEnum, js_create_array_iterator},
+    builtins::{
+        common::arg_rel_index32,
+        iterator::{ArrayIterPayload, JSIteratorKindEnum, js_create_array_iterator},
+    },
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW},
@@ -426,7 +429,7 @@ fn js_string_substr(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
     let len = p.len() as i32;
 
-    let a: i32 = cc.arg(0).to_number(ctx)?.to_i32_clamp(0, len, len);
+    let a: i32 = arg_rel_index32(ctx, &cc, 0, len, 0)?;
     let n = if !cc.arg(1).is_undefined() {
         cc.arg(1).to_number(ctx)?.to_i32_clamp(0, len - a, 0)
     } else {
@@ -440,12 +443,8 @@ fn js_string_substr(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_string_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
     let len = p.len() as i32;
-    let start = cc.arg(0).to_number(ctx)?.to_i32_clamp(0, len, len);
-    let end = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_number(ctx)?.to_i32_clamp(0, len, len)
-    } else {
-        len
-    };
+    let start = arg_rel_index32(ctx, &cc, 0, len, 0)?;
+    let end = arg_rel_index32(ctx, &cc, 1, len, len)?;
 
     p.sub_string(ctx, start as usize..std::cmp::max(end, start) as usize)
         .map(JSValue::make_string)

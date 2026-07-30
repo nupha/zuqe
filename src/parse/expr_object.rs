@@ -4,9 +4,7 @@
 use crate::{
     atom::{Atom, AtomKind},
     bytecode::{OpCode, OpCodeTemp, opcodes},
-    class::{
-        OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
-    },
+    class::{OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD},
     function::{FunctionDef, FunctionKind},
     object::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
@@ -35,9 +33,11 @@ impl<'s> JSParseState<'s> {
             if has_optional_chain {
                 self.optional_chain_test(optional_chaining_label, 1);
             }
-            self.emit_op_temp(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD);
-            self.emit_atom(self.token.atom().unwrap());
-            self.emit_u16(self.cur_func().scope_level as _);
+            self.emit_scope_var(
+                OpCodeTemp::SCOPE_GET_PRIVATE_FIELD,
+                self.token.atom().unwrap(),
+                self.cur_func().scope_level as _,
+            );
         } else {
             if !self.token.kind.is_ident() {
                 return Err(self.throw_syntax_error("expecting field name"));
@@ -113,9 +113,11 @@ impl<'s> JSParseState<'s> {
 
                 if prop_type == PROP_TYPE_VAR {
                     // shortcut for x: x
-                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom(name);
-                    self.emit_u16(self.cur_func().scope_level as _);
+                    self.emit_scope_var(
+                        OpCodeTemp::SCOPE_GET_VAR,
+                        name,
+                        self.cur_func().scope_level as _,
+                    );
                     self.emit_op(OpCode::DEFINE_FIELD);
                     self.emit_atom(name);
                 } else if self.token.kind == TokenKind::Char('(') {
@@ -177,7 +179,9 @@ impl<'s> JSParseState<'s> {
                         self.emit_op(OpCode::DROP);
                     } else if name == Atom::CONST___proto__ {
                         if has_proto {
-                            return Err(self.throw_syntax_error("duplicate __proto__ property name"));
+                            return Err(
+                                self.throw_syntax_error("duplicate __proto__ property name")
+                            );
                         }
                         self.emit_op(OpCode::SET_PROTO);
                         has_proto = true;
@@ -299,11 +303,11 @@ impl<'s> JSParseState<'s> {
                     private = PROP_TYPE_PRIVATE;
                 }
                 t if t.is_ident() => {
-                     // variable can only be a non-reserved identifier 
+                    // variable can only be a non-reserved identifier
                     is_non_reserved_ident =
                         self.token.kind == TokenKind::IDENT && !self.token.data.is_reserved();
 
-                     // keywords and reserved words have a valid atom 
+                    // keywords and reserved words have a valid atom
                     name.replace(self.token.atom().unwrap());
 
                     self.next_token()?;
@@ -331,5 +335,4 @@ impl<'s> JSParseState<'s> {
 
         Ok((name.unwrap_or(Atom::NULL), prop_type | private))
     }
-
 }

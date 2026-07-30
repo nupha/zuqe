@@ -294,19 +294,21 @@ fn is_label(s: &JSParseState) -> bool {
 
 // test if the current token is a let keyword. Use simplistic look-ahead scanner
 fn is_let(s: &mut JSParseState, decl_mask: i32) -> Result<bool, i32> {
-    let mut res = Ok(false);
+    if !s.token_is_pseudo_keyword(Atom::CONST_let) {
+        return Ok(false);
+    }
 
-    if s.token_is_pseudo_keyword(Atom::CONST_let) {
-        let pos = s.get_pos();
-
+    s.with_lookahead(|s| {
         s.next_token()?;
         let tok = s.token.kind;
 
         if tok == TokenKind::Char('[') {
             // let [ is a syntax restriction:
             // it never introduces an ExpressionStatement
-            res = Ok(true);
-        } else if tok == TokenKind::Char('{')
+            return Ok(true);
+        }
+
+        if tok == TokenKind::Char('{')
             || (tok == TokenKind::IDENT && !s.token.data.is_reserved())
             || matches!(tok, TokenKind::LET | TokenKind::YIELD | TokenKind::AWAIT)
         {
@@ -314,11 +316,9 @@ fn is_let(s: &mut JSParseState, decl_mask: i32) -> Result<bool, i32> {
             // XXX: should also check that `{` introduces a BindingPattern,
             // but Firefox does not and rejects eval("let=1;let\n{if(1)2;}")
             if s.last_line_num == s.token.line_num || (decl_mask & DECL_MASK_OTHER) != 0 {
-                res = Ok(true);
+                return Ok(true);
             }
         }
-
-        s.seek_token(&pos)?;
 
         // experimental?
         // {
@@ -327,9 +327,9 @@ fn is_let(s: &mut JSParseState, decl_mask: i32) -> Result<bool, i32> {
         //         res = TRUE;
         //     }
         // }
-    }
 
-    res
+        Ok(false)
+    })
 }
 
 fn stmt_do(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
@@ -657,9 +657,11 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
                     s.define_var(name, TokenKind::CATCH, false)?;
 
                     // store the exception value in the catch variable
-                    s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-                    s.emit_atom(name);
-                    s.emit_u16(s.cur_func().scope_level as _);
+                    s.emit_scope_var(
+                        OpCodeTemp::SCOPE_PUT_VAR,
+                        name,
+                        s.cur_func().scope_level as _,
+                    );
                 }
 
                 s.parse_expect(TokenKind::Char(')'))?;
@@ -872,9 +874,7 @@ fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
 }
 
 fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<TodoState, i32> {
-    if s.token.data.is_reserved() {
-        return Err(s.throw_reserved_identifier_error());
-    }
+    s.check_not_reserved()?;
 
     // Determine if `let` introduces a Declaration or an ExpressionStatement
     if is_let(s, decl_mask)? {
@@ -958,13 +958,15 @@ fn parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Re
                 s.next_token()?;
 
                 s.define_var(var_name, tok, false)?;
-                s.emit_op_temp(if matches!(tok, TokenKind::CONST | TokenKind::LET) {
-                    OpCodeTemp::SCOPE_PUT_VAR_INIT
-                } else {
-                    OpCodeTemp::SCOPE_PUT_VAR
-                });
-                s.emit_atom(var_name);
-                s.emit_u16(s.cur_func().scope_level as _);
+                s.emit_scope_var(
+                    if matches!(tok, TokenKind::CONST | TokenKind::LET) {
+                        OpCodeTemp::SCOPE_PUT_VAR_INIT
+                    } else {
+                        OpCodeTemp::SCOPE_PUT_VAR
+                    },
+                    var_name,
+                    s.cur_func().scope_level as _,
+                );
             }
         } else if unlikely(
             !is_async
@@ -1035,9 +1037,11 @@ fn parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Re
             s.parse_assign_expr2(0)?;
 
             if !var_name.is_null() {
-                s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-                s.emit_atom(var_name);
-                s.emit_u16(s.cur_func().scope_level as _);
+                s.emit_scope_var(
+                    OpCodeTemp::SCOPE_PUT_VAR,
+                    var_name,
+                    s.cur_func().scope_level as _,
+                );
             }
         }
 

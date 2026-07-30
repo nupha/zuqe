@@ -63,9 +63,7 @@ impl<'s> JSParseState<'s> {
         export_flag: JSParseExportEnum,
     ) -> Result<Atom, i32> {
         if self.token.kind == TokenKind::IDENT {
-            if self.token.data.is_reserved() {
-                return Err(self.throw_reserved_identifier_error());
-            }
+            self.check_not_reserved()?;
 
             // Note: calling `next_token()` will free the current atom, so we must dup atom in advance.
             let name = self.token.atom().unwrap();
@@ -102,9 +100,7 @@ impl<'s> JSParseState<'s> {
 
         // stack is now: fclosure
         self.with_block_scope(|s| {
-            s.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-            s.emit_atom(Atom::CONST_this);
-            s.emit_u16(0);
+            s.emit_scope_var(OpCodeTemp::SCOPE_GET_VAR, Atom::CONST_this, 0);
             // stack is now: fclosure this
             s.emit_op(OpCode::SWAP);
             // stack is now: this fclosure
@@ -363,9 +359,11 @@ impl<'s> JSParseState<'s> {
                         )?;
                         self.emit_op(OpCode::PRIVATE_SYMBOL);
                         self.emit_atom(name);
-                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom(name);
-                        self.emit_u16(self.cur_func().scope_level as _);
+                        self.emit_scope_var(
+                            OpCodeTemp::SCOPE_PUT_VAR_INIT,
+                            name,
+                            self.cur_func().scope_level as _,
+                        );
                     }
 
                     if cf.fields_init_fd.is_null() {
@@ -387,25 +385,29 @@ impl<'s> JSParseState<'s> {
                         self.define_var_cur_func(field_var_name, JSVarDefEnum::JS_VAR_DEF_CONST)?;
 
                         self.emit_op(OpCode::TO_PROPKEY);
-                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom(field_var_name);
-                        self.emit_u16(self.cur_func().scope_level as _);
+                        self.emit_scope_var(
+                            OpCodeTemp::SCOPE_PUT_VAR_INIT,
+                            field_var_name,
+                            self.cur_func().scope_level as _,
+                        );
                     }
 
                     self.cur_func_def = cf.fields_init_fd;
-                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom(Atom::CONST_this);
-                    self.emit_u16(0);
+                    self.emit_scope_var(OpCodeTemp::SCOPE_GET_VAR, Atom::CONST_this, 0);
 
                     if name.is_null() {
-                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom(field_var_name);
-                        self.emit_u16(self.cur_func().scope_level as _);
+                        self.emit_scope_var(
+                            OpCodeTemp::SCOPE_GET_VAR,
+                            field_var_name,
+                            self.cur_func().scope_level as _,
+                        );
                         cf.computed_fields_count += 1;
                     } else if is_private {
-                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom(name);
-                        self.emit_u16(self.cur_func().scope_level as _);
+                        self.emit_scope_var(
+                            OpCodeTemp::SCOPE_GET_VAR,
+                            name,
+                            self.cur_func().scope_level as _,
+                        );
                     }
 
                     if self.token.kind == TokenKind::Char('=') {
@@ -498,9 +500,11 @@ impl<'s> JSParseState<'s> {
                         self.emit_op(OpCode::SET_HOME_OBJECT);
                         self.emit_op(OpCode::SET_NAME);
                         self.emit_atom(name);
-                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom(name);
-                        self.emit_u16(self.cur_func().scope_level as _);
+                        self.emit_scope_var(
+                            OpCodeTemp::SCOPE_PUT_VAR_INIT,
+                            name,
+                            self.cur_func().scope_level as _,
+                        );
                     } else {
                         if name.is_null() {
                             self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);
@@ -673,9 +677,11 @@ impl<'s> JSParseState<'s> {
             } else {
                 self.emit_op(OpCode::UNDEFINED);
             }
-            self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-            self.emit_atom(Atom::CONST__class_fields_init_);
-            self.emit_u16(self.cur_func().scope_level as _);
+            self.emit_scope_var(
+                OpCodeTemp::SCOPE_PUT_VAR_INIT,
+                Atom::CONST__class_fields_init_,
+                self.cur_func().scope_level as _,
+            );
         }
 
         // drop the prototype
@@ -693,9 +699,11 @@ impl<'s> JSParseState<'s> {
             // is independent from the class statement variable
             // definition)
             self.emit_op(OpCode::DUP);
-            self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-            self.emit_atom(class_name);
-            self.emit_u16(self.cur_func().scope_level as _);
+            self.emit_scope_var(
+                OpCodeTemp::SCOPE_PUT_VAR_INIT,
+                class_name,
+                self.cur_func().scope_level as _,
+            );
         }
 
         // initialize the static fields
@@ -714,9 +722,11 @@ impl<'s> JSParseState<'s> {
         // the class statements have a block level scope
         if !class_var_name.is_null() {
             self.define_var_cur_func(class_var_name, JSVarDefEnum::JS_VAR_DEF_LET)?;
-            self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-            self.emit_atom(class_var_name);
-            self.emit_u16(self.cur_func().scope_level as _);
+            self.emit_scope_var(
+                OpCodeTemp::SCOPE_PUT_VAR_INIT,
+                class_var_name,
+                self.cur_func().scope_level as _,
+            );
         } else if class_name.is_null() {
             // cannot use OP_set_name because the name of the class
             // must be defined before the static initializers are

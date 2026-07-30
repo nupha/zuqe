@@ -35,6 +35,15 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_atom(atom);
     }
 
+    /// Emit a scoped-variable opcode followed by its atom and scope-level
+    /// operands, collapsing the ubiquitous three-line emit sequence.
+    #[inline]
+    pub fn emit_scope_var(&mut self, op: OpCodeTemp, atom: Atom, scope: u16) {
+        self.emit_op_temp(op);
+        self.emit_atom(atom);
+        self.emit_u16(scope);
+    }
+
     /// emit on current function def
     pub fn emit_op_u8(&mut self, op: u8) {
         let ln = self.last_line_num;
@@ -188,13 +197,9 @@ impl<'s> JSParseState<'s> {
             cd.brand_push_pos = unsafe { (*cd.fields_init_fd).last_opcode_pos };
 
             self.with_forward_label(OpCode::IF_FALSE, |s| {
-                s.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                s.emit_atom(Atom::CONST_this);
-                s.emit_u16(0);
+                s.emit_scope_var(OpCodeTemp::SCOPE_GET_VAR, Atom::CONST_this, 0);
 
-                s.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                s.emit_atom(Atom::CONST__home_object_);
-                s.emit_u16(0);
+                s.emit_scope_var(OpCodeTemp::SCOPE_GET_VAR, Atom::CONST__home_object_, 0);
 
                 s.emit_op(OpCode::ADD_BRAND);
                 Ok(())

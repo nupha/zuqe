@@ -13,7 +13,7 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
     context::ScopedContext,
-    error::JSResult,
+    error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::CallContext,
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
@@ -131,6 +131,16 @@ impl ArrayBufferPayload {
     #[inline(always)]
     pub const fn is_detached(&self) -> bool {
         self.detached
+    }
+
+    /// Throw a TypeError if the buffer has been detached.
+    #[inline]
+    pub fn ensure_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+        if unlikely(self.is_detached()) {
+            Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx))
+        } else {
+            Ok(())
+        }
     }
 
     /// get capacity of buffer, count in bytes
@@ -350,6 +360,12 @@ impl ArrayBuffer {
 
     pub fn is_detached(&self) -> bool {
         self.payload().is_detached()
+    }
+
+    /// Throw a TypeError if the buffer has been detached.
+    #[inline]
+    pub fn validate_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+        self.payload().ensure_attached(ctx)
     }
 
     /// detatch array buffer

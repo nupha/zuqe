@@ -12,6 +12,7 @@ use crate::{
 
 use super::{
     expr_lvalue::PutLValueEnum,
+    parse::is_eval_or_arguments,
     state::{JSParseState, SKIP_HAS_ELLIPSIS},
     tokenize::TokenKind,
 };
@@ -275,9 +276,11 @@ impl<'s> JSParseState<'s> {
                     var_name = self.parse_destructuring_var(is_arg)?;
                     if self.need_var_reference(tok) {
                         // Must make a reference for proper `with` semantics
-                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom(var_name);
-                        self.emit_u16(self.cur_func().scope_level as _);
+                        self.emit_scope_var(
+                            OpCodeTemp::SCOPE_GET_VAR,
+                            var_name,
+                            self.cur_func().scope_level as _,
+                        );
                         lvalue!();
                     }
                 } else {
@@ -304,7 +307,7 @@ impl<'s> JSParseState<'s> {
 
                 if unlikely(
                     self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
-                        && matches!(prop_name, Atom::CONST_eval | Atom::CONST_arguments),
+                        && is_eval_or_arguments(prop_name),
                 ) {
                     return Err(self.throw_syntax_error("invalid destructuring target"));
                 }
@@ -324,9 +327,11 @@ impl<'s> JSParseState<'s> {
                     // generate reference
                     // source -- source source
                     self.emit_op(OpCode::DUP);
-                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom(prop_name);
-                    self.emit_u16(self.cur_func().scope_level as _);
+                    self.emit_scope_var(
+                        OpCodeTemp::SCOPE_GET_VAR,
+                        prop_name,
+                        self.cur_func().scope_level as _,
+                    );
 
                     goto_lvalue = true;
                     lvalue!();
@@ -618,10 +623,7 @@ impl<'s> JSParseState<'s> {
         if unlikely(
             (self.token.kind != TokenKind::IDENT || self.token.data.is_reserved())
                 || (self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
-                    && matches!(
-                        self.token.atom().unwrap(),
-                        Atom::CONST_eval | Atom::CONST_arguments
-                    )),
+                    && is_eval_or_arguments(self.token.atom().unwrap())),
         ) {
             Err(self.throw_syntax_error("invalid destructuring target"))
         } else {

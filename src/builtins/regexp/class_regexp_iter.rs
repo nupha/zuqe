@@ -10,7 +10,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{RegExpStringIterPayload, regexp_exec};
+use super::{RegExpStringIterPayload, get_last_index, regexp_exec};
 
 fn js_regexp_string_iterator_next(
     ctx: &mut ScopedContext,
@@ -37,13 +37,9 @@ fn js_regexp_string_iterator_next(
 
             if str.is_empty() {
                 // if matched is empty, advance index to next char
-                let last_index = it
-                    .regexp()
-                    .get_property(ctx, Atom::CONST_lastIndex)
-                    .and_then(|v| v.to_length(ctx))
-                    .inspect_err(|_| {
-                        *state = IteratorState::NotDone;
-                    })?;
+                let last_index = get_last_index(ctx, it.regexp().into()).inspect_err(|_| {
+                    *state = IteratorState::NotDone;
+                })?;
 
                 let next_index = it
                     .string()

@@ -3,7 +3,7 @@
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
-    builtins::js_get_this,
+    builtins::common::{SPECIES_FIELD, arg_rel_index},
     class::ClassID,
     context::ScopedContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
@@ -46,17 +46,11 @@ fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let ab = get_array_buffer(this, ctx, class_id)?;
     let abuf = ab.payload();
 
-    if abuf.is_detached() {
-        return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-    }
+    abuf.ensure_attached(ctx)?;
 
     let len = abuf.byte_length() as i64;
-    let start: i64 = cc.arg(0).to_number(ctx)?.to_i64_clamp(0, len, len);
-    let end = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_number(ctx)?.to_i64_clamp(0, len, len)
-    } else {
-        len
-    };
+    let start: i64 = arg_rel_index(ctx, &cc, 0, len, 0)?;
+    let end = arg_rel_index(ctx, &cc, 1, len, len)?;
 
     let new_len = std::cmp::max(end - start, 0);
     let ctor = JS_SpeciesConstructor(ctx, this, JSValue::UNDEFINED)?;
@@ -84,9 +78,7 @@ fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         Err(ctx.throw_type_error("new ArrayBuffer is too small"))
     } else {
         // must test again because of side effects
-        if abuf.is_detached() {
-            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-        }
+        abuf.ensure_attached(ctx)?;
 
         let new_abuf_mut = new_ab.payload_mut();
 
@@ -107,9 +99,7 @@ fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_array_buffer_transfer(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut ab = get_array_buffer(cc.this(), ctx, JS_CLASS_ARRAY_BUFFER)?;
 
-    if ab.is_detached() {
-        return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-    }
+    ab.validate_attached(ctx)?;
 
     let old_len = ab.payload().byte_length();
 
@@ -198,12 +188,7 @@ fn js_array_buffer_isView(_: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub const js_array_buffer_funcs: &[FieldDef] = &[
     FieldDef::FUNC("isView", 1, js_array_buffer_isView, 0),
-    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
+    SPECIES_FIELD,
 ];
 
-pub const js_shared_array_buffer_funcs: &[FieldDef] = &[FieldDef::GETSET(
-    "[Symbol.species]",
-    Some(js_get_this),
-    None,
-    0,
-)];
+pub const js_shared_array_buffer_funcs: &[FieldDef] = &[SPECIES_FIELD];

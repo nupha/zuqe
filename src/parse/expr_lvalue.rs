@@ -171,9 +171,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_get_field2(name);
                 }
                 opcodes::op_scope_get_private_field => {
-                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD2);
-                    self.emit_atom(name);
-                    self.emit_u16(scope);
+                    self.emit_scope_var(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD2, name, scope);
                 }
                 opcodes::OP_get_array_el => {
                     self.emit_op(OpCode::GET_ARRAY_EL3);
@@ -291,21 +289,21 @@ impl<'s> JSParseState<'s> {
                     special,
                     PutLValueEnum::PUT_LVALUE_NOKEEP | PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH
                 ));
-                self.emit_op_temp(if is_let {
-                    OpCodeTemp::SCOPE_PUT_VAR_INIT
-                } else {
-                    OpCodeTemp::SCOPE_PUT_VAR
-                });
-                self.emit_atom(name);
-                self.emit_u16(scope as _);
+                self.emit_scope_var(
+                    if is_let {
+                        OpCodeTemp::SCOPE_PUT_VAR_INIT
+                    } else {
+                        OpCodeTemp::SCOPE_PUT_VAR
+                    },
+                    name,
+                    scope as _,
+                );
             }
             opcodes::OP_get_field => {
                 self.emit_put_field(name);
             }
             opcodes::op_scope_get_private_field => {
-                self.emit_op_temp(OpCodeTemp::SCOPE_PUT_PRIVATE_FIELD);
-                self.emit_atom(name);
-                self.emit_u16(scope as _);
+                self.emit_scope_var(OpCodeTemp::SCOPE_PUT_PRIVATE_FIELD, name, scope as _);
             }
             opcodes::OP_get_array_el => {
                 self.emit_op(OpCode::PUT_ARRAY_EL);

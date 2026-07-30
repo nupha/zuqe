@@ -17,6 +17,7 @@ use crate::{
 
 use super::{
     esm::JSParseExportEnum,
+    parse::is_eval_or_arguments,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
     tokenize::TokenKind,
 };
@@ -162,9 +163,7 @@ impl<'s> JSParseState<'s> {
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
             && self.token.kind == TokenKind::IDENT
         {
-            if self.token.data.is_reserved() {
-                return Err(self.throw_reserved_identifier_error());
-            }
+            self.check_not_reserved()?;
 
             let name = self.token.atom().unwrap();
             fd1.add_arg(self.ctx(), name)?;
@@ -229,9 +228,7 @@ impl<'s> JSParseState<'s> {
                         fd1.attrs.defined_arg_count += 1;
                     }
                 } else if self.token.kind == TokenKind::IDENT {
-                    if self.token.data.is_reserved() {
-                        return Err(self.throw_reserved_identifier_error());
-                    }
+                    self.check_not_reserved()?;
 
                     let name = self.token.atom().unwrap();
 
@@ -338,7 +335,9 @@ impl<'s> JSParseState<'s> {
             if (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_GETTER && !fd1.args.is_empty())
                 || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_SETTER && fd1.args.len() != 1)
             {
-                return Err(self.throw_syntax_error("invalid number of arguments for getter or setter"));
+                return Err(
+                    self.throw_syntax_error("invalid number of arguments for getter or setter")
+                );
             }
         }
 
@@ -594,7 +593,9 @@ impl<'s> JSParseState<'s> {
             && let Some(v) = cur_fd.find_global_var(func_name)
             && v.scope_level == cur_fd.scope_level
         {
-            return Err(self.throw_syntax_error("invalid redefinition of global identifier in module code"));
+            return Err(
+                self.throw_syntax_error("invalid redefinition of global identifier in module code")
+            );
         }
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
@@ -620,7 +621,9 @@ impl<'s> JSParseState<'s> {
                 if let Some(hf) = cur_fd.find_global_var(func_name) {
                     // XXX: should check scope chain
                     if hf.scope_level == cur_fd.scope_level {
-                        return Err(self.throw_syntax_error("invalid redefinition of global identifier"));
+                        return Err(
+                            self.throw_syntax_error("invalid redefinition of global identifier")
+                        );
                     }
                 }
             } else {
@@ -712,9 +715,7 @@ impl<'s> JSParseState<'s> {
 
                         // store directly into global var, bypass lexical scope
                         self.emit_op(OpCode::DUP);
-                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-                        self.emit_atom(sub_func_name);
-                        self.emit_u16(0);
+                        self.emit_scope_var(OpCodeTemp::SCOPE_PUT_VAR, sub_func_name, 0);
                     } else {
                         // do not call define_var to bypass lexical scope check
                         if self.cur_func().find_var(sub_func_name).is_none() {
@@ -725,9 +726,7 @@ impl<'s> JSParseState<'s> {
 
                         // store directly into local var, bypass lexical catch scope
                         self.emit_op(OpCode::DUP);
-                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-                        self.emit_atom(sub_func_name);
-                        self.emit_u16(0);
+                        self.emit_scope_var(OpCodeTemp::SCOPE_PUT_VAR, sub_func_name, 0);
                     }
                 }
 
@@ -742,9 +741,11 @@ impl<'s> JSParseState<'s> {
                 } else {
                     // store function object into its lexical name
                     // XXX: could use OP_put_loc directly
-                    self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                    self.emit_atom(sub_func_name);
-                    self.emit_u16(self.cur_func().scope_level as _);
+                    self.emit_scope_var(
+                        OpCodeTemp::SCOPE_PUT_VAR_INIT,
+                        sub_func_name,
+                        self.cur_func().scope_level as _,
+                    );
                 }
             } else if !self.cur_func().is_global_var {
                 let var_idx =
@@ -826,13 +827,9 @@ impl<'s> JSParseState<'s> {
                 return Err(self.throw_syntax_error(
                     "'use strict' not allowed in function with default or destructuring parameter",
                 ));
-            } else if matches!(func_name, Atom::CONST_eval | Atom::CONST_arguments) {
+            } else if is_eval_or_arguments(func_name) {
                 return Err(self.throw_syntax_error("invalid function name in strict code"));
-            } else if fd
-                .args
-                .iter()
-                .any(|vd| matches!(vd.var_name, Atom::CONST_eval | Atom::CONST_arguments))
-            {
+            } else if fd.args.iter().any(|vd| is_eval_or_arguments(vd.var_name)) {
                 return Err(self.throw_syntax_error("invalid argument name in strict code"));
             }
         }
@@ -856,7 +853,9 @@ impl<'s> JSParseState<'s> {
                 }
             }) {
                 if fd.args.iter().take(idx).any(|d| d.var_name.eq(&name)) {
-                    return Err(self.throw_syntax_error("duplicate argument names not allowed in this context"));
+                    return Err(self.throw_syntax_error(
+                        "duplicate argument names not allowed in this context",
+                    ));
                 }
 
                 // Check if argument name duplicates a destructuring parameter
@@ -866,7 +865,9 @@ impl<'s> JSParseState<'s> {
                     .iter()
                     .any(|d| d.var_name.eq(&name) && d.scope_level == 0)
                 {
-                    return Err(self.throw_syntax_error("duplicate argument names not allowed in this context"));
+                    return Err(self.throw_syntax_error(
+                        "duplicate argument names not allowed in this context",
+                    ));
                 }
             }
         }

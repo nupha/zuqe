@@ -17,13 +17,13 @@ use crate::{
             special_reduce, special_reduceRight, special_some,
         },
         array_buffer::ABufData,
+        common::{SPECIES_FIELD, arg_rel_index32},
         iterator::{JSIteratorKindEnum, js_create_array_iterator},
-        js_get_this,
         typed_array::{f16_to_f64, f64_to_f16},
     },
     class::ClassID,
     context::ScopedContext,
-    error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
+    error::JSResult,
     function::{CallContext, FieldDef},
     number::Float64Union,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, Object},
@@ -43,11 +43,8 @@ pub(crate) fn js_typed_array_get_length_internal(
     obj.as_object_TypedArray()
         .ok_or_else(|| ctx.throw_type_error("not a TypedArray"))
         .and_then(|p| {
-            if p.is_detached() {
-                Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx))
-            } else {
-                Ok(p.length() as u32)
-            }
+            p.validate_attached(ctx)?;
+            Ok(p.length() as u32)
         })
 }
 
@@ -89,9 +86,7 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
 
             let offset = cc.arg(1).to_index(ctx)? as usize;
             // guard side effect (detach) of retrieving arg #1.
-            if ab.is_detached() {
-                return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-            }
+            ab.validate_attached(ctx)?;
 
             if (offset & ((1 << size_log2) - 1)) != 0 {
                 return Err(ctx.throw_range_error("offset should be a multiple of element size"));
@@ -103,15 +98,15 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
                 let a2 = cc.arg(2);
                 if a2.is_undefined() {
                     if (byte_length & ((1 << size_log2) - 1)) != 0 {
-                        return Err(ctx.throw_range_error("byte length should be a multiple of element size"));
+                        return Err(ctx.throw_range_error(
+                            "byte length should be a multiple of element size",
+                        ));
                     }
                     (byte_length - offset) >> size_log2
                 } else {
                     let n = a2.to_index(ctx)? as usize;
                     // guard side effect (detach) of retrieving arg #2.
-                    if ab.is_detached() {
-                        return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-                    }
+                    ab.validate_attached(ctx)?;
 
                     if offset + (n << size_log2) > byte_length {
                         return Err(ctx.throw_range_error("invalid length"));
@@ -209,7 +204,7 @@ fn js_typed_array_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 pub const js_typed_array_base_funcs: &[FieldDef] = &[
     FieldDef::FUNC("from", 1, js_typed_array_from, 0),
     FieldDef::FUNC("of", 0, js_typed_array_of, 0),
-    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
+    SPECIES_FIELD,
 ];
 
 //
@@ -251,9 +246,7 @@ fn js_typed_array_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(ctx.throw_type_error("not a TypedArray"));
     };
 
-    if ta.is_detached() {
-        return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-    }
+    ta.validate_attached(ctx)?;
 
     let mut idx: i64 = cc.arg(0).to_number(ctx)?.to_i64_saturating();
     let len = ta.length() as i64;
@@ -307,9 +300,7 @@ fn js_typed_array_set_internal(
         return Err(ctx.throw_range_error("invalid array length"));
     }
 
-    if dest.is_detached() {
-        return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-    }
+    dest.validate_attached(ctx)?;
 
     if let Some(src) = src.as_object_TypedArray()
         && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&src.class_id())
@@ -318,9 +309,7 @@ fn js_typed_array_set_internal(
         let d = dest.array_buffer();
 
         let src_abuf = s.payload();
-        if src_abuf.is_detached() {
-            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-        }
+        src_abuf.ensure_attached(ctx)?;
 
         let count = src.payload().count();
         if offset > dest.length() as i64 - count as i64 {
@@ -393,11 +382,8 @@ fn js_typed_array_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub(crate) fn js_create_typed_array_iterator(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(ta) = cc.this().as_object_TypedArray() {
-        if ta.is_detached() {
-            Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx))
-        } else {
-            js_create_array_iterator(ctx, cc)
-        }
+        ta.validate_attached(ctx)?;
+        js_create_array_iterator(ctx, cc)
     } else {
         Err(ctx.throw_type_error("not a TypedArray"))
     }
@@ -416,20 +402,14 @@ fn js_typed_array_get_toStringTag(ctx: &mut ScopedContext, cc: CallContext) -> J
 
 fn js_typed_array_copyWithin(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
-    let to: i32 = cc.arg(0).to_number(ctx)?.to_i32_clamp(0, len, len);
-    let from: i32 = cc.arg(1).to_number(ctx)?.to_i32_clamp(0, len, len);
-    let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).to_number(ctx)?.to_i32_clamp(0, len, len)
-    } else {
-        len
-    };
+    let to: i32 = arg_rel_index32(ctx, &cc, 0, len, 0)?;
+    let from: i32 = arg_rel_index32(ctx, &cc, 1, len, 0)?;
+    let final_ = arg_rel_index32(ctx, &cc, 2, len, len)?;
 
     let count = std::cmp::min(final_ - from, len - to);
     if count > 0 {
         let mut tao = TypedArray::try_from(cc.this())?;
-        if unlikely(tao.is_detached()) {
-            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-        }
+        tao.validate_attached(ctx)?;
 
         let shift = TypedArray::SIZE_LOG2(tao.class_id());
 
@@ -511,26 +491,12 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let start = if cc.length() > 1 {
-        cc.arg(1)
-            .to_number(ctx)?
-            .to_i32_clamp(0, len as _, len as _) as usize
-    } else {
-        0
-    };
-    let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2)
-            .to_number(ctx)?
-            .to_i32_clamp(0, len as _, len as _) as usize
-    } else {
-        len as _
-    };
+    let start = arg_rel_index32(ctx, &cc, 1, len as _, 0)? as usize;
+    let final_ = arg_rel_index32(ctx, &cc, 2, len as _, len as _)? as usize;
 
     // Note: check detached again here, because the typed array may detach the array buffer
     // by side effect
-    if unlikely(ta.is_detached()) {
-        return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-    }
+    ta.validate_attached(ctx)?;
 
     match shift {
         0 => {
@@ -671,7 +637,8 @@ fn js_typed_array_reverse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 }
 
 fn js_typed_array_toReversed(ctx: &mut ScopedContext, mut cc: CallContext) -> JSResult {
-    let tao = TypedArray::try_from(cc.this()).map_err(|_| ctx.throw_type_error("not a TypedArray"))?;
+    let tao =
+        TypedArray::try_from(cc.this()).map_err(|_| ctx.throw_type_error("not a TypedArray"))?;
     let arr = tao.create_to_new(ctx, JSValue::UNDEFINED, tao.class_id())?;
 
     cc.set_this(arr.into());
@@ -680,17 +647,8 @@ fn js_typed_array_toReversed(ctx: &mut ScopedContext, mut cc: CallContext) -> JS
 
 fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let len = js_typed_array_get_length_internal(ctx, cc.this())?;
-    let start = cc
-        .arg(0)
-        .to_number(ctx)?
-        .to_i32_clamp(0, len as _, len as _) as usize;
-    let final_ = if !cc.arg(1).is_undefined() {
-        cc.arg(1)
-            .to_number(ctx)?
-            .to_i32_clamp(0, len as _, len as _) as usize
-    } else {
-        len as usize
-    };
+    let start = arg_rel_index32(ctx, &cc, 0, len as _, 0)? as usize;
+    let final_ = arg_rel_index32(ctx, &cc, 1, len as _, len as _)? as usize;
 
     let this_val = cc.this();
     let count = final_.saturating_sub(start);
@@ -708,16 +666,12 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let Some(src) = this_val.as_object_TypedArray() else {
             return Err(ctx.throw_type_error("not a TypedArray"));
         };
-        if src.is_detached() {
-            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-        }
+        src.validate_attached(ctx)?;
 
         let Some(mut dst) = arr.as_object_TypedArray() else {
             return Err(ctx.throw_type_error("not a TypedArray"));
         };
-        if dst.is_detached() {
-            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-        }
+        dst.validate_attached(ctx)?;
 
         if src.class_id() == dst.class_id()
             && dst.capacity() >= count
@@ -784,21 +738,12 @@ fn js_typed_array_subarray(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     // do not use js_typed_array_get_length_internal() here.
     let len = ta.length();
 
-    let start = cc
-        .arg(0)
-        .to_number(ctx)?
-        .to_i32_clamp(0, len as _, len as _) as usize;
+    let start = arg_rel_index32(ctx, &cc, 0, len as _, 0)? as usize;
     // Note: calc byte offset before read `final` argument
     let byte_offset =
         ta.array_buffer_byte_offset() + (start << TypedArray::SIZE_LOG2(ta.class_id()));
 
-    let final_ = if !cc.arg(1).is_undefined() {
-        cc.arg(1)
-            .to_number(ctx)?
-            .to_i32_clamp(0, len as _, len as _) as usize
-    } else {
-        len
-    };
+    let final_ = arg_rel_index32(ctx, &cc, 1, len as _, len as _)? as usize;
     let count = final_.saturating_sub(start);
 
     js_typed_array___speciesCreate(
@@ -1161,7 +1106,8 @@ fn js_typed_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         ",".into() // default separator
     };
 
-    let mut sbuf = StringBuf::with_capacity(n as _, false).map_err(|_| ctx.throw_out_of_memory())?;
+    let mut sbuf =
+        StringBuf::with_capacity(n as _, false).map_err(|_| ctx.throw_out_of_memory())?;
 
     // XXX: optimize with direct access
     for i in 0..n {
@@ -1179,7 +1125,8 @@ fn js_typed_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             };
 
             if sbuf.capacity() - sbuf.len() < s.len() {
-                sbuf.try_reserve((n - i) as usize * 2).map_err(|_| ctx.throw_out_of_memory())?
+                sbuf.try_reserve((n - i) as usize * 2)
+                    .map_err(|_| ctx.throw_out_of_memory())?
             }
             sbuf.push_content(s.content()).unwrap();
         }
@@ -1229,11 +1176,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         }
         inc = -1;
     } else {
-        k = if cc.length() > 1 {
-            cc.arg(1).to_number(ctx)?.to_i32_clamp(0, len, len)
-        } else {
-            0
-        };
+        k = arg_rel_index32(ctx, &cc, 1, len, 0)?;
         inc = 1;
     }
 

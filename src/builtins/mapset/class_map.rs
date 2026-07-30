@@ -5,7 +5,11 @@ use crate::{
     IntOrFloat, JS_CLASS_MAP, JS_CLASS_SET, ScopedContext,
     array::Array,
     atom::Atom,
-    builtins::{iterator::JSIteratorKindEnum, js_get_this, mapset::MapSet},
+    builtins::{
+        common::SPECIES_FIELD,
+        iterator::{JSIteratorKindEnum, iterator_step},
+        mapset::MapSet,
+    },
     class::ClassID,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -530,12 +534,9 @@ fn js_set_isDisjointFrom(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let next_obj = next_method.ensure_callable(ctx)?;
 
         loop {
-            let result = next_obj.call(ctx, iterator, &[])?;
-            let done = result.get_property(ctx, Atom::CONST_done)?;
-            if done.to_bool()? {
+            let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
                 break;
-            }
-            let value = result.get_property(ctx, Atom::CONST_value)?;
+            };
             if this_state.find(ctx, value).is_some() {
                 iterator_return(ctx, iterator)?;
                 return Ok(JSValue::from(false));
@@ -626,12 +627,9 @@ fn js_set_isSupersetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let next_obj = next_method.ensure_callable(ctx)?;
 
     loop {
-        let result = next_obj.call(ctx, iterator, &[])?;
-        let done = result.get_property(ctx, Atom::CONST_done)?;
-        if done.to_bool()? {
+        let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
             break;
-        }
-        let value = result.get_property(ctx, Atom::CONST_value)?;
+        };
         if this_state.find(ctx, value).is_none() {
             iterator_return(ctx, iterator)?;
             return Ok(JSValue::FALSE);
@@ -677,12 +675,9 @@ fn js_set_intersection(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let next_obj = next_method.ensure_callable(ctx)?;
 
         loop {
-            let result_val = next_obj.call(ctx, iterator, &[])?;
-            let done = result_val.get_property(ctx, Atom::CONST_done)?;
-            if done.to_bool()? {
+            let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
                 break;
-            }
-            let value = result_val.get_property(ctx, Atom::CONST_value)?;
+            };
             if this_state.find(ctx, value).is_some() {
                 result_state.upsert(ctx, value, JSValue::UNDEFINED)?;
             }
@@ -736,12 +731,9 @@ fn js_set_difference(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let next_obj = next_method.ensure_callable(ctx)?;
 
         loop {
-            let result_val = next_obj.call(ctx, iterator, &[])?;
-            let done = result_val.get_property(ctx, Atom::CONST_done)?;
-            if done.to_bool()? {
+            let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
                 break;
-            }
-            let value = result_val.get_property(ctx, Atom::CONST_value)?;
+            };
             if this_state.find(ctx, value).is_some() {
                 result_state.remove(ctx, value);
             }
@@ -799,12 +791,9 @@ fn js_set_symmetricDifference(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let next_obj = next_method.ensure_callable(ctx)?;
 
     loop {
-        let item = next_obj.call(ctx, iterator, &[])?;
-        let done = item.get_property(ctx, Atom::CONST_done)?;
-        if done.to_bool()? {
+        let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
             break;
-        }
-        let value = item.get_property(ctx, Atom::CONST_value)?;
+        };
         if this_state.find(ctx, value).is_some() {
             result_state.remove(ctx, value);
         } else {
@@ -851,12 +840,9 @@ fn js_set_union(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let next_obj = next_method.ensure_callable(ctx)?;
 
     loop {
-        let item = next_obj.call(ctx, iterator, &[])?;
-        let done = item.get_property(ctx, Atom::CONST_done)?;
-        if done.to_bool()? {
+        let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
             break;
-        }
-        let value = item.get_property(ctx, Atom::CONST_value)?;
+        };
         result_state.upsert(ctx, value, JSValue::UNDEFINED)?;
     }
 
@@ -910,12 +896,7 @@ fn js_map_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub const js_map_funcs: &[FieldDef] = &[
     FieldDef::FUNC("groupBy", 2, js_map_groupBy, 0),
-    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
+    SPECIES_FIELD,
 ];
 
-pub const js_set_funcs: &[FieldDef] = &[FieldDef::GETSET(
-    "[Symbol.species]",
-    Some(js_get_this),
-    None,
-    0,
-)];
+pub const js_set_funcs: &[FieldDef] = &[SPECIES_FIELD];

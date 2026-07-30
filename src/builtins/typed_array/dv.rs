@@ -7,7 +7,6 @@ use crate::{
     JS_CLASS_DATAVIEW,
     builtins::array_buffer::ArrayBuffer,
     context::ScopedContext,
-    error::JS_ThrowTypeErrorDetachedArrayBuffer,
     object::{Object, ObjectImpl, ObjectPayload},
     object_cast,
     value::JSValue,
@@ -58,6 +57,12 @@ impl DataViewPayload {
     #[inline]
     pub fn is_detached(&self) -> bool {
         self.array_buffer().payload().is_detached()
+    }
+
+    /// Throw a TypeError if the underlying buffer has been detached.
+    #[inline]
+    pub fn validate_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+        self.array_buffer().payload().ensure_attached(ctx)
     }
 
     #[inline(always)]
@@ -112,9 +117,7 @@ impl DataView {
 
         // the buffer could have been detached by the byteLength argument
         // coercion, or in create_instance_with_ctor() reading the prototype
-        if array_buffer.payload().is_detached() {
-            return Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx));
-        }
+        array_buffer.payload().ensure_attached(ctx)?;
 
         Ok(Self(o.0))
     }
@@ -128,6 +131,12 @@ impl DataView {
     #[inline(always)]
     pub fn is_detached(&self) -> bool {
         self.payload().is_detached()
+    }
+
+    /// Throw a TypeError if the underlying buffer has been detached.
+    #[inline]
+    pub fn validate_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+        self.payload().validate_attached(ctx)
     }
 
     #[inline(always)]
@@ -146,10 +155,7 @@ impl DataView {
     /// Get underlying array buffer byte offset.
     /// When underlaying array buffer is detached, returns Err.
     pub(super) fn array_buffer_byte_offset(&self, ctx: &mut ScopedContext) -> Result<usize, i32> {
-        if self.is_detached() {
-            Err(JS_ThrowTypeErrorDetachedArrayBuffer(ctx))
-        } else {
-            Ok(self.payload().offset as usize)
-        }
+        self.validate_attached(ctx)?;
+        Ok(self.payload().offset as usize)
     }
 }

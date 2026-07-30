@@ -5,7 +5,7 @@ use crate::{
     Callback, JS_CLASS_PROMISE,
     array::Array,
     atom::Atom,
-    builtins::{error::js_aggregate_error_constructor, js_get_this},
+    builtins::{common::SPECIES_FIELD, error::js_aggregate_error_constructor},
     context::ScopedContext,
     error::{ErrorKind, JSResult},
     function::{CallContext, FieldDef, NativeFunction},
@@ -738,7 +738,7 @@ pub(super) const js_promise_funcs: &[FieldDef] = &[
     FieldDef::FUNC("race", 1, js_promise_race, 0),
     FieldDef::FUNC("try", 1, js_promise_try, 0),
     FieldDef::FUNC("withResolvers", 0, js_promise_withResolvers, 0),
-    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
+    SPECIES_FIELD,
 ];
 
 //

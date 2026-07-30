@@ -193,9 +193,7 @@ impl<'s> JSParseState<'s> {
             }
             TokenKind::THIS => {
                 self.next_token()?;
-                self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                self.emit_atom(Atom::CONST_this);
-                self.emit_u16(0);
+                self.emit_scope_var(OpCodeTemp::SCOPE_GET_VAR, Atom::CONST_this, 0);
             }
             TokenKind::FALSE => {
                 self.next_token()?;
@@ -206,9 +204,7 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::PUSH_TRUE);
             }
             TokenKind::IDENT => {
-                if self.token.data.is_reserved() {
-                    return Err(self.throw_reserved_identifier_error());
-                }
+                self.check_not_reserved()?;
                 if (parse_flags & PF_ARROW_FUNC) != 0 && self.peek_token(true) == TokenKind::ARROW {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
@@ -247,9 +243,11 @@ impl<'s> JSParseState<'s> {
                             source_line_num,
                         )?;
                     } else {
-                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom(Atom::CONST_async);
-                        self.emit_u16(self.cur_func().scope_level as _);
+                        self.emit_scope_var(
+                            OpCodeTemp::SCOPE_GET_VAR,
+                            Atom::CONST_async,
+                            self.cur_func().scope_level as _,
+                        );
                     }
                 } else {
                     // get atom rc, because later next_token() call will free the atom.
@@ -264,9 +262,11 @@ impl<'s> JSParseState<'s> {
                     } else {
                         self.next_token()?;
 
-                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom(name);
-                        self.emit_u16(self.cur_func().scope_level as _);
+                        self.emit_scope_var(
+                            OpCodeTemp::SCOPE_GET_VAR,
+                            name,
+                            self.cur_func().scope_level as _,
+                        );
                     }
                 }
             }
@@ -304,9 +304,7 @@ impl<'s> JSParseState<'s> {
 
                     self.next_token()?;
 
-                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom(Atom::CONST_new_target);
-                    self.emit_u16(0);
+                    self.emit_scope_var(OpCodeTemp::SCOPE_GET_VAR, Atom::CONST_new_target, 0);
                 } else {
                     self.parse_postfix_expr(0)?;
 
@@ -335,12 +333,8 @@ impl<'s> JSParseState<'s> {
                         return Err(self.throw_syntax_error("'super' is only valid in a method"));
                     }
 
-                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom(Atom::CONST_this);
-                    self.emit_u16(0);
-                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom(Atom::CONST__home_object_);
-                    self.emit_u16(0);
+                    self.emit_scope_var(OpCodeTemp::SCOPE_GET_VAR, Atom::CONST_this, 0);
+                    self.emit_scope_var(OpCodeTemp::SCOPE_GET_VAR, Atom::CONST__home_object_, 0);
                     self.emit_op(OpCode::GET_SUPER);
                 } else {
                     return Err(self.throw_syntax_error("invalid use of 'super'"));
@@ -787,9 +781,11 @@ impl<'s> JSParseState<'s> {
                 // right operand: shift and tighter (tier < 4)
                 self.parse_expr_binary(4 - 1, parse_flags & !PF_ARROW_FUNC)?;
 
-                self.emit_op_temp(OpCodeTemp::SCOPE_IN_PRIVATE_FIELD);
-                self.emit_atom(atom);
-                self.emit_u16(self.cur_func().scope_level as _);
+                self.emit_scope_var(
+                    OpCodeTemp::SCOPE_IN_PRIVATE_FIELD,
+                    atom,
+                    self.cur_func().scope_level as _,
+                );
 
                 return Ok(());
             }
