@@ -49,7 +49,6 @@ pub use {
     value::JSValue,
 };
 
-#[cfg(feature = "nan_boxing")]
 pub(crate) use value::JSValueTag;
 
 #[cfg(feature = "async_support")]

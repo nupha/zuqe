@@ -13,21 +13,11 @@ use crate::{
 pub(crate) fn js_object_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let txt = {
         let val = cc.this();
-
-        #[cfg(feature = "nan_boxing")]
         match val.tag() {
             crate::JSValueTag::Null => "[object Null]".to_string(),
             crate::JSValueTag::Undefined => "[object Undefined]".to_string(),
             crate::JSValueTag::Object => unsafe { val.as_object_unchecked().repr(ctx)? },
             _ => val.objectify(ctx)?.repr(ctx)?,
-        }
-
-        #[cfg(not(feature = "nan_boxing"))]
-        match val {
-            JSValue::NULL => "[object Null]".to_string(),
-            JSValue::UNDEFINED => "[object Undefined]".to_string(),
-            JSValue::Object(o) => o.repr(ctx)?,
-            v => v.objectify(ctx)?.repr(ctx)?,
         }
     };
 

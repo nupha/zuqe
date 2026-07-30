@@ -338,7 +338,6 @@ impl ObjectImpl {
 }
 
 impl JSValue {
-    #[cfg(feature = "nan_boxing")]
     pub(crate) fn get_property_internal(
         &self,
         ctx: &mut ScopedContext,
@@ -375,63 +374,11 @@ impl JSValue {
                         .unwrap_or(Ok(JSValue::UNDEFINED))
                 }
             }
-            crate::JSValueTag::Null => {
-                Err(ctx.throw_type_error("cannot read property of null"))
-            }
+            crate::JSValueTag::Null => Err(ctx.throw_type_error("cannot read property of null")),
             crate::JSValueTag::Undefined => {
                 Err(ctx.throw_type_error("cannot read property of undefined"))
             }
             crate::JSValueTag::Exception => {
-                #[cfg(debug_assertions)]
-                unreachable!();
-                #[cfg(not(debug_assertions))]
-                Err(-1)
-            }
-            _ => self
-                .get_prototype_primitive(ctx)
-                .as_object()
-                .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
-                .unwrap_or(Ok(JSValue::UNDEFINED)),
-        }
-    }
-
-    #[cfg(not(feature = "nan_boxing"))]
-    pub(crate) fn get_property_internal(
-        &self,
-        ctx: &mut ScopedContext,
-        prop: Atom,
-        this_obj: JSValue,
-        throw_ref_error: bool,
-    ) -> JSResult {
-        match self {
-            Self::Object(o) => o.get_property_internal(ctx, prop, this_obj, throw_ref_error),
-            Self::String(s) => {
-                if unlikely(prop == Atom::CONST_length) {
-                    // string length
-                    Ok(JSValue::from(s.len() as u32))
-                } else if let Some(idx) = prop.to_small_int() {
-                    // code point at idx
-                    if let Some(code) = s.content().get(idx as usize) {
-                        ctx.create_string_from_char(code.into())
-                            .map(JSValue::make_string)
-                    } else {
-                        Ok(JSValue::UNDEFINED)
-                    }
-                } else {
-                    self.get_prototype_primitive(ctx)
-                        .as_object()
-                        .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
-                        .unwrap_or(Ok(JSValue::UNDEFINED))
-                }
-            }
-            Self::NULL | Self::UNDEFINED => {
-                Err(ctx.throw_type_error(if self.is_undefined() {
-                    "cannot read property of undefined"
-                } else {
-                    "cannot read property of null"
-                }))
-            }
-            Self::EXCEPTION => {
                 #[cfg(debug_assertions)]
                 unreachable!();
                 #[cfg(not(debug_assertions))]

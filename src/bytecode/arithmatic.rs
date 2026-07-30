@@ -20,7 +20,6 @@ pub(super) enum TwoNumbers {
 
 impl TwoNumbers {
     /// fast path
-    #[cfg(feature = "nan_boxing")]
     const fn from_values_fast(op1: JSValue, op2: JSValue) -> Option<Self> {
         match (op1.tag(), op2.tag()) {
             (
@@ -40,26 +39,6 @@ impl TwoNumbers {
                     op2.as_float_unchecked()
                 }))
             }
-
-            _ => None,
-        }
-    }
-
-    #[cfg(not(feature = "nan_boxing"))]
-    const fn from_values_fast(op1: JSValue, op2: JSValue) -> Option<Self> {
-        match (op1, op2) {
-            (JSValue::Int(a), JSValue::Int(b)) => Some(Self::Int(a, b)),
-            (JSValue::Bool(a), JSValue::Bool(b)) => Some(Self::Int(a as i32, b as i32)),
-            (JSValue::Float64(a), JSValue::Float64(b)) => Some(Self::Float(a, b)),
-
-            (JSValue::Int(a), JSValue::Float64(b)) => Some(Self::Float(a as f64, b)),
-            (JSValue::Float64(a), JSValue::Int(b)) => Some(Self::Float(a, b as f64)),
-
-            (JSValue::Int(a), JSValue::Bool(b)) => Some(Self::Int(a, b as i32)),
-            (JSValue::Bool(a), JSValue::Int(b)) => Some(Self::Int(a as i32, b)),
-
-            (JSValue::Bool(a), JSValue::Float64(b)) => Some(Self::Float(a as i32 as f64, b)),
-            (JSValue::Float64(a), JSValue::Bool(b)) => Some(Self::Float(a, b as i32 as f64)),
 
             _ => None,
         }
@@ -248,25 +227,11 @@ impl UnaryOp {
         val: JSValue,
         allow_float: bool,
     ) -> Result<Self, i32> {
-        #[cfg(feature = "nan_boxing")]
         match val.tag() {
             crate::JSValueTag::Int => Ok(UnaryOp::Int(val.payload_i32())),
             crate::JSValueTag::Float64 if allow_float => {
                 Ok(UnaryOp::Float(unsafe { val.as_float_unchecked() }))
             }
-            _ if allow_float => match val.to_number(ctx)? {
-                IntOrFloat::Int64(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => {
-                    Ok(UnaryOp::Int(i as i32))
-                }
-                n => Ok(UnaryOp::Float(n.to_f64())),
-            },
-            _ => val.to_number(ctx).map(|n| Self::Int(n.to_i32())),
-        }
-
-        #[cfg(not(feature = "nan_boxing"))]
-        match val {
-            JSValue::Int(i) => Ok(UnaryOp::Int(i)),
-            JSValue::Float64(f) if allow_float => Ok(UnaryOp::Float(f)),
             _ if allow_float => match val.to_number(ctx)? {
                 IntOrFloat::Int64(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => {
                     Ok(UnaryOp::Int(i as i32))
@@ -410,7 +375,6 @@ pub enum StrictEqMode {
 impl JSValue {
     /// arithmatic compare of two values.
     /// returns None only if value converted to NaN
-    #[cfg(feature = "nan_boxing")]
     pub fn arith_cmp(
         &self,
         ctx: &mut ScopedContext,
@@ -459,56 +423,7 @@ impl JSValue {
         }
     }
 
-    /// arithmatic compare of two values.
-    /// returns None only if value converted to NaN
-    #[cfg(not(feature = "nan_boxing"))]
-    pub fn arith_cmp(
-        &self,
-        ctx: &mut ScopedContext,
-        other: JSValue,
-    ) -> Result<Option<std::cmp::Ordering>, i32> {
-        // fast path
-        if let Some(n2) = TwoNumbers::from_values_fast(*self, other) {
-            return Ok(n2.partial_cmp());
-        }
-
-        // slow path
-        let mut op1 = *self;
-        let mut op2 = other;
-        loop {
-            match (&op1, &op2) {
-                // string vs string
-                (JSValue::String(s1), JSValue::String(s2)) => {
-                    return Ok(Some(s1.cmp(s2)));
-                }
-
-                // object vs any
-                (JSValue::Object(o1), JSValue::Object(o2)) => {
-                    op1 = o1.to_primitive(ctx, HINT_NUMBER)?;
-                    op2 = o2.to_primitive(ctx, HINT_NUMBER)?;
-                }
-                (JSValue::Object(o), _) => {
-                    op1 = o.to_primitive(ctx, HINT_NUMBER)?;
-                }
-                (_, JSValue::Object(o)) => {
-                    op2 = o.to_primitive(ctx, HINT_NUMBER)?;
-                }
-
-                _ => {
-                    let n1 = op1.to_number(ctx)?;
-                    let n2 = op2.to_number(ctx)?;
-                    return Ok(n1.partial_cmp(&n2));
-                }
-            }
-
-            if let Some(n2) = TwoNumbers::from_values_fast(op1, op2) {
-                return Ok(n2.partial_cmp());
-            }
-        }
-    }
-
     /// arithmatic add of two values.
-    #[cfg(feature = "nan_boxing")]
     pub fn arith_add(ctx: &mut ScopedContext, mut op1: Self, mut op2: Self) -> JSResult {
         loop {
             match (op1.tag(), op2.tag()) {
@@ -554,43 +469,6 @@ impl JSValue {
         }
     }
 
-    /// arithmatic add of two values.
-    #[cfg(not(feature = "nan_boxing"))]
-    pub fn arith_add(ctx: &mut ScopedContext, mut op1: Self, mut op2: Self) -> JSResult {
-        loop {
-            match (op1, op2) {
-                // path to exit:
-                (Self::Int(a), Self::Int(b)) => {
-                    return Ok(JSValue::from(
-                        a as i64 + b as i64, // result may overflow i32 ranges
-                    ));
-                }
-                (Self::Float64(a), Self::Float64(b)) => {
-                    return Ok(JSValue::from(a + b));
-                }
-                (Self::Int(i), Self::Float64(f)) | (Self::Float64(f), Self::Int(i)) => {
-                    return Ok(JSValue::from(i as f64 + f));
-                }
-
-                //
-                // conversion - don't change following arm order
-                //
-                (a @ Self::Object(_), b) | (a, b @ Self::Object(_)) => {
-                    op1 = a.to_primitive(ctx, HINT_NONE)?;
-                    op2 = b.to_primitive(ctx, HINT_NONE)?;
-                }
-                (a @ JSValue::String(_), b) | (a, b @ JSValue::String(_)) => {
-                    return JSValue::concat_value(ctx, a, b);
-                }
-                (a, b) => {
-                    let n1 = a.to_number(ctx)?;
-                    let n2 = b.to_number(ctx)?;
-                    return Ok(n1.add(n2).into());
-                }
-            }
-        }
-    }
-
     #[inline(always)]
     pub fn arith_sub(ctx: &mut ScopedContext, op1: Self, op2: Self) -> JSResult {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.sub())
@@ -624,7 +502,6 @@ impl JSValue {
 
     /// compare JSValues equality in given mode.
     /// Note: `self` and `other` are not consumed.
-    #[cfg(feature = "nan_boxing")]
     pub(crate) fn strict_eq_with_mode(&self, other: Self, eq_mode: StrictEqMode) -> bool {
         match (self.tag(), other.tag()) {
             (crate::JSValueTag::Int, crate::JSValueTag::Int)
@@ -684,40 +561,6 @@ impl JSValue {
         }
     }
 
-    /// compare JSValues equality in given mode.
-    /// Note: `self` and `other` are not consumed.
-    #[cfg(not(feature = "nan_boxing"))]
-    pub(crate) fn strict_eq_with_mode(&self, other: Self, eq_mode: StrictEqMode) -> bool {
-        match (*self, other) {
-            (JSValue::Int(a), JSValue::Int(b)) => a == b,
-            (JSValue::Bool(a), JSValue::Bool(b)) => a == b,
-            (JSValue::Float64(a), JSValue::Float64(b)) => cmp_f64(a, b, eq_mode),
-            (JSValue::Float64(a), JSValue::Int(b)) => cmp_f64(a, b as f64, eq_mode),
-            (JSValue::Int(a), JSValue::Float64(b)) => cmp_f64(a as f64, b, eq_mode),
-            (JSValue::String(a), JSValue::String(b)) => a == b,
-            (JSValue::Object(a), JSValue::Object(b)) => a == b,
-            // singleton types
-            (JSValue::UNDEFINED, JSValue::UNDEFINED)
-            | (JSValue::NULL, JSValue::NULL)
-            | (JSValue::EXCEPTION, JSValue::EXCEPTION)
-            | (JSValue::UNINITIALIZED, JSValue::UNINITIALIZED) => true,
-            // composite types
-            (JSValue::Bytecode(a), JSValue::Bytecode(b)) => a == b,
-            (JSValue::Module(a), JSValue::Module(b)) => a == b,
-            (JSValue::CatchOffset(a), JSValue::CatchOffset(b)) => a == b,
-
-            // Symbols are compared by identity (their unique atom id), not by the
-            // descriptor string content. `StringRef`'s `PartialEq` compares content,
-            // so `a == b` here would wrongly equate two distinct `Symbol('x')` calls
-            // that share the same description. Match `JSValue::eq` (val.rs), which
-            // keys on `atom_info().id()`.
-            (JSValue::Symbol(a), JSValue::Symbol(b)) => {
-                matches!((a.atom_info(), b.atom_info()), (Some(x), Some(y)) if x.id() == y.id())
-            }
-            _ => false,
-        }
-    }
-
     /// test strict equality (strict-eq): self === other?
     #[inline(always)]
     pub fn strict_eq(&self, other: Self) -> bool {
@@ -737,7 +580,6 @@ impl JSValue {
     }
 
     /// get order of `self` and `other`.
-    #[cfg(feature = "nan_boxing")]
     pub fn sort_cmp(&self, ctx: &mut ScopedContext, other: Self) -> Result<Ordering, i32> {
         let mut v1 = *self;
         let mut v2 = other;
@@ -848,112 +690,9 @@ impl JSValue {
             }
         }
     }
-
-    /// get order of `self` and `other`.
-    #[cfg(not(feature = "nan_boxing"))]
-    pub fn sort_cmp(&self, ctx: &mut ScopedContext, other: Self) -> Result<Ordering, i32> {
-        let mut v1 = *self;
-        let mut v2 = other;
-
-        loop {
-            match (&v1, &v2) {
-                (JSValue::Int(a), JSValue::Int(b)) => {
-                    return Ok(a.cmp(b));
-                }
-                (JSValue::Bool(a), JSValue::Bool(b)) => {
-                    return Ok(a.cmp(b));
-                }
-                (JSValue::String(a), JSValue::String(b)) => {
-                    return Ok(a.partial_cmp(b).unwrap());
-                }
-                (JSValue::Symbol(s1), JSValue::Symbol(s2)) => {
-                    // compare atom descriptor content
-                    return Ok(s1.content().partial_cmp(s2.content()).unwrap());
-                }
-
-                (JSValue::Float64(a), JSValue::Float64(b)) => {
-                    return Ok(match (a.is_nan(), b.is_nan()) {
-                        (true, true) => Ordering::Equal,
-                        (true, false) => Ordering::Greater,
-                        (false, true) => Ordering::Less,
-                        (false, false) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
-                    });
-                }
-                (JSValue::Int(a), JSValue::Float64(b)) => {
-                    let d = *a as f64;
-                    let a = &d;
-                    return Ok(match (a.is_nan(), b.is_nan()) {
-                        (true, true) => Ordering::Equal,
-                        (true, false) => Ordering::Greater,
-                        (false, true) => Ordering::Less,
-                        (false, false) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
-                    });
-                }
-                (JSValue::Float64(a), JSValue::Int(b)) => {
-                    let d = *b as f64;
-                    let b = &d;
-                    return Ok(match (a.is_nan(), b.is_nan()) {
-                        (true, true) => Ordering::Equal,
-                        (true, false) => Ordering::Greater,
-                        (false, true) => Ordering::Less,
-                        (false, false) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
-                    });
-                }
-
-                (JSValue::UNDEFINED, JSValue::UNDEFINED) | (JSValue::NULL, JSValue::NULL) => {
-                    return Ok(Ordering::Equal);
-                }
-
-                // string is prior to symbol
-                (JSValue::String(_), JSValue::Symbol(_)) => {
-                    return Ok(Ordering::Less);
-                }
-                (JSValue::Symbol(_), JSValue::String(_)) => {
-                    return Ok(Ordering::Greater);
-                }
-
-                // undefined is always the last
-                (JSValue::UNDEFINED, _) => {
-                    return Ok(Ordering::Greater);
-                }
-                (_, JSValue::UNDEFINED) => {
-                    return Ok(Ordering::Less);
-                }
-
-                // null is prior to NaN
-                (JSValue::NULL, JSValue::Float64(d)) => {
-                    return if d.is_nan() {
-                        Ok(Ordering::Less)
-                    } else {
-                        Ok(0.0.partial_cmp(d).unwrap())
-                    };
-                }
-                (JSValue::Float64(d), JSValue::NULL) => {
-                    return if d.is_nan() {
-                        Ok(Ordering::Greater)
-                    } else {
-                        Ok(d.partial_cmp(&0.0).unwrap())
-                    };
-                }
-
-                // convert
-                (JSValue::NULL, _) => {
-                    v1 = JSValue::ZERO;
-                }
-                (_, JSValue::NULL) => {
-                    v2 = JSValue::ZERO;
-                }
-                (a, b) => {
-                    v1 = a.to_primitive(ctx, HINT_NUMBER)?;
-                    v2 = b.to_primitive(ctx, HINT_NUMBER)?;
-                }
-            }
-        }
-    }
 }
 
 /// test arith equality (no-strict eq): val1 == val2
-#[cfg(feature = "nan_boxing")]
 fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
     let tag1 = val1.tag();
     let tag2 = val2.tag();
@@ -1061,103 +800,6 @@ fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, 
         }
 
         if op1.tag() == op2.tag() {
-            break op1 == op2;
-        } else if let Some(n2) = TwoNumbers::from_values_fast(op1, op2) {
-            break n2.partial_cmp() == Some(std::cmp::Ordering::Equal);
-        }
-    };
-
-    Ok(b)
-}
-
-/// test arith equality (no-strict eq): val1 == val2
-#[cfg(not(feature = "nan_boxing"))]
-fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, i32> {
-    if std::mem::discriminant(&val1) == std::mem::discriminant(&val2) {
-        return Ok(val1 == val2);
-    } else if let Some(n2) = TwoNumbers::from_values_fast(val1, val2) {
-        // fast path
-        return Ok(n2.partial_cmp() == Some(std::cmp::Ordering::Equal));
-    }
-
-    // slow path
-    let mut op1 = val1;
-    let mut op2 = val2;
-
-    let b = loop {
-        match (&op1, &op2) {
-            // null == undefined
-            (JSValue::NULL | JSValue::UNDEFINED, JSValue::NULL | JSValue::UNDEFINED) => {
-                break true;
-            }
-
-            // null,undefined vs others
-            (_, JSValue::NULL | JSValue::UNDEFINED) | (JSValue::NULL | JSValue::UNDEFINED, _) => {
-                break false;
-            }
-
-            // number vs string
-            (JSValue::Int(i), JSValue::String(s)) | (JSValue::String(s), JSValue::Int(i)) => {
-                break match s.to_number(ctx) {
-                    IntOrFloat::Int64(v) => v == *i as i64,
-                    IntOrFloat::Float64(v) => v == 0.0 && *i == 0, // -0 == 0
-                };
-            }
-            (JSValue::Float64(f), JSValue::String(s))
-            | (JSValue::String(s), JSValue::Float64(f)) => {
-                break s.to_number(ctx).to_f64() == *f;
-            }
-
-            // boolean vs string
-            (JSValue::Bool(b), JSValue::String(s)) | (JSValue::String(s), JSValue::Bool(b)) => {
-                break match s.to_number(ctx) {
-                    IntOrFloat::Int64(v) => v == *b as i64,
-                    IntOrFloat::Float64(d) => d == 0.0 && !(*b), // -0 == false
-                };
-            }
-
-            // object vs object
-            (JSValue::Object(o1), JSValue::Object(o2)) => {
-                op1 = o1.to_primitive(ctx, HINT_NONE)?;
-                op2 = o2.to_primitive(ctx, HINT_NONE)?;
-            }
-
-            // object vs number/string/boolean/string
-            (
-                JSValue::Object(o),
-                JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_) | JSValue::String(_),
-            ) => {
-                op1 = o.to_primitive(ctx, HINT_NONE)?;
-            }
-            (
-                JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_) | JSValue::String(_),
-                JSValue::Object(o),
-            ) => {
-                op2 = o.to_primitive(ctx, HINT_NONE)?;
-            }
-
-            // object vs symbol
-            (JSValue::Object(o), JSValue::Symbol(_)) => {
-                op1 = o.to_primitive(ctx, HINT_NONE)?;
-            }
-            (JSValue::Symbol(_), JSValue::Object(o)) => {
-                op2 = o.to_primitive(ctx, HINT_NONE)?;
-            }
-
-            #[cfg(debug_assertions)]
-            (
-                JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_),
-                JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_),
-            ) => {
-                unreachable!("op1={:?}, op2={:?}, handled in fast path", op1, op2);
-            }
-
-            _ => {
-                break false;
-            }
-        }
-
-        if std::mem::discriminant(&op1) == std::mem::discriminant(&op2) {
             break op1 == op2;
         } else if let Some(n2) = TwoNumbers::from_values_fast(op1, op2) {
             break n2.partial_cmp() == Some(std::cmp::Ordering::Equal);

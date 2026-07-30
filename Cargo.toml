@@ -10,7 +10,6 @@ repository = "https://github.com/nupha/zuqe"
 license = "Apache-2.0"
 
 [features]
-nan_boxing = []
 inline_cache = []
 
 all_unicode = ["unicode-id-start", "unicode-normalization"]
@@ -39,7 +38,6 @@ debug_gc = []
 gc_protect_transient = []
 
 default = [
-    "nan_boxing",
     "inline_cache",
 
     "all_unicode",

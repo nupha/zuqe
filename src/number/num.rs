@@ -262,7 +262,6 @@ impl JSValue {
     /// Convert value to number.
     ///
     /// Because BigInt is not supported, JSToNumberHintEnum does not effect
-    #[cfg(feature = "nan_boxing")]
     fn to_number_internal(
         self,
         ctx: &mut ScopedContext,
@@ -286,41 +285,6 @@ impl JSValue {
                 Err(ctx.throw_type_error("cannot convert Symbol to number"))
             }
             crate::JSValueTag::Exception => {
-                #[cfg(debug_assertions)]
-                unreachable!();
-                #[cfg(not(debug_assertions))]
-                Err(-1)
-            }
-            _ => Ok(IntOrFloat::Float64(f64::NAN)),
-        }
-    }
-
-    /// Convert value to number.
-    ///
-    /// Because BigInt is not supported, JSToNumberHintEnum does not effect
-    #[cfg(not(feature = "nan_boxing"))]
-    fn to_number_internal(
-        self,
-        ctx: &mut ScopedContext,
-        undefined_is_nan: bool,
-        _flag: ToNumberHintEnum,
-    ) -> Result<IntOrFloat, i32> {
-        match self {
-            Self::Int(i) => Ok(i.into()),
-            Self::Float64(f) => Ok(f.into()),
-            Self::Bool(b) => Ok(IntOrFloat::Int64(b as i64)),
-            Self::NULL => Ok(IntOrFloat::Int64(0)),
-            Self::UNDEFINED => Ok(if undefined_is_nan {
-                IntOrFloat::Float64(f64::NAN)
-            } else {
-                IntOrFloat::Int64(0)
-            }),
-            Self::String(s) => Ok(s.to_number(ctx)),
-            Self::Object(o) => o.to_number(ctx),
-            Self::Symbol(_) => {
-                Err(ctx.throw_type_error("cannot convert Symbol to number"))
-            }
-            Self::EXCEPTION => {
                 #[cfg(debug_assertions)]
                 unreachable!();
                 #[cfg(not(debug_assertions))]
