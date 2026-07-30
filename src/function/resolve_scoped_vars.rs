@@ -6,6 +6,7 @@ use crate::{
     bytecode::{OpCode, opcodes},
     context::ScopedContext,
     error::JS_THROW_VAR_RO,
+    stack_frame::ExecMode,
 };
 
 use super::{
@@ -696,6 +697,7 @@ impl FunctionDef {
                     .unwrap();
 
                 if label_done.is_none()
+                    && !self.attrs.exec_mode.contains(ExecMode::STRICT)
                     && can_optimize_put_global_ref_value(bc_buf as *const u8, label.pos)
                 {
                     pos_next = optimize_scope_make_ref(
