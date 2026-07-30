@@ -144,17 +144,26 @@ impl TrampolineScope {
         }
     }
 
-    /// Restore from a ScopedContext previously extracted via `into_inner()`.
-    const unsafe fn from_ctx(inner: ScopedContext<'static>) -> Self {
-        Self {
-            inner: ManuallyDrop::new(inner),
-        }
-    }
-
     /// Extract the inner ScopedContext, consuming this wrapper.
     /// The caller becomes responsible for dropping it (which pops the scope).
     fn into_inner(mut self) -> ScopedContext<'static> {
         unsafe { ManuallyDrop::take(&mut self.inner) }
+    }
+
+    /// Drop the current inner scope (popping it from the GC heap) and install
+    /// `saved` in its place. Used when returning/unwinding into a caller whose
+    /// scope was parked in a `VirtualFrame`. The drop-then-install order keeps
+    /// the GC scope stack LIFO.
+    ///
+    /// # Safety
+    ///
+    /// `saved` must be a scope previously extracted via `into_inner()` (or
+    /// `ManuallyDrop::into_inner` of a `VirtualFrame::caller_scope`) that sits
+    /// directly below the current scope on the GC scope stack.
+    #[inline(always)]
+    unsafe fn swap_in_saved(&mut self, saved: ScopedContext<'static>) {
+        drop(unsafe { ManuallyDrop::take(&mut self.inner) });
+        self.inner = ManuallyDrop::new(saved);
     }
 
     /// Borrow the inner scope mutably (for passing to `execute_with_arena`).
@@ -3416,6 +3425,49 @@ fn build_callee_frame(
     Ok(idx)
 }
 
+/// Drop every caller scope still parked in the virtual call stack. Must run
+/// before the trampoline returns early (yield/await suspension or async
+/// completion): the scopes sit in `ManuallyDrop`, so skipping this drain
+/// would leak them and corrupt the GC scope stack.
+#[inline(always)]
+fn drain_saved_scopes(virtual_frames: &mut Vec<VirtualFrame>) {
+    while let Some(vf) = virtual_frames.pop() {
+        if let Some(scope) = vf.caller_scope {
+            drop(ManuallyDrop::into_inner(scope));
+        }
+    }
+}
+
+/// Exception-propagation path of popping one virtual frame: drop the callee
+/// scope and swap the caller's saved scope back in (when the callee had one
+/// — `None` means NoScope, nothing to restore), then resume from the pc/sp
+/// saved in the caller's frame head.
+/// Returns `(caller_bc, caller_frame_idx, pc_offset, sp_offset)`.
+///
+/// The normal Return path does NOT go through here: it promotes the return
+/// value before the scope swap, writes it into the caller's stack, and
+/// derives sp from `return_sp` instead of the frame head.
+#[inline(always)]
+fn restore_caller_frame(
+    caller_vf: VirtualFrame,
+    scope: &mut TrampolineScope,
+    arena: &StackFrameArena,
+) -> (Bytecode, FrameIndex, usize, usize) {
+    if let Some(saved_caller_scope) = caller_vf.caller_scope {
+        // Full/Light: drop callee scope and restore caller.
+        unsafe { scope.swap_in_saved(ManuallyDrop::into_inner(saved_caller_scope)) };
+    }
+    // NoScope: scope was never swapped — skip drop/restore.
+
+    let caller_head = arena.frame(caller_vf.frame_idx);
+    (
+        caller_vf.caller_bc,
+        caller_vf.frame_idx,
+        caller_head.cur_pc_offset,
+        caller_head.cur_sp_offset as usize,
+    )
+}
+
 /// Execute bytecode in a single trampoline loop, completely avoiding
 /// C-stack recursion for JS-to-JS calls.
 ///
@@ -3582,16 +3634,6 @@ pub(crate) fn execute_trampoline(
                     head.prev
                 };
 
-                // Detach any closure VarRefs that reference the outgoing frame
-                // before it is recycled, otherwise captured variables become
-                // dangling pointers into the arena data buffer.
-                {
-                    if let Some(var_refs) = arena.try_var_refs_mut(cur_frame_idx) {
-                        for vr in var_refs.iter_mut() {
-                            vr.detach();
-                        }
-                    }
-                }
                 // Tail calls replace the frame instead of deepening the call
                 // chain, so the callee inherits the caller's depth unchanged:
                 // `MAX_CALL_DEPTH` only bounds non-tail calls, and unbounded
@@ -3600,9 +3642,12 @@ pub(crate) fn execute_trampoline(
                 // saturating_sub keeps a root-frame depth of 0 stable.
                 let tail_depth = arena.frame(cur_frame_idx).depth.saturating_sub(1);
 
-                // Recycle the caller frame *before* allocating the callee so the
-                // bump arena's live region stays bounded (TCO).
-                arena.free_frame(cur_frame_idx);
+                // Detach any closure VarRefs that reference the outgoing frame
+                // (otherwise captured variables become dangling pointers into
+                // the arena data buffer), then recycle the caller frame *before*
+                // allocating the callee so the bump arena's live region stays
+                // bounded (TCO).
+                arena.detach_and_free(cur_frame_idx);
 
                 // Use build_callee_frame for consistent frame initialization
                 // (same path as non-tail CALL in execute_with_arena). On failure
@@ -3621,10 +3666,10 @@ pub(crate) fn execute_trampoline(
                     Err(e) => {
                         match e {
                             FrameAllocError::Oom => {
-                                cur_trampoline_scope.scope_mut().throw_stack_fail();
+                                let _ = cur_trampoline_scope.scope_mut().throw_stack_fail();
                             }
                             FrameAllocError::Exceeded => {
-                                cur_trampoline_scope.scope_mut().throw_stack_exceeded();
+                                let _ = cur_trampoline_scope.scope_mut().throw_stack_exceeded();
                             }
                         }
 
@@ -3634,19 +3679,8 @@ pub(crate) fn execute_trampoline(
                         // frame) while keeping the error catchable: each enclosing
                         // frame's `execute_with_arena` will run its catch/finally.
                         if let Some(caller_vf) = virtual_frames.pop() {
-                            if let Some(saved_caller_scope) = caller_vf.caller_scope {
-                                drop(cur_trampoline_scope.into_inner());
-                                cur_trampoline_scope = unsafe {
-                                    TrampolineScope::from_ctx(ManuallyDrop::into_inner(
-                                        saved_caller_scope,
-                                    ))
-                                };
-                            }
-                            cur_bc = caller_vf.caller_bc;
-                            cur_frame_idx = caller_vf.frame_idx;
-                            let caller_head = arena.frame(caller_vf.frame_idx);
-                            pc_offset = caller_head.cur_pc_offset;
-                            sp_offset = caller_head.cur_sp_offset as usize;
+                            (cur_bc, cur_frame_idx, pc_offset, sp_offset) =
+                                restore_caller_frame(caller_vf, &mut cur_trampoline_scope, arena);
                             throwed = true;
 
                             continue 'trampoline;
@@ -3692,23 +3726,14 @@ pub(crate) fn execute_trampoline(
                         // Detach all VarRefs before freeing the frame. The
                         // frame may hold closure variables captured by inner
                         // arrows (e.g., `new.target` in `async () => new.target`).
-                        if let Some(var_refs) = arena.try_var_refs_mut(cur_frame_idx) {
-                            for vr in var_refs {
-                                vr.detach();
-                            }
-                        }
-                        arena.free_frame(cur_frame_idx);
+                        arena.detach_and_free(cur_frame_idx);
                         // Promote before scope pop so the value stays LOCAL
                         // in the parent scope (caller's scope).
                         promote_to_parent(actual_ret, &cur_trampoline_scope);
                         drop(cur_trampoline_scope.into_inner());
 
                         // Drain virtual_frames to drop saved caller scopes.
-                        while let Some(vf) = virtual_frames.pop() {
-                            if let Some(scope) = vf.caller_scope {
-                                drop(ManuallyDrop::into_inner(scope));
-                            }
-                        }
+                        drain_saved_scopes(&mut virtual_frames);
                         rt_ptr.active_frame_index = FrameIndex::NULL;
 
                         return (actual_ret, true);
@@ -3731,11 +3756,7 @@ pub(crate) fn execute_trampoline(
                     // These were placed in ManuallyDrop during CallBytecode.
                     // On early return (yield/await), we must explicitly drain
                     // them to prevent GC scope stack corruption.
-                    while let Some(vf) = virtual_frames.pop() {
-                        if let Some(scope) = vf.caller_scope {
-                            drop(ManuallyDrop::into_inner(scope));
-                        }
-                    }
+                    drain_saved_scopes(&mut virtual_frames);
                     rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (ret_val, false);
                 }
@@ -3756,12 +3777,7 @@ pub(crate) fn execute_trampoline(
                     // the `.next()` method). Without detach, VarRef raw pointers
                     // into arena.data become dangling after the region is reused.
                     // (The same pattern is used in the generator-completed path.)
-                    if let Some(var_refs) = arena.try_var_refs_mut(cur_frame_idx) {
-                        for vr in var_refs {
-                            vr.detach();
-                        }
-                    }
-                    arena.free_frame(cur_frame_idx);
+                    arena.detach_and_free(cur_frame_idx);
                 }
                 // Promote before scope pop so the value stays LOCAL
                 // in the parent scope (caller's scope, or start_scope).
@@ -3770,9 +3786,9 @@ pub(crate) fn execute_trampoline(
                     if let Some(saved_caller_scope) = caller_vf.caller_scope {
                         // Full/Light: promote, pop callee scope, restore caller.
                         promote_to_parent(ret_val, &cur_trampoline_scope);
-                        drop(cur_trampoline_scope.into_inner());
-                        cur_trampoline_scope = unsafe {
-                            TrampolineScope::from_ctx(ManuallyDrop::into_inner(saved_caller_scope))
+                        unsafe {
+                            cur_trampoline_scope
+                                .swap_in_saved(ManuallyDrop::into_inner(saved_caller_scope))
                         };
                     }
                     // NoScope: scope was never swapped —
@@ -3857,29 +3873,11 @@ pub(crate) fn execute_trampoline(
                     // Detach all VarRefs before freeing the frame (matching
                     // the Return handler). VarRef raw pointers into arena.data
                     // become dangling after the region is reused.
-                    if let Some(var_refs) = arena.try_var_refs_mut(cur_frame_idx) {
-                        for vr in var_refs {
-                            vr.detach();
-                        }
-                    }
-                    arena.free_frame(cur_frame_idx);
+                    arena.detach_and_free(cur_frame_idx);
                 }
                 if let Some(caller_vf) = virtual_frames.pop() {
-                    if let Some(saved_caller_scope) = caller_vf.caller_scope {
-                        // Full/Light: drop callee scope and restore caller.
-                        drop(cur_trampoline_scope.into_inner());
-                        cur_trampoline_scope = unsafe {
-                            TrampolineScope::from_ctx(ManuallyDrop::into_inner(saved_caller_scope))
-                        };
-                    }
-                    // NoScope: scope was never swapped — skip drop/restore.
-
-                    cur_bc = caller_vf.caller_bc;
-                    cur_frame_idx = caller_vf.frame_idx;
-
-                    let caller_head = arena.frame(caller_vf.frame_idx);
-                    pc_offset = caller_head.cur_pc_offset;
-                    sp_offset = caller_head.cur_sp_offset as usize;
+                    (cur_bc, cur_frame_idx, pc_offset, sp_offset) =
+                        restore_caller_frame(caller_vf, &mut cur_trampoline_scope, arena);
                     throwed = true;
 
                     continue 'trampoline;

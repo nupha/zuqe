@@ -234,6 +234,20 @@ impl StackFrameArena {
         }
     }
 
+    /// Detach every closure VarRef pointing into frame `idx`, then free the
+    /// frame. Detach must happen before the free: VarRef raw pointers into
+    /// the frame buffer become dangling once the region is recycled.
+    /// Replaces the manually paired `try_var_refs_mut` + `detach` loop +
+    /// `free_frame` pattern in the trampoline's frame-recycling paths.
+    pub(crate) fn detach_and_free(&mut self, idx: FrameIndex) {
+        if let Some(var_refs) = self.try_var_refs_mut(idx) {
+            for vr in var_refs {
+                vr.detach();
+            }
+        }
+        self.free_frame(idx);
+    }
+
     #[inline(always)]
     pub(crate) fn frame(&self, idx: FrameIndex) -> &StackFrame {
         &self.frames[idx.0 as usize]
