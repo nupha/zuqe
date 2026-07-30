@@ -1783,24 +1783,24 @@ impl Bytecode {
                         let type_ = PC_FETCH!(u8);
                         match type_ {
                             JS_THROW_VAR_RO => {
-                                realm_scope.throw_type_error_read_only(atom);
+                                let _ = realm_scope.throw_type_error_read_only(atom);
                             }
                             JS_THROW_VAR_REDECL => {
-                                JS_ThrowSyntaxErrorVarRedeclaration(realm_scope, atom);
+                                let _ = JS_ThrowSyntaxErrorVarRedeclaration(realm_scope, atom);
                             }
                             JS_THROW_VAR_UNINITIALIZED => {
-                                JS_ThrowReferenceErrorUninitialized(realm_scope, atom);
+                                let _ = JS_ThrowReferenceErrorUninitialized(realm_scope, atom);
                             }
                             JS_THROW_ERROR_DELETE_SUPER => {
-                                realm_scope
+                                let _ = realm_scope
                                     .throw_reference_error("unsupported reference to 'super'");
                             }
                             JS_THROW_ERROR_ITERATOR_THROW => {
-                                realm_scope
+                                let _ = realm_scope
                                     .throw_type_error("iterator does not have a throw method");
                             }
                             _ => {
-                                realm_scope.throw_internal_error(&format!(
+                                let _ = realm_scope.throw_internal_error(&format!(
                                     "invalid throw var type {type_}"
                                 ));
                             }
@@ -1920,12 +1920,13 @@ impl Bytecode {
                                         Err(e) => {
                                             match e {
                                                 FrameAllocError::Oom => {
-                                                    realm_scope.throw_stack_fail();
+                                                    let _ = realm_scope.throw_stack_fail();
                                                 }
                                                 FrameAllocError::Exceeded => {
-                                                    realm_scope.throw_stack_exceeded();
+                                                    let _ = realm_scope.throw_stack_exceeded();
                                                 }
                                             }
+
                                             // Route through the Exception
                                             // handler: find_catch_in_frame must
                                             // scan (and cleanse) this frame's

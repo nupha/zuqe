@@ -568,10 +568,12 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
             )
             .map_err(|e| {
                 if e.is_some() {
-                    ctx.throw_out_of_memory();
+                    ctx.throw_out_of_memory()
+                } else {
+                    -1
                 }
-                -1
             })?;
+
             StringData::from_buf(t)
         } else {
             // replacement is function

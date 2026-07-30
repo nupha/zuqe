@@ -114,9 +114,14 @@ fn close_all_remaining(ctx: &mut ScopedContext, zd: &IteratorZipData) -> Result<
 
 pub(crate) fn js_iterator_zip_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let this_obj = this.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
+    let this_obj = this
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let zd = this_obj.payload().iterator_zip().ok_or_else(|| ctx.throw_type_error("not an Iterator Zip"))?;
+    let zd = this_obj
+        .payload()
+        .iterator_zip()
+        .ok_or_else(|| ctx.throw_type_error("not an Iterator Zip"))?;
 
     // Reentrancy guard
     if zd.running.get() {
@@ -215,12 +220,12 @@ pub(crate) fn js_iterator_zip_next(ctx: &mut ScopedContext, cc: CallContext) -> 
 
             // Strict (2): i != 0, close all with TypeError
             if i != 0 {
-                ctx.throw_type_error("Iterator Zip already completed with unequal lengths");
+                let e = ctx.throw_type_error("Iterator Zip already completed with unequal lengths");
                 close_all_remaining(ctx, zd)?;
                 zd.closed.set(true);
                 zd.unequal_length.set(true);
                 zd.running.set(false);
-                return Err(-1);
+                return Err(e);
             }
 
             // i == 0: step remaining iterators; check if all are simultaneously done
@@ -323,9 +328,14 @@ pub(crate) fn js_iterator_zip_next(ctx: &mut ScopedContext, cc: CallContext) -> 
 
 pub(crate) fn js_iterator_zip_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let this_obj = this.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
+    let this_obj = this
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let zd = this_obj.payload().iterator_zip().ok_or_else(|| ctx.throw_type_error("not an Iterator Zip"))?;
+    let zd = this_obj
+        .payload()
+        .iterator_zip()
+        .ok_or_else(|| ctx.throw_type_error("not an Iterator Zip"))?;
 
     // Reentrancy guard
     if zd.running.get() {
@@ -375,7 +385,9 @@ pub(crate) fn js_iterator_zip_class_init(
     class_id: ClassID,
 ) -> Result<(), i32> {
     // Zip results share IteratorHelper proto so next/return dispatch based on payload
-    let helper_proto = ctx.class_proto(JS_CLASS_ITERATOR_HELPER).ok_or_else(|| ctx.throw_internal_error("IteratorHelper proto not initialized"))?;
+    let helper_proto = ctx
+        .class_proto(JS_CLASS_ITERATOR_HELPER)
+        .ok_or_else(|| ctx.throw_internal_error("IteratorHelper proto not initialized"))?;
     ctx.set_class_proto(class_id, helper_proto);
     Ok(())
 }

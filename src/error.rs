@@ -529,6 +529,7 @@ pub(crate) fn is_backtrace_needed(obj: JSValue) -> bool {
     }
 }
 
+#[must_use]
 pub fn JS_ThrowReferenceErrorUninitialized(ctx: &mut ScopedContext, name: Atom) -> ErrCode {
     if name.is_null() {
         ctx.throw_reference_error("lexical variable is not initialized")
@@ -537,10 +538,12 @@ pub fn JS_ThrowReferenceErrorUninitialized(ctx: &mut ScopedContext, name: Atom) 
     }
 }
 
+#[must_use]
 pub fn JS_ThrowReferenceErrorNotDefined(ctx: &mut ScopedContext, name: Atom) -> ErrCode {
     ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8(ctx.rt())))
 }
 
+#[must_use]
 pub fn JS_ThrowReferenceErrorUninitialized2(
     ctx: &mut ScopedContext,
     b: &Bytecode,

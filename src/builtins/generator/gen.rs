@@ -204,7 +204,7 @@ fn js_generator_next(
 
             if magic == GEN_MAGIC_THROW && g.state() == GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD
             {
-                ctx.throw_value(val);
+                let _ = ctx.throw_value(val);
                 g.async_state.set_throw_flag(true);
             } else {
                 // Read current SP offset to verify SP[-1] is UNDEFINED.

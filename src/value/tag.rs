@@ -135,8 +135,8 @@ impl JSValueTag {
     }
 }
 
-/// The most-negative reference-counted (gc node) tag — start of pointer-type tags.
-const JS_TAG_FIRST: i32 = JSValueTag::Symbol as i32;
+// /// The most-negative reference-counted (gc node) tag — start of pointer-type tags.
+// const JS_TAG_FIRST: i32 = JSValueTag::Symbol as i32;
 
 /// Float64 tag addend (high 16 bits): `JS_FLOAT64_TAG_ADDEND << 48` is added to
 /// a `f64`'s bit pattern on decode and subtracted on encode. Chosen so that every

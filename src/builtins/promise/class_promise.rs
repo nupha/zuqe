@@ -55,8 +55,7 @@ fn js_promise_then_finally_func(ctx: &mut ScopedContext, cc: CallContext) -> JSR
             if cc.magic() == 0 {
                 val.err() // resolve
             } else {
-                cx.throw_value(val); // reject
-                Err(-1)
+                Err(cx.throw_value(val)) // reject
             }
         }),
         Atom::CONST_empty_string,

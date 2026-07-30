@@ -56,13 +56,14 @@ impl<'s> JSParseState<'s> {
                     if let Some((_, sc2)) = inp.next_char() {
                         match sc2 {
                             CharCode::Char('\n' | '\r' | '\u{2028}' | '\u{2029}') => {
-                                return Err(self.throw_syntax_error("unexpected line terminator in regexp"));
+                                return Err(
+                                    self.throw_syntax_error("unexpected line terminator in regexp")
+                                );
                             }
                             CharCode::Char(_) => {
-                                pattern_str.push_char(sc2).map_err(|_| {
-                                    self.ctx().throw_out_of_memory();
-                                    -1
-                                })?;
+                                pattern_str
+                                    .push_char(sc2)
+                                    .map_err(|_| self.ctx().throw_out_of_memory())?;
                                 continue;
                             }
                             CharCode::Code(cp) => {

@@ -36,7 +36,8 @@ fn js_iterator_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         .is_some_and(|ctor| new_target.as_object() == Some(ctor));
 
     if is_direct {
-        return Err(ctx.throw_type_error("Iterator is an abstract class and cannot be constructed directly"));
+        return Err(ctx
+            .throw_type_error("Iterator is an abstract class and cannot be constructed directly"));
     }
 
     // Get proto from newTarget's realm for subclass construction
@@ -47,7 +48,9 @@ fn js_iterator_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 
 /// Getter for `Iterator.prototype.constructor`
 fn js_iterator_constructor_getter(ctx: &mut ScopedContext, _cc: CallContext) -> JSResult {
-    let ctor = ctx.class_constructor(JS_CLASS_ITERATOR).ok_or_else(|| ctx.throw_type_error("Iterator constructor not initialized"))?;
+    let ctor = ctx
+        .class_constructor(JS_CLASS_ITERATOR)
+        .ok_or_else(|| ctx.throw_type_error("Iterator constructor not initialized"))?;
     Ok(ctor.into())
 }
 
@@ -91,7 +94,9 @@ fn js_iterator_toStringTag_setter(ctx: &mut ScopedContext, cc: CallContext) -> J
         && let Some(o) = this.as_object()
         && o == iter_proto
     {
-        return Err(ctx.throw_type_error("Cannot assign to Symbol.toStringTag on Iterator.prototype"));
+        return Err(
+            ctx.throw_type_error("Cannot assign to Symbol.toStringTag on Iterator.prototype")
+        );
     }
 
     this.define_property_value(ctx, Atom::CONST_Symbol_toStringTag, v, JS_PROP_C_W_E)?;
@@ -120,7 +125,9 @@ pub(crate) fn js_iterator_class_init(
         js_iterator_funcs,
     )?;
 
-    let ctor = ctx.class_constructor(class_id).ok_or_else(|| ctx.throw_internal_error("Iterator ctor missing"))?;
+    let ctor = ctx
+        .class_constructor(class_id)
+        .ok_or_else(|| ctx.throw_internal_error("Iterator ctor missing"))?;
     ctx.global_obj().define_property_value(
         ctx,
         Atom::CONST_Iterator,
@@ -205,7 +212,9 @@ fn js_iterator_concat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     for i in 0..argc {
         let item = cc.arg(i);
         if !item.is_object() {
-            return Err(ctx.throw_type_error("Iterator.concat requires all arguments to be objects"));
+            return Err(
+                ctx.throw_type_error("Iterator.concat requires all arguments to be objects")
+            );
         }
         let method = item.get_property(ctx, Atom::CONST_Symbol_iterator)?;
         values.push((item, method));
@@ -554,15 +563,15 @@ fn js_iterator_zipKeyed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 }
                 Ok(())
             })();
-            if let Err(_) = pad_result {
+            if let Err(e) = pad_result {
                 close_entries_reverse(ctx, &entries);
-                return Err(-1);
+                return Err(e);
             }
             values
         } else {
-            ctx.throw_type_error("padding must be an object");
+            let e = ctx.throw_type_error("padding must be an object");
             close_entries_reverse(ctx, &entries);
-            return Err(-1);
+            return Err(e);
         }
     } else {
         Vec::new()
@@ -605,7 +614,9 @@ fn js_create_iterator_helper(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 
     let this_val = cc.this();
 
-    let this_obj = this_val.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
+    let this_obj = this_val
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
     // Validate arguments BEFORE reading .next (per spec).
     // On failure, close the underlying iterator first.
@@ -677,7 +688,9 @@ fn js_create_iterator_helper(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 // =========================================================================
 
 fn eager_iterate(ctx: &mut ScopedContext, this_val: JSValue, func: JSValue, mode: i32) -> JSResult {
-    let this_obj = this_val.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
+    let this_obj = this_val
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
     let next = this_obj.get_property(ctx, Atom::CONST_next)?;
     let mut index: i64 = 0;
 
@@ -736,11 +749,11 @@ fn validate_iterate_arg_and_close_on_fail(
 ) -> Result<(), i32> {
     if !func.is_callable() {
         let this_obj = this_val.as_object();
-        ctx.throw_type_error(&format!("{name} argument must be a function"));
+        let e = ctx.throw_type_error(&format!("{name} argument must be a function"));
         if let Some(o) = this_obj {
             close_with_pending_exception(ctx, o);
         }
-        return Err(-1);
+        return Err(e);
     }
     Ok(())
 }
@@ -779,12 +792,15 @@ fn js_iterator_proto_some(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
 fn js_iterator_proto_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let this_obj = this.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
+    let this_obj = this
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
+
     let func = cc.arg(0);
     if !func.is_callable() {
-        ctx.throw_type_error("reduce argument must be a function");
+        let e = ctx.throw_type_error("reduce argument must be a function");
         close_with_pending_exception(ctx, this_obj);
-        return Err(-1);
+        return Err(e);
     }
 
     let next = this_obj.get_property(ctx, Atom::CONST_next)?;
@@ -828,7 +844,9 @@ fn js_iterator_proto_reduce(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
 
 fn js_iterator_proto_toArray(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let this_obj = this.as_object().ok_or_else(|| ctx.throw_type_error_not_an_object())?;
+    let this_obj = this
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
     let next = this_obj.get_property(ctx, Atom::CONST_next)?;
     let mut arr = Array::create(ctx)?;

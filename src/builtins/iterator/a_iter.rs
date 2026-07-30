@@ -80,7 +80,7 @@ fn js_async_from_sync_iterator_close_on_reject(
     // set the pending exception first, then best-effort close the iterator (forgiving: don't check return type)
     let err = cc.arg(0);
     let async_val = cc.data(0);
-    ctx.throw_value(err);
+    let e = ctx.throw_value(err);
 
     if let Ok(async_obj) = Object::try_from(async_val)
         && let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = async_obj.payload()
@@ -92,7 +92,7 @@ fn js_async_from_sync_iterator_close_on_reject(
     // close_iter_internal restores the original exception (err) if return() succeeds.
     // If return() throws, its error stays. Either way, return Err(-1)
     // to let the promise reaction use the current exception.
-    Err(-1)
+    Err(e)
 }
 
 /// Reject the promise with the current exception on the context.
@@ -116,7 +116,7 @@ fn close_iterator_and_reject(
         Exception::No => {
             // throw() is undefined and IteratorClose succeeded:
             // reject with a new TypeError per spec
-            ctx.throw_type_error("throw is not a method");
+            let _ = ctx.throw_type_error("throw is not a method");
             ctx.take_exception().to_value(ctx)
         }
         _ => ctx.take_exception().to_value(ctx),
@@ -217,7 +217,7 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
                 } else {
                     let err_val = ctx.take_exception().to_value(ctx);
                     return if close_on_rejection && !done {
-                        ctx.throw_value(err_val);
+                        let _ = ctx.throw_value(err_val);
                         close_iterator_and_reject(ctx, p, resolving_funcs, promise)
                     } else {
                         let _ = resolving_funcs[1].call(ctx, JSValue::UNDEFINED, &[err_val]);

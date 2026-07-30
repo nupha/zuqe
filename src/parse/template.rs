@@ -51,10 +51,8 @@ impl<'s> JSParseState<'s> {
                         }
                         Some(_) => {
                             let (_, c1) = inp.next_char().unwrap();
-                            sbuf.push_char(c1).map_err(|_| {
-                                self.ctx().throw_out_of_memory();
-                                -1
-                            })?;
+                            sbuf.push_char(c1)
+                                .map_err(|_| self.ctx().throw_out_of_memory())?;
                         }
                         None => {
                             return Err(self.throw_syntax_error("unexpected end of string"));
@@ -65,17 +63,13 @@ impl<'s> JSParseState<'s> {
                     if c1 == '\r' && inp.peek() == Some(b'\n') {
                         inp.seek_relative(1);
                     }
-                    sbuf.push_u8(b'\n').map_err(|_| {
-                        self.ctx().throw_out_of_memory();
-                        -1
-                    })?;
+                    sbuf.push_u8(b'\n')
+                        .map_err(|_| self.ctx().throw_out_of_memory())?;
                     self.line_num += 1;
                 }
                 CharCode::Char(_) => {
-                    sbuf.push_char(sc).map_err(|_| {
-                        self.ctx().throw_out_of_memory();
-                        -1
-                    })?;
+                    sbuf.push_char(sc)
+                        .map_err(|_| self.ctx().throw_out_of_memory())?;
                 }
                 CharCode::Code(_) => {
                     return Err(self.throw_syntax_error("invalid UTF-8 sequence"));

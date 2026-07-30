@@ -892,7 +892,7 @@ impl<'c> ScopedContext<'c> {
             Err(self.throw_internal_error("string too long"))
         } else {
             StringRef::create_str(self, str).inspect_err(|_| {
-                self.throw_out_of_memory();
+                let _ = self.throw_out_of_memory();
             })
         }
     }
@@ -903,7 +903,7 @@ impl<'c> ScopedContext<'c> {
             Atom::CONST_empty_string.force_string(self)
         } else {
             StringRef::create_static(self, str, None).inspect_err(|_| {
-                self.throw_out_of_memory();
+                let _ = self.throw_out_of_memory();
             })
         }
     }

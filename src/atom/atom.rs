@@ -11,7 +11,7 @@ use crate::{
     context::ScopedContext,
     number::IntOrFloat,
     string::{CharCode, StringImpl, StringRef},
-    value::JSValue,
+    value::{JSValue, JSValueTag},
 };
 
 #[repr(transparent)]
@@ -318,6 +318,59 @@ impl StringImpl {
         } else {
             // register as atom
             Atom::from_string(ctx, self.gc_ref().into(), kind)
+        }
+    }
+}
+
+impl JSValue {
+    /// convert value to atom. if value is not string or symbol, corece value to string then convert to atom.
+    ///
+    /// Note: returned atom is cloned, caller should free it after use.
+    pub fn to_atom(&self, ctx: &mut ScopedContext) -> Result<Atom, i32> {
+        let mut val = *self;
+
+        loop {
+            match val.tag() {
+                JSValueTag::Undefined => {
+                    return Ok(Atom::CONST_undefined);
+                }
+                JSValueTag::Null => {
+                    return Ok(Atom::CONST_null);
+                }
+                JSValueTag::Bool => {
+                    return Ok(if val.payload_i32() != 0 {
+                        Atom::CONST_true
+                    } else {
+                        Atom::CONST_false
+                    });
+                }
+                JSValueTag::Int => {
+                    return Atom::from_i64(ctx, val.payload_i32() as i64);
+                }
+                JSValueTag::String => unsafe {
+                    return val.as_string_unchecked().to_atom(ctx, AtomKind::String);
+                },
+                JSValueTag::Symbol => unsafe {
+                    return val.as_string_unchecked().to_atom(ctx, AtomKind::Symbol);
+                },
+                JSValueTag::Object | JSValueTag::Float64 => {
+                    val = val.to_string_or_symbol(ctx)?;
+                    continue;
+                }
+                JSValueTag::Uninitialized
+                | JSValueTag::CatchOffset
+                | JSValueTag::Module
+                | JSValueTag::FunctionBytecode => {
+                    return Err(ctx.throw_type_error("cannot convert to atom"));
+                }
+
+                JSValueTag::StringRope | JSValueTag::Exception => {
+                    #[cfg(debug_assertions)]
+                    unreachable!();
+                    #[cfg(not(debug_assertions))]
+                    return Err(-1);
+                }
+            }
         }
     }
 }

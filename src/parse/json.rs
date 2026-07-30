@@ -315,10 +315,8 @@ impl<'s> JSParseState<'s> {
             && Self::is_ident_next(c as _)
         {
             if buf.capacity() - buf.len() >= 6 {
-                buf.try_reserve(64).map_err(|_| {
-                    self.ctx().throw_out_of_memory();
-                    -1
-                })?;
+                buf.try_reserve(64)
+                    .map_err(|_| self.ctx().throw_out_of_memory())?;
             }
             buf.push(c);
             inp.seek_relative(1);
@@ -408,10 +406,8 @@ impl<'s> JSParseState<'s> {
                         }
 
                         if lst.len() == lst.capacity() {
-                            lst.try_reserve(32).map_err(|_| {
-                                self.ctx().throw_out_of_memory();
-                                -1
-                            })?;
+                            lst.try_reserve(32)
+                                .map_err(|_| self.ctx().throw_out_of_memory())?;
                         }
                         lst.push(el);
 

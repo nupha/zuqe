@@ -273,9 +273,10 @@ fn js_string_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 )
                 .map_err(|e| {
                     if e.is_some() {
-                        ctx.throw_out_of_memory();
+                        ctx.throw_out_of_memory()
+                    } else {
+                        -1
                     }
-                    -1
                 })?;
 
                 ctx.create_string_with_buf(sb)

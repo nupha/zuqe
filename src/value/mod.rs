@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-mod nb_value;
 mod ops;
 mod primitives;
 mod repr;
 mod tag;
 mod val;
 
-pub use nb_value::JSValue;
+pub use val::JSValue;
 
 pub(crate) use tag::*;
 
