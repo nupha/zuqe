@@ -37,11 +37,12 @@ impl<'s> JSParseState<'s> {
         self.parse_expect(TokenKind::Char('{'))?;
 
         if self.token.kind != TokenKind::Char('}') {
-            self.push_scope()?;
-            while self.token.kind != TokenKind::Char('}') {
-                self.parse_stmt_or_decl(DECL_MASK_ALL)?;
-            }
-            self.pop_scope();
+            self.with_block_scope(|s| {
+                while s.token.kind != TokenKind::Char('}') {
+                    s.parse_stmt_or_decl(DECL_MASK_ALL)?;
+                }
+                Ok(())
+            })?;
         }
 
         self.next_token()
@@ -402,130 +403,128 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
 
     // create scope for the lexical variables declared in the initial,
     // test and increment expressions
-    s.push_scope()?;
+    s.with_block_scope(|s| {
+        // initial expression
+        let mut tok = s.token.kind;
+        if tok != TokenKind::Char(';') {
+            if is_let(s, DECL_MASK_OTHER)? {
+                tok = TokenKind::LET;
+            }
 
-    // initial expression
-    let mut tok = s.token.kind;
-    if tok != TokenKind::Char(';') {
-        if is_let(s, DECL_MASK_OTHER)? {
-            tok = TokenKind::LET;
+            if matches!(tok, TokenKind::VAR | TokenKind::LET | TokenKind::CONST) {
+                s.next_token()?;
+                s.parse_var(0, tok, false)?;
+            } else {
+                s.parse_expr2(0)?;
+                s.emit_op(OpCode::DROP);
+            }
+
+            // close the closures before the first iteration
+            let scope_level = s.cur_func().scope_level;
+            s.close_scopes(scope_level, block_scope_level);
         }
 
-        if matches!(tok, TokenKind::VAR | TokenKind::LET | TokenKind::CONST) {
-            s.next_token()?;
-            s.parse_var(0, tok, false)?;
+        s.parse_expect(TokenKind::Char(';'))?;
+
+        let (mut label_test, mut label_cont, label_body, label_break) = {
+            let fd = s.cur_func_mut();
+            (
+                fd.add_label()? as i32,
+                fd.add_label()? as i32,
+                fd.add_label()? as i32,
+                fd.add_label()? as i32,
+            )
+        };
+
+        // push break entry: be is allocated on stack
+        let mut break_entry = BlockEnv {
+            label_name,
+            label_break,
+            label_cont,
+            ..Default::default()
+        };
+        s.cur_func_mut().push_break_entry(&mut break_entry);
+
+        // test expression
+        if s.token.kind == TokenKind::Char(';') {
+            // no test expression
+            label_test = label_body;
         } else {
-            s.parse_expr2(0)?;
-            s.emit_op(OpCode::DROP);
+            s.emit_label(label_test);
+            s.parse_expr()?;
+            s.emit_goto(OpCode::IF_FALSE, label_break);
         }
 
-        // close the closures before the first iteration
+        s.parse_expect(TokenKind::Char(';'))?;
+
+        let pos_cont = if s.token.kind == TokenKind::Char(')') {
+            // no end expression
+            label_cont = label_test;
+            #[allow(unused_assignments)]
+            {
+                break_entry.label_cont = label_cont;
+            }
+            0
+        } else {
+            // skip the end expression
+            s.emit_goto(OpCode::GOTO, label_body);
+
+            let p = s.cur_func().byte_code.len();
+            s.emit_label(label_cont);
+
+            s.parse_expr()?;
+
+            s.emit_op(OpCode::DROP);
+            if label_test != label_body {
+                s.emit_goto(OpCode::GOTO, label_test);
+            }
+
+            p
+        };
+
+        s.parse_expect(TokenKind::Char(')'))?;
+
+        let pos_body = s.cur_func().byte_code.len();
+        s.emit_label(label_body);
+        s.parse_statement()?;
+
+        // close the closures before the next iteration
+        // XXX: check continue case
         let scope_level = s.cur_func().scope_level;
         s.close_scopes(scope_level, block_scope_level);
-    }
 
-    s.parse_expect(TokenKind::Char(';'))?;
+        if OPTIMIZE && label_test != label_body && label_cont != label_test {
+            // move the increment code here
+            let bc = &mut s.cur_func_mut().byte_code;
+            let chunk_size = pos_body - pos_cont;
+            let offset = bc.len() - pos_cont;
 
-    let (mut label_test, mut label_cont, label_body, label_break) = {
-        let fd = s.cur_func_mut();
-        (
-            fd.add_label()? as i32,
-            fd.add_label()? as i32,
-            fd.add_label()? as i32,
-            fd.add_label()? as i32,
-        )
-    };
-
-    // push break entry: be is allocated on stack
-    let mut break_entry = BlockEnv {
-        label_name,
-        label_break,
-        label_cont,
-        ..Default::default()
-    };
-    s.cur_func_mut().push_break_entry(&mut break_entry);
-
-    // test expression
-    if s.token.kind == TokenKind::Char(';') {
-        // no test expression
-        label_test = label_body;
-    } else {
-        s.emit_label(label_test);
-        s.parse_expr()?;
-        s.emit_goto(OpCode::IF_FALSE, label_break);
-    }
-
-    s.parse_expect(TokenKind::Char(';'))?;
-
-    let pos_cont = if s.token.kind == TokenKind::Char(')') {
-        // no end expression
-        label_cont = label_test;
-        #[allow(unused_assignments)]
-        {
-            break_entry.label_cont = label_cont;
-        }
-        0
-    } else {
-        // skip the end expression
-        s.emit_goto(OpCode::GOTO, label_body);
-
-        let p = s.cur_func().byte_code.len();
-        s.emit_label(label_cont);
-
-        s.parse_expr()?;
-
-        s.emit_op(OpCode::DROP);
-        if label_test != label_body {
-            s.emit_goto(OpCode::GOTO, label_test);
-        }
-
-        p
-    };
-
-    s.parse_expect(TokenKind::Char(')'))?;
-
-    let pos_body = s.cur_func().byte_code.len();
-    s.emit_label(label_body);
-    s.parse_statement()?;
-
-    // close the closures before the next iteration
-    // XXX: check continue case
-    let scope_level = s.cur_func().scope_level;
-    s.close_scopes(scope_level, block_scope_level);
-
-    if OPTIMIZE && label_test != label_body && label_cont != label_test {
-        // move the increment code here
-        let bc = &mut s.cur_func_mut().byte_code;
-        let chunk_size = pos_body - pos_cont;
-        let offset = bc.len() - pos_cont;
-
-        bc.extend(std::iter::repeat_n(OpCode::NOP as u8, chunk_size));
-        for i in (pos_cont..pos_body).rev() {
-            bc[i + offset] = bc[i];
-        }
-        for item in bc.iter_mut().take(pos_body).skip(pos_cont) {
-            *item = OpCode::NOP as u8;
-        }
-
-        // increment part ends with a goto
-        s.cur_func_mut().last_opcode_pos = bc.len() as i32 - 5;
-
-        // relocate labels
-        for lb in &mut s.cur_func_mut().label_slots[label_cont as usize..] {
-            if lb.pos >= pos_cont as i32 && lb.pos < pos_body as i32 {
-                lb.pos += offset as i32;
+            bc.extend(std::iter::repeat_n(OpCode::NOP as u8, chunk_size));
+            for i in (pos_cont..pos_body).rev() {
+                bc[i + offset] = bc[i];
             }
+            for item in bc.iter_mut().take(pos_body).skip(pos_cont) {
+                *item = OpCode::NOP as u8;
+            }
+
+            // increment part ends with a goto
+            s.cur_func_mut().last_opcode_pos = bc.len() as i32 - 5;
+
+            // relocate labels
+            for lb in &mut s.cur_func_mut().label_slots[label_cont as usize..] {
+                if lb.pos >= pos_cont as i32 && lb.pos < pos_body as i32 {
+                    lb.pos += offset as i32;
+                }
+            }
+        } else {
+            s.emit_goto(OpCode::GOTO, label_cont);
         }
-    } else {
-        s.emit_goto(OpCode::GOTO, label_cont);
-    }
 
-    s.emit_label(label_break);
+        s.emit_label(label_break);
 
-    s.cur_func_mut().pop_break_entry();
-    s.pop_scope();
-
-    Ok(())
+        s.cur_func_mut().pop_break_entry();
+        Ok(())
+    })
 }
 
 fn stmt_while(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
@@ -559,32 +558,31 @@ fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
     s.next_token()?;
 
     // create a new scope for `let f;if(1) function f(){}`
-    s.push_scope()?;
-    s.set_eval_ret_undefined();
-    s.parse_expr_parens()?;
+    s.with_block_scope(|s| {
+        s.set_eval_ret_undefined();
+        s.parse_expr_parens()?;
 
-    let mut label1 = s.emit_goto(OpCode::IF_FALSE, -1);
-    let mask = if s.cur_func().attrs.exec_mode.contains(ExecMode::STRICT) {
-        0
-    } else {
-        DECL_MASK_FUNC // Annex B.3.4
-    };
+        let mut label1 = s.emit_goto(OpCode::IF_FALSE, -1);
+        let mask = if s.cur_func().attrs.exec_mode.contains(ExecMode::STRICT) {
+            0
+        } else {
+            DECL_MASK_FUNC // Annex B.3.4
+        };
 
-    s.parse_stmt_or_decl(mask)?;
-
-    if s.token.kind == TokenKind::ELSE {
-        let label2 = s.emit_goto(OpCode::GOTO, -1);
-        s.next_token()?;
-
-        s.emit_label(label1);
         s.parse_stmt_or_decl(mask)?;
 
-        label1 = label2;
-    }
-    s.emit_label(label1);
+        if s.token.kind == TokenKind::ELSE {
+            let label2 = s.emit_goto(OpCode::GOTO, -1);
+            s.next_token()?;
 
-    s.pop_scope();
-    Ok(())
+            s.emit_label(label1);
+            s.parse_stmt_or_decl(mask)?;
+
+            label1 = label2;
+        }
+        s.emit_label(label1);
+        Ok(())
+    })
 }
 
 fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
@@ -626,56 +624,62 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
 
     if s.token.kind == TokenKind::CATCH {
         s.next_token()?;
-        s.push_scope()?; // catch variable
-        s.emit_label(label_catch);
 
-        if s.token.kind == TokenKind::Char('{') {
-            // support optional-catch-binding feature
-            s.emit_op(OpCode::DROP); // pop the exception object
-        } else {
-            s.parse_expect(TokenKind::Char('('))?;
+        // outer scope: catch variable; inner scope: catch block
+        s.with_block_scope(|s| {
+            s.emit_label(label_catch);
 
-            if s.token.kind != TokenKind::IDENT || s.token.data.is_reserved() {
-                if matches!(s.token.kind, TokenKind::Char('[') | TokenKind::Char('{')) {
-                    // XXX: LET is not completely correct
-                    s.parse_destructuring_element(TokenKind::LET, false, true, -1, true, false)?;
-                } else {
-                    return Err(s.throw_syntax_error("identifier expected"));
-                }
+            if s.token.kind == TokenKind::Char('{') {
+                // support optional-catch-binding feature
+                s.emit_op(OpCode::DROP); // pop the exception object
             } else {
-                // must dup the atom because later next_token() will free it
-                let name = s.token.atom().unwrap();
-                s.next_token()?;
+                s.parse_expect(TokenKind::Char('('))?;
 
-                s.define_var(name, TokenKind::CATCH, false)?;
+                if s.token.kind != TokenKind::IDENT || s.token.data.is_reserved() {
+                    if matches!(s.token.kind, TokenKind::Char('[') | TokenKind::Char('{')) {
+                        // XXX: LET is not completely correct
+                        s.parse_destructuring_element(
+                            TokenKind::LET,
+                            false,
+                            true,
+                            -1,
+                            true,
+                            false,
+                        )?;
+                    } else {
+                        return Err(s.throw_syntax_error("identifier expected"));
+                    }
+                } else {
+                    // must dup the atom because later next_token() will free it
+                    let name = s.token.atom().unwrap();
+                    s.next_token()?;
 
-                // store the exception value in the catch variable
-                s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-                s.emit_atom(name);
-                s.emit_u16(s.cur_func().scope_level as _);
+                    s.define_var(name, TokenKind::CATCH, false)?;
+
+                    // store the exception value in the catch variable
+                    s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
+                    s.emit_atom(name);
+                    s.emit_u16(s.cur_func().scope_level as _);
+                }
+
+                s.parse_expect(TokenKind::Char(')'))?;
             }
 
-            s.parse_expect(TokenKind::Char(')'))?;
-        }
+            // XXX: should keep the address to nop it out if there is no finally block
+            s.emit_goto(OpCode::CATCH, label_catch2);
 
-        // XXX: should keep the address to nop it out if there is no finally block
-        s.emit_goto(OpCode::CATCH, label_catch2);
-
-        s.push_scope()?; // catch block
-
-        {
-            let mut be = BlockEnv {
-                label_finally,
-                drop_count: 1,
-                ..Default::default()
-            };
-            s.cur_func_mut().push_break_entry(&mut be);
-            s.parse_block()?;
-            s.cur_func_mut().pop_break_entry();
-        }
-
-        s.pop_scope(); // catch block
-        s.pop_scope(); // catch variable
+            s.with_block_scope(|s| {
+                let mut be = BlockEnv {
+                    label_finally,
+                    drop_count: 1,
+                    ..Default::default()
+                };
+                s.cur_func_mut().push_break_entry(&mut be);
+                s.parse_block()?;
+                s.cur_func_mut().pop_break_entry();
+                Ok(())
+            })
+        })?;
 
         if s.cur_func().is_live_code() {
             // drop the catch2 offset
@@ -752,99 +756,97 @@ fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     s.set_eval_ret_undefined();
     s.parse_expr_parens()?;
 
-    s.push_scope()?;
+    s.with_block_scope(|s| {
+        let label_break = s.cur_func_mut().add_label()? as i32;
+        let mut break_entry = BlockEnv {
+            label_name,
+            label_break,
+            drop_count: 1,
+            ..Default::default()
+        };
+        s.cur_func_mut().push_break_entry(&mut break_entry);
 
-    let label_break = s.cur_func_mut().add_label()? as i32;
-    let mut break_entry = BlockEnv {
-        label_name,
-        label_break,
-        drop_count: 1,
-        ..Default::default()
-    };
-    s.cur_func_mut().push_break_entry(&mut break_entry);
+        s.parse_expect(TokenKind::Char('{'))?;
 
-    s.parse_expect(TokenKind::Char('{'))?;
+        let mut default_label_pos = -1;
+        let mut label_case = -1;
+        let mut label1: i32;
 
-    let mut default_label_pos = -1;
-    let mut label_case = -1;
-    let mut label1: i32;
+        while s.token.kind != TokenKind::Char('}') {
+            if s.token.kind == TokenKind::CASE {
+                label1 = if label_case >= 0 {
+                    // skip the case if needed
+                    s.emit_goto(OpCode::GOTO, -1)
+                } else {
+                    -1
+                };
+                s.emit_label(label_case);
 
-    while s.token.kind != TokenKind::Char('}') {
-        if s.token.kind == TokenKind::CASE {
-            label1 = if label_case >= 0 {
-                // skip the case if needed
-                s.emit_goto(OpCode::GOTO, -1)
-            } else {
-                -1
-            };
-            s.emit_label(label_case);
+                loop {
+                    // parse a sequence of case clauses
+                    s.next_token()?;
 
-            loop {
-                // parse a sequence of case clauses
+                    s.emit_op(OpCode::DUP);
+                    s.parse_expr()?;
+                    s.parse_expect(TokenKind::Char(':'))?;
+
+                    s.emit_op(OpCode::STRICT_EQ);
+                    if s.token.kind == TokenKind::CASE {
+                        label1 = s.emit_goto(OpCode::IF_TRUE, label1);
+                    } else {
+                        label_case = s.emit_goto(OpCode::IF_FALSE, -1);
+                        s.emit_label(label1);
+                        break;
+                    }
+                }
+            } else if s.token.kind == TokenKind::DEFAULT {
                 s.next_token()?;
-
-                s.emit_op(OpCode::DUP);
-                s.parse_expr()?;
                 s.parse_expect(TokenKind::Char(':'))?;
 
-                s.emit_op(OpCode::STRICT_EQ);
-                if s.token.kind == TokenKind::CASE {
-                    label1 = s.emit_goto(OpCode::IF_TRUE, label1);
-                } else {
-                    label_case = s.emit_goto(OpCode::IF_FALSE, -1);
-                    s.emit_label(label1);
-                    break;
+                if default_label_pos >= 0 {
+                    return Err(s.throw_syntax_error("duplicate default"));
                 }
+                if label_case < 0 {
+                    // falling thru direct from switch expression
+                    label_case = s.emit_goto(OpCode::GOTO, -1);
+                }
+                // Emit a dummy label opcode. Label will be patched after
+                // the end of the switch body. Do not use emit_label(s, 0)
+                // because it would clobber label 0 address, preventing
+                // proper optimizer operation.
+                s.emit_op_temp(OpCodeTemp::LABEL);
+                s.emit_u32(0);
+                default_label_pos = s.cur_func().byte_code.len() as i32 - 4;
+            } else {
+                if label_case < 0 {
+                    // falling thru direct from switch expression
+                    return Err(s.throw_syntax_error("invalid switch statement"));
+                }
+                s.parse_stmt_or_decl(DECL_MASK_ALL)?;
             }
-        } else if s.token.kind == TokenKind::DEFAULT {
-            s.next_token()?;
-            s.parse_expect(TokenKind::Char(':'))?;
+        }
 
-            if default_label_pos >= 0 {
-                return Err(s.throw_syntax_error("duplicate default"));
+        s.parse_expect(TokenKind::Char('}'))?;
+
+        if default_label_pos >= 0 {
+            // Ugly patch for the the `default` label, shameful and risky
+            let fd = s.cur_func_mut();
+            unsafe {
+                write_to_ptr::<u32>(
+                    fd.byte_code.as_mut_ptr().add(default_label_pos as usize),
+                    label_case as u32,
+                );
             }
-            if label_case < 0 {
-                // falling thru direct from switch expression
-                label_case = s.emit_goto(OpCode::GOTO, -1);
-            }
-            // Emit a dummy label opcode. Label will be patched after
-            // the end of the switch body. Do not use emit_label(s, 0)
-            // because it would clobber label 0 address, preventing
-            // proper optimizer operation.
-            s.emit_op_temp(OpCodeTemp::LABEL);
-            s.emit_u32(0);
-            default_label_pos = s.cur_func().byte_code.len() as i32 - 4;
+            fd.label_slots[label_case as usize].pos = default_label_pos + 4;
         } else {
-            if label_case < 0 {
-                // falling thru direct from switch expression
-                return Err(s.throw_syntax_error("invalid switch statement"));
-            }
-            s.parse_stmt_or_decl(DECL_MASK_ALL)?;
+            s.emit_label(label_case);
         }
-    }
+        s.emit_label(label_break);
+        s.emit_op(OpCode::DROP); // drop the switch expression
 
-    s.parse_expect(TokenKind::Char('}'))?;
-
-    if default_label_pos >= 0 {
-        // Ugly patch for the the `default` label, shameful and risky
-        let fd = s.cur_func_mut();
-        unsafe {
-            write_to_ptr::<u32>(
-                fd.byte_code.as_mut_ptr().add(default_label_pos as usize),
-                label_case as u32,
-            );
-        }
-        fd.label_slots[label_case as usize].pos = default_label_pos + 4;
-    } else {
-        s.emit_label(label_case);
-    }
-    s.emit_label(label_break);
-    s.emit_op(OpCode::DROP); // drop the switch expression
-
-    s.cur_func_mut().pop_break_entry();
-    s.pop_scope();
-
-    Ok(())
+        s.cur_func_mut().pop_break_entry();
+        Ok(())
+    })
 }
 
 fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
@@ -854,21 +856,18 @@ fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
         s.next_token()?;
         s.parse_expr_parens()?;
 
-        s.push_scope()?;
+        s.with_block_scope(|s| {
+            let with_idx =
+                s.define_var_cur_func(Atom::CONST__with_, JSVarDefEnum::JS_VAR_DEF_WITH)?;
 
-        let with_idx = s.define_var_cur_func(Atom::CONST__with_, JSVarDefEnum::JS_VAR_DEF_WITH)?;
+            s.emit_op(OpCode::TO_OBJECT);
+            s.emit_op(OpCode::PUT_LOC);
+            s.emit_u16(with_idx as _);
 
-        s.emit_op(OpCode::TO_OBJECT);
-        s.emit_op(OpCode::PUT_LOC);
-        s.emit_u16(with_idx as _);
-
-        s.set_eval_ret_undefined();
-        s.parse_statement()?;
-
-        // Popping scope drops lexical context for the with object variable
-        s.pop_scope();
-
-        Ok(())
+            s.set_eval_ret_undefined();
+            // Popping scope drops lexical context for the with object variable
+            s.parse_statement()
+        })
     }
 }
 
@@ -884,7 +883,9 @@ fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<TodoState, i32> {
 
     if s.token_is_pseudo_keyword(Atom::CONST_async) && s.peek_token(true) == TokenKind::FUNCTION {
         if decl_mask & DECL_MASK_OTHER == 0 {
-            return Err(s.throw_syntax_error("function declarations can't appear in single-statement context"));
+            return Err(s.throw_syntax_error(
+                "function declarations can't appear in single-statement context",
+            ));
         }
         return Ok(TodoState::ParseFuncVar);
     }
@@ -912,264 +913,262 @@ fn parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Re
     // create scope for the lexical variables declared in the enumeration
     // expressions. XXX: Not completely correct because of weird capturing
     // semantics in `for (i of o) a.push(function(){return i})`
-    s.push_scope()?;
-
-    // local for_in scope starts here so individual elements
-    // can be closed in statement.
-    let mut break_entry = BlockEnv {
-        label_name,
-        label_break,
-        label_cont,
-        drop_count: 1,
-        ..Default::default()
-    };
-    s.cur_func_mut().push_break_entry(&mut break_entry);
-    #[allow(unused_assignments)]
-    {
-        break_entry.scope_level = block_scope_level;
-    }
-
-    let label_expr = s.emit_goto(OpCode::GOTO, -1);
-    let pos_next = s.cur_func().byte_code.len();
-    s.emit_label(label_next);
-
-    let tok = if is_let(s, DECL_MASK_OTHER)? {
-        TokenKind::LET
-    } else {
-        s.token.kind
-    };
-
-    let var_name: Atom;
-    let mut has_destructuring = false;
-
-    if matches!(tok, TokenKind::VAR | TokenKind::LET | TokenKind::CONST) {
-        s.next_token()?;
-
-        if s.token.kind != TokenKind::IDENT || s.token.data.is_reserved() {
-            if matches!(s.token.kind, TokenKind::Char('[' | '{')) {
-                s.parse_destructuring_element(tok, false, true, -1, false, false)?;
-                has_destructuring = true;
-            } else {
-                return Err(s.throw_syntax_error("variable name expected"));
-            }
-            var_name = Atom::NULL;
-        } else {
-            var_name = s.token.atom().unwrap();
-            s.next_token()?;
-
-            s.define_var(var_name, tok, false)?;
-            s.emit_op_temp(if matches!(tok, TokenKind::CONST | TokenKind::LET) {
-                OpCodeTemp::SCOPE_PUT_VAR_INIT
-            } else {
-                OpCodeTemp::SCOPE_PUT_VAR
-            });
-            s.emit_atom(var_name);
-            s.emit_u16(s.cur_func().scope_level as _);
-        }
-    } else if unlikely(
-        !is_async
-            && s.token_is_pseudo_keyword(Atom::CONST_async)
-            && s.peek_token(false) == TokenKind::OF,
-    ) {
-        return Err(s.throw_syntax_error("'for of' expression cannot start with 'async'"));
-    } else {
-        let mut skip_bits: i32 = 0;
-        if matches!(s.token.kind, TokenKind::Char('[' | '{'))
-            && matches!(
-                s.parse_skip_parens_token(&mut skip_bits, false)?,
-                TokenKind::IN | TokenKind::OF
-            )
-        {
-            s.parse_destructuring_element(
-                TokenKind::Char('\0'),
-                false,
-                true,
-                skip_bits & SKIP_HAS_ELLIPSIS,
-                true,
-                false,
-            )?;
-        } else {
-            s.parse_left_hand_side_expr()?;
-
-            let mut lvalue_label: i32 = 0;
-            let mut opcode: i32 = 0;
-            let mut scope: i32 = 0;
-            let mut name = Atom::NULL;
-
-            s.get_lvalue(
-                &mut opcode,
-                &mut scope,
-                &mut name,
-                &mut lvalue_label,
-                std::ptr::null_mut(),
-                false,
-                TokenKind::FOR,
-            )?;
-            s.put_lvalue(
-                opcode,
-                scope,
-                name,
-                lvalue_label,
-                PutLValueEnum::PUT_LVALUE_NOKEEP_BOTTOM,
-                false,
-            );
-        }
-
-        var_name = Atom::NULL;
-    }
-
-    s.emit_goto(OpCode::GOTO, label_body);
-
-    let pos_expr = s.cur_func().byte_code.len();
-    s.emit_label(label_expr);
-
-    let mut has_initializer = false;
-
-    if s.token.kind == TokenKind::Char('=') {
-        // XXX: potential scoping issue if inside `with` statement
-        has_initializer = true;
-        // parse and evaluate initializer prior to evaluating the
-        // object (only used with "for in" with a non lexical variable
-        // in non strict mode)
-        s.next_token()?;
-        s.parse_assign_expr2(0)?;
-
-        if !var_name.is_null() {
-            s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-            s.emit_atom(var_name);
-            s.emit_u16(s.cur_func().scope_level as _);
-        }
-    }
-
-    let mut is_for_of = false;
-
-    if s.token_is_pseudo_keyword(Atom::CONST_of) {
-        // for...of
-        is_for_of = true;
+    s.with_block_scope(|s| {
+        // local for_in scope starts here so individual elements
+        // can be closed in statement.
+        let mut break_entry = BlockEnv {
+            label_name,
+            label_break,
+            label_cont,
+            drop_count: 1,
+            ..Default::default()
+        };
+        s.cur_func_mut().push_break_entry(&mut break_entry);
         #[allow(unused_assignments)]
         {
-            break_entry.has_iterator = true;
-            break_entry.drop_count += 2;
+            break_entry.scope_level = block_scope_level;
         }
-        if has_initializer {
-            return Err(s.throw_syntax_error(&format!(
-                "a declaration in the head of a for-{} loop can't have an initializer",
-                if is_for_of { "of" } else { "in" }
-            )));
-        }
-    } else if s.token.kind == TokenKind::IN {
-        if is_async {
-            return Err(s.throw_syntax_error("'for await' loop should be used with 'of'"));
-        }
-        if has_initializer
-            && (tok != TokenKind::VAR
-                || s.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
-                || has_destructuring)
-        {
-            return Err(s.throw_syntax_error(&format!(
-                "a declaration in the head of a for-{} loop can't have an initializer",
-                if is_for_of { "of" } else { "in" }
-            )));
-        }
-    } else {
-        return Err(s.throw_syntax_error("expected 'of' or 'in' in for control expression"));
-    }
 
-    s.next_token()?;
+        let label_expr = s.emit_goto(OpCode::GOTO, -1);
+        let pos_next = s.cur_func().byte_code.len();
+        s.emit_label(label_next);
 
-    if is_for_of {
-        s.parse_assign_expr()?;
-    } else {
-        s.parse_expr()?;
-    }
-
-    // close the scope after having evaluated the expression so that
-    // the TDZ values are in the closures
-    {
-        let scope_level = s.cur_func().scope_level;
-        s.close_scopes(scope_level, block_scope_level);
-    }
-
-    s.emit_op(if is_for_of {
-        if is_async {
-            OpCode::FOR_AWAIT_OF_START
+        let tok = if is_let(s, DECL_MASK_OTHER)? {
+            TokenKind::LET
         } else {
-            OpCode::FOR_OF_START
+            s.token.kind
+        };
+
+        let var_name: Atom;
+        let mut has_destructuring = false;
+
+        if matches!(tok, TokenKind::VAR | TokenKind::LET | TokenKind::CONST) {
+            s.next_token()?;
+
+            if s.token.kind != TokenKind::IDENT || s.token.data.is_reserved() {
+                if matches!(s.token.kind, TokenKind::Char('[' | '{')) {
+                    s.parse_destructuring_element(tok, false, true, -1, false, false)?;
+                    has_destructuring = true;
+                } else {
+                    return Err(s.throw_syntax_error("variable name expected"));
+                }
+                var_name = Atom::NULL;
+            } else {
+                var_name = s.token.atom().unwrap();
+                s.next_token()?;
+
+                s.define_var(var_name, tok, false)?;
+                s.emit_op_temp(if matches!(tok, TokenKind::CONST | TokenKind::LET) {
+                    OpCodeTemp::SCOPE_PUT_VAR_INIT
+                } else {
+                    OpCodeTemp::SCOPE_PUT_VAR
+                });
+                s.emit_atom(var_name);
+                s.emit_u16(s.cur_func().scope_level as _);
+            }
+        } else if unlikely(
+            !is_async
+                && s.token_is_pseudo_keyword(Atom::CONST_async)
+                && s.peek_token(false) == TokenKind::OF,
+        ) {
+            return Err(s.throw_syntax_error("'for of' expression cannot start with 'async'"));
+        } else {
+            let mut skip_bits: i32 = 0;
+            if matches!(s.token.kind, TokenKind::Char('[' | '{'))
+                && matches!(
+                    s.parse_skip_parens_token(&mut skip_bits, false)?,
+                    TokenKind::IN | TokenKind::OF
+                )
+            {
+                s.parse_destructuring_element(
+                    TokenKind::Char('\0'),
+                    false,
+                    true,
+                    skip_bits & SKIP_HAS_ELLIPSIS,
+                    true,
+                    false,
+                )?;
+            } else {
+                s.parse_left_hand_side_expr()?;
+
+                let mut lvalue_label: i32 = 0;
+                let mut opcode: i32 = 0;
+                let mut scope: i32 = 0;
+                let mut name = Atom::NULL;
+
+                s.get_lvalue(
+                    &mut opcode,
+                    &mut scope,
+                    &mut name,
+                    &mut lvalue_label,
+                    std::ptr::null_mut(),
+                    false,
+                    TokenKind::FOR,
+                )?;
+                s.put_lvalue(
+                    opcode,
+                    scope,
+                    name,
+                    lvalue_label,
+                    PutLValueEnum::PUT_LVALUE_NOKEEP_BOTTOM,
+                    false,
+                );
+            }
+
+            var_name = Atom::NULL;
         }
-        // on stack: enum_rec
-    } else {
-        OpCode::FOR_IN_START
-        // on stack: enum_obj
-    });
-    s.emit_goto(OpCode::GOTO, label_cont);
 
-    s.parse_expect(TokenKind::Char(')'))?;
+        s.emit_goto(OpCode::GOTO, label_body);
 
-    if OPTIMIZE {
-        let cur_func = s.cur_func_mut();
+        let pos_expr = s.cur_func().byte_code.len();
+        s.emit_label(label_expr);
 
-        // move the `next` code here
-        let bc = &mut cur_func.byte_code;
-        let chunk_size = pos_expr - pos_next;
-        let offset = bc.len() - pos_next;
+        let mut has_initializer = false;
 
-        // extend bytecode buf
-        bc.extend(std::iter::repeat_n(OpCode::NOP as u8, chunk_size));
+        if s.token.kind == TokenKind::Char('=') {
+            // XXX: potential scoping issue if inside `with` statement
+            has_initializer = true;
+            // parse and evaluate initializer prior to evaluating the
+            // object (only used with "for in" with a non lexical variable
+            // in non strict mode)
+            s.next_token()?;
+            s.parse_assign_expr2(0)?;
 
-        // align bytes ranges pos_next..pos_expr to buf bottom, fill gap with NOP
-        for i in (pos_next..pos_expr).rev() {
-            bc[i + offset] = bc[i];
-            bc[i] = OpCode::NOP as u8;
-        }
-
-        // `next` part ends with a goto
-        cur_func.last_opcode_pos = bc.len() as i32 - 5;
-
-        // relocate labels
-        for lb in &mut cur_func.label_slots[label_cont as usize..] {
-            if lb.pos >= pos_next as i32 && lb.pos < pos_expr as i32 {
-                lb.pos += offset as i32;
+            if !var_name.is_null() {
+                s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
+                s.emit_atom(var_name);
+                s.emit_u16(s.cur_func().scope_level as _);
             }
         }
-    }
 
-    s.emit_label(label_body);
-    s.parse_statement()?;
+        let mut is_for_of = false;
 
-    let scope_level = s.cur_func().scope_level;
-    s.close_scopes(scope_level, block_scope_level);
-
-    s.emit_label(label_cont);
-    if is_for_of {
-        if is_async {
-            // call the next method
-            // stack: iter_obj next catch_offset
-            s.emit_op(OpCode::FOR_AWAIT_OF_NEXT);
-            // get the result of the promise
-            s.emit_op(OpCode::AWAIT);
-            // unwrap the value and done values
-            s.emit_op(OpCode::ITERATOR_GET_VALUE_DONE);
+        if s.token_is_pseudo_keyword(Atom::CONST_of) {
+            // for...of
+            is_for_of = true;
+            #[allow(unused_assignments)]
+            {
+                break_entry.has_iterator = true;
+                break_entry.drop_count += 2;
+            }
+            if has_initializer {
+                return Err(s.throw_syntax_error(&format!(
+                    "a declaration in the head of a for-{} loop can't have an initializer",
+                    if is_for_of { "of" } else { "in" }
+                )));
+            }
+        } else if s.token.kind == TokenKind::IN {
+            if is_async {
+                return Err(s.throw_syntax_error("'for await' loop should be used with 'of'"));
+            }
+            if has_initializer
+                && (tok != TokenKind::VAR
+                    || s.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
+                    || has_destructuring)
+            {
+                return Err(s.throw_syntax_error(&format!(
+                    "a declaration in the head of a for-{} loop can't have an initializer",
+                    if is_for_of { "of" } else { "in" }
+                )));
+            }
         } else {
-            s.emit_op(OpCode::FOR_OF_NEXT);
-            s.emit_u8(0);
+            return Err(s.throw_syntax_error("expected 'of' or 'in' in for control expression"));
         }
-    } else {
-        s.emit_op(OpCode::FOR_IN_NEXT);
-    }
-    // on stack: enum_rec / enum_obj value bool
-    s.emit_goto(OpCode::IF_FALSE, label_next);
-    // drop the undefined value from for_xx_next
-    s.emit_op(OpCode::DROP);
 
-    s.emit_label(label_break);
-    s.emit_op(if is_for_of {
-        OpCode::ITERATOR_CLOSE // close and drop enum_rec
-    } else {
-        OpCode::DROP
-    });
+        s.next_token()?;
 
-    s.cur_func_mut().pop_break_entry();
-    s.pop_scope();
+        if is_for_of {
+            s.parse_assign_expr()?;
+        } else {
+            s.parse_expr()?;
+        }
 
-    Ok(())
+        // close the scope after having evaluated the expression so that
+        // the TDZ values are in the closures
+        {
+            let scope_level = s.cur_func().scope_level;
+            s.close_scopes(scope_level, block_scope_level);
+        }
+
+        s.emit_op(if is_for_of {
+            if is_async {
+                OpCode::FOR_AWAIT_OF_START
+            } else {
+                OpCode::FOR_OF_START
+            }
+            // on stack: enum_rec
+        } else {
+            OpCode::FOR_IN_START
+            // on stack: enum_obj
+        });
+        s.emit_goto(OpCode::GOTO, label_cont);
+
+        s.parse_expect(TokenKind::Char(')'))?;
+
+        if OPTIMIZE {
+            let cur_func = s.cur_func_mut();
+
+            // move the `next` code here
+            let bc = &mut cur_func.byte_code;
+            let chunk_size = pos_expr - pos_next;
+            let offset = bc.len() - pos_next;
+
+            // extend bytecode buf
+            bc.extend(std::iter::repeat_n(OpCode::NOP as u8, chunk_size));
+
+            // align bytes ranges pos_next..pos_expr to buf bottom, fill gap with NOP
+            for i in (pos_next..pos_expr).rev() {
+                bc[i + offset] = bc[i];
+                bc[i] = OpCode::NOP as u8;
+            }
+
+            // `next` part ends with a goto
+            cur_func.last_opcode_pos = bc.len() as i32 - 5;
+
+            // relocate labels
+            for lb in &mut cur_func.label_slots[label_cont as usize..] {
+                if lb.pos >= pos_next as i32 && lb.pos < pos_expr as i32 {
+                    lb.pos += offset as i32;
+                }
+            }
+        }
+
+        s.emit_label(label_body);
+        s.parse_statement()?;
+
+        let scope_level = s.cur_func().scope_level;
+        s.close_scopes(scope_level, block_scope_level);
+
+        s.emit_label(label_cont);
+        if is_for_of {
+            if is_async {
+                // call the next method
+                // stack: iter_obj next catch_offset
+                s.emit_op(OpCode::FOR_AWAIT_OF_NEXT);
+                // get the result of the promise
+                s.emit_op(OpCode::AWAIT);
+                // unwrap the value and done values
+                s.emit_op(OpCode::ITERATOR_GET_VALUE_DONE);
+            } else {
+                s.emit_op(OpCode::FOR_OF_NEXT);
+                s.emit_u8(0);
+            }
+        } else {
+            s.emit_op(OpCode::FOR_IN_NEXT);
+        }
+        // on stack: enum_rec / enum_obj value bool
+        s.emit_goto(OpCode::IF_FALSE, label_next);
+        // drop the undefined value from for_xx_next
+        s.emit_op(OpCode::DROP);
+
+        s.emit_label(label_break);
+        s.emit_op(if is_for_of {
+            OpCode::ITERATOR_CLOSE // close and drop enum_rec
+        } else {
+            OpCode::DROP
+        });
+
+        s.cur_func_mut().pop_break_entry();
+        Ok(())
+    })
 }

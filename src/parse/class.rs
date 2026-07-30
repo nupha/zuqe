@@ -101,19 +101,20 @@ impl<'s> JSParseState<'s> {
         )?;
 
         // stack is now: fclosure
-        self.push_scope()?;
-        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-        self.emit_atom(Atom::CONST_this);
-        self.emit_u16(0);
-        // stack is now: fclosure this
-        self.emit_op(OpCode::SWAP);
-        // stack is now: this fclosure
-        self.emit_op(OpCode::CALL_METHOD);
-        self.emit_u16(0);
-        // stack is now: returnvalue
-        self.emit_op(OpCode::DROP);
-        // stack is now: <empty>
-        self.pop_scope();
+        self.with_block_scope(|s| {
+            s.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+            s.emit_atom(Atom::CONST_this);
+            s.emit_u16(0);
+            // stack is now: fclosure this
+            s.emit_op(OpCode::SWAP);
+            // stack is now: this fclosure
+            s.emit_op(OpCode::CALL_METHOD);
+            s.emit_u16(0);
+            // stack is now: returnvalue
+            s.emit_op(OpCode::DROP);
+            // stack is now: <empty>
+            Ok(())
+        })?;
 
         self.cur_func_def = self.cur_func().parent;
 
@@ -348,7 +349,9 @@ impl<'s> JSParseState<'s> {
                         {
                             let fd = self.cur_func();
                             if find_private_class_field(fd, name, fd.scope_level).is_some() {
-                                return Err(self.throw_syntax_error(MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED));
+                                return Err(self.throw_syntax_error(
+                                    MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED,
+                                ));
                             }
                         }
 
@@ -480,7 +483,9 @@ impl<'s> JSParseState<'s> {
                         {
                             let fd = self.cur_func();
                             if find_private_class_field(fd, name, fd.scope_level).is_some() {
-                                return Err(self.throw_syntax_error(MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED));
+                                return Err(self.throw_syntax_error(
+                                    MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED,
+                                ));
                             }
                         }
 

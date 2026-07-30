@@ -297,7 +297,9 @@ impl<'s> JSParseState<'s> {
                         return Err(self.throw_syntax_error("expecting target"));
                     }
                     if !self.cur_func().attrs.new_target_allowed {
-                        return Err(self.throw_syntax_error("new.target only allowed within functions"));
+                        return Err(
+                            self.throw_syntax_error("new.target only allowed within functions")
+                        );
                     }
 
                     self.next_token()?;
@@ -353,7 +355,9 @@ impl<'s> JSParseState<'s> {
                         return Err(self.throw_syntax_error("meta expected"));
                     }
                     if !self.is_module {
-                        return Err(self.throw_syntax_error("import.meta only valid in module code"));
+                        return Err(
+                            self.throw_syntax_error("import.meta only valid in module code")
+                        );
                     }
                     self.next_token()?;
 
@@ -433,7 +437,9 @@ impl<'s> JSParseState<'s> {
                 && call_type == FuncCallType::FUNC_CALL_NORMAL
             {
                 if optional_chaining_label >= 0 {
-                    return Err(self.throw_syntax_error("template literal cannot appear in an optional chain"));
+                    return Err(self.throw_syntax_error(
+                        "template literal cannot appear in an optional chain",
+                    ));
                 }
                 let opcode = unsafe {
                     self.parse_func_call2(
@@ -712,9 +718,10 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::AWAIT);
             }
             self.emit_op(OpCode::YIELD);
-            let label_next = self.emit_goto(OpCode::IF_FALSE, -1);
-            self.emit_return(true);
-            self.emit_label(label_next);
+            self.with_forward_label(OpCode::IF_FALSE, |s| {
+                s.emit_return(true);
+                Ok(())
+            })?;
         }
 
         Ok(())
@@ -1088,13 +1095,14 @@ impl<'s> JSParseState<'s> {
                         PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH,
                         false,
                     );
-                    let label2 = self.emit_goto(OpCode::GOTO, -1);
-                    self.emit_label(label1);
-                    while depth_lvalue != 0 {
-                        self.emit_op(OpCode::NIP);
-                        depth_lvalue -= 1;
-                    }
-                    self.emit_label(label2);
+                    self.with_forward_label(OpCode::GOTO, |s| {
+                        s.emit_label(label1);
+                        while depth_lvalue != 0 {
+                            s.emit_op(OpCode::NIP);
+                            depth_lvalue -= 1;
+                        }
+                        Ok(())
+                    })?;
                 }
                 _ => {}
             }
@@ -1270,12 +1278,13 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::DELETE);
 
                 if opt_chain_label >= 0 {
-                    let next_label = self.emit_goto(OpCode::GOTO, -1);
-                    self.emit_label(opt_chain_label);
-                    // if the optional chain is not taken, return 'true'
-                    self.emit_op(OpCode::DROP);
-                    self.emit_op(OpCode::PUSH_TRUE);
-                    self.emit_label(next_label);
+                    self.with_forward_label(OpCode::GOTO, |s| {
+                        s.emit_label(opt_chain_label);
+                        // if the optional chain is not taken, return 'true'
+                        s.emit_op(OpCode::DROP);
+                        s.emit_op(OpCode::PUSH_TRUE);
+                        Ok(())
+                    })?;
                 }
 
                 fd.last_opcode_pos = -1;
@@ -1304,12 +1313,13 @@ impl<'s> JSParseState<'s> {
                 fd.byte_code.truncate(fd.last_opcode_pos as _);
 
                 self.emit_op(OpCode::DELETE);
-                let next_label = self.emit_goto(OpCode::GOTO, -1);
-                self.emit_label(opt_chain_label as _);
-                // if the optional chain is not taken, return 'true'
-                self.emit_op(OpCode::DROP);
-                self.emit_op(OpCode::PUSH_TRUE);
-                self.emit_label(next_label);
+                self.with_forward_label(OpCode::GOTO, |s| {
+                    s.emit_label(opt_chain_label as _);
+                    // if the optional chain is not taken, return 'true'
+                    s.emit_op(OpCode::DROP);
+                    s.emit_op(OpCode::PUSH_TRUE);
+                    Ok(())
+                })?;
                 fd.last_opcode_pos = -1;
             }
             opcodes::op_scope_get_var => {
@@ -1327,7 +1337,9 @@ impl<'s> JSParseState<'s> {
                     return Ok(());
                 }
                 if fd.attrs.exec_mode.contains(ExecMode::STRICT) {
-                    return Err(self.throw_syntax_error("cannot delete a direct reference in strict mode"));
+                    return Err(
+                        self.throw_syntax_error("cannot delete a direct reference in strict mode")
+                    );
                 } else {
                     fd.byte_code[fd.last_opcode_pos as usize] = OpCodeTemp::SCOPE_DELETE_VAR as u8;
                 }

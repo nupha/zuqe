@@ -222,10 +222,29 @@ impl<'s> JSParseState<'s> {
         }
     }
 
+    /// Run `f` inside a fresh block scope: `push_scope` before and
+    /// `pop_scope` after, mirroring the runtime `with_new_scope` style.
+    /// On error the scope is intentionally not popped, matching the
+    /// historical manual pairing (a parse error aborts the whole
+    /// FunctionDef, so the dangling scope is never observed).
+    pub(super) fn with_block_scope<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, i32>,
+    ) -> Result<T, i32> {
+        self.push_scope()?;
+        let result = f(self)?;
+        self.pop_scope();
+        Ok(result)
+    }
+
     /// Perform close scopes on current function def. For detail, see FunctionDef::close_scopes()
     pub(super) fn close_scopes(&mut self, scope: i32, scope_stop: i32) {
-        self.cur_func_mut()
-            .close_scopes(scope as _, scope_stop as _, self.last_line_num, self.last_line_pos);
+        self.cur_func_mut().close_scopes(
+            scope as _,
+            scope_stop as _,
+            self.last_line_num,
+            self.last_line_pos,
+        );
     }
 
     /// get parse pos

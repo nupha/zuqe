@@ -61,18 +61,18 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::UNDEFINED);
                     self.emit_op(OpCode::STRICT_EQ);
 
-                    let label_hasval = self.emit_goto(OpCode::IF_FALSE, -1);
+                    self.with_forward_label(OpCode::IF_FALSE, |s| {
+                        s.next_token()?;
+                        s.emit_op(OpCode::DROP);
+                        s.parse_assign_expr()?;
 
-                    self.next_token()?;
-                    self.emit_op(OpCode::DROP);
-                    self.parse_assign_expr()?;
-
-                    if opcode == opcodes::op_scope_get_var as i32
-                        || opcode == opcodes::OP_get_ref_value as i32
-                    {
-                        self.set_object_name(var_name.clone());
-                    }
-                    self.emit_label(label_hasval);
+                        if opcode == opcodes::op_scope_get_var as i32
+                            || opcode == opcodes::OP_get_ref_value as i32
+                        {
+                            s.set_object_name(var_name.clone());
+                        }
+                        Ok(())
+                    })?;
                 }
 
                 // store value into lvalue object
@@ -148,8 +148,7 @@ impl<'s> JSParseState<'s> {
         while self.token.kind != TokenKind::Char('}') {
             if self.token.kind == TokenKind::ELLIPSIS {
                 if !has_ellipsis {
-                    self.ctx().throw_internal_error("unexpected ellipsis token");
-                    return Err(-1);
+                    return Err(self.ctx().throw_internal_error("unexpected ellipsis token"));
                 }
 
                 self.next_token()?;
@@ -487,18 +486,19 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::UNDEFINED);
                     self.emit_op(OpCode::STRICT_EQ);
 
-                    let label_hasval = self.emit_goto(OpCode::IF_FALSE, -1);
-                    self.next_token()?;
+                    self.with_forward_label(OpCode::IF_FALSE, |s| {
+                        s.next_token()?;
 
-                    self.emit_op(OpCode::DROP);
-                    self.parse_assign_expr()?;
+                        s.emit_op(OpCode::DROP);
+                        s.parse_assign_expr()?;
 
-                    if opcode == opcodes::op_scope_get_var as i32
-                        || opcode == opcodes::OP_get_ref_value as i32
-                    {
-                        self.set_object_name(var_name);
-                    }
-                    self.emit_label(label_hasval);
+                        if opcode == opcodes::op_scope_get_var as i32
+                            || opcode == opcodes::OP_get_ref_value as i32
+                        {
+                            s.set_object_name(var_name);
+                        }
+                        Ok(())
+                    })?;
                 }
 
                 // store value into lvalue object
@@ -586,16 +586,16 @@ impl<'s> JSParseState<'s> {
 
         // body was parsed.
         let has_initializer = if self.token.kind == TokenKind::Char('=') && allow_initializer {
-            let label_done = self.emit_goto(OpCode::GOTO, -1);
-
-            self.next_token()?;
-            self.emit_label(label_parse as _);
-            if hasval {
-                self.emit_op(OpCode::DROP);
-            }
-            self.parse_assign_expr()?;
-            self.emit_goto(OpCode::GOTO, label_assign as _);
-            self.emit_label(label_done);
+            self.with_forward_label(OpCode::GOTO, |s| {
+                s.next_token()?;
+                s.emit_label(label_parse as _);
+                if hasval {
+                    s.emit_op(OpCode::DROP);
+                }
+                s.parse_assign_expr()?;
+                s.emit_goto(OpCode::GOTO, label_assign as _);
+                Ok(())
+            })?;
             true
         } else {
             // normally hasval is true except if js_parse_skip_parens_token() was wrong in the parsing
@@ -637,11 +637,15 @@ impl<'s> JSParseState<'s> {
     fn parse_check_duplicate_parameter(&mut self, name: Atom) -> Result<(), i32> {
         // Check for duplicate parameter names
         if self.cur_func().args.iter().any(|vd| vd.var_name == name) {
-            return Err(self.throw_syntax_error("duplicate parameter names not allowed in this context"));
+            return Err(
+                self.throw_syntax_error("duplicate parameter names not allowed in this context")
+            );
         }
 
         if self.cur_func().vars.iter().any(|vd| vd.var_name == name) {
-            return Err(self.throw_syntax_error("duplicate parameter names not allowed in this context"));
+            return Err(
+                self.throw_syntax_error("duplicate parameter names not allowed in this context")
+            );
         }
 
         Ok(())

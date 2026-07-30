@@ -99,6 +99,23 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_goto(opcode, label, ln, lp)
     }
 
+    /// Emit a forward jump `opcode` to a fresh label, run `body`, then
+    /// back-patch the label right after it. Replaces the manually paired
+    /// `emit_goto(op, -1)` / `emit_label(label)` pattern so the closing
+    /// label cannot be forgotten. On error the label is not emitted,
+    /// matching the historical behavior (a parse error aborts the whole
+    /// FunctionDef, so the unresolved label is never observed).
+    pub(super) fn with_forward_label(
+        &mut self,
+        opcode: OpCode,
+        body: impl FnOnce(&mut Self) -> Result<(), i32>,
+    ) -> Result<(), i32> {
+        let label = self.emit_goto(opcode, -1);
+        body(self)?;
+        self.emit_label(label);
+        Ok(())
+    }
+
     /// emit on current function def
     pub fn emit_push_const(&mut self, val: JSValue, as_atom: bool) -> Result<(), i32> {
         let ln = self.last_line_num;
@@ -170,18 +187,18 @@ impl<'s> JSParseState<'s> {
 
             cd.brand_push_pos = unsafe { (*cd.fields_init_fd).last_opcode_pos };
 
-            let label_add_brand = self.emit_goto(OpCode::IF_FALSE, -1);
+            self.with_forward_label(OpCode::IF_FALSE, |s| {
+                s.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                s.emit_atom(Atom::CONST_this);
+                s.emit_u16(0);
 
-            self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-            self.emit_atom(Atom::CONST_this);
-            self.emit_u16(0);
+                s.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                s.emit_atom(Atom::CONST__home_object_);
+                s.emit_u16(0);
 
-            self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-            self.emit_atom(Atom::CONST__home_object_);
-            self.emit_u16(0);
-
-            self.emit_op(OpCode::ADD_BRAND);
-            self.emit_label(label_add_brand);
+                s.emit_op(OpCode::ADD_BRAND);
+                Ok(())
+            })?;
         }
 
         self.cur_func_def = self.cur_func().parent;
