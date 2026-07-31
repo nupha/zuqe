@@ -226,8 +226,9 @@ impl Promise {
                 .0,
         );
 
-        // call executor function with (resolve, reject) arguments
         let rr = promise.create_resolving_functions(ctx)?;
+
+        // call executor function with (resolve, reject) arguments
         if executor.call(ctx, JSValue::UNDEFINED, &rr).is_err() {
             let err_val = ctx.take_exception().to_value(ctx);
             rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
@@ -301,16 +302,18 @@ impl Promise {
         ctx: &mut ScopedContext,
         job: impl Fn(&mut ScopedContext) -> Result<Option<JSValue>, i32> + 'static,
     ) -> Result<Self, i32> {
-        let isa = Box::new(PromisePayload {
-            state: PromiseState::Pending,
-            reactions: [Vec::new(), Vec::new()],
-            result: JSValue::UNDEFINED,
-            is_handled: false,
-        });
         let promise = Self(
-            ctx.create_instance_with_ctor(JSValue::UNDEFINED, ObjectPayload::PROMISE(isa))
-                .map_err(|_| -1)?
-                .0,
+            ctx.create_instance_with_ctor(
+                JSValue::UNDEFINED,
+                ObjectPayload::PROMISE(Box::new(PromisePayload {
+                    state: PromiseState::Pending,
+                    reactions: [Vec::new(), Vec::new()],
+                    result: JSValue::UNDEFINED,
+                    is_handled: false,
+                })),
+            )
+            .map_err(|_| -1)?
+            .0,
         );
 
         let rr = promise.create_resolving_functions(ctx)?;
