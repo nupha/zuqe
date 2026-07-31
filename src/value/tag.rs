@@ -187,6 +187,7 @@ pub(crate) const fn js_new_float64(d: f64) -> u64 {
 // ============================================================================
 #[cfg(test)]
 mod tests {
+    use std::marker::PhantomData;
     use std::ptr::NonNull;
 
     use gc_lite::GcHead;
@@ -280,7 +281,7 @@ mod tests {
         for (tag, name) in cases {
             let raw = tag.mknode(node);
             assert_eq!(js_value_get_tag(raw), tag as i32, "raw tag for {name}");
-            let v = JSValue(raw);
+            let v = JSValue(raw, PhantomData);
             assert_eq!(v.tag(), tag, "JSValue::tag for {name}");
             // as_gc_node should return the original pointer (not dereferenced)
             let got = v.as_gc_node().expect("{name} must be a gc node");
@@ -292,7 +293,7 @@ mod tests {
     fn mknode_encodes_symbol() {
         let raw = JSValueTag::Symbol.mknode(fake_node(0x1234));
         assert_eq!(js_value_get_tag(raw), JSValueTag::Symbol as i32);
-        assert_eq!(JSValue(raw).tag(), JSValueTag::Symbol);
+        assert_eq!(JSValue(raw, PhantomData).tag(), JSValueTag::Symbol);
     }
 
     // ---- float / NaN / ptr are set and recognized correctly ----
@@ -313,7 +314,7 @@ mod tests {
             (f64::NAN, None), // canonicalized to a quiet NaN
         ];
         for &(d, expected) in cases {
-            let v = JSValue(js_new_float64(d));
+            let v = JSValue(js_new_float64(d), PhantomData);
             // must be recognized as float64
             assert!(
                 JSValueTag::is_float64(js_value_get_tag(v.0)),
@@ -341,7 +342,7 @@ mod tests {
     // 0xFFF0, which maps to -9 after the shift).
     #[test]
     fn neg_infinity_is_float_not_string() {
-        let v = JSValue(js_new_float64(f64::NEG_INFINITY));
+        let v = JSValue(js_new_float64(f64::NEG_INFINITY), PhantomData);
         assert_ne!(v.tag(), JSValueTag::String);
         assert_eq!(v.tag(), JSValueTag::Float64);
         assert_eq!(v.as_float(), Some(f64::NEG_INFINITY));
@@ -350,8 +351,8 @@ mod tests {
     // A string node and negative infinity must have distinguishable tags.
     #[test]
     fn string_node_distinct_from_neg_infinity() {
-        let s = JSValue(JSValueTag::String.mknode(fake_node(0x1234)));
-        let ninf = JSValue(js_new_float64(f64::NEG_INFINITY));
+        let s = JSValue(JSValueTag::String.mknode(fake_node(0x1234)), PhantomData);
+        let ninf = JSValue(js_new_float64(f64::NEG_INFINITY), PhantomData);
         assert_ne!(s.tag(), ninf.tag());
         assert_eq!(s.tag(), JSValueTag::String);
         assert_eq!(ninf.tag(), JSValueTag::Float64);
@@ -455,7 +456,7 @@ mod tests {
     // ---- Negative zero (-0.0) round-trip and recognition ----
     #[test]
     fn neg_zero_roundtrip() {
-        let v = JSValue(js_new_float64(-0.0));
+        let v = JSValue(js_new_float64(-0.0), PhantomData);
         assert!(v.is_float64());
         assert_eq!(v.tag(), JSValueTag::Float64);
         let d = js_value_get_float64(v.0);
@@ -469,7 +470,7 @@ mod tests {
     fn int_payload_roundtrip() {
         let cases = [0i32, 1, -1, i32::MIN, i32::MAX, 123456789, -123456789];
         for &n in &cases {
-            let v = JSValue(JSValueTag::Int.mkval(n as u32));
+            let v = JSValue(JSValueTag::Int.mkval(n as u32), PhantomData);
             assert_eq!(v.tag(), JSValueTag::Int);
             assert!(!v.is_float64());
             assert_eq!(v.as_int(), Some(n), "as_int for {n}");
@@ -488,7 +489,7 @@ mod tests {
         ];
         for &a in &addrs {
             let raw = JSValueTag::Object.mknode(fake_node(a));
-            let v = JSValue(raw);
+            let v = JSValue(raw, PhantomData);
             assert_eq!(v.tag(), JSValueTag::Object);
             let got = v.as_gc_node().expect("object is gc node");
             assert_eq!(got.as_ptr() as u64, a, "ptr for {a:#x}");
@@ -500,7 +501,7 @@ mod tests {
     fn catch_offset_roundtrip() {
         let cases = [0i32, 1, -1, 100, -100, i32::MIN, i32::MAX];
         for &n in &cases {
-            let v = JSValue(JSValueTag::CatchOffset.mkval(n as u32));
+            let v = JSValue(JSValueTag::CatchOffset.mkval(n as u32), PhantomData);
             assert_eq!(v.tag(), JSValueTag::CatchOffset);
             assert!(!v.is_float64());
             assert_eq!(v.as_catch_offset(), Some(n), "as_catch_offset for {n}");

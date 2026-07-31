@@ -363,7 +363,7 @@ impl ClassDef {
                     init_fn(ctx, class_id)?;
 
                     if ctx.class_proto(class_id).is_none() {
-                        ctx.throw_internal_error(&format!(
+                        let _ = ctx.throw_internal_error(&format!(
                             "class ({class_id}) initialization must setup class slot for proto"
                         ));
                     }

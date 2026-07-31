@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use std::marker::PhantomData;
 
 use crate::{
     atom::Atom,
@@ -342,7 +343,7 @@ gcref_wrapper!(ModuleDef, ModuleDefImpl);
 impl From<ModuleDef> for JSValue {
     #[inline(always)]
     fn from(value: ModuleDef) -> Self {
-        Self(crate::JSValueTag::Module.mknode(value.gc_node_ptr()))
+        Self(crate::JSValueTag::Module.mknode(value.gc_node_ptr()), PhantomData)
     }
 }
 

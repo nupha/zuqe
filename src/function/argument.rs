@@ -40,7 +40,7 @@ pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) ->
         // initialize fast array values
         let arr_data = obj.as_Array_mut().unwrap().payload_mut();
         if arr_data.reserve(values.len()).is_err() {
-            ctx.throw_out_of_memory();
+            let _ = ctx.throw_out_of_memory();
             return JSValue::EXCEPTION;
         }
 

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use std::cell::UnsafeCell;
+use std::marker::PhantomData;
 
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
@@ -614,7 +615,7 @@ gcref_wrapper!(Bytecode, BytecodeImpl);
 impl From<Bytecode> for JSValue {
     #[inline(always)]
     fn from(value: Bytecode) -> Self {
-        Self(crate::JSValueTag::FunctionBytecode.mknode(value.gc_node_ptr()))
+        Self(crate::JSValueTag::FunctionBytecode.mknode(value.gc_node_ptr()), PhantomData)
     }
 }
 

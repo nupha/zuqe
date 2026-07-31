@@ -256,10 +256,8 @@ impl ObjectImpl {
             #[cfg(feature = "builtin_proxy")]
             ObjectPayload::PROXY(px) => {
                 if px.is_revoked() {
-                    default.with_current_scope(|mut scope| {
-                        scope.throw_type_error_revoked_proxy();
-                    });
-                    Err(-1)
+                    Err(default
+                        .with_current_scope(|mut scope| scope.throw_type_error_revoked_proxy()))
                 } else {
                     px.target().realm(default)
                 }

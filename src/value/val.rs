@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 use gc_lite::{GcHead, GcNode, GcRef, GcTrace, GcTraceCtx};
@@ -27,33 +28,33 @@ use super::tag::{JS_NAN_U64, JSValueTag, js_new_float64, js_value_get_float64, j
 /// when reconstructing a pointer;
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
-pub struct JSValue(pub(crate) u64);
+pub struct JSValue(pub(crate) u64, pub(crate) PhantomData<*const ()>);
 
 #[allow(non_upper_case_globals)]
 impl JSValue {
     //
     // Constant values
     //
-    pub const NULL: Self = Self((JSValueTag::Null as u64) << 48);
-    pub const UNDEFINED: Self = Self((JSValueTag::Undefined as u64) << 48);
-    pub const EXCEPTION: Self = Self((JSValueTag::Exception as u64) << 48);
-    pub const UNINITIALIZED: Self = Self((JSValueTag::Uninitialized as u64) << 48);
-    pub const ZERO: Self = Self(JSValueTag::Int.mkval(0));
-    pub const FALSE: Self = Self(JSValueTag::Bool.mkval(0));
-    pub const TRUE: Self = Self(JSValueTag::Bool.mkval(1));
-    pub const NAN: Self = Self(JS_NAN_U64);
+    pub const NULL: Self = Self((JSValueTag::Null as u64) << 48, PhantomData);
+    pub const UNDEFINED: Self = Self((JSValueTag::Undefined as u64) << 48, PhantomData);
+    pub const EXCEPTION: Self = Self((JSValueTag::Exception as u64) << 48, PhantomData);
+    pub const UNINITIALIZED: Self = Self((JSValueTag::Uninitialized as u64) << 48, PhantomData);
+    pub const ZERO: Self = Self(JSValueTag::Int.mkval(0), PhantomData);
+    pub const FALSE: Self = Self(JSValueTag::Bool.mkval(0), PhantomData);
+    pub const TRUE: Self = Self(JSValueTag::Bool.mkval(1), PhantomData);
+    pub const NAN: Self = Self(JS_NAN_U64, PhantomData);
 
     const fn Bool(v: bool) -> Self {
-        Self(JSValueTag::Bool.mkval(v as u32))
+        Self(JSValueTag::Bool.mkval(v as u32), PhantomData)
     }
     const fn Int(v: i32) -> Self {
-        Self(JSValueTag::Int.mkval(v as u32))
+        Self(JSValueTag::Int.mkval(v as u32), PhantomData)
     }
     const fn Float64(v: f64) -> Self {
-        Self(js_new_float64(v))
+        Self(js_new_float64(v), PhantomData)
     }
     const fn CatchOffset(v: i32) -> Self {
-        Self(JSValueTag::CatchOffset.mkval(v as u32))
+        Self(JSValueTag::CatchOffset.mkval(v as u32), PhantomData)
     }
 }
 
@@ -149,7 +150,7 @@ impl From<Object> for JSValue {
     #[inline(always)]
     fn from(value: Object) -> Self {
         let ptr = value.0.node_ptr();
-        Self(JSValueTag::Object.mknode(ptr))
+        Self(JSValueTag::Object.mknode(ptr), PhantomData)
     }
 }
 
@@ -746,13 +747,13 @@ impl JSValue {
     #[inline(always)]
     pub fn make_string(s: StringRef) -> Self {
         let p = s.gc_head_ptr();
-        Self(JSValueTag::String.mknode(p))
+        Self(JSValueTag::String.mknode(p), PhantomData)
     }
 
     #[inline(always)]
     pub fn make_symbol(s: StringRef) -> Self {
         let p = s.gc_head_ptr();
-        Self(JSValueTag::Symbol.mknode(p))
+        Self(JSValueTag::Symbol.mknode(p), PhantomData)
     }
 }
 
@@ -988,5 +989,46 @@ mod serde_json_support {
         pub fn to_serde_json(&self, ctx: &mut ScopedContext) -> Result<serde_json::Value, i32> {
             JSValue::jsobject_to_serde_json(ctx, self, &mut SmallVec::new())
         }
+    }
+}
+
+#[cfg(test)]
+mod thread_safety_tests {
+    use super::*;
+    use crate::builtins::promise::Promise;
+    use crate::function::Bytecode;
+    use crate::module::ModuleDef;
+    use crate::object::Object;
+    use crate::string::StringRef;
+
+    // Compile-time assertion that JSValue is `!Send` and `!Sync`.
+    // If JSValue ever regains Send/Sync, these two impls become ambiguous
+    // and the test stops compiling.
+    trait AmbiguousIfSend<A> {
+        fn marker() {}
+    }
+    impl<T: ?Sized> AmbiguousIfSend<()> for T {}
+    impl<T: ?Sized + Send> AmbiguousIfSend<u8> for T {}
+
+    trait AmbiguousIfSync<A> {
+        fn marker() {}
+    }
+    impl<T: ?Sized> AmbiguousIfSync<()> for T {}
+    impl<T: ?Sized + Sync> AmbiguousIfSync<u8> for T {}
+
+    #[test]
+    fn jsvalue_is_thread_local() {
+        <JSValue as AmbiguousIfSend<_>>::marker();
+        <JSValue as AmbiguousIfSync<_>>::marker();
+        <Object as AmbiguousIfSend<_>>::marker();
+        <Object as AmbiguousIfSync<_>>::marker();
+        <Promise as AmbiguousIfSend<_>>::marker();
+        <Promise as AmbiguousIfSync<_>>::marker();
+        <Bytecode as AmbiguousIfSend<_>>::marker();
+        <Bytecode as AmbiguousIfSync<_>>::marker();
+        <StringRef as AmbiguousIfSend<_>>::marker();
+        <StringRef as AmbiguousIfSync<_>>::marker();
+        <ModuleDef as AmbiguousIfSend<_>>::marker();
+        <ModuleDef as AmbiguousIfSync<_>>::marker();
     }
 }
