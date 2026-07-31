@@ -441,8 +441,7 @@ impl<'s> JSParseState<'s> {
                     if src_len > 0 {
                         let mut src = Vec::<u8>::new();
                         if src.try_reserve_exact(src_len).is_err() {
-                            self.ctx().throw_out_of_memory();
-                            return Err(-1);
+                            return Err(self.ctx().throw_out_of_memory());
                         }
                         src.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, src_len) });
                         fd1.source
@@ -478,8 +477,7 @@ impl<'s> JSParseState<'s> {
             if src_len > 0 {
                 let mut src = Vec::<u8>::new();
                 if src.try_reserve(src_len).is_err() {
-                    self.ctx().throw_out_of_memory();
-                    return Err(-1);
+                    return Err(self.ctx().throw_out_of_memory());
                 }
                 src.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, src_len) });
                 let s = unsafe { String::from_utf8_unchecked(src) };

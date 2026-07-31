@@ -1760,7 +1760,7 @@ impl Bytecode {
                     OpCode::CHECK_BRAND => {
                         if let Ok(b) = SP_REF!(-2).check_brand(realm_scope, SP_VAL!(-1)) {
                             if unlikely(!b) {
-                                realm_scope.throw_type_error("invalid brand on object");
+                                let _ = realm_scope.throw_type_error("invalid brand on object");
                                 break ExecAction::Exception;
                             }
                         } else {
@@ -3084,7 +3084,10 @@ impl Bytecode {
                                         if !env_obj.has_property(realm_scope, atom).unwrap_or(false)
                                         {
                                             if rt.is_strict_mode() {
-                                                JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                                                let _ = JS_ThrowReferenceErrorNotDefined(
+                                                    realm_scope,
+                                                    atom,
+                                                );
                                                 break ExecAction::Exception;
                                             }
                                             SP_PUT!(-1, JSValue::UNDEFINED);

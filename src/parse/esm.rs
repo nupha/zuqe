@@ -531,10 +531,9 @@ impl<'s> JSParseState<'s> {
         };
 
         if md.import_entries.len() == md.import_entries.capacity() {
-            md.import_entries.try_reserve(2).map_err(|_| {
-                self.ctx().throw_out_of_memory();
-                -1
-            })?;
+            md.import_entries
+                .try_reserve(2)
+                .map_err(|_| self.ctx().throw_out_of_memory())?;
         }
         md.import_entries.push(ImportEntry {
             var_idx,

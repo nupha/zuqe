@@ -115,7 +115,7 @@ impl AsyncState {
         let a_state = o.payload_mut().async_function_resolving_mut().unwrap();
 
         if is_reject {
-            ctx.throw_value(if args.is_empty() {
+            let _ = ctx.throw_value(if args.is_empty() {
                 JSValue::UNDEFINED
             } else {
                 args[0]

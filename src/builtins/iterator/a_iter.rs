@@ -251,7 +251,7 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
             reject_current(ctx, resolving_funcs, promise)
         }
     } else {
-        ctx.throw_type_error("not an Async-from-Sync Iterator");
+        let _ = ctx.throw_type_error("not an Async-from-Sync Iterator");
         reject_current(ctx, resolving_funcs, promise)
     }
 }

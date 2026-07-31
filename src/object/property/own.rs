@@ -210,8 +210,7 @@ impl ObjectImpl {
 
                 if unlikely(prs_flags & JS_PROP_WRITABLE == 0) {
                     return if cx.rt().can_throw(flags) {
-                        cx.throw_type_error_read_only(Atom::CONST_length);
-                        Some(Err(-1))
+                        Some(Err(cx.throw_type_error_read_only(Atom::CONST_length)))
                     } else {
                         None
                     };

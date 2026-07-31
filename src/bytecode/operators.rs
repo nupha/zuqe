@@ -482,8 +482,7 @@ pub(super) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
 pub(super) unsafe fn js_iterator_get_value_done(ctx: &mut ScopedContext, sp: *mut JSValue) -> i32 {
     let obj = unsafe { *sp.offset(-1) };
     if !obj.is_object() {
-        ctx.throw_type_error("iterator must return an object");
-        return -1;
+        return ctx.throw_type_error("iterator must return an object");
     }
 
     let mut done = false;

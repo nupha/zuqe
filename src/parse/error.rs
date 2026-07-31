@@ -29,7 +29,8 @@ impl<'s> JSParseState<'s> {
 
     #[cold]
     pub(super) fn throw_syntax_error(&mut self, message: &str) -> i32 {
-        self.ctx()
+        let e = self
+            .ctx()
             .throw_error_internal(ErrorKind::Syntax, message, false);
 
         let backtrace_flags =
@@ -44,7 +45,8 @@ impl<'s> JSParseState<'s> {
         let fln = (self.filename, self.line_num);
         self.ctx()
             .build_backtrace_to(err_val, Some(fln), backtrace_flags);
-        -1
+
+        e
     }
 
     #[cold]

@@ -154,7 +154,7 @@ impl FunctionDef {
                             if push_vec_slice(&mut bc_out, unsafe { bc_buf_ptr.add(pos) }, op_len1)
                                 .is_err()
                             {
-                                ctx.throw_out_of_memory();
+                                let _ = ctx.throw_out_of_memory();
                                 break;
                             }
                             pos = pos_next;

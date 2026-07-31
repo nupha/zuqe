@@ -270,12 +270,13 @@ pub(crate) fn js_iterator_zip_next(ctx: &mut ScopedContext, cc: CallContext) -> 
                     zd.done[k].set(true);
                 } else {
                     // Not done → unequal lengths
-                    ctx.throw_type_error("Iterator Zip already completed with unequal lengths");
+                    let e =
+                        ctx.throw_type_error("Iterator Zip already completed with unequal lengths");
                     close_all_remaining(ctx, zd)?;
                     zd.closed.set(true);
                     zd.unequal_length.set(true);
                     zd.running.set(false);
-                    return Err(-1);
+                    return Err(e);
                 }
             }
 

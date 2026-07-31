@@ -24,10 +24,9 @@ impl<'s> JSParseState<'s> {
         // pattern
         while let Some((_, sc)) = inp.next() {
             if pattern_str.len() == pattern_str.capacity() {
-                pattern_str.try_reserve(1).map_err(|_| {
-                    self.ctx().throw_out_of_memory();
-                    -1
-                })?
+                pattern_str
+                    .try_reserve(1)
+                    .map_err(|_| self.ctx().throw_out_of_memory())?
             }
 
             match sc {
@@ -94,10 +93,9 @@ impl<'s> JSParseState<'s> {
             match sc {
                 CharCode::Char(c) => {
                     if JSParseState::is_ident_next(c) {
-                        flags_str.push_char(sc).map_err(|_| {
-                            self.ctx().throw_out_of_memory();
-                            -1
-                        })?;
+                        flags_str
+                            .push_char(sc)
+                            .map_err(|_| self.ctx().throw_out_of_memory())?;
                     } else {
                         inp.seek_relative(-(c.len_utf8() as i32)); // rewind
                         break;

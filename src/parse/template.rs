@@ -40,10 +40,8 @@ impl<'s> JSParseState<'s> {
                     break;
                 }
                 CharCode::Char('\\') => {
-                    sbuf.push_u8(b'\\').map_err(|_| {
-                        self.ctx().throw_out_of_memory();
-                        -1
-                    })?;
+                    sbuf.push_u8(b'\\')
+                        .map_err(|_| self.ctx().throw_out_of_memory())?;
 
                     match inp.peek() {
                         Some(b'\r' | b'\n') => {

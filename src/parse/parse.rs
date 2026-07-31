@@ -152,10 +152,8 @@ impl<'s> JSParseState<'s> {
             }
 
             if buf.capacity() - buf.len() <= 6 {
-                buf.try_reserve(6).map_err(|_| {
-                    self.ctx().throw_out_of_memory();
-                    -1
-                })?;
+                buf.try_reserve(6)
+                    .map_err(|_| self.ctx().throw_out_of_memory())?;
             }
         }
 

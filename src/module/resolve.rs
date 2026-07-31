@@ -156,8 +156,7 @@ impl ModuleDef {
                 worklist[top].entered = true;
 
                 if js_check_stack_overflow(ctx.rt(), 0) {
-                    ctx.throw_stack_overflow();
-                    result = Err(-1);
+                    result = Err(ctx.throw_stack_overflow());
                     break;
                 }
 

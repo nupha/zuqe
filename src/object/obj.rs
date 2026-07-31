@@ -270,7 +270,7 @@ impl ObjectImpl {
                 .try_reserve(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
                 .is_err()
             {
-                ctx.throw_out_of_memory();
+                let _ = ctx.throw_out_of_memory();
                 return Err(payload);
             };
 
@@ -371,7 +371,7 @@ impl ObjectImpl {
             })
             .map(Object)
             .map_err(|(_, mut o)| {
-                ctx.throw_out_of_memory();
+                let _ = ctx.throw_out_of_memory();
                 std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::ZERO))
             })?;
 

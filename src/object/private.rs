@@ -116,7 +116,7 @@ impl JSValue {
 
     /// Assign `home_val` a symbol as its identifier and store it in `home_val.<brand>`.
     /// If `self` is an object, define a property with the home object's symbol as key.
-    pub fn add_brand(&mut self, ctx: &mut ScopedContext, mut home_val: JSValue) -> Result<(), i32> {
+    pub fn add_brand(&mut self, ctx: &mut ScopedContext, home_val: JSValue) -> Result<(), i32> {
         if let Some(mut home) = home_val.as_object() {
             let brand_sym: JSValue = if let Some((idx, _)) =
                 home.find_shape_property(Atom::CONST_Private_brand)

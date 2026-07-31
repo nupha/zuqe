@@ -630,12 +630,11 @@ unsafe fn js_atof(
                 }
             }
             ATOD_TYPE_BIG_INT => {
-                // fail!();
-                ctx.throw_type_error("big int is not supported");
+                let e = ctx.throw_type_error("big int is not supported");
                 if !pp.is_null() {
                     *pp = p;
                 }
-                Err(-1)
+                Err(e)
             }
 
             _ => unreachable!(),

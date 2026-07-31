@@ -139,7 +139,7 @@ pub fn js_error_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     ctx.create_string_from_str(&txt).map(JSValue::make_string)
 }
 
-pub fn js_error_isError(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+pub fn js_error_isError(_: &mut ScopedContext, cc: CallContext) -> JSResult {
     let val = cc.arg(0);
     Ok(JSValue::from(val.is_error()))
 }

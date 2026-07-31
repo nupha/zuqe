@@ -110,7 +110,7 @@ impl<'c> ScopedContext<'c> {
         opaque: *mut c_void,
     ) -> Result<Object, ObjectPayload> {
         if class_id < USER_CLASS_ID_START {
-            self.throw_internal_error("expect non-builtin class");
+            let _ = self.throw_internal_error("expect non-builtin class");
             Err(ObjectPayload::OTHER(OtherPayload::new(class_id, opaque)))
         } else {
             self.create_instance_with_ctor(

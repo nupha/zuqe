@@ -130,7 +130,7 @@ mod async_sender {
     impl<D: Unpin> Future for SendAsyncFut<D> {
         type Output = Result<(), D>;
 
-        fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
+        fn poll(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<Self::Output> {
             let this = self.get_mut();
             let value = this.value.take().expect("PollSender polled after Ready");
 

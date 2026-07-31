@@ -186,10 +186,8 @@ impl<'s> JSParseState<'s> {
 
                 // add char_code to string buf
                 if sbuf.capacity() == sbuf.len() {
-                    sbuf.try_reserve(8).map_err(|_| {
-                        self.ctx().throw_out_of_memory();
-                        -1
-                    })?;
+                    sbuf.try_reserve(8)
+                        .map_err(|_| self.ctx().throw_out_of_memory())?;
                 }
                 let _ = sbuf.push_u32(cc); // can't fail
             } else {

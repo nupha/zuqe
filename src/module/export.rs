@@ -155,7 +155,7 @@ impl ModuleDefImpl {
     ) -> Result<(), i32> {
         if unlikely(self.find_export(export_name).is_some()) {
             let rt = ctx.rt_ptr();
-            ctx.throw_syntax_error(&format!(
+            let _ = ctx.throw_syntax_error(&format!(
                 "duplicate exported name '{}'",
                 export_name.to_utf8(&rt),
             ));
@@ -163,7 +163,7 @@ impl ModuleDefImpl {
         } else {
             if self.export_entries.len() == self.export_entries.capacity() {
                 self.export_entries.try_reserve(1).map_err(|_| {
-                    ctx.throw_out_of_memory();
+                    let _ = ctx.throw_out_of_memory();
                     ErrorKind::Internal as i32
                 })?;
             }
@@ -235,10 +235,10 @@ impl ModuleDefImpl {
                                 .get(class_id as usize)
                                 .map(|d| d.name)
                                 .unwrap_or("<unknown>");
+
                             ctx.throw_internal_error(&format!(
                                 "can't get constructor for class id {class_id} ({name}): class is not registered, not used or has no constructor"
-                            ));
-                           -1
+                            ))
                         })?
                 }
 

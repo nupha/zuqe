@@ -589,7 +589,7 @@ pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: u16) {
 }
 
 pub(super) fn instantiate_hoisted_definitions(
-    ctx: &mut ScopedContext,
+    _: &mut ScopedContext,
     s: &mut FunctionDef,
     bc: &mut Vec<u8>,
 ) -> Result<(), i32> {

@@ -140,7 +140,7 @@ impl AGenPayload {
                     if self.state() == AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD
                         && completion_type == GEN_MAGIC_THROW
                     {
-                        ctx.throw_value(result);
+                        let _ = ctx.throw_value(result);
                         self.async_state.set_throw_flag(true);
                     } else {
                         // 'yield' returns a value. 'yield *' also returns a value
@@ -542,7 +542,7 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
             debug_assert_eq!(s.state(), AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
 
             if unlikely(is_reject) {
-                ctx.throw_value(arg);
+                let _ = ctx.throw_value(arg);
                 s.async_state.set_throw_flag(true);
             } else {
                 s.async_state.set_throw_flag(false);

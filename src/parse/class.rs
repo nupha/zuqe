@@ -554,10 +554,8 @@ impl<'s> JSParseState<'s> {
             let src_len = unsafe { self.buf_ptr.offset_from(class_source) as usize };
             if src_len > 0 {
                 let mut src = Vec::<u8>::new();
-                src.try_reserve(src_len).map_err(|_| {
-                    self.ctx().throw_out_of_memory();
-                    -1
-                })?;
+                src.try_reserve(src_len)
+                    .map_err(|_| self.ctx().throw_out_of_memory())?;
                 unsafe {
                     src.extend_from_slice(std::slice::from_raw_parts(class_source, src_len));
                     (*ctor_fd).source.replace(String::from_utf8_unchecked(src));

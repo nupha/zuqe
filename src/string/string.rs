@@ -879,7 +879,7 @@ impl<'c> ScopedContext<'c> {
             Err(self.throw_internal_error("string too long"))
         } else {
             StringRef::create_utf8(self, utf8_bytes).inspect_err(|_| {
-                self.throw_out_of_memory();
+                let _ = self.throw_out_of_memory();
             })
         }
     }

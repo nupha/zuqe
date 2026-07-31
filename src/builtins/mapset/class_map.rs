@@ -132,7 +132,7 @@ pub(crate) fn js_map_getOrInsert(ctx: &mut ScopedContext, cc: CallContext) -> JS
     }
 
     // Canonicalize key (-0 → +0)  (per CanonicalizeKeyedCollectionKey)
-    let mut key = MapPair::normalize_key(cc.arg(0));
+    let key = MapPair::normalize_key(cc.arg(0));
 
     // For WeakMap, validate key can be held weakly before any callback invocation
     if class_offset == 2 && !key.is_object() {
@@ -182,7 +182,7 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
 
     let mut this = cc.this();
-    let mut key = cc.arg(0);
+    let key = cc.arg(0);
     let val = cc.arg(1);
 
     let s = get_jsmap_state_mut(&mut this, JS_CLASS_MAP + magic as ClassID, ctx)?;
@@ -221,11 +221,10 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_map_delete(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
 
-    let this = cc.this();
-    let mut key = cc.arg(0);
+    let mut this = cc.this();
+    let key = cc.arg(0);
 
-    let mut this_mut = this;
-    let s = get_jsmap_state_mut(&mut this_mut, JS_CLASS_MAP + magic as ClassID, ctx)?;
+    let s = get_jsmap_state_mut(&mut this, JS_CLASS_MAP + magic as ClassID, ctx)?;
     if s.find(ctx, key).is_some() {
         s.remove(ctx, key);
 
@@ -234,10 +233,9 @@ fn js_map_delete(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 .unwrap()
                 .remove_back_ref(ctx.rt(), this.as_object().unwrap());
         }
-
-        Ok(JSValue::from(true))
+        Ok(JSValue::TRUE)
     } else {
-        Ok(JSValue::from(false))
+        Ok(JSValue::FALSE)
     }
 }
 

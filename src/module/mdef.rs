@@ -226,7 +226,7 @@ impl ModuleDefImpl {
         } else {
             // create meta object
             let o = ctx.create_base_object_with_proto(None).inspect_err(|_| {
-                ctx.throw_type_error("import.meta not supported in this context");
+                let _ = ctx.throw_type_error("import.meta not supported in this context");
             })?;
             self.meta_obj.replace(o);
             Ok(o)
@@ -343,7 +343,10 @@ gcref_wrapper!(ModuleDef, ModuleDefImpl);
 impl From<ModuleDef> for JSValue {
     #[inline(always)]
     fn from(value: ModuleDef) -> Self {
-        Self(crate::JSValueTag::Module.mknode(value.gc_node_ptr()), PhantomData)
+        Self(
+            crate::JSValueTag::Module.mknode(value.gc_node_ptr()),
+            PhantomData,
+        )
     }
 }
 
@@ -502,11 +505,10 @@ pub(crate) fn add_module_variables(ctx: &mut ScopedContext, fdef: &mut FunctionD
             if let Some(idx) = fdef.find_closure_var(me.local_name) {
                 *var_idx = idx;
             } else {
-                ctx.throw_syntax_error(&format!(
+                return ctx.throw_syntax_error(&format!(
                     "exported variable '{}' does not exist",
                     me.local_name.to_utf8(ctx.rt())
                 ));
-                return -1;
             }
         }
     }
