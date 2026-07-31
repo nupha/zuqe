@@ -264,17 +264,17 @@ impl Promise {
     /// Save result `value` and update promise status to 'fulfilled' or 'rejected'.
     /// Call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     fn settle(&mut self, ctx: &mut ScopedContext, value: JSValue, is_reject: bool) {
+        debug_assert_eq!(self.payload().state(), PromiseState::Pending);
+
         ctx.gc_heap_mut().bind_value(self.gc_node_ptr(), &value); // write barrier
 
         let (state, is_handled) = {
-            let p = self.payload_mut();
-            debug_assert_eq!(p.state(), PromiseState::Pending);
-
             let s = if is_reject {
                 PromiseState::Rejected
             } else {
                 PromiseState::Fulfilled
             };
+            let p = self.payload_mut();
             p.set_state(s);
             p.set_result(value);
 
