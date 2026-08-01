@@ -3,7 +3,7 @@
 
 use std::ops::DerefMut;
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
@@ -16,8 +16,8 @@ use crate::{
     error::JSResult,
     eval::{EvalFlags, EvalType},
     object::{
-        BCWrapper, BytecodeFunction, JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK,
-        JSProperty, Object, ObjectImpl, ObjectPayload,
+        BytecodeFunction, JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object,
+        ObjectImpl, ObjectPayload,
     },
     runtime::js_check_stack_overflow,
     stack_frame::{FrameAllocError, FrameState, StackFrameArena},
@@ -25,14 +25,16 @@ use crate::{
     value::JSValue,
 };
 
+use crate::object_cast;
+
 use super::{Bytecode, CallContext, VarRef};
 
 /// Special index for argument scope.
 /// This is same to `FunctionDef::body_scope`, which was automatically pushed
 /// when creating root function def in `compile_and_run()`.
-pub const ARG_SCOPE_INDEX: i32 = 1;
+pub(super) const ARG_SCOPE_INDEX: i32 = 1;
 /// to mark end of arugment vars chain.
-pub const ARG_SCOPE_END: i32 = -2;
+pub(super) const ARG_SCOPE_END: i32 = -2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -177,6 +179,22 @@ impl BFuncPayload {
         &mut self.closure_var_refs
     }
 }
+
+/// Hand-written (not generated) because `BCWrapper` groups four distinct
+/// function classes — BYTECODE_FUNCTION, GENERATOR_FUNCTION, ASYNC_FUNCTION,
+/// ASYNC_GENERATOR_FUNCTION — each of which already maps to its own narrow
+/// type, so no single class can name-match this type.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct BCWrapper(pub(crate) GcRef<ObjectImpl>);
+
+object_cast!(
+    BCWrapper,
+    JS_CLASS_BYTECODE_FUNCTION
+        | JS_CLASS_GENERATOR_FUNCTION
+        | JS_CLASS_ASYNC_FUNCTION
+        | JS_CLASS_ASYNC_GENERATOR_FUNCTION
+);
 
 /// An object which have Bytecode inside, could be:
 /// * bytecode function

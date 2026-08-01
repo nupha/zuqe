@@ -11,7 +11,6 @@ use crate::{
     context::ContextImpl,
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
     object::{JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, Object, ObjectImpl},
-    string::StringRef,
     utils::unlikely,
     value::JSValue,
 };

@@ -14,6 +14,12 @@ use build_stdclass::{gen_class_payload, gen_object_casts, gen_std_class_defs};
 use build_tokens::gen_tokens;
 
 fn main() {
+    // Regenerate whenever the build-script sources change.
+    println!("cargo:rerun-if-changed=build_atoms.rs");
+    println!("cargo:rerun-if-changed=build_opcodes.rs");
+    println!("cargo:rerun-if-changed=build_stdclass.rs");
+    println!("cargo:rerun-if-changed=build_tokens.rs");
+
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     gen_atoms(&out_path.join("atoms.rs"));
