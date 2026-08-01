@@ -6,6 +6,8 @@ mod r#gen;
 
 pub(crate) use {a_gen::*, r#gen::*};
 
+pub(crate) use crate::object::{AsyncGeneratorFunction, GeneratorFunction};
+
 use crate::{Atom, class::ClassDef};
 
 pub(crate) static CLASS_DEF_GENERATOR: ClassDef =

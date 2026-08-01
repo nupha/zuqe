@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+mod casts;
 mod create;
 mod obj;
 mod payload;
@@ -10,7 +11,7 @@ mod prototype;
 mod shape;
 
 pub(crate) use shape::*;
-pub use {obj::*, payload::*, property::*};
+pub use {casts::*, obj::*, payload::*, property::*};
 
 #[macro_export]
 macro_rules! gcref_wrapper {

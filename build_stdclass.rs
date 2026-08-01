@@ -800,3 +800,185 @@ pub fn gen_class_payload(outfile: &Path) {
         std::process::exit(1);
     }
 }
+
+/// One narrow object type registered for bulk generation of `object_cast!`
+/// boilerplate. `class_ids` is a `|`-separated list of bare `JS_CLASS_*`
+/// constant names (without path prefix); the generator re-emits them with a
+/// `crate::` prefix and validates each against `CLASS_DEF_LIST`.
+#[derive(Debug)]
+struct CastInfo {
+    /// narrow type name, e.g. "Array"
+    ty: &'static str,
+    /// class-id expression, e.g. "JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS"
+    class_ids: &'static str,
+    /// optional feature gate (e.g. "builtin_regexp"); None = always compiled
+    feat: Option<&'static str>,
+}
+
+impl CastInfo {
+    const fn new(ty: &'static str, class_ids: &'static str) -> Self {
+        CastInfo {
+            ty,
+            class_ids,
+            feat: None,
+        }
+    }
+
+    const fn feat(ty: &'static str, class_ids: &'static str, feat: &'static str) -> Self {
+        CastInfo {
+            ty,
+            class_ids,
+            feat: Some(feat),
+        }
+    }
+}
+
+/// Explicit mapping table (single source of truth) for the narrow object
+/// wrapper types. Faithfully records the current 19 live `object_cast!` sites.
+/// Entries that must be feature-gated (because the referenced `JS_CLASS_*`
+/// constant does not exist when the feature is off) carry a `feat` marker.
+const OBJECT_CAST_LIST: &[CastInfo] = &[
+    CastInfo::new("Array", "JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS"),
+    CastInfo::new("Promise", "JS_CLASS_PROMISE"),
+    CastInfo::new(
+        "PromiseResolveFunc",
+        "JS_CLASS_PROMISE_RESOLVE_FUNCTION | JS_CLASS_PROMISE_REJECT_FUNCTION",
+    ),
+    CastInfo::feat("Proxy", "JS_CLASS_PROXY", "builtin_proxy"),
+    CastInfo::feat("RegExp", "JS_CLASS_REGEXP", "builtin_regexp"),
+    CastInfo::new(
+        "AsyncFromSyncIterator",
+        "JS_CLASS_ASYNC_FROM_SYNC_ITERATOR",
+    ),
+    CastInfo::new(
+        "AsyncIterableIterator",
+        "JS_CLASS_ASYNC_ITERABLE_ITERATOR",
+    ),
+    CastInfo::new("DataView", "JS_CLASS_DATAVIEW"),
+    CastInfo::new("GeneratorFunction", "JS_CLASS_GENERATOR_FUNCTION"),
+    CastInfo::new(
+        "TypedArray",
+        "JS_CLASS_UINT8C_ARRAY | JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY | JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY | JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY | JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY | JS_CLASS_FLOAT16_ARRAY | JS_CLASS_FLOAT32_ARRAY | JS_CLASS_FLOAT64_ARRAY",
+    ),
+    CastInfo::new(
+        "AsyncGeneratorFunction",
+        "JS_CLASS_ASYNC_GENERATOR_FUNCTION",
+    ),
+    CastInfo::new(
+        "ArrayBuffer",
+        "JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER",
+    ),
+    CastInfo::feat(
+        "MapSet",
+        "JS_CLASS_MAP | JS_CLASS_SET | JS_CLASS_WEAKMAP | JS_CLASS_WEAKSET",
+        "builtin_mapset",
+    ),
+    CastInfo::feat("MapIterator", "JS_CLASS_MAP_ITERATOR", "builtin_mapset"),
+    CastInfo::new("AsyncFunction", "JS_CLASS_ASYNC_FUNCTION"),
+    CastInfo::new(
+        "BCWrapper",
+        "JS_CLASS_BYTECODE_FUNCTION | JS_CLASS_GENERATOR_FUNCTION | JS_CLASS_ASYNC_FUNCTION | JS_CLASS_ASYNC_GENERATOR_FUNCTION",
+    ),
+    CastInfo::new("BytecodeFunction", "JS_CLASS_BYTECODE_FUNCTION"),
+    CastInfo::new(
+        "NativeFunction",
+        "JS_CLASS_C_FUNCTION | JS_CLASS_C_FUNCTION_DATA",
+    ),
+    CastInfo::new("BoundFunction", "JS_CLASS_BOUND_FUNCTION"),
+];
+
+/// Whether a cargo feature is enabled for the current build. Cargo exposes
+/// each feature as a `CARGO_FEATURE_<UPPER_SNAKE>` env var.
+fn feature_on(feat: &str) -> bool {
+    let key = format!(
+        "CARGO_FEATURE_{}",
+        feat.to_ascii_uppercase().replace('-', "_")
+    );
+    std::env::var(key).is_ok()
+}
+
+/// Bulk-generate `object_cast!` boilerplate for every narrow object type in
+/// `OBJECT_CAST_LIST`. Emits `$OUT_DIR/object_casts.rs` which is `include!`d
+/// from `src/object/casts.rs` (inside `crate::object`, where `Object`,
+/// `ObjectImpl`, `JSValue`, `GcRef` and the `object_cast!` macro are all in
+/// scope).
+///
+/// Each entry becomes a transparent, `Copy` struct plus an `object_cast!`
+/// invocation. The GcRef field is emitted `pub(crate)` so that the type's
+/// inherent-method `impl` blocks that remain in their original modules can
+/// still access `.0` (a superset of the original per-module field visibility,
+/// hence a semantic no-op).
+pub fn gen_object_casts(outfile: &Path) {
+    let mut valid_consts: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for cdef in CLASS_DEF_LIST {
+        valid_consts.insert(format!("JS_CLASS_{}", cdef.const_name));
+    }
+
+    let mut items = Vec::<String>::with_capacity(OBJECT_CAST_LIST.len());
+    let mut used_consts: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+    for cast in OBJECT_CAST_LIST {
+        if let Some(feat) = cast.feat {
+            if !feature_on(feat) {
+                // feature off: the referenced JS_CLASS_* constants do not
+                // exist, so skip both validation and emission.
+                continue;
+            }
+        }
+
+        let class_tokens: Vec<&str> = cast.class_ids.split('|').map(|s| s.trim()).collect();
+        for tok in &class_tokens {
+            let const_name = tok.trim();
+            if !valid_consts.contains(const_name) {
+                panic!(
+                    "gen_object_casts: `{}` references unknown class constant `{}` \
+                     (not present in CLASS_DEF_LIST)",
+                    cast.ty, const_name
+                );
+            }
+            used_consts.insert(const_name.to_string());
+        }
+
+        let class_ids = class_tokens.join(" | ");
+
+        let mut item = String::new();
+        if let Some(feat) = cast.feat {
+            item.push_str(&format!("#[cfg(feature = \"{feat}\")]\n"));
+        }
+        item.push_str(&format!(
+            "/// Narrow wrapper around a GcRef<ObjectImpl>.\n\
+             #[repr(transparent)]\n\
+             #[derive(Debug, Clone, Copy)]\n\
+             pub struct {ty}(pub(crate) GcRef<ObjectImpl>);\n\n\
+             object_cast!({ty}, {class_ids});\n",
+            ty = cast.ty,
+        ));
+        items.push(item);
+    }
+
+    let mut lines = vec![
+        "// @generated by build_stdclass.rs gen_object_casts. DO NOT EDIT.".to_string(),
+        String::new(),
+        "use crate::{".to_string(),
+        used_consts.into_iter().collect::<Vec<_>>().join(", "),
+        "};".to_string(),
+        String::new(),
+    ];
+    lines.extend(items);
+
+    std::fs::write(outfile, lines.join("\n")).unwrap();
+
+    let output = std::process::Command::new("rustfmt")
+        .arg("--")
+        .arg(outfile)
+        .output()
+        .expect("Failed to execute rustfmt");
+
+    if !output.status.success() {
+        eprintln!(
+            "rustfmt failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::process::exit(1);
+    }
+}

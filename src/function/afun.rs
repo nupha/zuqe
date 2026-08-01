@@ -1,28 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::GcRef;
-
 use crate::{
-    Atom, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
+    Atom, JS_CLASS_ASYNC_FUNCTION_REJECT,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
     context::ScopedContext,
     error::JSResult,
     function::{AsyncState, BCWrapper, BytecodeFunction, Callback, FunctionKind, NativeFunction},
-    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{AsyncFunction, JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 
 use super::{CallContext, FieldDef};
-
-/// Async Function object
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct AsyncFunction(pub(crate) GcRef<ObjectImpl>);
-
-object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {

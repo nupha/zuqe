@@ -3,7 +3,7 @@
 
 use std::{cell::UnsafeCell, ops::DerefMut};
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
+use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
@@ -15,8 +15,7 @@ use crate::{
     class::ClassID,
     context::ScopedContext,
     function::{Callback, NativeFunction},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload, TypedArray},
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -165,26 +164,6 @@ impl TypedArrayPayload {
             .with_bytes_mut(|buf| f(&mut buf[base..base + len]))
     }
 }
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct TypedArray(GcRef<ObjectImpl>);
-
-object_cast!(
-    TypedArray,
-    JS_CLASS_UINT8C_ARRAY
-        | JS_CLASS_INT8_ARRAY
-        | JS_CLASS_UINT8_ARRAY
-        | JS_CLASS_INT16_ARRAY
-        | JS_CLASS_UINT16_ARRAY
-        | JS_CLASS_INT32_ARRAY
-        | JS_CLASS_UINT32_ARRAY
-        | JS_CLASS_BIG_INT64_ARRAY
-        | JS_CLASS_BIG_UINT64_ARRAY
-        | JS_CLASS_FLOAT16_ARRAY
-        | JS_CLASS_FLOAT32_ARRAY
-        | JS_CLASS_FLOAT64_ARRAY
-);
 
 impl TypedArray {
     /// log2 size for each class_id

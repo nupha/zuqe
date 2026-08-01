@@ -6,15 +6,14 @@ use std::{cell::RefCell, ops::DerefMut, rc::Rc};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_ASYNC_ITERABLE_ITERATOR, Receiver, Sender, TryRecvError,
+    Receiver, Sender, TryRecvError,
     builtins::promise::{Promise, PromiseResultSlot},
     class::ClassID,
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     make_bounded_channel,
-    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{JS_PROP_CONFIGURABLE, AsyncIterableIterator, ObjectImpl, ObjectPayload},
     value::JSValue,
 };
 
@@ -179,17 +178,6 @@ impl<D: Send + 'static> AsyncIteratorFetcher for SlotFetcher<D> {
 ///
 /// # JS side
 ///
-/// ```js
-/// for await (const value of asyncIterator) {
-///     console.log(value);
-/// }
-/// ```
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct AsyncIterableIterator(GcRef<ObjectImpl>);
-
-object_cast!(AsyncIterableIterator, JS_CLASS_ASYNC_ITERABLE_ITERATOR);
-
 impl AsyncIterableIterator {
     pub(crate) fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());

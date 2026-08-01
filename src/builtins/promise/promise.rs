@@ -18,8 +18,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
     make_bounded_channel,
-    object::{JS_PROP_C_W_E, Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{JS_PROP_C_W_E, Object, ObjectImpl, ObjectPayload, Promise},
     value::JSValue,
 };
 
@@ -195,12 +194,6 @@ mod async_slot {
 
 #[cfg(feature = "async_support")]
 pub use async_slot::PromiseSlotCommitFut;
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct Promise(GcRef<ObjectImpl>);
-
-object_cast!(Promise, JS_CLASS_PROMISE);
 
 impl Promise {
     /// create Promise object with given executor function.

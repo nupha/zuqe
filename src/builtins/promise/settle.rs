@@ -3,16 +3,15 @@
 
 use std::{cell::Cell, ops::DerefMut, rc::Rc};
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    ErrorKind, Exception, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
+    ErrorKind, Exception, JS_CLASS_PROMISE_REJECT_FUNCTION,
     atom::Atom,
     context::{ContextImpl, ScopedContext},
     error::JSResult,
     gc::GcHeapExt,
-    object::{JS_SpeciesConstructor, Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{JS_SpeciesConstructor, Object, ObjectPayload, PromiseResolveFunc},
     utils::unlikely,
     value::JSValue,
 };
@@ -39,16 +38,6 @@ impl GcTrace for PromiseResolvePayload {
         self.promise.trace(gcx);
     }
 }
-
-/// Represent Promise resolve, reject function object
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct PromiseResolveFunc(GcRef<ObjectImpl>);
-
-object_cast!(
-    PromiseResolveFunc,
-    JS_CLASS_PROMISE_RESOLVE_FUNCTION | JS_CLASS_PROMISE_REJECT_FUNCTION
-);
 
 impl PromiseResolveFunc {
     pub fn class_call(

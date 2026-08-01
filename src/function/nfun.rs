@@ -3,7 +3,7 @@
 
 use std::ops::DerefMut;
 
-use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
@@ -11,8 +11,7 @@ use crate::{
     builtins::iterator::make_iterator_next_result,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
-    object::{Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{NativeFunction, Object, ObjectImpl, ObjectPayload},
     runtime::js_check_stack_overflow,
     stack_frame::{ExecMode, FrameAllocError, FrameState, StackFrameArena},
     value::JSValue,
@@ -160,16 +159,6 @@ impl NFuncPayload {
         })
     }
 }
-
-/// Native function object
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct NativeFunction(GcRef<ObjectImpl>);
-
-object_cast!(
-    NativeFunction,
-    JS_CLASS_C_FUNCTION | JS_CLASS_C_FUNCTION_DATA
-);
 
 impl NativeFunction {
     /// Call native function

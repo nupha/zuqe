@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     Atom, Callback, ClassID, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
@@ -11,8 +11,7 @@ use crate::{
         AsyncState, BytecodeFunction, CallContext, FieldDef, FunctionKind, IteratorState,
         NativeFunction,
     },
-    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{JS_PROP_CONFIGURABLE, GeneratorFunction, ObjectPayload},
     value::JSValue,
 };
 
@@ -76,12 +75,6 @@ impl GeneratorPayload {
         }
     }
 }
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct GeneratorFunction(GcRef<ObjectImpl>);
-
-object_cast!(GeneratorFunction, JS_CLASS_GENERATOR_FUNCTION);
 
 impl GeneratorFunction {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {

@@ -4,7 +4,7 @@
 use std::collections::TryReserveError;
 
 use fallible_collections::{FallibleVec, TryCollect};
-use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
@@ -18,11 +18,12 @@ use crate::{
         JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Object, ObjectImpl,
         ObjectPayload, PropertyKeyKind,
     },
-    object_cast,
     string::StringData,
     utils::unlikely,
     value::JSValue,
 };
+
+pub use crate::object::Array;
 
 #[repr(transparent)]
 #[derive(Debug, Default)]
@@ -97,13 +98,6 @@ impl ArrayPayload {
         self.values = values;
     }
 }
-
-/// Object representing an Array, Arguments instance.
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct Array(GcRef<ObjectImpl>);
-
-object_cast!(Array, JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS);
 
 impl Array {
     #[inline(always)]

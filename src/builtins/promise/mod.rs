@@ -9,6 +9,8 @@ mod settle;
 pub(crate) use job::*;
 pub use {class_promise::*, promise::*, settle::*};
 
+pub use crate::object::{Promise, PromiseResolveFunc};
+
 #[cfg(feature = "async_support")]
 mod async_support;
 #[cfg(feature = "async_support")]

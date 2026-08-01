@@ -3,10 +3,9 @@
 
 use std::{cell::Cell, ops::DerefMut};
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_PROXY,
     array::Array,
     atom::Atom,
     class::{ClassExoticMethods, ClassID},
@@ -17,10 +16,9 @@ use crate::{
         JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
         JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JSPropertyDescriptor, Object, ObjectImpl, ObjectPayload, PropertyKey,
+        JSPropertyDescriptor, Object, ObjectPayload, PropertyKey, Proxy,
         check_define_prop_flags,
     },
-    object_cast,
     runtime::js_check_stack_overflow,
     utils::unlikely,
     value::JSValue,
@@ -193,12 +191,6 @@ impl ProxyPayload {
         }
     }
 }
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct Proxy(pub(super) GcRef<ObjectImpl>);
-
-object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {

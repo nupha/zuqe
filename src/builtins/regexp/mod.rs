@@ -7,6 +7,8 @@ mod re;
 
 pub use {class_regexp::*, class_regexp_iter::*, re::*};
 
+pub use crate::object::RegExp;
+
 use crate::{
     Atom,
     class::{ClassCtorDef, ClassDef},

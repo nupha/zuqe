@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     Atom, IntOrFloat, JS_CLASS_BOUND_FUNCTION, JS_PROP_CONFIGURABLE,
     array::alloc_fast_array_slots,
     context::ScopedContext,
     error::JSResult,
-    object::{Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{BoundFunction, Object, ObjectPayload},
     string::{JS_ConcatString3, StringRef},
     value::JSValue,
 };
@@ -30,12 +29,6 @@ impl GcTrace for BoundFunctionPayload {
         self.bind_args.iter().for_each(|x| x.trace(tr));
     }
 }
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct BoundFunction(GcRef<ObjectImpl>);
-
-object_cast!(BoundFunction, JS_CLASS_BOUND_FUNCTION);
 
 impl BoundFunction {
     pub(crate) fn class_call(

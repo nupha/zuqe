@@ -8,6 +8,8 @@ mod ta;
 
 pub use {class_dataview::*, class_typedarray::*, dv::*, ta::*};
 
+pub use crate::object::{DataView, TypedArray};
+
 use crate::{Atom, class::ClassDef};
 
 macro_rules! ta_class_def {

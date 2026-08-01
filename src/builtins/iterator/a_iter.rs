@@ -3,10 +3,10 @@
 
 use std::cell::Cell;
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    Callback, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+    Callback,
     atom::Atom,
     builtins::{
         generator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
@@ -16,8 +16,7 @@ use crate::{
     context::ScopedContext,
     error::{Exception, JSResult},
     function::{CallContext, FieldDef, IteratorState, NativeFunction},
-    object::{Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{AsyncFromSyncIterator, Object, ObjectPayload},
     value::JSValue,
 };
 
@@ -36,12 +35,6 @@ impl GcTrace for JSAsyncFromSyncIteratorData {
         self.next_method.trace(tr);
     }
 }
-
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct AsyncFromSyncIterator(GcRef<ObjectImpl>);
-
-object_cast!(AsyncFromSyncIterator, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR);
 
 impl AsyncFromSyncIterator {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {

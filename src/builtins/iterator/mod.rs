@@ -13,6 +13,8 @@ mod iter_zip;
 mod iterator;
 
 pub use {a_iter::*, array_iter::*, async_iter::*, iter::*};
+
+pub use crate::object::{AsyncFromSyncIterator, AsyncIterableIterator};
 pub(crate) use {
     iter_concat::*, iter_helper::*, iter_shared::*, iter_wrap::*, iter_zip::*, iterator::*,
 };

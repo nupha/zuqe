@@ -8,15 +8,13 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
+use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
     context::ScopedContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::CallContext,
-    object::{Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{ArrayBuffer, Object, ObjectImpl, ObjectPayload},
     runtime::RuntimeImpl,
     utils::unlikely,
     value::JSValue,
@@ -195,15 +193,6 @@ impl ArrayBufferPayload {
         self.data.with_bytes_mut(f)
     }
 }
-
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct ArrayBuffer(pub(crate) GcRef<ObjectImpl>);
-
-object_cast!(
-    ArrayBuffer,
-    JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
-);
 
 impl ArrayBuffer {
     /// also used for SharedArrayBuffer

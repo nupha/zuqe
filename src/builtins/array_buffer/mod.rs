@@ -6,6 +6,8 @@ mod class_arraybuffer;
 
 pub use {abuf::*, class_arraybuffer::*};
 
+pub use crate::object::ArrayBuffer;
+
 use crate::{Atom, class::ClassDef};
 
 pub(crate) static CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef::builtin(

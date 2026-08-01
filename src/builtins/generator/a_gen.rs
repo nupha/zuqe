@@ -3,7 +3,7 @@
 
 use std::cell::RefCell;
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
+use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     Atom, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -17,8 +17,7 @@ use crate::{
     function::{
         AsyncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind, NativeFunction,
     },
-    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{JS_PROP_CONFIGURABLE, AsyncGeneratorFunction, Object, ObjectImpl, ObjectPayload},
     utils::unlikely,
     value::JSValue,
 };
@@ -374,13 +373,6 @@ impl AGenPayload {
         self.resolve_or_reject(ctx, &exception, true);
     }
 }
-
-/// An AsyncGeneratorFunction object
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct AsyncGeneratorFunction(GcRef<ObjectImpl>);
-
-object_cast!(AsyncGeneratorFunction, JS_CLASS_ASYNC_GENERATOR_FUNCTION);
 
 impl AsyncGeneratorFunction {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {

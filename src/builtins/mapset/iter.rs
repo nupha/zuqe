@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     Array, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, ScopedContext,
@@ -9,8 +9,7 @@ use crate::{
     class::ClassID,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
-    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl},
-    object_cast,
+    object::{JS_PROP_CONFIGURABLE, Object},
     value::JSValue,
 };
 
@@ -35,12 +34,6 @@ impl GcTrace for JSMapIteratorData {
         }
     }
 }
-
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct MapIterator(GcRef<ObjectImpl>);
-
-object_cast!(MapIterator, JS_CLASS_MAP_ITERATOR);
 
 fn js_map_iterator_next(
     ctx: &mut ScopedContext,

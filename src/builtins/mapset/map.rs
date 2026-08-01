@@ -3,15 +3,13 @@
 
 use std::collections::HashMap;
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx, GcWeak};
+use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_WEAKMAP,
-    JS_CLASS_WEAKSET,
+    JS_CLASS_MAP_ITERATOR, JS_CLASS_SET_ITERATOR,
     class::ClassID,
     context::{ContextImpl, ScopedContext},
-    object::{Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{MapSet, Object, ObjectImpl, ObjectPayload},
     utils::hash_usize,
     value::JSValue,
 };
@@ -371,16 +369,6 @@ impl JSMapState {
         self.remove_count = 0;
     }
 }
-
-/// Object representing a Map, Set, WeakMap, WeakSet instance.
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct MapSet(pub(crate) GcRef<ObjectImpl>);
-
-object_cast!(
-    MapSet,
-    JS_CLASS_MAP | JS_CLASS_SET | JS_CLASS_WEAKMAP | JS_CLASS_WEAKSET
-);
 
 impl MapSet {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {

@@ -6,6 +6,8 @@ mod proxy;
 
 pub use {class_proxy::*, proxy::*};
 
+pub use crate::object::Proxy;
+
 use crate::{Atom, class::ClassDef};
 
 pub(crate) static CLASS_DEF_PROXY: ClassDef =

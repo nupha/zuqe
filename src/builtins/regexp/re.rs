@@ -3,18 +3,17 @@
 
 use std::{cell::Cell, ops::Range, rc::Rc};
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 use lre::{Regex, RegexFlags};
 use zerocopy::IntoBytes;
 
 use crate::{
-    JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
+    JS_CLASS_REGEXP_STRING_ITERATOR,
     array::{Array, alloc_fast_array_slots},
     atom::Atom,
     class::ClassID,
     context::ScopedContext,
-    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, ObjectPayload, RegExp},
     string::{CharCode, StringData, StringRef},
     value::JSValue,
 };
@@ -270,13 +269,6 @@ impl RegExpData {
         }
     }
 }
-
-/// the regexp object
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct RegExp(GcRef<ObjectImpl>);
-
-object_cast!(RegExp, JS_CLASS_REGEXP);
 
 impl RegExp {
     /// create RegExp object with given RegExpData, and constructor.

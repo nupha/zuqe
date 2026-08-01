@@ -27,8 +27,12 @@ mod var;
 mod var_ref;
 
 pub use {
-    afun::*, bfun::*, bound::*, bytecode::*, call::*, fields::*, func_def::*, label::*, nfun::*,
-    optimize::*, scope::*, var::*, var_ref::*,
+    bfun::*, bound::*, bytecode::*, call::*, fields::*, func_def::*, label::*, nfun::*, optimize::*,
+    scope::*, var::*, var_ref::*,
+};
+
+pub use crate::object::{
+    AsyncFunction, BCWrapper, BoundFunction, BytecodeFunction, NativeFunction,
 };
 
 pub(crate) use {a_state::*, argument::*, closure::*, emit::*};

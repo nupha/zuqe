@@ -3,7 +3,7 @@
 
 use std::ops::DerefMut;
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
@@ -16,10 +16,9 @@ use crate::{
     error::JSResult,
     eval::{EvalFlags, EvalType},
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ObjectImpl,
-        ObjectPayload,
+        BCWrapper, BytecodeFunction, JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK,
+        JSProperty, Object, ObjectImpl, ObjectPayload,
     },
-    object_cast,
     runtime::js_check_stack_overflow,
     stack_frame::{FrameAllocError, FrameState, StackFrameArena},
     string::JS_ConcatString3,
@@ -184,18 +183,6 @@ impl BFuncPayload {
 /// * generator function
 /// * async function
 /// * async generator function
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct BCWrapper(pub(super) GcRef<ObjectImpl>);
-
-object_cast!(
-    BCWrapper,
-    JS_CLASS_BYTECODE_FUNCTION
-        | JS_CLASS_GENERATOR_FUNCTION
-        | JS_CLASS_ASYNC_FUNCTION
-        | JS_CLASS_ASYNC_GENERATOR_FUNCTION
-);
-
 impl BCWrapper {
     #[inline(always)]
     pub fn is_async(&self) -> bool {
@@ -323,12 +310,6 @@ pub(crate) const fn js_function_proto(_: &mut ScopedContext, _: CallContext) -> 
 }
 
 /// A subtype of BCWrapper
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct BytecodeFunction(GcRef<ObjectImpl>);
-
-object_cast!(BytecodeFunction, JS_CLASS_BYTECODE_FUNCTION);
-
 impl BytecodeFunction {
     /// Handle `Function` constructor call like:
     ///

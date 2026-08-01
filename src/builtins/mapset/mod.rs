@@ -7,6 +7,8 @@ mod map;
 
 pub use {class_map::*, iter::*, map::*};
 
+pub use crate::object::{MapIterator, MapSet};
+
 use crate::{Atom, class::ClassDef};
 
 pub(crate) static CLASS_DEF_MAP: ClassDef = ClassDef::builtin(

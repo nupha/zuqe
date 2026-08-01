@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_DATAVIEW,
     builtins::array_buffer::ArrayBuffer,
     context::ScopedContext,
-    object::{Object, ObjectImpl, ObjectPayload},
-    object_cast,
+    object::{DataView, ObjectPayload},
     value::JSValue,
 };
 
@@ -88,12 +86,6 @@ impl DataViewPayload {
             .with_bytes_mut(|buf| f(&mut buf[base..base + len]))
     }
 }
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct DataView(GcRef<ObjectImpl>);
-
-object_cast!(DataView, JS_CLASS_DATAVIEW);
 
 impl DataView {
     /// create a DataView with ArrayBuffer, byte offset and byte length.
