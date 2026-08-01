@@ -370,7 +370,7 @@ macro_rules! def_native_object {
         $(, extends: $extends_class:expr)?
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?) => {
-        $crate::def_native_object!(@native-no-payload $name, $native_ty, (), $proto_entries, $ctor
+        $crate::def_native_object!(@native-no-payload $name, $native_ty, $proto_entries, $ctor
             $(, extends: $extends_class)?
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?);
