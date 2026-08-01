@@ -432,10 +432,11 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::class_def(
+    ClassInfo::narrow_type(
         "FLOAT32_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_FLOAT32_ARRAY",
         PayloadKey::TypedArray,
+        "TypedArray",
     ),
     ClassInfo::narrow_type(
         "FLOAT64_ARRAY",
