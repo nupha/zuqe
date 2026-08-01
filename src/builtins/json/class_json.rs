@@ -272,6 +272,41 @@ fn js_json_rawJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(JSValue::from(obj))
 }
 
+// ---------------------------------------------------------------------------
+// Rust-side JSON API
+// ---------------------------------------------------------------------------
+
+/// Entry point for native code that wants the engine's JSON semantics
+/// without going through the `JSON` global object (which may be absent in
+/// a custom realm).  Both methods behave exactly like `JSON.parse` /
+/// `JSON.stringify`, including throwing `SyntaxError` on malformed input.
+pub struct JSON;
+
+impl JSON {
+    /// `JSON.parse(text)` — no reviver.
+    pub fn parse(ctx: &mut ScopedContext, text: &str) -> JSResult {
+        let mut cp = ctx.ctx_ptr;
+        let child_scope = cp.new_scope();
+        let mut parser = JSParseState::new_for_json(child_scope, text.as_bytes(), "<json>");
+        parser.ext_json = false;
+        let res = parser.json_parse(None);
+        let (scope_back, _) = parser.finish(());
+        // Promote out of the child scope before it is dropped.
+        res.promote(&scope_back)
+    }
+
+    /// `JSON.stringify(value, replacer, space)`.
+    /// Returns `undefined` for values that are not serializable, same as JS.
+    pub fn stringify(
+        ctx: &mut ScopedContext,
+        value: JSValue,
+        replacer: JSValue,
+        space: JSValue,
+    ) -> JSResult {
+        ctx.with_new_scope(|cx| cx.json_stringify(value, replacer, space))
+    }
+}
+
 const js_json_funcs: &[FieldDef] = &[
     FieldDef::FUNC("parse", 2, js_json_parse, 0),
     FieldDef::FUNC("stringify", 3, js_json_stringify, 0),
