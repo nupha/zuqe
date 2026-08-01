@@ -4,13 +4,14 @@
 use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
-    Context,
+    Context, Exception, ExitStatus,
     atom::Atom,
     context::{ScopeResult, ScopedContext},
     error::JSResult,
     function::{BCWrapper, Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::ModuleDef,
     parse::JSParseState,
+    runtime::Runtime,
     stack_frame::{ExecMode, FrameIndex},
     value::JSValue,
 };
@@ -475,6 +476,103 @@ impl<'c> Context<'c> {
         crate::runtime::JS_UpdateStackTop(self.rt_mut());
 
         self.with_new_scope(|cx| cx.eval_wait(source, filename, eval_type, flags))
+    }
+
+    /// Async counterpart of `eval_wait`: eval `source` in `self` scope and drive
+    /// the event loop to completion. Unlike the sync version (which spins the
+    /// loop synchronously), this `.await`s it together with the module's
+    /// top-level evaluation promise.
+    ///
+    /// A rejected top-level module promise is surfaced as `ExitStatus::Exception`
+    /// (uncaught error) so the host can exit non-zero — the rejection is never
+    /// silently dropped. This mirrors the sync `eval_wait` semantics exactly.
+    #[cfg(feature = "async_support")]
+    pub async fn eval_wait(
+        &mut self,
+        rt: &mut Runtime,
+        source: &[u8],
+        filename: &str,
+        eval_type: EvalType,
+        flags: EvalFlags,
+    ) -> ExitStatus {
+        // Refresh stack_top at the outermost eval entry point (see sync version).
+        crate::runtime::JS_UpdateStackTop(self.rt_mut());
+
+        let Ok(ret_val) = self.with_new_scope(|cx| cx.eval(source, filename, eval_type, flags))
+        else {
+            let exc = self.take_exception();
+            return ExitStatus::Exception(exc);
+        };
+
+        // A module entrypoint evaluates to a Promise. Observe its settled state:
+        // a top-level rejection is an uncaught error and must not be lost.
+        let promise_future = crate::builtins::promise::Promise::try_from(ret_val)
+            .ok()
+            .and_then(|p| p.into_future(&mut self.root_scope()).ok());
+
+        match promise_future {
+            Some(fut) => {
+                // Drive the event loop AND the top-level module promise together.
+                // `futures_util::future::select` (not `tokio::select!`) keeps the
+                // losing future alive in `Either` so it can still be polled: when
+                // the loop drains (`Stop`) before the promise settles, the promise
+                // future is retained and polled to its terminal state. `tokio::select!`
+                // would drop it and swallow the rejection (exit 0, no output).
+                let rt_fut = std::pin::pin!(rt.run_async());
+                let script_fut = std::pin::pin!(fut);
+                match futures_util::future::select(rt_fut, script_fut).await {
+                    // Loop stopped first (or interrupted); observe the promise now.
+                    futures_util::future::Either::Left((rt_res, script_fut)) => {
+                        if matches!(rt_res, ExitStatus::Interrupted(_)) {
+                            // After an interrupt the promise can never settle (no
+                            // more ticks), so stop immediately to avoid hanging.
+                            rt_res
+                        } else {
+                            match script_fut.await {
+                                Ok(_) => rt_res,
+                                // Top-level module error -> uncaught exception.
+                                Err(reason) => ExitStatus::Exception(Exception::Error(reason)),
+                            }
+                        }
+                    }
+                    // Promise settled first; keep draining the loop (unless it's a
+                    // rejection, which terminates the process regardless of timers).
+                    futures_util::future::Either::Right((promise_res, rt_fut)) => match promise_res
+                    {
+                        Ok(_) => rt_fut.await,
+                        Err(reason) => ExitStatus::Exception(Exception::Error(reason)),
+                    },
+                }
+            }
+
+            // Script (non-module) or already-settled value: drive the loop to
+            // drain microtasks/timers spawned by the script, then surface the
+            // script's own eval result (`ret_val`) — that is what
+            // `ExitStatus::Value` is contractually defined to carry ("a value
+            // produced by the executed script"). `run_async` only yields
+            // `Interrupted` (Ctrl-C mid-drain) or `Value(UNDEFINED)` (loop
+            // stopped with nothing meaningful), so forward an interrupt but
+            // never let the loop's placeholder UNDEFINED shadow the real result.
+            None => match rt.run_async().await {
+                ExitStatus::Interrupted(code) => ExitStatus::Interrupted(code),
+                // `run_async` never produces `Exception`, and its `Value` variant
+                // is always `UNDEFINED` (see RunFuture::poll). Anything else is a
+                // violated invariant of the event loop.
+                #[cfg(debug_assertions)]
+                ExitStatus::Exception(_) => unreachable!("run_async yielded an Exception"),
+                #[cfg(debug_assertions)]
+                ExitStatus::Value(v) => {
+                    debug_assert_eq!(
+                        v,
+                        JSValue::UNDEFINED,
+                        "run_async Value must be UNDEFINED, got a real value"
+                    );
+                    ExitStatus::Value(ret_val)
+                }
+                #[cfg(not(debug_assertions))]
+                _ => ExitStatus::Value(ret_val),
+            },
+        }
     }
 }
 

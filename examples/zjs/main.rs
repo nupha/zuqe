@@ -17,8 +17,7 @@ use colorized::{Colors::*, colorize_println};
 use libloading::Library;
 use url::Url;
 use zuqe::{
-    Context, EvalFlags, EvalType, Exception, ExitStatus, JSValue, ModuleDef, Runtime,
-    ScopedContext, builtins::promise::Promise,
+    Context, EvalFlags, EvalType, Exception, ExitStatus, JSValue, ModuleDef, Runtime, ScopedContext,
 };
 
 use crate::{
@@ -307,8 +306,6 @@ fn main() -> ExitCode {
 async fn main() -> ExitCode {
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
-    let mut promise_future = None;
-
     // Convert the entry filename to a canonical `file://` URL when running a
     // Convert the entry filename to a canonical `file://` URL. `module_name`
     // (and `import.meta.url`) is a URL, and a `file://` base is also required so
@@ -318,81 +315,41 @@ async fn main() -> ExitCode {
         .expect("entry path must convert to a file:// URL")
         .to_string();
 
-    let result = ctx.eval(
-        script.as_bytes(),
-        &entry_name,
-        if is_module {
-            EvalType::Module
-        } else {
-            EvalType::Global
-        },
-        EvalFlags::empty(),
-    );
-    let res = ctx.with_root_scope(|mut cx| match result {
-        Ok(val) => {
-            if let Ok(promise) = Promise::try_from(val) {
-                match promise.into_future(&mut cx) {
-                    Ok(fut) => {
-                        promise_future = Some(fut);
-                        Ok(())
-                    }
-                    Err(_) => Err(cx.take_exception().to_text(&mut cx)),
-                }
+    // Eval the entry and drive the event loop to completion. `eval_wait`
+    // handles top-level module Promise observation internally via
+    // `futures_util::future::select` (never `tokio::join!`), so a rejected
+    // top-level promise is surfaced as `ExitStatus::Exception` and never
+    // silently dropped. A synchronous (non-Promise) result is returned as
+    // `ExitStatus::Value` for the host to print.
+    let run_result = ctx
+        .eval_wait(
+            &mut rt,
+            script.as_bytes(),
+            &entry_name,
+            if is_module {
+                EvalType::Module
             } else {
-                colorize_println(
-                    inspect::js_inspect_value(&mut cx, val, &inspect::InspectOptions::default()),
-                    GreenFg,
-                );
-                Ok(())
-            }
-        }
-        Err(_) => Err(cx.take_exception().to_text(&mut cx)),
-    });
-
-    #[cfg(debug_assertions)]
-    debug_assert_eq!(
-        ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()),
-        1,
-        "top-level scope exists"
-    );
-
-    if let Err(e) = res {
-        let mut err_msg = e.message;
-        if let Some(tb) = e.traceback {
-            err_msg = format!("{err_msg}\n{tb}");
-        }
-        colorize_println(err_msg, RedFg);
-        return ExitCode::FAILURE;
-    }
-
-    let run_result = if let Some(js_fut) = promise_future {
-        let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
-
-        // print result or error
-        ctx.with_root_scope(|mut cx| match promise_res {
-            Ok(val) => {
-                colorize_println(
-                    inspect::js_inspect_value(&mut cx, val, &inspect::InspectOptions::default()),
-                    GreenFg,
-                );
-            }
-            Err(reason) => {
-                let err_msg = reason
-                    .to_string(&mut cx)
-                    .unwrap()
-                    .encode_utf8(false)
-                    .to_string();
-                colorize_println(err_msg, RedFg);
-            }
-        });
-
-        rt_res
-    } else {
-        rt.run_async().await
-    };
+                EvalType::Global
+            },
+            EvalFlags::empty(),
+        )
+        .await;
 
     match run_result {
-        ExitStatus::Value(_) => ExitCode::SUCCESS,
+        ExitStatus::Value(v) => {
+            // A module (or a script with no meaningful tail value) evaluates to
+            // `undefined`; printing it is just noise. Only surface real values,
+            // matching how a REPL/CLI treats an absent result.
+            if !v.is_undefined() {
+                ctx.with_root_scope(|mut cx| {
+                    colorize_println(
+                        inspect::js_inspect_value(&mut cx, v, &inspect::InspectOptions::default()),
+                        GreenFg,
+                    );
+                });
+            }
+            ExitCode::SUCCESS
+        }
         ExitStatus::Interrupted(code) => {
             #[cfg(debug_assertions)]
             log::debug!("Process interrupted with code {:?}", code);
