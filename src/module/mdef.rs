@@ -439,6 +439,27 @@ impl<'c> ScopedContext<'c> {
     ) -> Result<ModuleDef, i32> {
         self.create_module(name, entries)
     }
+
+    /// Name of the script or module currently executing on the call stack.
+    ///
+    /// Returns the filename/URL of the innermost bytecode frame (the one
+    /// actually running), skipping JS `eval()` frames but honoring
+    /// `evalModule`/`evalScript` frames. For module mode this is the value
+    /// that backs `import.meta.url`, so relative `import`/`fetch`/`fs`
+    /// specifiers resolve against it (Node/Bun semantics).
+    ///
+    /// Returns `None` when the caller is not inside any script/module frame
+    /// — i.e. a pure native (host) call with no active bytecode on the stack,
+    /// or the very top level driven directly from Rust with no script name.
+    ///
+    /// Non-module cases:
+    /// - inside `Aike.evalModule(code, baseUrl)` → `Some(baseUrl)`
+    /// - inside `Aike.evalScript(code, {filename})` → `Some(filename)` (default `"<evalScript>"`)
+    /// - inside a JS `eval()` call → the enclosing module/script name, or `None` if none
+    /// - pure native / host top level → `None`
+    pub fn current_module_name(&mut self) -> Option<String> {
+        get_script_or_module_name(self, 0).map(|a| a.to_utf8(self.rt()).to_string())
+    }
 }
 
 impl RuntimeImpl {
@@ -549,60 +570,46 @@ pub(crate) fn js_create_module_var(
 
 /// returns None if the name cannot be found.
 /// Only works with not striped bytecode functions.
-pub(super) fn get_script_or_module_name(
+pub(crate) fn get_script_or_module_name(
     ctx: &mut ContextImpl,
     n_stack_levels: usize,
 ) -> Option<Atom> {
+    debug_assert!(
+        ctx.is_arena_mode(),
+        "BytecodeFunction::call() always run with arena stack frame bump"
+    );
+
     let rt = ctx.rt();
 
-    if ctx.is_arena_mode() {
-        // Arena path: walk the arena frame chain via FrameHead::prev links.
-        // Skip `n_stack_levels` eval frames first, then return the first
-        // non-eval frame's filename.  Start from the *current* frame (the
-        // innermost one being executed, which for dynamic import is the
-        // eval'd code's frame or the module-evaluation frame).
-        let arena = rt.stack_frame_arena();
-        let mut cur = rt.active_frame_index;
-        let mut skipped = 0;
+    // Arena path: walk the arena frame chain via FrameHead::prev links.
+    // Skip `n_stack_levels` eval frames first, then return the first
+    // non-eval frame's filename.  Start from the *current* frame (the
+    // innermost one being executed, which for dynamic import is the
+    // eval'd code's frame or the module-evaluation frame).
+    let arena = rt.stack_frame_arena();
+    let mut cur = rt.active_frame_index;
+    let mut skipped = 0;
 
-        while !cur.is_null() {
-            let head = arena.frame(cur);
-            if let Some(bcf) = head.func_obj.as_BCWrapper() {
-                let bc = bcf.payload().bytecode();
-                if bc.is_direct_or_indirect_eval {
-                    cur = head.prev;
-                    continue;
-                }
-                if skipped < n_stack_levels {
-                    skipped += 1;
-                    cur = head.prev;
-                    continue;
-                }
-                return bc.debug.as_ref().map(|d| d.filename);
+    while !cur.is_null() {
+        let head = arena.frame(cur);
+        if let Some(bcf) = head.func_obj.as_BCWrapper() {
+            let bc = bcf.payload().bytecode();
+            if bc.is_direct_or_indirect_eval {
+                cur = head.prev;
+                continue;
             }
-            // Native function or non-bytecode: stop walking.
-            break;
+            if skipped < n_stack_levels {
+                skipped += 1;
+                cur = head.prev;
+                continue;
+            }
+            return bc.debug.as_ref().map(|d| d.filename);
         }
-
-        None
-    } else {
-        // Legacy fallback (preserved for reference):
-        // if let Some(sf) = rt.current_stack_frame() {
-        //     for sf in sf.parent_iter(true).skip(n_stack_levels) {
-        //         if let Some(bcf) = sf.func_obj.as_BCWrapper() {
-        //             let bc = bcf.payload().bytecode();
-        //             if !bc.is_direct_or_indirect_eval {
-        //                 return bc.debug.as_ref().map(|d| d.filename);
-        //             }
-        //         } else {
-        //             break;
-        //         }
-        //     }
-        // }
-        unreachable!(
-            "BytecodeFunction::call always uses arena mode; legacy StackFrame chain should not be reachable"
-        );
+        // Native function or non-bytecode: stop walking.
+        break;
     }
+
+    None
 }
 
 /// get module import.meta object of context current execution.
