@@ -458,6 +458,12 @@ impl<'c> ScopedContext<'c> {
     /// - inside a JS `eval()` call → the enclosing module/script name, or `None` if none
     /// - pure native / host top level → `None`
     pub fn current_module_name(&mut self) -> Option<String> {
+        // Prefer the module pointer carried by the executing bytecode (works
+        // inside async callbacks). Fall back to the active-frame filename for
+        // plain script / eval code that has no module.
+        if let Some(m) = current_module_def(self) {
+            return Some(m.module_name().to_utf8(self.rt()).to_string());
+        }
         get_script_or_module_name(self, 0).map(|a| a.to_utf8(self.rt()).to_string())
     }
 }
@@ -568,8 +574,73 @@ pub(crate) fn js_create_module_var(
     )
 }
 
-/// returns None if the name cannot be found.
-/// Only works with not striped bytecode functions.
+/// Resolve the module that owns the *currently executing* user code.
+///
+/// Follows the module filename carried by the bytecode itself (set at compile
+/// time in `eval.rs` for both the top-level and nested functions of a module),
+/// so it works even when the call happens inside an async callback that has
+/// already left the module's top-level frame. This matches JS `import.meta`
+/// semantics, which are lexically bound to the module and independent of the
+/// call stack.
+///
+/// When called from inside a native function (e.g. `fetch`), the active frame
+/// is native and carries no module info; we then skip native frames and look
+/// at the nearest *bytecode* frame (the user code that invoked the native
+/// function) — that frame's filename is the module/script base URL. This is how
+/// relative `fetch`/`fs` specifiers resolve against the caller's base.
+///
+/// Returns `None` when no bytecode frame is found (pure native call with no
+/// script on the stack), or the found frame has no resolvable module/script
+/// filename.
+pub(crate) fn current_module_def(ctx: &mut ScopedContext) -> Option<ModuleDef> {
+    let rt = ctx.rt();
+    let arena = rt.stack_frame_arena();
+    let mut cur = rt.active_frame_index;
+    // Walk down the frame chain, skipping native frames, to the nearest
+    // bytecode frame. `import.meta` is always called from a user bytecode frame
+    // (never a native one), so it resolves to the current function's own
+    // module — no spurious parent lookup.
+    while !cur.is_null() {
+        let head = arena.frame(cur);
+        let Some(bcf) = head.func_obj.as_BCWrapper() else {
+            cur = head.prev;
+            continue;
+        };
+
+        let filename = bcf.payload().bytecode().debug.as_ref()?.filename;
+        return ctx.find_module_def(filename);
+    }
+    None
+}
+
+/// Returns the filename/URL of the script or module containing the current
+/// execution frame.
+///
+/// Walks the active frame stack starting from the innermost frame, skipping
+/// `n_stack_levels` frames (used to ignore the caller's own frame) and any
+/// native frames, and returns the first non-eval bytecode frame's
+/// `debug.filename`. Native frames are skipped (not stopping the walk) so that
+/// callers invoked *from* a native function — e.g. `fetch` resolving a relative
+/// URL via `current_module_name` — still see the user script/module base URL
+/// carried by the bytecode frame below.
+///
+/// Behavior in non-module contexts:
+/// - Inside `Aike.evalModule(code, baseUrl)` → returns `baseUrl` (the module
+///   name), since the module's top-level frame carries it.
+/// - Inside `Aike.evalScript(code, {filename})` → returns `filename` (default
+///   `"<evalScript>"`); the script frame's `debug.filename` is the supplied
+///   name.
+/// - Inside a JS `eval()` call → the eval frame is skipped and the enclosing
+///   frame's name is returned (or `None` if there is no enclosing script/module).
+/// - Pure native (host) call, or top level driven directly from Rust with no
+///   script name → returns `None` (no bytecode frame is active).
+///
+/// Returns `None` if no suitable frame is found. Only works with non-stripped
+/// bytecode functions (stripped bytecode has no `debug.filename`).
+///
+/// This is the fallback used by `ScopedContext::current_module_name` for
+/// script/eval code; module code is resolved directly via `current_module_def`
+/// (which survives async callbacks, unlike this frame-walking path).
 pub(crate) fn get_script_or_module_name(
     ctx: &mut ContextImpl,
     n_stack_levels: usize,
@@ -605,23 +676,30 @@ pub(crate) fn get_script_or_module_name(
             }
             return bc.debug.as_ref().map(|d| d.filename);
         }
-        // Native function or non-bytecode: stop walking.
-        break;
+        // Native function or non-bytecode: skip it. `current_module_name` is
+        // also called from inside native functions (e.g. `fetch`), whose active
+        // frame is native; the user code that owns the base URL sits below.
+        cur = head.prev;
+        continue;
     }
 
     None
 }
 
-/// get module import.meta object of context current execution.
+/// get module `import.meta` object of context current execution.
 pub fn js_import_meta(ctx: &mut ScopedContext) -> Result<Object, i32> {
-    if let Some(filename) = get_script_or_module_name(ctx, 0) {
-        // XXX: inefficient, need to add a module or script pointer in Bytecode
-        if let Some(mut m) = ctx.find_module_def(filename) {
-            m.import_meta(ctx)
-        } else {
-            Err(ctx.throw_type_error("import.meta not supported in this context"))
-        }
-    } else {
-        Err(ctx.throw_type_error("import.meta not supported in this context"))
+    // Prefer the module pointer carried by the executing bytecode (set at
+    // compile time), so `import.meta` works even inside async callbacks.
+    // Fall back to frame-stack lookup for script / eval code without a module.
+    if let Some(mut m) = current_module_def(ctx) {
+        return m.import_meta(ctx);
     }
+
+    if let Some(filename) = get_script_or_module_name(ctx, 0) {
+        if let Some(mut m) = ctx.find_module_def(filename) {
+            return m.import_meta(ctx);
+        }
+    }
+
+    Err(ctx.throw_type_error("import.meta not supported in this context"))
 }
