@@ -460,11 +460,13 @@ impl<'c> ScopedContext<'c> {
     pub fn current_module_name(&mut self) -> Option<String> {
         // Prefer the module pointer carried by the executing bytecode (works
         // inside async callbacks). Fall back to the active-frame filename for
-        // plain script / eval code that has no module.
+        // plain script / eval code that has no module — including `evalScript`
+        // code, whose `debug.filename` is the injected `baseUrl` and must NOT be
+        // skipped as an eval wrapper here (that is only for stack-trace naming).
         if let Some(m) = current_module_def(self) {
             return Some(m.module_name().to_utf8(self.rt()).to_string());
         }
-        get_script_or_module_name(self, 0).map(|a| a.to_utf8(self.rt()).to_string())
+        current_bytecode_filename(self).map(|a| a.to_utf8(self.rt()).to_string())
     }
 }
 
@@ -593,22 +595,35 @@ pub(crate) fn js_create_module_var(
 /// script on the stack), or the found frame has no resolvable module/script
 /// filename.
 pub(crate) fn current_module_def(ctx: &mut ScopedContext) -> Option<ModuleDef> {
+    let filename = current_bytecode_filename(ctx)?;
+    ctx.find_module_def(filename)
+}
+
+/// Walks the active frame chain, skipping native frames, and returns the
+/// `debug.filename` of the *first* bytecode frame (including eval/script frames,
+/// which carry the `baseUrl` injected by `Aike.evalScript`/`evalModule`).
+///
+/// Unlike `get_script_or_module_name`, this does NOT skip eval frames: the
+/// eval'd user code's own `debug.filename` *is* the base URL we want for
+/// relative `fs`/`fetch` resolution, even when called from inside a native
+/// function (e.g. `fetch`). Returns `None` only when there is no bytecode frame
+/// at all (pure native / host top level).
+pub(crate) fn current_bytecode_filename(ctx: &mut ScopedContext) -> Option<Atom> {
     let rt = ctx.rt();
     let arena = rt.stack_frame_arena();
-    let mut cur = rt.active_frame_index;
-    // Walk down the frame chain, skipping native frames, to the nearest
-    // bytecode frame. `import.meta` is always called from a user bytecode frame
-    // (never a native one), so it resolves to the current function's own
-    // module — no spurious parent lookup.
-    while !cur.is_null() {
-        let head = arena.frame(cur);
-        let Some(bcf) = head.func_obj.as_BCWrapper() else {
-            cur = head.prev;
-            continue;
-        };
 
-        let filename = bcf.payload().bytecode().debug.as_ref()?.filename;
-        return ctx.find_module_def(filename);
+    let mut cur = rt.active_frame_index;
+    while !cur.is_null() {
+        let sf = arena.frame(cur);
+        if let Some(bcf) = sf.func_obj.as_BCWrapper() {
+            let bc = bcf.payload().bytecode();
+            if let Some(d) = bc.debug.as_ref() {
+                if !d.filename.is_null() {
+                    return Some(d.filename);
+                }
+            }
+        }
+        cur = sf.prev;
     }
     None
 }
