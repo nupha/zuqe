@@ -10,7 +10,7 @@ use gc_lite::GcTrace;
 
 use crate::{
     BUILTIN_CLASS_DEFS, Context, JS_CLASS_OBJECT, ScopedContext, USER_CLASS_ID_START,
-    atom::AtomRegistry,
+    atom::{Atom, AtomRegistry},
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions, promise::JSHostPromiseRejectionTracker,
     },
@@ -84,6 +84,17 @@ pub struct RuntimeImpl {
     // timestamp for internal use in module evaluation
     pub(crate) module_async_evaluation_next_timestamp: i64,
 
+    /// Base URL of the script being evaluated by the host `eval` entry point.
+    ///
+    /// Unlike `debug.filename` (only recoverable by walking the live frame
+    /// stack), this is bound to the runtime for the duration of a host eval so
+    /// that async callbacks (promise reactions, timers) — which run as
+    /// independent root frames detached from the caller's frame chain — can
+    /// still resolve relative URLs against the correct base. Set in
+    /// `Context::eval` and never reset (the next host eval overwrites it), since
+    /// async callbacks from the previous eval have already drained by then.
+    pub(crate) eval_base_url: Atom,
+
     /// callbacks to allocate, free and clone SharedArrayBuffers
     pub(crate) sab_funcs: Option<JSSharedArrayBufferFunctions>,
 
@@ -153,6 +164,8 @@ impl RuntimeImpl {
 
             module_load_opaque: std::ptr::null_mut(),
             sab_funcs: None,
+
+            eval_base_url: Atom::NULL,
 
             context_list: Vec::with_capacity(1),
 

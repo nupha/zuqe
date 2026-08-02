@@ -3,6 +3,8 @@
 
 use std::{ops::Deref, ptr::NonNull};
 
+use url::Url;
+
 use crate::{
     Context, Exception, ExitStatus,
     atom::Atom,
@@ -15,6 +17,32 @@ use crate::{
     stack_frame::{ExecMode, FrameIndex},
     value::JSValue,
 };
+
+/// What the host passes as the script's name / base for a single `eval` entry.
+///
+/// The variant (not a string sniff) decides whether the runtime binds
+/// `eval_base_url`, which async callbacks (promise reactions, timers) read back
+/// because they run as independent root frames detached from the caller chain.
+/// - `Name`: a (possibly synthetic, e.g. `"<input>"`) name used only as the
+///   bytecode debug filename; it never sets the base. `Name("")` means the host
+///   explicitly supplies no name.
+/// - `BaseUrl`: an absolute URL (already canonicalised by the host, e.g.
+///   `file://...`); it both names the script and binds `eval_base_url`.
+#[derive(Clone)]
+pub enum EvalSource {
+    Name(String),
+    BaseUrl(Url),
+}
+
+impl EvalSource {
+    /// The name string used as the bytecode debug filename / module name.
+    fn as_str(&self) -> &str {
+        match self {
+            EvalSource::Name(s) => s,
+            EvalSource::BaseUrl(u) => u.as_str(),
+        }
+    }
+}
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -325,7 +353,7 @@ impl<'c> ScopedContext<'c> {
     pub fn eval(
         &mut self,
         source: &[u8],
-        filename: &str,
+        base: &EvalSource,
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> JSResult {
@@ -335,10 +363,23 @@ impl<'c> ScopedContext<'c> {
             "direct eval needs a caller frame, use Global or Indirect"
         );
 
+        let filename = base.as_str();
+
+        // Bind the script base URL to the runtime for the duration of this host
+        // eval. Async callbacks (promise reactions, timers) run as independent
+        // root frames detached from the caller's frame chain, so frame-stack
+        // walking cannot recover the base inside them. Whether to bind is decided
+        // by the `EvalSource` variant (`BaseUrl` only) at the host boundary, so we
+        // no longer sniff the string here — a synthesised filename like "<input>"
+        // never reaches this branch.
+        if matches!(base, EvalSource::BaseUrl(_)) {
+            self.rt_mut().eval_base_url = Atom::from_str(self, filename).ok().unwrap_or(Atom::NULL);
+        }
+
         if eval_type == EvalType::Module {
             // compile source into module def, then run the module def. returns Promise
             //
-            // `filename` is expected to already be a canonical `file://` URL when
+            // `base_url` is expected to already be a canonical `file://` URL when
             // entering the engine (the host converts the CLI / entry filename to a
             // URL before calling `eval`). It becomes `module_name` verbatim, and
             // `import.meta.url` reuses it via `set_import_meta`.
@@ -368,13 +409,13 @@ impl<'c> ScopedContext<'c> {
     pub fn eval_wait(
         &mut self,
         source: &[u8],
-        filename: &str,
+        base: &EvalSource,
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> ExitStatus {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
 
-        let ret_val = match self.eval(source, filename, eval_type, flags) {
+        let ret_val = match self.eval(source, base, eval_type, flags) {
             Ok(v) => v,
             Err(_) => {
                 let exc = self.rt_mut().take_exception();
@@ -444,7 +485,7 @@ impl<'c> Context<'c> {
     pub fn eval(
         &mut self,
         source: &[u8],
-        filename: &str,
+        base: EvalSource,
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> JSResult {
@@ -455,7 +496,7 @@ impl<'c> Context<'c> {
         // (including recursive module linking/eval) gets an accurate stack_size budget.
         crate::runtime::JS_UpdateStackTop(self.rt_mut());
 
-        self.with_new_scope(|cx| cx.eval(source, filename, eval_type, flags))
+        self.with_new_scope(|cx| cx.eval(source, &base, eval_type, flags))
     }
 
     /// Eval `source` script in `self` scope, wait till all microtasks are finished or execution is interrupted.
@@ -464,7 +505,7 @@ impl<'c> Context<'c> {
     pub fn eval_wait(
         &mut self,
         source: &[u8],
-        filename: &str,
+        base: EvalSource,
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> ExitStatus {
@@ -475,7 +516,7 @@ impl<'c> Context<'c> {
         // (including recursive module linking/eval) gets an accurate stack_size budget.
         crate::runtime::JS_UpdateStackTop(self.rt_mut());
 
-        self.with_new_scope(|cx| cx.eval_wait(source, filename, eval_type, flags))
+        self.with_new_scope(|cx| cx.eval_wait(source, &base, eval_type, flags))
     }
 
     /// Async counterpart of `eval_wait`: eval `source` in `self` scope and drive
@@ -491,15 +532,14 @@ impl<'c> Context<'c> {
         &mut self,
         rt: &mut Runtime,
         source: &[u8],
-        filename: &str,
+        base: EvalSource,
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> ExitStatus {
         // Refresh stack_top at the outermost eval entry point (see sync version).
         crate::runtime::JS_UpdateStackTop(self.rt_mut());
 
-        let Ok(ret_val) = self.with_new_scope(|cx| cx.eval(source, filename, eval_type, flags))
-        else {
+        let Ok(ret_val) = self.with_new_scope(|cx| cx.eval(source, &base, eval_type, flags)) else {
             let exc = self.take_exception();
             return ExitStatus::Exception(exc);
         };

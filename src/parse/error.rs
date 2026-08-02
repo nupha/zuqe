@@ -20,9 +20,8 @@ impl<'s> JSParseState<'s> {
                 0
             };
 
-        let fln = (self.filename, self.line_num);
+        let fln = (self.filename, self.line_num, self.last_line_pos);
         let ctx = self.ctx();
-
         ctx.build_backtrace_to(err_val, Some(fln), backtrace_flags);
         ctx.throw_value(err_val)
     }
@@ -40,9 +39,9 @@ impl<'s> JSParseState<'s> {
                 0
             };
 
-        let exc = self.ctx().rt_mut().exception();
+        let exc = self.ctx().rt().exception();
         let err_val = exc.to_value(self.ctx());
-        let fln = (self.filename, self.line_num);
+        let fln = (self.filename, self.line_num, self.last_line_pos);
         self.ctx()
             .build_backtrace_to(err_val, Some(fln), backtrace_flags);
 

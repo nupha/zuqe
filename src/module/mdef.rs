@@ -595,6 +595,18 @@ pub(crate) fn js_create_module_var(
 /// script on the stack), or the found frame has no resolvable module/script
 /// filename.
 pub(crate) fn current_module_def(ctx: &mut ScopedContext) -> Option<ModuleDef> {
+    // Prefer the base URL bound to the runtime by the host `eval` entry point.
+    // Async callbacks (promise reactions, timers) run as independent root frames
+    // detached from the caller's frame chain, so the bytecode-filename walk below
+    // cannot recover the base there. The runtime slot survives across the whole
+    // host eval (wpt-runner drives each test file as a separate, sequential
+    // `evalScript`, so the slot always reflects the currently running script).
+    if !ctx.rt().eval_base_url.is_null() {
+        if let Some(m) = ctx.find_module_def(ctx.rt().eval_base_url) {
+            return Some(m);
+        }
+    }
+
     let filename = current_bytecode_filename(ctx)?;
     ctx.find_module_def(filename)
 }

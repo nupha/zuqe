@@ -7,8 +7,9 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
+    EvalSource, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
+    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR,
+    JS_CLASS_GENERATOR_FUNCTION,
     atom::{Atom, AtomDescKind},
     bytecode::exec_stackless::execute_trampoline,
     class::ClassID,
@@ -386,10 +387,9 @@ impl BytecodeFunction {
 
         buf.extend_from_slice(b"\n})");
 
-        // eval script
         let mut ret_val = ctx.eval(
             buf.as_slice(),
-            "<input>",
+            &EvalSource::Name("<class>".to_string()),
             EvalType::Indirect,
             EvalFlags::empty(),
         )?;

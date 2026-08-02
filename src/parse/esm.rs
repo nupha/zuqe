@@ -482,8 +482,8 @@ impl<'s> JSParseState<'s> {
                             0
                         };
 
-                    let fln = (self.filename, self.line_num);
-                    let exc = self.ctx().rt_mut().exception();
+                    let fln = (self.filename, self.line_num, self.last_line_pos);
+                    let exc = self.ctx().rt().exception();
                     let err_val = exc.to_value(self.ctx());
                     self.ctx()
                         .build_backtrace_to(err_val, Some(fln), backtrace_flags);

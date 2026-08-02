@@ -423,31 +423,33 @@ impl<'c> ScopedContext<'c> {
     #[cold]
     fn do_build_backtrace(
         &mut self,
-        mut error_obj: JSValue,
-        file_line: Option<(&str, i32)>, // filename and line number
+        error_obj: Option<Object>,
+        file_line: Option<(&str, i32, u32)>, // filename, line number, column
         mut backtrace_flags: i32,
     ) -> Result<String, ErrCode> {
         let mut buf = Vec::<u8>::with_capacity(128);
         let mut dbuf = std::io::Cursor::new(&mut buf);
 
-        if let Some((filename, line_num)) = file_line {
-            // filename and line no
-            dbuf.write_fmt(format_args!("    at {filename}:{line_num}\n"))
+        if let Some((filename, line_num, col)) = file_line {
+            // filename, line no and column
+            dbuf.write_fmt(format_args!("    at {filename}:{line_num}:{col}\n"))
                 .map_err(|_| -1)?;
 
-            let str = self.create_string_from_str(filename);
-            error_obj.define_property_value(
-                self,
-                Atom::CONST_fileName,
-                str.map_or(JSValue::UNDEFINED, JSValue::make_string),
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            )?;
-            error_obj.define_property_value(
-                self,
-                Atom::CONST_lineNumber,
-                JSValue::from(line_num),
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            )?;
+            if let Some(mut obj) = error_obj {
+                let str = self.create_string_from_str(filename);
+                obj.define_property_value(
+                    self,
+                    Atom::CONST_fileName,
+                    str.map_or(JSValue::UNDEFINED, JSValue::make_string),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )?;
+                obj.define_property_value(
+                    self,
+                    Atom::CONST_lineNumber,
+                    JSValue::from(line_num),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )?;
+            }
 
             if backtrace_flags & JS_BACKTRACE_FLAG_SINGLE_LEVEL != 0 {
                 return Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string());
@@ -519,10 +521,12 @@ impl<'c> ScopedContext<'c> {
     pub(crate) fn build_backtrace_to(
         &mut self,
         mut target: JSValue,
-        file_line: Option<(&str, i32)>,
+        file_line: Option<(&str, i32, u32)>, // filename, line number, column
         backtrace_flags: i32,
     ) {
-        let traceback = if let Ok(s) = self.do_build_backtrace(target, file_line, backtrace_flags) {
+        let traceback = if let Ok(s) =
+            self.do_build_backtrace(target.as_object(), file_line, backtrace_flags)
+        {
             self.create_string_from_utf8(s.into_bytes())
                 .map_or(JSValue::UNDEFINED, JSValue::make_string)
         } else {
@@ -535,6 +539,18 @@ impl<'c> ScopedContext<'c> {
             traceback,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         );
+    }
+
+    /// Build the current call stack as a string without allocating an `Error`
+    /// object or going through the `Error.prototype.stack` getter. Used by
+    /// host-side facilities (e.g. `console.trace`) that need the live stack.
+    /// Passes no error object, so the returned text contains only the stack
+    /// frames (no `fileName`/`lineNumber` props). Returns `None` when no JS
+    /// frame is active (e.g. called from pure native context).
+    #[inline(never)]
+    #[cold]
+    pub fn backtrace(&mut self) -> Option<String> {
+        self.do_build_backtrace(None, None, 0).ok()
     }
 }
 

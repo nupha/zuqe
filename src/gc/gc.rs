@@ -124,6 +124,11 @@ impl RuntimeImpl {
                 err.trace(&mut gcx);
             }
 
+            // mark the eval base URL bound at the host `eval` entry point.
+            // It is a scope-local (non-root) atom whose descriptor string is not
+            // kept alive by any GC object, so it must be traced here directly.
+            self.eval_base_url.trace(&mut gcx);
+
             // NOTE: Atom registry is NOT responsible for keeping atom
             // descriptor strings alive. Atom descriptors are traced through
             // objects that reference them (BytecodeImpl via ATOM opcodes,
