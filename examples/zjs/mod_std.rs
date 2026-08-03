@@ -4,7 +4,7 @@
 use std::{cell::Cell, process::ExitCode};
 
 use zuqe::{
-    CallContext, EvalFlags, EvalSource, EvalType, Exception, FieldDef, JS_PROP_ENUMERABLE,
+    CallContext, EvalFlags, EvalName, EvalType, Exception, FieldDef, JS_PROP_ENUMERABLE,
     JSResult, JSValue, ScopedContext,
 };
 
@@ -121,7 +121,7 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let ret = ctx.with_new_scope(|cx| {
         let res = cx.eval(
             str.content().encode_utf8_bytes(true).as_ref(),
-            &EvalSource::Name("<evalScript>".into()),
+            &EvalName::Name("<evalScript>".into()),
             EvalType::Global,
             flags,
         );

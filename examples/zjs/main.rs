@@ -17,7 +17,7 @@ use colorized::{Colors::*, colorize_println};
 use libloading::Library;
 use url::Url;
 use zuqe::{
-    Context, EvalFlags, EvalSource, EvalType, Exception, ExitStatus, JSValue, ModuleDef, Runtime,
+    Context, EvalFlags, EvalName, EvalType, Exception, ExitStatus, JSValue, ModuleDef, Runtime,
     ScopedContext,
 };
 
@@ -261,13 +261,12 @@ fn main() -> ExitCode {
     // that dynamic `import()` from a *script* entry resolves relative specifiers
     // correctly instead of being handed a bare filesystem path.
     let entry_name = zuqe::path_to_url(&args.filename)
-        .expect("entry path must convert to a file:// URL")
-        .to_string();
+        .expect("entry path must convert to a file:// URL");
 
     let exit_code = ctx.with_new_scope(|mut scope| {
         let result = scope.eval_wait(
             script.as_bytes(),
-            &entry_name,
+            &zuqe::EvalName::BaseUrl(entry_name),
             if is_module {
                 EvalType::Module
             } else {
@@ -325,7 +324,7 @@ async fn main() -> ExitCode {
         .eval_wait(
             &mut rt,
             script.as_bytes(),
-            EvalSource::BaseUrl(entry_name),
+            &EvalName::BaseUrl(entry_name),
             if is_module {
                 EvalType::Module
             } else {

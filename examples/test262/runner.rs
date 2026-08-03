@@ -10,7 +10,7 @@ use std::{
 
 use url::Url;
 use zuqe::{
-    CallContext, Callback, Context, EvalFlags, EvalSource, EvalType, ExceptionText, JSResult,
+    CallContext, Callback, Context, EvalFlags, EvalName, EvalType, ExceptionText, JSResult,
     JSValue, ModuleDef, Runtime, ScopedContext,
 };
 
@@ -105,7 +105,7 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     ctx.with_new_scope(|scope| {
         scope.eval(
             source.as_bytes(),
-            &EvalSource::Name("<eval>".into()),
+            &EvalName::Name("<eval>".into()),
             EvalType::Global,
             EvalFlags::empty(),
         )
@@ -290,7 +290,7 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), Except
 
         ctx.eval(
             script.as_bytes(),
-            EvalSource::Name(file.as_os_str().to_string_lossy().into()),
+            &EvalName::Name(file.as_os_str().to_string_lossy().into()),
             EvalType::Global,
             EvalFlags::empty(),
         )
@@ -323,7 +323,7 @@ async fn run_test_script<'c>(
     let val = ctx
         .eval(
             script.as_bytes(),
-            EvalSource::BaseUrl(entry_url),
+            &EvalName::BaseUrl(entry_url),
             if is_module {
                 EvalType::Module
             } else {

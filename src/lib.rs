@@ -33,7 +33,7 @@ pub use {
     class::{ClassCtorDef, ClassDef, ClassID, NativeObject},
     context::{Context, ContextImpl, ScopeResult, ScopedContext},
     error::{ErrCode, ErrorKind, Exception, ExceptionText, ExitStatus, JSResult},
-    eval::{EvalFlags, EvalSource, EvalType},
+    eval::{EvalFlags, EvalName, EvalType},
     function::{BoundFunction, Bytecode, CallContext, Callback, FieldDef},
     microtask::*,
     module::{ModuleDef, path_to_url, url_to_abspath},

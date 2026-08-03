@@ -600,17 +600,17 @@ fn gather_module_ancestors(
 }
 
 impl<'c> ScopedContext<'c> {
-    /// Compile `source` in module mode, return a module def. `module_url` is used to
+    /// Compile `module_source` in module mode, return a module def. `module_url` is used to
     /// identify the module (module cache key and `import.meta.url` base).
     pub fn compile_module(
         &mut self,
-        source: &[u8],
+        module_source: &[u8],
         module_url: &Url,
         strip: bool,
     ) -> Result<ModuleDef, i32> {
         if let CompiledBytecode::Module(md) = self.compile(
             FrameIndex::NULL,
-            source,
+            module_source,
             module_url.as_str(),
             EvalType::Module,
             if strip {
