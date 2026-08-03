@@ -28,7 +28,7 @@ use crate::{
 ///   explicitly supplies no name.
 /// - `BaseUrl`: an absolute URL (already canonicalised by the host, e.g.
 ///   `file://...`); it both names the script and binds `eval_base_url`.
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EvalSource {
     Name(String),
     BaseUrl(Url),
@@ -40,6 +40,17 @@ impl EvalSource {
         match self {
             EvalSource::Name(s) => s,
             EvalSource::BaseUrl(u) => u.as_str(),
+        }
+    }
+
+    /// The canonical `file://` base URL, only if this source is a `BaseUrl`.
+    ///
+    /// Module compilation requires a real URL as the module name / `import.meta.url`
+    /// base; a `Name` (possibly a synthetic debug name) is not a valid module base.
+    fn as_base_url(&self) -> Option<&Url> {
+        match self {
+            EvalSource::BaseUrl(u) => Some(u),
+            EvalSource::Name(_) => None,
         }
     }
 }
@@ -70,7 +81,7 @@ bitflags::bitflags! {
     }
 }
 
-pub(crate) enum Compiled {
+pub(crate) enum CompiledBytecode {
     /// compiled for global or indirect mode.
     GlobalOrIndirect(Bytecode),
     /// compiled for direct mode.
@@ -92,7 +103,7 @@ impl<'c> ScopedContext<'c> {
         eval_type: EvalType,
         flags: EvalFlags,
         var_scope_idx: i32,
-    ) -> Result<Compiled, i32> {
+    ) -> Result<CompiledBytecode, i32> {
         // get (bytecode, module, js_mode) of current stack frame
         let (frame_func_bc, frame_module, js_mode) = if eval_type == EvalType::Direct {
             // Determine the calling function's BCWrapper.
@@ -271,12 +282,12 @@ impl<'c> ScopedContext<'c> {
             md.bytecode = JSValue::from(bc);
             md.set_tla(has_await);
             md.resolve_deps(self)?;
-            Ok(Compiled::Module(md))
+            Ok(CompiledBytecode::Module(md))
         } else if frame_func_bc.is_some() {
             debug_assert_eq!(eval_type, EvalType::Direct);
-            Ok(Compiled::Direct(bc))
+            Ok(CompiledBytecode::Direct(bc))
         } else {
-            Ok(Compiled::GlobalOrIndirect(bc))
+            Ok(CompiledBytecode::GlobalOrIndirect(bc))
         }
     }
 
@@ -303,10 +314,10 @@ impl<'c> ScopedContext<'c> {
             )?;
 
             match compiled {
-                Compiled::GlobalOrIndirect(bc) => {
+                CompiledBytecode::GlobalOrIndirect(bc) => {
                     bc.run_as_function(self, FrameIndex::NULL, this_obj, &[])
                 }
-                Compiled::Direct(bc) => {
+                CompiledBytecode::Direct(bc) => {
                     // Resolve the calling frame the same way `compile` did:
                     // prefer the explicit frame passed by the EVAL opcode, then
                     // the global active_frame_index (which may be clobbered to
@@ -329,7 +340,7 @@ impl<'c> ScopedContext<'c> {
                         bc.run_as_function(self, idx, this_obj, captured_vars)
                     }
                 }
-                Compiled::Module(mut md) => {
+                CompiledBytecode::Module(mut md) => {
                     // Problem: m has created function? m was linked?
                     // if m has not created function, should use m.eval() instead of m.eval_func()
                     md.run_function(self).map(|p| p.into())
@@ -340,7 +351,7 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
-    /// Compile source and run to get result.
+    /// Compile script and run to get result.
     ///
     /// Eval in `self` scope, with `eval_type` semantics:
     /// - `Global`: script — top-level let/const become global lexical
@@ -352,7 +363,7 @@ impl<'c> ScopedContext<'c> {
     ///   to `Indirect` in `compile`.
     pub fn eval(
         &mut self,
-        source: &[u8],
+        script: &[u8],
         base: &EvalSource,
         eval_type: EvalType,
         flags: EvalFlags,
@@ -379,11 +390,16 @@ impl<'c> ScopedContext<'c> {
         if eval_type == EvalType::Module {
             // compile source into module def, then run the module def. returns Promise
             //
-            // `base_url` is expected to already be a canonical `file://` URL when
-            // entering the engine (the host converts the CLI / entry filename to a
-            // URL before calling `eval`). It becomes `module_name` verbatim, and
-            // `import.meta.url` reuses it via `set_import_meta`.
-            let mut md = self.compile_module(source, filename, flags.contains(EvalFlags::STRIP))?;
+            // The module name must be a canonical `file://` URL: the host converts
+            // the CLI / entry filename to a URL before calling `eval`. It becomes
+            // `module_name` verbatim, and `import.meta.url` reuses it via
+            // `set_import_meta`. A `Name` (synthetic debug name) is not a valid
+            // module base.
+            let Some(module_url) = base.as_base_url() else {
+                return Err(self.throw_type_error("module eval requires an URL base"));
+            };
+            let mut md =
+                self.compile_module(script, module_url, flags.contains(EvalFlags::STRIP))?;
             md.set_import_meta(self, true)?;
             md.evaluate(self).map(JSValue::from)
         } else {
@@ -394,7 +410,7 @@ impl<'c> ScopedContext<'c> {
             self.compile_then_run(
                 FrameIndex::NULL,
                 global.into(),
-                source,
+                script,
                 filename,
                 eval_type,
                 flags,
@@ -499,12 +515,12 @@ impl<'c> Context<'c> {
         self.with_new_scope(|cx| cx.eval(source, &base, eval_type, flags))
     }
 
-    /// Eval `source` script in `self` scope, wait till all microtasks are finished or execution is interrupted.
+    /// Eval `script` in `self` scope, wait till all microtasks are finished or execution is interrupted.
     /// Returns the event loop exit status with optional value.
     #[cfg(not(feature = "async_support"))]
     pub fn eval_wait(
         &mut self,
-        source: &[u8],
+        script: &[u8],
         base: EvalSource,
         eval_type: EvalType,
         flags: EvalFlags,
@@ -516,12 +532,11 @@ impl<'c> Context<'c> {
         // (including recursive module linking/eval) gets an accurate stack_size budget.
         crate::runtime::JS_UpdateStackTop(self.rt_mut());
 
-        self.with_new_scope(|cx| cx.eval_wait(source, &base, eval_type, flags))
+        self.with_new_scope(|cx| cx.eval_wait(script, &base, eval_type, flags))
     }
 
-    /// Async counterpart of `eval_wait`: eval `source` in `self` scope and drive
-    /// the event loop to completion. Unlike the sync version (which spins the
-    /// loop synchronously), this `.await`s it together with the module's
+    /// Async eval `script` in `self` scope and drive
+    /// the event loop to completion, this `.await`s it together with the module's
     /// top-level evaluation promise.
     ///
     /// A rejected top-level module promise is surfaced as `ExitStatus::Exception`
@@ -531,7 +546,7 @@ impl<'c> Context<'c> {
     pub async fn eval_wait(
         &mut self,
         rt: &mut Runtime,
-        source: &[u8],
+        script: &[u8],
         base: EvalSource,
         eval_type: EvalType,
         flags: EvalFlags,
@@ -539,7 +554,7 @@ impl<'c> Context<'c> {
         // Refresh stack_top at the outermost eval entry point (see sync version).
         crate::runtime::JS_UpdateStackTop(self.rt_mut());
 
-        let Ok(ret_val) = self.with_new_scope(|cx| cx.eval(source, &base, eval_type, flags)) else {
+        let Ok(ret_val) = self.with_new_scope(|cx| cx.eval(script, &base, eval_type, flags)) else {
             let exc = self.take_exception();
             return ExitStatus::Exception(exc);
         };

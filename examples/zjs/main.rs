@@ -17,7 +17,8 @@ use colorized::{Colors::*, colorize_println};
 use libloading::Library;
 use url::Url;
 use zuqe::{
-    Context, EvalFlags, EvalType, Exception, ExitStatus, JSValue, ModuleDef, Runtime, ScopedContext,
+    Context, EvalFlags, EvalSource, EvalType, Exception, ExitStatus, JSValue, ModuleDef, Runtime,
+    ScopedContext,
 };
 
 use crate::{
@@ -311,9 +312,8 @@ async fn main() -> ExitCode {
     // (and `import.meta.url`) is a URL, and a `file://` base is also required so
     // that dynamic `import()` from a *script* entry resolves relative specifiers
     // correctly instead of being handed a bare filesystem path.
-    let entry_name = zuqe::path_to_url(&args.filename)
-        .expect("entry path must convert to a file:// URL")
-        .to_string();
+    let entry_name =
+        zuqe::path_to_url(&args.filename).expect("entry path must convert to a file:// URL");
 
     // Eval the entry and drive the event loop to completion. `eval_wait`
     // handles top-level module Promise observation internally via
@@ -325,7 +325,7 @@ async fn main() -> ExitCode {
         .eval_wait(
             &mut rt,
             script.as_bytes(),
-            &entry_name,
+            EvalSource::BaseUrl(entry_name),
             if is_module {
                 EvalType::Module
             } else {
@@ -442,19 +442,19 @@ fn js_module_loader(
                     let mut src = String::from("export default ");
                     src.push_str(&content);
                     src.push('\n');
-                    ctx.compile_module(src.as_bytes(), file_name.as_str(), false)
+                    ctx.compile_module(src.as_bytes(), file_name, false)
                 }
                 Some("text") => {
                     // Text module: wrap as `export default "<escaped>";\n`
                     let mut src = String::from("export default \"");
                     src.push_str(&escape_js_string(&content));
                     src.push_str("\";\n");
-                    ctx.compile_module(src.as_bytes(), file_name.as_str(), false)
+                    ctx.compile_module(src.as_bytes(), file_name, false)
                 }
                 Some(other) => Err(
                     ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other))
                 ),
-                None => ctx.compile_module(content.as_bytes(), file_name.as_str(), false),
+                None => ctx.compile_module(content.as_bytes(), file_name, false),
             },
             Err(_) => {
                 Err(ctx.throw_reference_error(&format!("could not load module '{file_name}'")))

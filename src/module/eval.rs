@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use gc_lite::GcNode;
+use url::Url;
 
 use crate::{
     Atom, Callback, ErrorKind, Exception, JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
     context::ScopedContext,
     error::JSResult,
-    eval::{Compiled, EvalFlags, EvalType},
+    eval::{CompiledBytecode, EvalFlags, EvalType},
     function::{CallContext, NativeFunction},
     runtime::js_check_stack_overflow,
     stack_frame::FrameIndex,
@@ -599,17 +600,18 @@ fn gather_module_ancestors(
 }
 
 impl<'c> ScopedContext<'c> {
-    /// Compile `source` in module mode, return a module def. `filename` is used to identify the module.
+    /// Compile `source` in module mode, return a module def. `module_url` is used to
+    /// identify the module (module cache key and `import.meta.url` base).
     pub fn compile_module(
         &mut self,
         source: &[u8],
-        filename: &str,
+        module_url: &Url,
         strip: bool,
     ) -> Result<ModuleDef, i32> {
-        if let Compiled::Module(md) = self.compile(
+        if let CompiledBytecode::Module(md) = self.compile(
             FrameIndex::NULL,
             source,
-            filename,
+            module_url.as_str(),
             EvalType::Module,
             if strip {
                 EvalFlags::STRIP

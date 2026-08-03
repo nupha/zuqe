@@ -4,8 +4,8 @@
 use std::{cell::Cell, process::ExitCode};
 
 use zuqe::{
-    CallContext, EvalFlags, EvalType, Exception, FieldDef, JS_PROP_ENUMERABLE, JSResult, JSValue,
-    ScopedContext,
+    CallContext, EvalFlags, EvalSource, EvalType, Exception, FieldDef, JS_PROP_ENUMERABLE,
+    JSResult, JSValue, ScopedContext,
 };
 
 use crate::{
@@ -103,7 +103,7 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     });
 
     if lev == 1 {
-        /* install the interrupt handler */
+        // install the interrupt handler
         ctx.rt_mut().set_interrupt_handler(|_| {
             let s = OS_PENDING_SIGNALS.get();
             (s >> libc::SIGINT) & 1 != 0 // break if has SIGINT
@@ -121,7 +121,7 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let ret = ctx.with_new_scope(|cx| {
         let res = cx.eval(
             str.content().encode_utf8_bytes(true).as_ref(),
-            "<evalScript>",
+            &EvalSource::Name("<evalScript>".into()),
             EvalType::Global,
             flags,
         );
@@ -134,7 +134,7 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         n - 1
     });
     if lev == 0 {
-        /* remove the interrupt handler */
+        // remove the interrupt handler
         ctx.rt_mut().unset_interrupt_handler();
 
         OS_PENDING_SIGNALS.with(|s| {

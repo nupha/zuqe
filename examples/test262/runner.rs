@@ -10,8 +10,8 @@ use std::{
 
 use url::Url;
 use zuqe::{
-    CallContext, Callback, Context, EvalFlags, EvalType, ExceptionText, JSResult, JSValue,
-    ModuleDef, Runtime, ScopedContext,
+    CallContext, Callback, Context, EvalFlags, EvalSource, EvalType, ExceptionText, JSResult,
+    JSValue, ModuleDef, Runtime, ScopedContext,
 };
 
 use crate::{
@@ -105,7 +105,7 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     ctx.with_new_scope(|scope| {
         scope.eval(
             source.as_bytes(),
-            "<eval>",
+            &EvalSource::Name("<eval>".into()),
             EvalType::Global,
             EvalFlags::empty(),
         )
@@ -262,19 +262,19 @@ pub fn js_module_loader(
                 let mut src = String::from("export default ");
                 src.push_str(&content);
                 src.push('\n');
-                ctx.compile_module(src.as_bytes(), module_name.as_str(), false)
+                ctx.compile_module(src.as_bytes(), module_name, false)
             }
             Some("text") => {
                 // Text module: wrap as `export default "<escaped>";\n`
                 let mut src = String::from("export default \"");
                 src.push_str(&escape_js_string(&content));
                 src.push_str("\";\n");
-                ctx.compile_module(src.as_bytes(), module_name.as_str(), false)
+                ctx.compile_module(src.as_bytes(), module_name, false)
             }
             Some(other) => {
                 Err(ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other)))
             }
-            None => ctx.compile_module(content.as_bytes(), module_name.as_str(), false),
+            None => ctx.compile_module(content.as_bytes(), module_name, false),
         },
         Err(_) => Err(ctx.throw_reference_error(&format!("could not load module '{module_name}'"))),
     }
@@ -290,7 +290,7 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), Except
 
         ctx.eval(
             script.as_bytes(),
-            file.as_os_str().to_string_lossy().as_ref(),
+            EvalSource::Name(file.as_os_str().to_string_lossy().into()),
             EvalType::Global,
             EvalFlags::empty(),
         )
@@ -317,14 +317,13 @@ async fn run_test_script<'c>(
     // (and `import.meta.url`) is a URL, and a `file://` base is also required so
     // that (top-level) dynamic `import()` from a *script* entry resolves relative
     // specifiers correctly, instead of being handed a bare filesystem path.
-    let entry_name = zuqe::path_to_url(filename.to_str().unwrap())
-        .expect("entry path must convert to a file:// URL")
-        .to_string();
+    let entry_url = zuqe::path_to_url(filename.to_str().unwrap())
+        .expect("entry path must convert to a file:// URL");
 
     let val = ctx
         .eval(
             script.as_bytes(),
-            &entry_name,
+            EvalSource::BaseUrl(entry_url),
             if is_module {
                 EvalType::Module
             } else {
