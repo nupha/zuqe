@@ -69,7 +69,7 @@ impl DataViewPayload {
     }
 
     /// run closure with underlaying bytes of typed array.
-    pub(super) fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+    pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
         self.array_buffer()
@@ -78,7 +78,7 @@ impl DataViewPayload {
     }
 
     /// run closure with underlaying bytes of typed array.
-    pub(super) fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+    pub fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
         self.array_buffer()

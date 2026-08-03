@@ -140,7 +140,10 @@ impl<D: Send + 'static> PromiseResultSlot<D> {
         }
     }
 
-    pub(crate) fn try_take(&self) -> Option<D> {
+    /// Take the committed value, if any. Lets a caller that drives the slot
+    /// itself (rather than through `create_with_result_slot`) observe the
+    /// result.
+    pub fn try_take(&self) -> Option<D> {
         self.data.lock().unwrap().take()
     }
 }
