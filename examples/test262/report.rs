@@ -50,6 +50,17 @@ pub fn make_last_jsonl_path(path: &str) -> PathBuf {
     parent.join(format!("{stem}-last.jsonl"))
 }
 
+/// Given a report-file path `foo.html`, return the backup path `foo-last.html`.
+pub fn make_last_html_path(path: &str) -> PathBuf {
+    let p = Path::new(path);
+    let stem = p
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let parent = p.parent().unwrap_or_else(|| Path::new(""));
+    parent.join(format!("{stem}-last.html"))
+}
+
 /// Format the current UTC time as `YYYY-MM-DD HH:MM:SS UTC`.
 ///
 /// Rust's `std` has no function that renders a `SystemTime` as a calendar date,
@@ -378,8 +389,15 @@ pub fn write_report(
 
     html.push_str("</div>\n</body>\n</html>\n");
 
-    std::fs::write("test262-report.html", html).unwrap();
-    eprintln!("Report written to test262-report.html");
+    let report_path = "test262-report.html";
+    if Path::new(report_path).exists() {
+        let backup = make_last_html_path(report_path);
+        let _ = std::fs::copy(report_path, &backup);
+        eprintln!("Previous report backed up to {}", backup.display());
+    }
+
+    std::fs::write(report_path, html).unwrap();
+    eprintln!("Report written to {report_path}");
 }
 
 /// One colored summary block (TOTAL / PASS / FAIL / RATE).
