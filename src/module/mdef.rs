@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use std::marker::PhantomData;
+
+use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use url::Url;
 
 use crate::{
     atom::Atom,
@@ -19,8 +21,6 @@ use crate::{
     runtime::RuntimeImpl,
     value::JSValue,
 };
-
-use url::Url;
 
 pub type ModuleNormalizeFn = fn(
     ctx: &mut ScopedContext,
@@ -587,7 +587,7 @@ pub(crate) fn js_create_module_var(
 ///
 /// Returns `None` when neither a bytecode frame nor `eval_base_url` resolves to
 /// a loaded module.
-fn current_module_def(ctx: &mut ScopedContext) -> Option<ModuleDef> {
+fn current_module_def(ctx: &ScopedContext) -> Option<ModuleDef> {
     // Module URL carried by the executing bytecode frame.
     if let Some(filename) = current_bytecode_filename(ctx) {
         if let Some(m) = ctx.find_module_def(filename) {
@@ -615,7 +615,7 @@ fn current_module_def(ctx: &mut ScopedContext) -> Option<ModuleDef> {
 /// relative `fs`/`fetch` resolution, even when called from inside a native
 /// function (e.g. `fetch`). Returns `None` only when there is no bytecode frame
 /// at all (pure native / host top level).
-pub(crate) fn current_bytecode_filename(ctx: &mut ScopedContext) -> Option<Atom> {
+pub(crate) fn current_bytecode_filename(ctx: &ScopedContext) -> Option<Atom> {
     let rt = ctx.rt();
     let arena = rt.stack_frame_arena();
 
@@ -664,10 +664,7 @@ pub(crate) fn current_bytecode_filename(ctx: &mut ScopedContext) -> Option<Atom>
 /// This is the fallback used by `ScopedContext::current_module_name` for
 /// script/eval code; module code is resolved directly via `current_module_def`
 /// (which survives async callbacks, unlike this frame-walking path).
-pub(crate) fn get_script_or_module_name(
-    ctx: &mut ContextImpl,
-    n_stack_levels: usize,
-) -> Option<Atom> {
+pub(crate) fn get_script_or_module_name(ctx: &ContextImpl, n_stack_levels: usize) -> Option<Atom> {
     debug_assert!(
         ctx.is_arena_mode(),
         "BytecodeFunction::call() always run with arena stack frame bump"
@@ -710,7 +707,7 @@ pub(crate) fn get_script_or_module_name(
 }
 
 /// get module `import.meta` object of context current execution.
-pub fn js_import_meta(ctx: &mut ScopedContext) -> Result<Object, i32> {
+pub(crate) fn js_import_meta(ctx: &mut ScopedContext) -> Result<Object, i32> {
     // Prefer the module pointer carried by the executing bytecode (set at
     // compile time), so `import.meta` works even inside async callbacks.
     // Fall back to frame-stack lookup for script / eval code without a module.
