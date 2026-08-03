@@ -463,10 +463,9 @@ impl<'c> ScopedContext<'c> {
         // plain script / eval code that has no module — including `evalScript`
         // code, whose `debug.filename` is the injected `baseUrl` and must NOT be
         // skipped as an eval wrapper here (that is only for stack-trace naming).
-        if let Some(m) = current_module_def(self) {
-            return Some(m.module_name().to_utf8(self.rt()).to_string());
-        }
-        current_bytecode_filename(self).map(|a| a.to_utf8(self.rt()).to_string())
+        current_module_def(self)
+            .map(|m| m.module_name().to_utf8(self.rt()).to_string())
+            .or_else(|| current_bytecode_filename(self).map(|a| a.to_utf8(self.rt()).to_string()))
     }
 }
 
@@ -578,42 +577,38 @@ pub(crate) fn js_create_module_var(
 
 /// Resolve the module that owns the *currently executing* user code.
 ///
-/// Follows the module filename carried by the bytecode itself (set at compile
-/// time in `eval.rs` for both the top-level and nested functions of a module),
-/// so it works even when the call happens inside an async callback that has
-/// already left the module's top-level frame. This matches JS `import.meta`
-/// semantics, which are lexically bound to the module and independent of the
-/// call stack.
+/// Each module's bytecode carries its module URL as `debug.filename`, so we
+/// first look up the module from the active frame's filename — this is what
+/// gives each module its own distinct `import.meta` object even for a nested/
+/// fixture module. If no bytecode frame carries a filename (e.g. an async
+/// callback run as an independent root frame, or a pure native call), fall back
+/// to `eval_base_url`, the URL the host bound at the `eval` entry point (set
+/// in `eval.rs`), which survives across the whole host eval.
 ///
-/// When called from inside a native function (e.g. `fetch`), the active frame
-/// is native and carries no module info; we then skip native frames and look
-/// at the nearest *bytecode* frame (the user code that invoked the native
-/// function) — that frame's filename is the module/script base URL. This is how
-/// relative `fetch`/`fs` specifiers resolve against the caller's base.
-///
-/// Returns `None` when no bytecode frame is found (pure native call with no
-/// script on the stack), or the found frame has no resolvable module/script
-/// filename.
-pub(crate) fn current_module_def(ctx: &mut ScopedContext) -> Option<ModuleDef> {
-    // Prefer the base URL bound to the runtime by the host `eval` entry point.
-    // Async callbacks (promise reactions, timers) run as independent root frames
-    // detached from the caller's frame chain, so the bytecode-filename walk below
-    // cannot recover the base there. The runtime slot survives across the whole
-    // host eval (wpt-runner drives each test file as a separate, sequential
-    // `evalScript`, so the slot always reflects the currently running script).
-    if !ctx.rt().eval_base_url.is_null() {
-        if let Some(m) = ctx.find_module_def(ctx.rt().eval_base_url) {
+/// Returns `None` when neither a bytecode frame nor `eval_base_url` resolves to
+/// a loaded module.
+fn current_module_def(ctx: &mut ScopedContext) -> Option<ModuleDef> {
+    // Module URL carried by the executing bytecode frame.
+    if let Some(filename) = current_bytecode_filename(ctx) {
+        if let Some(m) = ctx.find_module_def(filename) {
             return Some(m);
         }
     }
 
-    let filename = current_bytecode_filename(ctx)?;
-    ctx.find_module_def(filename)
+    // Base URL bound at the host `eval` entry (fallback for async/native frames).
+    let eval_base_url = ctx.rt().eval_base_url;
+    if !eval_base_url.is_null() {
+        if let Some(m) = ctx.find_module_def(eval_base_url) {
+            return Some(m);
+        }
+    }
+
+    None
 }
 
 /// Walks the active frame chain, skipping native frames, and returns the
 /// `debug.filename` of the *first* bytecode frame (including eval/script frames,
-/// which carry the `baseUrl` injected by `Aike.evalScript`/`evalModule`).
+/// which carry the `baseUrl` injected by `evalScript`/`evalModule`).
 ///
 /// Unlike `get_script_or_module_name`, this does NOT skip eval frames: the
 /// eval'd user code's own `debug.filename` *is* the base URL we want for
@@ -637,6 +632,7 @@ pub(crate) fn current_bytecode_filename(ctx: &mut ScopedContext) -> Option<Atom>
         }
         cur = sf.prev;
     }
+
     None
 }
 
