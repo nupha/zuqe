@@ -235,13 +235,18 @@ impl ModuleDefImpl {
 
     /// set module import.meta props.
     ///
-    /// The `url` property is the module's canonical name, which is always a
-    /// `file://` URL (except for native modules). It is taken directly from
+    /// The `url` property is the module's canonical name, which is always an
+    /// URL (except for native modules). It is taken directly from
     /// `module_name`, so `import.meta.url === module_name` by construction.
-    pub fn set_import_meta(&mut self, ctx: &mut ScopedContext, is_main: bool) -> Result<(), i32> {
-        let url = self.module_name().to_utf8(ctx.rt());
+    pub(crate) fn set_import_meta(
+        &mut self,
+        ctx: &mut ScopedContext,
+        is_main: bool,
+    ) -> Result<(), i32> {
+        let name = self.module_name().to_utf8(ctx.rt());
+
         let mut meta_obj = self.import_meta(ctx)?;
-        let sval = ctx.create_string_from_str(&url)?;
+        let sval = ctx.create_string_from_str(&name)?;
         meta_obj.define_property_value_str(
             ctx,
             "url",
@@ -249,6 +254,7 @@ impl ModuleDefImpl {
             JS_PROP_C_W_E,
         )?;
         meta_obj.define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)?;
+
         Ok(())
     }
 
@@ -715,10 +721,10 @@ pub(crate) fn js_import_meta(ctx: &mut ScopedContext) -> Result<Object, i32> {
         return m.import_meta(ctx);
     }
 
-    if let Some(filename) = get_script_or_module_name(ctx, 0) {
-        if let Some(mut m) = ctx.find_module_def(filename) {
-            return m.import_meta(ctx);
-        }
+    if let Some(filename) = get_script_or_module_name(ctx, 0)
+        && let Some(mut m) = ctx.find_module_def(filename)
+    {
+        return m.import_meta(ctx);
     }
 
     Err(ctx.throw_type_error("import.meta not supported in this context"))
