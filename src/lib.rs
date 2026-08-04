@@ -34,7 +34,7 @@ pub use {
     context::{Context, ContextImpl, ScopeResult, ScopedContext},
     error::{ErrCode, ErrorKind, Exception, ExceptionText, ExitStatus, JSResult},
     eval::{EvalFlags, EvalName, EvalType},
-    function::{BoundFunction, Bytecode, CallContext, Callback, FieldDef},
+    function::{BoundFunction, Bytecode, CallContext, Callback, FieldDef, IteratorState},
     microtask::*,
     module::{ModuleDef, path_to_url, url_to_abspath},
     number::IntOrFloat,
@@ -58,6 +58,7 @@ mod stdcls {
 pub use stdcls::*;
 
 pub mod builtins;
+pub use builtins::iterator::JSIteratorKindEnum;
 
 //
 // channel helpers

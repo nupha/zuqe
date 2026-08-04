@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    ClassID,
+    ClassID, JS_PROP_C_W_E,
     atom::Atom,
     context::ScopedContext,
     function::{
@@ -100,6 +100,26 @@ impl FieldDef {
                 magic,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
+        }
+    }
+
+    /// Like [`FieldDef::FUNC`] but also enumerable (used for e.g.
+    /// `Headers.prototype.{keys,values,entries}` which the Fetch spec
+    /// requires to be enumerable).
+    pub const fn FUNC_ENUM(
+        name: &'static str,
+        length: u8,
+        callback: CallbackFn,
+        magic: i16,
+    ) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::LazyFunc {
+                callback: Callback::Func(callback),
+                length,
+                magic,
+            },
+            prop_flags: JS_PROP_C_W_E as u8,
         }
     }
 
