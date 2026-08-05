@@ -11,7 +11,7 @@ use crate::{
     context::{ScopeResult, ScopedContext},
     error::JSResult,
     function::{BCWrapper, Bytecode, FunctionDef, FunctionKind, add_closure_variables},
-    module::ModuleDef,
+    module::{ModuleDef, path_to_url},
     parse::JSParseState,
     runtime::Runtime,
     stack_frame::{ExecMode, FrameIndex},
@@ -53,6 +53,24 @@ impl EvalName {
         match self {
             EvalName::BaseUrl(u) => Some(u),
             EvalName::Name(_) => None,
+        }
+    }
+
+    /// Normalize this name into a URL base.
+    ///
+    /// Module compilation requires a real URL as the module name / `import.meta.url`
+    /// base, so a `Name` is turned into one. We resolve the name as a path
+    /// relative to the current working directory and convert it to a `file://` URL.
+    /// `BaseUrl` values are kept as-is (already a valid base). The caller decides
+    /// *when* to call this (it is only meaningful in module mode); this method
+    /// itself unconditionally performs the conversion.
+    pub(crate) fn normalize_to_url(&self) -> EvalName {
+        match self {
+            EvalName::BaseUrl(u) => EvalName::BaseUrl(u.clone()),
+            EvalName::Name(s) => match path_to_url(s) {
+                Ok(u) => EvalName::BaseUrl(u),
+                Err(_) => EvalName::Name(s.clone()),
+            },
         }
     }
 }
@@ -514,7 +532,12 @@ impl<'c> Context<'c> {
         // (including recursive module linking/eval) gets an accurate stack_size budget.
         crate::runtime::JS_UpdateStackTop(self.rt_mut());
 
-        self.with_new_scope(|cx| cx.eval(source, name, eval_type, flags))
+        let name = if eval_type == EvalType::Module {
+            name.normalize_to_url()
+        } else {
+            name.clone()
+        };
+        self.with_new_scope(|cx| cx.eval(source, &name, eval_type, flags))
     }
 
     /// Eval `script` in `self` scope, wait till all microtasks are finished or execution is interrupted.
@@ -534,7 +557,12 @@ impl<'c> Context<'c> {
         // (including recursive module linking/eval) gets an accurate stack_size budget.
         crate::runtime::JS_UpdateStackTop(self.rt_mut());
 
-        self.with_new_scope(|cx| cx.eval_wait(source, name, eval_type, flags))
+        let name = if eval_type == EvalType::Module {
+            name.normalize_to_url()
+        } else {
+            name.clone()
+        };
+        self.with_new_scope(|cx| cx.eval_wait(source, &name, eval_type, flags))
     }
 
     /// Async eval `script` in `self` scope and drive
@@ -556,7 +584,12 @@ impl<'c> Context<'c> {
         // Refresh stack_top at the outermost eval entry point (see sync version).
         crate::runtime::JS_UpdateStackTop(self.rt_mut());
 
-        let Ok(ret_val) = self.with_new_scope(|cx| cx.eval(source, name, eval_type, flags)) else {
+        let name = if eval_type == EvalType::Module {
+            name.normalize_to_url()
+        } else {
+            name.clone()
+        };
+        let Ok(ret_val) = self.with_new_scope(|cx| cx.eval(source, &name, eval_type, flags)) else {
             let exc = self.take_exception();
             return ExitStatus::Exception(exc);
         };

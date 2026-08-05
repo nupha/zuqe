@@ -595,18 +595,18 @@ pub(crate) fn js_create_module_var(
 /// a loaded module.
 fn current_module_def(ctx: &ScopedContext) -> Option<ModuleDef> {
     // Module URL carried by the executing bytecode frame.
-    if let Some(filename) = current_bytecode_filename(ctx) {
-        if let Some(m) = ctx.find_module_def(filename) {
-            return Some(m);
-        }
+    if let Some(filename) = current_bytecode_filename(ctx)
+        && let Some(m) = ctx.find_module_def(filename)
+    {
+        return Some(m);
     }
 
     // Base URL bound at the host `eval` entry (fallback for async/native frames).
     let eval_base_url = ctx.rt().eval_base_url;
-    if !eval_base_url.is_null() {
-        if let Some(m) = ctx.find_module_def(eval_base_url) {
-            return Some(m);
-        }
+    if !eval_base_url.is_null()
+        && let Some(m) = ctx.find_module_def(eval_base_url)
+    {
+        return Some(m);
     }
 
     None
