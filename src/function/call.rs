@@ -4,7 +4,7 @@
 use crate::{
     atom::Atom,
     context::ScopedContext,
-    error::JSResult,
+    error::{Exception, JSResult},
     object::{JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ObjectImpl, ObjectPayload},
     utils::unlikely,
     value::JSValue,
@@ -284,6 +284,20 @@ impl ObjectImpl {
             && let Some(n) = v.gc_node()
         {
             n.debug_assert_node_valid(ctx.rt_ptr().gc_heap());
+        }
+
+        // Exception-hygiene invariant: a call that returns Ok must leave
+        // cur_exception empty. If a native/bytecode function swallowed a JS
+        // exception (e.g. `let _ = some_func()` that threw) and still returned
+        // Ok, cur_exception is left set; it would otherwise surface only later
+        // as a confusing `[task bug]` panic at an unrelated job boundary.
+        #[cfg(debug_assertions)]
+        if ret_val.is_ok() {
+            debug_assert!(
+                ctx.rt().exception() == Exception::No,
+                "call returned Ok but left an exception set; \
+                 the callee must take_exception() if it swallows a throw"
+            );
         }
 
         ret_val
