@@ -324,7 +324,7 @@ fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let separator = cc.arg(0);
     let limit = cc.arg(1);
 
-    if !separator.is_undefined_or_null()
+    if separator.is_object()
         && let Some(method) = separator.get_method(ctx, Atom::CONST_Symbol_split)?
     {
         return method.call(ctx, separator, &[this, limit]);

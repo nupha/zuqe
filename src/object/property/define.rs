@@ -412,7 +412,8 @@ impl ObjectImpl {
     }
 }
 
-// TODO: these methods on JSValue are not needed.
+// Thin wrappers over ObjectImpl versions: `as_object()` → delegate.
+// Kept: 150+ call sites use JSValue receivers (see memo/refactoring.md R3).
 impl JSValue {
     // allowed flags:
     // JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JS_PROP_ENUMERABLE

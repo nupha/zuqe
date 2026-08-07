@@ -69,13 +69,13 @@ impl ProxyPayload {
     pub fn is_extensible_obj(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {
         let method = self.get_proxy_method(ctx, Atom::CONST_isExtensible)?;
         if method.is_undefined() {
-            self.target.is_extensible_obj(ctx)
+            self.target.is_extensible(ctx)
         } else {
             let b = method
                 .call(ctx, self.handler, &[self.target.into()])?
                 .to_bool()?;
 
-            if b != self.target.is_extensible_obj(ctx)? {
+            if b != self.target.is_extensible(ctx)? {
                 Err(ctx.throw_type_error("proxy: inconsistent isExtensible"))
             } else {
                 Ok(b)
@@ -113,7 +113,7 @@ impl ProxyPayload {
                 .call(ctx, self.handler, &[self.target.into()])?
                 .to_bool()?;
 
-            if b && self.target.is_extensible_obj(ctx)? {
+            if b && self.target.is_extensible(ctx)? {
                 return Err(ctx.throw_type_error("proxy: inconsistent preventExtensions"));
             }
 
@@ -135,7 +135,7 @@ impl ProxyPayload {
             return Err(ctx.throw_type_error("proxy: inconsistent prototype"));
         }
 
-        if self.target.is_extensible_obj(ctx)? {
+        if self.target.is_extensible(ctx)? {
             Ok(ret)
         } else {
             // check invariant
@@ -176,7 +176,7 @@ impl ProxyPayload {
                 // }
             }
             _ => {
-                if !self.target.is_extensible_obj(ctx)?
+                if !self.target.is_extensible(ctx)?
                     && proto_val
                         != self
                             .target
@@ -397,7 +397,7 @@ fn js_proxy_get_own_property(
             if !check_define_prop_flags(target_desc.flags, flags1) {
                 return Err(ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor"));
             }
-        } else if !px.target.is_extensible_obj(ctx)? {
+        } else if !px.target.is_extensible(ctx)? {
             return Err(ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor"));
         }
 
@@ -555,7 +555,7 @@ fn js_proxy_delete_property(
         if desc.flags & JS_PROP_CONFIGURABLE == 0 {
             return Err(ctx.throw_type_error("proxy: inconsistent deleteProperty"));
         }
-        if !px.target.is_extensible_obj(ctx)? {
+        if !px.target.is_extensible(ctx)? {
             return Err(ctx.throw_type_error("proxy: inconsistent deleteProperty"));
         }
     }
@@ -605,7 +605,7 @@ fn js_proxy_get_own_property_names(
     }
 
     // check if there are non configurable properties
-    let is_extensible = px.target.is_extensible_obj(ctx)?;
+    let is_extensible = px.target.is_extensible(ctx)?;
 
     for k2 in px
         .target

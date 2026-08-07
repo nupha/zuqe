@@ -318,7 +318,7 @@ impl JSProperty {
 impl ObjectImpl {
     /// check if object is extensible.
     /// in case `self` is a Proxy object, may return Err.
-    pub fn is_extensible_obj(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {
+    pub fn is_extensible(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {
         #[cfg(feature = "builtin_proxy")]
         {
             Object::from_ref(self).as_Proxy().map_or_else(
@@ -422,7 +422,7 @@ impl JSValue {
     /// return Err() if exception (Proxy object only) or TRUE/FALSE
     pub fn is_extensible(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {
         if let Some(p) = self.as_object() {
-            p.is_extensible_obj(ctx)
+            p.is_extensible(ctx)
         } else {
             Ok(false)
         }

@@ -89,7 +89,7 @@ impl ObjectImpl {
 
         // Per ECMAScript PrivateFieldAdd (O, P, value):
         //   1. If O.[[Extensible]] is false, throw a TypeError exception.
-        if !self.is_extensible_obj(ctx)? {
+        if !self.is_extensible(ctx)? {
             return Err(ctx.throw_type_error("private field on non-extensible object"));
         }
 
@@ -143,7 +143,7 @@ impl JSValue {
                 let brand_atom = brand_sym.to_atom(ctx).unwrap();
                 if ob.has_shape_property(brand_atom) {
                     Err(ctx.throw_type_error("private method is already present"))
-                } else if !ob.is_extensible_obj(ctx)? {
+                } else if !ob.is_extensible(ctx)? {
                     Err(ctx.throw_type_error("cannot add private fields to non-extensible object"))
                 } else {
                     ob.add_own_property(

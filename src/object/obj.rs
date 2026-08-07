@@ -450,7 +450,7 @@ impl ObjectImpl {
     }
 
     #[inline(always)]
-    pub const fn is_extensible(&self) -> bool {
+    pub const fn is_extensible_flag(&self) -> bool {
         self.flags().extensible()
     }
 
@@ -737,7 +737,7 @@ impl ObjectImpl {
             }
         }
 
-        self.is_extensible_obj(ctx).map(|b| !b)
+        self.is_extensible(ctx).map(|b| !b)
     }
 }
 

@@ -370,7 +370,7 @@ impl ObjectImpl {
                             );
                         }
 
-                        if unlikely(!self.is_extensible_obj(ctx)?) {
+                        if unlikely(!self.is_extensible(ctx)?) {
                             return if ctx.rt().can_throw(flags) {
                                 Err(ctx.throw_type_error("object is not extensible"))
                             } else {

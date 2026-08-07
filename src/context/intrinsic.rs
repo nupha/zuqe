@@ -203,6 +203,7 @@ impl<'c> ScopedContext<'c> {
         // XXX: create auto_initializer
         {
             const unscopables: &[&str] = &[
+                "at",
                 "copyWithin",
                 "entries",
                 "fill",
