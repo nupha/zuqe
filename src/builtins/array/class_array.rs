@@ -393,13 +393,6 @@ pub(crate) fn js_array_every(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         _ => JSValue::UNDEFINED,
     };
 
-    // protect ret before func.call()
-    // if len > 0
-    //     && let Some(n) = ret.gc_node_ptr()
-    // {
-    //     ctx.gc_heap_mut().protect_node_v2(n);
-    // }
-
     let mut n = 0;
 
     for k in 0..len {

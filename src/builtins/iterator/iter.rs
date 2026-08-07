@@ -494,35 +494,6 @@ pub(crate) fn iterator_to_array(ctx: &mut ScopedContext, items: JSValue) -> JSRe
     Ok(arr.into())
 }
 
-impl Array {
-    /// create Array with values retreived from an iterable object.
-    /// returns Array and length
-    ///
-    /// # Arguments
-    /// * `ctx` - The context in which the array is created.
-    /// * `iterable` - The iterable object.
-    /// * `method` - The method to get the iterator from `iterable`.
-    pub(crate) fn from_iterator(
-        ctx: &mut ScopedContext,
-        iterable: Object,
-        method: JSValue,
-    ) -> Result<(Self, usize), i32> {
-        let target = method
-            .call(ctx, iterable.into(), &[])
-            .and_then(|v| v.ensure_object(ctx))?;
-
-        let it = ObjectIter::new(ctx, target, Atom::CONST_next)?;
-
-        let mut lst = Vec::<JSValue>::new();
-        for val in it {
-            lst.push(val?);
-        }
-
-        let len = lst.len();
-        Ok((Array::from_values(ctx, lst)?, len))
-    }
-}
-
 pub(crate) const js_iterator_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("[Symbol.iterator]", 0, js_get_this, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Iterator", JS_PROP_CONFIGURABLE),

@@ -610,17 +610,6 @@ pub fn js_promise_race(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let (promise, resolving_funcs) = Promise::create_with_ctor(ctx, this)?;
     debug_assert!(promise.gc_node().is_local());
 
-    // protect resoving_funcs before calling promise.call()
-    // {
-    //     let heap = ctx.gc_heap_mut();
-    //     if let Some(n) = resolving_funcs[0].gc_node_ptr() {
-    //         heap.protect_node_v2(n);
-    //     }
-    //     if let Some(n) = resolving_funcs[1].gc_node_ptr() {
-    //         heap.protect_node_v2(n);
-    //     }
-    // }
-
     let fail_reject = |cx: &mut ScopedContext| -> JSResult {
         let err_val = cx.take_exception().to_value(cx);
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;

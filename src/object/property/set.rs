@@ -116,8 +116,6 @@ impl ObjectImpl {
 
                     JS_PROP_GETSET => {
                         return if let JSProperty::GetSet { setter, .. } = cur_obj.prop_slot(idx) {
-                            // protect self
-                            // ctx.gc_heap_mut().protect_node_v2(self.gc_head_ptr());
                             call_setter(
                                 ctx,
                                 *setter,
@@ -218,9 +216,6 @@ impl ObjectImpl {
                         && let Some(desc) = f(ctx, JSValue::from(cur_obj), prop)?
                     {
                         if desc.flags & JS_PROP_GETSET != 0 {
-                            // protect self before calling setter
-                            // ctx.gc_heap_mut().protect_node_v2(self.gc_head_ptr());
-
                             return call_setter(
                                 ctx,
                                 desc.setter.as_object(),
