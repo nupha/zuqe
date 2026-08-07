@@ -76,19 +76,17 @@ impl ObjectImpl {
     /// Equivalent to `self instanceof ctor`
     pub fn instance_of(&self, ctx: &mut ScopedContext, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
-            if let Some(r) = o.invoke_defined(
-                ctx,
-                Atom::CONST_Symbol_hasInstance,
-                &[Object::from_ref(self).into()],
-            )? {
-                return r.and_then(|v| v.to_bool());
+            if let Some(method) = o.get_method(ctx, Atom::CONST_Symbol_hasInstance)? {
+                return method
+                    .call(ctx, ctor, &[Object::from_ref(self).into()])
+                    .and_then(|v| v.to_bool());
             }
 
             // no Symbol.hasInstance method: check legacy way
             return if o.is_callable() {
                 self.ordinary_instance_of(ctx, ctor)
             } else {
-                Ok(false)
+                Err(ctx.throw_type_error("invalid 'instanceof' right operand"))
             };
         }
 
@@ -101,12 +99,10 @@ impl JSValue {
     /// Equivalent to `self instanceof ctor`
     pub fn instance_of(&self, ctx: &mut ScopedContext, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
-            if let Some(r) = o.invoke_defined(
-                ctx,
-                Atom::CONST_Symbol_hasInstance,
-                std::slice::from_ref(self),
-            )? {
-                return r.and_then(|v| v.to_bool());
+            if let Some(method) = o.get_method(ctx, Atom::CONST_Symbol_hasInstance)? {
+                return method
+                    .call(ctx, ctor, std::slice::from_ref(self))
+                    .and_then(|v| v.to_bool());
             }
 
             // no Symbol.hasInstance method: check legacy way

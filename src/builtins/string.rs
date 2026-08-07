@@ -325,9 +325,9 @@ fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let limit = cc.arg(1);
 
     if !separator.is_undefined_or_null()
-        && let Some(r) = separator.invoke_defined(ctx, Atom::CONST_Symbol_split, &[this, limit])?
+        && let Some(method) = separator.get_method(ctx, Atom::CONST_Symbol_split)?
     {
-        return r;
+        return method.call(ctx, separator, &[this, limit]);
     }
 
     // don't change following parse order of str, limit, sep

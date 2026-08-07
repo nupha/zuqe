@@ -44,7 +44,7 @@ fn dump_val(ctx: &mut ScopedContext, v: JSValue) -> String {
     if v.is_object() {
         if let Some(o) = v.as_object() {
             if let Ok(s) = o.repr(ctx) {
-                return s.content().encode_utf8(false).to_string();
+                return s;
             }
         }
         return "[object]".to_string();
@@ -947,7 +947,7 @@ pub(super) fn dump_run_stack(
             if i >= mark_start { mark } else { ' ' },
             // value repr
             {
-                let s = dump_val(ctx, v);
+                let s = dump_val(ctx, *v);
 
                 if s.chars().count() > 80 {
                     s.chars().take(80).collect::<String>() + "…"

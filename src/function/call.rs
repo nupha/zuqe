@@ -352,6 +352,7 @@ impl ObjectImpl {
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.
+    /// throws TypeError if it exists but is not callable (GetMethod semantics).
     /// otherwise, returns None
     pub fn invoke_defined(
         &self,
@@ -359,12 +360,10 @@ impl ObjectImpl {
         method: Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
-        let f = self.get_property(ctx, method)?;
-        if !f.is_undefined_or_null() {
-            Ok(Some(f.call(ctx, Object::from_ref(self).into(), args)))
-        } else {
-            Ok(None)
-        }
+        let Some(m) = self.get_method(ctx, method)? else {
+            return Ok(None);
+        };
+        Ok(Some(m.call(ctx, Object::from_ref(self).into(), args)))
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.
@@ -490,6 +489,7 @@ impl JSValue {
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.
+    /// throws TypeError if it exists but is not callable (GetMethod semantics).
     /// otherwise, returns None.
     pub fn invoke_defined(
         &self,
@@ -497,12 +497,10 @@ impl JSValue {
         method: Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
-        let m = self.get_property(ctx, method)?;
-        if !m.is_undefined_or_null() {
-            Ok(Some(m.call(ctx, *self, args)))
-        } else {
-            Ok(None)
-        }
+        let Some(m) = self.get_method(ctx, method)? else {
+            return Ok(None);
+        };
+        Ok(Some(m.call(ctx, *self, args)))
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.

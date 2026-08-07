@@ -389,37 +389,32 @@ impl JSValue {
         ctx: &mut ScopedContext,
         is_async: bool,
     ) -> Result<Option<Object>, i32> {
-        if is_async {
-            let f = self.get_property(ctx, Atom::CONST_Symbol_asyncIterator)?;
-            if !f.is_undefined_or_null() {
-                let method = f.ensure_callable(ctx)?;
-                let v = method.call(ctx, *self, &[])?;
-                return v.ensure_object(ctx).map(Some);
-            }
+        if is_async
+            && let Some(method) = self.get_method(ctx, Atom::CONST_Symbol_asyncIterator)?
+        {
+            let v = method.call(ctx, *self, &[])?;
+            return v.ensure_object(ctx).map(Some);
         }
 
-        let f = self.get_property(ctx, Atom::CONST_Symbol_iterator)?;
-        if f.is_undefined_or_null() {
-            Ok(None)
+        let Some(method) = self.get_method(ctx, Atom::CONST_Symbol_iterator)? else {
+            return Ok(None);
+        };
+        let sync_it = method.call(ctx, *self, &[])?.ensure_object(ctx)?;
+        if is_async {
+            // method [Symbol.asyncIterator] is not defined:
+            // wrap [Symbol.iterator]() object into an AsyncFromSyncIterator
+            let next_method = sync_it.get_property(ctx, Atom::CONST_next)?;
+            ctx.create_instance_with_payload(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(Box::new(
+                JSAsyncFromSyncIteratorData {
+                    obj: sync_it,
+                    next_method,
+                    closed: Cell::new(false),
+                },
+            )))
+            .map(Some)
+            .map_err(|_| -1)
         } else {
-            let method = f.ensure_callable(ctx)?;
-            let sync_it = method.call(ctx, *self, &[])?.ensure_object(ctx)?;
-            if is_async {
-                // method [Symbol.asyncIterator] is not defined:
-                // wrap [Symbol.iterator]() object into an AsyncFromSyncIterator
-                let next_method = sync_it.get_property(ctx, Atom::CONST_next)?;
-                ctx.create_instance_with_payload(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(Box::new(
-                    JSAsyncFromSyncIteratorData {
-                        obj: sync_it,
-                        next_method,
-                        closed: Cell::new(false),
-                    },
-                )))
-                .map(Some)
-                .map_err(|_| -1)
-            } else {
-                Ok(Some(sync_it))
-            }
+            Ok(Some(sync_it))
         }
     }
 

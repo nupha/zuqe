@@ -336,6 +336,18 @@ impl ObjectImpl {
             })
         }
     }
+
+    /// GetMethod (ES 7.3.11): return None if the property value is undefined or null;
+    /// throw TypeError if present but not callable; otherwise return the callable object.
+    #[inline]
+    pub fn get_method(&self, ctx: &mut ScopedContext, prop: Atom) -> Result<Option<Object>, i32> {
+        let f = self.get_property(ctx, prop)?;
+        if f.is_undefined_or_null() {
+            Ok(None)
+        } else {
+            f.ensure_callable(ctx).map(Some)
+        }
+    }
 }
 
 impl JSValue {
@@ -461,6 +473,18 @@ impl JSValue {
                     Ok(None)
                 }
             })
+        }
+    }
+
+    /// GetMethod (ES 7.3.11): return None if the property value is undefined or null;
+    /// throw TypeError if present but not callable; otherwise return the callable object.
+    #[inline]
+    pub fn get_method(&self, ctx: &mut ScopedContext, prop: Atom) -> Result<Option<Object>, i32> {
+        let f = self.get_property(ctx, prop)?;
+        if f.is_undefined_or_null() {
+            Ok(None)
+        } else {
+            f.ensure_callable(ctx).map(Some)
         }
     }
 }

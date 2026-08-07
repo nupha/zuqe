@@ -465,10 +465,28 @@ impl FunctionDef {
                                         };
                                         scan += scan_len;
                                     }
-                                    opcodes::op_label
-                                    | opcodes::OP_nip_catch
-                                    | opcodes::OP_gosub => {
+                                    opcodes::op_label | opcodes::OP_nip_catch => {
                                         scan += scan_len;
+                                    }
+                                    opcodes::OP_gosub => {
+                                        // A gosub to a real try-finally body must complete
+                                        // before returning, so the call is NOT in tail
+                                        // position. A gosub to an empty finally region
+                                        // (catch-only try) is a no-op indirection and TCO
+                                        // is safe (same test as the empty-finalizer removal).
+                                        let label_id =
+                                            unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(scan + 1)) };
+                                        if self
+                                            .code_match(
+                                                self.label_slots[label_id as usize].pos as _,
+                                                &[OpCode::RET as i32],
+                                            )
+                                            .is_some()
+                                        {
+                                            scan += scan_len;
+                                        } else {
+                                            break;
+                                        }
                                     }
                                     opcodes::OP_return | opcodes::OP_return_undef => {
                                         found_return = true;
