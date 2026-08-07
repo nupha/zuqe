@@ -338,72 +338,64 @@ impl ObjectImpl {
     }
 
     /// call function `self.method`.
-    #[inline]
+    #[inline(always)]
     pub fn invoke(&self, ctx: &mut ScopedContext, method: Atom, args: &[JSValue]) -> JSResult {
-        self.get_property(ctx, method)
-            .and_then(|f| f.call(ctx, Object::from_ref(self).into(), args))
+        JSValue::from(Object::from_ref(self)).invoke(ctx, method, args)
     }
 
     /// call function `self.method`.
-    #[inline]
+    #[inline(always)]
     pub fn invoke_str(&self, ctx: &mut ScopedContext, method: &str, args: &[JSValue]) -> JSResult {
-        let a = Atom::from_str(ctx, method)?;
-        self.invoke(ctx, a, args)
+        JSValue::from(Object::from_ref(self)).invoke_str(ctx, method, args)
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.
     /// throws TypeError if it exists but is not callable (GetMethod semantics).
     /// otherwise, returns None
+    #[inline(always)]
     pub fn invoke_defined(
         &self,
         ctx: &mut ScopedContext,
         method: Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
-        let Some(m) = self.get_method(ctx, method)? else {
-            return Ok(None);
-        };
-        Ok(Some(m.call(ctx, Object::from_ref(self).into(), args)))
+        JSValue::from(Object::from_ref(self)).invoke_defined(ctx, method, args)
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.
     /// otherwise, returns None
+    #[inline(always)]
     pub fn invoke_str_defined(
         &self,
         ctx: &mut ScopedContext,
         method: &str,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
-        let a = Atom::from_str(ctx, method)?;
-        self.invoke_defined(ctx, a, args)
+        JSValue::from(Object::from_ref(self)).invoke_str_defined(ctx, method, args)
     }
 
     /// call `self.method` if property `method` is callable.
     /// otherwise, returns None
+    #[inline(always)]
     pub fn invoke_callable(
         &self,
         ctx: &mut ScopedContext,
         method: Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
-        let f = self.get_property(ctx, method)?;
-        if f.is_callable() {
-            Ok(Some(f.call(ctx, Object::from_ref(self).into(), args)))
-        } else {
-            Ok(None)
-        }
+        JSValue::from(Object::from_ref(self)).invoke_callable(ctx, method, args)
     }
 
     /// call `self.method` if property `method` is callable.
     /// otherwise, returns None
+    #[inline(always)]
     pub fn invoke_str_callable(
         &self,
         ctx: &mut ScopedContext,
         method: &str,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
-        let a = Atom::from_str(ctx, method)?;
-        self.invoke_callable(ctx, a, args)
+        JSValue::from(Object::from_ref(self)).invoke_str_callable(ctx, method, args)
     }
 }
 
