@@ -8,6 +8,7 @@ use crate::{
     JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT16_ARRAY, JS_CLASS_FLOAT32_ARRAY,
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
     JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    JSValueTag,
     atom::{Atom, JS_ATOM_MAX_INT},
     builtins::typed_array::f16_to_f64,
     context::ScopedContext,
@@ -346,7 +347,7 @@ impl JSValue {
         throw_ref_error: bool,
     ) -> JSResult {
         match self.tag() {
-            crate::JSValueTag::Object => unsafe {
+            JSValueTag::Object => unsafe {
                 self.as_object_unchecked().get_property_internal(
                     ctx,
                     prop,
@@ -354,7 +355,7 @@ impl JSValue {
                     throw_ref_error,
                 )
             },
-            crate::JSValueTag::String => {
+            JSValueTag::String => {
                 let s = unsafe { self.as_string_unchecked() };
                 if unlikely(prop == Atom::CONST_length) {
                     // string length
@@ -374,11 +375,9 @@ impl JSValue {
                         .unwrap_or(Ok(JSValue::UNDEFINED))
                 }
             }
-            crate::JSValueTag::Null => Err(ctx.throw_type_error("cannot read property of null")),
-            crate::JSValueTag::Undefined => {
-                Err(ctx.throw_type_error("cannot read property of undefined"))
-            }
-            crate::JSValueTag::Exception => {
+            JSValueTag::Null => Err(ctx.throw_type_error("cannot read property of null")),
+            JSValueTag::Undefined => Err(ctx.throw_type_error("cannot read property of undefined")),
+            JSValueTag::Exception => {
                 #[cfg(debug_assertions)]
                 unreachable!();
                 #[cfg(not(debug_assertions))]

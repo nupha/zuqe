@@ -539,14 +539,14 @@ impl Promise {
     /// see ECMAScript spec `Promise.resolve()` and `Promise.reject()` for details.
     fn from_resolve_or_reject_value(
         ctx: &mut ScopedContext,
-        value: &JSValue,
+        value: JSValue,
         is_reject: bool,
     ) -> Result<Self, i32> {
         let (promise, resolving_funcs) = Self::create(ctx)?;
         resolving_funcs[is_reject as usize].call(
             ctx,
             JSValue::UNDEFINED,
-            std::slice::from_ref(value),
+            std::slice::from_ref(&value),
         )?;
         Ok(promise)
     }
@@ -554,14 +554,14 @@ impl Promise {
     /// Create an Promise with resolving a value.
     /// see ECMAScript spec `Promise.resolve()` for details.
     #[inline(always)]
-    pub fn from_resolve_value(ctx: &mut ScopedContext, value: &JSValue) -> Result<Self, i32> {
+    pub fn from_resolve_value(ctx: &mut ScopedContext, value: JSValue) -> Result<Self, i32> {
         Self::from_resolve_or_reject_value(ctx, value, false)
     }
 
     /// Create an Promise with rejecting a value.
     /// see ECMAScript spec `Promise.reject()` for details.
     #[inline(always)]
-    pub fn from_reject_value(ctx: &mut ScopedContext, value: &JSValue) -> Result<Self, i32> {
+    pub fn from_reject_value(ctx: &mut ScopedContext, value: JSValue) -> Result<Self, i32> {
         Self::from_resolve_or_reject_value(ctx, value, true)
     }
 }

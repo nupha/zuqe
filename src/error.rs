@@ -104,7 +104,7 @@ impl Exception {
     }
 
     /// align exception to jsvalue
-    pub(crate) fn to_value(self, ctx: &mut ScopedContext) -> JSValue {
+    pub fn to_value(self, ctx: &mut ScopedContext) -> JSValue {
         match self {
             Self::No => JSValue::UNDEFINED,
             Self::OutOfMemory => ctx

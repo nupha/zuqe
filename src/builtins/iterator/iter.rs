@@ -389,12 +389,21 @@ impl JSValue {
         ctx: &mut ScopedContext,
         is_async: bool,
     ) -> Result<Option<Object>, i32> {
-        if is_async
-            && let Some(r) = self.invoke_defined(ctx, Atom::CONST_Symbol_asyncIterator, &[])?
-        {
-            r.and_then(|v| v.ensure_object(ctx)).map(Some)
-        } else if let Some(r) = self.invoke_defined(ctx, Atom::CONST_Symbol_iterator, &[])? {
-            let sync_it = r.and_then(|v| v.ensure_object(ctx))?;
+        if is_async {
+            let f = self.get_property(ctx, Atom::CONST_Symbol_asyncIterator)?;
+            if !f.is_undefined_or_null() {
+                let method = f.ensure_callable(ctx)?;
+                let v = method.call(ctx, *self, &[])?;
+                return v.ensure_object(ctx).map(Some);
+            }
+        }
+
+        let f = self.get_property(ctx, Atom::CONST_Symbol_iterator)?;
+        if f.is_undefined_or_null() {
+            Ok(None)
+        } else {
+            let method = f.ensure_callable(ctx)?;
+            let sync_it = method.call(ctx, *self, &[])?.ensure_object(ctx)?;
             if is_async {
                 // method [Symbol.asyncIterator] is not defined:
                 // wrap [Symbol.iterator]() object into an AsyncFromSyncIterator
@@ -411,8 +420,6 @@ impl JSValue {
             } else {
                 Ok(Some(sync_it))
             }
-        } else {
-            Ok(None)
         }
     }
 
