@@ -3387,7 +3387,15 @@ fn promote_to_parent(value: JSValue, scope: &ScopedContext<'_>) -> JSValue {
     if let Some(node) = value.as_gc_node()
         && let Some((parent, _)) = scope.gc_state().parent()
     {
-        scope.gc_state().promote_node_to(node, parent);
+        let promoted = scope.gc_state().promote_node_to(node, parent);
+        if !promoted && !unsafe { node.as_ref().is_root_or_local() } {
+            // The node was not in this scope's cache — it may have been
+            // stripped of its LOCAL flag by a mid-body `clear_locals()`
+            // (GC safepoint). Such a value is still alive only via the arena
+            // frame's operand stack, which is freed on return. Re-protect it
+            // in the parent scope so it survives the frame teardown.
+            parent.add_non_local(node);
+        }
     }
     value
 }
