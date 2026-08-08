@@ -437,10 +437,10 @@ impl Promise {
 
         Promise::create_with_job(ctx, move |cx| -> Result<Option<JSValue>, i32> {
             let Some(data) = data.lock().unwrap().take() else {
-                // Here: slot empty and `strong_count == 1` (only the job holds
-                // a strong ref), i.e. all committers dropped without committing.
-                // Debug panics immediately; release rejects instead of hanging.
                 if Arc::strong_count(&data) == 1 {
+                    // Here: slot empty and `strong_count == 1` (only the job holds
+                    // a strong ref), i.e. all committers dropped without committing.
+                    // Debug panics immediately; release rejects instead of hanging.
                     debug_assert!(false, "[promise result slot] dropped without commit");
                     return Err(
                         cx.throw_internal_error("promise result slot dropped without commit")
@@ -448,6 +448,7 @@ impl Promise {
                 }
                 return Ok(None);
             };
+
             if let Some(conv) = convert_slot.borrow_mut().take() {
                 let v = conv(cx, data)?;
                 Ok(Some(v))
