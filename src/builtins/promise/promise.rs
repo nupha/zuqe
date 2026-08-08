@@ -5,7 +5,7 @@ use std::{
     cell::{Cell, RefCell},
     ops::DerefMut,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
 };
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
@@ -145,6 +145,18 @@ impl<D: Send + 'static> PromiseResultSlot<D> {
     /// result.
     pub fn try_take(&self) -> Option<D> {
         self.data.lock().unwrap().take()
+    }
+
+    /// Get a weak reference to the backing storage.
+    ///
+    /// A job that polls the slot (e.g. created by `create_with_result_slot`)
+    /// should hold only the `Weak` so that the slot's strong references are
+    /// owned exclusively by the external committers. When all of them are
+    /// dropped without committing, the `Weak` can no longer be upgraded,
+    /// which lets the polling job detect a forgotten commit instead of
+    /// hanging the event loop forever.
+    pub fn weak(&self) -> Weak<Mutex<Option<D>>> {
+        Arc::downgrade(&self.data)
     }
 }
 
@@ -415,9 +427,19 @@ impl Promise {
             return Err(ctx.throw_internal_error("promise data slot is not empty"));
         }
 
+        // The job only holds a `Weak`; the strong references are owned by the
+        // external committers (caller and its worker threads), which the
+        // contract requires to stay alive until they commit. When all of them
+        // are dropped without committing, `Weak::upgrade()` fails and the job
+        // settles the promise deterministically instead of hanging forever.
+        let weak = data_slot.weak();
         let convert_slot = Rc::new(RefCell::new(Some(convert)));
 
         Promise::create_with_job(ctx, move |cx| -> Result<Option<JSValue>, i32> {
+            let Some(data_slot) = weak.upgrade().map(|data| PromiseResultSlot { data }) else {
+                debug_assert!(false, "[promise result slot] dropped without commit");
+                return Err(cx.throw_internal_error("promise result slot dropped without commit"));
+            };
             match data_slot.try_take() {
                 Some(data) => {
                     if let Some(conv) = convert_slot.borrow_mut().take() {
