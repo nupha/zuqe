@@ -427,17 +427,19 @@ impl Promise {
             return Err(ctx.throw_internal_error("promise data slot is not empty"));
         }
 
-        // The job holds the strong `Arc` for its whole lifetime. A value
-        // committed right before the committers drop their references must
-        // still be reachable by the first poll, so `Weak` is not an option;
-        // "committers are gone" is detected instead by `strong_count` reaching
-        // 1 (only the job holds a strong reference), which settles the promise
-        // deterministically instead of polling forever.
+        // The job keeps a strong `Arc` for its whole lifetime, so a value
+        // committed right before the committers drop their references stays
+        // reachable. When it is still empty and `strong_count` is 1 (only the
+        // job holds a strong reference), all committers are gone without
+        // committing, so settle deterministically instead of polling forever.
         let data = data_slot.arc();
         let convert_slot = Rc::new(RefCell::new(Some(convert)));
 
         Promise::create_with_job(ctx, move |cx| -> Result<Option<JSValue>, i32> {
             let Some(data) = data.lock().unwrap().take() else {
+                // Here: slot empty and `strong_count == 1` (only the job holds
+                // a strong ref), i.e. all committers dropped without committing.
+                // Debug panics immediately; release rejects instead of hanging.
                 if Arc::strong_count(&data) == 1 {
                     debug_assert!(false, "[promise result slot] dropped without commit");
                     return Err(
