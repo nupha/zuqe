@@ -9,7 +9,7 @@ use fallible_collections::TryCollect;
 use crate::function::InlineCacheEntry;
 
 use crate::{
-    Array, JS_CLASS_OBJECT,
+    Array, JS_CLASS_OBJECT, ScopeResult,
     array::alloc_fast_array_slots,
     atom::{Atom, AtomKind},
     builtins::{
@@ -3379,27 +3379,6 @@ impl Bytecode {
     }
 }
 
-/// Promote `value`'s GC node from the current scope to its parent scope.
-/// Must be called **before** the scope is dropped — just like
-/// `ScopeResult::promote` in `with_new_scope`.  Returns the (unchanged)
-/// value so callers can chain: `val = promote_to_parent(val, scope)`.
-fn promote_to_parent(value: JSValue, scope: &ScopedContext<'_>) -> JSValue {
-    if let Some(node) = value.as_gc_node()
-        && let Some((parent, _)) = scope.gc_state().parent()
-    {
-        let promoted = scope.gc_state().promote_node_to(node, parent);
-        if !promoted && !unsafe { node.as_ref().is_root_or_local() } {
-            // The node was not in this scope's cache — it may have been
-            // stripped of its LOCAL flag by a mid-body `clear_locals()`
-            // (GC safepoint). Such a value is still alive only via the arena
-            // frame's operand stack, which is freed on return. Re-protect it
-            // in the parent scope so it survives the frame teardown.
-            parent.add_non_local(node);
-        }
-    }
-    value
-}
-
 /// Allocate and initialize a callee frame in the arena.
 ///
 /// Computes the buffer capacity from the bytecode's declared arg count,
@@ -3746,7 +3725,7 @@ pub(crate) fn execute_trampoline(
                         arena.detach_and_free(cur_frame_idx);
                         // Promote before scope pop so the value stays LOCAL
                         // in the parent scope (caller's scope).
-                        promote_to_parent(actual_ret, &cur_trampoline_scope);
+                        actual_ret.promote(&cur_trampoline_scope);
                         drop(cur_trampoline_scope.into_inner());
 
                         // Drain virtual_frames to drop saved caller scopes.
@@ -3802,7 +3781,7 @@ pub(crate) fn execute_trampoline(
                 if let Some(caller_vf) = virtual_frames.pop() {
                     if let Some(saved_caller_scope) = caller_vf.caller_scope {
                         // Full/Light: promote, pop callee scope, restore caller.
-                        promote_to_parent(ret_val, &cur_trampoline_scope);
+                        ret_val.promote(&cur_trampoline_scope);
                         unsafe {
                             cur_trampoline_scope
                                 .swap_in_saved(ManuallyDrop::into_inner(saved_caller_scope))
@@ -3844,7 +3823,7 @@ pub(crate) fn execute_trampoline(
                     // Outermost frame: the trampoline scope was created by
                     // TrampolineScope::new() at execute_trampoline entry —
                     // always promote and drop, even for NoScope start functions.
-                    promote_to_parent(ret_val, &cur_trampoline_scope);
+                    ret_val.promote(&cur_trampoline_scope);
                     drop(cur_trampoline_scope.into_inner());
                     rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (ret_val, true);

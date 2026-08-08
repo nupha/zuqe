@@ -41,14 +41,14 @@ impl ScopeResult for JSValue {
         {
             let promoted = scope.gc_state().promote_node_to(node, parent);
             if !promoted && !unsafe { node.as_ref().is_root_or_local() } {
-                // Same re-protection as trampoline `promote_to_parent`: the
-                // node may have been stripped of its LOCAL flag by a mid-scope
-                // `clear_locals()` (GC safepoint) and is not in this scope's
-                // cache anymore. Re-protect it in the parent scope so it
+                // The node was not in this scope's cache — it may have been
+                // stripped of its LOCAL flag by a mid-scope `clear_locals()`
+                // (GC safepoint). Re-protect it in the parent scope so it
                 // survives this scope's teardown.
                 parent.add_non_local(node);
             }
         }
+
         self
     }
 }
