@@ -69,7 +69,16 @@ pub(crate) fn limit_to_count(
     if limit.is_nan() {
         return Err(ctx.throw_range_error(&format!("{name} value must be a non-negative number")));
     }
+    // finite and greater than 2^53 - 1 throws a RangeError
+    if limit.is_finite() && limit > MAX_SAFE_INTEGER as f64 {
+        return Err(ctx.throw_range_error(&format!("{name} value must be a non-negative number")));
+    }
     if limit.is_infinite() {
+        if limit < 0.0 {
+            return Err(
+                ctx.throw_range_error(&format!("{name} value must be a non-negative number"))
+            );
+        }
         Ok(MAX_SAFE_INTEGER)
     } else {
         let int_limit = limit.trunc() as i64;
