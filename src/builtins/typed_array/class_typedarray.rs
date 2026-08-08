@@ -16,7 +16,7 @@ use crate::{
             special_forEach, special_includes, special_indexOf, special_lastIndexOf, special_map,
             special_reduce, special_reduceRight, special_some,
         },
-        array_buffer::ABufData,
+        array_buffer::{ABufData, ArrayBuffer},
         common::{SPECIES_FIELD, arg_rel_index32},
         iterator::{JSIteratorKindEnum, js_create_array_iterator},
         typed_array::{f16_to_f64, f64_to_f16},
@@ -43,7 +43,12 @@ pub(crate) fn js_typed_array_get_length_internal(
     obj.as_object_TypedArray()
         .ok_or_else(|| ctx.throw_type_error("not a TypedArray"))
         .and_then(|p| {
-            p.validate_attached(ctx)?;
+            p.ensure_attached(ctx)?;
+            // An out-of-bounds view (its resizable buffer was shrunk past its
+            // end) throws, matching ValidateTypedArray.
+            if p.payload().is_out_of_bounds() {
+                return Err(ctx.throw_type_error("out of bounds"));
+            }
             Ok(p.length() as u32)
         })
 }
@@ -86,7 +91,7 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
 
             let offset = cc.arg(1).to_index(ctx)? as usize;
             // guard side effect (detach) of retrieving arg #1.
-            ab.validate_attached(ctx)?;
+            ab.ensure_attached(ctx)?;
 
             if (offset & ((1 << size_log2) - 1)) != 0 {
                 return Err(ctx.throw_range_error("offset should be a multiple of element size"));
@@ -94,9 +99,11 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
                 return Err(ctx.throw_range_error("offset must not greater than byte length"));
             }
 
+            let length_tracked = cc.arg(2).is_undefined();
+
             let len = {
                 let a2 = cc.arg(2);
-                if a2.is_undefined() {
+                if length_tracked {
                     if (byte_length & ((1 << size_log2) - 1)) != 0 {
                         return Err(ctx.throw_range_error(
                             "byte length should be a multiple of element size",
@@ -106,7 +113,7 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
                 } else {
                     let n = a2.to_index(ctx)? as usize;
                     // guard side effect (detach) of retrieving arg #2.
-                    ab.validate_attached(ctx)?;
+                    ab.ensure_attached(ctx)?;
 
                     if offset + (n << size_log2) > byte_length {
                         return Err(ctx.throw_range_error("invalid length"));
@@ -115,7 +122,13 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
                 }
             };
 
-            TypedArray::create_from(ctx, new_target, p.into(), offset, len, class_id as _)
+            let mut ta = TypedArray::create_from(ctx, new_target, p.into(), offset, len, class_id as _)?;
+            // A view created from a resizable buffer without an explicit length
+            // is length-tracked: it follows the buffer size on resize.
+            if length_tracked && ab.payload().is_resizable() {
+                ta.payload_mut().set_length_tracked(true);
+            }
+            Ok(ta)
         } else {
             TypedArray::create_from(ctx, new_target, cc.arg(0), 0, 0, class_id as _)
         }
@@ -246,7 +259,8 @@ fn js_typed_array_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(ctx.throw_type_error("not a TypedArray"));
     };
 
-    ta.validate_attached(ctx)?;
+    // An out-of-bounds view (resizable buffer shrunk past its end) throws.
+    js_typed_array_get_length_internal(ctx, this)?;
 
     let mut idx: i64 = cc.arg(0).to_number(ctx)?.to_i64_saturating();
     let len = ta.length() as i64;
@@ -267,20 +281,46 @@ fn js_typed_array_with(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(ctx.throw_type_error("not a TypedArray"));
     };
 
-    // don't change following 2 lines order
-    let mut idx: i64 = cc.arg(0).to_number(ctx)?.to_i64_saturating();
-    let val = cc.arg(1).to_primitive(ctx, HINT_NUMBER)?;
+    // len must be captured before any coercion that may resize/detach the buffer.
+    ta.ensure_attached(ctx)?;
+    let len = ta.length();
 
-    let len = ta.length() as i64;
+    // ToIntegerOrInfinity(index); negative index is relative to the original len.
+    let mut idx: i64 = cc.arg(0).to_number(ctx)?.to_i64_saturating();
     if idx < 0 {
-        idx += len;
+        idx += len as i64;
     }
-    if idx < 0 || idx >= len {
+
+    // ToNumber(value); may resize/detach the underlying buffer.
+    let val = cc.arg(1).to_primitive(ctx, HINT_NUMBER)?.to_number(ctx)?;
+
+    // IsValidIntegerIndex(O, 𝔽(actualIndex)) is checked against the CURRENT state,
+    // i.e. after all coercions happened.
+    ta.ensure_attached(ctx)?;
+    if idx < 0 || idx >= ta.length() as i64 {
         return Err(ctx.throw_range_error("out of bound"));
     }
 
-    let mut ta2 = ta.create_to_new(ctx, JSValue::UNDEFINED, ta.class_id())?;
-    ta2.set_property_i64(ctx, idx, val)?;
+    // TypedArrayCreateSameType(O, « 𝔽(len) »): the result keeps the ORIGINAL
+    // length (the buffer may have been resized during value coercion).
+    let size_log2 = TypedArray::SIZE_LOG2(ta.class_id() as _);
+    let new_buf = ArrayBuffer::create(ctx, false, len << size_log2)?;
+    let mut ta2 = TypedArray::create_from(
+        ctx,
+        JSValue::UNDEFINED,
+        new_buf.into(),
+        0,
+        len,
+        ta.class_id(),
+    )?;
+
+    // Copy elements: Get(O, Pk) -> Set(A, Pk, kValue) for k in [0, len).
+    for k in 0..len {
+        let v = this.get_property_u32(ctx, k as u32)?;
+        ta2.set_property_u32(ctx, k as u32, v)?;
+    }
+
+    ta2.set_property_i64(ctx, idx, JSValue::from(val))?;
     Ok(ta2.into())
 }
 
@@ -300,7 +340,7 @@ fn js_typed_array_set_internal(
         return Err(ctx.throw_range_error("invalid array length"));
     }
 
-    dest.validate_attached(ctx)?;
+    dest.ensure_attached(ctx)?;
 
     if let Some(src) = src.as_object_TypedArray()
         && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&src.class_id())
@@ -382,7 +422,11 @@ fn js_typed_array_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub(crate) fn js_create_typed_array_iterator(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(ta) = cc.this().as_object_TypedArray() {
-        ta.validate_attached(ctx)?;
+        ta.ensure_attached(ctx)?;
+        // An out-of-bounds view (resizable buffer shrunk past its end) throws.
+        if ta.payload().is_out_of_bounds() {
+            return Err(ctx.throw_type_error("out of bounds"));
+        }
         js_create_array_iterator(ctx, cc)
     } else {
         Err(ctx.throw_type_error("not a TypedArray"))
@@ -409,20 +453,31 @@ fn js_typed_array_copyWithin(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let count = std::cmp::min(final_ - from, len - to);
     if count > 0 {
         let mut tao = TypedArray::try_from(cc.this())?;
-        tao.validate_attached(ctx)?;
+        tao.ensure_attached(ctx)?;
 
-        let shift = TypedArray::SIZE_LOG2(tao.class_id());
+        // Re-validate bounds after argument coercions: the buffer may have been
+        // resized or detached, in which case an out-of-bounds view throws.
+        if tao.payload().is_out_of_bounds() {
+            return Err(ctx.throw_type_error("out of bounds"));
+        }
 
-        tao.with_bytes_mut(|buf| {
-            let base = buf.as_mut_ptr();
-            unsafe {
-                std::ptr::copy(
-                    base.add((from << shift) as usize),
-                    base.add((to << shift) as usize),
-                    (count << shift) as usize,
-                );
-            }
-        });
+        // Clamp the copy to the current (possibly shrunken) length.
+        let current_len = tao.length() as i32;
+        let count = std::cmp::min(count, current_len - to).min(current_len - from);
+        if count > 0 {
+            let shift = TypedArray::SIZE_LOG2(tao.class_id());
+
+            tao.with_bytes_mut(|buf| {
+                let base = buf.as_mut_ptr();
+                unsafe {
+                    std::ptr::copy(
+                        base.add((from << shift) as usize),
+                        base.add((to << shift) as usize),
+                        (count << shift) as usize,
+                    );
+                }
+            });
+        }
     }
 
     Ok(cc.this())
@@ -496,7 +551,17 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     // Note: check detached again here, because the typed array may detach the array buffer
     // by side effect
-    ta.validate_attached(ctx)?;
+    ta.ensure_attached(ctx)?;
+
+    // Re-validate bounds after argument coercions: the buffer may have been
+    // resized, in which case an out-of-bounds view throws.
+    if ta.payload().is_out_of_bounds() {
+        return Err(ctx.throw_type_error("out of bounds"));
+    }
+    // Clamp the fill range to the current (possibly shrunken) length.
+    let current_len = ta.length();
+    let start = start.min(current_len);
+    let final_ = final_.min(current_len);
 
     match shift {
         0 => {
@@ -666,12 +731,12 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let Some(src) = this_val.as_object_TypedArray() else {
             return Err(ctx.throw_type_error("not a TypedArray"));
         };
-        src.validate_attached(ctx)?;
+        src.ensure_attached(ctx)?;
 
         let Some(mut dst) = arr.as_object_TypedArray() else {
             return Err(ctx.throw_type_error("not a TypedArray"));
         };
-        dst.validate_attached(ctx)?;
+        dst.ensure_attached(ctx)?;
 
         if src.class_id() == dst.class_id()
             && dst.capacity() >= count
@@ -739,23 +804,35 @@ fn js_typed_array_subarray(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     let len = ta.length();
 
     let start = arg_rel_index32(ctx, &cc, 0, len as _, 0)? as usize;
-    // Note: calc byte offset before read `final` argument
+    // Note: calc byte offset before read `final` argument. Use the raw
+    // [[ByteOffset]] slot, which is preserved even when the view is
+    // out-of-bounds (unlike the `byteOffset` getter, which reports 0 then).
     let byte_offset =
-        ta.array_buffer_byte_offset() + (start << TypedArray::SIZE_LOG2(ta.class_id()));
+        ta.payload().offset() + (start << TypedArray::SIZE_LOG2(ta.class_id()));
 
+    let end_undefined = cc.arg(1).is_undefined();
     let final_ = arg_rel_index32(ctx, &cc, 1, len as _, len as _)? as usize;
     let count = final_.saturating_sub(start);
 
-    js_typed_array___speciesCreate(
-        ctx,
-        JSValue::UNDEFINED,
-        &[
+    // Spec: when the source is length-tracked and `end` is undefined, the
+    // species constructor is called with just (buffer, beginByteOffset), so the
+    // result is itself length-tracked.
+    let args = if ta.payload().is_length_tracked() && end_undefined {
+        vec![
             this,
-            ta.array_buffer().into(), // array buffer
+            ta.array_buffer().into(),
+            JSValue::from(byte_offset as i32),
+        ]
+    } else {
+        vec![
+            this,
+            ta.array_buffer().into(),
             JSValue::from(byte_offset as i32),
             JSValue::from(count as i32),
-        ],
-    )
+        ]
+    };
+
+    js_typed_array___speciesCreate(ctx, JSValue::UNDEFINED, &args)
 }
 
 fn sort_f64_slice(slice: &mut [f64]) {
@@ -1221,6 +1298,9 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     macro_rules! find {
         ($ty:ident, $shift:expr, $v:expr) => {
             let found = ta.with_bytes(|buf| {
+                if buf.is_empty() {
+                    return None;
+                }
                 let lst = unsafe {
                     std::slice::from_raw_parts(buf.as_ptr().cast::<$ty>(), buf.len() >> $shift)
                 };
@@ -1231,7 +1311,9 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                     it.skip(k as usize)
                         .find_map(|(i, x)| if *x == $v { Some(i) } else { None })
                 } else {
-                    debug_assert!((0..lst.len() as i32).contains(&k));
+                    // `k` may exceed the current length if the buffer was shrunk
+                    // during `fromIndex` coercion; `take` clamps gracefully.
+                    debug_assert!(k >= 0);
                     it.take(k as usize + 1)
                         .rev()
                         .find_map(|(i, x)| if *x == $v { Some(i) } else { None })
@@ -1304,6 +1386,9 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                 // Zero: Both +0 (0x0000) and -0 (0x8000) should match
                 // due to SameValueZero semantics: (+0, -0) are equal
                 let found = ta.with_bytes(|buf| {
+                    if buf.is_empty() {
+                        return None;
+                    }
                     let lst = unsafe {
                         std::slice::from_raw_parts(buf.as_ptr().cast::<u16>(), buf.len() >> 1)
                     };
@@ -1318,7 +1403,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                             }
                         })
                     } else {
-                        debug_assert!((0..lst.len() as i32).contains(&k));
+                        debug_assert!(k >= 0);
                         it.take(k as usize + 1).rev().find_map(|(i, x)| {
                             if *x == 0x0000 || *x == 0x8000 {
                                 Some(i)

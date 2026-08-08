@@ -34,6 +34,31 @@ fn js_array_buffer_get_byteLength(ctx: &mut ScopedContext, cc: CallContext) -> J
     Ok(JSValue::from(ab.payload().byte_length() as i64))
 }
 
+fn js_array_buffer_get_resizable(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let ab = get_array_buffer(cc.this(), ctx, JS_CLASS_ARRAY_BUFFER)?;
+    Ok(JSValue::from(ab.payload().is_resizable()))
+}
+
+fn js_array_buffer_get_maxByteLength(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let ab = get_array_buffer(cc.this(), ctx, JS_CLASS_ARRAY_BUFFER)?;
+    let p = ab.payload();
+    // For non-resizable buffers, [[ArrayBufferMaxByteLength]] is the current byte length.
+    let len = if p.is_resizable() {
+        p.max_byte_length()
+    } else {
+        p.byte_length()
+    };
+    Ok(JSValue::from(len as i64))
+}
+
+fn js_array_buffer_resize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let class_id = cc.magic() as ClassID;
+    let mut ab = get_array_buffer(cc.this(), ctx, class_id)?;
+    let new_length = cc.arg(0).to_index(ctx)? as usize;
+    ab.resize(ctx, new_length)?;
+    Ok(JSValue::UNDEFINED)
+}
+
 fn js_array_buffer_detached(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let ab = get_array_buffer(cc.this(), ctx, JS_CLASS_ARRAY_BUFFER)?;
     Ok(JSValue::from(ab.payload().is_detached()))
@@ -99,7 +124,7 @@ fn js_array_buffer_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_array_buffer_transfer(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut ab = get_array_buffer(cc.this(), ctx, JS_CLASS_ARRAY_BUFFER)?;
 
-    ab.validate_attached(ctx)?;
+    ab.ensure_attached(ctx)?;
 
     let old_len = ab.payload().byte_length();
 
@@ -143,6 +168,18 @@ pub const js_array_buffer_proto_funcs: &[FieldDef] = &[
         JS_CLASS_ARRAY_BUFFER as i16,
     ),
     FieldDef::GETSET("detached", Some(js_array_buffer_detached), None, 0),
+    FieldDef::GETSET(
+        "resizable",
+        Some(js_array_buffer_get_resizable),
+        None,
+        JS_CLASS_ARRAY_BUFFER as i16,
+    ),
+    FieldDef::GETSET(
+        "maxByteLength",
+        Some(js_array_buffer_get_maxByteLength),
+        None,
+        JS_CLASS_ARRAY_BUFFER as i16,
+    ),
     FieldDef::FUNC(
         "slice",
         2,
@@ -151,6 +188,12 @@ pub const js_array_buffer_proto_funcs: &[FieldDef] = &[
     ),
     FieldDef::FUNC("transfer", 0, js_array_buffer_transfer, 0),
     FieldDef::FUNC("transferToFixedLength", 0, js_array_buffer_transfer, 1),
+    FieldDef::FUNC(
+        "resize",
+        1,
+        js_array_buffer_resize,
+        JS_CLASS_ARRAY_BUFFER as i16,
+    ),
     FieldDef::STR("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE),
 ];
 

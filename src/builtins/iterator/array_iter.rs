@@ -117,7 +117,12 @@ pub(crate) fn js_array_iterator_next(
     // eval array length
     let len = if let Ok(tao) = TypedArray::try_from(obj) {
         // is typed array
-        tao.validate_attached(ctx)?;
+        tao.ensure_attached(ctx)?;
+        // An out-of-bounds view (its resizable buffer was shrunk past its end)
+        // throws, matching the spec's typed array iterator step.
+        if tao.payload().is_out_of_bounds() {
+            return Err(ctx.throw_type_error("out of bounds"));
+        }
         tao.length() as u32
     } else {
         // is Array or String

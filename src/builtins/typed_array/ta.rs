@@ -39,6 +39,17 @@ pub struct TypedArrayPayload {
     /// number of elements in typed array
     count: u32,
 
+    /// whether the view is length-tracked (i.e. created from a resizable buffer
+    /// without an explicit length). Length-tracked views grow/shrink with the
+    /// buffer; fixed-length views keep their length until the buffer shrinks
+    /// past their end, at which point they become out-of-bounds.
+    length_tracked: bool,
+
+    /// whether the view is currently out-of-bounds of its (resizable) buffer.
+    /// Out-of-bounds views report 0 for `length`/`byteLength`/`byteOffset` and
+    /// expose no readable bytes.
+    out_of_bounds: bool,
+
     /// back reference to the TypedArray/DataView object.
     #[deprecated(note = "seems no use")]
     obj: UnsafeCell<GcWeak<ObjectImpl>>,
@@ -70,10 +81,6 @@ impl TypedArrayPayload {
 
         debug_assert!(!abuf.is_detached());
         debug_assert!(
-            byte_length & ((1 << size_log2) - 1) == 0,
-            "byte_length must be aligned to element size"
-        );
-        debug_assert!(
             offset & ((1 << size_log2) - 1) == 0,
             "offset must be aligned to element size"
         );
@@ -84,6 +91,8 @@ impl TypedArrayPayload {
             offset: offset as u32,
             byte_length: (count as u32) << size_log2,
             count: count as u32,
+            length_tracked: false,
+            out_of_bounds: false,
             obj: UnsafeCell::new(GcWeak::default()), // empty weakref
         };
 
@@ -104,23 +113,76 @@ impl TypedArrayPayload {
 
     /// Throw a TypeError if the underlying buffer has been detached.
     #[inline]
-    pub fn validate_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+    pub fn ensure_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
         self.array_buffer().payload().ensure_attached(ctx)
+    }
+
+    /// whether the view is out-of-bounds of its (resizable) buffer.
+    #[inline(always)]
+    pub(crate) const fn is_out_of_bounds(&self) -> bool {
+        self.out_of_bounds
+    }
+
+    /// mark the view out-of-bounds (used when the underlying resizable buffer
+    /// is resized past the view's end).
+    #[inline(always)]
+    pub(crate) fn set_out_of_bounds(&mut self, v: bool) {
+        self.out_of_bounds = v;
     }
 
     #[inline(always)]
     pub const fn byte_length(&self) -> usize {
-        self.byte_length as _
+        if self.out_of_bounds {
+            0
+        } else {
+            self.byte_length as _
+        }
     }
 
     #[inline(always)]
     pub const fn count(&self) -> usize {
-        self.count as _
+        if self.out_of_bounds {
+            0
+        } else {
+            self.count as _
+        }
     }
 
     #[inline(always)]
     pub const fn set_count(&mut self, n: usize) {
         self.count = n as _;
+    }
+
+    /// whether the view is length-tracked (created from a resizable buffer
+    /// without an explicit length), so its length follows the buffer size.
+    #[inline(always)]
+    pub(crate) const fn is_length_tracked(&self) -> bool {
+        self.length_tracked
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_length_tracked(&mut self, v: bool) {
+        self.length_tracked = v;
+    }
+
+    /// byte offset of the view inside the underlying buffer.
+    #[inline(always)]
+    pub(crate) const fn offset(&self) -> usize {
+        self.offset as _
+    }
+
+    /// nominal byte length of the view, ignoring the out-of-bounds state
+    /// (used to re-detect out-of-bounds while resizing).
+    #[inline(always)]
+    pub(crate) const fn raw_byte_length(&self) -> usize {
+        self.byte_length as _
+    }
+
+    /// set byte length of the view (used when the underlying resizable buffer
+    /// is resized).
+    #[inline(always)]
+    pub(crate) fn set_byte_length(&mut self, n: usize) {
+        self.byte_length = n as _;
     }
 
     /// Get underlaying bytes raw pointer of typed array. Starting from base offset.
@@ -138,7 +200,7 @@ impl TypedArrayPayload {
     /// Get underlaying bytes
     pub fn bytes(&self) -> &[u8] {
         let ptr = self.as_ptr();
-        if !ptr.is_null() {
+        if !ptr.is_null() && !self.out_of_bounds {
             let len = self.byte_length as usize;
             unsafe { std::slice::from_raw_parts(ptr, len) }
         } else {
@@ -150,9 +212,13 @@ impl TypedArrayPayload {
     pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
-        self.array_buffer()
-            .payload()
-            .with_bytes(|buf| f(&buf[base..base + len]))
+        self.array_buffer().payload().with_bytes(|buf| {
+            if self.out_of_bounds || base >= buf.len() {
+                f(&[])
+            } else {
+                f(&buf[base..(base + len).min(buf.len())])
+            }
+        })
     }
 
     /// run closure with underlaying bytes of typed array.
@@ -161,7 +227,14 @@ impl TypedArrayPayload {
         let len = self.byte_length as usize;
         self.array_buffer()
             .payload_mut()
-            .with_bytes_mut(|buf| f(&mut buf[base..base + len]))
+            .with_bytes_mut(|buf| {
+                if self.out_of_bounds || base >= buf.len() {
+                    f(&mut [])
+                } else {
+                    let end = (base + len).min(buf.len());
+                    f(&mut buf[base..end])
+                }
+            })
     }
 }
 
@@ -536,8 +609,8 @@ impl TypedArray {
 
     /// Throw a TypeError if the underlying buffer has been detached.
     #[inline]
-    pub fn validate_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
-        self.payload().validate_attached(ctx)
+    pub fn ensure_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+        self.payload().ensure_attached(ctx)
     }
 
     /// Get elements count of typed array.
@@ -579,9 +652,10 @@ impl TypedArray {
     }
 
     /// Get underlying array buffer byte offset.
-    /// When underlaying array buffer is detached, returns 0.
+    /// When underlaying array buffer is detached or the view is out-of-bounds,
+    /// returns 0.
     pub(super) fn array_buffer_byte_offset(&self) -> usize {
-        if self.is_detached() {
+        if self.is_detached() || self.payload().is_out_of_bounds() {
             0
         } else {
             self.payload().offset as usize
@@ -664,7 +738,13 @@ impl TypedArray {
     /// will panic if class_id does not match eleement type T is matched.
     pub fn with_elements_as<T, R>(&self, f: impl FnOnce(&[T]) -> R) -> R {
         let len = self.length();
-        self.with_bytes(|b| f(unsafe { std::slice::from_raw_parts(b.as_ptr().cast::<T>(), len) }))
+        self.with_bytes(|b| {
+            if b.is_empty() {
+                f(&[])
+            } else {
+                f(unsafe { std::slice::from_raw_parts(b.as_ptr().cast::<T>(), len) })
+            }
+        })
     }
 
     /// create a new TypedArray with content copied from `self` typed array.
@@ -674,14 +754,14 @@ impl TypedArray {
         new_target: JSValue,
         class_id: ClassID,
     ) -> Result<Self, i32> {
-        self.validate_attached(ctx)?;
+        self.ensure_attached(ctx)?;
 
         let count = self.length();
         let size_log2 = Self::SIZE_LOG2(class_id as _);
         let new_buf = ArrayBuffer::create(ctx, false, count << size_log2)?;
 
         // Note: necessary to check detacth again, because it could have been detached by side effect.
-        self.validate_attached(ctx)?;
+        self.ensure_attached(ctx)?;
 
         // create an empty typed array with count capacity.
         let mut new_ta = Self::create_from(ctx, new_target, new_buf.into(), 0, count, class_id)?;

@@ -59,7 +59,7 @@ impl DataViewPayload {
 
     /// Throw a TypeError if the underlying buffer has been detached.
     #[inline]
-    pub fn validate_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+    pub fn ensure_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
         self.array_buffer().payload().ensure_attached(ctx)
     }
 
@@ -127,8 +127,8 @@ impl DataView {
 
     /// Throw a TypeError if the underlying buffer has been detached.
     #[inline]
-    pub fn validate_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
-        self.payload().validate_attached(ctx)
+    pub fn ensure_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+        self.payload().ensure_attached(ctx)
     }
 
     #[inline(always)]
@@ -147,7 +147,7 @@ impl DataView {
     /// Get underlying array buffer byte offset.
     /// When underlaying array buffer is detached, returns Err.
     pub(super) fn array_buffer_byte_offset(&self, ctx: &mut ScopedContext) -> Result<usize, i32> {
-        self.validate_attached(ctx)?;
+        self.ensure_attached(ctx)?;
         Ok(self.payload().offset as usize)
     }
 }

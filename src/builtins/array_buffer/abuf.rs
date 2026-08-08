@@ -11,6 +11,7 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
+    builtins::typed_array::TypedArray,
     context::ScopedContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::CallContext,
@@ -117,6 +118,10 @@ pub struct ArrayBufferPayload {
     detached: bool,
     /// list of TypedArray objects (weakref) that adopting this ArrayBuffer.
     typed_array_list: Vec<GcWeak<ObjectImpl>>,
+    /// whether the buffer is resizable (created with a `maxByteLength` option).
+    resizable: bool,
+    /// maximum byte length for a resizable buffer; 0 if not resizable.
+    max_byte_length: usize,
     opaque: *mut c_void,
 }
 
@@ -129,6 +134,18 @@ impl ArrayBufferPayload {
     #[inline(always)]
     pub const fn is_detached(&self) -> bool {
         self.detached
+    }
+
+    /// whether the buffer is resizable (created with a `maxByteLength` option).
+    #[inline(always)]
+    pub const fn is_resizable(&self) -> bool {
+        self.resizable
+    }
+
+    /// maximum byte length for a resizable buffer; 0 if not resizable.
+    #[inline(always)]
+    pub const fn max_byte_length(&self) -> usize {
+        self.max_byte_length
     }
 
     /// Throw a TypeError if the buffer has been detached.
@@ -228,6 +245,8 @@ impl ArrayBuffer {
             data,
             detached: false,
             typed_array_list: Vec::new(),
+            resizable: false,
+            max_byte_length: 0,
             opaque,
         });
 
@@ -263,6 +282,8 @@ impl ArrayBuffer {
             data: ABufData::Empty,
             detached: false,
             typed_array_list: Vec::new(),
+            resizable: false,
+            max_byte_length: 0,
             opaque,
         });
         let mut obj = ctx
@@ -311,6 +332,96 @@ impl ArrayBuffer {
         Ok(obj)
     }
 
+    /// create a resizable ArrayBuffer instance with initial byte length
+    /// `byte_length` and max byte length `max_byte_length`.
+    pub(crate) fn with_capacity_resizable(
+        ctx: &mut ScopedContext,
+        new_target: JSValue,
+        byte_length: usize,
+        max_byte_length: usize,
+    ) -> Result<Self, i32> {
+        let mut obj =
+            Self::with_capacity_ex(ctx, new_target, false, byte_length, std::ptr::null_mut())?;
+        let p = obj.payload_mut();
+        p.resizable = true;
+        p.max_byte_length = max_byte_length;
+        Ok(obj)
+    }
+
+    /// Resize a resizable ArrayBuffer to `new_length` bytes, updating all
+    /// dependent TypedArray views (their lengths shrink/grow, or they go
+    /// out-of-bounds). A no-op when the length is unchanged.
+    pub fn resize(&mut self, ctx: &mut ScopedContext, new_length: usize) -> Result<(), i32> {
+        let rt = ctx.rt_ptr();
+        let heap = rt.gc_heap();
+
+        let mut abuf = self.payload_mut();
+        abuf.ensure_attached(ctx)?;
+        if unlikely(!abuf.is_resizable()) {
+            return Err(ctx.throw_type_error("ArrayBuffer is not resizable"));
+        }
+        if new_length > abuf.max_byte_length() {
+            return Err(ctx.throw_range_error("invalid array buffer length"));
+        }
+        let old_length = abuf.byte_length();
+        if new_length == old_length {
+            return Ok(());
+        }
+
+        // Reallocate the backing block to the exact new size, preserving the
+        // existing contents and zero-filling the newly grown region.
+        let data = std::mem::replace(&mut abuf.data, ABufData::Empty);
+        abuf.data = match data {
+            ABufData::Empty => {
+                if new_length == 0 {
+                    ABufData::Empty
+                } else {
+                    ABufData::Owned(vec![0u8; new_length].into_boxed_slice())
+                }
+            }
+            ABufData::Owned(b) => {
+                let mut v = b.into_vec();
+                v.resize(new_length, 0);
+                ABufData::Owned(v.into_boxed_slice())
+            }
+            ABufData::Shared(_) => {
+                return Err(ctx.throw_type_error("cannot resize a SharedArrayBuffer"));
+            }
+            ABufData::Raw(_, _, _) => {
+                return Err(ctx.throw_type_error("cannot resize a raw ArrayBuffer"));
+            }
+        };
+
+        // Update every live TypedArray view.
+        for w in abuf.typed_array_list.iter() {
+            let Some(o) = w.upgrade(heap) else {
+                continue;
+            };
+            let mut o = Object::from(o.into_raw());
+            let element_size = 1usize << TypedArray::SIZE_LOG2(o.class_id());
+            let Some(ta) = o.payload_mut().typed_array_mut() else {
+                continue;
+            };
+            let offset = ta.offset();
+            if ta.is_length_tracked() {
+                // Length-tracked: follows the buffer size; out-of-bounds only
+                // when the view's start lies past the new end of the buffer.
+                let oob = offset > new_length;
+                let count = if oob { 0 } else { (new_length - offset) / element_size };
+                ta.set_count(count);
+                ta.set_byte_length(count * element_size);
+                ta.set_out_of_bounds(oob);
+            } else {
+                // Fixed-length: nominal length is preserved; the view only goes
+                // out-of-bounds when the buffer shrinks past its end.
+                let oob = offset + ta.raw_byte_length() > new_length;
+                ta.set_out_of_bounds(oob);
+            }
+        }
+
+        Ok(())
+    }
+
     /// create array buffer with owned bytes.
     #[inline(always)]
     pub fn from_bytes(
@@ -353,7 +464,7 @@ impl ArrayBuffer {
 
     /// Throw a TypeError if the buffer has been detached.
     #[inline]
-    pub fn validate_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
+    pub fn ensure_attached(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
         self.payload().ensure_attached(ctx)
     }
 
@@ -395,9 +506,32 @@ impl ArrayBuffer {
 }
 
 pub fn js_array_buffer_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let size = cc.arg(0).to_index(ctx)? as usize;
-    ArrayBuffer::with_capacity_ex(ctx, cc.this(), false, size, std::ptr::null_mut())
-        .map(JSValue::from)
+    let byte_length = cc.arg(0).to_index(ctx)? as usize;
+
+    let mut resizable = false;
+    let mut max_byte_length = 0usize;
+    if cc.length() >= 2 && let Some(options) = cc.arg(1).as_object() {
+        let mbl_val = options.get_property_str(ctx, "maxByteLength")?;
+        if !mbl_val.is_undefined() {
+            let mbl = mbl_val.to_index(ctx)? as usize;
+            if byte_length > mbl {
+                return Err(ctx.throw_range_error("invalid array buffer length"));
+            }
+            if mbl > i32::MAX as usize {
+                return Err(ctx.throw_range_error("invalid array buffer length"));
+            }
+            resizable = true;
+            max_byte_length = mbl;
+        }
+    }
+
+    if resizable {
+        ArrayBuffer::with_capacity_resizable(ctx, cc.this(), byte_length, max_byte_length)
+            .map(JSValue::from)
+    } else {
+        ArrayBuffer::with_capacity_ex(ctx, cc.this(), false, byte_length, std::ptr::null_mut())
+            .map(JSValue::from)
+    }
 }
 
 pub fn js_shared_array_buffer_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

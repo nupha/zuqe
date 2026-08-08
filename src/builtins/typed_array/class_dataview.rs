@@ -28,7 +28,7 @@ pub(super) fn js_dataview_constructor(ctx: &mut ScopedContext, cc: CallContext) 
     // ES §25.3.2.1: ToIndex may run user code that detaches the buffer,
     // so the detach check comes right after the byteOffset conversion
     let offset = cc.arg(1).to_index(ctx)? as usize;
-    buffer.validate_attached(ctx)?;
+    buffer.ensure_attached(ctx)?;
 
     // the buffer length is captured *before* the byteLength argument is
     // converted; a detach during that conversion is only caught after
@@ -198,7 +198,7 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         false
     };
 
-    dv.validate_attached(ctx)?;
+    dv.ensure_attached(ctx)?;
     if pos + size > dv.byte_length() {
         return Err(ctx.throw_range_error("out of bound"));
     }
@@ -255,7 +255,7 @@ fn js_dataview_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         match cc.magic() {
             TA_GET_BUFFER => Ok(dv.array_buffer().into()),
             TA_GET_BYTE_LENGTH => {
-                dv.validate_attached(ctx)?;
+                dv.ensure_attached(ctx)?;
                 Ok(JSValue::from(dv.byte_length() as i32))
             }
             TA_GET_BYTE_OFFSET => dv
