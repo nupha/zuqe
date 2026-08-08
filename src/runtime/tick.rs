@@ -148,3 +148,92 @@ impl RuntimeImpl {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TickStatus;
+
+    use crate::{
+        JSValue,
+        builtins::promise::{Promise, PromiseResultSlot, PromiseState},
+        runtime::Runtime,
+        ScopedContext,
+    };
+
+    /// Drive the event loop until it stops (no more jobs to run).
+    fn drain(rt: &mut Runtime) {
+        while matches!(rt.tick(), TickStatus::Continue) {}
+    }
+
+    /// 回归：`commit` 后立刻 drop 全部外部强引用、job 尚未轮询时，已提交的值必须仍可取到。
+    ///
+    /// job 持有强 `Arc`，轮询用 `strong_count == 1` 判断提交者消失；
+    /// 数据保活与提交者存活检测不再耦合在同一个 `Weak` 上。
+    #[test]
+    fn result_slot_commit_then_drop_is_not_lost() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        let promise = ctx.with_root_scope(|mut cx| {
+            let slot = PromiseResultSlot::new();
+            let p = Promise::create_with_result_slot(&mut cx, slot.clone(), |_, v: i32| {
+                Ok(JSValue::from(v))
+            })?;
+            // 复现竞态：commit 后立刻 drop，job 尚未开始轮询。
+            slot.commit(42).unwrap();
+            drop(slot);
+            Ok::<Promise, i32>(p)
+        })?;
+
+        drain(&mut rt);
+
+        assert_eq!(promise.state(), PromiseState::Fulfilled);
+        assert_eq!(promise.result(), JSValue::from(42));
+        Ok(())
+    }
+
+    /// 回归：全部提交者 drop 且未 commit 时，job 确定性 settle 而非永久挂住。
+    ///
+    /// debug 构建走 `debug_assert` 立刻炸（开发期安全网）；release 构建以 internal error 拒绝。
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "dropped without commit")]
+    fn result_slot_drop_without_commit_detected() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP).unwrap();
+
+        let _ = ctx.with_root_scope(|mut cx| {
+            let slot = PromiseResultSlot::new();
+            let p = Promise::create_with_result_slot(&mut cx, slot.clone(), |_, v: i32| {
+                Ok(JSValue::from(v))
+            })
+            .unwrap();
+            drop(slot);
+            p
+        });
+
+        drain(&mut rt);
+    }
+
+    /// release 构建：不 commit 直接 drop → promise 以 internal error 拒绝，事件循环正常退出。
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn result_slot_drop_without_commit_rejects() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        let promise = ctx.with_root_scope(|mut cx| {
+            let slot = PromiseResultSlot::new();
+            let p = Promise::create_with_result_slot(&mut cx, slot.clone(), |_, v: i32| {
+                Ok(JSValue::from(v))
+            })?;
+            drop(slot);
+            Ok::<Promise, i32>(p)
+        })?;
+
+        drain(&mut rt);
+
+        assert_eq!(promise.state(), PromiseState::Rejected);
+        Ok(())
+    }
+}

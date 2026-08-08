@@ -5,7 +5,7 @@ use std::{
     cell::{Cell, RefCell},
     ops::DerefMut,
     rc::Rc,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Mutex},
 };
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
@@ -147,16 +147,16 @@ impl<D: Send + 'static> PromiseResultSlot<D> {
         self.data.lock().unwrap().take()
     }
 
-    /// Get a weak reference to the backing storage.
+    /// Clone the strong reference to the backing storage.
     ///
-    /// A job that polls the slot (e.g. created by `create_with_result_slot`)
-    /// should hold only the `Weak` so that the slot's strong references are
-    /// owned exclusively by the external committers. When all of them are
-    /// dropped without committing, the `Weak` can no longer be upgraded,
-    /// which lets the polling job detect a forgotten commit instead of
-    /// hanging the event loop forever.
-    pub fn weak(&self) -> Weak<Mutex<Option<D>>> {
-        Arc::downgrade(&self.data)
+    /// A job/fetcher that polls the slot should hold the returned strong
+    /// `Arc` for its whole lifetime: a value committed right before the
+    /// committers drop their references stays reachable, while
+    /// `Arc::strong_count() == 1` (only the poller holds a strong reference)
+    /// detects that all committers are gone and settles deterministically
+    /// instead of polling forever.
+    pub(crate) fn arc(&self) -> Arc<Mutex<Option<D>>> {
+        self.data.clone()
     }
 }
 
@@ -427,34 +427,35 @@ impl Promise {
             return Err(ctx.throw_internal_error("promise data slot is not empty"));
         }
 
-        // The job only holds a `Weak`; the strong references are owned by the
-        // external committers (caller and its worker threads), which the
-        // contract requires to stay alive until they commit. When all of them
-        // are dropped without committing, `Weak::upgrade()` fails and the job
-        // settles the promise deterministically instead of hanging forever.
-        let weak = data_slot.weak();
+        // The job holds the strong `Arc` for its whole lifetime. A value
+        // committed right before the committers drop their references must
+        // still be reachable by the first poll, so `Weak` is not an option;
+        // "committers are gone" is detected instead by `strong_count` reaching
+        // 1 (only the job holds a strong reference), which settles the promise
+        // deterministically instead of polling forever.
+        let data = data_slot.arc();
         let convert_slot = Rc::new(RefCell::new(Some(convert)));
 
         Promise::create_with_job(ctx, move |cx| -> Result<Option<JSValue>, i32> {
-            let Some(data_slot) = weak.upgrade().map(|data| PromiseResultSlot { data }) else {
-                debug_assert!(false, "[promise result slot] dropped without commit");
-                return Err(cx.throw_internal_error("promise result slot dropped without commit"));
-            };
-            match data_slot.try_take() {
-                Some(data) => {
-                    if let Some(conv) = convert_slot.borrow_mut().take() {
-                        let v = conv(cx, data)?;
-                        Ok(Some(v))
-                    } else {
-                        #[cfg(debug_assertions)]
-                        unreachable!("slot value already handled");
-                        #[cfg(not(debug_assertions))]
-                        {
-                            Err(cx.throw_internal_error("slot value already handled"))
-                        }
-                    }
+            let Some(data) = data.lock().unwrap().take() else {
+                if Arc::strong_count(&data) == 1 {
+                    debug_assert!(false, "[promise result slot] dropped without commit");
+                    return Err(
+                        cx.throw_internal_error("promise result slot dropped without commit")
+                    );
                 }
-                None => Ok(None),
+                return Ok(None);
+            };
+            if let Some(conv) = convert_slot.borrow_mut().take() {
+                let v = conv(cx, data)?;
+                Ok(Some(v))
+            } else {
+                #[cfg(debug_assertions)]
+                unreachable!("slot value already handled");
+                #[cfg(not(debug_assertions))]
+                {
+                    Err(cx.throw_internal_error("slot value already handled"))
+                }
             }
         })
     }

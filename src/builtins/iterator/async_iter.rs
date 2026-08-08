@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::RefCell, ops::DerefMut, rc::Rc, sync::Weak};
+use std::{cell::RefCell, ops::DerefMut, rc::Rc, sync::Arc};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
@@ -130,30 +130,31 @@ impl<D: 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
 
 /// Slot-backed fetcher that polls a [`PromiseResultSlot`].
 ///
-/// The fetcher holds only a `Weak` to the slot's backing storage; strong
-/// references are owned exclusively by the external committers. When all of
-/// them are dropped without committing, `Weak::upgrade()` fails and the
-/// pending `next()` promise is rejected deterministically instead of polling
-/// forever and hanging the event loop.
+/// The fetcher holds the strong `Arc` for its whole lifetime, so a value
+/// committed right before the committers drop their references stays
+/// reachable; "committers are gone" is detected by `strong_count` reaching 1
+/// (only the fetcher holds a strong reference). The pending `next()` promise
+/// is then rejected deterministically instead of polling forever and hanging
+/// the event loop.
 struct SlotFetcher<D: Send + 'static> {
-    slot: Weak<std::sync::Mutex<Option<D>>>,
+    data: Arc<std::sync::Mutex<Option<D>>>,
     /// convert D to JSValue, running in js thread. None to stop
     convert: Box<dyn Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32>>,
 }
 
 impl<D: Send + 'static> AsyncIteratorFetcher for SlotFetcher<D> {
     fn try_fetch(&self, cx: &mut ScopedContext) -> Result<IterFetchStatus, i32> {
-        let Some(slot) = self.slot.upgrade() else {
-            debug_assert!(false, "[promise result slot] dropped without commit");
-            return Err(cx.throw_internal_error("promise result slot dropped without commit"));
+        let Some(data) = self.data.lock().unwrap().take() else {
+            if Arc::strong_count(&self.data) == 1 {
+                debug_assert!(false, "[promise result slot] dropped without commit");
+                return Err(cx.throw_internal_error("promise result slot dropped without commit"));
+            }
+            return Ok(IterFetchStatus::Wait);
         };
-        match slot.lock().unwrap().take() {
-            Some(data) => match (self.convert)(cx, data) {
-                Ok(Some(v)) => Ok(IterFetchStatus::Value(v)),
-                Ok(None) => Ok(IterFetchStatus::Done),
-                Err(e) => Err(e),
-            },
-            None => Ok(IterFetchStatus::Wait),
+        match (self.convert)(cx, data) {
+            Ok(Some(v)) => Ok(IterFetchStatus::Value(v)),
+            Ok(None) => Ok(IterFetchStatus::Done),
+            Err(e) => Err(e),
         }
     }
 }
@@ -260,7 +261,7 @@ impl AsyncIterableIterator {
         Self::create(
             ctx,
             SlotFetcher {
-                slot: data_slot.weak(),
+                data: data_slot.arc(),
                 convert: Box::new(convert),
             },
         )
