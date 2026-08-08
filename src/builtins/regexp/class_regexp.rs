@@ -752,6 +752,122 @@ pub fn js_regexp_Symbol_split(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     Ok(arr.into())
 }
 
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+/// Push `\<prefix>` followed by `digits` lowercase hex digits of `n`.
+fn push_hex_escape(
+    buf: &mut StringBuf,
+    prefix: u8,
+    n: u32,
+    digits: usize,
+) -> Result<(), std::collections::TryReserveError> {
+    buf.push_u8(b'\\')?;
+    buf.push_u8(prefix)?;
+    let mut tmp = [0u8; 8];
+    let mut v = n;
+    for i in (0..digits).rev() {
+        tmp[i] = HEX_DIGITS[(v & 0xf) as usize];
+        v >>= 4;
+    }
+    buf.push_u8_slice(&tmp[..digits])
+}
+
+/// `EncodeForRegExpEscape ( c )` from the RegExp.escape proposal.
+fn encode_for_regexp_escape(
+    buf: &mut StringBuf,
+    cp: u32,
+) -> Result<(), std::collections::TryReserveError> {
+    // 1. SyntaxCharacter or U+002F (SOLIDUS): `\` + the code point.
+    if cp == 0x2f
+        || matches!(
+            cp,
+            0x5e | 0x24 | 0x5c | 0x2e | 0x2a | 0x2b | 0x3f | 0x28 | 0x29 | 0x5b | 0x5d
+                | 0x7b | 0x7d | 0x7c
+        )
+    {
+        buf.push_u8(b'\\')?;
+        buf.push_u32(cp)?;
+        return Ok(());
+    }
+
+    // 2. Table 64: ControlEscape sequences.
+    match cp {
+        0x09 => return buf.push_u8_slice(b"\\t"),
+        0x0a => return buf.push_u8_slice(b"\\n"),
+        0x0b => return buf.push_u8_slice(b"\\v"),
+        0x0c => return buf.push_u8_slice(b"\\f"),
+        0x0d => return buf.push_u8_slice(b"\\r"),
+        _ => {}
+    }
+
+    // 3-5. other punctuators, WhiteSpace/LineTerminator, or lone surrogates.
+    let other_punctuator = matches!(
+        cp,
+        0x2c | 0x2d | 0x3d | 0x3c | 0x3e | 0x23 | 0x26 | 0x21 | 0x25 | 0x3a | 0x3b | 0x40
+            | 0x7e | 0x27 | 0x60 | 0x22
+    );
+    if other_punctuator || is_whitespace_or_lineterminator(cp) || (0xd800..=0xdfff).contains(&cp)
+    {
+        if cp <= 0xff {
+            // `\xHH`
+            push_hex_escape(buf, b'x', cp, 2)?;
+        } else {
+            // `\uHHHH` for each UTF-16 code unit.
+            let mut u16 = [0u16; 2];
+            for cu in CharCode::from(cp).encode_utf16(&mut u16) {
+                push_hex_escape(buf, b'u', *cu as u32, 4)?;
+            }
+        }
+        return Ok(());
+    }
+
+    // 6. UTF16EncodeCodePoint(c): leave the code point unchanged.
+    buf.push_u32(cp)
+}
+
+/// ECMAScript WhiteSpace or LineTerminator code points (the ones not already
+/// handled by the ControlEscape table: TAB/VT/FF, LF/CR).
+fn is_whitespace_or_lineterminator(cp: u32) -> bool {
+    matches!(
+        cp,
+        0x0020 | 0x00a0 | 0x1680 | 0x2000..=0x200a | 0x2028 | 0x2029 | 0x202f | 0x205f
+            | 0x3000 | 0xfeff
+    )
+}
+
+/// `RegExp.escape ( string )` (tc39/proposal-regexp-escape).
+pub fn js_regexp_escape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    // spec step 1: if the argument is not a String, throw a TypeError.
+    let Some(s) = cc.arg(0).as_string(false) else {
+        return Err(ctx.throw_type_error("RegExp.escape: argument is not a string"));
+    };
+
+    let mut buf = StringBuf::with_capacity(s.len(), s.is_wide())
+        .map_err(|_| ctx.throw_out_of_memory())?;
+
+    let mut first = true;
+    for (_, c) in s.content().chars() {
+        let cp = c.to_u32();
+        let is_initial = first;
+        first = false;
+
+        // spec step 4a: a leading DecimalDigit or AsciiLetter is escaped as
+        // `\xHH` so the result cannot be mis-read as a numeric/identity escape.
+        if is_initial
+            && ((0x30..=0x39).contains(&cp)
+                || (0x41..=0x5a).contains(&cp)
+                || (0x61..=0x7a).contains(&cp))
+        {
+            push_hex_escape(&mut buf, b'x', cp, 2)
+                .map_err(|_| ctx.throw_out_of_memory())?;
+        } else {
+            encode_for_regexp_escape(&mut buf, cp).map_err(|_| ctx.throw_out_of_memory())?;
+        }
+    }
+
+    ctx.create_string_with_buf(buf).map(JSValue::make_string)
+}
+
 pub const js_regexp_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("flags", Some(js_regexp_get_flags), None, 0),
     FieldDef::GETSET("source", Some(js_regexp_get_source), None, 0),
@@ -814,7 +930,10 @@ pub const js_regexp_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("[Symbol.split]", 2, js_regexp_Symbol_split, 0),
 ];
 
-pub const js_regexp_funcs: &[FieldDef] = &[SPECIES_FIELD];
+pub const js_regexp_funcs: &[FieldDef] = &[
+    SPECIES_FIELD,
+    FieldDef::FUNC("escape", 1, js_regexp_escape, 0),
+];
 
 fn regexp_exec_default(
     ctx: &mut ScopedContext,
