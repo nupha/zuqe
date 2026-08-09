@@ -15,7 +15,7 @@
 
 mod convert;
 
-pub(crate) use convert::{parse_str, to_i64_exact};
+pub(crate) use convert::{parse_str, to_i64_exact, to_string_radix};
 
 use std::ptr::NonNull;
 

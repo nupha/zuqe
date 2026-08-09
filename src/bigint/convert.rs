@@ -76,3 +76,49 @@ pub(crate) fn to_i64_exact(bi: &BigIntRef) -> Option<i64> {
         }
     }
 }
+
+/// Render a BigInt as a digit string in the given radix (2..=36), with a
+/// leading `-` for negatives. Zero is `"0"`. Used for ToString and for
+/// ToPropertyKey (BigInt property names are the decimal string, no `n`).
+pub(crate) fn to_string_radix(bi: &BigIntRef, radix: u32) -> String {
+    debug_assert!((2..=36).contains(&radix));
+    let i = bi.as_impl();
+    if i.is_zero() {
+        return "0".to_string();
+    }
+
+    // Repeatedly divide the little-endian limb array by `radix`, collecting
+    // remainders (least significant first).
+    let mut limbs: Vec<u64> = i.limbs().to_vec();
+    let mut digits: Vec<u8> = Vec::with_capacity(limbs.len() * 19 + 1);
+    loop {
+        let mut rem: u128 = 0;
+        let mut q_limbs: Vec<u64> = Vec::with_capacity(limbs.len());
+        let mut all_zero = true;
+        // iterate most significant limb first
+        for &limb in limbs.iter().rev() {
+            let cur = (rem << 64) | limb as u128;
+            let q = (cur / radix as u128) as u64;
+            rem = cur % radix as u128;
+            if q != 0 {
+                all_zero = false;
+            }
+            q_limbs.push(q);
+        }
+        digits.push(rem as u8);
+        if all_zero {
+            break;
+        }
+        q_limbs.reverse(); // back to little-endian
+        limbs = q_limbs;
+    }
+
+    let mut s = String::with_capacity(digits.len() + 1);
+    if i.sign() {
+        s.push('-');
+    }
+    for &d in digits.iter().rev() {
+        s.push(char::from_digit(d as u32, radix).expect("digit in range"));
+    }
+    s
+}

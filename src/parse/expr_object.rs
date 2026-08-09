@@ -285,11 +285,22 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
                 }
                 TokenKind::NUMBER => {
-                    {
+                    #[cfg(feature = "big_int")]
+                    if let Some(bi) = self.token.data.bigint() {
+                        // BigInt property name → its decimal string atom
+                        // (e.g. `{ 123n: 1 }` keys as "123").
+                        let s = crate::bigint::to_string_radix(&bi, 10);
+                        name.replace(Atom::from_str(self.ctx(), s.as_str())?);
+                    } else {
                         name.replace(
                             JSValue::from(self.token.data.number().unwrap()).to_atom(self.ctx())?,
                         );
                     }
+                    #[cfg(not(feature = "big_int"))]
+                    name.replace(
+                        JSValue::from(self.token.data.number().unwrap()).to_atom(self.ctx())?,
+                    );
+
                     self.next_token()?;
                 }
                 TokenKind::Char('[') => {
