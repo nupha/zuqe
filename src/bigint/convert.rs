@@ -122,3 +122,95 @@ pub(crate) fn to_string_radix(bi: &BigIntRef, radix: u32) -> String {
     }
     s
 }
+
+/// Exact conversion to `u128` if the magnitude fits, otherwise `None`.
+pub(crate) fn to_u128_exact(bi: &BigIntRef) -> Option<u128> {
+    let i = bi.as_impl();
+    if i.is_zero() {
+        return Some(0);
+    }
+    if i.limbs.len() > 2 {
+        return None;
+    }
+    if i.limbs.len() == 1 {
+        Some(i.limbs[0] as u128)
+    } else {
+        Some((i.limbs[1] as u128) << 64 | i.limbs[0] as u128)
+    }
+}
+
+/// Convert a BigInt to a `f64`. Precision loss for magnitudes beyond 2^53 is
+/// allowed by the spec (BigInt→Number coercion). Huge values saturate to ±Inf.
+pub(crate) fn to_f64(bi: &BigIntRef) -> f64 {
+    let i = bi.as_impl();
+    if i.is_zero() {
+        return 0.0;
+    }
+    // fold from the most significant limb; use the exact power so large
+    // magnitudes overflow to ±Inf instead of losing the sign.
+    let mut d = 0.0f64;
+    for &l in i.limbs().iter().rev() {
+        d = d * 18446744073709551616.0 + l as f64;
+    }
+    if i.sign() {
+        -d
+    } else {
+        d
+    }
+}
+
+/// Create a BigInt from an `i64` in the current gc scope.
+pub(crate) fn from_i64(ctx: &mut ScopedContext, v: i64) -> Result<BigIntRef, i32> {
+    if v >= 0 {
+        BigIntRef::create(ctx, false, vec![v as u64])
+    } else if v == i64::MIN {
+        BigIntRef::create(ctx, true, vec![1u64 << 63])
+    } else {
+        BigIntRef::create(ctx, true, vec![(-v) as u64])
+    }
+}
+
+/// Create a BigInt from a `u64` in the current gc scope.
+pub(crate) fn from_u64(ctx: &mut ScopedContext, v: u64) -> Result<BigIntRef, i32> {
+    BigIntRef::create(ctx, false, vec![v])
+}
+
+/// Create a BigInt from a `f64`. Only finite integers are accepted; a
+/// non-integer (or non-finite) value throws a RangeError (ToBigInt semantics).
+pub(crate) fn from_f64(ctx: &mut ScopedContext, d: f64) -> Result<BigIntRef, i32> {
+    if !d.is_finite() || d.fract() != 0.0 {
+        return Err(ctx.throw_range_error("the number cannot be converted to a BigInt"));
+    }
+    let neg = d.is_sign_negative();
+    let mag = if d == 0.0 {
+        Vec::new()
+    } else {
+        f64_integer_to_limbs(d.abs())
+    };
+    BigIntRef::create(ctx, neg, mag)
+}
+
+/// Convert a finite, non-negative integral `f64` to normalized little-endian
+/// limbs (empty for zero). `d` must satisfy `d.fract() == 0.0`.
+pub(crate) fn f64_integer_to_limbs(d: f64) -> Vec<u64> {
+    debug_assert!(d.is_finite() && d >= 0.0 && d.fract() == 0.0);
+    if d == 0.0 {
+        return Vec::new();
+    }
+    let bits = d.to_bits();
+    let exp = ((bits >> 52) & 0x7ff) as i32 - 1023 - 52; // value = mantissa * 2^exp
+    let mantissa = (bits & 0x000f_ffff_ffff_ffff) | (1 << 52);
+    debug_assert!(exp >= 0, "non-integer f64 passed to f64_integer_to_limbs");
+    let mut limbs = vec![0u64; (exp / 64) as usize];
+    let rem = (exp % 64) as u32;
+    if rem == 0 {
+        limbs.push(mantissa);
+    } else {
+        limbs.push(mantissa << rem);
+        let high = mantissa >> (64 - rem);
+        if high != 0 {
+            limbs.push(high);
+        }
+    }
+    super::ops::normalize_vec(limbs)
+}

@@ -22,7 +22,8 @@ pub fn js_number_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let val = if cc.length() == 0 {
         JSValue::from(0)
     } else {
-        cc.arg(0).to_numeric(ctx)?.into()
+        // ToNumber: `Number(1n)` must throw a TypeError.
+        cc.arg(0).to_number(ctx)?.into()
     };
 
     let new_target = cc.this();

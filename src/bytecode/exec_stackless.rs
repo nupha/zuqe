@@ -960,12 +960,17 @@ impl Bytecode {
                         if opcode == OpCode::PLUS && op1.is_number() {
                             // + before an int or float: do nothing
                             SP_PUT!(-1, op1);
-                        } else if let Ok(res) =
-                            UnaryOp::new(realm_scope, op1, true).map(|unary| match opcode {
-                                OpCode::PLUS => unary.plus(),
-                                OpCode::NEG => unary.neg(),
-                                OpCode::INC => unary.inc(),
-                                OpCode::DEC => unary.dec(),
+                        } else if opcode == OpCode::PLUS && op1.is_bigint() {
+                            // unary `+` on a BigInt throws (ToNumber)
+                            let _ = realm_scope
+                                .throw_type_error("Cannot convert a BigInt value to a number");
+                            break ExecAction::Exception;
+                        } else if let Ok(res) = UnaryOp::new(realm_scope, op1, true)
+                            .and_then(|unary| match opcode {
+                                OpCode::PLUS => unary.plus(realm_scope),
+                                OpCode::NEG => unary.neg(realm_scope),
+                                OpCode::INC => unary.inc(realm_scope),
+                                OpCode::DEC => unary.dec(realm_scope),
                                 _ => unreachable!(),
                             })
                         {
@@ -1397,14 +1402,32 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     OpCode::POST_INC | OpCode::POST_DEC => {
                         let op1 = SP_VAL!(-1);
-                        if let Ok(n1) = op1.to_number(realm_scope) {
+                        if op1.is_bigint() {
+                            // bigint: ToNumeric is the value itself; the old
+                            // value is returned and the new value stored.
+                            let res = UnaryOp::new(realm_scope, op1, true).and_then(|unary| {
+                                if opcode == OpCode::POST_INC {
+                                    unary.inc(realm_scope)
+                                } else {
+                                    unary.dec(realm_scope)
+                                }
+                            });
+                            match res {
+                                Ok(r) => {
+                                    SP_PUT!(-1, op1);
+                                    SP_PUT!(0, r);
+                                    SP_GO!(1);
+                                }
+                                Err(_) => break ExecAction::Exception,
+                            }
+                        } else if let Ok(n1) = op1.to_number(realm_scope) {
                             SP_PUT!(-1, JSValue::from(n1));
-                            if let Ok(res) =
-                                UnaryOp::new(realm_scope, JSValue::from(n1), true).map(|unary| {
-                                    match opcode {
-                                        OpCode::POST_INC => unary.inc(),
-                                        OpCode::POST_DEC => unary.dec(),
-                                        _ => unreachable!(),
+                            if let Ok(res) = UnaryOp::new(realm_scope, JSValue::from(n1), true)
+                                .and_then(|unary| {
+                                    if opcode == OpCode::POST_INC {
+                                        unary.inc(realm_scope)
+                                    } else {
+                                        unary.dec(realm_scope)
                                     }
                                 })
                             {
@@ -1421,9 +1444,9 @@ impl Bytecode {
                         let idx = PC_FETCH!(u8) as i32;
                         let op1 = VAR_REF![idx];
                         if let Ok(res) =
-                            UnaryOp::new(realm_scope, *op1, true).map(|unary| match opcode {
-                                OpCode::INC_LOC => unary.inc(),
-                                OpCode::DEC_LOC => unary.dec(),
+                            UnaryOp::new(realm_scope, *op1, true).and_then(|unary| match opcode {
+                                OpCode::INC_LOC => unary.inc(realm_scope),
+                                OpCode::DEC_LOC => unary.dec(realm_scope),
                                 _ => unreachable!(),
                             })
                         {
@@ -1445,7 +1468,9 @@ impl Bytecode {
                     }
                     OpCode::NOT => {
                         if let Ok(res) =
-                            UnaryOp::new_int(realm_scope, SP_VAL!(-1)).map(|unary| unary.not())
+                            UnaryOp::new_int(realm_scope, SP_VAL!(-1)).and_then(|unary| {
+                                unary.not(realm_scope)
+                            })
                         {
                             SP_PUT!(-1, res);
                         } else {

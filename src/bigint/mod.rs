@@ -14,8 +14,11 @@
 //! so its `GcTrace` is empty; the heap buffers (`Box<[u64]>`) need no tracing.
 
 mod convert;
+mod ops;
 
-pub(crate) use convert::{parse_str, to_i64_exact, to_string_radix};
+pub(crate) use convert::{
+    from_u64, f64_integer_to_limbs, parse_str, to_f64, to_i64_exact, to_string_radix,
+};
 
 use std::ptr::NonNull;
 
@@ -84,6 +87,24 @@ impl BigIntImpl {
         BigIntImpl {
             sign: false,
             limbs: Box::new([]),
+        }
+    }
+
+    /// Build a non-negative value from a `u64` magnitude (no allocation).
+    #[inline(always)]
+    pub(crate) fn from_u64(v: u64) -> Self {
+        BigIntImpl::from_parts(false, vec![v])
+    }
+
+    /// Build a value from an `i64` (no allocation).
+    #[inline(always)]
+    pub(crate) fn from_i64(v: i64) -> Self {
+        if v >= 0 {
+            BigIntImpl::from_parts(false, vec![v as u64])
+        } else if v == i64::MIN {
+            BigIntImpl::from_parts(true, vec![1u64 << 63])
+        } else {
+            BigIntImpl::from_parts(true, vec![(-v) as u64])
         }
     }
 }
@@ -186,10 +207,6 @@ impl BigIntRef {
     }
 
     /// Create a zero BigInt node in the current gc scope.
-    ///
-    /// Intended for the arithmetic layer (Phase 2); kept now as part of the
-    /// documented `ZERO`-value API.
-    #[allow(dead_code)]
     pub(crate) fn zero(ctx: &mut ScopedContext) -> Result<Self, i32> {
         Self::create(ctx, false, Vec::new())
     }

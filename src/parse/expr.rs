@@ -77,6 +77,23 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
+    /// Emit bytecode for a plain (non-BigInt) number literal token and advance
+    /// past it. Shared between the NUMBER primary-expression path and the
+    /// feature-gated BigInt branch.
+    fn emit_number_literal(&mut self) -> Result<(), i32> {
+        match self.token.data.number().unwrap() {
+            IntOrFloat::Int64(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => {
+                self.emit_op(OpCode::PUSH_I32);
+                self.emit_u32(i as u32);
+            }
+            n => {
+                self.emit_push_const(JSValue::from(n), false)?;
+            }
+        }
+        self.next_token()?;
+        Ok(())
+    }
+
     /// postfix expr typically refers to how the parser handles postfix expressions such as:
     /// - Postfix increment/decrement operators (a++, a--)
     /// - Member access expressions (a.b)
@@ -108,19 +125,14 @@ impl<'s> JSParseState<'s> {
                         }
                     }
                     self.next_token()?;
-                    return Ok(());
+                } else {
+                    // fall through to the shared number-literal emission so the
+                    // postfix/`**` handling below still runs.
+                    #[cfg(feature = "big_int")]
+                    self.emit_number_literal()?;
                 }
-
-                match self.token.data.number().unwrap() {
-                    IntOrFloat::Int64(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => {
-                        self.emit_op(OpCode::PUSH_I32);
-                        self.emit_u32(i as u32);
-                    }
-                    n => {
-                        self.emit_push_const(JSValue::from(n), false)?;
-                    }
-                }
-                self.next_token()?;
+                #[cfg(not(feature = "big_int"))]
+                self.emit_number_literal()?;
             }
             TokenKind::TEMPLATE => {
                 self.parse_template(false)?;

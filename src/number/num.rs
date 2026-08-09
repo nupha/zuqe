@@ -6,7 +6,8 @@ use core::f64;
 use crate::{context::ScopedContext, value::JSValue};
 
 use super::{
-    IntOrFloat, MAX_SAFE_INTEGER, SAFE_INTEGER_RANGE, ToNumberHintEnum, f64_to_i32, is_safe_integer,
+    IntOrFloat, MAX_SAFE_INTEGER, NumValue, SAFE_INTEGER_RANGE, ToNumberHintEnum, f64_to_i32,
+    is_safe_integer,
 };
 
 impl From<IntOrFloat> for JSValue {
@@ -14,6 +15,16 @@ impl From<IntOrFloat> for JSValue {
         match value {
             IntOrFloat::Int64(i) => JSValue::from(i),
             IntOrFloat::Float64(f) => JSValue::from(f),
+        }
+    }
+}
+
+impl From<NumValue> for JSValue {
+    fn from(value: NumValue) -> Self {
+        match value {
+            NumValue::Float(f) => JSValue::from(f),
+            #[cfg(feature = "big_int")]
+            NumValue::BigInt(b) => JSValue::make_bigint(b),
         }
     }
 }
@@ -259,30 +270,57 @@ impl JSValue {
         }
     }
 
-    /// Convert value to number.
+    /// Convert value to number (or BigInt when the hint allows it).
     ///
-    /// Because BigInt is not supported, JSToNumberHintEnum does not effect
+    /// `TON_FLAG_NUMBER` (ToNumber) always yields an `IntOrFloat`; a BigInt
+    /// input throws a TypeError. `TON_FLAG_NUMERIC` (ToNumeric) returns the
+    /// BigInt unchanged.
     fn to_number_internal(
         self,
         ctx: &mut ScopedContext,
         undefined_is_nan: bool,
-        _flag: ToNumberHintEnum,
-    ) -> Result<IntOrFloat, i32> {
+        flag: ToNumberHintEnum,
+    ) -> Result<NumValue, i32> {
         match self.tag() {
             crate::JSValueTag::Int | crate::JSValueTag::Bool => {
-                Ok(IntOrFloat::Int64(self.payload_i32().into()))
+                Ok(NumValue::Float(IntOrFloat::Int64(self.payload_i32().into())))
             }
-            crate::JSValueTag::Float64 => Ok(unsafe { self.as_float_unchecked().into() }),
-            crate::JSValueTag::Null => Ok(IntOrFloat::Int64(0)),
-            crate::JSValueTag::Undefined => Ok(if undefined_is_nan {
+            crate::JSValueTag::Float64 => Ok(NumValue::Float(unsafe {
+                self.as_float_unchecked().into()
+            })),
+            crate::JSValueTag::Null => Ok(NumValue::Float(IntOrFloat::Int64(0))),
+            crate::JSValueTag::Undefined => Ok(NumValue::Float(if undefined_is_nan {
                 IntOrFloat::Float64(f64::NAN)
             } else {
                 IntOrFloat::Int64(0)
-            }),
-            crate::JSValueTag::String => unsafe { Ok(self.as_string_unchecked().to_number(ctx)) },
-            crate::JSValueTag::Object => unsafe { self.as_object_unchecked().to_number(ctx) },
+            })),
+            crate::JSValueTag::String => unsafe {
+                Ok(NumValue::Float(self.as_string_unchecked().to_number(ctx)))
+            },
+            crate::JSValueTag::Object => unsafe {
+                Ok(NumValue::Float(self.as_object_unchecked().to_number(ctx)?))
+            },
             crate::JSValueTag::Symbol => {
                 Err(ctx.throw_type_error("cannot convert Symbol to number"))
+            }
+            crate::JSValueTag::BigInt => {
+                #[cfg(feature = "big_int")]
+                {
+                    match flag {
+                        ToNumberHintEnum::TON_FLAG_NUMBER => {
+                            Err(ctx.throw_type_error("Cannot convert a BigInt value to a number"))
+                        }
+                        ToNumberHintEnum::TON_FLAG_NUMERIC => {
+                            Ok(NumValue::BigInt(unsafe { self.as_bigint_unchecked() }))
+                        }
+                    }
+                }
+                #[cfg(not(feature = "big_int"))]
+                {
+                    // No BigInt value can exist without the feature; treat like
+                    // ToNumber (unreachable in practice).
+                    Err(ctx.throw_type_error("Cannot convert a BigInt value to a number"))
+                }
             }
             crate::JSValueTag::Exception => {
                 #[cfg(debug_assertions)]
@@ -290,20 +328,27 @@ impl JSValue {
                 #[cfg(not(debug_assertions))]
                 Err(-1)
             }
-            _ => Ok(IntOrFloat::Float64(f64::NAN)),
+            _ => Ok(NumValue::Float(IntOrFloat::Float64(f64::NAN))),
         }
     }
 
-    /// Convert value to number (Int or Float64, could be NaN).
+    /// Convert value to number (Int or Float64, could be NaN). A BigInt input
+    /// throws a TypeError (ToNumber).
     #[inline(always)]
     pub fn to_number(&self, ctx: &mut ScopedContext) -> Result<IntOrFloat, i32> {
-        self.to_number_internal(ctx, true, ToNumberHintEnum::TON_FLAG_NUMBER)
+        match self.to_number_internal(ctx, true, ToNumberHintEnum::TON_FLAG_NUMBER)? {
+            NumValue::Float(f) => Ok(f),
+            #[cfg(feature = "big_int")]
+            NumValue::BigInt(_) => {
+                // TON_FLAG_NUMBER already throws for BigInt; unreachable.
+                Err(ctx.throw_type_error("Cannot convert a BigInt value to a number"))
+            }
+        }
     }
 
-    /// Convert value to Int, Float64 (could be NaN) value, or Err.
-    /// Because BigInt is not supported, this method is same as coerce_to_number()
+    /// Convert value to Int, Float64 (could be NaN), or BigInt value (ToNumeric).
     #[inline(always)]
-    pub fn to_numeric(&self, ctx: &mut ScopedContext) -> Result<IntOrFloat, i32> {
+    pub fn to_numeric(&self, ctx: &mut ScopedContext) -> Result<NumValue, i32> {
         self.to_number_internal(ctx, true, ToNumberHintEnum::TON_FLAG_NUMERIC)
     }
 

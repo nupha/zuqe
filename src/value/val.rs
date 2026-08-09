@@ -302,7 +302,6 @@ impl JSValue {
         js_value_get_tag(self.0) == (JSValueTag::Symbol as i32)
     }
 
-    #[cfg(feature = "big_int")]
     #[inline(always)]
     pub const fn is_bigint(&self) -> bool {
         js_value_get_tag(self.0) == (JSValueTag::BigInt as i32)
@@ -601,6 +600,8 @@ impl JSValue {
                 let d = js_value_get_float64(self.0);
                 Ok(!d.is_nan() && d != 0.0)
             }
+            #[cfg(feature = "big_int")]
+            JSValueTag::BigInt => Ok(!unsafe { self.as_bigint_unchecked() }.is_zero()),
             JSValueTag::Exception => Err(-1),
             _ => Ok(true),
         }
@@ -635,6 +636,15 @@ impl JSValue {
             JSValueTag::Undefined => Atom::CONST_undefined
                 .force_string(ctx)
                 .map(Self::make_string),
+
+            #[cfg(feature = "big_int")]
+            JSValueTag::BigInt => {
+                // ToString(BigInt): decimal string without the `n` suffix.
+                let s = unsafe {
+                    crate::bigint::to_string_radix(&self.as_bigint_unchecked(), 10)
+                };
+                ctx.create_string_from_str(s.as_str()).map(Self::make_string)
+            }
 
             JSValueTag::Object => self
                 .to_primitive(ctx, HINT_STRING)

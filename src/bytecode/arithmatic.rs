@@ -7,10 +7,13 @@ use crate::{
     bytecode::OpCode,
     context::ScopedContext,
     error::JSResult,
-    number::{IntOrFloat, f64_to_i32},
+    number::{IntOrFloat, NumValue, f64_to_i32},
     utils::unlikely,
     value::{HINT_NONE, HINT_NUMBER, JSValue},
 };
+
+#[cfg(feature = "big_int")]
+use crate::bigint::BigIntRef;
 
 #[derive(Debug, Clone)]
 pub(super) enum TwoNumbers {
@@ -19,6 +22,21 @@ pub(super) enum TwoNumbers {
 }
 
 impl TwoNumbers {
+    /// Build from already-coerced `IntOrFloat` operands.
+    fn from_nums(a: IntOrFloat, b: IntOrFloat) -> Self {
+        match (a, b) {
+            (
+                IntOrFloat::Int64(x),
+                IntOrFloat::Int64(y),
+            ) if (i32::MIN as i64..=i32::MAX as i64).contains(&x)
+                && (i32::MIN as i64..=i32::MAX as i64).contains(&y) =>
+            {
+                Self::Int(x as i32, y as i32)
+            }
+            (x, y) => Self::Float(x.to_f64(), y.to_f64()),
+        }
+    }
+
     /// fast path
     const fn from_values_fast(op1: JSValue, op2: JSValue) -> Option<Self> {
         match (op1.tag(), op2.tag()) {
@@ -219,6 +237,8 @@ impl TwoNumbers {
 pub(super) enum UnaryOp {
     Int(i32),
     Float(f64),
+    #[cfg(feature = "big_int")]
+    BigInt(BigIntRef),
 }
 
 impl UnaryOp {
@@ -232,6 +252,10 @@ impl UnaryOp {
             crate::JSValueTag::Float64 if allow_float => {
                 Ok(UnaryOp::Float(unsafe { val.as_float_unchecked() }))
             }
+            #[cfg(feature = "big_int")]
+            crate::JSValueTag::BigInt => Ok(UnaryOp::BigInt(unsafe {
+                val.as_bigint_unchecked()
+            })),
             _ if allow_float => match val.to_number(ctx)? {
                 IntOrFloat::Int64(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => {
                     Ok(UnaryOp::Int(i as i32))
@@ -248,72 +272,88 @@ impl UnaryOp {
         if let Some(i) = val.as_int() {
             Ok(Self::Int(i))
         } else {
+            #[cfg(feature = "big_int")]
+            if val.is_bigint() {
+                return Ok(Self::BigInt(unsafe { val.as_bigint_unchecked() }));
+            }
             val.to_number(ctx).map(|n| Self::Int(n.to_i32()))
         }
     }
 
-    pub fn neg(self) -> JSValue {
+    pub fn neg(self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         match self {
             UnaryOp::Int(a) => {
                 if unlikely(a == 0) {
                     // -0 cannot be expressed as integer
-                    JSValue::make_float(-0.0)
+                    Ok(JSValue::make_float(-0.0))
                 } else if a == i32::MIN {
-                    JSValue::make_float(-(a as f64))
+                    Ok(JSValue::make_float(-(a as f64)))
                 } else {
-                    JSValue::from(-a)
+                    Ok(JSValue::from(-a))
                 }
             }
             UnaryOp::Float(a) => {
                 if unlikely(a == 0.0) {
                     if a.is_sign_negative() {
-                        JSValue::from(0)
+                        Ok(JSValue::from(0))
                     } else {
-                        JSValue::make_float(-0.0)
+                        Ok(JSValue::make_float(-0.0))
                     }
                 } else {
-                    JSValue::from(-a)
+                    Ok(JSValue::from(-a))
                 }
             }
+            #[cfg(feature = "big_int")]
+            UnaryOp::BigInt(a) => BigIntRef::neg(ctx, &a).map(JSValue::make_bigint),
         }
     }
 
-    pub fn plus(self) -> JSValue {
+    pub fn plus(self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         match self {
-            UnaryOp::Int(a) => JSValue::from(a),
-            UnaryOp::Float(a) => JSValue::make_float(a),
+            UnaryOp::Int(a) => Ok(JSValue::from(a)),
+            UnaryOp::Float(a) => Ok(JSValue::make_float(a)),
+            // unary `+` on BigInt throws (ToNumber); the opcode handler rejects
+            // it before reaching here.
+            #[cfg(feature = "big_int")]
+            UnaryOp::BigInt(_) => Err(ctx.throw_type_error("Cannot convert a BigInt value to a number")),
         }
     }
 
-    pub fn inc(self) -> JSValue {
+    pub fn inc(self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         match self {
             UnaryOp::Int(a) => {
                 if unlikely(a == i32::MAX) {
-                    JSValue::from(a as u32 + 1)
+                    Ok(JSValue::from(a as u32 + 1))
                 } else {
-                    JSValue::from(a + 1)
+                    Ok(JSValue::from(a + 1))
                 }
             }
-            UnaryOp::Float(a) => JSValue::make_float(a + 1.0),
+            UnaryOp::Float(a) => Ok(JSValue::make_float(a + 1.0)),
+            #[cfg(feature = "big_int")]
+            UnaryOp::BigInt(a) => BigIntRef::inc(ctx, &a).map(JSValue::make_bigint),
         }
     }
 
-    pub fn dec(self) -> JSValue {
+    pub fn dec(self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         match self {
             UnaryOp::Int(a) => {
                 if unlikely(a == i32::MIN) {
-                    JSValue::from(a as i64 - 1)
+                    Ok(JSValue::from(a as i64 - 1))
                 } else {
-                    JSValue::from(a - 1)
+                    Ok(JSValue::from(a - 1))
                 }
             }
-            UnaryOp::Float(a) => JSValue::make_float(a - 1.0),
+            UnaryOp::Float(a) => Ok(JSValue::make_float(a - 1.0)),
+            #[cfg(feature = "big_int")]
+            UnaryOp::BigInt(a) => BigIntRef::dec(ctx, &a).map(JSValue::make_bigint),
         }
     }
 
-    pub fn not(self) -> JSValue {
+    pub fn not(self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         match self {
-            Self::Int(a) => JSValue::from(!a),
+            Self::Int(a) => Ok(JSValue::from(!a)),
+            #[cfg(feature = "big_int")]
+            Self::BigInt(a) => BigIntRef::not(ctx, &a).map(JSValue::make_bigint),
             _ => unreachable!(),
         }
     }
@@ -325,25 +365,81 @@ pub(super) fn op_binary_logic(
     opcode: OpCode,
     sp: *mut JSValue,
 ) -> Result<*mut JSValue, i32> {
-    let res = TwoNumbers::from_values(
-        ctx,
-        unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) },
-        unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) },
-        true,
-    )
-    .map(|bop| match opcode {
-        OpCode::SHL => bop.shl(),
-        OpCode::SHR => bop.shr(),
-        OpCode::SAR => bop.sar(),
-        OpCode::AND => bop.and(),
-        OpCode::XOR => bop.xor(),
-        OpCode::OR => bop.or(),
-        _ => unreachable!(),
-    })?;
+    let op1 = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
+    let op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
 
-    unsafe {
-        std::ptr::replace(sp.offset(-2), res);
-        Ok(sp.offset(-1))
+    #[cfg(feature = "big_int")]
+    {
+        let res = if let Some(n2) = TwoNumbers::from_values_fast(op1, op2) {
+            match opcode {
+                OpCode::SHL => n2.shl(),
+                OpCode::SHR => n2.shr(),
+                OpCode::SAR => n2.sar(),
+                OpCode::AND => n2.and(),
+                OpCode::XOR => n2.xor(),
+                OpCode::OR => n2.or(),
+                _ => unreachable!(),
+            }
+        } else {
+            let n1 = numeric_or_bigint(ctx, op1)?;
+            let n2 = numeric_or_bigint(ctx, op2)?;
+            match (n1, n2) {
+                (NumValue::Float(a), NumValue::Float(b)) => {
+                    let n = TwoNumbers::from_nums(a, b);
+                    match opcode {
+                        OpCode::SHL => n.shl(),
+                        OpCode::SHR => n.shr(),
+                        OpCode::SAR => n.sar(),
+                        OpCode::AND => n.and(),
+                        OpCode::XOR => n.xor(),
+                        OpCode::OR => n.or(),
+                        _ => unreachable!(),
+                    }
+                }
+                (NumValue::BigInt(a), NumValue::BigInt(b)) => {
+                    let r = match opcode {
+                        OpCode::SHL => BigIntRef::shl_big(ctx, &a, &b)?,
+                        OpCode::SAR => BigIntRef::shr_big(ctx, &a, &b)?,
+                        OpCode::AND => BigIntRef::bitand(ctx, &a, &b)?,
+                        OpCode::XOR => BigIntRef::bitxor(ctx, &a, &b)?,
+                        OpCode::OR => BigIntRef::bitor(ctx, &a, &b)?,
+                        // BigInt has no unsigned right shift.
+                        OpCode::SHR => {
+                            return Err(ctx.throw_type_error(
+                                "BigInts have no unsigned right shift, use >> instead",
+                            ));
+                        }
+                        _ => unreachable!(),
+                    };
+                    JSValue::make_bigint(r)
+                }
+                _ => {
+                    return Err(ctx.throw_type_error("Cannot mix BigInt and other types"));
+                }
+            }
+        };
+        unsafe {
+            std::ptr::replace(sp.offset(-2), res);
+            return Ok(sp.offset(-1));
+        }
+    }
+
+    #[cfg(not(feature = "big_int"))]
+    {
+        let res = TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| match opcode {
+            OpCode::SHL => bop.shl(),
+            OpCode::SHR => bop.shr(),
+            OpCode::SAR => bop.sar(),
+            OpCode::AND => bop.and(),
+            OpCode::XOR => bop.xor(),
+            OpCode::OR => bop.or(),
+            _ => unreachable!(),
+        })?;
+
+        unsafe {
+            std::ptr::replace(sp.offset(-2), res);
+            Ok(sp.offset(-1))
+        }
     }
 }
 
@@ -370,6 +466,43 @@ pub enum StrictEqMode {
     JS_EQ_STRICT,
     JS_EQ_SAME_VALUE,
     JS_EQ_SAME_VALUE_ZERO,
+}
+
+/// ToNumeric a value, converting objects to a primitive first so a BigInt
+/// result (e.g. from `valueOf`/`[Symbol.toPrimitive]`) is preserved.
+#[cfg(feature = "big_int")]
+fn numeric_or_bigint(ctx: &mut ScopedContext, val: JSValue) -> Result<NumValue, i32> {
+    if val.is_object() {
+        val.to_primitive(ctx, HINT_NUMBER)?.to_numeric(ctx)
+    } else {
+        val.to_numeric(ctx)
+    }
+}
+
+/// Binary numeric operation with BigInt support: both operands go through
+/// ToNumeric; a BigInt+BigInt pair uses `bigint_fn`, a Number+Number pair uses
+/// `number_fn`, anything mixed throws a TypeError. Objects that coerce to a
+/// BigInt are handled (see `numeric_or_bigint`).
+#[cfg(feature = "big_int")]
+fn arith_numeric(
+    ctx: &mut ScopedContext,
+    op1: JSValue,
+    op2: JSValue,
+    number_fn: impl Fn(TwoNumbers) -> JSValue,
+    bigint_fn: impl Fn(&mut ScopedContext, &BigIntRef, &BigIntRef) -> Result<BigIntRef, i32>,
+) -> JSResult {
+    if let Some(n2) = TwoNumbers::from_values_fast(op1, op2) {
+        return Ok(number_fn(n2));
+    }
+    let n1 = numeric_or_bigint(ctx, op1)?;
+    let n2 = numeric_or_bigint(ctx, op2)?;
+    match (n1, n2) {
+        (NumValue::Float(a), NumValue::Float(b)) => Ok(number_fn(TwoNumbers::from_nums(a, b))),
+        (NumValue::BigInt(a), NumValue::BigInt(b)) => {
+            bigint_fn(ctx, &a, &b).map(JSValue::make_bigint)
+        }
+        _ => Err(ctx.throw_type_error("Cannot mix BigInt and other types")),
+    }
 }
 
 impl JSValue {
@@ -410,10 +543,35 @@ impl JSValue {
                     op2 = op2.to_primitive(ctx, HINT_NUMBER)?;
                 }
 
+                // BigInt vs String: exact StringToBigInt comparison; an
+                // incomparable string makes the comparison undefined.
+                #[cfg(feature = "big_int")]
+                (crate::JSValueTag::BigInt, crate::JSValueTag::String) => {
+                    let b = unsafe { op1.as_bigint_unchecked() };
+                    let s = unsafe { op2.as_string_unchecked() };
+                    return Ok(string_to_bigint_opt(ctx, &s).map(|n| b.cmp(&n)));
+                }
+                #[cfg(feature = "big_int")]
+                (crate::JSValueTag::String, crate::JSValueTag::BigInt) => {
+                    let s = unsafe { op1.as_string_unchecked() };
+                    let b = unsafe { op2.as_bigint_unchecked() };
+                    return Ok(string_to_bigint_opt(ctx, &s).map(|n| n.cmp(&b)));
+                }
+
                 _ => {
-                    let n1 = op1.to_number(ctx)?;
-                    let n2 = op2.to_number(ctx)?;
-                    return Ok(n1.partial_cmp(&n2));
+                    let n1 = op1.to_numeric(ctx)?;
+                    let n2 = op2.to_numeric(ctx)?;
+                    return Ok(match (n1, n2) {
+                        (NumValue::Float(a), NumValue::Float(b)) => a.partial_cmp(&b),
+                        #[cfg(feature = "big_int")]
+                        (NumValue::BigInt(a), NumValue::BigInt(b)) => Some(a.cmp(&b)),
+                        #[cfg(feature = "big_int")]
+                        (NumValue::Float(a), NumValue::BigInt(b)) => {
+                            cmp_bigint_number(&b, &a).map(Ordering::reverse)
+                        }
+                        #[cfg(feature = "big_int")]
+                        (NumValue::BigInt(a), NumValue::Float(b)) => cmp_bigint_number(&a, &b),
+                    });
                 }
             }
 
@@ -460,6 +618,18 @@ impl JSValue {
                 (crate::JSValueTag::String, _) | (_, crate::JSValueTag::String) => {
                     return JSValue::concat_value(ctx, op1, op2);
                 }
+                // BigInt arithmetic: BigInt+BigInt works; mixing with any
+                // other type throws (String is caught above → concat).
+                #[cfg(feature = "big_int")]
+                (crate::JSValueTag::BigInt, crate::JSValueTag::BigInt) => {
+                    let a = unsafe { op1.as_bigint_unchecked() };
+                    let b = unsafe { op2.as_bigint_unchecked() };
+                    return BigIntRef::add(ctx, &a, &b).map(JSValue::make_bigint);
+                }
+                #[cfg(feature = "big_int")]
+                (crate::JSValueTag::BigInt, _) | (_, crate::JSValueTag::BigInt) => {
+                    return Err(ctx.throw_type_error("Cannot mix BigInt and other types"));
+                }
                 _ => {
                     let n1 = op1.to_number(ctx)?;
                     let n2 = op2.to_number(ctx)?;
@@ -471,27 +641,62 @@ impl JSValue {
 
     #[inline(always)]
     pub fn arith_sub(ctx: &mut ScopedContext, op1: Self, op2: Self) -> JSResult {
-        TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.sub())
+        #[cfg(feature = "big_int")]
+        {
+            return arith_numeric(ctx, op1, op2, |bop| bop.sub(), BigIntRef::sub);
+        }
+        #[cfg(not(feature = "big_int"))]
+        {
+            TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.sub())
+        }
     }
 
     #[inline(always)]
     pub fn arith_mul(ctx: &mut ScopedContext, op1: Self, op2: Self) -> JSResult {
-        TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.mul())
+        #[cfg(feature = "big_int")]
+        {
+            return arith_numeric(ctx, op1, op2, |bop| bop.mul(), BigIntRef::mul);
+        }
+        #[cfg(not(feature = "big_int"))]
+        {
+            TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.mul())
+        }
     }
 
     #[inline(always)]
     pub fn arith_div(ctx: &mut ScopedContext, op1: Self, op2: Self) -> JSResult {
-        TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.div())
+        #[cfg(feature = "big_int")]
+        {
+            return arith_numeric(ctx, op1, op2, |bop| bop.div(), BigIntRef::div);
+        }
+        #[cfg(not(feature = "big_int"))]
+        {
+            TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.div())
+        }
     }
 
     #[inline(always)]
     pub fn arith_mod(ctx: &mut ScopedContext, op1: Self, op2: Self) -> JSResult {
-        TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.mod_())
+        #[cfg(feature = "big_int")]
+        {
+            return arith_numeric(ctx, op1, op2, |bop| bop.mod_(), BigIntRef::rem);
+        }
+        #[cfg(not(feature = "big_int"))]
+        {
+            TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.mod_())
+        }
     }
 
     #[inline(always)]
     pub fn arith_pow(ctx: &mut ScopedContext, op1: Self, op2: Self) -> JSResult {
-        TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.pow())
+        #[cfg(feature = "big_int")]
+        {
+            return arith_numeric(ctx, op1, op2, |bop| bop.pow(), BigIntRef::pow);
+        }
+        #[cfg(not(feature = "big_int"))]
+        {
+            TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.pow())
+        }
     }
 
     /// test arithmatical equality (no-strict-eq): self == other?
@@ -522,6 +727,12 @@ impl JSValue {
             | (crate::JSValueTag::FunctionBytecode, crate::JSValueTag::FunctionBytecode)
             | (crate::JSValueTag::Module, crate::JSValueTag::Module) => {
                 self.0 == other.0 // raw pointer equal
+            }
+
+            // bigint: content equality; never equal to any other type.
+            #[cfg(feature = "big_int")]
+            (crate::JSValueTag::BigInt, crate::JSValueTag::BigInt) => {
+                unsafe { self.as_bigint_unchecked() == other.as_bigint_unchecked() }
             }
 
             (crate::JSValueTag::Float64, crate::JSValueTag::Float64) => unsafe {
@@ -764,7 +975,8 @@ fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, 
                 crate::JSValueTag::Int
                 | crate::JSValueTag::Float64
                 | crate::JSValueTag::Bool
-                | crate::JSValueTag::String,
+                | crate::JSValueTag::String
+                | crate::JSValueTag::BigInt,
             ) => unsafe {
                 op1 = op1.as_object_unchecked().to_primitive(ctx, HINT_NONE)?;
             },
@@ -772,7 +984,8 @@ fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, 
                 crate::JSValueTag::Int
                 | crate::JSValueTag::Float64
                 | crate::JSValueTag::Bool
-                | crate::JSValueTag::String,
+                | crate::JSValueTag::String
+                | crate::JSValueTag::BigInt,
                 crate::JSValueTag::Object,
             ) => unsafe {
                 op2 = op2.as_object_unchecked().to_primitive(ctx, HINT_NONE)?;
@@ -785,6 +998,47 @@ fn js_eq(ctx: &mut ScopedContext, val1: JSValue, val2: JSValue) -> Result<bool, 
             (crate::JSValueTag::Symbol, crate::JSValueTag::Object) => unsafe {
                 op2 = op2.as_object_unchecked().to_primitive(ctx, HINT_NONE)?;
             },
+
+            // bigint == bigint (content)
+            #[cfg(feature = "big_int")]
+            (crate::JSValueTag::BigInt, crate::JSValueTag::BigInt) => unsafe {
+                break op1.as_bigint_unchecked() == op2.as_bigint_unchecked();
+            },
+
+            // bigint == number/bool (exact mathematical comparison)
+            #[cfg(feature = "big_int")]
+            (
+                crate::JSValueTag::BigInt,
+                crate::JSValueTag::Int | crate::JSValueTag::Float64 | crate::JSValueTag::Bool,
+            ) => {
+                let b = unsafe { op1.as_bigint_unchecked() };
+                let n = op2.to_number(ctx)?;
+                break bigint_eq_number(&b, &n);
+            }
+            #[cfg(feature = "big_int")]
+            (
+                crate::JSValueTag::Int | crate::JSValueTag::Float64 | crate::JSValueTag::Bool,
+                crate::JSValueTag::BigInt,
+            ) => {
+                let n = op1.to_number(ctx)?;
+                let b = unsafe { op2.as_bigint_unchecked() };
+                break bigint_eq_number(&b, &n);
+            }
+
+            // bigint == string (StringToBigInt; false when the string is not a
+            // valid decimal integer)
+            #[cfg(feature = "big_int")]
+            (crate::JSValueTag::BigInt, crate::JSValueTag::String) => {
+                let b = unsafe { op1.as_bigint_unchecked() };
+                let s = unsafe { op2.as_string_unchecked() };
+                break string_to_bigint_opt(ctx, &s).is_some_and(|n| n == b);
+            }
+            #[cfg(feature = "big_int")]
+            (crate::JSValueTag::String, crate::JSValueTag::BigInt) => {
+                let s = unsafe { op1.as_string_unchecked() };
+                let b = unsafe { op2.as_bigint_unchecked() };
+                break string_to_bigint_opt(ctx, &s).is_some_and(|n| n == b);
+            }
 
             #[cfg(debug_assertions)]
             (
@@ -818,5 +1072,88 @@ fn cmp_f64(d1: f64, d2: f64, eq_mode: StrictEqMode) -> bool {
         StrictEqMode::JS_EQ_SAME_VALUE => d1.to_bits() == d2.to_bits(),
         // SameValueZero: NaN == NaN, +0 == -0
         StrictEqMode::JS_EQ_SAME_VALUE_ZERO => d1 == d2 || (d1.is_nan() && d2.is_nan()),
+    }
+}
+
+/// Compare a BigInt with an `IntOrFloat` for `==`; exact (no f64 rounding)
+/// when the number is an integer, otherwise unequal (a fractional Number is
+/// never equal to a BigInt).
+#[cfg(feature = "big_int")]
+fn bigint_eq_number(bi: &BigIntRef, n: &IntOrFloat) -> bool {
+    use crate::bigint::{BigIntImpl, f64_integer_to_limbs};
+    let fb = match n {
+        IntOrFloat::Int64(i) => BigIntImpl::from_i64(*i),
+        IntOrFloat::Float64(f) => {
+            if !f.is_finite() || f.fract() != 0.0 {
+                return false;
+            }
+            BigIntImpl::from_parts(f.is_sign_negative(), f64_integer_to_limbs(f.abs()))
+        }
+    };
+    BigIntRef::cmp_impl(bi.as_impl(), &fb) == Ordering::Equal
+}
+
+/// Parse a string as a BigInt (StringToBigInt): surrounding whitespace is
+/// ignored, an empty string is `0n`, and the body must be a signed integer
+/// literal — optionally with `0x`/`0o`/`0b` prefixes — with no fractional
+/// part, exponent, suffix, or other junk. Parsing is exact (no f64 rounding).
+/// Returns `None` when the string is not a valid integer literal.
+#[cfg(feature = "big_int")]
+fn string_to_bigint_opt(ctx: &mut ScopedContext, s: &crate::string::StringRef) -> Option<BigIntRef> {
+    let text = s.content().encode_utf8(false);
+    let t = text.trim();
+    if t.is_empty() {
+        return crate::bigint::from_u64(ctx, 0).ok();
+    }
+    let (neg, rest) = if let Some(r) = t.strip_prefix('-') {
+        (true, r)
+    } else if let Some(r) = t.strip_prefix('+') {
+        (false, r)
+    } else {
+        (false, t)
+    };
+    let (radix, digits) = if let Some(d) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))
+    {
+        (16u32, d)
+    } else if let Some(d) = rest.strip_prefix("0o").or_else(|| rest.strip_prefix("0O")) {
+        (8u32, d)
+    } else if let Some(d) = rest.strip_prefix("0b").or_else(|| rest.strip_prefix("0B")) {
+        (2u32, d)
+    } else {
+        (10u32, rest)
+    };
+    if digits.is_empty() || !digits.bytes().all(|b| (crate::number::to_digit(b) as u32) < radix) {
+        return None;
+    }
+    let signed = if neg {
+        format!("-{digits}")
+    } else {
+        digits.to_string()
+    };
+    crate::bigint::parse_str(ctx, &signed, radix).ok()
+}
+
+/// Compare a BigInt with an `IntOrFloat` for `<`/`>`; `None` when the number
+/// is NaN.
+#[cfg(feature = "big_int")]
+fn cmp_bigint_number(bi: &BigIntRef, n: &IntOrFloat) -> Option<Ordering> {
+    use crate::bigint::{BigIntImpl, f64_integer_to_limbs};
+    match n {
+        IntOrFloat::Int64(i) => Some(BigIntRef::cmp_impl(
+            bi.as_impl(),
+            &BigIntImpl::from_i64(*i),
+        )),
+        IntOrFloat::Float64(f) => {
+            if f.is_nan() {
+                return None;
+            }
+            if f.fract() == 0.0 {
+                let fb =
+                    BigIntImpl::from_parts(f.is_sign_negative(), f64_integer_to_limbs(f.abs()));
+                Some(BigIntRef::cmp_impl(bi.as_impl(), &fb))
+            } else {
+                crate::bigint::to_f64(bi).partial_cmp(f)
+            }
+        }
     }
 }

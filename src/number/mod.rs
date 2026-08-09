@@ -103,7 +103,7 @@ pub(crate) enum ToNumberHintEnum {
 /// is produced for `n`-suffixed literals. Without the feature the `BigInt`
 /// variant does not exist and the enum degrades to a plain `IntOrFloat`.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum NumValue {
+pub enum NumValue {
     Float(IntOrFloat),
     #[cfg(feature = "big_int")]
     BigInt(BigIntRef),
