@@ -46,6 +46,75 @@ pub(crate) fn parse_str(ctx: &mut ScopedContext, txt: &str, radix: u32) -> Resul
     BigIntRef::create(ctx, sign, limbs)
 }
 
+/// Parse a string as a BigInt (StringToBigInt): surrounding whitespace is
+/// ignored, an empty string is `0n`, and the body must be a signed integer
+/// literal — optionally with `0x`/`0o`/`0b` prefixes — with no fractional
+/// part, exponent, suffix, or other junk. Parsing is exact (no f64 rounding).
+/// Returns `None` when the string is not a valid integer literal.
+pub(crate) fn string_to_bigint(ctx: &mut ScopedContext, s: &str) -> Option<BigIntRef> {
+    let t = s.trim();
+    if t.is_empty() {
+        return from_u64(ctx, 0).ok();
+    }
+    let (neg, rest) = if let Some(r) = t.strip_prefix('-') {
+        (true, r)
+    } else if let Some(r) = t.strip_prefix('+') {
+        (false, r)
+    } else {
+        (false, t)
+    };
+    let (radix, digits) =
+        if let Some(d) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
+            (16u32, d)
+        } else if let Some(d) = rest.strip_prefix("0o").or_else(|| rest.strip_prefix("0O")) {
+            (8u32, d)
+        } else if let Some(d) = rest.strip_prefix("0b").or_else(|| rest.strip_prefix("0B")) {
+            (2u32, d)
+        } else {
+            (10u32, rest)
+        };
+    if digits.is_empty() || !digits.bytes().all(|b| (to_digit(b) as u32) < radix) {
+        return None;
+    }
+    let signed = if neg {
+        format!("-{digits}")
+    } else {
+        digits.to_string()
+    };
+    parse_str(ctx, &signed, radix).ok()
+}
+
+/// StringToBigInt per spec: surrounding whitespace is ignored, an empty string
+/// is `0n`. A **signed** body must be a decimal integer literal (no radix
+/// prefix); an **unsigned** body may be a decimal integer or a `0x`/`0o`/`0b`
+/// prefixed literal. No fractional part, exponent, suffix, or other junk.
+/// Exact (no f64 rounding). Returns `None` when invalid. Used by `==` and the
+/// BigInt constructor.
+pub(crate) fn string_to_bigint_decimal(ctx: &mut ScopedContext, s: &str) -> Option<BigIntRef> {
+    let t = s.trim();
+    if t.is_empty() {
+        return from_u64(ctx, 0).ok();
+    }
+    if t.starts_with('-') || t.starts_with('+') {
+        let (neg, digits) = if let Some(r) = t.strip_prefix('-') {
+            (true, r)
+        } else {
+            (false, &t[1..])
+        };
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let signed = if neg {
+            format!("-{digits}")
+        } else {
+            digits.to_string()
+        };
+        parse_str(ctx, &signed, 10).ok()
+    } else {
+        string_to_bigint(ctx, t)
+    }
+}
+
 /// Exact conversion to `i64` if the magnitude fits, otherwise `None`.
 pub(crate) fn to_i64_exact(bi: &BigIntRef) -> Option<i64> {
     let i = bi.as_impl();

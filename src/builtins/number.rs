@@ -22,8 +22,13 @@ pub fn js_number_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let val = if cc.length() == 0 {
         JSValue::from(0)
     } else {
-        // ToNumber: `Number(1n)` must throw a TypeError.
-        cc.arg(0).to_number(ctx)?.into()
+        // ToNumeric: `Number(1n)` converts the BigInt to a Number (with
+        // precision loss), it does not throw.
+        match cc.arg(0).to_numeric(ctx)? {
+            NumValue::Float(f) => JSValue::from(f),
+            #[cfg(feature = "big_int")]
+            NumValue::BigInt(b) => JSValue::from(crate::bigint::to_f64(&b)),
+        }
     };
 
     let new_target = cc.this();

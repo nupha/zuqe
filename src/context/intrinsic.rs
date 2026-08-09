@@ -382,4 +382,28 @@ impl<'c> ScopedContext<'c> {
             )
             .unwrap();
     }
+
+    /// Mirror of `intrinsic_base_number` for the BigInt class (feature-gated).
+    /// Per spec the BigInt prototype is a plain object — it has no
+    /// `[[BigIntData]]` slot, so `thisBigIntValue(BigInt.prototype)` throws.
+    #[cfg(feature = "big_int")]
+    pub(super) fn intrinsic_base_bigint(&mut self) {
+        let mut proto = self.create_base_object().unwrap();
+        proto
+            .install_fields(self, crate::builtins::bigint::js_bigint_proto_funcs)
+            .unwrap();
+        self.class_slots[crate::JS_CLASS_BIG_INT as usize].proto = Some(proto);
+
+        self.use_class(crate::JS_CLASS_BIG_INT).unwrap();
+
+        let ctor = self.class_constructor(crate::JS_CLASS_BIG_INT).unwrap();
+        self.global_obj()
+            .define_property_value(
+                self,
+                Atom::CONST_BigInt,
+                ctor.into(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )
+            .unwrap();
+    }
 }

@@ -17,8 +17,10 @@ mod convert;
 mod ops;
 
 pub(crate) use convert::{
-    from_u64, f64_integer_to_limbs, parse_str, to_f64, to_i64_exact, to_string_radix,
+    from_f64, from_i64, from_u64, f64_integer_to_limbs, parse_str, string_to_bigint,
+    string_to_bigint_decimal, to_f64, to_i64_exact, to_string_radix,
 };
+pub(crate) use ops::{MAX_BIGINT_BITS, divmod_mag, shl_mag};
 
 use std::ptr::NonNull;
 

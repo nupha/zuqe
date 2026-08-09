@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
+    JS_CLASS_ARGUMENTS, JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
     JS_CLASS_NUMBER, JS_CLASS_STRING, atom::Atom, context::ScopedContext, object::ObjectImpl,
     string::StringRef,
 };
@@ -21,7 +21,8 @@ impl ObjectImpl {
                 | JS_CLASS_MAPPED_ARGUMENTS
                 | JS_CLASS_ERROR
                 | JS_CLASS_BOOLEAN
-                | JS_CLASS_NUMBER) => ctx.rt().class_registry[cid as usize].name_atom,
+                | JS_CLASS_NUMBER
+                | JS_CLASS_BIG_INT) => ctx.rt().class_registry[cid as usize].name_atom,
 
                 #[cfg(feature = "builtin_regexp")]
                 crate::JS_CLASS_REGEXP => {

@@ -403,6 +403,9 @@ impl<'c> ScopedContext<'c> {
             ctx.intrinsic_base_string(); // String
             ctx.intrinsic_base_symbol(); // Symbol
 
+            #[cfg(feature = "big_int")]
+            ctx.intrinsic_base_bigint(); // BigInt
+
             ctx.intrinsic_eval(); // `eval()` function
 
             //
@@ -430,6 +433,10 @@ impl<'c> ScopedContext<'c> {
                 JS_CLASS_SHARED_ARRAY_BUFFER,
                 JS_CLASS_DATAVIEW,
             ];
+
+            // BigInt
+            #[cfg(feature = "big_int")]
+            use_classes.push(crate::JS_CLASS_BIG_INT);
 
             // TypedArray
             use_classes.extend(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY);

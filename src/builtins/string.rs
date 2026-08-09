@@ -324,6 +324,8 @@ fn js_string_split(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let separator = cc.arg(0);
     let limit = cc.arg(1);
 
+    // Per spec, @@split is only consulted when the separator is an Object;
+    // primitive separators (including BigInt) are stringified directly.
     if separator.is_object()
         && let Some(method) = separator.get_method(ctx, Atom::CONST_Symbol_split)?
     {

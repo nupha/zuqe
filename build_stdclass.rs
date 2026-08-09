@@ -48,6 +48,8 @@ enum PayloadKey {
     WeakRef,
     #[cfg(feature = "builtin_weakref")]
     FinalizationRegistry,
+    #[cfg(feature = "big_int")]
+    BigInt,
 }
 
 impl PayloadKey {
@@ -93,6 +95,8 @@ impl PayloadKey {
             PayloadKey::WeakRef => "weak_ref",
             #[cfg(feature = "builtin_weakref")]
             PayloadKey::FinalizationRegistry => "finalization_registry",
+            #[cfg(feature = "big_int")]
+            PayloadKey::BigInt => "bigint",
         }
     }
 }
@@ -133,6 +137,8 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         PayloadKey::TypedArray,
         "Box<crate::builtins::typed_array::TypedArrayPayload>",
     );
+    #[cfg(feature = "big_int")]
+    m.insert(PayloadKey::BigInt, "crate::bigint::BigIntRef");
     m.insert(
         PayloadKey::DataView,
         "Box<crate::builtins::typed_array::DataViewPayload>",
@@ -451,6 +457,13 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         PayloadKey::DataView,
         "DataView",
     ),
+    #[cfg(feature = "big_int")]
+    ClassInfo::class_def(
+        "BIG_INT",
+        "crate::builtins::CLASS_DEF_BIG_INT",
+        PayloadKey::BigInt,
+    ),
+    #[cfg(not(feature = "big_int"))]
     ClassInfo::class_def(
         "BIG_INT",
         "crate::builtins::CLASS_DEF_BIG_INT",

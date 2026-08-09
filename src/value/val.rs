@@ -721,6 +721,7 @@ impl JSValue {
             JSValueTag::Bool => ctx.class_proto(JS_CLASS_BOOLEAN),
             JSValueTag::String => ctx.class_proto(JS_CLASS_STRING),
             JSValueTag::Symbol => ctx.class_proto(crate::JS_CLASS_SYMBOL),
+            JSValueTag::BigInt => ctx.class_proto(crate::JS_CLASS_BIG_INT),
             _ => None,
         }
         .map_or(Self::NULL, Self::from)
@@ -747,6 +748,7 @@ impl JSValue {
             JSValueTag::Null => Atom::CONST_object,
             JSValueTag::Undefined => Atom::CONST_undefined,
             JSValueTag::Symbol => Atom::CONST_symbol,
+            JSValueTag::BigInt => Atom::CONST_bigint,
             _ => Atom::CONST_unknown,
         }
     }
@@ -778,6 +780,13 @@ impl JSValue {
             JSValueTag::Symbol => ctx
                 .create_instance_with_payload(ObjectPayload::SYMBOL(unsafe {
                     self.as_string_unchecked()
+                }))
+                .map_err(|_| -1),
+
+            #[cfg(feature = "big_int")]
+            JSValueTag::BigInt => ctx
+                .create_instance_with_payload(ObjectPayload::BIG_INT(unsafe {
+                    self.as_bigint_unchecked()
                 }))
                 .map_err(|_| -1),
 

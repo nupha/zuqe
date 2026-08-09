@@ -4,6 +4,8 @@
 pub mod arguments;
 pub mod array;
 pub mod array_buffer;
+#[cfg(feature = "big_int")]
+pub mod bigint;
 pub mod boolean;
 pub(crate) mod common;
 pub mod error;
@@ -36,8 +38,8 @@ pub mod regexp;
 pub mod weakref;
 
 use crate::{
-    Atom, class::ClassDef, context::ScopedContext, error::JSResult, function::CallContext,
-    module::js_module_ns_exotic_methods,
+    Atom, ClassCtorDef, class::ClassDef, context::ScopedContext, error::JSResult,
+    function::CallContext, module::js_module_ns_exotic_methods,
 };
 
 //
@@ -47,6 +49,18 @@ use crate::{
 pub(crate) static CLASS_DEF_MODULE_NS: ClassDef =
     ClassDef::builtin(Atom::CONST_Object, &[], None).exotic(&js_module_ns_exotic_methods);
 
+#[cfg(feature = "big_int")]
+pub(crate) static CLASS_DEF_BIG_INT: ClassDef = ClassDef::builtin(
+    Atom::CONST_BigInt,
+    bigint::js_bigint_proto_funcs,
+    Some(
+        ClassCtorDef::new(bigint::js_bigint_constructor, 1, true)
+            .entries(bigint::js_bigint_funcs)
+            .expose_to_global(),
+    ),
+);
+
+#[cfg(not(feature = "big_int"))]
 pub(crate) static CLASS_DEF_BIG_INT: ClassDef = ClassDef::builtin(Atom::CONST_BigInt, &[], None);
 
 //

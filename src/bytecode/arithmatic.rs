@@ -247,6 +247,13 @@ impl UnaryOp {
         val: JSValue,
         allow_float: bool,
     ) -> Result<Self, i32> {
+        // Objects are ToPrimitive'd first so a wrapper/unboxed value that
+        // yields a BigInt (e.g. `-Object(1n)`, `~Object(1n)`) is handled.
+        let val = if val.is_object() {
+            val.to_primitive(ctx, HINT_NUMBER)?
+        } else {
+            val
+        };
         match val.tag() {
             crate::JSValueTag::Int => Ok(UnaryOp::Int(val.payload_i32())),
             crate::JSValueTag::Float64 if allow_float => {
@@ -272,6 +279,11 @@ impl UnaryOp {
         if let Some(i) = val.as_int() {
             Ok(Self::Int(i))
         } else {
+            let val = if val.is_object() {
+                val.to_primitive(ctx, HINT_NUMBER)?
+            } else {
+                val
+            };
             #[cfg(feature = "big_int")]
             if val.is_bigint() {
                 return Ok(Self::BigInt(unsafe { val.as_bigint_unchecked() }));
@@ -543,19 +555,23 @@ impl JSValue {
                     op2 = op2.to_primitive(ctx, HINT_NUMBER)?;
                 }
 
-                // BigInt vs String: exact StringToBigInt comparison; an
-                // incomparable string makes the comparison undefined.
+                // BigInt vs String: exact comparison. Relational conversion of
+                // the string accepts radix prefixes and is exact (no f64
+                // rounding); an incomparable string makes the comparison
+                // undefined.
                 #[cfg(feature = "big_int")]
                 (crate::JSValueTag::BigInt, crate::JSValueTag::String) => {
                     let b = unsafe { op1.as_bigint_unchecked() };
                     let s = unsafe { op2.as_string_unchecked() };
-                    return Ok(string_to_bigint_opt(ctx, &s).map(|n| b.cmp(&n)));
+                    let text = s.content().encode_utf8(false);
+                    return Ok(crate::bigint::string_to_bigint(ctx, &text).map(|n| b.cmp(&n)));
                 }
                 #[cfg(feature = "big_int")]
                 (crate::JSValueTag::String, crate::JSValueTag::BigInt) => {
                     let s = unsafe { op1.as_string_unchecked() };
                     let b = unsafe { op2.as_bigint_unchecked() };
-                    return Ok(string_to_bigint_opt(ctx, &s).map(|n| n.cmp(&b)));
+                    let text = s.content().encode_utf8(false);
+                    return Ok(crate::bigint::string_to_bigint(ctx, &text).map(|n| n.cmp(&b)));
                 }
 
                 _ => {
@@ -1093,44 +1109,13 @@ fn bigint_eq_number(bi: &BigIntRef, n: &IntOrFloat) -> bool {
     BigIntRef::cmp_impl(bi.as_impl(), &fb) == Ordering::Equal
 }
 
-/// Parse a string as a BigInt (StringToBigInt): surrounding whitespace is
-/// ignored, an empty string is `0n`, and the body must be a signed integer
-/// literal — optionally with `0x`/`0o`/`0b` prefixes — with no fractional
-/// part, exponent, suffix, or other junk. Parsing is exact (no f64 rounding).
-/// Returns `None` when the string is not a valid integer literal.
+/// Parse a string as a decimal BigInt (StringToBigInt for `==`): surrounding
+/// whitespace is ignored, an empty string is `0n`, and the body must be a
+/// signed decimal integer literal. Returns `None` when invalid.
 #[cfg(feature = "big_int")]
 fn string_to_bigint_opt(ctx: &mut ScopedContext, s: &crate::string::StringRef) -> Option<BigIntRef> {
     let text = s.content().encode_utf8(false);
-    let t = text.trim();
-    if t.is_empty() {
-        return crate::bigint::from_u64(ctx, 0).ok();
-    }
-    let (neg, rest) = if let Some(r) = t.strip_prefix('-') {
-        (true, r)
-    } else if let Some(r) = t.strip_prefix('+') {
-        (false, r)
-    } else {
-        (false, t)
-    };
-    let (radix, digits) = if let Some(d) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))
-    {
-        (16u32, d)
-    } else if let Some(d) = rest.strip_prefix("0o").or_else(|| rest.strip_prefix("0O")) {
-        (8u32, d)
-    } else if let Some(d) = rest.strip_prefix("0b").or_else(|| rest.strip_prefix("0B")) {
-        (2u32, d)
-    } else {
-        (10u32, rest)
-    };
-    if digits.is_empty() || !digits.bytes().all(|b| (crate::number::to_digit(b) as u32) < radix) {
-        return None;
-    }
-    let signed = if neg {
-        format!("-{digits}")
-    } else {
-        digits.to_string()
-    };
-    crate::bigint::parse_str(ctx, &signed, radix).ok()
+    crate::bigint::string_to_bigint_decimal(ctx, &text)
 }
 
 /// Compare a BigInt with an `IntOrFloat` for `<`/`>`; `None` when the number
