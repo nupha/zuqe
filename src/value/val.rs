@@ -18,6 +18,9 @@ use crate::{
     value::HINT_STRING,
 };
 
+#[cfg(feature = "big_int")]
+use crate::bigint::BigIntRef;
+
 use super::tag::{JS_NAN_U64, JSValueTag, js_new_float64, js_value_get_float64, js_value_get_tag};
 
 /// JSValue: a 64-bit value with the tag in the high 16 bits (bits 48..64) and
@@ -99,6 +102,24 @@ impl PartialEq for JSValue {
             },
 
             JSValueTag::StringRope => unreachable!(),
+
+            JSValueTag::BigInt => {
+                // bigint: content equality (sign + limb magnitude). The
+                // feature-off branch can never run (no BigInt value can be
+                // constructed) and is only kept for match exhaustiveness.
+                #[cfg(feature = "big_int")]
+                {
+                    unsafe {
+                        let a = self.as_bigint_unchecked();
+                        let b = other.as_bigint_unchecked();
+                        a.sign() == b.sign() && a.limbs() == b.limbs()
+                    }
+                }
+                #[cfg(not(feature = "big_int"))]
+                {
+                    self.0 == other.0
+                }
+            }
 
             JSValueTag::Null
             | JSValueTag::Undefined
@@ -187,7 +208,8 @@ impl JSValue {
             JSValueTag::Object
             | JSValueTag::String
             | JSValueTag::FunctionBytecode
-            | JSValueTag::Module => Some(unsafe { self.as_node_ptr() }),
+            | JSValueTag::Module
+            | JSValueTag::BigInt => Some(unsafe { self.as_node_ptr() }),
 
             JSValueTag::Symbol => unsafe {
                 let sr = self.as_string_unchecked();
@@ -280,6 +302,12 @@ impl JSValue {
         js_value_get_tag(self.0) == (JSValueTag::Symbol as i32)
     }
 
+    #[cfg(feature = "big_int")]
+    #[inline(always)]
+    pub const fn is_bigint(&self) -> bool {
+        js_value_get_tag(self.0) == (JSValueTag::BigInt as i32)
+    }
+
     pub const fn is_string_or_symbol(&self) -> bool {
         let t = js_value_get_tag(self.0);
         t == (JSValueTag::String as i32) || t == (JSValueTag::Symbol as i32)
@@ -295,7 +323,8 @@ impl JSValue {
             JSValueTag::Object
             | JSValueTag::String
             | JSValueTag::FunctionBytecode
-            | JSValueTag::Module => true,
+            | JSValueTag::Module
+            | JSValueTag::BigInt => true,
             JSValueTag::Symbol => unsafe {
                 self.as_string_unchecked().atom_info().is_some_and(|a| {
                     !crate::atom::is_const_atom(a.id()) && !crate::atom::is_small_int_atom(a.id())
@@ -456,6 +485,25 @@ impl JSValue {
     pub fn as_bytecode(&self) -> Option<Bytecode> {
         if js_value_get_tag(self.0) == (JSValueTag::FunctionBytecode as i32) {
             Some(unsafe { self.as_bytecode_unchecked() })
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "big_int")]
+    pub(crate) unsafe fn as_bigint_unchecked(&self) -> BigIntRef {
+        unsafe {
+            let head = self.as_node_ptr();
+            debug_assert_eq!(head.as_ref().dtype(), crate::bigint::BigIntImpl::GC_TYPE_ID);
+            BigIntRef::from_gc(GcRef::<crate::bigint::BigIntImpl>::from_node_ptr(head))
+        }
+    }
+
+    /// Returns the `BigIntRef` if this is a BigInt primitive.
+    #[cfg(feature = "big_int")]
+    pub fn as_bigint(&self) -> Option<BigIntRef> {
+        if self.is_bigint() {
+            Some(unsafe { self.as_bigint_unchecked() })
         } else {
             None
         }
@@ -754,6 +802,13 @@ impl JSValue {
     pub fn make_symbol(s: StringRef) -> Self {
         let p = s.gc_head_ptr();
         Self(JSValueTag::Symbol.mknode(p), PhantomData)
+    }
+
+    #[cfg(feature = "big_int")]
+    #[inline(always)]
+    pub fn make_bigint(b: BigIntRef) -> Self {
+        let p = b.gc_head_ptr();
+        Self(JSValueTag::BigInt.mknode(p), PhantomData)
     }
 }
 

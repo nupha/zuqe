@@ -8,6 +8,9 @@ mod num;
 
 pub(crate) use {a2d::*, convert::*, d2a::*};
 
+#[cfg(feature = "big_int")]
+use crate::bigint::BigIntRef;
+
 pub(crate) const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 
 /// Integer beyonds range \[-2^53, 2^53\], precision is not guaranteed when converting to f64.
@@ -92,4 +95,23 @@ impl From<f64> for IntOrFloat {
 pub(crate) enum ToNumberHintEnum {
     TON_FLAG_NUMBER,
     TON_FLAG_NUMERIC,
+}
+
+/// Result of numeric literal parsing (`js_aton`) and `ToNumeric`.
+///
+/// `Float` holds the legacy `IntOrFloat` value; `BigInt` (feature `big_int`)
+/// is produced for `n`-suffixed literals. Without the feature the `BigInt`
+/// variant does not exist and the enum degrades to a plain `IntOrFloat`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum NumValue {
+    Float(IntOrFloat),
+    #[cfg(feature = "big_int")]
+    BigInt(BigIntRef),
+}
+
+impl From<IntOrFloat> for NumValue {
+    #[inline(always)]
+    fn from(v: IntOrFloat) -> Self {
+        NumValue::Float(v)
+    }
 }

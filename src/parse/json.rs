@@ -298,7 +298,16 @@ impl<'s> JSParseState<'s> {
 
         if let Ok((num, consumed)) = js_aton(self.ctx(), bytes, radix, flags) {
             self.token.kind = TokenKind::NUMBER;
-            self.token.data = TokenData::Num(num);
+            match num {
+                crate::number::NumValue::Float(n) => self.token.data = TokenData::Num(n),
+                // JSON numbers never carry an `n` suffix; a BigInt result here
+                // would mean a malformed (feature-gated) input, reject it.
+                #[cfg(feature = "big_int")]
+                crate::number::NumValue::BigInt(_) => {
+                    self.token.kind = TokenKind::ERROR;
+                    return Err(-1);
+                }
+            }
             Ok(consumed)
         } else {
             self.token.kind = TokenKind::ERROR;

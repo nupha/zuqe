@@ -10,6 +10,7 @@
 //! | -8      | `Symbol`           | low 48-bit ptr  |
 //! | -7      | `StringRope`       | low 48-bit ptr  |
 //! | -6      | `String`           | low 48-bit ptr  |
+//! | -5      | `BigInt`           | low 48-bit ptr  |
 //! | -3      | `Module`           | low 48-bit ptr  |
 //! | -2      | `FunctionBytecode` | low 48-bit ptr  |
 //! | -1      | `Object`           | low 48-bit ptr  |
@@ -39,6 +40,7 @@ pub(crate) enum JSValueTag {
     String = -6,
     Symbol = -8,
     StringRope = -7,
+    BigInt = -5,
     Module = -3,
     FunctionBytecode = -2,
     Object = -1,
@@ -63,6 +65,7 @@ impl JSValueTag {
             -8 => Some(JSValueTag::Symbol),
             -6 => Some(JSValueTag::String),
             -7 => Some(JSValueTag::StringRope),
+            -5 => Some(JSValueTag::BigInt),
             -3 => Some(JSValueTag::Module),
             -2 => Some(JSValueTag::FunctionBytecode),
             -1 => Some(JSValueTag::Object),
@@ -126,6 +129,7 @@ impl JSValueTag {
             Self::String
                 | Self::Symbol
                 | Self::StringRope
+                | Self::BigInt
                 | Self::Module
                 | Self::FunctionBytecode
                 | Self::Object
@@ -275,6 +279,7 @@ mod tests {
         let cases = [
             (JSValueTag::Object, "Object"),
             (JSValueTag::String, "String"),
+            (JSValueTag::BigInt, "BigInt"),
             (JSValueTag::FunctionBytecode, "FunctionBytecode"),
             (JSValueTag::Module, "Module"),
         ];
@@ -382,6 +387,7 @@ mod tests {
             JSValueTag::String,
             JSValueTag::Symbol,
             JSValueTag::StringRope,
+            JSValueTag::BigInt,
             JSValueTag::Module,
             JSValueTag::FunctionBytecode,
             JSValueTag::Object,

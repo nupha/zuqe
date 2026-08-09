@@ -11,7 +11,7 @@ license = "Apache-2.0"
 
 [features]
 inline_cache = []
-
+big_int = []
 all_unicode = ["unicode-id-start", "unicode-normalization"]
 async_support = ["futures-util"]
 crossbeam_channel = ["crossbeam"]
@@ -40,7 +40,7 @@ gc_protect_transient = []
 
 default = [
     "inline_cache",
-
+    "big_int",
     "all_unicode",
     "async_support",
 

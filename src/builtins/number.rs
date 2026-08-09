@@ -11,7 +11,7 @@ use crate::{
     function::{CallContext, FieldDef},
     number::{
         ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP,
-        JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, f64_stringify, is_safe_integer, js_aton,
+        JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, NumValue, f64_stringify, is_safe_integer, js_aton,
     },
     object::ObjectPayload,
     utils::unlikely,
@@ -74,7 +74,13 @@ pub(super) fn js_parseInt(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                     ctx.clear_exception();
                     JSValue::NAN
                 },
-                |(n, _)| JSValue::from(n),
+                |(n, _)| match n {
+                    NumValue::Float(v) => JSValue::from(v),
+                    // parseInt never passes ATOD_ACCEPT_SUFFIX, so a BigInt can
+                    // never be returned; keep the value-preserving conversion.
+                    #[cfg(feature = "big_int")]
+                    NumValue::BigInt(b) => JSValue::make_bigint(b),
+                },
             );
 
             Ok(val)
@@ -96,7 +102,13 @@ pub(super) fn js_parseFloat(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
                 ctx.clear_exception();
                 JSValue::NAN
             },
-            |(n, _)| JSValue::from(n),
+            |(n, _)| match n {
+                NumValue::Float(v) => JSValue::from(v),
+                // parseFloat never passes ATOD_ACCEPT_SUFFIX; keep the
+                // value-preserving conversion for exhaustiveness.
+                #[cfg(feature = "big_int")]
+                NumValue::BigInt(b) => JSValue::make_bigint(b),
+            },
         );
         Ok(val)
     }

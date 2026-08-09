@@ -93,6 +93,24 @@ impl<'s> JSParseState<'s> {
 
         match self.token.kind {
             TokenKind::NUMBER => {
+                #[cfg(feature = "big_int")]
+                if let Some(bi) = self.token.data.bigint() {
+                    // BigInt literal. Values that fit in i32 use the dedicated
+                    // PUSH_BIGINT_I32 (no GC allocation); anything larger is
+                    // emitted through the constant pool as a BigInt JSValue.
+                    match crate::bigint::to_i64_exact(&bi) {
+                        Some(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => {
+                            self.emit_op(OpCode::PUSH_BIGINT_I32);
+                            self.emit_u32(i as u32);
+                        }
+                        _ => {
+                            self.emit_push_const(JSValue::make_bigint(bi), true)?;
+                        }
+                    }
+                    self.next_token()?;
+                    return Ok(());
+                }
+
                 match self.token.data.number().unwrap() {
                     IntOrFloat::Int64(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => {
                         self.emit_op(OpCode::PUSH_I32);

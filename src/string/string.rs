@@ -19,7 +19,7 @@ use crate::{
     context::ScopedContext,
     error::Exception,
     gc::gc::GC_TYPE_REGISTRY,
-    number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, js_aton},
+    number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, NumValue, js_aton},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
         ObjectPayload, check_define_prop_flags,
@@ -234,7 +234,18 @@ impl StringImpl {
                     // not a valid number.
                     IntOrFloat::Float64(f64::NAN)
                 } else {
-                    num
+                    match num {
+                        NumValue::Float(n) => n,
+                        // String→Number never produces a BigInt (no `n` suffix
+                        // flag), but keep ToNumber semantics: a BigInt cannot be
+                        // coerced to a number.
+                        #[cfg(feature = "big_int")]
+                        NumValue::BigInt(_) => {
+                            let _ =
+                                ctx.throw_type_error("Cannot convert a BigInt value to a number");
+                            IntOrFloat::Float64(f64::NAN)
+                        }
+                    }
                 }
             } else {
                 ctx.clear_exception();

@@ -56,6 +56,9 @@ use crate::{
     value::JSValue,
 };
 
+#[cfg(feature = "big_int")]
+use crate::bigint::BigIntRef;
+
 /// Action returned by the bytecode interpreter inner loop to the trampoline.
 /// The inner loop processes opcodes normally; when it encounters a call,
 /// return, tail call, or uncaught exception, it yields control to the
@@ -2359,9 +2362,31 @@ impl Bytecode {
                         }
                     }
                     OpCode::PUSH_BIGINT_I32 => {
-                        // P2 stub: will be implemented alongside BigInt support.
-                        // Push a BigInt constant from an i32 value.
-                        unreachable!("PUSH_BIGINT_I32 not yet implemented");
+                        // [^] -> [bigint_value, ^]
+                        // i32-range BigInt literals are reconstructed here from
+                        // the immediate (no constant-pool lookup, no parser-side
+                        // GC allocation).
+                        #[cfg(feature = "big_int")]
+                        {
+                            let a = PC_FETCH!(i32);
+                            let big = BigIntRef::create(
+                                realm_scope,
+                                a < 0,
+                                vec![a.unsigned_abs() as u64],
+                            )
+                            .map_or(JSValue::EXCEPTION, JSValue::make_bigint);
+                            SP_PUT!(0, big);
+                            SP_GO!(1);
+                            if unlikely(SP_REF!(-1).is_exception()) {
+                                break ExecAction::Exception;
+                            }
+                        }
+                        #[cfg(not(feature = "big_int"))]
+                        {
+                            // `big_int` disabled: the emitter never produces
+                            // this opcode, so reaching it is a bug.
+                            unreachable!("PUSH_BIGINT_I32 not supported");
+                        }
                     }
                     OpCode::NOP => {}
 

@@ -353,7 +353,7 @@ impl JSValue {
                 JSValueTag::Symbol => unsafe {
                     return val.as_string_unchecked().to_atom(ctx, AtomKind::Symbol);
                 },
-                JSValueTag::Object | JSValueTag::Float64 => {
+                JSValueTag::Object | JSValueTag::Float64 | JSValueTag::BigInt => {
                     val = val.to_string_or_symbol(ctx)?;
                     continue;
                 }

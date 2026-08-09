@@ -7,6 +7,10 @@ use gc_lite::{
     GcError, GcHead, GcHeap, GcNode, GcPartitionId, GcRef, GcTrace, GcTraceFn, gc_type_register,
 };
 
+// `GcTraceCtx` is only referenced by the feature-off `BigIntImpl` placeholder.
+#[cfg(not(feature = "big_int"))]
+use gc_lite::GcTraceCtx;
+
 use crate::{
     context::{ContextImpl, ScopedContext},
     error::Exception,
@@ -17,6 +21,24 @@ use crate::{
     string::{RopeImpl, StringImpl},
     value::JSValue,
 };
+
+// The `gc_type_register!` macro expands every entry into a `GcTypeInfo` table
+// slot plus a `GcNode` impl, and `#[cfg]` attributes are not accepted inside
+// the entry list. To keep the `bigint` module feature-gated (`big_int`), the
+// type is aliased here: when the feature is on it is the real
+// `crate::bigint::BigIntImpl`, otherwise a private zero-sized placeholder so
+// the registry layout is identical either way.
+#[cfg(feature = "big_int")]
+use crate::bigint::BigIntImpl;
+
+#[cfg(not(feature = "big_int"))]
+#[allow(dead_code)]
+struct BigIntImpl;
+#[cfg(not(feature = "big_int"))]
+impl GcTrace for BigIntImpl {
+    #[inline(always)]
+    fn trace(&self, _: &mut GcTraceCtx) {}
+}
 
 // register gc data types
 gc_type_register! {
@@ -29,6 +51,7 @@ gc_type_register! {
     RopeImpl;
     AsyncStateImpl;
     ShapeImpl, drop_pass = 1;
+    BigIntImpl;
 }
 
 /// zhuque-side extension of [`GcHeap`] for [`JSValue`] write barriers.

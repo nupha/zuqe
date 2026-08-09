@@ -3,7 +3,14 @@
 
 use smallvec::SmallVec;
 
-use crate::{context::ScopedContext, number::IntOrFloat, utils::unlikely};
+use crate::{
+    context::ScopedContext,
+    number::{IntOrFloat, NumValue},
+    utils::unlikely,
+};
+
+#[cfg(feature = "big_int")]
+use crate::bigint::parse_str as bigint_parse_str;
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
 // accept Oo and Ob prefixes in addition to 0x prefix if radix = 0
@@ -112,7 +119,7 @@ pub(crate) fn js_aton(
     bytes: &[u8],
     mut radix: i32,
     flags: i32,
-) -> Result<(IntOrFloat, usize), i32> {
+) -> Result<(NumValue, usize), i32> {
     macro_rules! fail {
         () => {
             return Err(ctx.throw_type_error("invalid number literal"));
@@ -211,11 +218,11 @@ pub(crate) fn js_aton(
         && bytes[idx..].starts_with(b"Infinity")
     {
         return Ok((
-            IntOrFloat::from(if is_neg {
+            NumValue::Float(IntOrFloat::from(if is_neg {
                 f64::NEG_INFINITY
             } else {
                 f64::INFINITY
-            }),
+            })),
             idx + "Infinity".len(),
         ));
     }
@@ -367,24 +374,35 @@ pub(crate) fn js_aton(
                     } else {
                         IntOrFloat::Int64(i)
                     };
-                    Ok((v, idx))
+                    Ok((NumValue::Float(v), idx))
                 } else if !is_neg && let Ok(u) = u64::from_str_radix(txt, radix as _) {
-                    Ok((IntOrFloat::from(u as f64), idx))
+                    Ok((NumValue::Float(IntOrFloat::from(u as f64)), idx))
                 } else if let Ok(i) = i128::from_str_radix(txt, radix as _) {
-                    Ok((IntOrFloat::Float64(i as f64), idx))
+                    Ok((NumValue::Float(IntOrFloat::Float64(i as f64)), idx))
                 } else {
                     fail!();
                 }
             } else {
                 // Decimal float or anything that went through fractional/exponent path.
                 if let Ok(f) = txt.parse::<f64>() {
-                    Ok((IntOrFloat::from(f), idx))
+                    Ok((NumValue::Float(IntOrFloat::from(f)), idx))
                 } else {
                     fail!();
                 }
             }
         }
-        ATOD_TYPE_BIG_INT => Err(ctx.throw_type_error("big int is not supported")),
+        ATOD_TYPE_BIG_INT => {
+            #[cfg(feature = "big_int")]
+            {
+                let txt = std::str::from_utf8(buf.as_slice()).unwrap();
+                let bi = bigint_parse_str(ctx, txt, radix as u32)?;
+                Ok((NumValue::BigInt(bi), idx))
+            }
+            #[cfg(not(feature = "big_int"))]
+            {
+                Err(ctx.throw_type_error("big int is not supported"))
+            }
+        }
 
         _ => unreachable!(),
     }
@@ -723,7 +741,7 @@ mod tests {
                 let new = js_aton(ctx, s.as_bytes(), 0, flags);
                 match (old, new) {
                     (Ok((v1, o1)), Ok((v2, o2))) => {
-                        assert_eq!(v1, v2, "value mismatch for literal {}", s);
+                        assert_eq!(NumValue::Float(v1), v2, "value mismatch for literal {}", s);
                         assert_eq!(o1, o2, "offset mismatch for literal {}", s);
                     }
                     (Err(_), Err(_)) => {}
@@ -781,7 +799,12 @@ mod tests {
                 let new = js_aton(ctx, s.as_bytes(), 10, 0);
                 match (old, new) {
                     (Ok((v1, o1)), Ok((v2, o2))) => {
-                        assert_eq!(v1, v2, "value mismatch for parseFloat case {}", s);
+                        assert_eq!(
+                            NumValue::Float(v1),
+                            v2,
+                            "value mismatch for parseFloat case {}",
+                            s
+                        );
                         assert_eq!(o1, o2, "offset mismatch for parseFloat case {}", s);
                     }
                     (Err(_), Err(_)) => {}
@@ -831,7 +854,12 @@ mod tests {
                 let new = js_aton(ctx, s.as_bytes(), 0, flags);
                 match (old, new) {
                     (Ok((v1, o1)), Ok((v2, o2))) => {
-                        assert_eq!(v1, v2, "value mismatch for parseInt case {}", s);
+                        assert_eq!(
+                            NumValue::Float(v1),
+                            v2,
+                            "value mismatch for parseInt case {}",
+                            s
+                        );
                         assert_eq!(o1, o2, "offset mismatch for parseInt case {}", s);
                     }
                     (Err(_), Err(_)) => {}
@@ -845,6 +873,68 @@ mod tests {
                         );
                     }
                 }
+            }
+        });
+    }
+
+    /// Round-trip test for `NumValue`: `n`-suffixed literals must produce a
+    /// `NumValue::BigInt` with the correct magnitude/sign and consumed length.
+    #[cfg(feature = "big_int")]
+    #[test]
+    fn js_aton_parses_bigint_literals() {
+        use crate::bigint::to_i64_exact;
+
+        const FLAGS: i32 = ATOD_ACCEPT_BIN_OCT
+            | ATOD_ACCEPT_LEGACY_OCTAL
+            | ATOD_ACCEPT_UNDERSCORES
+            | ATOD_ACCEPT_SUFFIX;
+
+        fn assert_bigint(ctx: &mut ScopedContext, s: &str, expect: i64) {
+            let (v, consumed) = js_aton(ctx, s.as_bytes(), 0, FLAGS).unwrap();
+            assert_eq!(consumed, s.len(), "consumed length for literal {}", s);
+            match v {
+                NumValue::Float(_) => panic!("expected BigInt for literal {}", s),
+                NumValue::BigInt(b) => {
+                    assert_eq!(
+                        to_i64_exact(&b),
+                        Some(expect),
+                        "value mismatch for literal {}",
+                        s
+                    );
+                }
+            }
+        }
+
+        with_ctx(|ctx| {
+            assert_bigint(ctx, "123n", 123);
+            assert_bigint(ctx, "0n", 0);
+            assert_bigint(ctx, "-0n", 0);
+            assert_bigint(ctx, "-5n", -5);
+            assert_bigint(ctx, "0x10n", 16);
+            assert_bigint(ctx, "0b1010n", 10);
+            assert_bigint(ctx, "0o777n", 511);
+            assert_bigint(ctx, "1_000n", 1000);
+            assert_bigint(ctx, "1_2_3_4n", 1234);
+
+            // beyond i64 → large BigInt, sign preserved
+            let big = "123456789012345678901234567890n";
+            let (v, consumed) = js_aton(ctx, big.as_bytes(), 0, FLAGS).unwrap();
+            assert_eq!(consumed, big.len());
+            match v {
+                NumValue::Float(_) => panic!("expected BigInt for large literal"),
+                NumValue::BigInt(b) => {
+                    let i = b.as_impl();
+                    assert!(!i.sign());
+                    assert!(i.limbs.len() > 1);
+                }
+            }
+
+            let neg = "-123456789012345678901234567890n";
+            let (v, consumed) = js_aton(ctx, neg.as_bytes(), 0, FLAGS).unwrap();
+            assert_eq!(consumed, neg.len());
+            match v {
+                NumValue::Float(_) => panic!("expected BigInt for negative large literal"),
+                NumValue::BigInt(b) => assert!(b.sign()),
             }
         });
     }

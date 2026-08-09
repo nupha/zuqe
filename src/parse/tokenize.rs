@@ -7,7 +7,7 @@ use crate::{
     function::FunctionKind,
     number::{
         ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
-        IntOrFloat, js_aton,
+        IntOrFloat, NumValue, js_aton,
     },
     runtime::js_check_stack_overflow,
     stack_frame::ExecMode,
@@ -126,6 +126,8 @@ pub(super) enum TokenData {
         sep: i32,
     },
     Num(IntOrFloat),
+    #[cfg(feature = "big_int")]
+    BigInt(crate::bigint::BigIntRef),
     Ident {
         atom: Atom,
         has_escape: bool,
@@ -192,6 +194,16 @@ impl TokenData {
     pub const fn number(&self) -> Option<IntOrFloat> {
         if let Self::Num(n) = self {
             Some(*n)
+        } else {
+            None
+        }
+    }
+
+    /// if data is a BigInt literal, returns the BigInt value.
+    #[cfg(feature = "big_int")]
+    pub const fn bigint(&self) -> Option<crate::bigint::BigIntRef> {
+        if let Self::BigInt(b) = self {
+            Some(*b)
         } else {
             None
         }
@@ -844,7 +856,11 @@ impl<'s> JSParseState<'s> {
         }
 
         self.token.kind = TokenKind::NUMBER;
-        self.token.data = TokenData::Num(ret);
+        match ret {
+            NumValue::Float(n) => self.token.data = TokenData::Num(n),
+            #[cfg(feature = "big_int")]
+            NumValue::BigInt(b) => self.token.data = TokenData::BigInt(b),
+        }
 
         Ok(consumed)
     }

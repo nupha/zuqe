@@ -9,6 +9,8 @@
 
 mod array;
 mod atom;
+#[cfg(feature = "big_int")]
+pub mod bigint;
 mod bytecode;
 mod class;
 mod context;
