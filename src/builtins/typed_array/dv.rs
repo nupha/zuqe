@@ -68,6 +68,22 @@ impl DataViewPayload {
         self.byte_length as _
     }
 
+    /// start offset in the underlying ArrayBuffer.
+    #[inline(always)]
+    pub const fn byte_offset(&self) -> usize {
+        self.offset as _
+    }
+
+    /// Whether the view's range extends past the buffer's *current* byte
+    /// length. Only possible when the underlying buffer is resizable and has
+    /// been shrunk. Per the spec such a DataView is "out of bounds": its
+    /// accessors and the byteLength/byteOffset getters throw a TypeError.
+    #[inline(always)]
+    pub fn is_out_of_bounds(&self) -> bool {
+        let buf_len = self.array_buffer().payload().byte_length();
+        self.offset as usize + self.byte_length as usize > buf_len
+    }
+
     /// run closure with underlaying bytes of typed array.
     pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         let base = self.offset as usize;
@@ -142,12 +158,5 @@ impl DataView {
         } else {
             self.payload().byte_length()
         }
-    }
-
-    /// Get underlying array buffer byte offset.
-    /// When underlaying array buffer is detached, returns Err.
-    pub(super) fn array_buffer_byte_offset(&self, ctx: &mut ScopedContext) -> Result<usize, i32> {
-        self.ensure_attached(ctx)?;
-        Ok(self.payload().offset as usize)
     }
 }

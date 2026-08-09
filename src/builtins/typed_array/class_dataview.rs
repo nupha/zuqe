@@ -77,6 +77,12 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if pos + size > dv.byte_length() {
         return Err(ctx.throw_range_error("out of bound"));
     }
+    // Resizable buffer: the view's recorded range can extend past the
+    // buffer's *current* length after a shrink. Per GetViewValue this is a
+    // TypeError (not the RangeError above).
+    if dv.is_out_of_bounds() {
+        return Err(ctx.throw_type_error("DataView is out of bounds"));
+    }
 
     dv.with_bytes(|buf| unsafe {
         let ptr = buf.as_ptr().add(pos);
@@ -202,6 +208,11 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if pos + size > dv.byte_length() {
         return Err(ctx.throw_range_error("out of bound"));
     }
+    // Resizable buffer: throw a TypeError when the view is out of bounds
+    // relative to the buffer's *current* length (see GetViewValue).
+    if dv.is_out_of_bounds() {
+        return Err(ctx.throw_type_error("DataView is out of bounds"));
+    }
 
     let dv_mut: &mut DataViewPayload = this.class_payload_mut(ctx, JS_CLASS_DATAVIEW)?;
 
@@ -256,11 +267,20 @@ fn js_dataview_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             TA_GET_BUFFER => Ok(dv.array_buffer().into()),
             TA_GET_BYTE_LENGTH => {
                 dv.ensure_attached(ctx)?;
-                Ok(JSValue::from(dv.byte_length() as i32))
+                let p = dv.payload();
+                if p.is_out_of_bounds() {
+                    return Err(ctx.throw_type_error("DataView is out of bounds"));
+                }
+                Ok(JSValue::from(p.byte_length() as i32))
             }
-            TA_GET_BYTE_OFFSET => dv
-                .array_buffer_byte_offset(ctx)
-                .map(|n| JSValue::from(n as i32)),
+            TA_GET_BYTE_OFFSET => {
+                dv.ensure_attached(ctx)?;
+                let p = dv.payload();
+                if p.is_out_of_bounds() {
+                    return Err(ctx.throw_type_error("DataView is out of bounds"));
+                }
+                Ok(JSValue::from(p.byte_offset() as i32))
+            }
             _ => unreachable!(),
         }
     } else {
