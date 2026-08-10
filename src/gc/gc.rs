@@ -102,6 +102,7 @@ impl RuntimeImpl {
             for c in self.context_list.iter() {
                 c.trace(&mut gcx);
             }
+
             // mark stackless arena frames (active frames in StackFrameArena)
             self.frame_arena.trace(&mut gcx);
             // mark trampoline virtual frames (caller bytecodes not in arena prev chain).
@@ -119,7 +120,15 @@ impl RuntimeImpl {
                 let head = self.frame_arena.frame(self.active_frame_index);
                 head.func_obj.trace(&mut gcx);
             }
-            // mark error value
+
+            // trace all pending Promises — they must survive GC even when no
+            // user code holds a reference, otherwise their settle callbacks
+            // (PromiseReaction handlers) are lost.
+            for p in self.pending_promises.iter() {
+                p.trace(&mut gcx);
+            }
+
+            // trace error value
             if let Exception::Error(err) = self.exception() {
                 err.trace(&mut gcx);
             }

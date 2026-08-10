@@ -242,6 +242,12 @@ impl Promise {
             rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
         }
 
+        // Register in pending_promises so GC never collects a Pending Promise
+        // and loses its reactions/settle callbacks.
+        if promise.payload().state() == PromiseState::Pending {
+            ctx.rt_mut().pending_promises.push(promise);
+        }
+
         Ok(promise)
     }
 
@@ -355,6 +361,8 @@ impl Promise {
             },
             JobGcTrace2 { a: rr[0], b: rr[1] },
         );
+
+        ctx.rt_mut().pending_promises.push(promise);
 
         Ok(promise)
     }

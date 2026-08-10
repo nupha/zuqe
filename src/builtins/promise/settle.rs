@@ -255,6 +255,17 @@ impl Promise {
     fn settle(&mut self, ctx: &mut ScopedContext, value: JSValue, is_reject: bool) {
         debug_assert_eq!(self.payload().state(), PromiseState::Pending);
 
+        // Remove from pending_promises — the Promise is no longer Pending.
+        let self_node = self.gc_node_ptr();
+        let rt = ctx.rt_mut();
+        if let Some(idx) = rt
+            .pending_promises
+            .iter()
+            .position(|p| p.gc_node_ptr() == self_node)
+        {
+            rt.pending_promises.remove(idx);
+        }
+
         ctx.gc_heap_mut().bind_value(self.gc_node_ptr(), &value); // write barrier
 
         let (state, is_handled) = {

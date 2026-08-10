@@ -19,6 +19,7 @@ use crate::{
     error::Exception,
     gc::gc::GC_TYPE_REGISTRY,
     module::{ModuleLoadFn, ModuleNormalizeFn},
+    object::Promise,
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
     stack_frame::{ExecMode, FrameIndex, StackFrameArena, VirtualFrame},
     utils::js_get_stack_pointer,
@@ -116,12 +117,14 @@ pub struct RuntimeImpl {
     /// gc request flag
     pub(crate) gc_req: bool,
 
-    pub(crate) interrupt_handler: Option<Box<dyn InterruptFn>>,
-
+    /// Pending Promises that must survive GC even if no user code holds a reference.
+    pub(crate) pending_promises: Vec<Promise>,
     #[deprecated]
     pub(crate) host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
     #[deprecated]
     pub(crate) host_promise_rejection_tracker_opaque: *mut c_void,
+
+    pub(crate) interrupt_handler: Option<Box<dyn InterruptFn>>,
 
     /// Monotonically increasing counter for ShapeImpl::uid.
     /// Incremented on every shape allocation to guarantee unique shape IDs.
@@ -190,6 +193,7 @@ impl RuntimeImpl {
             gc_alloc_count: 0,
             gc_alloc_check_interval: GC_ALLOC_CHECK_INTERVAL,
             gc_user_trace: None,
+            pending_promises: Vec::new(),
 
             interrupt_handler: None,
 
