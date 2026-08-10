@@ -903,6 +903,72 @@ impl JSValue {
                     };
                 }
 
+                // BigInt vs BigInt: exact sign-magnitude comparison.
+                #[cfg(feature = "big_int")]
+                (crate::JSValueTag::BigInt, crate::JSValueTag::BigInt) => unsafe {
+                    let a = v1.as_bigint_unchecked();
+                    let b = v2.as_bigint_unchecked();
+                    return Ok(a.cmp(&b));
+                },
+
+                // BigInt vs Number: exact for integral numbers, f64 otherwise;
+                // NaN is greater than every other value (mirrors the Float64 arm).
+                #[cfg(feature = "big_int")]
+                (
+                    crate::JSValueTag::BigInt,
+                    crate::JSValueTag::Int | crate::JSValueTag::Bool | crate::JSValueTag::Float64,
+                ) => {
+                    let a = unsafe { v1.as_bigint_unchecked() };
+                    let b = v2.to_number(ctx)?;
+                    if let IntOrFloat::Float64(d) = b
+                        && d.is_nan()
+                    {
+                        return Ok(Ordering::Less);
+                    }
+                    return Ok(cmp_bigint_number(&a, &b).unwrap_or(Ordering::Equal));
+                }
+                #[cfg(feature = "big_int")]
+                (
+                    crate::JSValueTag::Int | crate::JSValueTag::Bool | crate::JSValueTag::Float64,
+                    crate::JSValueTag::BigInt,
+                ) => {
+                    let a = v1.to_number(ctx)?;
+                    let b = unsafe { v2.as_bigint_unchecked() };
+                    if let IntOrFloat::Float64(d) = a
+                        && d.is_nan()
+                    {
+                        return Ok(Ordering::Greater);
+                    }
+                    return Ok(cmp_bigint_number(&b, &a)
+                        .map(Ordering::reverse)
+                        .unwrap_or(Ordering::Equal));
+                }
+
+                // BigInt vs String: exact StringToBigInt comparison when the
+                // string is a valid integer literal; otherwise compare as f64.
+                #[cfg(feature = "big_int")]
+                (crate::JSValueTag::BigInt, crate::JSValueTag::String) => unsafe {
+                    let b = v1.as_bigint_unchecked();
+                    let s = v2.as_string_unchecked();
+                    let text = s.content().encode_utf8(false);
+                    return Ok(crate::bigint::string_to_bigint(ctx, &text)
+                        .map(|n| b.cmp(&n))
+                        .unwrap_or_else(|| {
+                            crate::bigint::to_f64(&b).partial_cmp(&s.to_number(ctx).to_f64()).unwrap_or(Ordering::Equal)
+                        }));
+                }
+                #[cfg(feature = "big_int")]
+                (crate::JSValueTag::String, crate::JSValueTag::BigInt) => unsafe {
+                    let s = v1.as_string_unchecked();
+                    let b = v2.as_bigint_unchecked();
+                    let text = s.content().encode_utf8(false);
+                    return Ok(crate::bigint::string_to_bigint(ctx, &text)
+                        .map(|n| n.cmp(&b))
+                        .unwrap_or_else(|| {
+                            s.to_number(ctx).to_f64().partial_cmp(&crate::bigint::to_f64(&b)).unwrap_or(Ordering::Equal)
+                        }));
+                }
+
                 // convert
                 (crate::JSValueTag::Null, _) => {
                     v1 = JSValue::ZERO;

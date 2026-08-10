@@ -353,6 +353,10 @@ pub(crate) fn js_aton(
     // Optional suffix 'n' for BigInt and validation for non-decimal floats.
     if flags & ATOD_ACCEPT_SUFFIX != 0 {
         if matches!(bytes.get(idx), Some(b'n')) {
+            // BigInt literal must not contain an ExponentPart or DecimalPoint.
+            if is_float {
+                fail!();
+            }
             idx += 1;
             atod_type = ATOD_TYPE_BIG_INT;
         } else if is_float && radix != 10 {
@@ -605,6 +609,10 @@ unsafe fn js_atof(
         if flags & ATOD_ACCEPT_SUFFIX != 0 {
             // 处理 BigInt 后缀 n
             if *p == b'n' {
+                // BigInt literal must not contain an ExponentPart or DecimalPoint.
+                if is_float {
+                    fail!();
+                }
                 p = p.offset(1);
                 atod_type = ATOD_TYPE_BIG_INT;
             } else if is_float && radix != 10 {

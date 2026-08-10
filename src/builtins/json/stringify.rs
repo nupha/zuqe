@@ -4,7 +4,8 @@
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_RAWJSON, JS_CLASS_STRING, ScopedContext,
+    JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_RAWJSON, JS_CLASS_STRING,
+    ScopedContext,
     atom::Atom,
     builtins::iterator::JSIteratorKindEnum,
     error::JSResult,
@@ -143,7 +144,7 @@ fn js_json_check(
 
     // check for object.toJSON method
     // ECMA specifies this is done only for Object and BigInt */
-    if val.is_object() {
+    if val.is_object() || val.is_bigint() {
         let f = val.get_property(ctx, Atom::CONST_toJSON)?;
         if f.is_callable() {
             val = f.call(ctx, val, std::slice::from_ref(&key))?;
@@ -165,6 +166,9 @@ fn js_json_check(
     } else if ret.is_null() || ret.is_bool() || ret.is_string() || ret.is_int() || ret.is_float64()
     {
         Ok(ret)
+    } else if ret.is_bigint() {
+        // SerializeJSONValue: a BigInt value is not serializable → TypeError.
+        Err(ctx.throw_type_error("Do not know how to serialize a BigInt"))
     } else {
         debug_assert!(!ret.is_exception());
         Ok(JSValue::UNDEFINED)
@@ -208,6 +212,11 @@ fn js_json_to_str(
                         .buf
                         .push_content(raw.to_string(ctx)?.content())
                         .map_err(|_| ctx.throw_out_of_memory());
+                }
+                JS_CLASS_BIG_INT => {
+                    // Boxed BigInt: unwrap [[BigIntData]] then SerializeJSONValue
+                    // rejects the BigInt primitive with a TypeError.
+                    return Err(ctx.throw_type_error("Do not know how to serialize a BigInt"));
                 }
                 _ => {}
             }

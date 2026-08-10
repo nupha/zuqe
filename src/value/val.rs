@@ -583,6 +583,8 @@ impl JSValue {
                 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
+            #[cfg(feature = "big_int")]
+            JSValueTag::BigInt => unsafe { bigint_hash(&self.as_bigint_unchecked()) },
             _ => 0,
         };
 
@@ -831,6 +833,24 @@ impl JSValue {
     }
 }
 
+/// Hash a BigInt by its mathematical value (sign + limb magnitude), so two
+/// equal BigInts built from separate GC nodes collide. This matches the
+/// content-equality used by `JSValue::eq` / Map & Set keys.
+#[cfg(feature = "big_int")]
+fn bigint_hash(b: &crate::bigint::BigIntRef) -> u32 {
+    let i = b.as_impl();
+    let mut h: u32 = if i.sign() { 0x5bd1_e995 } else { 0 };
+    // Fold every 32-bit half of each limb, so `1n` and a two-limb value with
+    // a zero low limb still differ while equal values stay equal.
+    for &limb in i.limbs() {
+        let lo = limb as u32;
+        let hi = (limb >> 32) as u32;
+        h = h.wrapping_mul(3163).wrapping_add(lo);
+        h = h.wrapping_mul(3163).wrapping_add(hi);
+    }
+    h
+}
+
 // ============================================================================
 // serde_json support
 // ============================================================================
@@ -906,6 +926,16 @@ mod serde_json_support {
             } else if self.is_bool() {
                 serde_json::Value::Bool(self.to_bool().unwrap_or(false))
             } else {
+                #[cfg(feature = "big_int")]
+                if let Some(bi) = self.as_bigint() {
+                    // JSON has no BigInt; a value within i64 stays a number (exact),
+                    // anything larger becomes its lossless decimal string.
+                    return if let Some(i) = crate::bigint::to_i64_exact(&bi) {
+                        serde_json::Value::from(i)
+                    } else {
+                        serde_json::Value::String(crate::bigint::to_string_radix(&bi, 10))
+                    };
+                }
                 // null, undefined, and every non-scalar (array/object/function/symbol)
                 serde_json::Value::Null
             }
