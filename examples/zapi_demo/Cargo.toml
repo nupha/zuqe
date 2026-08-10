@@ -1,0 +1,11 @@
+[package]
+name = "zapi_demo"
+version = "0.1.0"
+edition = "2021"
+description = "Zapi — demo native extension for zuqe/zhuque engine"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zapi = { path = "../../../zapi" }

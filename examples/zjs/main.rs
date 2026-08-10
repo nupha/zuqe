@@ -14,7 +14,6 @@ use std::{io::Write, process::ExitCode};
 
 use clap::Parser;
 use colorized::{Colors::*, colorize_println};
-use libloading::Library;
 use url::Url;
 use zuqe::{
     Context, EvalFlags, EvalName, EvalType, Exception, ExitStatus, JSValue, ModuleDef, Runtime,
@@ -260,8 +259,8 @@ fn main() -> ExitCode {
     // (and `import.meta.url`) is a URL, and a `file://` base is also required so
     // that dynamic `import()` from a *script* entry resolves relative specifiers
     // correctly instead of being handed a bare filesystem path.
-    let entry_name = zuqe::path_to_url(&args.filename)
-        .expect("entry path must convert to a file:// URL");
+    let entry_name =
+        zuqe::path_to_url(&args.filename).expect("entry path must convert to a file:// URL");
 
     let exit_code = ctx.with_new_scope(|mut scope| {
         let result = scope.eval_wait(
@@ -374,16 +373,12 @@ async fn main() -> ExitCode {
     }
 }
 
-pub type JsInitModuleFn = fn(&mut ScopedContext, &str) -> Result<ModuleDef, i32>;
-
 fn js_module_loader(
     ctx: &mut ScopedContext,
     file_name: &Url,
     attrs: JSValue,
     _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
-    // `file_name` is a canonical `file://` URL. Convert it back to a local path
-    // for filesystem access; dispatch by scheme here for future `https:` support.
     let path = match zuqe::url_to_abspath(file_name) {
         Some(p) => p,
         None => {
@@ -399,65 +394,41 @@ fn js_module_loader(
         .is_some_and(|e| matches!(e, "dylib" | "so" | "dll"));
 
     if is_native_lib {
-        let lib = unsafe { Library::new(&path) }.map_err(|_| {
-            ctx.throw_reference_error(&format!(
-                "could not load module filename '{file_name}' as shared library"
-            ))
-        })?;
-
-        unsafe {
-            let init_fn = match lib.get::<JsInitModuleFn>(b"js_init_module\0") {
-                Ok(sym) => sym,
-                Err(_) => {
-                    return Err(ctx.throw_reference_error(&format!(
-                        "could not load module filename '{file_name}': js_init_module not found"
-                    )));
-                }
-            };
-
-            // Pass the URL (`file_name`) as the module name so the loaded native
-            // module's identity matches the cache key used for lookup.
-            match init_fn(ctx, file_name.as_str()) {
-                Ok(m) => {
-                    // avoid to close the library
-                    // TODO: save the lib handle somewhere
-                    std::mem::forget(lib);
-                    Ok(m)
-                }
-                Err(e) => {
-                    log::error!("could not load library '{file_name}': initialization error");
-                    Err(e)
-                }
-            }
+        #[cfg(feature = "zapi")]
+        {
+            return zuqe::zapi::load_extension(ctx, &path);
         }
-    } else {
-        // js file — check for import attributes
-        let attr_type = get_attr_type(ctx, attrs);
+        #[cfg(not(feature = "zapi"))]
+        {
+            return Err(ctx.throw_reference_error(
+                "native module loading requires zapi feature (build with --features zapi)",
+            ));
+        }
+    }
 
-        match std::fs::read_to_string(&path) {
-            Ok(content) => match attr_type.as_deref() {
-                Some("json") => {
-                    // JSON module: wrap as `export default <json>;\n`
-                    let mut src = String::from("export default ");
-                    src.push_str(&content);
-                    src.push('\n');
-                    ctx.compile_module(src.as_bytes(), file_name, false)
-                }
-                Some("text") => {
-                    // Text module: wrap as `export default "<escaped>";\n`
-                    let mut src = String::from("export default \"");
-                    src.push_str(&escape_js_string(&content));
-                    src.push_str("\";\n");
-                    ctx.compile_module(src.as_bytes(), file_name, false)
-                }
-                Some(other) => Err(
-                    ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other))
-                ),
-                None => ctx.compile_module(content.as_bytes(), file_name, false),
-            },
-            Err(_) => {
-                Err(ctx.throw_reference_error(&format!("could not load module '{file_name}'")))
+    let attr_type = get_attr_type(ctx, attrs);
+
+    match std::fs::read_to_string(&path) {
+        Ok(content) => match attr_type.as_deref() {
+            Some("json") => {
+                let mut src = String::from("export default ");
+                src.push_str(&content);
+                src.push('\n');
+                ctx.compile_module(src.as_bytes(), file_name, false)
             }
+            Some("text") => {
+                let mut src = String::from("export default \"");
+                src.push_str(&escape_js_string(&content));
+                src.push_str("\";\n");
+                ctx.compile_module(src.as_bytes(), file_name, false)
+            }
+            Some(other) => Err(
+                ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other))
+            ),
+            None => ctx.compile_module(content.as_bytes(), file_name, false),
+        },
+        Err(_) => {
+            Err(ctx.throw_reference_error(&format!("could not load module '{file_name}'")))
         }
     }
 }

@@ -135,6 +135,18 @@ pub struct RuntimeImpl {
     /// Each entry is (callback, held_value, context).
     #[cfg(feature = "builtin_weakref")]
     pub(crate) finrec_pending_cleanups: Vec<(JSValue, JSValue, ContextPtr)>,
+
+    // ── zapi native extension state ──
+    #[cfg(feature = "zapi")]
+    pub(crate) zapi_body_registry:
+        std::sync::Mutex<std::collections::HashMap<i32, zapi::ffi::ZapiBodyFn>>,
+    #[cfg(feature = "zapi")]
+    pub(crate) zapi_next_token: std::sync::atomic::AtomicI32,
+    #[cfg(feature = "zapi")]
+    pub(crate) zapi_class_map:
+        std::sync::Mutex<std::collections::HashMap<crate::class::ClassID, usize>>,
+    #[cfg(feature = "zapi")]
+    pub(crate) zapi_pending_class_def: *const zapi::ffi::ZqClassDef,
 }
 
 impl Drop for RuntimeImpl {
@@ -200,6 +212,15 @@ impl RuntimeImpl {
             next_shape_uid: Cell::new(1),
             #[cfg(feature = "builtin_weakref")]
             finrec_pending_cleanups: Vec::new(),
+
+            #[cfg(feature = "zapi")]
+            zapi_body_registry: std::sync::Mutex::new(std::collections::HashMap::new()),
+            #[cfg(feature = "zapi")]
+            zapi_next_token: std::sync::atomic::AtomicI32::new(1),
+            #[cfg(feature = "zapi")]
+            zapi_class_map: std::sync::Mutex::new(std::collections::HashMap::new()),
+            #[cfg(feature = "zapi")]
+            zapi_pending_class_def: std::ptr::null(),
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,

@@ -16,6 +16,7 @@ all_unicode = ["unicode-id-start", "unicode-normalization"]
 async_support = ["futures-util"]
 crossbeam_channel = ["crossbeam"]
 serde_json_support = ["serde_json"]
+zapi = ["dep:zapi", "libloading"]
 
 builtin_proxy = []
 builtin_mapset = []
@@ -86,6 +87,8 @@ hash-link = "0.1"
 smallvec = "1.13"
 fallible_collections = "0.5"
 gc-lite = { version = "0.6.2", path = "../gc-lite-v2" }
+zapi = { path = "../zapi", optional = true }
+libloading = { version = "0.9", optional = true }
 lre = { version = "0.3.1", optional = true }
 libc = { version = "0.2", optional = true }
 unicode-id-start = { version = "1.4", optional = true }
@@ -111,7 +114,6 @@ libc = "0.2"
 clap = { version = "4.5", features = ["derive"] }
 anyhow = { version = "1", default-features = false }
 env_logger = "0.10"
-libloading = "0.9"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [target.'cfg(windows)'.dev-dependencies]

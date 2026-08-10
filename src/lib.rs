@@ -27,6 +27,9 @@ mod string;
 mod utils;
 mod value;
 
+#[cfg(feature = "zapi")]
+pub mod zapi;
+
 pub use {
     array::Array,
     atom::Atom,

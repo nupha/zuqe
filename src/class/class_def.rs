@@ -185,7 +185,20 @@ impl ClassDef {
         }
     }
 
-    /// Create user-defined class def with init fn
+    /// Create user-defined class def with a custom initialization function.
+    ///
+    /// `init_fn` is called **once per engine context** when the class is first used
+    /// via `use_class()` (never at registration time). It receives the target context
+    /// and the registered `class_id`.
+    ///
+    /// The init function **must** populate `ctx.class_slots[class_id].proto` with a
+    /// prototype object before returning `Ok(())`. Failure to do so will trigger a
+    /// runtime assertion. Optionally it may also set `.ctor` if the class has a
+    /// constructor.
+    ///
+    /// This path is intended for classes whose prototype (or constructor) cannot be
+    /// described by a static `&[FieldDef]` — e.g. classes registered dynamically by
+    /// native extensions (zapi), where the prototype layout is determined at runtime.
     pub const fn new_with(name: &'static str, init_fn: ClassInitializeFn) -> Self {
         debug_assert!(!name.is_empty());
         Self {
