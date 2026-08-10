@@ -105,8 +105,6 @@ impl RuntimeImpl {
                         }
                     }
                 }
-
-                ()
             });
 
             // Skip remaining contexts if interrupted
@@ -154,10 +152,9 @@ mod tests {
     use super::TickStatus;
 
     use crate::{
-        JSValue,
+        JSValue, ScopedContext,
         builtins::promise::{Promise, PromiseResultSlot, PromiseState},
         runtime::Runtime,
-        ScopedContext,
     };
 
     /// Drive the event loop until it stops (no more jobs to run).
@@ -200,7 +197,9 @@ mod tests {
     #[should_panic(expected = "dropped without commit")]
     fn result_slot_drop_without_commit_detected() {
         let mut rt = Runtime::create().unwrap();
-        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP).unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
 
         let _ = ctx.with_root_scope(|mut cx| {
             let slot = PromiseResultSlot::new();
