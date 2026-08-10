@@ -149,6 +149,11 @@ pub(crate) fn to_i64_exact(bi: &BigIntRef) -> Option<i64> {
 /// Render a BigInt as a digit string in the given radix (2..=36), with a
 /// leading `-` for negatives. Zero is `"0"`. Used for ToString and for
 /// ToPropertyKey (BigInt property names are the decimal string, no `n`).
+///
+/// Instead of dividing by `radix` one digit at a time, we divide the limb
+/// array by a large single-limb chunk `radix^k` (k = 19 for radix 10, so the
+/// chunk is `10^19`), pulling `k` digits out of each division pass. That cuts
+/// the number of O(n) limb passes by ~k× compared with per-digit division.
 pub(crate) fn to_string_radix(bi: &BigIntRef, radix: u32) -> String {
     debug_assert!((2..=36).contains(&radix));
     let i = bi.as_impl();
@@ -156,38 +161,82 @@ pub(crate) fn to_string_radix(bi: &BigIntRef, radix: u32) -> String {
         return "0".to_string();
     }
 
-    // Repeatedly divide the little-endian limb array by `radix`, collecting
-    // remainders (least significant first).
+    // Largest radix^k that fits a u64 (single-limb divisor) and its digit count.
+    let (chunk, chunk_digits) = largest_power_fit_u64(radix);
+
+    // Repeatedly divide the little-endian limb array by `chunk`, collecting
+    // remainders (least significant first); each remainder is k digits.
     let mut limbs: Vec<u64> = i.limbs().to_vec();
-    let mut digits: Vec<u8> = Vec::with_capacity(limbs.len() * 19 + 1);
+    let mut chunks: Vec<u64> = Vec::with_capacity(limbs.len() + 2);
     loop {
-        let mut rem: u128 = 0;
-        let mut q_limbs: Vec<u64> = Vec::with_capacity(limbs.len());
+        let mut rem: u64 = 0;
         let mut all_zero = true;
-        // iterate most significant limb first
-        for &limb in limbs.iter().rev() {
-            let cur = (rem << 64) | limb as u128;
-            let q = (cur / radix as u128) as u64;
-            rem = cur % radix as u128;
-            if q != 0 {
+        for l in limbs.iter_mut().rev() {
+            let cur = ((rem as u128) << 64) | *l as u128;
+            *l = (cur / chunk as u128) as u64;
+            rem = (cur % chunk as u128) as u64;
+            if *l != 0 {
                 all_zero = false;
             }
-            q_limbs.push(q);
         }
-        digits.push(rem as u8);
+        chunks.push(rem);
         if all_zero {
             break;
         }
-        q_limbs.reverse(); // back to little-endian
-        limbs = q_limbs;
     }
 
-    let mut s = String::with_capacity(digits.len() + 1);
+    let mut s = String::with_capacity(chunks.len() * chunk_digits + 1);
     if i.sign() {
         s.push('-');
     }
-    for &d in digits.iter().rev() {
-        s.push(char::from_digit(d as u32, radix).expect("digit in range"));
+    // chunks are little-endian; the most significant chunk is the last one.
+    for (idx, &c) in chunks.iter().rev().enumerate() {
+        let d = u64_to_digits(c, radix);
+        if idx != 0 {
+            // zero-pad every chunk except the most significant one.
+            for _ in d.len()..chunk_digits {
+                s.push('0');
+            }
+        }
+        s.push_str(&d);
+    }
+    s
+}
+
+/// The largest `radix^k` that still fits in a `u64`, plus the digit count `k`.
+fn largest_power_fit_u64(radix: u32) -> (u64, usize) {
+    let mut power: u64 = 1;
+    let mut digits = 0usize;
+    loop {
+        match power.checked_mul(radix as u64) {
+            Some(p) => {
+                power = p;
+                digits += 1;
+            }
+            None => break,
+        }
+    }
+    (power, digits)
+}
+
+/// Format a `u64` as base-`radix` digits (no leading zeros).
+fn u64_to_digits(mut v: u64, radix: u32) -> String {
+    debug_assert!((2..=36).contains(&radix));
+    if v == 0 {
+        return "0".to_string();
+    }
+    let mut buf = [0u8; 64];
+    let mut n = 0usize;
+    while v != 0 {
+        let d = (v % radix as u64) as u32;
+        buf[n] = char::from_digit(d, radix).unwrap() as u8;
+        v /= radix as u64;
+        n += 1;
+    }
+    // reverse
+    let mut s = String::with_capacity(n);
+    for i in (0..n).rev() {
+        s.push(buf[i] as char);
     }
     s
 }

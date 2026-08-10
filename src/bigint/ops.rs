@@ -18,6 +18,24 @@ use super::{BigIntImpl, BigIntRef};
 /// with a RangeError before the engine tries to allocate them.
 pub(crate) const MAX_BIGINT_BITS: u64 = 1 << 28;
 
+/// Operands of at least this many limbs (and not too unbalanced) switch from
+/// the schoolbook O(n²) multiplication to Karatsuba O(n^1.585).
+const KARATSUBA_THRESHOLD: usize = 32;
+
+/// `true` when Karatsuba is likely to beat schoolbook: both operands are at
+/// least [`KARATSUBA_THRESHOLD`] limbs and their lengths are within a factor
+/// of four. A very unbalanced pair (e.g. `1000 × 32`) is cheaper as schoolbook
+/// because the recursion would otherwise keep splitting the large operand
+/// against the same small one.
+fn should_karatsuba(a: &[u64], b: &[u64]) -> bool {
+    let (small, large) = if a.len() < b.len() {
+        (a.len(), b.len())
+    } else {
+        (b.len(), a.len())
+    };
+    small >= KARATSUBA_THRESHOLD && large <= small * 4
+}
+
 /// Exact `u128` of a plain impl (magnitude; sign ignored), if it fits.
 fn impl_to_u128(i: &BigIntImpl) -> Option<u128> {
     if i.is_zero() {
@@ -96,11 +114,21 @@ pub(crate) fn sub_mag(a: &[u64], b: &[u64]) -> Vec<u64> {
     result
 }
 
-/// a * b (magnitudes, schoolbook O(n*m)).
+/// a * b (magnitudes). Dispatches between the schoolbook O(n*m) algorithm and
+/// Karatsuba (O(n^1.585)) for large, roughly-balanced operands.
 pub(crate) fn mul_mag(a: &[u64], b: &[u64]) -> Vec<u64> {
     if a.is_empty() || b.is_empty() {
         return Vec::new();
     }
+    if should_karatsuba(a, b) {
+        mul_karatsuba(a, b)
+    } else {
+        mul_schoolbook(a, b)
+    }
+}
+
+/// Schoolbook O(n*m) multiplication (limb-wise, u128 intermediates).
+fn mul_schoolbook(a: &[u64], b: &[u64]) -> Vec<u64> {
     let mut result = vec![0u64; a.len() + b.len()];
     for (i, &ai) in a.iter().enumerate() {
         if ai == 0 {
@@ -121,6 +149,56 @@ pub(crate) fn mul_mag(a: &[u64], b: &[u64]) -> Vec<u64> {
         }
     }
     normalize_vec(result)
+}
+
+/// Karatsuba multiplication: split both operands at the midpoint and combine
+/// three half-size products instead of four (O(n^1.585)).
+///
+/// With `a = a0 + a1*B` and `b = b0 + b1*B` (B = 2^(64*m)):
+///   z0 = a0*b0, z2 = a1*b1, z1 = (a0+a1)*(b0+b1) - z0 - z2
+///   result = z0 + z1*B + z2*B²
+fn mul_karatsuba(a: &[u64], b: &[u64]) -> Vec<u64> {
+    let n = a.len().max(b.len());
+    let m = n / 2;
+
+    let (a0, a1) = if a.len() <= m { (a, &[][..]) } else { a.split_at(m) };
+    let (b0, b1) = if b.len() <= m { (b, &[][..]) } else { b.split_at(m) };
+
+    let z0 = mul_mag(a0, b0);
+    let z2 = mul_mag(a1, b1);
+
+    let s_a = add_mag(a0, a1);
+    let s_b = add_mag(b0, b1);
+    // z1 = (a0+a1)*(b0+b1) - z0 - z2; mathematically non-negative.
+    let mid = mul_mag(&s_a, &s_b);
+    let z0z2 = add_mag(&z0, &z2);
+    let z1 = sub_mag(&mid, &z0z2);
+
+    // result = z0 + z1*B + z2*B² (B = 2^(64*m)); size = a+b limbs.
+    let mut result = vec![0u64; a.len() + b.len() + 1];
+    add_mag_into(&mut result, &z0, 0);
+    add_mag_into(&mut result, &z1, m);
+    add_mag_into(&mut result, &z2, 2 * m);
+    normalize_vec(result)
+}
+
+/// `result[offset..] += addend` (little-endian limbs), propagating carries.
+fn add_mag_into(result: &mut [u64], addend: &[u64], offset: usize) {
+    let mut carry: u64 = 0;
+    for (i, &x) in addend.iter().enumerate() {
+        let idx = offset + i;
+        let cur = result[idx] as u128 + x as u128 + carry as u128;
+        result[idx] = cur as u64;
+        carry = (cur >> 64) as u64;
+    }
+    let mut k = offset + addend.len();
+    while carry != 0 {
+        debug_assert!(k < result.len(), "add_mag_into carry overflow");
+        let cur = result[k] as u128 + carry as u128;
+        result[k] = cur as u64;
+        carry = (cur >> 64) as u64;
+        k += 1;
+    }
 }
 
 /// Single-limb division: divide `a` by `d`, returning (quotient, remainder).
@@ -832,6 +910,94 @@ mod tests {
                 dec(&BigIntRef::div(ctx, &a, &b).unwrap()),
                 "1000000000000000000000000000000000000000"
             );
+        });
+    }
+
+    #[test]
+    fn karatsuba_matches_schoolbook_randomized() {
+        // Cross-check the Karatsuba path (large, balanced operands) against the
+        // schoolbook fallback over many random pairs spanning 32+ limbs.
+        with_ctx(|ctx| {
+            let mut seed: u64 = 0xfeed_face_cafe_beef;
+            let mut next = move || {
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                (seed >> 33) as u64
+            };
+            for _ in 0..200 {
+                let la = 33 + (next() % 8) as usize;
+                let lb = 33 + (next() % 8) as usize;
+                let a: Vec<u64> = (0..la).map(|_| next()).collect();
+                let b: Vec<u64> = (0..lb).map(|_| next()).collect();
+                let kar = super::mul_karatsuba(&a, &b);
+                let school = super::mul_schoolbook(&a, &b);
+                assert_eq!(kar, school, "mismatch for {la}×{lb} limbs");
+            }
+        });
+    }
+
+    #[test]
+    fn karatsuba_unbalanced_falls_back_to_schoolbook() {
+        // A 40×5 pair must not use Karatsuba (small operand below threshold)
+        // and must still be correct.
+        with_ctx(|ctx| {
+            let a: Vec<u64> = vec![0xdead_beef_cafe_f00d; 40];
+            let b: Vec<u64> = vec![0x1234_5678_9abc_def0; 5];
+            let r = mul_mag(&a, &b);
+            assert_eq!(r, super::mul_schoolbook(&a, &b));
+        });
+    }
+
+    #[test]
+    fn karatsuba_boundary_unbalance_still_correct() {
+        // 128 = 4×32: still enters Karatsuba (the unbalance limit), with a1
+        // empty after the split — exercises the z1 carry into the z2 region.
+        with_ctx(|ctx| {
+            let a: Vec<u64> = vec![0x0123_4567_89ab_cdef; 32];
+            let b: Vec<u64> = (0..128u64).map(|i| i.wrapping_mul(0x9e3779b97f4a7c15)).collect();
+            let r = mul_mag(&a, &b);
+            assert_eq!(r, super::mul_schoolbook(&a, &b));
+            assert_eq!(mul_mag(&b, &a), r, "commutative");
+        });
+    }
+
+    #[test]
+    fn to_string_radix_roundtrip_randomized() {
+        // Round-trip decimal strings through parse → to_string for large random
+        // values, exercising the chunked-by-1e19 output path.
+        with_ctx(|ctx| {
+            let mut seed: u64 = 0x1234_5678_9abc_def0;
+            let mut next = move || {
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                (seed >> 33) as u64
+            };
+            for _ in 0..200 {
+                // 3–6 random limbs → up to ~115 decimal digits (> 19, spans
+                // multiple 1e19 chunks).
+                let len = 3 + (next() % 4) as usize;
+                let limbs: Vec<u64> = (0..len).map(|_| next()).collect();
+                let bi = BigIntRef::create(ctx, false, limbs.clone()).unwrap();
+                let s1 = to_string_radix(&bi, 10);
+                let back = parse_str(ctx, &s1, 10).unwrap();
+                assert_eq!(back.as_impl().limbs(), &*normalize_vec(limbs), "roundtrip {s1}");
+            }
+        });
+    }
+
+    #[test]
+    fn to_string_radix_all_radices() {
+        with_ctx(|ctx| {
+            for radix in 2..=36u32 {
+                for &txt in &["0", "1", "255", "65535", "12345678901234567890"] {
+                    let bi = s(ctx, txt);
+                    let out = to_string_radix(&bi, radix);
+                    let back = parse_str(ctx, &out, radix).unwrap();
+                    assert_eq!(dec(&back), txt, "radix {radix} {txt} -> {out}");
+                }
+            }
         });
     }
 }
