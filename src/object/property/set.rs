@@ -182,7 +182,7 @@ impl ObjectImpl {
                             // index out of bound
                             // ECMA: if receiver object is same to self, consume the value.
                             if receiver.is_some_and(|o| cur_obj == o) {
-                                let _ = val.to_number(ctx)?;
+                                let _ = val.to_numeric(ctx)?;
                             }
                             return Ok(true);
                         }
@@ -192,7 +192,7 @@ impl ObjectImpl {
                     {
                         // ECMA: if receiver object is same to self, consume the value.
                         if receiver.is_some_and(|o| cur_obj == o) {
-                            let _ = val.to_number(ctx)?;
+                            let _ = val.to_numeric(ctx)?;
                         }
                         return Ok(true);
                     }
@@ -463,7 +463,30 @@ impl ObjectImpl {
                 Some(Ok(true))
             }
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                unimplemented!()
+                #[cfg(feature = "big_int")]
+                {
+                    // ToBigInt64 / ToBigUint64: ToBigInt then wrap mod 2^64.
+                    let Ok(bi) = crate::builtins::bigint::to_big_int(ctx, val) else {
+                        return Some(Err(-1));
+                    };
+                    let bi = unsafe { bi.as_bigint_unchecked() };
+                    let bits = if self.class_id() == JS_CLASS_BIG_INT64_ARRAY {
+                        crate::bigint::to_bigint64(&bi) as u64
+                    } else {
+                        crate::bigint::to_biguint64(&bi)
+                    };
+                    let _ = Object::from_ref(self)
+                        .as_TypedArray_mut()
+                        .unwrap()
+                        .set_element_u64(index as _, bits);
+                    Some(Ok(true))
+                }
+                #[cfg(not(feature = "big_int"))]
+                {
+                    Some(Err(ctx.throw_type_error(
+                        "BigInt64Array, BigUint64Array is not supported",
+                    )))
+                }
             }
 
             _ => None,

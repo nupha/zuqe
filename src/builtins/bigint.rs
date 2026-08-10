@@ -19,8 +19,10 @@ use crate::{
 /// Strict `ToBigInt(value)`: BigInt → itself, Boolean → 0n/1n, String →
 /// StringToBigInt (SyntaxError when invalid), Object → ToPrimitive then
 /// recurse, and **Number / Symbol / undefined / null → TypeError**. This is
-/// the conversion used by `BigInt.asIntN` / `asUintN`.
-fn to_big_int(ctx: &mut ScopedContext, val: JSValue) -> JSResult {
+/// the conversion used by `BigInt.asIntN` / `asUintN` and by the BigInt
+/// typed-array / DataView element writers (`BigInt64Array[i] = v`,
+/// `DataView.prototype.setBigInt64`).
+pub(crate) fn to_big_int(ctx: &mut ScopedContext, val: JSValue) -> JSResult {
     match val.tag() {
         crate::JSValueTag::BigInt => Ok(val),
         crate::JSValueTag::Bool => {

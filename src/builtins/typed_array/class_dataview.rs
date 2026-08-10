@@ -126,9 +126,37 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 };
                 Ok(JSValue::from(n))
             }
-            JS_CLASS_BIG_INT64_ARRAY => Err(ctx.throw_type_error("BigInt64Array is not supported")),
+            JS_CLASS_BIG_INT64_ARRAY => {
+                #[cfg(feature = "big_int")]
+                {
+                    let bb: [u8; 8] = std::slice::from_raw_parts(ptr, 8).try_into().unwrap();
+                    let n = if le {
+                        i64::from_le_bytes(bb)
+                    } else {
+                        i64::from_be_bytes(bb)
+                    };
+                    crate::bigint::from_i64(ctx, n).map(JSValue::make_bigint)
+                }
+                #[cfg(not(feature = "big_int"))]
+                {
+                    Err(ctx.throw_type_error("BigInt64Array is not supported"))
+                }
+            }
             JS_CLASS_BIG_UINT64_ARRAY => {
-                Err(ctx.throw_type_error("BigUint64Array is not supported"))
+                #[cfg(feature = "big_int")]
+                {
+                    let bb: [u8; 8] = std::slice::from_raw_parts(ptr, 8).try_into().unwrap();
+                    let n = if le {
+                        u64::from_le_bytes(bb)
+                    } else {
+                        u64::from_be_bytes(bb)
+                    };
+                    crate::bigint::from_u64(ctx, n).map(JSValue::make_bigint)
+                }
+                #[cfg(not(feature = "big_int"))]
+                {
+                    Err(ctx.throw_type_error("BigUint64Array is not supported"))
+                }
             }
             JS_CLASS_FLOAT16_ARRAY => {
                 let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
@@ -180,7 +208,21 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if class_id <= JS_CLASS_UINT32_ARRAY {
         v = val.to_number(ctx)?.to_u32();
     } else if class_id <= JS_CLASS_BIG_UINT64_ARRAY {
-        return Err(ctx.throw_type_error("BigInt is not supported"));
+        #[cfg(feature = "big_int")]
+        {
+            // ToBigInt64 / ToBigUint64.
+            let bi = crate::builtins::bigint::to_big_int(ctx, val)?;
+            let bi = unsafe { bi.as_bigint_unchecked() };
+            v64 = if class_id == JS_CLASS_BIG_INT64_ARRAY {
+                crate::bigint::to_bigint64(&bi) as u64
+            } else {
+                crate::bigint::to_biguint64(&bi)
+            };
+        }
+        #[cfg(not(feature = "big_int"))]
+        {
+            return Err(ctx.throw_type_error("BigInt is not supported"));
+        }
     } else if class_id == JS_CLASS_FLOAT16_ARRAY {
         v = f64_to_f16(val.to_number(ctx)?.to_f64()) as u32;
     } else {
@@ -239,7 +281,7 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     std::ptr::copy_nonoverlapping(bb.as_ptr(), ptr, 4);
                     Ok(())
                 }
-                JS_CLASS_FLOAT64_ARRAY => {
+                JS_CLASS_FLOAT64_ARRAY | JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
                     let bb = if le {
                         v64.to_le_bytes()
                     } else {
@@ -247,9 +289,6 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     };
                     std::ptr::copy_nonoverlapping(bb.as_ptr(), ptr, 8);
                     Ok(())
-                }
-                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                    Err(ctx.throw_type_error("BigInt64Array, BigUint64Array is not supported"))
                 }
                 _ => {
                     unreachable!();
@@ -338,18 +377,20 @@ pub const js_dataview_proto_funcs: &[FieldDef] = &[
         js_dataview_getValue,
         JS_CLASS_UINT32_ARRAY as i16,
     ),
-    // FieldDef::FUNCTION(
-    //     c"getBigInt64",
-    //     1,
-    //     js_dataview_getValue,
-    //     JS_CLASS_BIG_INT64_ARRAY as i16
-    // ),
-    // FieldDef::FUNCTION(
-    //     c"getBigUint64",
-    //     1,
-    //     js_dataview_getValue,
-    //     JS_CLASS_BIG_UINT64_ARRAY as i16
-    // ),
+    #[cfg(feature = "big_int")]
+    FieldDef::FUNC(
+        "getBigInt64",
+        1,
+        js_dataview_getValue,
+        JS_CLASS_BIG_INT64_ARRAY as i16,
+    ),
+    #[cfg(feature = "big_int")]
+    FieldDef::FUNC(
+        "getBigUint64",
+        1,
+        js_dataview_getValue,
+        JS_CLASS_BIG_UINT64_ARRAY as i16,
+    ),
     FieldDef::FUNC(
         "getFloat16",
         1,
@@ -404,18 +445,20 @@ pub const js_dataview_proto_funcs: &[FieldDef] = &[
         js_dataview_setValue,
         JS_CLASS_UINT32_ARRAY as i16,
     ),
-    // FieldDef::FUNCTION(
-    //     c"setBigInt64",
-    //     2,
-    //     js_dataview_setValue,
-    //     JS_CLASS_BIG_INT64_ARRAY as i16
-    // ),
-    // FieldDef::FUNCTION(
-    //     c"setBigUint64",
-    //     2,
-    //     js_dataview_setValue,
-    //     JS_CLASS_BIG_UINT64_ARRAY as i16
-    // ),
+    #[cfg(feature = "big_int")]
+    FieldDef::FUNC(
+        "setBigInt64",
+        2,
+        js_dataview_setValue,
+        JS_CLASS_BIG_INT64_ARRAY as i16,
+    ),
+    #[cfg(feature = "big_int")]
+    FieldDef::FUNC(
+        "setBigUint64",
+        2,
+        js_dataview_setValue,
+        JS_CLASS_BIG_UINT64_ARRAY as i16,
+    ),
     FieldDef::FUNC(
         "setFloat16",
         2,

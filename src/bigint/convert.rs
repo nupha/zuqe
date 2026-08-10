@@ -277,6 +277,28 @@ pub(crate) fn to_f64(bi: &BigIntRef) -> f64 {
     }
 }
 
+/// `ToBigInt64` (BigInt → 64-bit two's complement, wrapping mod 2^64).
+///
+/// Used by `BigInt64Array` element assignment and `DataView.prototype
+/// .setBigInt64` (after ToBigInt).
+pub(crate) fn to_bigint64(bi: &BigIntRef) -> i64 {
+    to_biguint64(bi) as i64
+}
+
+/// `ToBigUint64` (BigInt → 64-bit, wrapping mod 2^64).
+///
+/// Used by `BigUint64Array` element assignment and `DataView.prototype
+/// .setBigUint64` (after ToBigInt).
+pub(crate) fn to_biguint64(bi: &BigIntRef) -> u64 {
+    let i = bi.as_impl();
+    let lo = i.limbs().first().copied().unwrap_or(0);
+    if i.sign() {
+        lo.wrapping_neg()
+    } else {
+        lo
+    }
+}
+
 /// Create a BigInt from an `i64` in the current gc scope.
 pub(crate) fn from_i64(ctx: &mut ScopedContext, v: i64) -> Result<BigIntRef, i32> {
     if v >= 0 {
@@ -318,17 +340,23 @@ pub(crate) fn f64_integer_to_limbs(d: f64) -> Vec<u64> {
     let bits = d.to_bits();
     let exp = ((bits >> 52) & 0x7ff) as i32 - 1023 - 52; // value = mantissa * 2^exp
     let mantissa = (bits & 0x000f_ffff_ffff_ffff) | (1 << 52);
-    debug_assert!(exp >= 0, "non-integer f64 passed to f64_integer_to_limbs");
-    let mut limbs = vec![0u64; (exp / 64) as usize];
-    let rem = (exp % 64) as u32;
-    if rem == 0 {
-        limbs.push(mantissa);
+    if exp < 0 {
+        // value < 2^52: the integer is contained in the top bits of the
+        // mantissa (the low `-exp` mantissa bits are fraction bits).
+        let v = mantissa >> (-exp);
+        super::ops::normalize_vec(vec![v])
     } else {
-        limbs.push(mantissa << rem);
-        let high = mantissa >> (64 - rem);
-        if high != 0 {
-            limbs.push(high);
+        let mut limbs = vec![0u64; (exp / 64) as usize];
+        let rem = (exp % 64) as u32;
+        if rem == 0 {
+            limbs.push(mantissa);
+        } else {
+            limbs.push(mantissa << rem);
+            let high = mantissa >> (64 - rem);
+            if high != 0 {
+                limbs.push(high);
+            }
         }
+        super::ops::normalize_vec(limbs)
     }
-    super::ops::normalize_vec(limbs)
 }

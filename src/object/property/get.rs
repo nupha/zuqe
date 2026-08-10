@@ -165,7 +165,7 @@ impl ObjectImpl {
     /// Returns:
     /// - Some: property value
     /// - None: try slow path instead
-    fn get_property_index(&self, idx: usize) -> Option<JSResult> {
+    fn get_property_index(&self, ctx: &mut ScopedContext, idx: usize) -> Option<JSResult> {
         macro_rules! typed_array_el {
             ($ty:ident, $vtype:ident) => {
                 let o = Object::from_ref(self);
@@ -209,8 +209,39 @@ impl ObjectImpl {
             JS_CLASS_UINT32_ARRAY => {
                 typed_array_el!(u32, u32);
             }
-            JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                unimplemented!()
+            JS_CLASS_BIG_INT64_ARRAY => {
+                #[cfg(feature = "big_int")]
+                {
+                    let o = Object::from_ref(self);
+                    let ta = o.as_TypedArray().unwrap();
+                    return if idx < ta.length() {
+                        let v: i64 = ta.with_elements_as::<i64, _>(|lst| lst[idx]);
+                        Some(crate::bigint::from_i64(ctx, v).map(JSValue::make_bigint))
+                    } else {
+                        None
+                    };
+                }
+                #[cfg(not(feature = "big_int"))]
+                {
+                    return Err(ctx.throw_type_error("BigInt64Array is not supported")).into();
+                }
+            }
+            JS_CLASS_BIG_UINT64_ARRAY => {
+                #[cfg(feature = "big_int")]
+                {
+                    let o = Object::from_ref(self);
+                    let ta = o.as_TypedArray().unwrap();
+                    return if idx < ta.length() {
+                        let v: u64 = ta.with_elements_as::<u64, _>(|lst| lst[idx]);
+                        Some(crate::bigint::from_u64(ctx, v).map(JSValue::make_bigint))
+                    } else {
+                        None
+                    };
+                }
+                #[cfg(not(feature = "big_int"))]
+                {
+                    return Err(ctx.throw_type_error("BigUint64Array is not supported")).into();
+                }
             }
             JS_CLASS_FLOAT16_ARRAY => {
                 let o = Object::from_ref(self);
@@ -248,14 +279,14 @@ impl ObjectImpl {
         if let Some(num) = prop.as_number() {
             match num {
                 IntOrFloat::Int64(i) if i >= 0 => {
-                    if let Some(r) = self.get_property_index(i as usize) {
+                    if let Some(r) = self.get_property_index(ctx, i as usize) {
                         return r;
                     }
                 }
                 IntOrFloat::Float64(f) if f >= 0.0 && f.fract() == 0.0 => {
                     let n = f.trunc() as i64;
                     if n <= u32::MAX as i64
-                        && let Some(r) = self.get_property_index(n as usize)
+                        && let Some(r) = self.get_property_index(ctx, n as usize)
                     {
                         return r;
                     }
@@ -270,7 +301,7 @@ impl ObjectImpl {
 
     #[inline]
     pub fn get_property_u32(&self, ctx: &mut ScopedContext, idx: u32) -> JSResult {
-        self.get_property_index(idx as usize)
+        self.get_property_index(ctx, idx as usize)
             .unwrap_or_else(|| self.get_property_value_slow(ctx, JSValue::from(idx)))
     }
 

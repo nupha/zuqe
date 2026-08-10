@@ -104,7 +104,14 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
             let len = {
                 let a2 = cc.arg(2);
                 if length_tracked {
-                    if (byte_length & ((1 << size_log2) - 1)) != 0 {
+                    // Length-tracking view. For a resizable buffer only the
+                    // offset must be aligned (the buffer may later resize to any
+                    // byte length); the length is floor((byteLength - offset) /
+                    // elementSize). A non-resizable buffer still requires the
+                    // byte length to be a multiple of the element size.
+                    if !ab.payload().is_resizable()
+                        && (byte_length & ((1 << size_log2) - 1)) != 0
+                    {
                         return Err(ctx.throw_range_error(
                             "byte length should be a multiple of element size",
                         ));
@@ -291,8 +298,24 @@ fn js_typed_array_with(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         idx += len as i64;
     }
 
-    // ToNumber(value); may resize/detach the underlying buffer.
-    let val = cc.arg(1).to_primitive(ctx, HINT_NUMBER)?.to_number(ctx)?;
+    // ToNumeric(value) then ToBigInt (BigInt content) or ToNumber; may
+    // resize/detach the underlying buffer.
+    let is_bigint_ta = matches!(
+        ta.class_id(),
+        JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
+    );
+    let val = if is_bigint_ta {
+        #[cfg(feature = "big_int")]
+        {
+            crate::builtins::bigint::to_big_int(ctx, cc.arg(1))?
+        }
+        #[cfg(not(feature = "big_int"))]
+        {
+            return Err(ctx.throw_type_error("BigInt64Array, BigUint64Array is not supported"));
+        }
+    } else {
+        JSValue::from(cc.arg(1).to_primitive(ctx, HINT_NUMBER)?.to_number(ctx)?)
+    };
 
     // IsValidIntegerIndex(O, 𝔽(actualIndex)) is checked against the CURRENT state,
     // i.e. after all coercions happened.
@@ -531,15 +554,28 @@ fn js_typed_array_fill(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
 
         c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
-            //JS_ToBigInt64(ctx, &mut v64 as *mut u64 as *mut i64, (*argv.offset(0)))
-            return Err(ctx.throw_type_error(&format!(
-                "typed array for {} is not supported",
-                if c == JS_CLASS_BIG_INT64_ARRAY {
-                    "BigInt"
+            #[cfg(feature = "big_int")]
+            {
+                // ToBigInt64 / ToBigUint64.
+                let bi = crate::builtins::bigint::to_big_int(ctx, val)?;
+                let bi = unsafe { bi.as_bigint_unchecked() };
+                v64 = if c == JS_CLASS_BIG_INT64_ARRAY {
+                    crate::bigint::to_bigint64(&bi) as u64
                 } else {
-                    "BigUint"
-                }
-            )));
+                    crate::bigint::to_biguint64(&bi)
+                };
+            }
+            #[cfg(not(feature = "big_int"))]
+            {
+                return Err(ctx.throw_type_error(&format!(
+                    "typed array for {} is not supported",
+                    if c == JS_CLASS_BIG_INT64_ARRAY {
+                        "BigInt"
+                    } else {
+                        "BigUint"
+                    }
+                )));
+            }
         }
         _ => {
             unreachable!()
@@ -1147,7 +1183,80 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 }
             }),
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                Err(ctx.throw_type_error("BigInt64 is not supported"))
+                #[cfg(feature = "big_int")]
+                {
+                    abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
+                        let slice = unsafe {
+                            std::slice::from_raw_parts_mut(
+                                buf.as_mut_ptr().cast::<u64>(),
+                                buf.len() >> 3,
+                            )
+                        };
+                        if let Some(cmp_fn) = cmp.as_object() {
+                            let mut has_error = false;
+                            slice.sort_by(|a, b| {
+                                if !has_error {
+                                    let va = crate::bigint::from_u64(
+                                        ctx,
+                                        if ta.class_id() == JS_CLASS_BIG_INT64_ARRAY {
+                                            *a as i64 as u64
+                                        } else {
+                                            *a
+                                        },
+                                    );
+                                    let vb = crate::bigint::from_u64(
+                                        ctx,
+                                        if ta.class_id() == JS_CLASS_BIG_INT64_ARRAY {
+                                            *b as i64 as u64
+                                        } else {
+                                            *b
+                                        },
+                                    );
+                                    match (va, vb) {
+                                        (Ok(a), Ok(b)) => {
+                                            if let Ok(r) = call_cmp_fn(
+                                                ctx,
+                                                cmp_fn,
+                                                JSValue::make_bigint(a),
+                                                JSValue::make_bigint(b),
+                                            ) {
+                                                r
+                                            } else {
+                                                has_error = true;
+                                                Ordering::Equal
+                                            }
+                                        }
+                                        _ => {
+                                            has_error = true;
+                                            Ordering::Equal
+                                        }
+                                    }
+                                } else {
+                                    Ordering::Equal
+                                }
+                            });
+                            if has_error { Err(-1) } else { Ok(()) }
+                        } else if ta.class_id() == JS_CLASS_BIG_INT64_ARRAY {
+                            // signed default sort
+                            let signed = unsafe {
+                                std::slice::from_raw_parts_mut(
+                                    buf.as_mut_ptr().cast::<i64>(),
+                                    buf.len() >> 3,
+                                )
+                            };
+                            signed.sort_unstable();
+                            Ok(())
+                        } else {
+                            // unsigned default sort
+                            slice.sort_unstable();
+                            Ok(())
+                        }
+                    })
+                }
+                #[cfg(not(feature = "big_int"))]
+                {
+                    Err(ctx.throw_type_error("BigInt64 is not supported"))
+                }
             }
             _ => unreachable!(),
         };
@@ -1226,7 +1335,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     }
 
     let mut k: i32;
-    let mut d: f64;
+    let mut d: f64 = 0.0;
     let inc: i32;
 
     if special == special_lastIndexOf {
@@ -1274,12 +1383,21 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     }
 
     let _is_bigint = false;
-    let is_int: bool; // avoid warning
-    let v64: i64;
+    let mut is_int: bool = false;
+    let mut v64: i64 = 0;
 
     // check value to find
     let v = cc.arg(0);
-    if let Some(i) = v.as_int() {
+    // For BigInt typed arrays the search value is a BigInt (or a non-BigInt,
+    // which can never match an element). Handle that in the class-specific
+    // branch below; for the numeric classes a non-number never matches.
+    let is_bigint_search = v.is_bigint();
+    if is_bigint_search {
+        #[cfg(not(feature = "big_int"))]
+        return Ok(JSValue::from(-1));
+        // numeric-search locals stay defaulted; the BigInt class arm below
+        // never reads them.
+    } else if let Some(i) = v.as_int() {
         is_int = true;
         v64 = i as i64;
         d = v64 as f64;
@@ -1482,7 +1600,50 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
             }
         }
         JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-            return Err(ctx.throw_type_error("BigInt64 is not supported"));
+            #[cfg(feature = "big_int")]
+            {
+                // Only a BigInt can match; other types never match.
+                if !is_bigint_search {
+                    return Ok(if special == special_includes {
+                        JSValue::from(false)
+                    } else {
+                        JSValue::from(-1)
+                    });
+                }
+                let target = unsafe { v.as_bigint_unchecked() };
+                let signed = ta.class_id() == JS_CLASS_BIG_INT64_ARRAY;
+                let target = if signed {
+                    crate::bigint::to_bigint64(&target) as u64
+                } else {
+                    crate::bigint::to_biguint64(&target)
+                };
+                let found = ta.with_bytes(|buf| {
+                    if buf.is_empty() {
+                        return None;
+                    }
+                    let lst = unsafe {
+                        std::slice::from_raw_parts(buf.as_ptr().cast::<u64>(), buf.len() >> 3)
+                    };
+                    let it = lst.iter().enumerate();
+                    if inc > 0 {
+                        debug_assert!(k >= 0);
+                        it.skip(k as usize)
+                            .find_map(|(i, x)| if *x == target { Some(i) } else { None })
+                    } else {
+                        debug_assert!(k >= 0);
+                        it.take(k as usize + 1)
+                            .rev()
+                            .find_map(|(i, x)| if *x == target { Some(i) } else { None })
+                    }
+                });
+                if let Some(i) = found {
+                    res = i as i32;
+                }
+            }
+            #[cfg(not(feature = "big_int"))]
+            {
+                return Err(ctx.throw_type_error("BigInt64 is not supported"));
+            }
         }
 
         _ => {}

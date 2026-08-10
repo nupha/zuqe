@@ -372,6 +372,11 @@ impl TypedArray {
             JS_CLASS_FLOAT16_ARRAY => ObjectPayload::FLOAT16_ARRAY(ta),
             JS_CLASS_FLOAT32_ARRAY => ObjectPayload::FLOAT32_ARRAY(ta),
             JS_CLASS_FLOAT64_ARRAY => ObjectPayload::FLOAT64_ARRAY(ta),
+            #[cfg(feature = "big_int")]
+            JS_CLASS_BIG_INT64_ARRAY => ObjectPayload::BIG_INT64_ARRAY(ta),
+            #[cfg(feature = "big_int")]
+            JS_CLASS_BIG_UINT64_ARRAY => ObjectPayload::BIG_UINT64_ARRAY(ta),
+            #[cfg(not(feature = "big_int"))]
             c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
                 return Err(ctx.throw_type_error(&format!(
                     "typed array for {} is unsupported",
@@ -455,6 +460,32 @@ impl TypedArray {
                     let mut bytes = Vec::<u8>::with_capacity(count << size_log2);
 
                     for val in vals {
+                        // BigInt typed arrays convert via ToBigInt (ToBigInt64 /
+                        // ToBigUint64), never through ToNumber.
+                        if matches!(
+                            class_id,
+                            JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
+                        ) {
+                            #[cfg(feature = "big_int")]
+                            {
+                                let bi = crate::builtins::bigint::to_big_int(ctx, val)?;
+                                let bi = unsafe { bi.as_bigint_unchecked() };
+                                let bits = if class_id == JS_CLASS_BIG_INT64_ARRAY {
+                                    crate::bigint::to_bigint64(&bi) as u64
+                                } else {
+                                    crate::bigint::to_biguint64(&bi)
+                                };
+                                bytes.extend(bits.to_ne_bytes());
+                            }
+                            #[cfg(not(feature = "big_int"))]
+                            {
+                                return Err(ctx.throw_type_error(
+                                    "BigInt64Array, BigUint64Array is not supported",
+                                ));
+                            }
+                            continue;
+                        }
+
                         let n = val.to_number(ctx)?;
                         match class_id {
                             JS_CLASS_UINT8C_ARRAY => {
@@ -510,9 +541,7 @@ impl TypedArray {
                                 }
                             }
                             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                                return Err(ctx.throw_type_error(
-                                    "BigInt64Array, BigUint64Array is not supported",
-                                ));
+                                unreachable!("handled before to_number");
                             }
                             c => {
                                 unreachable!("class_id: {c}");
@@ -734,6 +763,24 @@ impl TypedArray {
         }
     }
 
+    /// Write a raw `u64` (the wrapped two's-complement bit pattern) to element
+    /// `nth` of a BigInt64Array / BigUint64Array. Returns `Err(-1)` when `nth`
+    /// is out of range.
+    pub(crate) fn set_element_u64(&mut self, nth: usize, val: u64) -> Result<(), i32> {
+        if nth < self.length() {
+            let cid = self.class_id();
+            self.with_bytes_mut(|buf| match cid {
+                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => unsafe {
+                    *buf.as_mut_ptr().cast::<u64>().add(nth) = val;
+                },
+                _ => unreachable!(),
+            });
+            Ok(())
+        } else {
+            Err(-1)
+        }
+    }
+
     /// run closure with elements slice.
     /// will panic if class_id does not match eleement type T is matched.
     pub fn with_elements_as<T, R>(&self, f: impl FnOnce(&[T]) -> R) -> R {
@@ -767,8 +814,36 @@ impl TypedArray {
         let mut new_ta = Self::create_from(ctx, new_target, new_buf.into(), 0, count, class_id)?;
 
         // copy data from src_ta to new_ta
-        if Self::SIZE_LOG2(self.class_id()) == size_log2 {
-            // fast path for same element size: copy bytes
+        let same_content_type = matches!(
+            (self.class_id(), class_id),
+            (
+                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY,
+                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
+            ) | (
+                JS_CLASS_INT8_ARRAY
+                | JS_CLASS_UINT8C_ARRAY
+                | JS_CLASS_UINT8_ARRAY
+                | JS_CLASS_INT16_ARRAY
+                | JS_CLASS_UINT16_ARRAY
+                | JS_CLASS_INT32_ARRAY
+                | JS_CLASS_UINT32_ARRAY
+                | JS_CLASS_FLOAT16_ARRAY
+                | JS_CLASS_FLOAT32_ARRAY
+                | JS_CLASS_FLOAT64_ARRAY,
+                JS_CLASS_INT8_ARRAY
+                | JS_CLASS_UINT8C_ARRAY
+                | JS_CLASS_UINT8_ARRAY
+                | JS_CLASS_INT16_ARRAY
+                | JS_CLASS_UINT16_ARRAY
+                | JS_CLASS_INT32_ARRAY
+                | JS_CLASS_UINT32_ARRAY
+                | JS_CLASS_FLOAT16_ARRAY
+                | JS_CLASS_FLOAT32_ARRAY
+                | JS_CLASS_FLOAT64_ARRAY
+            )
+        );
+        if same_content_type && Self::SIZE_LOG2(self.class_id()) == size_log2 {
+            // fast path for same element size and content type: copy bytes
             let src_ta = self.payload();
             src_ta.with_bytes(|src| {
                 new_ta.with_bytes_mut(|dst| unsafe {
@@ -780,7 +855,7 @@ impl TypedArray {
                 });
             });
         } else {
-            // slow path: get then set as props
+            // slow path: get then set as props (throws for BigInt↔Number mixes)
             for i in 0..count {
                 let val = self.get_property_u32(ctx, i as u32)?;
                 new_ta.set_property_u32(ctx, i as u32, val)?;
