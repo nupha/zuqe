@@ -5,7 +5,7 @@ use std::ffi::c_void;
 
 use once_cell::sync::Lazy;
 use zapi::ffi::{
-    ZQ_ABI_VERSION, ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqGcTraceCtxS, ZqModuleInfo,
+    ZQ_ABI_VERSION, ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqGcTraceCtxS,
     ZqRawValue,
 };
 
@@ -26,14 +26,6 @@ pub(crate) unsafe fn env_from_ctx(ctx: &mut ScopedContext) -> ZqEnvS {
 
 unsafe fn ctx_from_env<'a>(env: ZqEnv) -> &'a mut ScopedContext<'a> {
     unsafe { &mut *((*env).ctx as *mut ScopedContext) }
-}
-
-fn msg_str<'a>(ptr: *const u8, len: usize) -> &'a str {
-    if ptr.is_null() {
-        return "";
-    }
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
-    std::str::from_utf8(bytes).unwrap_or("")
 }
 
 fn symbol_from_desc(ctx: &mut ScopedContext, desc: JSValue) -> Result<JSValue, i32> {
@@ -74,36 +66,10 @@ unsafe extern "C" fn zapi_string_raw(env: ZqEnv, ptr: *const u8, len: usize) -> 
     }
 }
 
-unsafe extern "C" fn zapi_symbol_raw(env: ZqEnv, desc: ZqRawValue) -> ZqRawValue {
-    let ctx = unsafe { ctx_from_env(env) };
-    match symbol_from_desc(ctx, JSValue(desc, std::marker::PhantomData)) {
-        Ok(v) => v.0,
-        Err(_) => 0,
-    }
-}
-
 unsafe extern "C" fn zapi_new_symbol(env: ZqEnv, desc: ZqRawValue) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     match symbol_from_desc(ctx, JSValue(desc, std::marker::PhantomData)) {
         Ok(v) => v.0,
-        Err(_) => 0,
-    }
-}
-
-unsafe extern "C" fn zapi_symbol_to_string(env: ZqEnv, sym: ZqRawValue) -> ZqRawValue {
-    let ctx = unsafe { ctx_from_env(env) };
-    let sym = JSValue(sym, std::marker::PhantomData);
-    let sr = match sym.as_symbol(true) {
-        Some(s) => s,
-        None => return 0,
-    };
-    let repr = if sr.content().is_ident() {
-        "Symbol()".to_string()
-    } else {
-        format!("Symbol({})", sr.encode_utf8(false))
-    };
-    match ctx.create_string_from_utf8(repr.into_bytes()) {
-        Ok(s) => JSValue::make_string(s).0,
         Err(_) => 0,
     }
 }
@@ -149,84 +115,6 @@ unsafe extern "C" fn zapi_get_string_utf8(
     n as i32
 }
 
-// The string builder is a JS array of UTF-8 chunk strings (the ABI cannot
-// hand back a mutable handle, so each append pushes a chunk; finish joins).
-unsafe extern "C" fn zapi_new_string_builder(env: ZqEnv, _cap: usize) -> ZqRawValue {
-    let ctx = unsafe { ctx_from_env(env) };
-    match crate::object::Array::create(ctx) {
-        Ok(arr) => JSValue::from(arr).0,
-        Err(_) => 0,
-    }
-}
-
-unsafe extern "C" fn zapi_string_builder_append(
-    env: ZqEnv,
-    builder: ZqRawValue,
-    ptr: *const u8,
-    len: usize,
-) -> i32 {
-    let ctx = unsafe { ctx_from_env(env) };
-    let bytes = if ptr.is_null() {
-        &[][..]
-    } else {
-        unsafe { std::slice::from_raw_parts(ptr, len) }
-    };
-    let chunk = match ctx.create_string_from_utf8(bytes.to_vec()) {
-        Ok(s) => s,
-        Err(_) => return -1,
-    };
-    let Some(mut o) = JSValue(builder, std::marker::PhantomData).as_object() else {
-        return -1;
-    };
-    let idx = match o.get_length_prop(ctx) {
-        Ok(i) => i,
-        Err(_) => return -1,
-    };
-    if o.set_property_i64(ctx, idx, JSValue::make_string(chunk))
-        .is_err()
-    {
-        return -1;
-    }
-    if o.set_property(ctx, crate::atom::Atom::CONST_length, JSValue::from(idx + 1))
-        .is_err()
-    {
-        return -1;
-    }
-    0
-}
-
-unsafe extern "C" fn zapi_string_builder_finish(
-    env: ZqEnv,
-    builder: ZqRawValue,
-) -> ZqRawValue {
-    let ctx = unsafe { ctx_from_env(env) };
-    let Some(o) = JSValue(builder, std::marker::PhantomData).as_object() else {
-        return 0;
-    };
-    let len = match o.get_length_prop(ctx) {
-        Ok(i) => i,
-        Err(_) => return 0,
-    };
-    let mut out: Vec<u8> = Vec::new();
-    for i in 0..len {
-        let key = JSValue::from(i as i32);
-        let v = match o.get_property_value(ctx, key) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        if let Some(sr) = v.as_string(false) {
-            out.extend_from_slice(&sr.content().encode_utf8_bytes(false));
-        }
-    }
-    match ctx.create_string_from_utf8(out) {
-        Ok(s) => JSValue::make_string(s).0,
-        Err(_) => 0,
-    }
-}
-
-// Strings are GC-managed; nothing to free.
-const unsafe extern "C" fn zapi_free_string(_env: ZqEnv, _s: ZqRawValue) {}
-
 unsafe extern "C" fn zapi_new_object(env: ZqEnv) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     match ctx.create_base_object() {
@@ -248,11 +136,7 @@ unsafe extern "C" fn zapi_new_array(env: ZqEnv, len: usize) -> ZqRawValue {
     }
 }
 
-unsafe extern "C" fn zapi_get_property(
-    env: ZqEnv,
-    obj: ZqRawValue,
-    key: ZqRawValue,
-) -> ZqRawValue {
+unsafe extern "C" fn zapi_get_property(env: ZqEnv, obj: ZqRawValue, key: ZqRawValue) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let val = JSValue(key, std::marker::PhantomData);
     let Some(obj) = JSValue(obj, std::marker::PhantomData).as_object() else {
@@ -341,21 +225,6 @@ unsafe extern "C" fn zapi_array_push(env: ZqEnv, arr: ZqRawValue, val: ZqRawValu
     0
 }
 
-unsafe extern "C" fn zapi_array_get(
-    env: ZqEnv,
-    arr: ZqRawValue,
-    idx: ZqRawValue,
-) -> ZqRawValue {
-    let ctx = unsafe { ctx_from_env(env) };
-    let Some(o) = JSValue(arr, std::marker::PhantomData).as_object() else {
-        return 0;
-    };
-    match o.get_property_value(ctx, JSValue(idx, std::marker::PhantomData)) {
-        Ok(v) => v.0,
-        Err(_) => 0,
-    }
-}
-
 unsafe extern "C" fn zapi_array_set(
     env: ZqEnv,
     arr: ZqRawValue,
@@ -388,20 +257,6 @@ unsafe extern "C" fn zapi_array_len(env: ZqEnv, arr: ZqRawValue) -> ZqRawValue {
     }
 }
 
-unsafe extern "C" fn zapi_set_global(env: ZqEnv, name: ZqRawValue, val: ZqRawValue) -> i32 {
-    let ctx = unsafe { ctx_from_env(env) };
-    let mut gobj = ctx.global_obj();
-    match gobj.set_property_value(
-        ctx,
-        JSValue(name, std::marker::PhantomData),
-        JSValue(val, std::marker::PhantomData),
-        0,
-    ) {
-        Ok(_) => 0,
-        Err(_) => -1,
-    }
-}
-
 unsafe extern "C" fn zapi_get_global(env: ZqEnv, name: ZqRawValue) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let gobj = ctx.global_obj();
@@ -411,100 +266,7 @@ unsafe extern "C" fn zapi_get_global(env: ZqEnv, name: ZqRawValue) -> ZqRawValue
     }
 }
 
-unsafe extern "C" fn zapi_has_global(env: ZqEnv, name: ZqRawValue) -> i32 {
-    let ctx = unsafe { ctx_from_env(env) };
-    let gobj = ctx.global_obj();
-    let atom = match JSValue(name, std::marker::PhantomData).to_atom(ctx) {
-        Ok(a) => a,
-        Err(_) => return 0,
-    };
-    match gobj.has_property(ctx, atom) {
-        Ok(b) => b as i32,
-        Err(_) => 0,
-    }
-}
-
-unsafe extern "C" fn zapi_new_function(
-    env: ZqEnv,
-    name: ZqRawValue,
-    body: Option<unsafe extern "C" fn(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue>,
-    len: u8,
-) -> ZqRawValue {
-    let Some(body) = body else {
-        return 0;
-    };
-    let ctx = unsafe { ctx_from_env(env) };
-    let name = match JSValue(name, std::marker::PhantomData).to_string(ctx) {
-        Ok(s) => s.encode_utf8(false).into_owned(),
-        Err(_) => return 0,
-    };
-    let (cb, token) = register_zapi_func_magic(ctx, body, 0);
-    match ctx.create_native_function(cb, &name, len, token as i16) {
-        Ok(nf) => JSValue::from(nf).0,
-        Err(_) => 0,
-    }
-}
-
-unsafe extern "C" fn zapi_register_function(
-    env: ZqEnv,
-    obj: ZqRawValue,
-    name: ZqRawValue,
-    body: Option<unsafe extern "C" fn(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue>,
-    len: u8,
-) -> i32 {
-    let Some(body) = body else {
-        return -1;
-    };
-    let ctx = unsafe { ctx_from_env(env) };
-    let name = match JSValue(name, std::marker::PhantomData).to_string(ctx) {
-        Ok(s) => s.encode_utf8(false).into_owned(),
-        Err(_) => return -1,
-    };
-    let Some(mut o) = JSValue(obj, std::marker::PhantomData).as_object() else {
-        return -1;
-    };
-    let (cb, token) = register_zapi_func_magic(ctx, body, 0);
-    let nf = match ctx.create_native_function(cb, &name, len, token as i16) {
-        Ok(nf) => nf,
-        Err(_) => return -1,
-    };
-    match o.define_property_value_str(
-        ctx,
-        &name,
-        JSValue::from(nf),
-        crate::object::JS_PROP_WRITABLE | crate::object::JS_PROP_CONFIGURABLE,
-    ) {
-        Ok(_) => 0,
-        Err(_) => -1,
-    }
-}
-
-unsafe extern "C" fn zapi_remove_wrap(
-    env: ZqEnv,
-    obj: ZqRawValue,
-    name: *const std::ffi::c_char,
-) -> i32 {
-    let ctx = unsafe { ctx_from_env(env) };
-    let Some(mut o) = JSValue(obj, std::marker::PhantomData).as_object() else {
-        return -1;
-    };
-    let name = if name.is_null() {
-        ""
-    } else {
-        unsafe { std::ffi::CStr::from_ptr(name) }
-            .to_str()
-            .unwrap_or("")
-    };
-    match o.delete_property_str(ctx, name, 0) {
-        Ok(_) => 0,
-        Err(_) => -1,
-    }
-}
-
-unsafe extern "C" fn zapi_call_function(
-    env: ZqEnv,
-    info: *mut ZqCallbackInfoS,
-) -> ZqRawValue {
+unsafe extern "C" fn zapi_call_function(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
     let ctx = unsafe { &mut *((*env).ctx as *mut ScopedContext) };
     let info = unsafe { &*info };
 
@@ -523,84 +285,6 @@ unsafe extern "C" fn zapi_call_function(
         Ok(v) => v.0,
         Err(_) => 0,
     }
-}
-
-unsafe extern "C" fn zapi_exception_pending(env: ZqEnv) -> i32 {
-    let ctx = unsafe { ctx_from_env(env) };
-    (ctx.rt().exception() != crate::error::Exception::No) as i32
-}
-
-unsafe extern "C" fn zapi_throw(env: ZqEnv, val: ZqRawValue) -> i32 {
-    let ctx = unsafe { ctx_from_env(env) };
-    ctx.throw(crate::error::Exception::Error(JSValue(
-        val,
-        std::marker::PhantomData,
-    )));
-    -1
-}
-
-unsafe extern "C" fn zapi_throw_type_error(env: ZqEnv, msg: *const u8, len: usize) -> i32 {
-    let ctx = unsafe { ctx_from_env(env) };
-    ctx.throw_type_error(msg_str(msg, len))
-}
-
-unsafe extern "C" fn zapi_throw_range_error(env: ZqEnv, msg: *const u8, len: usize) -> i32 {
-    let ctx = unsafe { ctx_from_env(env) };
-    ctx.throw_range_error(msg_str(msg, len))
-}
-
-unsafe extern "C" fn zapi_set_exception(env: ZqEnv, val: ZqRawValue) {
-    let ctx = unsafe { ctx_from_env(env) };
-    ctx.throw(crate::error::Exception::Error(JSValue(
-        val,
-        std::marker::PhantomData,
-    )));
-}
-
-unsafe extern "C" fn zapi_get_last_error_message(env: ZqEnv) -> ZqRawValue {
-    let ctx = unsafe { ctx_from_env(env) };
-    let text = ctx.rt().exception().to_text(ctx);
-    match ctx.create_string_from_str(&text.message) {
-        Ok(s) => JSValue::make_string(s).0,
-        Err(_) => 0,
-    }
-}
-
-unsafe extern "C" fn zapi_get_and_clear_last_exception(env: ZqEnv) -> ZqRawValue {
-    let ctx = unsafe { ctx_from_env(env) };
-    let exc = ctx.take_exception();
-    exc.to_value(ctx).0
-}
-
-unsafe extern "C" fn zapi_gc_add_ref(env: ZqEnv, val: ZqRawValue) {
-    let ctx = unsafe { ctx_from_env(env) };
-    let v = JSValue(val, std::marker::PhantomData);
-    ctx.gc_protect_transient_force(&v);
-}
-
-unsafe extern "C" fn zapi_gc_release(env: ZqEnv, val: ZqRawValue) {
-    let ctx = unsafe { ctx_from_env(env) };
-    if let Some(node) = JSValue(val, std::marker::PhantomData).as_gc_node() {
-        ctx.remove_local(node);
-    }
-}
-
-unsafe extern "C" fn zapi_set_global_trace(env: ZqEnv, trace: usize) {
-    if trace == 0 {
-        return;
-    }
-    let ctx = unsafe { ctx_from_env(env) };
-    let handler = move |gcx: &mut gc_lite::GcTraceCtx| {
-        let mut trace_ctx = ZqGcTraceCtxS {
-            inner: (gcx as *mut gc_lite::GcTraceCtx).cast::<c_void>(),
-        };
-        unsafe {
-            (std::mem::transmute::<usize, unsafe extern "C" fn(*mut ZqGcTraceCtxS)>(trace))(
-                &mut trace_ctx,
-            )
-        };
-    };
-    ctx.rt_mut().gc_set_trace_handler(handler);
 }
 
 fn zapi_gc_trace_bridge(opaque: *mut c_void, gcx: &mut gc_lite::GcTraceCtx) {
@@ -771,23 +455,6 @@ unsafe extern "C" fn zapi_get_native_ptr(_env: ZqEnv, obj: ZqRawValue) -> *mut c
         .unwrap_or(std::ptr::null_mut())
 }
 
-unsafe extern "C" fn zapi_set_native_ptr(
-    _env: ZqEnv,
-    obj: ZqRawValue,
-    ptr: *mut c_void,
-) -> i32 {
-    let val = JSValue(obj, std::marker::PhantomData);
-    let Some(mut o) = val.as_object() else {
-        return -1;
-    };
-    if let Some(other) = o.payload_mut().other_mut() {
-        unsafe { other.replace_opaque(ptr) };
-        0
-    } else {
-        -1
-    }
-}
-
 unsafe extern "C" fn zapi_gc_add_trace(
     _env: ZqEnv,
     trace_ctx: *mut ZqGcTraceCtxS,
@@ -798,34 +465,6 @@ unsafe extern "C" fn zapi_gc_add_trace(
     let jsval = JSValue(val, std::marker::PhantomData);
     gc_lite::GcTrace::trace(&jsval, gcx);
     0
-}
-
-const unsafe extern "C" fn zapi_gc_release_trace(
-    _env: ZqEnv,
-    _trace_ctx: *mut ZqGcTraceCtxS,
-) {
-    // GcTraceCtx cleanup is handled by the GC engine.
-}
-
-unsafe extern "C" fn zapi_get_class_def(env: ZqEnv, obj: ZqRawValue) -> *const ZqClassDef {
-    let ctx = unsafe { ctx_from_env(env) };
-    let Some(o) = JSValue(obj, std::marker::PhantomData).as_object() else {
-        return std::ptr::null();
-    };
-    let cid = o.class_id();
-    let ptr = ctx
-        .rt()
-        .zapi_class_map
-        .lock()
-        .unwrap()
-        .get(&cid)
-        .copied()
-        .unwrap_or(0);
-    ptr as *const ZqClassDef
-}
-
-unsafe extern "C" fn zapi_get_raw(_env: ZqEnv, obj: ZqRawValue) -> ZqRawValue {
-    JSValue(obj, std::marker::PhantomData).0
 }
 
 unsafe extern "C" fn zapi_type_of(_env: ZqEnv, val: ZqRawValue) -> i32 {
@@ -880,10 +519,7 @@ unsafe extern "C" fn zapi_string_value(env: ZqEnv, val: ZqRawValue) -> ZqRawValu
     }
 }
 
-unsafe extern "C" fn zapi_call_constructor(
-    env: ZqEnv,
-    info: *mut ZqCallbackInfoS,
-) -> ZqRawValue {
+unsafe extern "C" fn zapi_call_constructor(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
     let ctx = unsafe { &mut *((*env).ctx as *mut ScopedContext) };
     let info = unsafe { &*info };
 
@@ -906,10 +542,6 @@ unsafe extern "C" fn zapi_call_constructor(
     }
 }
 
-// Dead hook: extensions self-register through their own `zq_module_register`,
-// which fills the `ZqModuleInfo` the host consumes in `load_extension`.
-const unsafe extern "C" fn zapi_module_register(_api: *mut ZqApi, _info: *mut ZqModuleInfo) {}
-
 /// 全局共享的 ZqApi 表 — 纯函数指针，无运行时状态，多 Runtime 安全复用。
 pub(crate) static ZQ_API_TABLE: Lazy<Box<ZqApi>> = Lazy::new(new_zapi);
 
@@ -922,16 +554,10 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         bool_raw: zapi_bool_raw,
         number_raw: zapi_number_raw,
         string_raw: zapi_string_raw,
-        symbol_raw: zapi_symbol_raw,
         new_symbol: zapi_new_symbol,
-        symbol_to_string: zapi_symbol_to_string,
         get_symbol_description: zapi_get_symbol_description,
         string_len: zapi_string_len,
         get_string_utf8: zapi_get_string_utf8,
-        new_string_builder: zapi_new_string_builder,
-        string_builder_append: zapi_string_builder_append,
-        string_builder_finish: zapi_string_builder_finish,
-        free_string: zapi_free_string,
         new_object: zapi_new_object,
         new_array: zapi_new_array,
         set_property: zapi_set_property,
@@ -939,39 +565,18 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         has_property: zapi_has_property,
         delete_property: zapi_delete_property,
         array_push: zapi_array_push,
-        array_get: zapi_array_get,
         array_set: zapi_array_set,
         array_len: zapi_array_len,
-        set_global: zapi_set_global,
         get_global: zapi_get_global,
-        has_global: zapi_has_global,
-        new_function: zapi_new_function,
-        register_function: zapi_register_function,
-        remove_wrap: zapi_remove_wrap,
         call_function: zapi_call_function,
-        exception_pending: zapi_exception_pending,
-        throw: zapi_throw,
-        throw_type_error: zapi_throw_type_error,
-        throw_range_error: zapi_throw_range_error,
-        set_exception: zapi_set_exception,
-        get_last_error_message: zapi_get_last_error_message,
-        get_and_clear_last_exception: zapi_get_and_clear_last_exception,
-        gc_add_ref: zapi_gc_add_ref,
-        gc_release: zapi_gc_release,
         gc_add_trace: zapi_gc_add_trace,
-        gc_release_trace: zapi_gc_release_trace,
-        set_global_trace: zapi_set_global_trace,
         register_class: zapi_register_class,
         new_instance: zapi_new_instance,
-        get_class_def: zapi_get_class_def,
         get_native_ptr: zapi_get_native_ptr,
-        set_native_ptr: zapi_set_native_ptr,
-        get_raw: zapi_get_raw,
         type_of: zapi_type_of,
         number_value: zapi_number_value,
         bool_value: zapi_bool_value,
         string_value: zapi_string_value,
         call_constructor: zapi_call_constructor,
-        module_register: zapi_module_register,
     })
 }

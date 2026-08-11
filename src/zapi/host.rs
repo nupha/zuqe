@@ -176,23 +176,6 @@ macro_rules! zapi_make_thunk {
     }};
 }
 
-/// 将一组 ZqFuncInfo 转换为 zuqe Callback 列表并注册。
-///
-/// # 实现说明
-///
-/// 因为 `CallbackFn = fn(...)` 是函数指针，动态 thunk 需要配合过程宏
-/// （`#[zq_function]` / `#[zq_module]`）在编译期生成独立的跳板函数。
-/// 运行时动态加载的扩展由过程宏生成注册代码，本函数因缺少 `ScopedContext`
-/// 无法为 body 分配 token，故直接返回错误而非 panic。
-pub fn register_funcs<F>(_funcs: &[ZqFuncInfo], _register: F) -> Result<(), &'static str>
-where
-    F: FnMut(&str, Callback, u8),
-{
-    // 动态注册需要 ctx（为 body 分配 token）；编译期静态注册请使用
-    // `zapi_make_thunk!` 宏或扩展自己的 `zq_module_register`。
-    Err("register_funcs requires a ScopedContext; use the extension's own zq_module_register instead")
-}
-
 // ──────────────────────────────────────
 // 扩展加载
 // ──────────────────────────────────────
