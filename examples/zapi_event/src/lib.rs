@@ -169,6 +169,4 @@ thread_local! {
 }
 
 #[zq_module(name = "zapi_event", classes = [EventEmitter])]
-fn init(_cx: &ZqCtx, _exports: &Exports) -> Result<(), ZqError> {
-    Ok(())
-}
+fn init() {}

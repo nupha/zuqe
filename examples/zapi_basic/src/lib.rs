@@ -272,6 +272,4 @@ impl Counter {
     ],
     classes = [Counter]
 )]
-fn init(_cx: &ZqCtx, _exports: &Exports) -> Result<(), ZqError> {
-    Ok(())
-}
+fn init() {}

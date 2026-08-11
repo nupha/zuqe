@@ -11,7 +11,7 @@ use std::ffi::c_void;
 
 use libloading::Library;
 use zapi::ffi::{
-    ZqApi, ZqCallbackInfoS, ZqClassAccessor, ZqEnvS, ZqFuncInfo, ZqModuleInfo, ZqRawValue,
+    ZqApi, ZqCallbackInfoS, ZqClassAccessor, ZqEnv, ZqEnvS, ZqFuncInfo, ZqModuleInfo, ZqRawValue,
 };
 
 use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
@@ -116,7 +116,7 @@ pub(crate) fn zapi_trampoline_fn(
 /// `magic` 只是透传给扩展的 `ZqCallInfo::magic()` 的分发值（默认 0）。
 pub fn register_zapi_func(
     ctx: &mut ScopedContext,
-    body: unsafe extern "C" fn(env: *mut ZqEnvS, info: *mut ZqCallbackInfoS) -> ZqRawValue,
+    body: unsafe extern "C" fn(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue,
 ) -> (Callback, i32) {
     register_zapi_func_magic(ctx, body, 0)
 }
@@ -124,7 +124,7 @@ pub fn register_zapi_func(
 /// 同 `register_zapi_func`，但显式指定用户 magic。
 pub(crate) fn register_zapi_func_magic(
     ctx: &mut ScopedContext,
-    body: unsafe extern "C" fn(env: *mut ZqEnvS, info: *mut ZqCallbackInfoS) -> ZqRawValue,
+    body: unsafe extern "C" fn(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue,
     magic: i32,
 ) -> (Callback, i32) {
     let rt = ctx.rt_mut();
