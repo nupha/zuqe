@@ -1,0 +1,12 @@
+[package]
+name = "zapi_event"
+version = "0.1.0"
+edition = "2021"
+description = "Zapi — EventEmitter demo using the zq_* macros (no raw FFI)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zapi = { path = "../../../zapi" }
+zapi-macros = { path = "../../../zapi-macros" }

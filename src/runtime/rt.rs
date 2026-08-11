@@ -161,7 +161,7 @@ pub struct RuntimeImpl {
     // ── zapi native extension state ──
     #[cfg(feature = "zapi")]
     pub(crate) zapi_body_registry:
-        std::sync::Mutex<std::collections::HashMap<i32, zapi::ffi::ZapiBodyFn>>,
+        std::sync::Mutex<std::collections::HashMap<i32, (zapi::ffi::ZapiBodyFn, i32)>>,
     #[cfg(feature = "zapi")]
     pub(crate) zapi_next_token: std::sync::atomic::AtomicI32,
     #[cfg(feature = "zapi")]
