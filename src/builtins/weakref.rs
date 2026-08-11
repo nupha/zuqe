@@ -5,6 +5,7 @@ use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     Atom, ClassDef,
+    atom::AtomKind,
     class::ClassCtorDef,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
@@ -14,8 +15,14 @@ use crate::{
 };
 
 /// Internal data for a WeakRef instance.
+/// Per ES2027: target can be an Object or a non-registered Symbol.
 pub(crate) struct WeakRefData {
-    target: GcWeak<ObjectImpl>,
+    target: WeakRefTarget,
+}
+
+enum WeakRefTarget {
+    Object(GcWeak<ObjectImpl>),
+    Symbol(JSValue),
 }
 
 impl std::fmt::Debug for WeakRefData {
@@ -35,16 +42,19 @@ fn js_weakref_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     }
 
     let target_val = cc.arg(0);
-    let Some(target_obj) = target_val.as_object() else {
+    // CanBeHeldWeakly check
+    let target = if let Some(obj) = target_val.as_object() {
+        WeakRefTarget::Object(obj.downgrade())
+    } else if can_be_held_weakly(target_val) {
+        WeakRefTarget::Symbol(target_val)
+    } else {
         return Err(ctx.throw_type_error("WeakRef target must be an object"));
     };
-
-    let weak = target_obj.downgrade();
 
     let obj = ctx
         .create_instance_with_ctor(
             new_target,
-            ObjectPayload::WEAKREF(Box::new(WeakRefData { target: weak })),
+            ObjectPayload::WEAKREF(Box::new(WeakRefData { target })),
         )
         .map_err(|_| -1)?;
 
@@ -63,10 +73,16 @@ fn js_weakref_deref(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     };
 
-    let heap = ctx.rt().gc_heap();
-    match wrd.target.upgrade(heap) {
-        Some(gc_ref) => Ok(JSValue::from(Object::from(gc_ref.into_raw()))),
-        None => Ok(JSValue::UNDEFINED),
+    match &wrd.target {
+        WeakRefTarget::Object(w) => {
+            let heap = ctx.rt().gc_heap();
+            match w.upgrade(heap) {
+                Some(gc_ref) => Ok(JSValue::from(Object::from(gc_ref.into_raw()))),
+                None => Ok(JSValue::UNDEFINED),
+            }
+        }
+        // Symbol targets are primitives, never collected — always return
+        WeakRefTarget::Symbol(sym) => Ok(*sym),
     }
 }
 
@@ -82,13 +98,58 @@ pub(crate) static CLASS_DEF_WEAKREF: ClassDef = ClassDef::builtin(
 );
 
 //
+/// Per ES2027 §9.13 CanBeHeldWeakly: Objects and non-registered Symbols are valid.
+/// Registered symbols (Symbol.for()) are rejected because KeyForSymbol(arg) is not undefined.
+fn can_be_held_weakly(val: JSValue) -> bool {
+    if val.as_object().is_some() {
+        return true;
+    }
+    if val.is_symbol() {
+        if let Some(sym) = val.as_symbol(false) {
+            return sym.atom_info().is_some_and(|info| info.kind() != AtomKind::GlobalSymbol);
+        }
+    }
+    false
+}
+
 // FinalizationRegistry
 //
 
+/// A weak reference that can hold either an object weak ref or a Symbol value.
+/// Per ES2024 CanBeHeldWeakly: undefined, Object, and Symbol are valid.
+enum WeakRef {
+    Object(GcWeak<ObjectImpl>),
+    Symbol(JSValue),
+}
+
+impl WeakRef {
+    fn matches(&self, other: &JSValue, heap: &gc_lite::GcHeap) -> bool {
+        match self {
+            WeakRef::Object(w) => match w.upgrade(heap) {
+                Some(gc_ref) => {
+                    let obj = Object::from(gc_ref.into_raw());
+                    other.as_object() == Some(obj)
+                }
+                None => false,
+            },
+            WeakRef::Symbol(val) => val == other,
+        }
+    }
+}
+
+impl std::fmt::Debug for WeakRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WeakRef::Object(_) => write!(f, "WeakRef::Object(..)"),
+            WeakRef::Symbol(v) => write!(f, "WeakRef::Symbol({v:?})"),
+        }
+    }
+}
+
 struct FinRecEntry {
-    target: GcWeak<ObjectImpl>,
+    target: WeakRef,
     held_value: JSValue,
-    token: Option<GcWeak<ObjectImpl>>,
+    token: Option<WeakRef>,
 }
 
 impl std::fmt::Debug for FinRecEntry {
@@ -137,19 +198,24 @@ impl FinalizationRegistryData {
         heap: &gc_lite::GcHeap,
     ) -> Vec<JSValue> {
         let mut removed = Vec::new();
-        self.entries.retain(|e| match e.target.upgrade(heap) {
-            Some(gc_ref) => {
-                let obj = Object::from(gc_ref.into_raw());
-                if obj == dead_target {
-                    removed.push(e.held_value);
-                    false // remove
-                } else {
-                    true // keep
-                }
-            }
-            None => {
-                removed.push(e.held_value);
-                false // remove
+        self.entries.retain(|e| {
+            match &e.target {
+                WeakRef::Object(w) => match w.upgrade(heap) {
+                    Some(gc_ref) => {
+                        let obj = Object::from(gc_ref.into_raw());
+                        if obj == dead_target {
+                            removed.push(e.held_value);
+                            false // remove
+                        } else {
+                            true // keep
+                        }
+                    }
+                    None => {
+                        removed.push(e.held_value);
+                        false // remove
+                    }
+                },
+                WeakRef::Symbol(_) => true, // Symbol targets are never collected
             }
         });
         removed
@@ -186,55 +252,54 @@ fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let Some(mut this_obj) = cc.this().as_object() else {
+    let Some(this_obj) = cc.this().as_object() else {
         return Err(ctx.throw_type_error(
             "FinalizationRegistry.prototype.register requires a FinalizationRegistry",
         ));
-    };
-
-    let frd = match this_obj.payload_mut().finalization_registry_mut() {
-        Some(d) => d,
-        None => {
-            return Err(ctx.throw_type_error(
-                "FinalizationRegistry.prototype.register called on non-FinalizationRegistry",
-            ));
-        }
     };
 
     let target_val = cc.arg(0);
     let held_val = cc.arg(1);
     let token_val = cc.arg(2);
 
-    let Some(mut target_obj) = target_val.as_object() else {
+    // Validate this is a FinalizationRegistry and pre-compute its weak ref
+    let this_weak = this_obj.downgrade();
+
+    // CanBeHeldWeakly(target): Objects and non-registered Symbols
+    let target_weak = if let Some(target_obj) = target_val.as_object() {
+        WeakRef::Object(target_obj.downgrade())
+    } else if can_be_held_weakly(target_val) {
+        WeakRef::Symbol(target_val)
+    } else {
         return Err(ctx.throw_type_error(
             "FinalizationRegistry.prototype.register: target must be an object",
         ));
     };
 
-    // held_value cannot be the same object as target (SameValue check)
-    if target_val.is_object()
-        && held_val.is_object()
-        && target_val.as_object().unwrap() == held_val.as_object().unwrap()
-    {
+    // SameValue(target, heldValue) check
+    let same_value = match &target_weak {
+        WeakRef::Object(_) => target_val.is_object()
+            && held_val.is_object()
+            && target_val.as_object() == held_val.as_object(),
+        WeakRef::Symbol(sym) => held_val.is_symbol() && sym == &held_val,
+    };
+    if same_value {
         return Err(ctx.throw_type_error(
             "FinalizationRegistry.prototype.register: held value cannot be the target",
         ));
     }
 
-    // Validate unregister token: CanBeHeldWeakly check
-    // Only objects can be held weakly; null, booleans, numbers, strings, symbols throw TypeError.
-    if !token_val.is_undefined() && token_val.as_object().is_none() {
+    // CanBeHeldWeakly(unregisterToken): undefined, Object, or non-registered Symbol
+    let token_weak = if token_val.is_undefined() {
+        None
+    } else if let Some(tok_obj) = token_val.as_object() {
+        Some(WeakRef::Object(tok_obj.downgrade()))
+    } else if can_be_held_weakly(token_val) {
+        Some(WeakRef::Symbol(token_val))
+    } else {
         return Err(ctx.throw_type_error(
             "FinalizationRegistry.prototype.register: unregisterToken must be an object or undefined",
         ));
-    }
-
-    let target_weak = target_obj.downgrade();
-    let token_weak = if token_val.is_undefined() {
-        None
-    } else {
-        let tok_obj = token_val.as_object().unwrap();
-        Some(tok_obj.downgrade())
     };
 
     let entry = FinRecEntry {
@@ -242,10 +307,25 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         held_value: held_val,
         token: token_weak,
     };
-    frd.entries.push(entry);
 
-    // Add back-reference from target to this FinalizationRegistry
-    target_obj.add_back_ref(this_obj.downgrade());
+    // Validate this is a FinalizationRegistry and push entry
+    {
+        let mut this_obj = this_obj;
+        let frd = match this_obj.payload_mut().finalization_registry_mut() {
+            Some(d) => d,
+            None => {
+                return Err(ctx.throw_type_error(
+                    "FinalizationRegistry.prototype.register called on non-FinalizationRegistry",
+                ));
+            }
+        };
+        frd.entries.push(entry);
+    }
+
+    // Add back-reference from target to this FinalizationRegistry (objects only)
+    if let Some(mut target_obj) = target_val.as_object() {
+        target_obj.add_back_ref(this_weak);
+    }
 
     Ok(JSValue::UNDEFINED)
 }
@@ -267,25 +347,19 @@ fn js_finrec_unregister(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     let token_val = cc.arg(0);
-    // CanBeHeldWeakly check — only objects can be held weakly.
-    // Unlike register(), there is no exception for undefined in unregister.
-    let Some(token_obj) = token_val.as_object() else {
+    // CanBeHeldWeakly check: Object or non-registered Symbol accepted.
+    // Unlike register(), undefined is not accepted here.
+    if !can_be_held_weakly(token_val) {
         return Err(ctx.throw_type_error(
             "FinalizationRegistry.prototype.unregister: unregister token must be an object",
         ));
-    };
+    }
 
     let heap = ctx.rt().gc_heap();
     let before = frd.entries.len();
 
     frd.entries.retain(|e| match &e.token {
-        Some(tok_weak) => match tok_weak.upgrade(heap) {
-            Some(gc_ref) => {
-                let obj = Object::from(gc_ref.into_raw());
-                obj != token_obj
-            }
-            None => true,
-        },
+        Some(tok_weak) => !tok_weak.matches(&token_val, heap),
         None => true,
     });
 
