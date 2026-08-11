@@ -1025,6 +1025,9 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         // array's ArrayBuffer stays attached and usable; otherwise it would be left
         // detached (length 0) and the element setter's `with_bytes_mut` would slice a
         // zero-length buffer and panic (see staging/sm/TypedArray/sort_comparators.js).
+        let byte_offset = ta.array_buffer_byte_offset();
+        let byte_len = ta.byte_length();
+
         let mut abuf_content = ta.array_buffer().payload_mut().replace(ABufData::Empty);
         let attached_copy = abuf_content.with_bytes(|b| b.to_vec());
         ta.array_buffer()
@@ -1034,10 +1037,11 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         macro_rules! sort {
             ($ty:ident, $shift:expr, $cvt:expr) => {
                 abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
+                    let elem_len = byte_len >> $shift;
                     let slice = unsafe {
                         std::slice::from_raw_parts_mut(
-                            buf.as_mut_ptr().cast::<$ty>(),
-                            buf.len() >> $shift,
+                            buf.as_mut_ptr().add(byte_offset).cast::<$ty>(),
+                            elem_len,
                         )
                     };
 
@@ -1086,10 +1090,10 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }
             JS_CLASS_FLOAT16_ARRAY => abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
                 unsafe {
-                    let p = buf.as_mut_ptr().cast::<u16>();
-                    let len = buf.len() >> 1;
+                    let p = buf.as_mut_ptr().add(byte_offset).cast::<u16>();
+                    let elem_len = byte_len >> 1;
                     let mut vec: Vec<f32> =
-                        (0..len).map(|i| f16_to_f64(*p.add(i)) as f32).collect();
+                        (0..elem_len).map(|i| f16_to_f64(*p.add(i)) as f32).collect();
 
                     if let Some(cmp_fn) = cmp.as_object() {
                         let mut has_error = false;
@@ -1125,7 +1129,7 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }),
             JS_CLASS_FLOAT32_ARRAY => abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
                 let slice = unsafe {
-                    std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<f32>(), buf.len() >> 2)
+                    std::slice::from_raw_parts_mut(buf.as_mut_ptr().add(byte_offset).cast::<f32>(), byte_len >> 2)
                 };
 
                 if let Some(cmp_fn) = cmp.as_object() {
@@ -1156,7 +1160,7 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }),
             JS_CLASS_FLOAT64_ARRAY => abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
                 let slice = unsafe {
-                    std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<f64>(), buf.len() >> 3)
+                    std::slice::from_raw_parts_mut(buf.as_mut_ptr().add(byte_offset).cast::<f64>(), byte_len >> 3)
                 };
 
                 if let Some(cmp_fn) = cmp.as_object() {
@@ -1188,8 +1192,8 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                     abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
                         let slice = unsafe {
                             std::slice::from_raw_parts_mut(
-                                buf.as_mut_ptr().cast::<u64>(),
-                                buf.len() >> 3,
+                                buf.as_mut_ptr().add(byte_offset).cast::<u64>(),
+                                byte_len >> 3,
                             )
                         };
                         if let Some(cmp_fn) = cmp.as_object() {
@@ -1240,8 +1244,8 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                             // signed default sort
                             let signed = unsafe {
                                 std::slice::from_raw_parts_mut(
-                                    buf.as_mut_ptr().cast::<i64>(),
-                                    buf.len() >> 3,
+                                    buf.as_mut_ptr().add(byte_offset).cast::<i64>(),
+                                    byte_len >> 3,
                                 )
                             };
                             signed.sort_unstable();
@@ -1261,8 +1265,38 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             _ => unreachable!(),
         };
 
-        // restore buffer content
-        ta.array_buffer().payload_mut().replace(abuf_content);
+        // Merge sorted result back into the CURRENT buffer.
+        // The comparator may have resized the buffer during sorting (grow/shrink),
+        // so we cannot simply restore the old snapshot — we must merge the sorted
+        // bytes into whatever buffer state the comparator left behind.
+        // Use the TA's CURRENT byte_length (after comparator side effects) to
+        // limit how many bytes to merge: if the TA went out-of-bounds, its
+        // byte_length is 0 and no merge happens (per spec, the copy-back silently
+        // fails for an OOB view).
+        let current_byte_len = ta.byte_length();
+        let merge_len = byte_len.min(current_byte_len);
+        let sorted_bytes = abuf_content.with_bytes(|b| {
+            let end = (byte_offset + byte_len).min(b.len());
+            if byte_offset < b.len() {
+                b[byte_offset..end].to_vec()
+            } else {
+                Vec::new()
+            }
+        });
+        let sorted_bytes = &sorted_bytes[..merge_len.min(sorted_bytes.len())];
+        let cur = ta.array_buffer().payload_mut().replace(ABufData::Empty);
+        let merged = cur.with_bytes(|b| {
+            let mut out = b.to_vec();
+            if !sorted_bytes.is_empty() {
+                let start = byte_offset.min(out.len());
+                let copy_len = sorted_bytes.len().min(out.len() - start);
+                out[start..start + copy_len].copy_from_slice(&sorted_bytes[..copy_len]);
+            }
+            out
+        });
+        ta.array_buffer()
+            .payload_mut()
+            .replace(ABufData::Owned(merged.into_boxed_slice()));
 
         r?
     }
