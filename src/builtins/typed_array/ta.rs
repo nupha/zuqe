@@ -15,7 +15,9 @@ use crate::{
     class::ClassID,
     context::ScopedContext,
     function::{Callback, NativeFunction},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload, TypedArray},
+    object::{
+        JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload, TypedArray,
+    },
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -225,16 +227,14 @@ impl TypedArrayPayload {
     pub(super) fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
-        self.array_buffer()
-            .payload_mut()
-            .with_bytes_mut(|buf| {
-                if self.out_of_bounds || base >= buf.len() {
-                    f(&mut [])
-                } else {
-                    let end = (base + len).min(buf.len());
-                    f(&mut buf[base..end])
-                }
-            })
+        self.array_buffer().payload_mut().with_bytes_mut(|buf| {
+            if self.out_of_bounds || base >= buf.len() {
+                f(&mut [])
+            } else {
+                let end = (base + len).min(buf.len());
+                f(&mut buf[base..end])
+            }
+        })
     }
 }
 
@@ -319,6 +319,13 @@ impl TypedArray {
             )?
             .into();
             ctx.bind_ctor_proto(ta_ctor, ta_proto)?;
+            // Install static and prototype methods directly on the variant
+            // constructor / prototype so they are own properties (required by
+            // the spec and by test262 descriptor checks). The base
+            // TypedArray.prototype / func_proto already carry them, but as
+            // inherited (non-own) members.
+            ta_ctor.install_fields(ctx, js_typed_array_base_funcs)?;
+            ta_proto.install_fields(ctx, js_typed_array_base_proto_funcs)?;
             ta_ctor.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::from(nby), 0)?;
             ctx.class_slots[cid as usize].ctor = Some(ta_ctor);
 
@@ -821,25 +828,25 @@ impl TypedArray {
                 JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
             ) | (
                 JS_CLASS_INT8_ARRAY
-                | JS_CLASS_UINT8C_ARRAY
-                | JS_CLASS_UINT8_ARRAY
-                | JS_CLASS_INT16_ARRAY
-                | JS_CLASS_UINT16_ARRAY
-                | JS_CLASS_INT32_ARRAY
-                | JS_CLASS_UINT32_ARRAY
-                | JS_CLASS_FLOAT16_ARRAY
-                | JS_CLASS_FLOAT32_ARRAY
-                | JS_CLASS_FLOAT64_ARRAY,
+                    | JS_CLASS_UINT8C_ARRAY
+                    | JS_CLASS_UINT8_ARRAY
+                    | JS_CLASS_INT16_ARRAY
+                    | JS_CLASS_UINT16_ARRAY
+                    | JS_CLASS_INT32_ARRAY
+                    | JS_CLASS_UINT32_ARRAY
+                    | JS_CLASS_FLOAT16_ARRAY
+                    | JS_CLASS_FLOAT32_ARRAY
+                    | JS_CLASS_FLOAT64_ARRAY,
                 JS_CLASS_INT8_ARRAY
-                | JS_CLASS_UINT8C_ARRAY
-                | JS_CLASS_UINT8_ARRAY
-                | JS_CLASS_INT16_ARRAY
-                | JS_CLASS_UINT16_ARRAY
-                | JS_CLASS_INT32_ARRAY
-                | JS_CLASS_UINT32_ARRAY
-                | JS_CLASS_FLOAT16_ARRAY
-                | JS_CLASS_FLOAT32_ARRAY
-                | JS_CLASS_FLOAT64_ARRAY
+                    | JS_CLASS_UINT8C_ARRAY
+                    | JS_CLASS_UINT8_ARRAY
+                    | JS_CLASS_INT16_ARRAY
+                    | JS_CLASS_UINT16_ARRAY
+                    | JS_CLASS_INT32_ARRAY
+                    | JS_CLASS_UINT32_ARRAY
+                    | JS_CLASS_FLOAT16_ARRAY
+                    | JS_CLASS_FLOAT32_ARRAY
+                    | JS_CLASS_FLOAT64_ARRAY
             )
         );
         if same_content_type && Self::SIZE_LOG2(self.class_id()) == size_log2 {
