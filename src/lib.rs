@@ -10,7 +10,7 @@
 mod array;
 mod atom;
 #[cfg(feature = "big_int")]
-pub mod bigint;
+mod bigint;
 mod bytecode;
 mod class;
 mod context;
@@ -28,9 +28,8 @@ mod stack_frame;
 mod string;
 mod utils;
 mod value;
-
 #[cfg(feature = "zapi")]
-pub mod zapi;
+mod zapi;
 
 pub use {
     array::Array,
@@ -52,10 +51,10 @@ pub use {
     value::JSValue,
 };
 
-pub(crate) use value::JSValueTag;
-
 #[cfg(feature = "async_support")]
 pub use runtime::RunFuture;
+
+pub(crate) use value::JSValueTag;
 
 mod stdcls {
     include!(concat!(env!("OUT_DIR"), "/std_class_def.rs"));
