@@ -8,7 +8,7 @@
 //   cp examples/zapi_event/target/release/libzapi_event.dylib tests/zapi/
 //   target/release/examples/zjs --module tests/zapi/test_zapi_event.mjs
 
-import "./zapi_event.dylib";
+import { EventEmitter } from "./zapi_event.dylib";
 
 let pass = 0;
 let fail = 0;

@@ -654,7 +654,7 @@ unsafe extern "C" fn zapi_register_class(env: *mut ZqEnvS, class_def: *const ZqC
             return Ok(());
         };
 
-        let (_, token) = register_zapi_func_magic(ctx, body, 0);
+        let (_, magic) = register_zapi_func_magic(ctx, body, 0);
 
         // Instance entries (installed on the prototype) and static entries
         // (installed on the constructor), mirroring zuqe's native classes:
@@ -684,27 +684,20 @@ unsafe extern "C" fn zapi_register_class(env: *mut ZqEnvS, class_def: *const ZqC
         }
 
         // Install instance methods/accessors on the prototype.
-        let proto = ctx.class_proto(class_id).ok_or(-1)?;
-        let mut proto_val: crate::JSValue = proto.into();
-        proto_val.install_fields(ctx, &proto_entries)?;
+        let mut proto = ctx.class_proto(class_id).ok_or(-1)?;
+        proto.install_fields(ctx, &proto_entries)?;
 
-        let ctor = ctx.init_class_constructor(
+        ctx.init_class_constructor(
             class_id,
             zapi_trampoline_fn,
             def.call_arity as i32,
-            token as i16,
+            magic as i16,
             proto,
             &static_entries,
         )?;
-
-        let name = unsafe { std::ffi::CStr::from_ptr(def.name) };
-        let name = name.to_str().map_err(|_| -1)?;
-        ctx.global_obj().define_property_value_str(
-            ctx,
-            name,
-            ctor.into(),
-            crate::object::JS_PROP_WRITABLE | crate::object::JS_PROP_CONFIGURABLE,
-        )?;
+        // The constructor lives in `class_slots[class_id].ctor` (GC-traced).
+        // `load_extension` publishes it to the module namespace; it is not
+        // installed on `globalThis`.
         Ok(())
     }
 
@@ -835,6 +828,84 @@ unsafe extern "C" fn zapi_get_raw(_env: *mut ZqEnvS, obj: ZqRawValue) -> ZqRawVa
     JSValue(obj, std::marker::PhantomData).0
 }
 
+unsafe extern "C" fn zapi_type_of(_env: *mut ZqEnvS, val: ZqRawValue) -> i32 {
+    use zapi::ffi::{
+        ZQ_TYPE_BOOL, ZQ_TYPE_FUNCTION, ZQ_TYPE_NULL, ZQ_TYPE_NUMBER, ZQ_TYPE_OBJECT,
+        ZQ_TYPE_STRING, ZQ_TYPE_SYMBOL, ZQ_TYPE_UNDEFINED,
+    };
+    let v = JSValue(val, std::marker::PhantomData);
+    match v.tag() {
+        crate::value::JSValueTag::Undefined | crate::value::JSValueTag::Uninitialized => {
+            ZQ_TYPE_UNDEFINED
+        }
+        crate::value::JSValueTag::Null => ZQ_TYPE_NULL,
+        crate::value::JSValueTag::Bool => ZQ_TYPE_BOOL,
+        crate::value::JSValueTag::Int | crate::value::JSValueTag::Float64 => ZQ_TYPE_NUMBER,
+        crate::value::JSValueTag::String | crate::value::JSValueTag::StringRope => ZQ_TYPE_STRING,
+        crate::value::JSValueTag::Symbol => ZQ_TYPE_SYMBOL,
+        crate::value::JSValueTag::Object
+        | crate::value::JSValueTag::FunctionBytecode
+        | crate::value::JSValueTag::Module => {
+            if v.is_callable() {
+                ZQ_TYPE_FUNCTION
+            } else {
+                ZQ_TYPE_OBJECT
+            }
+        }
+        crate::value::JSValueTag::CatchOffset | crate::value::JSValueTag::Exception => {
+            ZQ_TYPE_OBJECT
+        }
+    }
+}
+
+unsafe extern "C" fn zapi_number_value(_env: *mut ZqEnvS, val: ZqRawValue) -> f64 {
+    JSValue(val, std::marker::PhantomData)
+        .as_number()
+        .map(|n| n.to_f64())
+        .unwrap_or(f64::NAN)
+}
+
+unsafe extern "C" fn zapi_bool_value(_env: *mut ZqEnvS, val: ZqRawValue) -> i32 {
+    match JSValue(val, std::marker::PhantomData).to_bool() {
+        Ok(b) => b as i32,
+        Err(_) => 0,
+    }
+}
+
+unsafe extern "C" fn zapi_string_value(env: *mut ZqEnvS, val: ZqRawValue) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    match JSValue(val, std::marker::PhantomData).to_string(ctx) {
+        Ok(s) => JSValue::make_string(s).0,
+        Err(_) => 0,
+    }
+}
+
+unsafe extern "C" fn zapi_call_constructor(
+    env: *mut ZqEnvS,
+    info: *mut ZqCallbackInfoS,
+) -> ZqRawValue {
+    let ctx = unsafe { &mut *((*env).ctx as *mut ScopedContext) };
+    let info = unsafe { &*info };
+
+    let target = crate::JSValue(info.target, std::marker::PhantomData);
+    let args: Vec<crate::JSValue> = if info.argc > 0 {
+        unsafe { std::slice::from_raw_parts(info.args, info.argc as usize) }
+            .iter()
+            .map(|&r| crate::JSValue(r, std::marker::PhantomData))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    match target.as_object() {
+        Some(o) => match o.call_ctor(ctx, &args) {
+            Ok(v) => v.0,
+            Err(_) => 0,
+        },
+        None => 0,
+    }
+}
+
 // Dead hook: extensions self-register through their own `zq_module_register`,
 // which fills the `ZqModuleInfo` the host consumes in `load_extension`.
 unsafe extern "C" fn zapi_module_register(_api: *mut ZqApi, _info: *mut ZqModuleInfo) {}
@@ -896,6 +967,11 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         get_native_ptr: zapi_get_native_ptr,
         set_native_ptr: zapi_set_native_ptr,
         get_raw: zapi_get_raw,
+        type_of: zapi_type_of,
+        number_value: zapi_number_value,
+        bool_value: zapi_bool_value,
+        string_value: zapi_string_value,
+        call_constructor: zapi_call_constructor,
         module_register: zapi_module_register,
     })
 }

@@ -5,7 +5,7 @@
 //!   cargo build --release --manifest-path examples/zapi_event/Cargo.toml
 //!   target/release/examples/zjs --module examples/zapi_event/test_event.mjs
 
-import "./target/release/libzapi_event.dylib";
+import { EventEmitter } from "./target/release/libzapi_event.dylib";
 
 let failures = 0;
 function check(name, cond) {

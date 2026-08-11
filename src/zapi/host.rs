@@ -14,7 +14,7 @@ use zapi::ffi::{
     ZqApi, ZqCallbackInfoS, ZqClassAccessor, ZqEnvS, ZqFuncInfo, ZqModuleInfo, ZqRawValue,
 };
 
-use crate::{JSValue, ModuleDef, ScopedContext, function::Callback};
+use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
 
 use super::stub::{ZQ_API_TABLE, env_from_ctx};
 
@@ -87,11 +87,10 @@ pub(crate) fn zapi_trampoline_fn(
 
     let mut env = unsafe { env_from_ctx(ctx) };
 
-    let raw_args: Vec<ZqRawValue> = cc
-        .arguments()
-        .iter()
-        .map(|v| v.as_number().map(|n| n.to_f64().to_bits()).unwrap_or(v.0))
-        .collect();
+    // Pass arguments as proper engine JSValues (numbers included) so the
+    // extension can inspect them with `type_of` / `number_value` etc. An
+    // extension that needs a numeric view converts with `api.number_value`.
+    let raw_args: Vec<ZqRawValue> = cc.arguments().iter().map(|v| v.0).collect();
 
     let mut info = ZqCallbackInfoS {
         target: 0,
@@ -156,11 +155,7 @@ macro_rules! zapi_make_thunk {
 
         fn trampoline(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             let mut env = $crate::zapi::host::env_from_scoped(ctx);
-            let raw_args: Vec<u64> = cc
-                .arguments()
-                .iter()
-                .map(|v| v.as_number().map(|n| n.to_f64().to_bits()).unwrap_or(v.0))
-                .collect();
+            let raw_args: Vec<u64> = cc.arguments().iter().map(|v| v.0).collect();
             let mut info = ZqCallbackInfoS {
                 target: 0,
                 this: cc.this().0,
@@ -210,9 +205,10 @@ where
 /// 1. dlopen the library, resolve `zq_module_register`
 /// 2. Lazy-init Runtime's `ZqApi` table (created once, shared across extensions)
 /// 3. Call `zq_module_register` → extension fills `ZqModuleInfo`
-/// 4. Register classes via `api.register_class`
-/// 5. Register functions on `globalThis` via `create_native_function`
-/// 6. Return a `ModuleDef` so the import system tracks this module
+/// 4. Register classes via `api.register_class` (constructors stay in `class_slots`)
+/// 5. Return a `ModuleDef` whose exports (classes + free functions) are
+///    published to the module namespace at evaluation time, matching standard
+///    ESM semantics (`import { X } from '...'` / `import * as m from '...'`).
 pub fn load_extension(ctx: &mut ScopedContext, path: &std::path::Path) -> Result<ModuleDef, i32> {
     type ZqModuleRegisterFn = unsafe extern "C" fn(api: *mut ZqApi, info: *mut ZqModuleInfo);
 
@@ -253,8 +249,11 @@ pub fn load_extension(ctx: &mut ScopedContext, path: &std::path::Path) -> Result
     let mut md_info = ZqModuleInfo::default();
     unsafe { module_register_fn(api_ptr, &mut md_info) };
 
-    // Register classes.
+    // Register classes. Their constructors are kept alive by
+    // `class_slots[class_id].ctor` (GC-traced) until the module init callback
+    // publishes them to the module namespace.
     let register_class = api.register_class;
+    let mut class_exports: Vec<(String, ClassID)> = Vec::new();
     for cd in md_info.class_defs() {
         let mut env = ZqEnvS {
             ctx: (ctx as *mut ScopedContext).cast::<c_void>(),
@@ -267,26 +266,21 @@ pub fn load_extension(ctx: &mut ScopedContext, path: &std::path::Path) -> Result
                 "zapi module '{file_url}': failed to register class"
             )));
         }
+        if !cd.name.is_null()
+            && let Ok(name) = unsafe { std::ffi::CStr::from_ptr(cd.name) }.to_str()
+        {
+            class_exports.push((name.to_string(), r as ClassID));
+        }
     }
 
-    let funcs = md_info.funcs();
-
-    // Class constructors are already installed on globalThis by register_class;
-    // do not let same-named free functions overwrite them.
-    let class_names: Vec<String> = md_info
-        .class_defs()
-        .iter()
-        .filter_map(|cd| {
-            if cd.name.is_null() {
-                None
-            } else {
-                unsafe { std::ffi::CStr::from_ptr(cd.name) }
-                    .to_str()
-                    .ok()
-                    .map(str::to_string)
-            }
-        })
-        .collect();
+    // The funcs slice lives in the extension's static memory; the library is
+    // kept loaded via `mem::forget(lib)` below, so it stays valid for the rest
+    // of the process lifetime.
+    let funcs: &'static [ZqFuncInfo] = if md_info.funcs.is_null() || md_info.funcs_len == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(md_info.funcs, md_info.funcs_len) }
+    };
 
     let mod_name = if md_info.name.is_null() {
         "zapi_module"
@@ -296,31 +290,87 @@ pub fn load_extension(ctx: &mut ScopedContext, path: &std::path::Path) -> Result
             .unwrap_or("zapi_module")
     };
 
-    // Register functions on globalThis.
-    let mut export_names: Vec<&str> = Vec::new();
+    // Export names: classes take precedence over same-named free functions.
+    let mut export_names: Vec<String> = Vec::new();
+    for (name, _) in &class_exports {
+        export_names.push(name.clone());
+    }
     for f in funcs {
         let func_name = unsafe { std::ffi::CStr::from_ptr(f.name) }
             .to_str()
             .map_err(|_| ctx.throw_type_error("invalid func name in zapi module"))?;
 
-        if class_names.iter().any(|n| n == func_name) {
+        if class_exports.iter().any(|(n, _)| n == func_name) {
             continue;
         }
-
-        let Some(body) = f.body else {
+        if f.body.is_none() {
             continue;
-        };
-
-        let (cb, token) = register_zapi_func_magic(ctx, body, f.magic);
-        let fn_obj = ctx.create_native_function(cb, func_name, f.arity, token as i16)?;
-        let js_val: JSValue = fn_obj.into();
-        ctx.global_obj()
-            .define_property_value_str(ctx, func_name, js_val, 0)?;
-        export_names.push(func_name);
+        }
+        export_names.push(func_name.to_string());
     }
 
     // Keep the library alive.
     std::mem::forget(lib);
 
-    ModuleDef::create(ctx, mod_name, export_names.iter().copied(), |_, _| Ok(()))
+    // Module init runs at evaluation time, after the export VarRefs exist:
+    // publish each constructor/function to the module namespace instead of
+    // `globalThis`.
+    let init_fn = move |ctx: &mut ScopedContext, md: &ModuleDef| -> Result<(), i32> {
+        for (name, class_id) in &class_exports {
+            let Some(ctor) = ctx.class_slots[*class_id as usize].ctor else {
+                continue; // class without a constructor body has no ctor
+            };
+            set_module_export(ctx, md, name, ctor.into())?;
+        }
+        for f in funcs {
+            let func_name = unsafe { std::ffi::CStr::from_ptr(f.name) }
+                .to_str()
+                .map_err(|_| ctx.throw_type_error("invalid func name in zapi module"))?;
+
+            if class_exports.iter().any(|(n, _)| n == func_name) {
+                continue;
+            }
+            let Some(body) = f.body else {
+                continue;
+            };
+
+            let (cb, token) = register_zapi_func_magic(ctx, body, f.magic);
+            let fn_obj = ctx.create_native_function(cb, func_name, f.arity, token as i16)?;
+            set_module_export(ctx, md, func_name, fn_obj.into())?;
+        }
+        Ok(())
+    };
+
+    ModuleDef::create(
+        ctx,
+        mod_name,
+        export_names.iter().map(String::as_str),
+        init_fn,
+    )
+}
+
+/// Set one module export binding to `value` during native module init.
+fn set_module_export(
+    ctx: &mut ScopedContext,
+    md: &ModuleDef,
+    name: &str,
+    value: JSValue,
+) -> Result<(), i32> {
+    let atom = crate::function::prop_str_to_atom(ctx, name)?;
+    let Some(me) = md.find_export(atom) else {
+        return Err(ctx.throw_internal_error(&format!(
+            "zapi module: export '{name}' is not declared"
+        )));
+    };
+    let crate::module::ExportType::JS_EXPORT_TYPE_LOCAL {
+        var_ref: Some(mut vr),
+        ..
+    } = me.export_type
+    else {
+        return Err(ctx.throw_internal_error(&format!(
+            "zapi module: export '{name}' has no local binding"
+        )));
+    };
+    vr.set_value(&mut ctx.rt_ptr(), value);
+    Ok(())
 }
