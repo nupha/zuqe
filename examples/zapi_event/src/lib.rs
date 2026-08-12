@@ -9,12 +9,12 @@
 //! on the constructor.
 
 use zapi::prelude::*;
-use zapi_macros::{GcTrace, zq_class, zq_class_impl, zq_method, zq_module, zq_static_method};
+use zapi_macros::{ZqGcTrace, zq_class, zq_class_impl, zq_method, zq_module, zq_static_method};
 
 use std::cell::Cell;
 
 /// One registered (event, handler) pair. All JS handles are traced for GC.
-#[derive(GcTrace)]
+#[derive(ZqGcTrace)]
 struct Listener {
     event: ZqRawValue,
     handler: ZqRawValue,
@@ -22,7 +22,7 @@ struct Listener {
 }
 
 /// Per-instance registry: one list of listeners per instance.
-#[derive(GcTrace)]
+#[derive(ZqGcTrace)]
 struct EmitterPayload {
     listeners: Vec<Listener>,
 }
@@ -168,5 +168,5 @@ thread_local! {
     static PRIVATE_MODE: Cell<ZqRawValue> = const { Cell::new(0) };
 }
 
-#[zq_module(name = "zapi_event", classes = [EventEmitter])]
+#[zq_module(name = "zapi_event", exports = [EventEmitter])]
 fn init() {}

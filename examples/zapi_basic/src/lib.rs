@@ -4,10 +4,12 @@
 //! `extern "C"` FFI in user code. Exercises every JS value type crossing the
 //! extension boundary (number / string / symbol / object / array / function /
 //! arguments), plus standard host objects (Date, Uint8Array) inside the
-//! extension.
+//! extension. Every `#[zq_function]` / `#[zq_class]` / `#[zq_export]` item
+//! self-registers as a module export via the linkme slice — `#[zq_module]`
+//! needs no export list.
 
 use zapi::prelude::*;
-use zapi_macros::{GcTrace, zq_class, zq_class_impl, zq_function, zq_method, zq_module};
+use zapi_macros::{ZqGcTrace, zq_class, zq_class_impl, zq_export, zq_function, zq_method, zq_module};
 
 // ──────────────────────────────────────
 // Value introspection & round-trip
@@ -215,7 +217,7 @@ fn u8_set<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError>
 // Counter class (from the original demo)
 // ──────────────────────────────────────
 
-#[derive(GcTrace)]
+#[derive(ZqGcTrace)]
 struct CounterPayload {
     count: i32,
     label: ZqRawValue,
@@ -255,12 +257,22 @@ impl Counter {
 }
 
 // ──────────────────────────────────────
-// Module
+// Value export: a module-level constant
+// ──────────────────────────────────────
+
+/// `VERSION` → `"0.1.0"` (built lazily at evaluation time).
+#[zq_export(name = "VERSION")]
+fn version<'a>(cx: ZqCtx<'a>) -> Result<ZqValue<'a>, ZqError> {
+    Ok(cx.string("0.1.0"))
+}
+
+// ──────────────────────────────────────
+// Module (exports = explicit manifest; init optional)
 // ──────────────────────────────────────
 
 #[zq_module(
     name = "zapi_demo",
-    funcs = [
+    exports = [
         type_of, id, add, mul, greet,
         echo_string, str_len,
         make_symbol, sym_desc,
@@ -269,7 +281,7 @@ impl Counter {
         call_js,
         make_date, date_time,
         make_u8, u8_get, u8_set,
-    ],
-    classes = [Counter]
+        Counter, version,
+    ]
 )]
 fn init() {}

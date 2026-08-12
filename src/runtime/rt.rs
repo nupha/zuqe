@@ -16,7 +16,7 @@ use crate::{
     class::{ClassDef, ClassID},
     context::ContextPtr,
     error::Exception,
-    gc::gc::GC_TYPE_REGISTRY,
+    gc::gc::{GC_TYPE_REGISTRY, GcTraceCallbackFn},
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::Promise,
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
@@ -130,8 +130,12 @@ pub struct RuntimeImpl {
     pub(crate) gc_part_hot: GcPartitionId,
     /// Hold currently running job gc tracer, so that GC can trace it.
     pub(crate) gc_job: Option<Box<dyn GcTraceFn>>,
-    /// user defined gc trace callback
-    pub(crate) gc_user_trace: Option<Box<dyn GcTraceFn>>,
+    /// user defined gc trace callbacks (closures, registered via `gc_set_trace_handler`).
+    /// Multiple callbacks are supported; each runs at every GC.
+    pub(crate) gc_user_trace: Vec<Box<dyn GcTraceFn>>,
+    /// fn-pointer gc trace callbacks `(fn, opaque)` — used by native extensions
+    /// (zapi `set_gc_trace_func`) to trace JS values held in thread_locals.
+    pub(crate) gc_trace_fns: Vec<(GcTraceCallbackFn, *mut std::ffi::c_void)>,
     /// allocation counter for batched should_gc() check
     pub(crate) gc_alloc_count: u32,
     /// number of allocations between should_gc() checks
@@ -226,7 +230,8 @@ impl RuntimeImpl {
             gc_req: false,
             gc_alloc_count: 0,
             gc_alloc_check_interval: GC_ALLOC_CHECK_INTERVAL,
-            gc_user_trace: None,
+            gc_user_trace: Vec::new(),
+            gc_trace_fns: Vec::new(),
             pending_promises: Vec::new(),
 
             interrupt_handler: None,
@@ -438,7 +443,7 @@ impl RuntimeImpl {
 
         for (callback, held_value, mut ctx_ptr) in pending {
             // Check if the context is still alive
-            if !self.context_list.iter().any(|cp| *cp == ctx_ptr) {
+            if !self.context_list.contains(&ctx_ptr) {
                 continue;
             }
 

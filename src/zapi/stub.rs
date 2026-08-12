@@ -5,7 +5,7 @@ use std::ffi::c_void;
 
 use once_cell::sync::Lazy;
 use zapi::ffi::{
-    ZQ_ABI_VERSION, ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqGcTraceCtxS,
+    ZQ_ABI_VERSION, ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqGcTraceCtxS, ZqGcTraceFn,
     ZqRawValue,
 };
 
@@ -467,6 +467,36 @@ unsafe extern "C" fn zapi_gc_add_trace(
     0
 }
 
+/// One registered global (thread_local) trace: the extension's callback plus
+/// its opaque. Leaked for the process lifetime (libraries are kept loaded).
+struct ZapiTraceReg {
+    cb: ZqGcTraceFn,
+    opaque: *mut c_void,
+}
+
+/// Runtime-side adapter: `(gcx, opaque)` → extension `(tc, opaque)`.
+fn zapi_gc_trace_adapter(gcx: &mut gc_lite::GcTraceCtx, reg: *mut c_void) {
+    let reg = unsafe { &*(reg as *const ZapiTraceReg) };
+    let mut tc = ZqGcTraceCtxS {
+        inner: (gcx as *mut gc_lite::GcTraceCtx).cast::<c_void>(),
+    };
+    unsafe { (reg.cb)(&mut tc, reg.opaque) };
+}
+
+unsafe extern "C" fn zapi_set_gc_trace_func(
+    env: ZqEnv,
+    cb: Option<ZqGcTraceFn>,
+    opaque: *mut c_void,
+) -> i32 {
+    let Some(cb) = cb else {
+        return -1;
+    };
+    let rt = unsafe { &mut *((*env).rt as *mut crate::RuntimeImpl) };
+    let reg = Box::into_raw(Box::new(ZapiTraceReg { cb, opaque }));
+    rt.gc_add_trace_callback(zapi_gc_trace_adapter, reg as *mut c_void);
+    0
+}
+
 unsafe extern "C" fn zapi_type_of(_env: ZqEnv, val: ZqRawValue) -> i32 {
     use zapi::ffi::{
         ZQ_TYPE_BOOL, ZQ_TYPE_FUNCTION, ZQ_TYPE_NULL, ZQ_TYPE_NUMBER, ZQ_TYPE_OBJECT,
@@ -578,5 +608,6 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         bool_value: zapi_bool_value,
         string_value: zapi_string_value,
         call_constructor: zapi_call_constructor,
+        set_gc_trace_func: zapi_set_gc_trace_func,
     })
 }

@@ -91,7 +91,7 @@ hash-link = "0.1"
 smallvec = "1.13"
 fallible_collections = "0.5"
 gc-lite = { version = "0.6.2", path = "../gc-lite-v2" }
-zapi = { path = "../zapi", optional = true }
+zapi = { path = "../zuqe-zapi", optional = true }
 libloading = { version = "0.9", optional = true }
 lre = { version = "0.3.1", optional = true }
 libc = { version = "0.2", optional = true }

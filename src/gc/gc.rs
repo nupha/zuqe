@@ -4,7 +4,8 @@
 use std::ptr::NonNull;
 
 use gc_lite::{
-    GcError, GcHead, GcHeap, GcNode, GcPartitionId, GcRef, GcTrace, GcTraceFn, gc_type_register,
+    GcError, GcHead, GcHeap, GcNode, GcPartitionId, GcRef, GcTrace, GcTraceCtx, GcTraceFn,
+    gc_type_register,
 };
 
 // `GcTraceCtx` is only referenced by the feature-off `BigIntImpl` placeholder.
@@ -53,6 +54,10 @@ gc_type_register! {
     ShapeImpl, drop_pass = 1;
     BigIntImpl;
 }
+
+/// fn-pointer GC trace callback: `f(gcx, opaque)` traces values held by the
+/// registered native owner (e.g. a zapi extension's thread_local).
+pub(crate) type GcTraceCallbackFn = fn(&mut GcTraceCtx, *mut std::ffi::c_void);
 
 /// zhuque-side extension of [`GcHeap`] for [`JSValue`] write barriers.
 pub(crate) trait GcHeapExt {
@@ -171,9 +176,14 @@ impl RuntimeImpl {
                 f(&mut gcx);
             }
 
-            // trace user defined gc
-            if let Some(f) = self.gc_user_trace.as_ref() {
+            // trace user defined gc (closure handlers)
+            for f in &self.gc_user_trace {
                 f(&mut gcx);
+            }
+            // trace user defined gc (fn-pointer handlers, e.g. zapi extensions'
+            // thread_local traces registered via `gc_add_trace_callback`)
+            for (f, opaque) in &self.gc_trace_fns {
+                f(&mut gcx, *opaque);
             }
 
             gcx.take_nodes()
@@ -211,7 +221,17 @@ impl RuntimeImpl {
 
     #[inline(always)]
     pub fn gc_set_trace_handler(&mut self, f: impl GcTraceFn + 'static) {
-        self.gc_user_trace.replace(Box::new(f));
+        // Multiple handlers are supported; each runs at every GC. The handler is
+        // a closure (aike registers one that fans out to its thread_locals).
+        self.gc_user_trace.push(Box::new(f));
+    }
+
+    /// Register a fn-pointer GC trace callback `(f, opaque)`; `f(gcx, opaque)`
+    /// is invoked at every GC. Used by native extensions (zapi
+    /// `set_gc_trace_func`) to trace JS values held outside the GC heap.
+    #[inline(always)]
+    pub fn gc_add_trace_callback(&mut self, f: GcTraceCallbackFn, opaque: *mut std::ffi::c_void) {
+        self.gc_trace_fns.push((f, opaque));
     }
 
     /// request gc collect
