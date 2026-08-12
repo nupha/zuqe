@@ -390,6 +390,7 @@ impl<'c> ScopedContext<'c> {
                 }
 
                 // Atomics: lazy init
+                #[cfg(feature = "builtin_atomic")]
                 gobj.install_fields(ctx, crate::builtins::atomics::js_atomics_obj)?;
             }
 

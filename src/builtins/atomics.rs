@@ -1,22 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-//! `Atomics` global object (ECMA-262 §25.4).
-//!
-//! The `Atomics` object provides atomic operations on integer TypedArray views
-//! backed by a `SharedArrayBuffer`. These operations are the *only* spec-defined
-//! way to safely access shared memory across agents (threads).
-//!
-//! Current status: the engine does not yet implement any atomic primitive, the
-//! underlying wait/notify agent-cluster synchronization, or the per-element
-//! atomic load/store paths on shared TypedArrays. Every method below therefore
-//! throws `TypeError` with the message `Atomic is not supported at the moment`
-//! until the real implementation lands.
-//!
-//! This satisfies the minimum requirement of exposing a `Atomics` global whose
-//! methods are present but inert (P0/P1 stub). `Atomics.wait`/`Atomics.waitAsync`
-//! additionally require an agent cluster (P1) which is also not yet available.
-
 use crate::{
     JSResult,
     context::ScopedContext,

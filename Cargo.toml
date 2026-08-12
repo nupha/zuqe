@@ -19,6 +19,7 @@ serde_json_support = ["serde_json"]
 zapi = ["dep:zapi", "libloading"]
 
 builtin_proxy = []
+builtin_atomic = []
 builtin_mapset = []
 builtin_regexp = ["lre"]
 builtin_reflect = []
@@ -46,6 +47,7 @@ default = [
 
     "builtin_mapset",
     "builtin_proxy",
+    "builtin_atomic",
     "builtin_regexp",
     "builtin_reflect",
     "builtin_json",
