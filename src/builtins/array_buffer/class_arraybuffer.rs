@@ -127,6 +127,10 @@ fn js_array_buffer_transfer(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     ab.ensure_attached(ctx)?;
 
     let old_len = ab.payload().byte_length();
+    let src_resizable = ab.payload().is_resizable();
+    let src_max_len = ab.payload().max_byte_length();
+
+    let to_fixed = cc.magic() != 0;
 
     let new_len = if cc.length() < 1 || cc.arg(0).is_undefined() {
         old_len
@@ -144,8 +148,14 @@ fn js_array_buffer_transfer(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         Vec::new()
     };
 
-    // Create new ArrayBuffer
-    let mut new_ab = ArrayBuffer::create(ctx, false, new_len)?;
+    // Create new ArrayBuffer.
+    // `transfer` keeps the source's resizability and maxByteLength;
+    // `transferToFixedLength` always yields a fixed-length buffer.
+    let mut new_ab = if !to_fixed && src_resizable {
+        ArrayBuffer::with_capacity_resizable(ctx, JSValue::UNDEFINED, new_len, src_max_len)?
+    } else {
+        ArrayBuffer::create(ctx, false, new_len)?
+    };
 
     // Copy data into new buffer
     if copy_len > 0 {
