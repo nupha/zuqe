@@ -109,9 +109,7 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
                     // byte length); the length is floor((byteLength - offset) /
                     // elementSize). A non-resizable buffer still requires the
                     // byte length to be a multiple of the element size.
-                    if !ab.payload().is_resizable()
-                        && (byte_length & ((1 << size_log2) - 1)) != 0
-                    {
+                    if !ab.payload().is_resizable() && (byte_length & ((1 << size_log2) - 1)) != 0 {
                         return Err(ctx.throw_range_error(
                             "byte length should be a multiple of element size",
                         ));
@@ -129,7 +127,8 @@ pub fn js_typed_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
                 }
             };
 
-            let mut ta = TypedArray::create_from(ctx, new_target, p.into(), offset, len, class_id as _)?;
+            let mut ta =
+                TypedArray::create_from(ctx, new_target, p.into(), offset, len, class_id as _)?;
             // A view created from a resizable buffer without an explicit length
             // is length-tracked: it follows the buffer size on resize.
             if length_tracked && ab.payload().is_resizable() {
@@ -224,7 +223,12 @@ fn js_typed_array_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 pub const js_typed_array_base_funcs: &[FieldDef] = &[
     FieldDef::FUNC("from", 1, js_typed_array_from, 0),
     FieldDef::FUNC("of", 0, js_typed_array_of, 0),
-    FieldDef::FUNC("fromBase64", 1, super::base64hex::js_uint8array_fromBase64, 0),
+    FieldDef::FUNC(
+        "fromBase64",
+        1,
+        super::base64hex::js_uint8array_fromBase64,
+        0,
+    ),
     FieldDef::FUNC("fromHex", 1, super::base64hex::js_uint8array_fromHex, 0),
     SPECIES_FIELD,
 ];
@@ -268,11 +272,15 @@ fn js_typed_array_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(ctx.throw_type_error("not a TypedArray"));
     };
 
-    // An out-of-bounds view (resizable buffer shrunk past its end) throws.
+    // ValidateTypedArray: out-of-bounds views throw a TypeError. This must happen
+    // before `len` is observed and before the index is coerced.
     js_typed_array_get_length_internal(ctx, this)?;
 
-    let mut idx: i64 = cc.arg(0).to_number(ctx)?.to_i64_saturating();
+    // `len` is observed before the index is coerced, so a resize triggered by the
+    // index coercion does not change the length used for the bounds check.
     let len = ta.length() as i64;
+
+    let mut idx: i64 = cc.arg(0).to_number(ctx)?.to_i64_saturating();
     if idx < 0 {
         idx += len;
     }
@@ -355,7 +363,6 @@ fn js_typed_array_set_internal(
     src: JSValue,
     offset: &JSValue,
 ) -> JSResult {
-    // don't change order
     let Some(mut dest) = dst.as_object_TypedArray() else {
         return Err(ctx.throw_type_error("not a TypedArray"));
     };
@@ -367,64 +374,85 @@ fn js_typed_array_set_internal(
 
     dest.ensure_attached(ctx)?;
 
-    if let Some(src) = src.as_object_TypedArray()
+    // Per spec, the destination's length (and out-of-bounds status) is observed
+    // before the source is read, so that a resize triggered by reading the
+    // source cannot change the validity checks for this operation.
+    let dest_oob = dest.payload().is_out_of_bounds();
+    let dest_length = dest.length() as i64;
+    let dest_bpe = TypedArray::SIZE_LOG2(dest.class_id());
+
+    if let Some(mut src) = src.as_object_TypedArray()
         && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&src.class_id())
     {
-        let s = src.array_buffer();
-        let d = dest.array_buffer();
+        src.array_buffer().payload().ensure_attached(ctx)?;
 
-        let src_abuf = s.payload();
-        src_abuf.ensure_attached(ctx)?;
-
-        let count = src.payload().count();
-        if offset > dest.length() as i64 - count as i64 {
+        let count = src.length() as i64;
+        if dest_oob {
+            return Err(ctx.throw_type_error("out of bounds"));
+        }
+        if src.payload().is_out_of_bounds() {
+            return Err(ctx.throw_type_error("out of bounds"));
+        }
+        if offset > dest_length - count {
+            return Err(ctx.throw_range_error("invalid array length"));
+        }
+        if count > dest_length - offset {
             return Err(ctx.throw_range_error("invalid array length"));
         }
 
-        let dst_bpe = TypedArray::SIZE_LOG2(dest.class_id());
         let src_bpe = TypedArray::SIZE_LOG2(src.class_id());
-        let dest_abuf = d.payload();
+        let dst_bpe = dest_bpe;
 
-        if dest_abuf.data().id() == src_abuf.data().id() {
-            // use same underlying buffer
-            if src.class_id() == dest.class_id() {
-                // fast path: same type, use mem copy
-                let src_ptr = src.with_bytes(|buf| buf.as_ptr());
-                dest.with_bytes_mut(|buf| unsafe {
-                    std::ptr::copy(
-                        src_ptr,
-                        buf.as_mut_ptr().add((offset << dst_bpe) as usize),
-                        count << src_bpe, // count to byte_num
-                    );
-                });
-                return Ok(JSValue::UNDEFINED);
-            }
-
-            // copying between the same buffer using different types of mappings
-            // would require a temporary buffer.
-            // TODO: XXX
-        } else if src.class_id() == dest.class_id() {
-            // fast path: same type, use mem copy
+        let same_buffer =
+            src.array_buffer().payload().data().id() == dest.array_buffer().payload().data().id();
+        if same_buffer && src.class_id() == dest.class_id() {
+            // fast path: same buffer, same type. Treat like copyWithin.
+            let copy_len = (count << src_bpe) as usize;
+            let dst_off = (offset << dst_bpe) as usize;
+            src.with_bytes_mut(|buf| unsafe {
+                std::ptr::copy(
+                    buf.as_mut_ptr().add(0),
+                    buf.as_mut_ptr().add(dst_off),
+                    copy_len,
+                );
+            });
+            return Ok(JSValue::UNDEFINED);
+        } else if !same_buffer && src.class_id() == dest.class_id() {
+            // fast path: different buffer, same type, use mem copy
+            let copy_len = (count << src_bpe) as usize;
+            let dst_off = (offset << dst_bpe) as usize;
             src.with_bytes(|src_buf| {
                 dest.with_bytes_mut(|dst_buf| unsafe {
                     std::ptr::copy(
                         src_buf.as_ptr(),
-                        dst_buf.as_mut_ptr().add((offset << dst_bpe) as usize),
-                        count << src_bpe, // count to byte_num
+                        dst_buf.as_mut_ptr().add(dst_off),
+                        copy_len,
                     );
                 })
             });
             return Ok(JSValue::UNDEFINED);
+        } else if !same_buffer {
+            // different types on different buffers: element-wise copy.
+            let count_u = count as u32;
+            for i in 0..count_u {
+                let val = src.get_property_u32(ctx, i)?;
+                dst.set_property_u32(ctx, offset as u32 + i, val)?;
+            }
+            return Ok(JSValue::UNDEFINED);
         }
-
-        // use slow path now.
-        // TODO: do transfer in efficient way
+        // same buffer but different types: fall through to slow path.
     }
 
-    // slow path
+    // slow path (array-like source)
+    if dest_oob {
+        return Err(ctx.throw_type_error("out of bounds"));
+    }
     let src_p = src.objectify(ctx)?;
-    let count = src_p.get_length_prop(ctx)?;
-    if offset > dest.length() as i64 - count {
+    let count = src_p.get_length_prop(ctx)? as i64;
+    if offset > dest_length {
+        return Err(ctx.throw_range_error("invalid array length"));
+    }
+    if count + offset > dest_length {
         return Err(ctx.throw_range_error("invalid array length"));
     }
 
@@ -749,15 +777,30 @@ fn js_typed_array_toReversed(ctx: &mut ScopedContext, mut cc: CallContext) -> JS
 }
 
 fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let len = js_typed_array_get_length_internal(ctx, cc.this())?;
+    let this_val = cc.this();
+
+    // ValidateTypedArray: an out-of-bounds view throws a TypeError. This must
+    // happen before `len` is observed and before the start/end arguments are
+    // coerced.
+    js_typed_array_get_length_internal(ctx, this_val)?;
+
+    let len = {
+        let Some(ta) = this_val.as_object_TypedArray() else {
+            return Err(ctx.throw_type_error("not a TypedArray"));
+        };
+        ta.ensure_attached(ctx)?;
+        // Per spec, `len` is observed before the start/end arguments are coerced,
+        // so a resize triggered by argument coercion does not change `len`.
+        ta.length()
+    };
+
     let start = arg_rel_index32(ctx, &cc, 0, len as _, 0)? as usize;
     let final_ = arg_rel_index32(ctx, &cc, 1, len as _, len as _)? as usize;
 
-    let this_val = cc.this();
     let count = final_.saturating_sub(start);
-    let shift = TypedArray::SIZE_LOG2(cc.this().as_object().unwrap().class_id());
 
-    // create result typed array
+    // create result typed array (this may resize the underlying buffer via a
+    // user-supplied species constructor)
     let mut arr = js_typed_array___speciesCreate(
         ctx,
         JSValue::UNDEFINED,
@@ -765,7 +808,24 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     )?;
 
     if count > 0 {
-        // copy values from src to result array
+        // Re-read the source length after the (possibly side-effecting) species
+        // constructor. Per spec, an out-of-bounds fixed-length view throws, while
+        // a length-tracked view shrinks (positions beyond the current length read
+        // as `undefined`, i.e. zero).
+        let (current_len, oob, tracked) = {
+            let ta = this_val.as_object_TypedArray().unwrap();
+            (
+                ta.length(),
+                ta.payload().is_out_of_bounds(),
+                ta.payload().is_length_tracked(),
+            )
+        };
+        if !tracked && oob {
+            return Err(ctx.throw_type_error("out of bounds"));
+        }
+        let effective_final = final_.min(current_len as usize);
+        let copy_count = effective_final.saturating_sub(start);
+
         let Some(src) = this_val.as_object_TypedArray() else {
             return Err(ctx.throw_type_error("not a TypedArray"));
         };
@@ -776,31 +836,25 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         };
         dst.ensure_attached(ctx)?;
 
-        if src.class_id() == dst.class_id()
-            && dst.capacity() >= count
-            && src.capacity() >= start + count
+        let shift = TypedArray::SIZE_LOG2(src.class_id());
+
+        if copy_count > 0
+            && src.class_id() == dst.class_id()
+            && (start + copy_count) <= current_len as usize
+            && dst.capacity() >= copy_count
+            && src.capacity() >= start + copy_count
         {
-            // fast path
+            // fast path: no shrink/overlap, raw copy is safe
             if src.array_buffer().payload().data().id() == dst.array_buffer().payload().data().id()
             {
                 // src, dst are in same memory chunk
                 let src_ptr = src.with_bytes(|b| b.as_ptr());
 
                 dst.with_bytes_mut(|buf| unsafe {
-                    // Hint: 当用src_ptr, dst_ptr复制 count<<shift 个字节，且两个内存区域发生重叠时，
-                    // std::ptr::copy() 能正确处理覆盖的情况。
-                    // 但是，ECMA规范偏偏选择了错误的方向，以类似C memcpy()那种方式，规定发生重叠覆盖为"正宗"。
-                    // 所以，本处不使用std::ptr::copy()，而用手工指针复制来模拟带bug的memcpy()模式。
-                    // std::ptr::copy(
-                    //     src_ptr.add(start << shift),
-                    //     buf.as_mut_ptr(),
-                    //     count << shift,
-                    // );
-
                     // may have overwrite
                     let mut src_ptr = src_ptr.add(start << shift);
                     let mut dst_ptr = buf.as_mut_ptr();
-                    for _ in 0..count << shift {
+                    for _ in 0..copy_count << shift {
                         *dst_ptr = *src_ptr;
                         src_ptr = src_ptr.add(1);
                         dst_ptr = dst_ptr.add(1);
@@ -812,18 +866,17 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                         std::ptr::copy(
                             src_buf.as_ptr().add(start << shift),
                             dst_buf.as_mut_ptr(),
-                            count << shift,
+                            copy_count << shift,
                         );
                     });
                 });
             }
-            return Ok(arr);
-        }
-
-        // slow path using property set
-        for n in 0..count {
-            let val = this_val.get_property_value(ctx, JSValue::from((start + n) as i32))?;
-            arr.set_property_u32(ctx, n as u32, val)?;
+        } else if copy_count > 0 {
+            // slow path using property access so OOB reads become `undefined`
+            for n in 0..copy_count {
+                let val = this_val.get_property_value(ctx, JSValue::from((start + n) as i32))?;
+                arr.set_property_u32(ctx, n as u32, val)?;
+            }
         }
     }
 
@@ -845,8 +898,7 @@ fn js_typed_array_subarray(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     // Note: calc byte offset before read `final` argument. Use the raw
     // [[ByteOffset]] slot, which is preserved even when the view is
     // out-of-bounds (unlike the `byteOffset` getter, which reports 0 then).
-    let byte_offset =
-        ta.payload().offset() + (start << TypedArray::SIZE_LOG2(ta.class_id()));
+    let byte_offset = ta.payload().offset() + (start << TypedArray::SIZE_LOG2(ta.class_id()));
 
     let end_undefined = cc.arg(1).is_undefined();
     let final_ = arg_rel_index32(ctx, &cc, 1, len as _, len as _)? as usize;
@@ -1094,8 +1146,9 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 unsafe {
                     let p = buf.as_mut_ptr().add(byte_offset).cast::<u16>();
                     let elem_len = byte_len >> 1;
-                    let mut vec: Vec<f32> =
-                        (0..elem_len).map(|i| f16_to_f64(*p.add(i)) as f32).collect();
+                    let mut vec: Vec<f32> = (0..elem_len)
+                        .map(|i| f16_to_f64(*p.add(i)) as f32)
+                        .collect();
 
                     if let Some(cmp_fn) = cmp.as_object() {
                         let mut has_error = false;
@@ -1131,7 +1184,10 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }),
             JS_CLASS_FLOAT32_ARRAY => abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
                 let slice = unsafe {
-                    std::slice::from_raw_parts_mut(buf.as_mut_ptr().add(byte_offset).cast::<f32>(), byte_len >> 2)
+                    std::slice::from_raw_parts_mut(
+                        buf.as_mut_ptr().add(byte_offset).cast::<f32>(),
+                        byte_len >> 2,
+                    )
                 };
 
                 if let Some(cmp_fn) = cmp.as_object() {
@@ -1162,7 +1218,10 @@ fn js_typed_array_sort(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }),
             JS_CLASS_FLOAT64_ARRAY => abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
                 let slice = unsafe {
-                    std::slice::from_raw_parts_mut(buf.as_mut_ptr().add(byte_offset).cast::<f64>(), byte_len >> 3)
+                    std::slice::from_raw_parts_mut(
+                        buf.as_mut_ptr().add(byte_offset).cast::<f64>(),
+                        byte_len >> 3,
+                    )
                 };
 
                 if let Some(cmp_fn) = cmp.as_object() {
@@ -1360,8 +1419,19 @@ fn js_typed_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let special = cc.magic();
+    let this = cc.this();
 
-    let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
+    // ValidateTypedArray: out-of-bounds views throw a TypeError. This must happen
+    // before `len` is observed and before the fromIndex/searchElement is coerced.
+    js_typed_array_get_length_internal(ctx, this)?;
+
+    let Some(ta) = this.as_object_TypedArray() else {
+        return Err(ctx.throw_type_error("not a TypedArray"));
+    };
+
+    // Per spec, `len` is observed before the fromIndex (or searchElement) is
+    // coerced, so a resize triggered by coercion does not change the scan range.
+    let len = ta.length() as i32;
     if len == 0 {
         return Ok(if special == special_includes {
             JSValue::from(false)
@@ -1402,7 +1472,16 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         inc = 1;
     }
 
-    let ta = cc.this().as_object_TypedArray().unwrap();
+    // `includes(undefined)` only matches slots that read as `undefined`, which
+    // for a TypedArray means out-of-bounds positions (the view being OOB, or an
+    // index beyond the current length). A slot in [k, len) is OOB iff the
+    // current length is below `len`; `k` is already clamped into [0, len].
+    if special == special_includes && cc.arg(0).is_undefined() {
+        let cur = ta.length();
+        let is_match = (k as usize) < len as usize && (cur as usize) < len as usize;
+        return Ok(JSValue::from(is_match));
+    }
+
     let mut res = -1;
 
     if ta.is_detached() {
@@ -1462,7 +1541,11 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
                 if inc > 0 {
                     debug_assert!(k >= 0);
+                    // Bound the scan to `len`, the length observed BEFORE any
+                    // coercion-side-effect resize (a grow must not reach appended
+                    // elements; a shrink/OOB position reads as `undefined`).
                     it.skip(k as usize)
+                        .take(len as usize)
                         .find_map(|(i, x)| if *x == $v { Some(i) } else { None })
                 } else {
                     // `k` may exceed the current length if the buffer was shrunk
@@ -1515,6 +1598,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                             if inc > 0 {
                                 lst.iter()
                                     .skip(k as usize)
+                                    .take(len as usize)
                                     .position(|x| f16_to_f64(*x).is_nan())
                             } else {
                                 lst.iter().enumerate().take(k as usize + 1).rev().find_map(
@@ -1549,7 +1633,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                     let it = lst.iter().enumerate();
                     if inc > 0 {
                         debug_assert!(k >= 0);
-                        it.skip(k as usize).find_map(|(i, x)| {
+                        it.skip(k as usize).take(len as usize).find_map(|(i, x)| {
                             if *x == 0x0000 || *x == 0x8000 {
                                 Some(i)
                             } else {
@@ -1585,7 +1669,10 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                     // includes finds NaN
                     let found = ta.with_elements_as::<f32, Option<usize>>(|lst| {
                         if inc > 0 {
-                            lst.iter().skip(k as usize).position(|x| x.is_nan())
+                            lst.iter()
+                                .skip(k as usize)
+                                .take(len as usize)
+                                .position(|x| x.is_nan())
                         } else {
                             lst.iter()
                                 .enumerate()
@@ -1615,7 +1702,10 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                     // includes finds NaN
                     let found = ta.with_elements_as::<f64, Option<usize>>(|lst| {
                         if inc > 0 {
-                            lst.iter().skip(k as usize).position(|x| x.is_nan())
+                            lst.iter()
+                                .skip(k as usize)
+                                .take(len as usize)
+                                .position(|x| x.is_nan())
                         } else {
                             lst.iter()
                                 .enumerate()
@@ -1664,6 +1754,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
                     if inc > 0 {
                         debug_assert!(k >= 0);
                         it.skip(k as usize)
+                            .take(len as usize)
                             .find_map(|(i, x)| if *x == target { Some(i) } else { None })
                     } else {
                         debug_assert!(k >= 0);
@@ -1814,7 +1905,12 @@ pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
         js_typed_array_indexOf,
         special_includes as i16,
     ),
-    FieldDef::FUNC("toBase64", 0, super::base64hex::js_uint8array_proto_toBase64, 0),
+    FieldDef::FUNC(
+        "toBase64",
+        0,
+        super::base64hex::js_uint8array_proto_toBase64,
+        0,
+    ),
     FieldDef::FUNC("toHex", 0, super::base64hex::js_uint8array_proto_toHex, 0),
     FieldDef::FUNC(
         "setFromBase64",
