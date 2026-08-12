@@ -173,8 +173,10 @@ fn js_load_module_internal(
             // Dynamically imported modules are loaded outside the host `eval`
             // entry (which sets `import.meta` for the main module), so wire up
             // `import.meta` here. `is_main` is false: only the top-level entry
-            // module is the main module.
-            if md.set_import_meta(ctx, false).is_err() {
+            // module is the main module. Skip when already set (main entry /
+            // prior static import): a cache-hit re-import must not re-set it
+            // (which would also clobber the `main` flag).
+            if md.meta_obj.is_none() && md.set_import_meta(ctx, false).is_err() {
                 let err_val = ctx.take_exception().to_value(ctx);
                 let _ = resolving_funcs[1].call(
                     ctx,

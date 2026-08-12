@@ -304,6 +304,19 @@ impl ModuleDef {
             if worklist[top].dep_index >= worklist[top].module.dependencies.len() {
                 let cur_module = &mut worklist[top].module;
 
+                // `set_import_meta` is only reached for the main entry and
+                // dynamic imports. Wire up `import.meta` for static imports too
+                // so `import.meta.url === module_name` holds for every module
+                // (native ones have no bytecode to read it lazily). Skip when
+                // already set (main entry / dynamic import) to keep a single
+                // call per module and preserve the `main` flag.
+                if cur_module.meta_obj.is_none()
+                    && cur_module.set_import_meta(ctx, false).is_err()
+                {
+                    result = Err(ctx.take_exception().to_value(ctx));
+                    break;
+                }
+
                 // Module execution (same as recursive post-deps logic)
                 if cur_module.pending_async_dependencies > 0 {
                     debug_assert!(!cur_module.async_evaluation());
