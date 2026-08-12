@@ -8,8 +8,8 @@
 //! self-registers as a module export via the linkme slice — `#[zq_module]`
 //! needs no export list.
 
-use zapi::prelude::*;
-use zapi_macros::{ZqGcTrace, zq_class, zq_class_impl, zq_export, zq_function, zq_method, zq_module};
+use zuqe_zapi::prelude::*;
+use zuqe_zapi_macros::{ZqGcTrace, zq_class, zq_class_impl, zq_export, zq_function, zq_method, zq_module};
 
 // ──────────────────────────────────────
 // Value introspection & round-trip

@@ -8,5 +8,5 @@ description = "Zapi — EventEmitter demo using the zq_* macros (no raw FFI)"
 crate-type = ["cdylib"]
 
 [dependencies]
-zapi = { path = "../../../zapi" }
-zapi-macros = { path = "../../../zapi-macros" }
+zuqe_zapi = { path = "../../../zuqe-zapi" }
+zuqe_zapi_macros = { path = "../../../zuqe-zapi-macros" }

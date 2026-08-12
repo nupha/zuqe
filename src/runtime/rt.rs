@@ -165,14 +165,14 @@ pub struct RuntimeImpl {
     // ── zapi native extension state ──
     #[cfg(feature = "zapi")]
     pub(crate) zapi_body_registry:
-        std::sync::Mutex<std::collections::HashMap<i32, (zapi::ffi::ZapiBodyFn, i32)>>,
+        std::sync::Mutex<std::collections::HashMap<i32, (zuqe_zapi::ffi::ZapiBodyFn, i32)>>,
     #[cfg(feature = "zapi")]
     pub(crate) zapi_next_token: std::sync::atomic::AtomicI32,
     #[cfg(feature = "zapi")]
     pub(crate) zapi_class_map:
         std::sync::Mutex<std::collections::HashMap<crate::class::ClassID, usize>>,
     #[cfg(feature = "zapi")]
-    pub(crate) zapi_pending_class_def: *const zapi::ffi::ZqClassDef,
+    pub(crate) zapi_pending_class_def: *const zuqe_zapi::ffi::ZqClassDef,
 }
 
 impl Drop for RuntimeImpl {

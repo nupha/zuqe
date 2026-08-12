@@ -8,8 +8,8 @@
 //! `#[zq_method]` installs instance methods on the prototype, `#[zq_static_method]`
 //! on the constructor.
 
-use zapi::prelude::*;
-use zapi_macros::{ZqGcTrace, zq_class, zq_class_impl, zq_method, zq_module, zq_static_method};
+use zuqe_zapi::prelude::*;
+use zuqe_zapi_macros::{ZqGcTrace, zq_class, zq_class_impl, zq_method, zq_module, zq_static_method};
 
 use std::cell::Cell;
 

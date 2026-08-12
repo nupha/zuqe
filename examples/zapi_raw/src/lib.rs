@@ -33,7 +33,7 @@ use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use zapi::ffi::*;
+use zuqe_zapi::ffi::*;
 
 // ──────────────────────────────────────
 // The ZqApi table (kept per-thread, as in the sugar layer's __private)

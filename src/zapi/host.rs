@@ -4,7 +4,7 @@
 use std::ffi::c_void;
 
 use libloading::Library;
-use zapi::ffi::{
+use zuqe_zapi::ffi::{
     ZQ_FIELD_BOOL, ZQ_FIELD_CLASS, ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET, ZQ_FIELD_INT,
     ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_FIELD_VALUE, ZqApi, ZqCallbackInfoS, ZqEnv, ZqEnvS,
     ZqFieldDef, ZqModuleInfo, ZqRawValue,
@@ -177,11 +177,11 @@ pub(crate) fn register_zapi_func_magic(
 #[macro_export]
 macro_rules! zapi_make_thunk {
     ($body:expr) => {{
-        use zapi::ffi::ZqCallbackInfoS;
+        use zuqe_zapi::ffi::ZqCallbackInfoS;
         use $crate::{JSResult, JSValue, ScopedContext, function::CallContext};
 
         fn trampoline(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-            let mut env = $crate::zapi::host::env_from_scoped(ctx);
+            let mut env = $crate::zuqe_zapi::host::env_from_scoped(ctx);
             let raw_args: Vec<u64> = cc.arguments().iter().map(|v| v.0).collect();
             let mut info = ZqCallbackInfoS {
                 target: 0,

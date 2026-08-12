@@ -4,7 +4,7 @@
 use std::ffi::c_void;
 
 use once_cell::sync::Lazy;
-use zapi::ffi::{
+use zuqe_zapi::ffi::{
     ZQ_ABI_VERSION, ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqFieldDef, ZqGcTraceCtxS,
     ZqGcTraceFn, ZqRawValue,
 };
@@ -486,7 +486,7 @@ unsafe extern "C" fn zapi_set_gc_trace_func(
 }
 
 unsafe extern "C" fn zapi_type_of(_env: ZqEnv, val: ZqRawValue) -> i32 {
-    use zapi::ffi::{
+    use zuqe_zapi::ffi::{
         ZQ_TYPE_BOOL, ZQ_TYPE_FUNCTION, ZQ_TYPE_NULL, ZQ_TYPE_NUMBER, ZQ_TYPE_OBJECT,
         ZQ_TYPE_STRING, ZQ_TYPE_SYMBOL, ZQ_TYPE_UNDEFINED,
     };
