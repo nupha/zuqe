@@ -169,4 +169,4 @@ thread_local! {
 }
 
 #[zq_module(name = "zapi_event", exports = [EventEmitter])]
-fn init() {}
+fn module_init() {}

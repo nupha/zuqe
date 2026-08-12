@@ -284,4 +284,4 @@ fn version<'a>(cx: ZqCtx<'a>) -> Result<ZqValue<'a>, ZqError> {
         Counter, version,
     ]
 )]
-fn init() {}
+fn module_init() {}
