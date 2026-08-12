@@ -3,10 +3,9 @@
 
 use std::{cell::Cell, ffi::c_void, process::ExitCode};
 
-use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
-
 #[cfg(feature = "builtin_weakref")]
 use gc_lite::GcTrace;
+use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
 
 use crate::{
     BUILTIN_CLASS_DEFS, Context, JS_CLASS_OBJECT, ScopedContext, USER_CLASS_ID_START,
