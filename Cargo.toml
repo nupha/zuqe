@@ -54,6 +54,8 @@ default = [
     "builtin_date",
     "builtin_math",
     "builtin_weakref",
+
+    "zapi",
 ]
 
 [profile.release]

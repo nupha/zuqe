@@ -265,14 +265,6 @@ pub fn load_extension(ctx: &mut ScopedContext, path: &std::path::Path) -> Result
         unsafe { std::slice::from_raw_parts(md_info.funcs, md_info.funcs_len) }
     };
 
-    let mod_name = if md_info.name.is_null() {
-        "zapi_module"
-    } else {
-        unsafe { std::ffi::CStr::from_ptr(md_info.name) }
-            .to_str()
-            .unwrap_or("zapi_module")
-    };
-
     // Export names: classes take precedence over same-named free functions.
     let mut export_names: Vec<String> = Vec::new();
     for (name, _) in &class_exports {
@@ -324,9 +316,12 @@ pub fn load_extension(ctx: &mut ScopedContext, path: &std::path::Path) -> Result
         Ok(())
     };
 
+    // Register under the canonical `file://` URL of the dylib (not the
+    // extension-declared module name): module resolution keys `loaded_modules`
+    // by the canonicalized URL, and dlopen is file-based — one file loaded once.
     ModuleDef::create(
         ctx,
-        mod_name,
+        file_url.as_str(),
         export_names.iter().map(String::as_str),
         init_fn,
     )
