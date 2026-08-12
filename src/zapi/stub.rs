@@ -494,6 +494,7 @@ unsafe extern "C" fn zapi_get_value_type(_env: ZqEnv, val: ZqRawValue) -> zuqe_z
         crate::value::JSValueTag::Int | crate::value::JSValueTag::Float64 => ZqType::Number,
         crate::value::JSValueTag::String | crate::value::JSValueTag::StringRope => ZqType::String,
         crate::value::JSValueTag::Symbol => ZqType::Symbol,
+        crate::value::JSValueTag::BigInt => ZqType::BigInt,
         crate::value::JSValueTag::Object
         | crate::value::JSValueTag::FunctionBytecode
         | crate::value::JSValueTag::Module => {

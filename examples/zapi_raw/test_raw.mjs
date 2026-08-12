@@ -47,6 +47,7 @@ test("typeOf covers the type codes", () => {
     eq(raw.typeOf(null), "object");
     eq(raw.typeOf({}), "object");
     eq(raw.typeOf(() => 1), "function");
+    eq(raw.typeOf(10n), "bigint");
 });
 test("id round-trips values", () => {
     eq(raw.id(42), 42);

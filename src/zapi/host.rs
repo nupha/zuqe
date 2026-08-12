@@ -183,8 +183,8 @@ pub(crate) fn register_zapi_func_magic(
 #[macro_export]
 macro_rules! zapi_make_thunk {
     ($body:expr) => {{
-        use zuqe_zapi::ffi::ZqCallbackInfoS;
         use $crate::{JSResult, JSValue, ScopedContext, function::CallContext};
+        use zuqe_zapi::ffi::ZqCallbackInfoS;
 
         fn trampoline(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             let mut env = $crate::zapi::host::env_from_scoped(ctx);
@@ -208,141 +208,139 @@ macro_rules! zapi_make_thunk {
     }};
 }
 
-// ──────────────────────────────────────
-// 扩展加载
-// ──────────────────────────────────────
+impl<'a> ScopedContext<'a> {
+    /// Load a zapi extension cdylib and register its exports as a native module.
+    ///
+    /// `path` is the filesystem path to the `.dylib`/`.so`/`.dll` file.
+    ///
+    /// Steps:
+    /// 1. dlopen the library, resolve `zq_module_register`
+    /// 2. Lazy-init Runtime's `ZqApi` table (created once, shared across extensions)
+    /// 3. Call `zq_module_register` → extension fills `ZqModuleInfo` (exports + init)
+    /// 4. Register classes declared as `ZQ_FIELD_CLASS` (ctors live in `class_slots`)
+    /// 5. Return a `ModuleDef` whose exports (classes + functions + values) are
+    ///    published to the module namespace at evaluation time, after the optional
+    ///    module init hook runs, matching standard ESM semantics
+    ///    (`import { X } from '...'` / `import * as m from '...'`).
+    pub fn load_zapi_extension(&mut self, path: &std::path::Path) -> Result<ModuleDef, i32> {
+        type ZqModuleRegisterFn = unsafe extern "C" fn(api: *mut ZqApi, info: *mut ZqModuleInfo);
 
-/// Load a zapi extension cdylib and register its exports as a native module.
-///
-/// `path` is the filesystem path to the `.dylib`/`.so`/`.dll` file.
-///
-/// Steps:
-/// 1. dlopen the library, resolve `zq_module_register`
-/// 2. Lazy-init Runtime's `ZqApi` table (created once, shared across extensions)
-/// 3. Call `zq_module_register` → extension fills `ZqModuleInfo` (exports + init)
-/// 4. Register classes declared as `ZQ_FIELD_CLASS` (ctors live in `class_slots`)
-/// 5. Return a `ModuleDef` whose exports (classes + functions + values) are
-///    published to the module namespace at evaluation time, after the optional
-///    module init hook runs, matching standard ESM semantics
-///    (`import { X } from '...'` / `import * as m from '...'`).
-pub fn load_extension(ctx: &mut ScopedContext, path: &std::path::Path) -> Result<ModuleDef, i32> {
-    type ZqModuleRegisterFn = unsafe extern "C" fn(api: *mut ZqApi, info: *mut ZqModuleInfo);
+        // Resolve absolute path, then try dlopen.
+        let abs_path = path.canonicalize().map_err(|e| {
+            self.throw_reference_error(&format!(
+                "could not resolve extension path '{}': {e}",
+                path.display()
+            ))
+        })?;
 
-    // Resolve absolute path, then try dlopen.
-    let abs_path = path.canonicalize().map_err(|e| {
-        ctx.throw_reference_error(&format!(
-            "could not resolve extension path '{}': {e}",
-            path.display()
-        ))
-    })?;
-
-    let lib = unsafe { Library::new(&abs_path) }.map_err(|e| {
-        ctx.throw_reference_error(&format!(
-            "could not load library '{}': {e}",
-            abs_path.display()
-        ))
-    })?;
-
-    let module_register_fn: libloading::Symbol<ZqModuleRegisterFn> =
-        unsafe { lib.get(c"zq_module_register") }.map_err(|_| {
-            ctx.throw_reference_error(&format!(
-                "could not find zq_module_register in '{}'",
+        let lib = unsafe { Library::new(&abs_path) }.map_err(|e| {
+            self.throw_reference_error(&format!(
+                "could not load library '{}': {e}",
                 abs_path.display()
             ))
         })?;
 
-    // Only build the URL after the library has loaded successfully.
-    let file_url = crate::path_to_url(abs_path.to_str().unwrap_or("")).map_err(|_| {
-        ctx.throw_reference_error(&format!(
-            "could not convert path to URL: {}",
-            abs_path.display()
-        ))
-    })?;
+        let module_register_fn: libloading::Symbol<ZqModuleRegisterFn> =
+            unsafe { lib.get(c"zq_module_register") }.map_err(|_| {
+                self.throw_reference_error(&format!(
+                    "could not find zq_module_register in '{}'",
+                    abs_path.display()
+                ))
+            })?;
 
-    let api: &ZqApi = &ZQ_API_TABLE;
-    let api_ptr = api as *const ZqApi as *mut ZqApi;
+        // Only build the URL after the library has loaded successfully.
+        let file_url = crate::path_to_url(abs_path.to_str().unwrap_or("")).map_err(|_| {
+            self.throw_reference_error(&format!(
+                "could not convert path to URL: {}",
+                abs_path.display()
+            ))
+        })?;
 
-    let mut md_info = ZqModuleInfo::default();
-    unsafe { module_register_fn(api_ptr, &mut md_info) };
+        let api: &ZqApi = &ZQ_API_TABLE;
+        let api_ptr = api as *const ZqApi as *mut ZqApi;
 
-    // Pre-pass: snapshot the exports and register every CLASS field (host
-    // needs the class registered before module evaluation). The `ZqFieldDef`
-    // array is leaked by the extension, so names/pointers stay valid for the
-    // process lifetime; the library is kept loaded via `mem::forget` below.
-    let register_class = api.register_class;
-    let fields: Vec<ZqFieldDef> = md_info.exports().to_vec();
-    let mut class_ids: Vec<ClassID> = Vec::new();
-    let mut export_names: Vec<String> = Vec::new();
+        let mut md_info = ZqModuleInfo::default();
+        unsafe { module_register_fn(api_ptr, &mut md_info) };
 
-    for def in &fields {
-        let name = def
-            .name_str()
-            .ok_or_else(|| ctx.throw_type_error("invalid export name in zapi module"))?;
-        if def.kind == ZQ_FIELD_CLASS {
-            if def.class_def.is_null() {
-                return Err(ctx.throw_reference_error(&format!(
-                    "zapi module '{file_url}': class export '{name}' has no class def"
-                )));
-            }
-            let mut env = ZqEnvS {
-                ctx: (ctx as *mut ScopedContext).cast::<c_void>(),
-                trace: std::ptr::null_mut(),
-                rt: std::ptr::null_mut(),
-            };
-            let r = unsafe { register_class(&mut env, def.class_def) };
-            if r < 0 {
-                return Err(ctx.throw_reference_error(&format!(
-                    "zapi module '{file_url}': failed to register class '{name}'"
-                )));
-            }
-            class_ids.push(r as ClassID);
-        }
-        if !export_names.iter().any(|n| n == name) {
-            export_names.push(name.to_string());
-        }
-    }
+        // Pre-pass: snapshot the exports and register every CLASS field (host
+        // needs the class registered before module evaluation). The `ZqFieldDef`
+        // array is leaked by the extension, so names/pointers stay valid for the
+        // process lifetime; the library is kept loaded via `mem::forget` below.
+        let register_class = api.register_class;
+        let fields: Vec<ZqFieldDef> = md_info.exports().to_vec();
+        let mut class_ids: Vec<ClassID> = Vec::new();
+        let mut export_names: Vec<String> = Vec::new();
 
-    // Keep the library alive.
-    std::mem::forget(lib);
-
-    let init_ptr = md_info.init;
-
-    // Module init runs at evaluation time, after the export VarRefs exist:
-    // run the extension's init hook first (module-load setup), then publish
-    // each field (function / class ctor / value / constant) to the module
-    // namespace instead of `globalThis`.
-    let init_fn = move |ctx: &mut ScopedContext, md: &ModuleDef| -> Result<(), i32> {
-        if let Some(init_f) = init_ptr {
-            let mut env = unsafe { env_from_ctx(ctx) };
-            if unsafe { init_f(&mut env) } != 0 {
-                return Err(ctx.throw_internal_error("zapi module init failed"));
-            }
-        }
-        let mut class_iter = class_ids.iter();
         for def in &fields {
             let name = def
                 .name_str()
-                .ok_or_else(|| ctx.throw_internal_error("zapi module export has no name"))?;
-            let class_id = if def.kind == ZQ_FIELD_CLASS {
-                class_iter.next().copied()
-            } else {
-                None
-            };
-            let value = eval_field_value(ctx, def, class_id)?;
-            set_module_export(ctx, md, name, value)?;
+                .ok_or_else(|| self.throw_type_error("invalid export name in zapi module"))?;
+            if def.kind == ZQ_FIELD_CLASS {
+                if def.class_def.is_null() {
+                    return Err(self.throw_reference_error(&format!(
+                        "zapi module '{file_url}': class export '{name}' has no class def"
+                    )));
+                }
+                let mut env = ZqEnvS {
+                    ctx: (self as *mut ScopedContext).cast::<c_void>(),
+                    trace: std::ptr::null_mut(),
+                    rt: std::ptr::null_mut(),
+                };
+                let r = unsafe { register_class(&mut env, def.class_def) };
+                if r < 0 {
+                    return Err(self.throw_reference_error(&format!(
+                        "zapi module '{file_url}': failed to register class '{name}'"
+                    )));
+                }
+                class_ids.push(r as ClassID);
+            }
+            if !export_names.iter().any(|n| n == name) {
+                export_names.push(name.to_string());
+            }
         }
-        Ok(())
-    };
 
-    // Register under the canonical `file://` URL of the dylib (not the
-    // extension-declared module name): module resolution keys `loaded_modules`
-    // by the canonicalized URL, and dlopen is file-based — one file loaded once.
-    ModuleDef::create(
-        ctx,
-        file_url.as_str(),
-        export_names.iter().map(String::as_str),
-        init_fn,
-    )
+        // Keep the library alive.
+        std::mem::forget(lib);
+
+        let init_ptr = md_info.init;
+
+        // Module init runs at evaluation time, after the export VarRefs exist:
+        // run the extension's init hook first (module-load setup), then publish
+        // each field (function / class ctor / value / constant) to the module
+        // namespace instead of `globalThis`.
+        let init_fn = move |ctx: &mut ScopedContext, md: &ModuleDef| -> Result<(), i32> {
+            if let Some(init_f) = init_ptr {
+                let mut env = unsafe { env_from_ctx(ctx) };
+                if unsafe { init_f(&mut env) } != 0 {
+                    return Err(ctx.throw_internal_error("zapi module init failed"));
+                }
+            }
+            let mut class_iter = class_ids.iter();
+            for def in &fields {
+                let name = def
+                    .name_str()
+                    .ok_or_else(|| ctx.throw_internal_error("zapi module export has no name"))?;
+                let class_id = if def.kind == ZQ_FIELD_CLASS {
+                    class_iter.next().copied()
+                } else {
+                    None
+                };
+                let value = eval_field_value(ctx, def, class_id)?;
+                set_module_export(ctx, md, name, value)?;
+            }
+            Ok(())
+        };
+
+        // Register under the canonical `file://` URL of the dylib (not the
+        // extension-declared module name): module resolution keys `loaded_modules`
+        // by the canonicalized URL, and dlopen is file-based — one file loaded once.
+        ModuleDef::create(
+            self,
+            file_url.as_str(),
+            export_names.iter().map(String::as_str),
+            init_fn,
+        )
+    }
 }
 
 /// Evaluate a `ZqFieldDef` to a JS value for a module-namespace export.

@@ -396,7 +396,7 @@ fn js_module_loader(
     if is_native_lib {
         #[cfg(feature = "zapi")]
         {
-            return zuqe::zapi::load_extension(ctx, &path);
+            return ctx.load_zapi_extension(&path);
         }
         #[cfg(not(feature = "zapi"))]
         {
@@ -422,14 +422,12 @@ fn js_module_loader(
                 src.push_str("\";\n");
                 ctx.compile_module(src.as_bytes(), file_name, false)
             }
-            Some(other) => Err(
-                ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other))
-            ),
+            Some(other) => {
+                Err(ctx.throw_type_error(&format!("unsupported import attribute type '{}'", other)))
+            }
             None => ctx.compile_module(content.as_bytes(), file_name, false),
         },
-        Err(_) => {
-            Err(ctx.throw_reference_error(&format!("could not load module '{file_name}'")))
-        }
+        Err(_) => Err(ctx.throw_reference_error(&format!("could not load module '{file_name}'"))),
     }
 }
 
