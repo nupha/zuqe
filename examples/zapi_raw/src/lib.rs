@@ -18,11 +18,13 @@
 //!
 //! Conventions of the raw ABI (all visible below):
 //!
-//! * a `body` writes its result into `info.ret` and returns `0`;
-//! * setting `info.threw` to a nonzero value signals an uncaught exception
-//!   (this demo never throws);
-//! * `ZqRawValue` is a plain `u64` — raw `0` is an *invalid* handle, never a JS
-//!   value, so it doubles as a "no value" sentinel in native storage;
+//! * a `body` **returns the JS result value directly**; on error it returns the
+//!   `value_exception` sentinel (quickjs `JS_EXCEPTION` convention);
+//! * to throw a specific JS value, write it into `info.thrown` and return
+//!   `value_exception` (this demo only shows the bare sentinel in `boom()`);
+//! * fixed JS values come from the `ZqApi` table constants (`value_undefined`,
+//!   `value_null`, `value_true`, ...), and "not yet set" native slots use Rust's
+//!   `Option` instead of a raw `0` sentinel;
 //! * `ZqFieldDef` is the single unified descriptor for module exports and class
 //!   members; `ZqFieldDef::func` / `getset` / `class` / `value` / `str` are
 //!   const constructors that fill the right `kind` + slots;
@@ -40,57 +42,54 @@ use zuqe_zapi::ffi::*;
 // ──────────────────────────────────────
 
 thread_local! {
+    /// The host hands us a `*const ZqApi` in `zq_module_register`; bodies reach
+    /// the table through `api()`.
     static API: Cell<*const ZqApi> = const { Cell::new(std::ptr::null()) };
 }
 
 /// Raw accessor to the host-provided function-pointer table.
 fn api() -> &'static ZqApi {
-    unsafe { &*API.with(|c| c.get()) }
+    unsafe { &*API.with(|slot| slot.get()) }
 }
 
 // ──────────────────────────────────────
 // Thin raw helpers (FFI boilerplate only — not the safe layer)
 // ──────────────────────────────────────
 
-/// Read the `i`-th argument as a raw handle, or `undefined` when missing.
-fn arg_at(env: ZqEnv, info: *const ZqCallbackInfoS, i: u32) -> ZqRawValue {
+/// Read argument `i` of the current call as a raw handle; missing arguments
+/// come through as `undefined` (matching JS call semantics).
+fn arg_at(_env: ZqEnv, info: *const ZqCallbackInfoS, i: u32) -> ZqRawValue {
     let info = unsafe { &*info };
     if i < info.argc {
         unsafe { *info.args.add(i as usize) }
     } else {
-        unsafe { (api().undefined_raw)(env) }
+        api().value_undefined
     }
 }
 
+/// Read argument `i` as a JS number (`NaN` for non-numeric values).
+fn arg_number(env: ZqEnv, info: *const ZqCallbackInfoS, i: u32) -> f64 {
+    unsafe { (api().value_to_float64)(env, arg_at(env, info, i)) }
+}
+
 /// Read a JS string value into UTF-8 bytes ("" for non-strings).
-fn read_string(env: ZqEnv, v: ZqRawValue) -> Vec<u8> {
+///
+/// Uses the quickjs measure-then-copy habit: call `get_string_utf8` with a null
+/// buffer to learn the byte count, allocate, then copy. `-1` = not a string.
+fn string_bytes(env: ZqEnv, value: ZqRawValue) -> Vec<u8> {
     let api = api();
-    let len = unsafe { (api.string_len)(env, v) };
-    let mut buf = vec![0u8; len];
-    if len > 0 {
-        unsafe { (api.get_string_utf8)(env, v, buf.as_mut_ptr(), len, 0) };
+    let len = unsafe { (api.get_string_utf8)(env, value, std::ptr::null_mut(), 0, 0) };
+    if len <= 0 {
+        return Vec::new();
     }
-    buf
+    let mut bytes = vec![0u8; len as usize];
+    unsafe { (api.get_string_utf8)(env, value, bytes.as_mut_ptr(), len as usize, 0) };
+    bytes
 }
 
 /// Build a JS string value from UTF-8 bytes.
 fn make_string(env: ZqEnv, bytes: &[u8]) -> ZqRawValue {
-    unsafe { (api().string_raw)(env, bytes.as_ptr(), bytes.len()) }
-}
-
-/// `ZQ_TYPE_*` code → the JS `typeof` name.
-fn type_name(t: i32) -> &'static [u8] {
-    match t {
-        ZQ_TYPE_UNDEFINED => b"undefined",
-        ZQ_TYPE_NULL => b"object", // `typeof null` is "object" in JS
-        ZQ_TYPE_BOOL => b"boolean",
-        ZQ_TYPE_NUMBER => b"number",
-        ZQ_TYPE_STRING => b"string",
-        ZQ_TYPE_SYMBOL => b"symbol",
-        ZQ_TYPE_FUNCTION => b"function",
-        ZQ_TYPE_OBJECT => b"object",
-        _ => b"unknown",
-    }
+    unsafe { (api().new_string_from_utf8)(env, bytes.as_ptr(), bytes.len()) }
 }
 
 // ──────────────────────────────────────
@@ -99,64 +98,47 @@ fn type_name(t: i32) -> &'static [u8] {
 
 /// `add(a, b)` → the sum of two numbers.
 unsafe extern "C" fn add(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let a = unsafe { (api.number_value)(env, arg_at(env, info, 0)) };
-    let b = unsafe { (api.number_value)(env, arg_at(env, info, 1)) };
-    unsafe { (*info).ret = (api.number_raw)(env, a + b) };
-    0
+    let sum = arg_number(env, info, 0) + arg_number(env, info, 1);
+    unsafe { (api().new_number)(env, sum) }
 }
-
 /// `concat(a, b)` → two strings joined, read and rebuilt through the FFI.
 unsafe extern "C" fn concat(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let a = read_string(env, arg_at(env, info, 0));
-    let b = read_string(env, arg_at(env, info, 1));
-    let mut out = Vec::with_capacity(a.len() + b.len());
-    out.extend_from_slice(&a);
-    out.extend_from_slice(&b);
-    unsafe { (*info).ret = make_string(env, &out) };
-    0
-}
+    let left = string_bytes(env, arg_at(env, info, 0));
+    let right = string_bytes(env, arg_at(env, info, 1));
+    let mut joined = Vec::with_capacity(left.len() + right.len());
+    joined.extend_from_slice(&left);
+    joined.extend_from_slice(&right);
+    make_string(env, &joined)}
 
 /// `typeOf(v)` → the JS `typeof` name of `v`.
 unsafe extern "C" fn type_of(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let t = unsafe { (api.type_of)(env, arg_at(env, info, 0)) };
-    let name = type_name(t);
-    unsafe { (*info).ret = make_string(env, name) };
-    0
+    let value_type = unsafe { (api().get_value_type)(env, arg_at(env, info, 0)) };
+    // `ZqType::name()` is the typeof string; no manual mapping needed.
+    make_string(env, value_type.name().as_bytes())
 }
 
 /// `id(v)` → the argument unchanged (round-trip for any value).
 unsafe extern "C" fn id(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let v = arg_at(env, info, 0);
-    unsafe { (*info).ret = v };
-    0
+    arg_at(env, info, 0)
 }
 
 /// `truthy(v)` → ToBoolean(v).
 unsafe extern "C" fn truthy(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let b = unsafe { (api.bool_value)(env, arg_at(env, info, 0)) != 0 };
-    unsafe { (*info).ret = (api.bool_raw)(env, b) };
-    0
+    let result = unsafe { (api().value_to_bool)(env, arg_at(env, info, 0)) != 0 };
+    // `true`/`false` are table constants, no FFI call.
+    if result { api().value_true } else { api().value_false }
 }
-
 /// `makeSymbol(desc)` → `Symbol(desc)`.
 unsafe extern "C" fn make_symbol(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let desc = arg_at(env, info, 0);
-    unsafe { (*info).ret = (api.new_symbol)(env, desc) };
-    0
+    let description = arg_at(env, info, 0);
+    unsafe { (api().new_symbol)(env, description) }
 }
-
-/// `symDesc(sym)` → the symbol's description ("" when absent).
+/// `symDesc(symbol)` → the symbol's description ("" when absent).
 unsafe extern "C" fn sym_desc(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let desc = unsafe { (api.get_symbol_description)(env, arg_at(env, info, 0)) };
-    let bytes = read_string(env, desc);
-    unsafe { (*info).ret = make_string(env, &bytes) };
-    0
-}
+    let symbol = arg_at(env, info, 0);
+    let description = unsafe { (api().get_symbol_description)(env, symbol) };
+    let bytes = string_bytes(env, description);
+    make_string(env, &bytes)}
 
 // ──────────────────────────────────────
 // Object / array exports (FUNC)
@@ -165,80 +147,70 @@ unsafe extern "C" fn sym_desc(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawVa
 /// `makePoint(x, y)` → `{x, y}` built inside the extension.
 unsafe extern "C" fn make_point(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
     let api = api();
-    let x = unsafe { (api.number_value)(env, arg_at(env, info, 0)) };
-    let y = unsafe { (api.number_value)(env, arg_at(env, info, 1)) };
-    let obj = unsafe { (api.new_object)(env) };
+    let x = arg_number(env, info, 0);
+    let y = arg_number(env, info, 1);
+    let point = unsafe { (api.new_object)(env) };
+    // `set_property(env, obj, key, val, throw, flags)`: no throwing, default flags.
     let key_x = make_string(env, b"x");
     let key_y = make_string(env, b"y");
     unsafe {
-        (api.set_property)(env, obj, key_x, (api.number_raw)(env, x), 0, 0);
-        (api.set_property)(env, obj, key_y, (api.number_raw)(env, y), 0, 0);
+        (api.set_property)(env, point, key_x, (api.new_number)(env, x), 0, 0);
+        (api.set_property)(env, point, key_y, (api.new_number)(env, y), 0, 0);
     }
-    unsafe { (*info).ret = obj };
-    0
-}
+    point}
 
-/// `pointDist(p)` → `sqrt(p.x² + p.y²)` — reads object properties via FFI.
+/// `pointDist(point)` → `sqrt(x² + y²)` — reads object properties via FFI.
 unsafe extern "C" fn point_dist(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
     let api = api();
-    let obj = arg_at(env, info, 0);
+    let point = arg_at(env, info, 0);
     let key_x = make_string(env, b"x");
     let key_y = make_string(env, b"y");
-    let x = unsafe { (api.number_value)(env, (api.get_property)(env, obj, key_x)) };
-    let y = unsafe { (api.number_value)(env, (api.get_property)(env, obj, key_y)) };
-    let d = (x * x + y * y).sqrt();
-    unsafe { (*info).ret = (api.number_raw)(env, d) };
-    0
+    let x = unsafe { (api.value_to_float64)(env, (api.get_property)(env, point, key_x)) };
+    let y = unsafe { (api.value_to_float64)(env, (api.get_property)(env, point, key_y)) };
+    let distance = (x * x + y * y).sqrt();
+    unsafe { (api.new_number)(env, distance) }
 }
-
-/// `makeList(n)` → `[0, 1, ..., n-1]` built inside the extension.
+/// `makeList(count)` → `[0, 1, ..., count-1]` built inside the extension.
 unsafe extern "C" fn make_list(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
     let api = api();
-    let n = unsafe { (api.number_value)(env, arg_at(env, info, 0)) } as usize;
-    let arr = unsafe { (api.new_array)(env, n) };
-    for i in 0..n {
-        let key = unsafe { (api.number_raw)(env, i as f64) };
-        unsafe { (api.array_set)(env, arr, key, (api.number_raw)(env, i as f64)) };
+    let count = arg_number(env, info, 0) as usize;
+    let array = unsafe { (api.new_array)(env, count) };
+    for index in 0..count {
+        // `array_set` takes the index as a JS number handle.
+        let index_value = unsafe { (api.new_number)(env, index as f64) };
+        unsafe { (api.array_set)(env, array, index_value, index_value) };
     }
-    unsafe { (*info).ret = arr };
-    0
-}
+    array}
 
-/// `listLen(a)` → `a.length`.
+/// `listLen(array)` → `array.length`.
 unsafe extern "C" fn list_len(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let len = unsafe { (api.number_value)(env, (api.array_len)(env, arg_at(env, info, 0))) };
-    unsafe { (*info).ret = (api.number_raw)(env, len) };
-    0
+    let array = arg_at(env, info, 0);
+    let length = unsafe { (api().value_to_float64)(env, (api().array_len)(env, array)) };
+    unsafe { (api().new_number)(env, length) }
 }
-
 /// `callJs(f, ...args)` → `f(...args)` invoked from inside the extension.
 unsafe extern "C" fn call_js(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let info_ref = unsafe { &*info };
-    let target = arg_at(env, info_ref, 0);
-    let nargs = info_ref.argc.saturating_sub(1);
-    let mut call_info = ZqCallbackInfoS {
+    let this_call = unsafe { &*info };
+    let target = arg_at(env, this_call, 0);
+    // Forward the remaining arguments (index 1..) to `target` unchanged.
+    let forwarded_count = this_call.argc.saturating_sub(1);
+    let mut call = ZqCallbackInfoS {
         target,
-        this: unsafe { (api.undefined_raw)(env) },
-        args: if nargs > 0 {
-            unsafe { info_ref.args.add(1) }
+        this: api().value_undefined,
+        args: if forwarded_count > 0 {
+            unsafe { this_call.args.add(1) } // point just past `target`
         } else {
             std::ptr::null()
         },
-        argc: nargs,
-        ret: 0,
-        threw: 0,
+        argc: forwarded_count,
+        thrown: 0,
         magic: 0,
     };
-    let ret = unsafe { (api.call_function)(env, &mut call_info) };
-    unsafe { (*info).ret = ret };
-    0
+    unsafe { (api().call_function)(env, &mut call) }
 }
 
 // ──────────────────────────────────────
-// Class: Box (payload holds raw JS handles → gc_trace + finalize)
-// ──────────────────────────────────────
+// Class: Box (payload holds raw JS handles → gc_trace + finalize)// ──────────────────────────────────────
 
 /// Native payload of a `Box` object. Both fields are JS values the GC must be
 /// told about, so we keep the raw handles and report them in `box_trace`.
@@ -247,8 +219,18 @@ struct BoxData {
     child: ZqRawValue,
 }
 
+/// Raw pointer to the `Box` payload of `instance` (`null` when the object is
+/// not a `Box`, e.g. a plain JS object passed to an instance method).
+fn box_payload(env: ZqEnv, instance: ZqRawValue) -> *mut BoxData {
+    unsafe { (api().get_native_ptr)(env, instance).cast::<BoxData>() }
+}
+
 /// Constructor: `new Box(label, child?)`. Allocates the payload and wraps it in
 /// a class instance via `api.new_instance`.
+///
+/// `child` defaults to a fresh object so the trace callback always has a real
+/// graph to report. The payload is owned by the instance (`Box::into_raw`);
+/// `box_finalize` reclaims it when the JS object is collected.
 unsafe extern "C" fn box_new(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
     let api = api();
     let label = arg_at(env, info, 0);
@@ -257,111 +239,93 @@ unsafe extern "C" fn box_new(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawVal
     } else {
         unsafe { (api.new_object)(env) }
     };
-    let data = Box::into_raw(Box::new(BoxData { label, child }));
-    let inst = unsafe { (api.new_instance)(env, &BOX_DEF, data.cast::<c_void>()) };
-    unsafe { (*info).ret = inst };
-    0
+    let payload = Box::into_raw(Box::new(BoxData { label, child }));
+    unsafe { (api.new_instance)(env, &BOX_DEF, payload.cast::<c_void>()) }
 }
 
 /// Instance method `label()` → the stored label.
 unsafe extern "C" fn box_label(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let ptr = unsafe { (api.get_native_ptr)(env, (*info).this) };
-    let label = if ptr.is_null() {
-        0
+    let payload = box_payload(env, unsafe { (*info).this });
+    // `value_undefined` is the table constant for JS `undefined` — no FFI call.
+    if payload.is_null() {
+        api().value_undefined
     } else {
-        unsafe { (*ptr.cast::<BoxData>()).label }
-    };
-    unsafe { (*info).ret = label };
-    0
+        unsafe { (*payload).label }
+    }
 }
 
-/// Instance method `setLabel(v)` → replace the stored label.
+/// Instance method `setLabel(newLabel)` → replace the stored label.
 unsafe extern "C" fn box_set_label(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let ptr = unsafe { (api.get_native_ptr)(env, (*info).this) };
-    if !ptr.is_null() {
-        unsafe { (*ptr.cast::<BoxData>()).label = arg_at(env, info, 0) };
+    let payload = box_payload(env, unsafe { (*info).this });
+    if !payload.is_null() {
+        unsafe { (*payload).label = arg_at(env, info, 0) };
     }
-    unsafe { (*info).ret = (api.undefined_raw)(env) };
-    0
+    api().value_undefined
 }
 
 /// Instance method `child()` → the stored child value.
 unsafe extern "C" fn box_child(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let ptr = unsafe { (api.get_native_ptr)(env, (*info).this) };
-    let child = if ptr.is_null() {
-        0
+    let payload = box_payload(env, unsafe { (*info).this });
+    if payload.is_null() {
+        api().value_undefined
     } else {
-        unsafe { (*ptr.cast::<BoxData>()).child }
-    };
-    unsafe { (*info).ret = child };
-    0
-}
-
-/// Instance method `setChild(v)` → replace the stored child value.
-unsafe extern "C" fn box_set_child(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let ptr = unsafe { (api.get_native_ptr)(env, (*info).this) };
-    if !ptr.is_null() {
-        unsafe { (*ptr.cast::<BoxData>()).child = arg_at(env, info, 0) };
+        unsafe { (*payload).child }
     }
-    unsafe { (*info).ret = (api.undefined_raw)(env) };
-    0
 }
 
-/// Static method `Box.isBox(v)` → whether `v` carries a native payload.
+/// Instance method `setChild(newChild)` → replace the stored child value.
+unsafe extern "C" fn box_set_child(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
+    let payload = box_payload(env, unsafe { (*info).this });
+    if !payload.is_null() {
+        unsafe { (*payload).child = arg_at(env, info, 0) };
+    }
+    api().value_undefined
+}
+
+/// Static method `Box.isBox(value)` → whether `value` carries a native payload.
 unsafe extern "C" fn box_is_box(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let v = arg_at(env, info, 0);
-    let native = !unsafe { (api.get_native_ptr)(env, v) }.is_null();
-    unsafe { (*info).ret = (api.bool_raw)(env, native) };
-    0
+    let value = arg_at(env, info, 0);
+    let has_payload = !unsafe { (api().get_native_ptr)(env, value) }.is_null();
+    if has_payload { api().value_true } else { api().value_false }
 }
-
 /// Static accessor `Box.kind` (getter-only) → a constant string.
-unsafe extern "C" fn box_kind(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    unsafe { (*info).ret = make_string(env, b"native-box") };
-    0
+unsafe extern "C" fn box_kind(env: ZqEnv, _info: *mut ZqCallbackInfoS) -> ZqRawValue {
+    make_string(env, b"native-box")
 }
 
 /// Class-payload GC trace: tell the host about every JS value held in native
-/// storage. Called once per GC for each live `Box` instance.
+/// storage. Called once per GC for each live `Box` instance. The env argument
+/// to `gc_add_trace` is ignored by the host (only `trace_ctx` matters).
 unsafe extern "C" fn box_trace(trace_ctx: *mut ZqGcTraceCtxS, opaque: *mut c_void) {
     if opaque.is_null() {
         return;
     }
-    let data = unsafe { &*opaque.cast::<BoxData>() };
+    let payload = unsafe { &*opaque.cast::<BoxData>() };
     let api = api();
-    if data.label != 0 {
-        unsafe { (api.gc_add_trace)(std::ptr::null_mut(), trace_ctx, data.label) };
-    }
-    if data.child != 0 {
-        unsafe { (api.gc_add_trace)(std::ptr::null_mut(), trace_ctx, data.child) };
-    }
+    // Both fields are always valid handles (`box_new` sets them from args or
+    // creates fresh values), so trace them unconditionally.
+    unsafe { (api.gc_add_trace)(std::ptr::null_mut(), trace_ctx, payload.label) };
+    unsafe { (api.gc_add_trace)(std::ptr::null_mut(), trace_ctx, payload.child) };
 }
 
 /// How many `Box` payloads have been finalized by the GC so far.
 static DROPPED_BOXES: AtomicUsize = AtomicUsize::new(0);
 
-/// Finalizer: drop the payload box when the JS object is collected.
+/// Finalizer: reclaim the payload box when the JS object is collected.
 unsafe extern "C" fn box_finalize(_rt: *mut c_void, opaque: *mut c_void) {
     if !opaque.is_null() {
-        unsafe { drop(Box::from_raw(opaque.cast::<BoxData>())) };
+        let payload = unsafe { Box::from_raw(opaque.cast::<BoxData>()) };
+        drop(payload);
         DROPPED_BOXES.fetch_add(1, Ordering::Relaxed);
     }
 }
 
 /// `droppedBoxes()` → how many Box payloads the GC has finalized (0 initially).
 /// Lets the test observe the `finalize` path actually running.
-unsafe extern "C" fn dropped_boxes(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let n = DROPPED_BOXES.load(Ordering::Relaxed);
-    unsafe { (*info).ret = (api.number_raw)(env, n as f64) };
-    0
+unsafe extern "C" fn dropped_boxes(env: ZqEnv, _info: *mut ZqCallbackInfoS) -> ZqRawValue {
+    let count = DROPPED_BOXES.load(Ordering::Relaxed);
+    unsafe { (api().new_number)(env, count as f64) }
 }
-
 static BOX_PROTO: &[ZqFieldDef] = &[
     // Instance members, methods and accessors interleaved like a JS class body.
     ZqFieldDef::func(c"label".as_ptr(), box_label, 0, 0),
@@ -398,40 +362,35 @@ static BOX_DEF: ZqClassDef = ZqClassDef {
 // ──────────────────────────────────────
 
 // A JS value held in native (thread_local) storage. The host never scans a
-// `thread_local`, so a global trace callback must keep it alive.
+// `thread_local`, so a global trace callback must keep it alive. `None` = not
+// yet set (no sentinel needed — idiomatic Rust).
 thread_local! {
-    static GLOBAL_NODE: RefCell<ZqRawValue> = const { RefCell::new(0) };
+    static GLOBAL_NODE: RefCell<Option<ZqRawValue>> = const { RefCell::new(None) };
 }
 
-/// `setGlobal(v)` → store `v` in the thread_local slot.
+/// `setGlobal(value)` → store `value` in the thread_local slot.
 unsafe extern "C" fn set_global(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let v = arg_at(env, info, 0);
-    GLOBAL_NODE.with(|g| *g.borrow_mut() = v);
-    unsafe { (*info).ret = (api.undefined_raw)(env) };
-    0
+    let value = arg_at(env, info, 0);
+    GLOBAL_NODE.with(|slot| *slot.borrow_mut() = Some(value));
+    api().value_undefined
 }
 
 /// `getGlobal()` → read the value stored by `setGlobal`.
-unsafe extern "C" fn get_global(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
-    let api = api();
-    let v = GLOBAL_NODE.with(|g| *g.borrow());
-    let ret = if v == 0 {
-        unsafe { (api.undefined_raw)(env) }
-    } else {
-        v
-    };
-    unsafe { (*info).ret = ret };
-    0
+unsafe extern "C" fn get_global(_env: ZqEnv, _info: *mut ZqCallbackInfoS) -> ZqRawValue {
+    let value = GLOBAL_NODE.with(|slot| *slot.borrow());
+    // Not-yet-set reads back as JS `undefined`.
+    match value {
+        Some(v) => v,
+        None => api().value_undefined,
+    }
 }
 
 /// Global GC trace callback: marks the thread_local value at every collection.
 unsafe extern "C" fn global_trace(trace_ctx: *mut ZqGcTraceCtxS, _opaque: *mut c_void) {
-    let v = GLOBAL_NODE.with(|g| *g.borrow());
-    if v == 0 {
-        return;
+    let value = GLOBAL_NODE.with(|slot| *slot.borrow());
+    if let Some(v) = value {
+        unsafe { (api().gc_add_trace)(std::ptr::null_mut(), trace_ctx, v) };
     }
-    unsafe { (api().gc_add_trace)(std::ptr::null_mut(), trace_ctx, v) };
 }
 
 // ──────────────────────────────────────
@@ -441,13 +400,55 @@ unsafe extern "C" fn global_trace(trace_ctx: *mut ZqGcTraceCtxS, _opaque: *mut c
 /// `STATS` → an object built with a real env at evaluation time.
 unsafe extern "C" fn export_stats(env: ZqEnv, out: *mut ZqRawValue) -> i32 {
     let api = api();
-    let obj = unsafe { (api.new_object)(env) };
+    let stats = unsafe { (api.new_object)(env) };
     let key = make_string(env, b"built");
     unsafe {
-        (api.set_property)(env, obj, key, (api.bool_raw)(env, true), 0, 0);
-        *out = obj;
+        // `value_true` is the table constant for JS `true` — no FFI call.
+        (api.set_property)(env, stats, key, api.value_true, 0, 0);
+        *out = stats;
     }
-    0
+    0 // success
+}
+
+// ──────────────────────────────────────
+// Host constant values (no FFI calls — read straight from the ZqApi table)
+// ──────────────────────────────────────
+
+/// `constants()` → an object exposing the host-provided constant value handles.
+/// They are plain constants, so they need no `env` and no FFI call.
+unsafe extern "C" fn constants(env: ZqEnv, _info: *mut ZqCallbackInfoS) -> ZqRawValue {
+    let api = api();
+    let obj = unsafe { (api.new_object)(env) };
+    let key_undef = make_string(env, b"undef");
+    let key_null = make_string(env, b"null");
+    let key_true = make_string(env, b"true");
+    let key_false = make_string(env, b"false");
+    let key_nan = make_string(env, b"nan");
+    let key_zero = make_string(env, b"zero");
+    let key_one = make_string(env, b"one");
+    let key_neg_one = make_string(env, b"negOne");
+    let key_inf = make_string(env, b"inf");
+    let key_neg_inf = make_string(env, b"negInf");
+    unsafe {
+        (api.set_property)(env, obj, key_undef, api.value_undefined, 0, 0);
+        (api.set_property)(env, obj, key_null, api.value_null, 0, 0);
+        (api.set_property)(env, obj, key_true, api.value_true, 0, 0);
+        (api.set_property)(env, obj, key_false, api.value_false, 0, 0);
+        (api.set_property)(env, obj, key_nan, api.value_nan, 0, 0);
+        (api.set_property)(env, obj, key_zero, api.value_zero, 0, 0);
+        (api.set_property)(env, obj, key_one, api.value_one, 0, 0);
+        (api.set_property)(env, obj, key_neg_one, api.value_negative_one, 0, 0);
+        (api.set_property)(env, obj, key_inf, api.value_infinity, 0, 0);
+        (api.set_property)(env, obj, key_neg_inf, api.value_minus_infinity, 0, 0);
+    }
+    obj
+}
+
+/// `boom()` → always signals an error by returning the `value_exception`
+/// sentinel (quickjs `JS_EXCEPTION` convention). The host turns it into a
+/// thrown JS exception.
+unsafe extern "C" fn boom(_env: ZqEnv, _info: *mut ZqCallbackInfoS) -> ZqRawValue {
+    api().value_exception
 }
 
 // ──────────────────────────────────────
@@ -459,11 +460,13 @@ unsafe extern "C" fn export_stats(env: ZqEnv, out: *mut ZqRawValue) -> i32 {
 unsafe extern "C" fn module_init(env: ZqEnv) -> i32 {
     let api = api();
     let seed = make_string(env, b"global-root");
-    GLOBAL_NODE.with(|g| *g.borrow_mut() = seed);
-    if unsafe { (api.set_gc_trace_func)(env, Some(global_trace), std::ptr::null_mut()) } < 0 {
-        -1
-    } else {
+    GLOBAL_NODE.with(|slot| *slot.borrow_mut() = Some(seed));
+    let ok = unsafe { (api.set_gc_trace_func)(env, Some(global_trace), std::ptr::null_mut()) } == 0;
+    // 0 = success; nonzero = init failure
+    if ok {
         0
+    } else {
+        -1
     }
 }
 
@@ -492,6 +495,10 @@ static EXPORTS: &[ZqFieldDef] = &[
     ZqFieldDef::value(c"STATS".as_ptr(), export_stats),
     // ── STR: constant string (no trampoline needed) ──
     ZqFieldDef::str(c"VERSION".as_ptr(), c"0.1.0".as_ptr(), 0),
+    // ── FUNC: host constant values ──
+    ZqFieldDef::func(c"constants".as_ptr(), constants, 0, 0),
+    // ── FUNC: error signaling via the exception sentinel ──
+    ZqFieldDef::func(c"boom".as_ptr(), boom, 0, 0),
 ];
 
 /// The module entry point the host resolves via `lib.get("zq_module_register")`.
@@ -506,18 +513,18 @@ static EXPORTS: &[ZqFieldDef] = &[
 /// `ZqModuleInfo` owned by the host loader.
 #[no_mangle]
 pub unsafe extern "C" fn zq_module_register(api_ptr: *mut ZqApi, info_ptr: *mut ZqModuleInfo) {
-    let api = unsafe { &*api_ptr };
-    if api.version != ZQ_ABI_VERSION {
-        return;
+    let api_table = unsafe { &*api_ptr };
+    if api_table.version != ZQ_ABI_VERSION {
+        return; // ABI mismatch: leave info untouched so the host errors out.
     }
-    API.with(|c| c.set(api_ptr));
+    API.with(|slot| slot.set(api_ptr));
 
-    let info = unsafe { &mut *info_ptr };
-    info.name = c"zapi_raw".as_ptr();
-    info.struct_size = std::mem::size_of::<ZqModuleInfo>() as u32;
-    info.abi_version = ZQ_ABI_VERSION;
-    info.min_api_version = ZQ_API_VERSION;
-    info.exports = EXPORTS.as_ptr();
-    info.exports_len = EXPORTS.len();
-    info.init = Some(module_init);
+    let module = unsafe { &mut *info_ptr };
+    module.name = c"zapi_raw".as_ptr();
+    module.struct_size = std::mem::size_of::<ZqModuleInfo>() as u32;
+    module.abi_version = ZQ_ABI_VERSION;
+    module.min_api_version = ZQ_API_VERSION;
+    module.exports = EXPORTS.as_ptr();
+    module.exports_len = EXPORTS.len();
+    module.init = Some(module_init);
 }

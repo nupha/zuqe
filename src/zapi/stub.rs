@@ -35,32 +35,20 @@ fn symbol_from_desc(ctx: &mut ScopedContext, desc: JSValue) -> Result<JSValue, i
     }
 }
 
-const unsafe extern "C" fn zapi_undefined_raw(_env: ZqEnv) -> ZqRawValue {
-    JSValue::UNDEFINED.0
-}
-
-const unsafe extern "C" fn zapi_null_raw(_env: ZqEnv) -> ZqRawValue {
-    JSValue::NULL.0
-}
-
-const unsafe extern "C" fn zapi_bool_raw(_env: ZqEnv, v: bool) -> ZqRawValue {
-    if v {
-        crate::JSValue::TRUE.0
-    } else {
-        crate::JSValue::FALSE.0
-    }
-}
-
-unsafe extern "C" fn zapi_number_raw(_env: ZqEnv, v: f64) -> ZqRawValue {
+unsafe extern "C" fn zapi_new_number(_env: ZqEnv, v: f64) -> ZqRawValue {
     JSValue::from(v).0
 }
 
-unsafe extern "C" fn zapi_string_raw(env: ZqEnv, ptr: *const u8, len: usize) -> ZqRawValue {
+unsafe extern "C" fn zapi_new_string_from_utf8(
+    env: ZqEnv,
+    ptr: *const u8,
+    len: usize,
+) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
     match ctx.create_string_from_utf8(bytes.to_vec()) {
         Ok(s) => JSValue::make_string(s).0,
-        Err(_) => 0,
+        Err(_) => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -68,7 +56,7 @@ unsafe extern "C" fn zapi_new_symbol(env: ZqEnv, desc: ZqRawValue) -> ZqRawValue
     let ctx = unsafe { ctx_from_env(env) };
     match symbol_from_desc(ctx, JSValue(desc, std::marker::PhantomData)) {
         Ok(v) => v.0,
-        Err(_) => 0,
+        Err(_) => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -77,19 +65,12 @@ unsafe extern "C" fn zapi_get_symbol_description(env: ZqEnv, sym: ZqRawValue) ->
     let sym = JSValue(sym, std::marker::PhantomData);
     let sr = match sym.as_symbol(true) {
         Some(s) => s,
-        None => return 0,
+        None => return ZQ_API_TABLE.value_exception,
     };
     if sr.content().is_ident() {
         JSValue::UNDEFINED.0
     } else {
         JSValue::make_string(sr).0
-    }
-}
-
-unsafe extern "C" fn zapi_string_len(_env: ZqEnv, s: ZqRawValue) -> usize {
-    match JSValue(s, std::marker::PhantomData).as_string(false) {
-        Some(sr) => sr.content().encode_utf8_bytes(false).len(),
-        None => 0,
     }
 }
 
@@ -106,8 +87,15 @@ unsafe extern "C" fn zapi_get_string_utf8(
     };
     let bytes = sr.content().encode_utf8_bytes(false);
     let start = offset.min(bytes.len());
-    let n = (bytes.len() - start).min(buf_len);
-    if n > 0 && !buf.is_null() {
+    let remaining = bytes.len() - start;
+    // Measure mode (quickjs `JS_GetStringUtf8` habit): a null `buf` writes
+    // nothing and returns the bytes needed from `offset`, so the caller can
+    // size its buffer.
+    if buf.is_null() {
+        return remaining as i32;
+    }
+    let n = remaining.min(buf_len);
+    if n > 0 {
         unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().add(start), buf, n) };
     }
     n as i32
@@ -117,7 +105,7 @@ unsafe extern "C" fn zapi_new_object(env: ZqEnv) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     match ctx.create_base_object() {
         Ok(o) => JSValue::from(o).0,
-        Err(_) => 0,
+        Err(_) => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -126,11 +114,11 @@ unsafe extern "C" fn zapi_new_array(env: ZqEnv, len: usize) -> ZqRawValue {
     match crate::object::Array::create(ctx) {
         Ok(mut arr) => {
             if arr.set_length(ctx, len as u32, true).is_err() {
-                return 0;
+                return ZQ_API_TABLE.value_exception;
             }
             JSValue::from(arr).0
         }
-        Err(_) => 0,
+        Err(_) => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -138,11 +126,11 @@ unsafe extern "C" fn zapi_get_property(env: ZqEnv, obj: ZqRawValue, key: ZqRawVa
     let ctx = unsafe { ctx_from_env(env) };
     let val = JSValue(key, std::marker::PhantomData);
     let Some(obj) = JSValue(obj, std::marker::PhantomData).as_object() else {
-        return 0;
+        return ZQ_API_TABLE.value_exception;
     };
     match obj.get_property_value(ctx, val) {
         Ok(v) => v.0,
-        Err(_) => 0,
+        Err(_) => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -158,11 +146,11 @@ unsafe extern "C" fn zapi_set_property(
     let k = JSValue(key, std::marker::PhantomData);
     let v = JSValue(val, std::marker::PhantomData);
     let Some(mut obj) = JSValue(obj, std::marker::PhantomData).as_object() else {
-        return 0;
+        return ZQ_API_TABLE.value_exception;
     };
     match obj.set_property_value(ctx, k, v, 0) {
         Ok(_) => val,
-        Err(_) => 0,
+        Err(_) => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -247,11 +235,11 @@ unsafe extern "C" fn zapi_array_set(
 unsafe extern "C" fn zapi_array_len(env: ZqEnv, arr: ZqRawValue) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let Some(o) = JSValue(arr, std::marker::PhantomData).as_object() else {
-        return 0;
+        return ZQ_API_TABLE.value_exception;
     };
     match o.get_length_prop(ctx) {
         Ok(i) => JSValue::from(i as i32).0,
-        Err(_) => 0,
+        Err(_) => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -260,7 +248,7 @@ unsafe extern "C" fn zapi_get_global(env: ZqEnv, name: ZqRawValue) -> ZqRawValue
     let gobj = ctx.global_obj();
     match gobj.get_property_value(ctx, JSValue(name, std::marker::PhantomData)) {
         Ok(v) => v.0,
-        Err(_) => 0,
+        Err(_) => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -281,7 +269,8 @@ unsafe extern "C" fn zapi_call_function(env: ZqEnv, info: *mut ZqCallbackInfoS) 
 
     match target.call(ctx, this, &args) {
         Ok(v) => v.0,
-        Err(_) => 0,
+        // quickjs convention: signal the error with the exception sentinel.
+        Err(_) => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -297,7 +286,7 @@ fn zapi_gc_trace_bridge(opaque: *mut c_void, gcx: &mut gc_lite::GcTraceCtx) {
 }
 
 /// Reconstruct a `ZqFieldDef` slice from its `(*const T, usize)` ABI form.
-fn field_slice(ptr: *const ZqFieldDef, len: usize) -> &'static [ZqFieldDef] {
+const fn field_slice(ptr: *const ZqFieldDef, len: usize) -> &'static [ZqFieldDef] {
     if ptr.is_null() {
         &[]
     } else {
@@ -352,8 +341,16 @@ unsafe extern "C" fn zapi_register_class(env: ZqEnv, class_def: *const ZqClassDe
         // proto_entries + ClassCtorDef.entries.
         let mut proto_entries: Vec<crate::FieldDef> = Vec::new();
         let mut static_entries: Vec<crate::FieldDef> = Vec::new();
-        push_class_fields(ctx, &mut proto_entries, field_slice(def.proto_entries, def.proto_entries_len))?;
-        push_class_fields(ctx, &mut static_entries, field_slice(def.static_entries, def.static_entries_len))?;
+        push_class_fields(
+            ctx,
+            &mut proto_entries,
+            field_slice(def.proto_entries, def.proto_entries_len),
+        )?;
+        push_class_fields(
+            ctx,
+            &mut static_entries,
+            field_slice(def.static_entries, def.static_entries_len),
+        )?;
 
         // Install instance methods/accessors on the prototype.
         let mut proto = ctx.class_proto(class_id).ok_or(-1)?;
@@ -428,11 +425,11 @@ unsafe extern "C" fn zapi_new_instance(
             .map(|(k, _)| *k)
     };
     let Some(cid) = class_id else {
-        return 0;
+        return ZQ_API_TABLE.value_exception;
     };
     match ctx.create_class_instance_with_opaque(JSValue::UNDEFINED, cid, payload) {
         Ok(obj) => JSValue::from(obj).0,
-        Err(_) => 0,
+        Err(_) => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -485,55 +482,51 @@ unsafe extern "C" fn zapi_set_gc_trace_func(
     0
 }
 
-unsafe extern "C" fn zapi_type_of(_env: ZqEnv, val: ZqRawValue) -> i32 {
-    use zuqe_zapi::ffi::{
-        ZQ_TYPE_BOOL, ZQ_TYPE_FUNCTION, ZQ_TYPE_NULL, ZQ_TYPE_NUMBER, ZQ_TYPE_OBJECT,
-        ZQ_TYPE_STRING, ZQ_TYPE_SYMBOL, ZQ_TYPE_UNDEFINED,
-    };
+unsafe extern "C" fn zapi_get_value_type(_env: ZqEnv, val: ZqRawValue) -> zuqe_zapi::ffi::ZqType {
+    use zuqe_zapi::ffi::ZqType;
     let v = JSValue(val, std::marker::PhantomData);
     match v.tag() {
         crate::value::JSValueTag::Undefined | crate::value::JSValueTag::Uninitialized => {
-            ZQ_TYPE_UNDEFINED
+            ZqType::Undefined
         }
-        crate::value::JSValueTag::Null => ZQ_TYPE_NULL,
-        crate::value::JSValueTag::Bool => ZQ_TYPE_BOOL,
-        crate::value::JSValueTag::Int | crate::value::JSValueTag::Float64 => ZQ_TYPE_NUMBER,
-        crate::value::JSValueTag::String | crate::value::JSValueTag::StringRope => ZQ_TYPE_STRING,
-        crate::value::JSValueTag::Symbol => ZQ_TYPE_SYMBOL,
+        crate::value::JSValueTag::Null => ZqType::Null,
+        crate::value::JSValueTag::Bool => ZqType::Bool,
+        crate::value::JSValueTag::Int | crate::value::JSValueTag::Float64 => ZqType::Number,
+        crate::value::JSValueTag::String | crate::value::JSValueTag::StringRope => ZqType::String,
+        crate::value::JSValueTag::Symbol => ZqType::Symbol,
         crate::value::JSValueTag::Object
         | crate::value::JSValueTag::FunctionBytecode
         | crate::value::JSValueTag::Module => {
             if v.is_callable() {
-                ZQ_TYPE_FUNCTION
+                ZqType::Function
             } else {
-                ZQ_TYPE_OBJECT
+                ZqType::Object
             }
         }
-        crate::value::JSValueTag::CatchOffset | crate::value::JSValueTag::Exception => {
-            ZQ_TYPE_OBJECT
-        }
+        crate::value::JSValueTag::CatchOffset => ZqType::Object,
+        crate::value::JSValueTag::Exception => ZqType::Exception,
     }
 }
 
-unsafe extern "C" fn zapi_number_value(_env: ZqEnv, val: ZqRawValue) -> f64 {
+unsafe extern "C" fn zapi_value_to_float64(_env: ZqEnv, val: ZqRawValue) -> f64 {
     JSValue(val, std::marker::PhantomData)
         .as_number()
         .map(|n| n.to_f64())
         .unwrap_or(f64::NAN)
 }
 
-unsafe extern "C" fn zapi_bool_value(_env: ZqEnv, val: ZqRawValue) -> i32 {
+unsafe extern "C" fn zapi_value_to_bool(_env: ZqEnv, val: ZqRawValue) -> i32 {
     match JSValue(val, std::marker::PhantomData).to_bool() {
         Ok(b) => b as i32,
         Err(_) => 0,
     }
 }
 
-unsafe extern "C" fn zapi_string_value(env: ZqEnv, val: ZqRawValue) -> ZqRawValue {
+unsafe extern "C" fn zapi_value_to_string(env: ZqEnv, val: ZqRawValue) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     match JSValue(val, std::marker::PhantomData).to_string(ctx) {
         Ok(s) => JSValue::make_string(s).0,
-        Err(_) => 0,
+        Err(_) => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -554,9 +547,9 @@ unsafe extern "C" fn zapi_call_constructor(env: ZqEnv, info: *mut ZqCallbackInfo
     match target.as_object() {
         Some(o) => match o.call_ctor(ctx, &args) {
             Ok(v) => v.0,
-            Err(_) => 0,
+            Err(_) => ZQ_API_TABLE.value_exception,
         },
-        None => 0,
+        None => ZQ_API_TABLE.value_exception,
     }
 }
 
@@ -567,14 +560,10 @@ pub(crate) static ZQ_API_TABLE: Lazy<Box<ZqApi>> = Lazy::new(new_zapi);
 pub(crate) fn new_zapi() -> Box<ZqApi> {
     Box::new(ZqApi {
         version: ZQ_ABI_VERSION,
-        undefined_raw: zapi_undefined_raw,
-        null_raw: zapi_null_raw,
-        bool_raw: zapi_bool_raw,
-        number_raw: zapi_number_raw,
-        string_raw: zapi_string_raw,
+        new_number: zapi_new_number,
+        new_string_from_utf8: zapi_new_string_from_utf8,
         new_symbol: zapi_new_symbol,
         get_symbol_description: zapi_get_symbol_description,
-        string_len: zapi_string_len,
         get_string_utf8: zapi_get_string_utf8,
         new_object: zapi_new_object,
         new_array: zapi_new_array,
@@ -591,11 +580,24 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         register_class: zapi_register_class,
         new_instance: zapi_new_instance,
         get_native_ptr: zapi_get_native_ptr,
-        type_of: zapi_type_of,
-        number_value: zapi_number_value,
-        bool_value: zapi_bool_value,
-        string_value: zapi_string_value,
+        get_value_type: zapi_get_value_type,
+        value_to_float64: zapi_value_to_float64,
+        value_to_bool: zapi_value_to_bool,
+        value_to_string: zapi_value_to_string,
         call_constructor: zapi_call_constructor,
         set_gc_trace_func: zapi_set_gc_trace_func,
+
+        // host-provided constant value handles
+        value_undefined: crate::JSValue::UNDEFINED.0,
+        value_null: crate::JSValue::NULL.0,
+        value_true: crate::JSValue::TRUE.0,
+        value_false: crate::JSValue::FALSE.0,
+        value_nan: crate::JSValue::NAN.0,
+        value_zero: crate::JSValue::ZERO.0,
+        value_one: crate::JSValue::from(1i32).0,
+        value_negative_one: crate::JSValue::from(-1i32).0,
+        value_infinity: crate::JSValue::from(f64::INFINITY).0,
+        value_minus_infinity: crate::JSValue::from(f64::NEG_INFINITY).0,
+        value_exception: crate::JSValue::EXCEPTION.0,
     })
 }

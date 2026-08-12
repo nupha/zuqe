@@ -10,10 +10,10 @@
 //   4. the thread_local global node kept alive by a global GC trace callback
 //
 // Run after building the extension:
-//   cargo build --release --manifest-path examples/zapi_raw/Cargo.toml
+//   cargo build --manifest-path examples/zapi_raw/Cargo.toml
 //   target/release/examples/zjs --module examples/zapi_raw/test_raw.mjs
 
-import * as raw from "./target/release/libzapi_raw.dylib";
+import * as raw from "./target/debug/libzapi_raw.dylib";
 
 let pass = 0;
 let fail = 0;
@@ -108,7 +108,34 @@ test("STATS lazy value export", () => {
     eq(raw.STATS.built, true);
 });
 
-// ── 5. thread_local global node (kept alive by global GC trace) ──
+// ── 5. host constant values (read from the ZqApi table, no FFI call) ──
+test("constants() exposes host value handles", () => {
+    const c = raw.constants();
+    eq(c.undef, undefined);
+    eq(c.null, null);
+    eq(c.true, true);
+    eq(c.false, false);
+    eq(typeof c.nan, "number");
+    eq(Number.isNaN(c.nan), true);
+    eq(c.zero, 0);
+    eq(c.one, 1);
+    eq(c.negOne, -1);
+    eq(c.inf, Infinity);
+    eq(c.negInf, -Infinity);
+});
+
+// ── 6. error signaling: returning value_exception makes the host throw ──
+test("boom() throws via the exception sentinel", () => {
+    let threw = false;
+    try {
+        raw.boom();
+    } catch (e) {
+        threw = true;
+    }
+    eq(threw, true);
+});
+
+// ── 7. thread_local global node (kept alive by global GC trace) ──
 test("setGlobal / getGlobal round-trip", () => {
     raw.setGlobal("stored");
     eq(raw.getGlobal(), "stored");
@@ -116,7 +143,7 @@ test("setGlobal / getGlobal round-trip", () => {
     eq(raw.getGlobal(), 123);
 });
 
-// ── 6. GC stress: class payload trace + thread_local trace must keep the
+// ── 8. GC stress: class payload trace + thread_local trace must keep the
 //      values alive across many collections. The engine triggers a GC roughly
 //      every 32 allocations, so the loop below forces dozens of collections. ──
 test("payload & thread_local survive GC pressure", () => {
@@ -135,7 +162,7 @@ test("payload & thread_local survive GC pressure", () => {
     eq(raw.getGlobal(), "keep-global");
 });
 
-// ── 7. finalize: the GC must drop short-lived Box payloads ──
+// ── 9. finalize: the GC must drop short-lived Box payloads ──
 test("finalize drops collected Box payloads", () => {
     const before = raw.droppedBoxes();
     let sink = [];
