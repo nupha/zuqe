@@ -5,61 +5,86 @@ use std::ffi::c_void;
 
 use libloading::Library;
 use zapi::ffi::{
-    ZQ_EXPORT_CLASS, ZQ_EXPORT_FUNC, ZQ_EXPORT_VALUE, ZapiBodyFn, ZqApi, ZqCallbackInfoS,
-    ZqClassAccessor, ZqEnv, ZqEnvS, ZqExportValueFn, ZqFuncInfo, ZqModuleInfo, ZqRawValue,
+    ZQ_FIELD_BOOL, ZQ_FIELD_CLASS, ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET, ZQ_FIELD_INT,
+    ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_FIELD_VALUE, ZqApi, ZqCallbackInfoS, ZqEnv, ZqEnvS,
+    ZqFieldDef, ZqModuleInfo, ZqRawValue,
 };
 
 use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
 
 use super::stub::{ZQ_API_TABLE, env_from_ctx};
 
-pub(crate) fn push_method_fields(
+/// Translate a `ZqFieldDef` array into engine `FieldDef` entries (methods,
+/// accessors, and constant data props), for class prototypes/constructors.
+pub(crate) fn push_class_fields(
     ctx: &mut ScopedContext,
     entries: &mut Vec<crate::FieldDef>,
-    methods: &[ZqFuncInfo],
+    fields: &[ZqFieldDef],
 ) -> Result<(), i32> {
-    for m in methods {
-        let Some(body) = m.body else {
-            continue;
-        };
-        let name = unsafe { std::ffi::CStr::from_ptr(m.name) };
-        let name = name.to_str().map_err(|_| -1)?;
+    for f in fields {
+        let name = f
+            .name_str()
+            .ok_or_else(|| ctx.throw_internal_error("zapi class member has no name"))?;
         let name: &'static str = Box::leak(name.to_string().into_boxed_str());
-        let (_, token) = register_zapi_func_magic(ctx, body, m.magic);
-        entries.push(crate::FieldDef::FUNC(
-            name,
-            m.arity,
-            zapi_trampoline_fn,
-            token as i16,
-        ));
-    }
-    Ok(())
-}
-
-pub(crate) fn push_accessor_fields(
-    ctx: &mut ScopedContext,
-    entries: &mut Vec<crate::FieldDef>,
-    accessors: &[ZqClassAccessor],
-) -> Result<(), i32> {
-    for a in accessors {
-        let name = unsafe { std::ffi::CStr::from_ptr(a.name) };
-        let name = name.to_str().map_err(|_| -1)?;
-        let name: &'static str = Box::leak(name.to_string().into_boxed_str());
-        // A get+set accessor shares one body (one magic); register whichever is present.
-        let magic = if let Some(body) = a.get.or(a.set) {
-            let (_, token) = register_zapi_func_magic(ctx, body, a.magic);
-            token as i16
-        } else {
-            continue;
-        };
-        entries.push(crate::FieldDef::GETSET(
-            name,
-            a.get
-                .map(|_| zapi_trampoline_fn as crate::function::GetterFn),
-            a.set
-                .map(|_| zapi_trampoline_fn as crate::function::SetterFn),
-            magic,
-        ));
+        match f.kind {
+            ZQ_FIELD_FUNC => {
+                let Some(body) = f.body else {
+                    continue;
+                };
+                let (_, token) = register_zapi_func_magic(ctx, body, f.magic);
+                entries.push(crate::FieldDef::FUNC(
+                    name,
+                    f.arity,
+                    zapi_trampoline_fn,
+                    token as i16,
+                ));
+            }
+            ZQ_FIELD_GETSET => {
+                let magic = if let Some(body) = f.get.or(f.set) {
+                    let (_, token) = register_zapi_func_magic(ctx, body, f.magic);
+                    token as i16
+                } else {
+                    continue;
+                };
+                entries.push(crate::FieldDef::GETSET(
+                    name,
+                    f.get
+                        .map(|_| zapi_trampoline_fn as crate::function::GetterFn),
+                    f.set
+                        .map(|_| zapi_trampoline_fn as crate::function::SetterFn),
+                    magic,
+                ));
+            }
+            ZQ_FIELD_STR => {
+                let s = if f.str_val.is_null() {
+                    ""
+                } else {
+                    unsafe { std::ffi::CStr::from_ptr(f.str_val) }
+                        .to_str()
+                        .map_err(|_| -1)?
+                };
+                let s: &'static str = Box::leak(s.to_string().into_boxed_str());
+                entries.push(crate::FieldDef::STR(name, s, f.prop_flags));
+            }
+            ZQ_FIELD_INT => {
+                entries.push(crate::FieldDef::INT32(name, f.i64_val as i32, f.prop_flags));
+            }
+            ZQ_FIELD_FLOAT => {
+                entries.push(crate::FieldDef::FLOAT64(name, f.f64_val, f.prop_flags));
+            }
+            ZQ_FIELD_BOOL => {
+                entries.push(crate::FieldDef::BOOL(name, f.u8_val != 0, f.prop_flags));
+            }
+            ZQ_FIELD_UNDEFINED => {
+                entries.push(crate::FieldDef::UNDEFINED(name, f.prop_flags));
+            }
+            _ => {
+                return Err(ctx.throw_internal_error(&format!(
+                    "zapi class member '{name}': unsupported kind {}",
+                    f.kind
+                )));
+            }
+        }
     }
     Ok(())
 }
@@ -190,7 +215,7 @@ macro_rules! zapi_make_thunk {
 /// 1. dlopen the library, resolve `zq_module_register`
 /// 2. Lazy-init Runtime's `ZqApi` table (created once, shared across extensions)
 /// 3. Call `zq_module_register` → extension fills `ZqModuleInfo` (exports + init)
-/// 4. Register classes declared as `ZQ_EXPORT_CLASS` (ctors live in `class_slots`)
+/// 4. Register classes declared as `ZQ_FIELD_CLASS` (ctors live in `class_slots`)
 /// 5. Return a `ModuleDef` whose exports (classes + functions + values) are
 ///    published to the module namespace at evaluation time, after the optional
 ///    module init hook runs, matching standard ESM semantics
@@ -235,64 +260,40 @@ pub fn load_extension(ctx: &mut ScopedContext, path: &std::path::Path) -> Result
     let mut md_info = ZqModuleInfo::default();
     unsafe { module_register_fn(api_ptr, &mut md_info) };
 
-    // Split the exports into per-kind owned lists (the `ZqExportDef` array is
-    // leaked by the extension, so function pointers and names stay valid for the
-    // process lifetime; the library is kept loaded via `mem::forget` below).
+    // Pre-pass: snapshot the exports and register every CLASS field (host
+    // needs the class registered before module evaluation). The `ZqFieldDef`
+    // array is leaked by the extension, so names/pointers stay valid for the
+    // process lifetime; the library is kept loaded via `mem::forget` below.
     let register_class = api.register_class;
-    let mut class_exports: Vec<(String, ClassID)> = Vec::new();
-    let mut func_exports: Vec<(String, ZapiBodyFn, u8, i32)> = Vec::new();
-    let mut value_exports: Vec<(String, ZqExportValueFn)> = Vec::new();
+    let fields: Vec<ZqFieldDef> = md_info.exports().to_vec();
+    let mut class_ids: Vec<ClassID> = Vec::new();
+    let mut export_names: Vec<String> = Vec::new();
 
-    for def in md_info.exports() {
+    for def in &fields {
         let name = def
             .name_str()
             .ok_or_else(|| ctx.throw_type_error("invalid export name in zapi module"))?;
-        match def.kind {
-            ZQ_EXPORT_CLASS => {
-                if def.class_def.is_null() {
-                    return Err(ctx.throw_reference_error(&format!(
-                        "zapi module '{file_url}': class export '{name}' has no class def"
-                    )));
-                }
-                let mut env = ZqEnvS {
-                    ctx: (ctx as *mut ScopedContext).cast::<c_void>(),
-                    trace: std::ptr::null_mut(),
-                    rt: std::ptr::null_mut(),
-                };
-                let r = unsafe { register_class(&mut env, def.class_def) };
-                if r < 0 {
-                    return Err(ctx.throw_reference_error(&format!(
-                        "zapi module '{file_url}': failed to register class '{name}'"
-                    )));
-                }
-                class_exports.push((name.to_string(), r as ClassID));
+        if def.kind == ZQ_FIELD_CLASS {
+            if def.class_def.is_null() {
+                return Err(ctx.throw_reference_error(&format!(
+                    "zapi module '{file_url}': class export '{name}' has no class def"
+                )));
             }
-            ZQ_EXPORT_FUNC => {
-                let Some(body) = def.body else { continue };
-                func_exports.push((name.to_string(), body, def.arity, def.magic));
+            let mut env = ZqEnvS {
+                ctx: (ctx as *mut ScopedContext).cast::<c_void>(),
+                trace: std::ptr::null_mut(),
+                rt: std::ptr::null_mut(),
+            };
+            let r = unsafe { register_class(&mut env, def.class_def) };
+            if r < 0 {
+                return Err(ctx.throw_reference_error(&format!(
+                    "zapi module '{file_url}': failed to register class '{name}'"
+                )));
             }
-            ZQ_EXPORT_VALUE => {
-                let Some(value_fn) = def.value_fn else {
-                    continue;
-                };
-                value_exports.push((name.to_string(), value_fn));
-            }
-            _ => {}
+            class_ids.push(r as ClassID);
         }
-    }
-
-    let mut export_names: Vec<String> = Vec::new();
-    for (name, _) in &class_exports {
-        export_names.push(name.clone());
-    }
-    for (name, _, _, _) in &func_exports {
         if !export_names.iter().any(|n| n == name) {
-            export_names.push(name.clone());
-        }
-    }
-    for (name, _) in &value_exports {
-        if !export_names.iter().any(|n| n == name) {
-            export_names.push(name.clone());
+            export_names.push(name.to_string());
         }
     }
 
@@ -302,9 +303,9 @@ pub fn load_extension(ctx: &mut ScopedContext, path: &std::path::Path) -> Result
     let init_ptr = md_info.init;
 
     // Module init runs at evaluation time, after the export VarRefs exist:
-    // run the extension's init hook first (module-load setup), then publish each
-    // class constructor / function / value to the module namespace instead of
-    // `globalThis`.
+    // run the extension's init hook first (module-load setup), then publish
+    // each field (function / class ctor / value / constant) to the module
+    // namespace instead of `globalThis`.
     let init_fn = move |ctx: &mut ScopedContext, md: &ModuleDef| -> Result<(), i32> {
         if let Some(init_f) = init_ptr {
             let mut env = unsafe { env_from_ctx(ctx) };
@@ -312,26 +313,18 @@ pub fn load_extension(ctx: &mut ScopedContext, path: &std::path::Path) -> Result
                 return Err(ctx.throw_internal_error("zapi module init failed"));
             }
         }
-        for (name, class_id) in &class_exports {
-            let Some(ctor) = ctx.class_slots[*class_id as usize].ctor else {
-                continue; // class without a constructor body has no ctor
+        let mut class_iter = class_ids.iter();
+        for def in &fields {
+            let name = def
+                .name_str()
+                .ok_or_else(|| ctx.throw_internal_error("zapi module export has no name"))?;
+            let class_id = if def.kind == ZQ_FIELD_CLASS {
+                class_iter.next().copied()
+            } else {
+                None
             };
-            set_module_export(ctx, md, name, ctor.into())?;
-        }
-        for (name, body, arity, magic) in &func_exports {
-            let (cb, token) = register_zapi_func_magic(ctx, *body, *magic);
-            let fn_obj = ctx.create_native_function(cb, name, *arity, token as i16)?;
-            set_module_export(ctx, md, name, fn_obj.into())?;
-        }
-        for (name, value_fn) in &value_exports {
-            let mut env = unsafe { env_from_ctx(ctx) };
-            let mut out: ZqRawValue = 0;
-            if unsafe { value_fn(&mut env, &mut out) } != 0 {
-                return Err(
-                    ctx.throw_internal_error(&format!("zapi module export '{name}' failed"))
-                );
-            }
-            set_module_export(ctx, md, name, crate::JSValue(out, std::marker::PhantomData))?;
+            let value = eval_field_value(ctx, def, class_id)?;
+            set_module_export(ctx, md, name, value)?;
         }
         Ok(())
     };
@@ -345,6 +338,69 @@ pub fn load_extension(ctx: &mut ScopedContext, path: &std::path::Path) -> Result
         export_names.iter().map(String::as_str),
         init_fn,
     )
+}
+
+/// Evaluate a `ZqFieldDef` to a JS value for a module-namespace export.
+/// `class_id` is the registered `ClassID` for `ZQ_FIELD_CLASS` fields.
+fn eval_field_value(
+    ctx: &mut ScopedContext,
+    def: &ZqFieldDef,
+    class_id: Option<ClassID>,
+) -> Result<JSValue, i32> {
+    match def.kind {
+        ZQ_FIELD_FUNC => {
+            let body = def.body.ok_or(-1)?;
+            let (cb, token) = register_zapi_func_magic(ctx, body, def.magic);
+            let name = def.name_str().unwrap_or("");
+            let fn_obj = ctx.create_native_function(cb, name, def.arity, token as i16)?;
+            Ok(fn_obj.into())
+        }
+        ZQ_FIELD_CLASS => {
+            let cid = class_id.ok_or(-1)?;
+            let Some(ctor) = ctx.class_slots[cid as usize].ctor else {
+                return Err(ctx.throw_internal_error("zapi class export has no constructor"));
+            };
+            Ok(ctor.into())
+        }
+        ZQ_FIELD_VALUE => {
+            let value_fn = def.value_fn.ok_or(-1)?;
+            let mut env = unsafe { env_from_ctx(ctx) };
+            let mut out: ZqRawValue = 0;
+            if unsafe { value_fn(&mut env, &mut out) } != 0 {
+                return Err(ctx.throw_internal_error(&format!(
+                    "zapi module export '{}' failed",
+                    def.name_str().unwrap_or("<unnamed>")
+                )));
+            }
+            Ok(JSValue(out, std::marker::PhantomData))
+        }
+        ZQ_FIELD_STR => {
+            let bytes = if def.str_val.is_null() {
+                Vec::new()
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(def.str_val) }
+                    .to_bytes()
+                    .to_vec()
+            };
+            let sr = ctx.create_string_from_utf8(bytes).map_err(|_| -1)?;
+            Ok(crate::JSValue::make_string(sr))
+        }
+        ZQ_FIELD_INT => Ok(crate::JSValue::from(def.i64_val as i32)),
+        ZQ_FIELD_FLOAT => Ok(crate::JSValue::from(def.f64_val)),
+        ZQ_FIELD_BOOL => {
+            if def.u8_val != 0 {
+                Ok(crate::JSValue::TRUE)
+            } else {
+                Ok(crate::JSValue::FALSE)
+            }
+        }
+        ZQ_FIELD_UNDEFINED => Ok(crate::JSValue::UNDEFINED),
+        _ => Err(ctx.throw_internal_error(&format!(
+            "zapi module export '{}': unsupported kind {}",
+            def.name_str().unwrap_or("<unnamed>"),
+            def.kind
+        ))),
+    }
 }
 
 /// Set one module export binding to `value` during native module init.

@@ -5,15 +5,13 @@ use std::ffi::c_void;
 
 use once_cell::sync::Lazy;
 use zapi::ffi::{
-    ZQ_ABI_VERSION, ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqGcTraceCtxS, ZqGcTraceFn,
-    ZqRawValue,
+    ZQ_ABI_VERSION, ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqFieldDef, ZqGcTraceCtxS,
+    ZqGcTraceFn, ZqRawValue,
 };
 
 use crate::{JSValue, ScopedContext, class::ClassID};
 
-use super::host::{
-    push_accessor_fields, push_method_fields, register_zapi_func_magic, zapi_trampoline_fn,
-};
+use super::host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn};
 
 pub(crate) unsafe fn env_from_ctx(ctx: &mut ScopedContext) -> ZqEnvS {
     let rt_raw: *const crate::RuntimeImpl = &*ctx.rt_ptr();
@@ -298,6 +296,15 @@ fn zapi_gc_trace_bridge(opaque: *mut c_void, gcx: &mut gc_lite::GcTraceCtx) {
     }
 }
 
+/// Reconstruct a `ZqFieldDef` slice from its `(*const T, usize)` ABI form.
+fn field_slice(ptr: *const ZqFieldDef, len: usize) -> &'static [ZqFieldDef] {
+    if ptr.is_null() {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(ptr, len) }
+    }
+}
+
 unsafe extern "C" fn zapi_register_class(env: ZqEnv, class_def: *const ZqClassDef) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     let def = unsafe { &*class_def };
@@ -345,27 +352,8 @@ unsafe extern "C" fn zapi_register_class(env: ZqEnv, class_def: *const ZqClassDe
         // proto_entries + ClassCtorDef.entries.
         let mut proto_entries: Vec<crate::FieldDef> = Vec::new();
         let mut static_entries: Vec<crate::FieldDef> = Vec::new();
-        if !def.proto_methods.is_null() {
-            let ms =
-                unsafe { std::slice::from_raw_parts(def.proto_methods, def.proto_methods_len) };
-            push_method_fields(ctx, &mut proto_entries, ms)?;
-        }
-        if !def.proto_accessors.is_null() {
-            let as_ =
-                unsafe { std::slice::from_raw_parts(def.proto_accessors, def.proto_accessors_len) };
-            push_accessor_fields(ctx, &mut proto_entries, as_)?;
-        }
-        if !def.static_methods.is_null() {
-            let ms =
-                unsafe { std::slice::from_raw_parts(def.static_methods, def.static_methods_len) };
-            push_method_fields(ctx, &mut static_entries, ms)?;
-        }
-        if !def.static_accessors.is_null() {
-            let as_ = unsafe {
-                std::slice::from_raw_parts(def.static_accessors, def.static_accessors_len)
-            };
-            push_accessor_fields(ctx, &mut static_entries, as_)?;
-        }
+        push_class_fields(ctx, &mut proto_entries, field_slice(def.proto_entries, def.proto_entries_len))?;
+        push_class_fields(ctx, &mut static_entries, field_slice(def.static_entries, def.static_entries_len))?;
 
         // Install instance methods/accessors on the prototype.
         let mut proto = ctx.class_proto(class_id).ok_or(-1)?;

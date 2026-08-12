@@ -1,0 +1,13 @@
+[package]
+name = "zapi_raw"
+version = "0.1.0"
+edition = "2021"
+description = "Zapi — raw FFI native extension demo for zuqe/zhuque (no safe layer, no macros)"
+
+# Built as a C dynamic library. The host dlopens it and resolves the
+# `zq_module_register` symbol (declared manually with #[no_mangle] below).
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zapi = { path = "../../../zuqe-zapi" }
