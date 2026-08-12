@@ -204,6 +204,24 @@ pub const js_shared_array_buffer_proto_funcs: &[FieldDef] = &[
         None,
         JS_CLASS_SHARED_ARRAY_BUFFER as i16,
     ),
+    FieldDef::GETSET(
+        "growable",
+        Some(js_shared_array_buffer_get_growable),
+        None,
+        JS_CLASS_SHARED_ARRAY_BUFFER as i16,
+    ),
+    FieldDef::GETSET(
+        "maxByteLength",
+        Some(js_shared_array_buffer_get_maxByteLength),
+        None,
+        JS_CLASS_SHARED_ARRAY_BUFFER as i16,
+    ),
+    FieldDef::FUNC(
+        "grow",
+        1,
+        js_shared_array_buffer_grow,
+        JS_CLASS_SHARED_ARRAY_BUFFER as i16,
+    ),
     FieldDef::FUNC(
         "slice",
         2,
@@ -233,5 +251,33 @@ pub const js_array_buffer_funcs: &[FieldDef] = &[
     FieldDef::FUNC("isView", 1, js_array_buffer_isView, 0),
     SPECIES_FIELD,
 ];
+
+fn js_shared_array_buffer_get_byteLength(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let ab = get_array_buffer(cc.this(), ctx, JS_CLASS_SHARED_ARRAY_BUFFER)?;
+    Ok(JSValue::from(ab.payload().byte_length() as i64))
+}
+
+fn js_shared_array_buffer_get_growable(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let ab = get_array_buffer(cc.this(), ctx, JS_CLASS_SHARED_ARRAY_BUFFER)?;
+    Ok(JSValue::from(ab.payload().is_resizable()))
+}
+
+fn js_shared_array_buffer_get_maxByteLength(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let ab = get_array_buffer(cc.this(), ctx, JS_CLASS_SHARED_ARRAY_BUFFER)?;
+    let p = ab.payload();
+    let len = if p.is_resizable() {
+        p.max_byte_length()
+    } else {
+        p.byte_length()
+    };
+    Ok(JSValue::from(len as i64))
+}
+
+fn js_shared_array_buffer_grow(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let mut ab = get_array_buffer(cc.this(), ctx, JS_CLASS_SHARED_ARRAY_BUFFER)?;
+    let new_length = cc.arg(0).to_index(ctx)? as usize;
+    ab.grow(ctx, new_length)?;
+    Ok(JSValue::UNDEFINED)
+}
 
 pub const js_shared_array_buffer_funcs: &[FieldDef] = &[SPECIES_FIELD];

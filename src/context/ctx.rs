@@ -388,6 +388,9 @@ impl<'c> ScopedContext<'c> {
                     ctx.init_random_seed();
                     gobj.install_fields(ctx, crate::builtins::math::js_math_obj)?;
                 }
+
+                // Atomics: lazy init
+                gobj.install_fields(ctx, crate::builtins::atomics::js_atomics_obj)?;
             }
 
             //

@@ -4,6 +4,7 @@
 pub mod arguments;
 pub mod array;
 pub mod array_buffer;
+pub mod atomics;
 #[cfg(feature = "big_int")]
 pub mod bigint;
 pub mod boolean;

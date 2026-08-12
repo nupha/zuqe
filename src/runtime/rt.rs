@@ -26,6 +26,29 @@ use crate::{
     value::JSValue,
 };
 
+/// Default in-process shared-memory backend for `SharedArrayBuffer`.
+///
+/// The backing store is a plain heap allocation (`Box<[u8]>`) wrapped by the
+/// engine in `Arc<RwLock<..>>` (see `ABufData::Shared`). This makes the buffer
+/// genuinely shared across all views and contexts within the same process via
+/// `Arc` reference counting; it is *not* shared across processes.
+///
+/// `sab_free` is a no-op: the actual deallocation happens when the last
+/// `Arc` strong reference drops.
+fn default_sab_funcs() -> JSSharedArrayBufferFunctions {
+    fn sab_alloc(_opaque: *mut c_void, capacity: usize) -> Result<Box<[u8]>, i32> {
+        let mut v = Vec::<u8>::with_capacity(capacity);
+        v.resize(capacity, 0);
+        Ok(v.into_boxed_slice())
+    }
+    fn sab_free(_opaque: *mut c_void, _len: usize) {}
+    JSSharedArrayBufferFunctions {
+        sab_alloc,
+        sab_free,
+        sab_opaque: std::ptr::null_mut(),
+    }
+}
+
 /// recursive C stack overflow size (in bytes)
 #[cfg(debug_assertions)]
 const STACK_OVERFLOW_LIMIT: usize = 512 * 1024;
@@ -178,7 +201,7 @@ impl RuntimeImpl {
             active_frame_index: FrameIndex::NULL,
 
             module_load_opaque: std::ptr::null_mut(),
-            sab_funcs: None,
+            sab_funcs: Some(default_sab_funcs()),
 
             eval_base_url: Atom::NULL,
 

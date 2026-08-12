@@ -562,7 +562,7 @@ impl TypedArray {
                         bytes.into_boxed_slice(),
                         std::ptr::null_mut(),
                     )?;
-                    return Self::create(ctx, JSValue::UNDEFINED, abuf, 0, count, class_id);
+                    return Self::create(ctx, new_target, abuf, 0, count, class_id);
                 }
 
                 // Slow path: get indexed property from source then set to new typed array.
