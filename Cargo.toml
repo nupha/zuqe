@@ -16,7 +16,7 @@ all_unicode = ["unicode-id-start", "unicode-normalization"]
 async_support = ["futures-util"]
 crossbeam_channel = ["crossbeam"]
 serde_json_support = ["serde_json"]
-zapi = ["dep:zuqe_zapi", "libloading"]
+zapi = ["zuqe_zapi", "libloading"]
 
 builtin_proxy = []
 builtin_atomic = []
@@ -90,7 +90,7 @@ once_cell = "1.21"
 hash-link = "0.1"
 smallvec = "1.13"
 fallible_collections = "0.5"
-gc-lite = { version = "0.6.2", path = "../gc-lite-v2" }
+gc-lite = "0.6.2"
 zuqe_zapi = { path = "../zuqe-zapi", optional = true }
 libloading = { version = "0.9", optional = true }
 lre = { version = "0.3.1", optional = true }
