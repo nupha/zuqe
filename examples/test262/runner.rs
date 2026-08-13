@@ -202,6 +202,9 @@ pub fn setup_ctx_test262_helpers(ctx: &mut ScopedContext) -> Result<JSValue, i32
     obj262.set_property_str(ctx, "global", global)?;
     global.set_property_str(ctx, "$262", obj262.into())?;
 
+    // $262.agent: test262 multi-agent (Atomics / SharedArrayBuffer) harness.
+    let _ = crate::agent::setup_parent_agent(ctx, &mut obj262);
+
     Ok(obj262.into())
 }
 
@@ -400,6 +403,10 @@ pub async fn run_test_file(
 ) -> (TestStatus, Vec<String>, Option<String>) {
     PRINT_BUF.with(|b| b.borrow_mut().clear());
 
+    // Fresh agent hub for this test so agents from a previous test (even if some
+    // are still winding down) do not interfere.
+    crate::agent::agents_hub().replace();
+
     let content = std::fs::read_to_string(filename).unwrap();
 
     let start = content.find("/*---").unwrap_or(0);
@@ -553,6 +560,10 @@ pub async fn run_test_file(
             }
         }
     }
+
+    // Tear down any agent threads spawned by this test so they don't leak into
+    // the next test (which would corrupt broadcast/hub state across tests).
+    crate::agent::teardown_agents();
 
     (
         if failed {

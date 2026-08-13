@@ -690,7 +690,7 @@ impl TypedArray {
     /// Get underlying array buffer byte offset.
     /// When underlaying array buffer is detached or the view is out-of-bounds,
     /// returns 0.
-    pub(super) fn array_buffer_byte_offset(&self) -> usize {
+    pub(crate) fn array_buffer_byte_offset(&self) -> usize {
         if self.is_detached() || self.payload().is_out_of_bounds() {
             0
         } else {

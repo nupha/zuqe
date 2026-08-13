@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{thread::sleep, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Condvar, Mutex, OnceLock},
+    time::Duration,
+};
 
 use crate::{
     JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
@@ -346,11 +350,126 @@ pub fn js_atomics_pause(_ctx: &mut ScopedContext, _cc: CallContext) -> JSResult 
 // Atomics.notify
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Cross-Runtime wait/notify queue
+// ---------------------------------------------------------------------------
+//
+// Each `Atomics.wait` registers a waiter keyed by the shared buffer identity
+// (the `Arc` backing the `SharedArrayBuffer`) and the element's byte offset.
+// `Atomics.notify` wakes the waiters sharing that key. This allows agents
+// running in separate `Runtime`s (and therefore separate OS threads) to
+// synchronize through a `SharedArrayBuffer`.
+
+type Waiter = Arc<(Mutex<bool>, Condvar)>;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct WaitKey {
+    /// Identity of the shared buffer (`Arc::as_ptr`).
+    sab: usize,
+    /// Byte offset of the waited element within the buffer.
+    off: usize,
+}
+
+struct WaitRegistry {
+    map: Mutex<HashMap<WaitKey, Vec<Waiter>>>,
+}
+
+static WAIT_REGISTRY: OnceLock<WaitRegistry> = OnceLock::new();
+
+fn wait_registry() -> &'static WaitRegistry {
+    WAIT_REGISTRY.get_or_init(|| WaitRegistry {
+        map: Mutex::new(HashMap::new()),
+    })
+}
+
+/// Wake up to `count` waiters (or all when `count == usize::MAX`) for `key`.
+/// Returns the number of waiters actually woken.
+fn wake_waiters(key: WaitKey, count: usize) -> usize {
+    let mut map = wait_registry().map.lock().unwrap();
+    let mut woken = 0;
+    if let Some(vec) = map.get_mut(&key) {
+        let take = if count == usize::MAX {
+            vec.len()
+        } else {
+            count.min(vec.len())
+        };
+        for w in vec.drain(0..take) {
+            if let Ok(mut g) = w.0.lock() {
+                *g = true;
+                w.1.notify_one();
+            }
+            woken += 1;
+        }
+        if vec.is_empty() {
+            map.remove(&key);
+        }
+    }
+    woken
+}
+
+/// Remove a single waiter from its queue (best-effort, on wake-up or timeout).
+fn drop_waiter(key: WaitKey, waiter: &Waiter) {
+    let mut map = wait_registry().map.lock().unwrap();
+    if let Some(vec) = map.get_mut(&key) {
+        vec.retain(|w| !Arc::ptr_eq(w, waiter));
+        if vec.is_empty() {
+            map.remove(&key);
+        }
+    }
+}
+
+/// Wake every registered waiter regardless of key. Used on agent-harness
+/// teardown so agent threads blocked in `Atomics.wait` are released instead of
+/// leaking across tests.
+pub fn wake_all_waiters() {
+    let mut map = wait_registry().map.lock().unwrap();
+    for (_, vec) in map.drain() {
+        for w in vec {
+            if let Ok(mut g) = w.0.lock() {
+                *g = true;
+                w.1.notify_one();
+            }
+        }
+    }
+}
+
+/// Build the wait key for a typed array index, returning `None` if the buffer
+/// is not a `SharedArrayBuffer` (already validated by the caller).
+fn wait_key(ta: &TypedArray, nth: usize, width: u32) -> WaitKey {
+    let off = ta.array_buffer_byte_offset() + nth * (width as usize / 8);
+    let sab = ta
+        .array_buffer()
+        .shared_data()
+        .map(|a| Arc::as_ptr(&a) as usize)
+        .unwrap_or(0);
+    WaitKey { sab, off }
+}
+
+// ---------------------------------------------------------------------------
+// Atomics.notify
+// ---------------------------------------------------------------------------
+
 pub fn js_atomics_notify(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let (ta, _cid, _width, _signed, _is_bigint) = validate_atomic(ctx, cc.arg(0), true)?;
-    let _nth = validate_index(ctx, &ta, cc.arg(1))?;
-    // Without a cross-thread agent runtime, there are no waiters to wake.
-    Ok(JSValue::from(0))
+    let (ta, _cid, width, _signed, _is_bigint) = validate_atomic(ctx, cc.arg(0), true)?;
+    let nth = validate_index(ctx, &ta, cc.arg(1))?;
+
+    // Resolve the count argument (default: +Infinity => wake everyone).
+    let count = if cc.arguments().len() <= 2 || cc.arg(2).is_undefined() {
+        usize::MAX
+    } else {
+        let c = cc.arg(2).to_number(ctx)?.to_f64();
+        if c.is_nan() || c < 0.0 {
+            0
+        } else if !c.is_finite() {
+            usize::MAX
+        } else {
+            c as usize
+        }
+    };
+
+    let key = wait_key(&ta, nth, width);
+    let n = wake_waiters(key, count);
+    Ok(JSValue::from(n as i64))
 }
 
 // ---------------------------------------------------------------------------
@@ -366,11 +485,9 @@ pub fn js_atomics_wait(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let nth = validate_index(ctx, &ta, cc.arg(1))?;
     let mask = mask_for(width);
-    let current = ta.with_bytes(|buf| {
-        let off = nth * (width as usize / 8);
-        read_bits(buf, off, width) & mask
-    });
+    let elem_off = nth * (width as usize / 8);
 
+    let current = ta.with_bytes(|buf| read_bits(buf, elem_off, width) & mask);
     let expected_bits = value_to_bits(ctx, cc.arg(2), signed, is_bigint, width)?;
 
     if current != (expected_bits & mask) {
@@ -383,7 +500,11 @@ pub fn js_atomics_wait(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     } else {
         cc.arg(3).to_number(ctx)?.to_f64()
     };
-    let timeout_ns: i64 = if timeout.is_nan() || timeout < 0.0 {
+    let timeout_ns: i64 = if timeout.is_nan() {
+        // Per spec: "If q is NaN, let t be +∞".
+        i64::MAX
+    } else if timeout < 0.0 {
+        // Negative timeouts resolve to an immediate time-out.
         0
     } else if !timeout.is_finite() {
         i64::MAX
@@ -391,12 +512,50 @@ pub fn js_atomics_wait(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         (timeout * 1e6) as i64
     };
 
-    // Block until timeout. No agent runtime is present to issue `notify`,
-    // so the only possible outcome is a time-out.
-    if timeout_ns > 0 && timeout_ns < i64::MAX {
-        sleep(Duration::from_nanos(timeout_ns as u64));
+    let key = wait_key(&ta, nth, width);
+    let waiter: Waiter = Arc::new((Mutex::new(false), Condvar::new()));
+
+    // Register before checking the value again, so a `notify` that arrives
+    // (possibly after a `store`) either sets our flag or we observe the change
+    // on the next loop iteration.
+    {
+        let mut map = wait_registry().map.lock().unwrap();
+        map.entry(key).or_default().push(waiter.clone());
     }
-    Ok(str_val(ctx, "timed-out")?)
+
+    let mut woken = false;
+    let mut guard = waiter.0.lock().unwrap();
+    loop {
+        // Only an explicit `Atomics.notify` (which sets our flag and signals the
+        // condvar) wakes a waiter. A plain `store`/`add` must NOT spuriously
+        // wake the waiter, so we never treat a changed memory value as a wakeup.
+        if *guard {
+            woken = true;
+            break;
+        }
+        if timeout_ns <= 0 {
+            break;
+        }
+        if timeout_ns == i64::MAX {
+            guard = match waiter.1.wait(guard) {
+                Ok(g) => g,
+                Err(p) => p.into_inner(),
+            };
+        } else {
+            let (g, res) = waiter
+                .1
+                .wait_timeout(guard, Duration::from_nanos(timeout_ns as u64))
+                .unwrap();
+            guard = g;
+            if res.timed_out() {
+                break;
+            }
+        }
+    }
+
+    drop_waiter(key, &waiter);
+
+    Ok(str_val(ctx, if woken { "ok" } else { "timed-out" })?)
 }
 
 // ---------------------------------------------------------------------------

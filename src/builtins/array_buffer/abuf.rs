@@ -556,6 +556,33 @@ impl ArrayBuffer {
         self.payload().ensure_attached(ctx)
     }
 
+    /// Return the underlying shared memory handle if this is a
+    /// `SharedArrayBuffer`, otherwise `None`.
+    ///
+    /// This is used by the test262 `$262.agent` harness to transfer a shared
+    /// buffer across engine `Runtime` instances (each agent runs in its own
+    /// `Runtime`, yet they must observe the same memory).
+    pub fn shared_data(&self) -> Option<Arc<RwLock<Box<[u8]>>>> {
+        match self.payload().data() {
+            ABufData::Shared(a) => Some(a.clone()),
+            _ => None,
+        }
+    }
+
+    /// Create a `SharedArrayBuffer` view backed by an existing shared memory
+    /// handle. The resulting object lives in `ctx`'s `Runtime` but shares the
+    /// exact same bytes as any other `SharedArrayBuffer` built from the same
+    /// `Arc`. Intended for the test262 `$262.agent` harness.
+    pub fn from_shared(ctx: &mut ScopedContext, data: Arc<RwLock<Box<[u8]>>>) -> Result<Self, i32> {
+        Self::create_internal(
+            ctx,
+            JSValue::UNDEFINED,
+            ABufData::Shared(data),
+            std::ptr::null_mut(),
+        )
+        .map_err(|_| -1)
+    }
+
     /// detatch array buffer
     pub fn detatch(&mut self, ctx: &mut ScopedContext) {
         let abuf = self.payload_mut();

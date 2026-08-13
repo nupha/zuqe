@@ -3,6 +3,7 @@
 
 #![allow(non_snake_case)]
 
+mod agent;
 mod presets;
 mod report;
 mod runner;
