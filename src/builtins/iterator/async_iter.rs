@@ -49,6 +49,19 @@ pub trait AsyncIteratorFetcher {
     /// Called when `return()` is invoked on the JS side.
     /// Override this to release resources (e.g. drop a receiver).
     fn close(&self) {}
+
+    /// Custom `return(value)` handling. Returning `Some(promise)` replaces the
+    /// generic `{value, done: true}` result with that promise's fulfillment or
+    /// rejection (e.g. an iterator that must await an async cancel before
+    /// settling, or reject when its source already errored). Returning `None`
+    /// falls back to `close()` + the default resolved result.
+    fn on_return(
+        &self,
+        _ctx: &mut ScopedContext,
+        _value: JSValue,
+    ) -> Result<Option<Promise>, i32> {
+        Ok(None)
+    }
 }
 
 /// Internal payload stored inside the JS `AsyncIterableIterator` object.
@@ -306,8 +319,10 @@ impl AsyncIterableIterator {
 
 /// `AsyncIterableIterator.prototype.next(value)` — returns a `Promise<{value, done}>`.
 ///
-/// Each call creates a new Promise backed by a polling job that calls
-/// `AsyncIteratorFetcher::try_fetch` on every engine tick.
+/// The fetch runs synchronously first, so a source that produces data on demand
+/// (e.g. a pull-based stream) settles `next()` immediately — a subsequent
+/// `return()` cannot preempt the already-issued read. Only when the fetch is not
+/// ready does a polling job retry `try_fetch` on every engine tick.
 fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
 
@@ -318,32 +333,64 @@ fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         return Err(ctx.throw_type_error("not an AsyncIterableIterator"));
     };
 
+    // A completed iterator (return() called, or a final error) yields
+    // `{done: true}` forever; next() still returns a promise. Resolve it via a
+    // polling job (not a pre-fulfilled promise) so an in-flight return() whose
+    // cancel is still settling resolves before this next() — matching the
+    // spec's "next() resolves after return() resolves" ordering.
     if ait.completed() {
-        make_iterator_next_result(ctx, JSValue::UNDEFINED, true)
-    } else if let Some(fetcher) = ait.fetcher.clone() {
         let promise = Promise::create_with_job(ctx, move |cx| {
-            fetcher.try_fetch(cx).and_then(|s| {
-                let ret = match s {
-                    IterFetchStatus::Value(value) => {
-                        make_iterator_next_result(cx, value, false).map(Some)
-                    }
-                    IterFetchStatus::Done => {
-                        make_iterator_next_result(cx, JSValue::UNDEFINED, true).map(Some)
-                    }
-                    IterFetchStatus::Wait => Ok(None),
-                };
-                debug_assert_eq!(
-                    cx.rt().exception(),
-                    crate::Exception::No,
-                    "[async_iter next] try_fetch succeeded but left exception behind"
-                );
-                ret
-            })
+            let result = make_iterator_next_result(cx, JSValue::UNDEFINED, true)?;
+            Ok(Some(result))
         })?;
+        return Ok(promise.into());
+    }
 
-        Ok(promise.into())
-    } else {
-        make_iterator_next_result(ctx, JSValue::UNDEFINED, true)
+    let Some(fetcher) = ait.fetcher.clone() else {
+        let promise = Promise::create_with_job(ctx, move |cx| {
+            let result = make_iterator_next_result(cx, JSValue::UNDEFINED, true)?;
+            Ok(Some(result))
+        })?;
+        return Ok(promise.into());
+    };
+
+    match fetcher.try_fetch(ctx) {
+        Ok(IterFetchStatus::Value(value)) => {
+            let result = make_iterator_next_result(ctx, value, false)?;
+            Promise::from_resolve_value(ctx, result).map(JSValue::from)
+        }
+        Ok(IterFetchStatus::Done) => {
+            let result = make_iterator_next_result(ctx, JSValue::UNDEFINED, true)?;
+            Promise::from_resolve_value(ctx, result).map(JSValue::from)
+        }
+        Ok(IterFetchStatus::Wait) => {
+            let promise = Promise::create_with_job(ctx, move |cx| {
+                fetcher.try_fetch(cx).and_then(|s| {
+                    let ret = match s {
+                        IterFetchStatus::Value(value) => {
+                            make_iterator_next_result(cx, value, false).map(Some)
+                        }
+                        IterFetchStatus::Done => {
+                            make_iterator_next_result(cx, JSValue::UNDEFINED, true).map(Some)
+                        }
+                        IterFetchStatus::Wait => Ok(None),
+                    };
+                    debug_assert_eq!(
+                        cx.rt().exception(),
+                        crate::Exception::No,
+                        "[async_iter next] try_fetch succeeded but left exception behind"
+                    );
+                    ret
+                })
+            })?;
+
+            Ok(promise.into())
+        }
+        Err(_) => {
+            // try_fetch threw (e.g. the stream errored) — reject next() with it.
+            let e = ctx.take_exception().to_value(ctx);
+            Promise::from_reject_value(ctx, e).map(JSValue::from)
+        }
     }
 }
 
@@ -353,25 +400,32 @@ fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 /// release its resources.
 fn js_async_iterator_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
+    let value = cc.arg(0);
 
     if let Some(mut obj) = this.as_object() {
         if let Some(ait) = obj.payload_mut().async_iterator_mut() {
             ait.set_completed();
 
             if let Some(fetcher) = ait.fetcher.take() {
+                // A fetcher that supplies its own return semantics (e.g. awaiting
+                // an async cancel, or rejecting when the source errored) takes
+                // over the return() result; otherwise fall through to the
+                // default `{value, done: true}`.
+                if let Some(promise) = fetcher.on_return(ctx, value)? {
+                    return Ok(promise.into());
+                }
                 fetcher.close();
             }
         }
     }
 
-    let value = cc.arg(0);
     let result = make_iterator_next_result(ctx, value, true)?;
-    Ok(result)
+    Promise::from_resolve_value(ctx, result).map(JSValue::from)
 }
 
 const js_async_iterator_proto_funcs: &[FieldDef] = &[
-    FieldDef::FUNC("next", 1, js_async_iterator_next, 0),
-    FieldDef::FUNC("return", 1, js_async_iterator_return, 0),
+    FieldDef::FUNC_ENUM("next", 0, js_async_iterator_next, 0),
+    FieldDef::FUNC_ENUM("return", 1, js_async_iterator_return, 0),
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "AsyncIterableIterator",
