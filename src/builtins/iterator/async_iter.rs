@@ -13,7 +13,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     make_bounded_channel,
-    object::{JS_PROP_CONFIGURABLE, AsyncIterableIterator, ObjectImpl, ObjectPayload},
+    object::{AsyncIterableIterator, JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload},
     value::JSValue,
 };
 
@@ -55,11 +55,7 @@ pub trait AsyncIteratorFetcher {
     /// rejection (e.g. an iterator that must await an async cancel before
     /// settling, or reject when its source already errored). Returning `None`
     /// falls back to `close()` + the default resolved result.
-    fn on_return(
-        &self,
-        _ctx: &mut ScopedContext,
-        _value: JSValue,
-    ) -> Result<Option<Promise>, i32> {
+    fn on_return(&self, _ctx: &mut ScopedContext, _value: JSValue) -> Result<Option<Promise>, i32> {
         Ok(None)
     }
 }
@@ -402,20 +398,21 @@ fn js_async_iterator_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     let this = cc.this();
     let value = cc.arg(0);
 
-    if let Some(mut obj) = this.as_object() {
-        if let Some(ait) = obj.payload_mut().async_iterator_mut() {
-            ait.set_completed();
+    if let Some(mut obj) = this.as_object()
+        && let Some(ait) = obj.payload_mut().async_iterator_mut()
+    {
+        ait.set_completed();
 
-            if let Some(fetcher) = ait.fetcher.take() {
-                // A fetcher that supplies its own return semantics (e.g. awaiting
-                // an async cancel, or rejecting when the source errored) takes
-                // over the return() result; otherwise fall through to the
-                // default `{value, done: true}`.
-                if let Some(promise) = fetcher.on_return(ctx, value)? {
-                    return Ok(promise.into());
-                }
-                fetcher.close();
+        if let Some(fetcher) = ait.fetcher.take() {
+            // A fetcher that supplies its own return semantics (e.g. awaiting
+            // an async cancel, or rejecting when the source errored) takes
+            // over the return() result; otherwise fall through to the
+            // default `{value, done: true}`.
+            if let Some(promise) = fetcher.on_return(ctx, value)? {
+                return Ok(promise.into());
             }
+
+            fetcher.close();
         }
     }
 
