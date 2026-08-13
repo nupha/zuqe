@@ -17,6 +17,7 @@ impl<'c> ScopedContext<'c> {
     }
 }
 
+#[derive(PartialEq)]
 pub(super) enum TickStatus {
     /// More jobs to process — call tick() again.
     Continue,
@@ -27,7 +28,7 @@ pub(super) enum TickStatus {
 impl RuntimeImpl {
     /// Run background jobs for one round.
     pub(super) fn tick(&mut self) -> TickStatus {
-        let mut more_ticks = false;
+        let mut may_have_new_job = false;
 
         for mut ctx in self.context_list.iter().copied() {
             ctx.with_new_scope(|cx| {
@@ -67,15 +68,27 @@ impl RuntimeImpl {
 
                         match res {
                             Ok(JobState::Again) => {
+                                // Re-queue for the next round, but do NOT set
+                                // `may_have_new_job` here. A job that only ever returns
+                                // `Again` (e.g. an async waiter with no pending
+                                // progress) must not keep the event loop spinning
+                                // forever — otherwise `RunFuture` busy-loops at
+                                // 100% CPU on a single-threaded executor. The next
+                                // `tick()` (driven by the next `run_async` call or
+                                // by a tick handler reporting real progress) will
+                                // re-poll it. A completed job (Done/Err) does set
+                                // `may_have_new_job` so the queue keeps draining.
                                 job.gc_trace = gc_trace;
                                 cx.polling_jobs.push_back(job);
-                                more_ticks = true;
                             }
-                            Ok(JobState::Done) => {}
+                            Ok(JobState::Done) => {
+                                may_have_new_job = true;
+                            }
                             Err(_) => {
                                 log::warn!("[task error] {:?}", self.cur_exception);
                                 self.cur_exception = Exception::No;
                                 // Don't re-queue — treat as Done.
+                                may_have_new_job = true;
                             }
                         }
 
@@ -90,7 +103,7 @@ impl RuntimeImpl {
                         let ctx_ptr = ContextPtr::from(cx.gc_ref());
                         for f in ctx_ptr.tick_handlers.iter() {
                             if f(cx) {
-                                more_ticks = true;
+                                may_have_new_job = true;
                             }
 
                             // Interrupt detected — stop now
@@ -101,7 +114,7 @@ impl RuntimeImpl {
 
                         // Oneshot jobs may also be queued by polling handlers; keep ticking if any remain.
                         if !cx.oneshot_jobs.is_empty() {
-                            more_ticks = true;
+                            may_have_new_job = true;
                         }
                     }
                 }
@@ -139,7 +152,7 @@ impl RuntimeImpl {
         #[cfg(feature = "builtin_weakref")]
         self.process_finrec_cleanups();
 
-        if more_ticks {
+        if may_have_new_job {
             TickStatus::Continue
         } else {
             TickStatus::Stop

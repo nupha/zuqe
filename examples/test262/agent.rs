@@ -275,11 +275,12 @@ fn agent_start(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32>
     }
     agents_hub().threads.lock().unwrap().extend(handles);
 
-    // Block until every spawned agent has finished spawning and is blocked in
-    // `receiveBroadcast`. This guarantees that a subsequent `safeBroadcast`
-    // (which precedes the parent's store/notify) is consumed by the agents
-    // before the parent acts on the shared buffer, removing the race where the
-    // parent's mutation lands before the agent has registered its waiter.
+    // Block until every spawned agent has finished spawning and its JS context is
+    // fully set up (globals installed), so the parent may safely broadcast or
+    // touch the shared buffer. The signal is raised in `agent_thread` once the
+    // context is ready — before the agent source is evaluated — so `start`
+    // returns as soon as the agent can run, whether or not it later calls
+    // `receiveBroadcast`.
     for sig in ready_sigs {
         let (lock, cvar) = &*sig;
         let mut ready = lock.lock().unwrap();
@@ -442,6 +443,19 @@ fn agent_thread(hub: Arc<Hub>, src: String, ready_sig: Arc<(Mutex<bool>, Condvar
         Err(_) => return,
     };
 
+    // Signal this agent's `agent.start` call that the JS context is up and its
+    // globals are installed, so the parent may safely broadcast / touch the
+    // shared buffer. Raised before evaluating the source so `start` returns as
+    // soon as the agent can actually run — regardless of whether the script ever
+    // calls `receiveBroadcast`.
+    READY_SIG.with(|s| {
+        if let Some(sig) = s.borrow().clone() {
+            let (lock, cvar) = &*sig;
+            *lock.lock().unwrap() = true;
+            cvar.notify_one();
+        }
+    });
+
     // Evaluate the agent source. The script normally calls
     // $262.agent.receiveBroadcast(...), which blocks this thread until the
     // parent broadcasts, then runs the agent's callback synchronously.
@@ -451,24 +465,25 @@ fn agent_thread(hub: Arc<Hub>, src: String, ready_sig: Arc<(Mutex<bool>, Condvar
         EvalType::Global,
         EvalFlags::empty(),
     );
+
+    // The broadcast callback may schedule asynchronous continuation microtasks
+    // (e.g. an `await Atomics.waitAsync(...).value` inside the agent callback in
+    // `false-for-timeout-agent.js`). Those run as promise reactions that only
+    // execute when the event loop is driven. Since the agent runs on a plain OS
+    // thread (no tokio executor), drain them synchronously here so the agent's
+    // `report()` actually fires before the thread exits.
+    rt.drain_jobs();
 }
 
 // Child-side native functions (non-capturing; use agents_hub()).
 
 fn child_receive_broadcast(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32> {
-    // Signal this individual agent's `start` call that we have reached
-    // `receiveBroadcast` and are about to block on the next broadcast. This lets
-    // the `agent.start` call return only after the agent is in this state, so a
-    // parent `safeBroadcast` that follows `start` is consumed by the agents
-    // before the parent touches the shared buffer.
-    READY_SIG.with(|s| {
-        if let Some(sig) = s.borrow().clone() {
-            let (lock, cvar) = &*sig;
-            *lock.lock().unwrap() = true;
-            cvar.notify_one();
-        }
-    });
-
+    // NOTE: the per-agent readiness signal that releases the parent's
+    // `agent.start` call is raised in `agent_thread` once the agent's JS context
+    // is fully set up (globals installed), *before* the source is evaluated — not
+    // here. This way `agent.start` returns as soon as the agent can run, whether
+    // or not it ever calls `receiveBroadcast` (some tests synchronize purely via
+    // Atomics on a SharedArrayBuffer and never touch the broadcast channel).
     let b = match thread_hub().wait_broadcast() {
         // Teardown: the parent has torn down the hub without a broadcast. Exit
         // cleanly so the agent thread does not leak into the next test.

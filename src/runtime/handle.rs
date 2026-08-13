@@ -14,7 +14,10 @@ use std::sync::{
     atomic::{AtomicPtr, Ordering},
 };
 
-use crate::{error::Exception, runtime::RuntimeImpl};
+use crate::{
+    error::Exception,
+    runtime::{RuntimeImpl, tick::TickStatus},
+};
 
 #[cfg(not(debug_assertions))]
 static PANIC_RUNTIME: AtomicPtr<RuntimeImpl> = AtomicPtr::new(std::ptr::null_mut());
@@ -78,6 +81,25 @@ impl Runtime {
                 prev(info);
             }));
         });
+    }
+
+    /// Drive the event loop to completion *synchronously* (without a tokio
+    /// executor). Used by the test262 agent harness, where an agent runs on a
+    /// plain OS thread and must drain microtasks queued by callbacks (e.g. the
+    /// `await Atomics.waitAsync(...).value` continuation inside an agent
+    /// broadcast callback) before reporting back to the parent.
+    ///
+    /// Note: `tick()` returns `Continue` only when real progress was made
+    /// (a job finished with `Done`/`Err`, a tick handler reported progress, or
+    /// a oneshot job was left queued). A polling job that merely returns `Again`
+    /// does NOT keep the loop going — so this loop terminates naturally once all
+    /// *settle-able* work is drained. Any polling job still spinning on `Again`
+    /// is simply left in the queue and handed back to the next `tick()` caller
+    /// (e.g. the main thread's event loop); it is never lost or interrupted.
+    ///
+    /// Consequently this function always terminates — it cannot busy-loop.
+    pub fn drain_jobs(&mut self) {
+        while self.tick() == TickStatus::Continue {}
     }
 }
 
