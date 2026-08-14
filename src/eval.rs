@@ -483,11 +483,15 @@ impl<'c> ScopedContext<'c> {
         // tick to finish
         loop {
             match self.rt_mut().tick() {
-                crate::runtime::TickStatus::Continue => {
+                crate::runtime::TickStatus::Progress | crate::runtime::TickStatus::Parked => {
+                    // Progress: real work was produced, drain it now.
+                    // Parked: a polling job (fetch/fs/...) is still waiting on IO
+                    // but produced no progress this round — yield without exiting
+                    // so the IO thread can later push a value and resolve the promise.
                     std::thread::yield_now();
                     continue;
                 }
-                crate::runtime::TickStatus::Stop => {
+                crate::runtime::TickStatus::Idle => {
                     if let Some(code) = self.rt_mut().take_interrupt() {
                         log::debug!("Interrupted with code {}", u8::from(code));
                         result = ExitStatus::Interrupted(code);

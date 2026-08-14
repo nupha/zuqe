@@ -19,16 +19,27 @@ impl<'c> ScopedContext<'c> {
 
 #[derive(PartialEq)]
 pub(super) enum TickStatus {
-    /// More jobs to process — call tick() again.
-    Continue,
-    /// Event loop stopped normally (or interrupted — check interrupt_code).
-    Stop,
+    /// This round made real progress: a job completed (Done/Err), a tick
+    /// handler reported new work, or a oneshot job is still queued. The
+    /// caller should call `tick()` again immediately to advance.
+    Progress,
+    /// No real progress this round, but a polling job is still spinning on
+    /// `Again` (waiting on external IO). Those jobs are re-queued (never
+    /// lost) but produced no new work. The caller decides: the sync loop
+    /// yields without exiting, the async path suspends (Pending), and the
+    /// agent `drain_jobs` terminates — so a pure-`Again` spin can never
+    /// dead-loop.
+    Parked,
+    /// The event loop is genuinely idle (no Progress, no Parked) or was
+    /// interrupted. Every caller terminates its drive loop.
+    Idle,
 }
 
 impl RuntimeImpl {
     /// Run background jobs for one round.
     pub(super) fn tick(&mut self) -> TickStatus {
-        let mut may_have_new_job = false;
+        let mut had_progress = false;
+        let mut had_parked = false;
 
         for mut ctx in self.context_list.iter().copied() {
             ctx.with_new_scope(|cx| {
@@ -68,27 +79,27 @@ impl RuntimeImpl {
 
                         match res {
                             Ok(JobState::Again) => {
-                                // Re-queue for the next round, but do NOT set
-                                // `may_have_new_job` here. A job that only ever returns
-                                // `Again` (e.g. an async waiter with no pending
-                                // progress) must not keep the event loop spinning
-                                // forever — otherwise `RunFuture` busy-loops at
-                                // 100% CPU on a single-threaded executor. The next
-                                // `tick()` (driven by the next `run_async` call or
-                                // by a tick handler reporting real progress) will
-                                // re-poll it. A completed job (Done/Err) does set
-                                // `may_have_new_job` so the queue keeps draining.
+                                // Re-queue for the next round. A pending-channel
+                                // promise (fetch/fs/...) is waiting on IO; it only
+                                // resolves once the IO thread pushes a value into the
+                                // channel. We do NOT set `may_have_new_job` here — this
+                                // round made no real progress, so the sync `eval_wait`
+                                // loop must not busy-exit and the agent `drain_jobs`
+                                // must be able to terminate. The job is safely
+                                // re-queued and will be polled again next round (or by
+                                // the next `tick()` caller), so it is never lost.
+                                had_parked = true;
                                 job.gc_trace = gc_trace;
                                 cx.polling_jobs.push_back(job);
                             }
                             Ok(JobState::Done) => {
-                                may_have_new_job = true;
+                                had_progress = true;
                             }
                             Err(_) => {
                                 log::warn!("[task error] {:?}", self.cur_exception);
                                 self.cur_exception = Exception::No;
                                 // Don't re-queue — treat as Done.
-                                may_have_new_job = true;
+                                had_progress = true;
                             }
                         }
 
@@ -103,7 +114,7 @@ impl RuntimeImpl {
                         let ctx_ptr = ContextPtr::from(cx.gc_ref());
                         for f in ctx_ptr.tick_handlers.iter() {
                             if f(cx) {
-                                may_have_new_job = true;
+                                had_progress = true;
                             }
 
                             // Interrupt detected — stop now
@@ -114,7 +125,7 @@ impl RuntimeImpl {
 
                         // Oneshot jobs may also be queued by polling handlers; keep ticking if any remain.
                         if !cx.oneshot_jobs.is_empty() {
-                            may_have_new_job = true;
+                            had_progress = true;
                         }
                     }
                 }
@@ -141,7 +152,7 @@ impl RuntimeImpl {
 
         // Interrupt check — independent from exception.
         if self.interrupt_code.is_some() {
-            return TickStatus::Stop;
+            return TickStatus::Idle;
         }
 
         if self.gc_req || self.gc_heap().should_gc() {
@@ -152,10 +163,16 @@ impl RuntimeImpl {
         #[cfg(feature = "builtin_weakref")]
         self.process_finrec_cleanups();
 
-        if may_have_new_job {
-            TickStatus::Continue
+        // Progress takes priority: if any real work was produced this round,
+        // advance immediately (a co-existing `Again` job is already re-queued
+        // and will be polled next round). Only when there is no real progress
+        // but a polling job is still pending do we report `Parked`.
+        if had_progress {
+            TickStatus::Progress
+        } else if had_parked {
+            TickStatus::Parked
         } else {
-            TickStatus::Stop
+            TickStatus::Idle
         }
     }
 }
@@ -172,7 +189,7 @@ mod tests {
 
     /// Drive the event loop until it stops (no more jobs to run).
     fn drain(rt: &mut Runtime) {
-        while matches!(rt.tick(), TickStatus::Continue) {}
+        while matches!(rt.tick(), TickStatus::Progress) {}
     }
 
     /// 回归：`commit` 后立刻 drop 全部外部强引用、job 尚未轮询时，已提交的值必须仍可取到。
