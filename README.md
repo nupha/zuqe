@@ -77,7 +77,7 @@ Add `zuqe` to your dependencies in `Cargo.toml`:
 
 ```toml
 [dependencies]
-zuqe = "0.8.0"
+zuqe = "0.9.0"
 ```
 
 Zuqe provides several Cargo features to customize the build:

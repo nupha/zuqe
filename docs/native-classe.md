@@ -18,7 +18,8 @@ enum FileDesc {
 }
 
 // The macro generates:
-// - A struct `JSFile` wrapping the payload type `RefCell<FileDesc>`
+// - A `#[repr(transparent)]` struct `JSFile` wrapping an `Object` (the payload
+//   `RefCell<FileDesc>` is stored in the object's opaque slot)
 // - Class registration function `JSFile::register(rt)`
 // - Class ID accessor `JSFile::class_id()`
 // - Payload access via `as_native_object::<JSFile>()` (then `.payload()` / `.take_payload()`)
@@ -50,9 +51,25 @@ The `def_native_object!` macro arguments are:
 - **proto_entries**: A `&[FieldDef]` slice defining instance methods and properties
 - **ctor_option**: `Some(ClassCtorDef)` to expose a constructor, or `None` to hide it
 
+Optional keyword arguments (all prefixed with `,`):
+
+- `extends: $class_id_fn` — register the class as a subclass of another native class
+- `on_class_register: $fn(rt)` — hook called when the class is registered
+- `on_class_unregister: $fn(rt)` — hook called when the class is unregistered
+- `on_payload_gc: $fn(&PayloadType, &mut GcTraceCtx)` — **required whenever the payload holds GC nodes**; the collector calls it during GC mark so embedded JS values stay reachable (see the GC safety section below).
+
+> **⚠️ GC safety (MUST READ):** A `JSValue`/`Object` stored in a class payload or in a
+> `thread_local!` is invisible to Zuqe's GC — if the collector reclaims it while you still use it,
+> the engine panics with a use-after-free. **Any payload holding GC nodes must provide
+> `on_payload_gc`, and any `thread_local!` holding GC nodes must be traced via
+> `rt.gc_set_trace_handler`.** Note that `extends:` subclasses do *not* inherit the parent's GC
+> trace and must declare their own `on_payload_gc`. See [GC safety for native code — class payloads
+> & thread_local](gc.md) for the full rules, examples, and review checklist.
+
 For classes that need a constructor exposed to JavaScript (e.g., `new Emitter()`), pass a `ClassCtorDef`:
 
 ```rust
+use std::cell::RefCell;
 use zuqe::{CallContext, ClassCtorDef, JSResult, JSValue, ScopedContext};
 
 fn js_emitter_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -80,9 +97,9 @@ def_native_object!(
 - `length`: The number of expected arguments (for `Function.length`)
 - `call_as_func`: Whether the constructor can also be called without `new`
 - `.expose_to_global()`: Automatically export the constructor to the global namespace
-- `.global()`: Alias for `expose_to_global()`
+- `.magic(magic)`: Set the constructor's magic value
 
-`ClassCtorDef` also supports static methods via `.with_entries(&[...])`.
+`ClassCtorDef` also supports static methods via `.entries(&[...])`.
 
 ## 2. Define methods and properties
 
@@ -200,7 +217,7 @@ fn main() {
 }
 ```
 
-You can also call `ctx.use_classes(&[class_id_1, class_id_2])` to enable multiple classes at once.
+You can also call `cx.use_classes(&[class_id_1, class_id_2])` on the setup context to enable multiple classes at once.
 
 ### Export via `FieldDef::CLASS`
 
@@ -220,8 +237,13 @@ static FILE_MODULE_ENTRIES: &[FieldDef] = &[
 
 The `def_native_object!` macro generates a `new_instance` method. Use it to create instances with a Rust payload:
 
+> **⚠️ GC note:** if `PayloadType` itself contains GC nodes (`JSValue`/`Object`/native wrapper),
+> the class **must** also declare `on_payload_gc` (see [GC safety for native code — class payloads
+> & thread_local](gc.md)), or those nodes can be reclaimed while the instance is alive.
+
 ```rust
-use zuqe::{Object, JSValue, ScopedContext, RefCell};
+use std::cell::RefCell;
+use zuqe::{Object, JSValue, ScopedContext};
 
 impl JSFile {
     /// Create a File instance from a std::fs::File handle.
@@ -246,7 +268,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
         "in",
         |cx| {
             let obj = JSFile::create_stdin_instance(cx)?;
-            Ok(JSValue::Object(obj))
+            Ok(JSValue::from(obj))
         },
         JS_PROP_ENUMERABLE,
     ),
@@ -254,7 +276,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
         "out",
         |cx| {
             let obj = JSFile::create_stdout_instance(cx)?;
-            Ok(JSValue::Object(obj))
+            Ok(JSValue::from(obj))
         },
         JS_PROP_ENUMERABLE,
     ),
@@ -266,10 +288,18 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
 Once registered and enabled in a context, the class can be used from JavaScript:
 
 ```javascript
-const file = new File("/tmp/example.txt", "w");
+// The `File` class above is registered without a constructor (`None`), so
+// instances are created by native helpers — e.g. the `std` module's `open`
+// returns a `File` instance, and `std.in`/`std.out`/`std.err` are pre-built.
+const file = std.open("/tmp/example.txt", "w");
 file.puts("Hello from zuqe\n");
 file.flush();
 file.close();
+
+// Classes with a constructor (via `Some(ClassCtorDef)` + `expose_to_global()`)
+// can be `new`-ed directly:
+const emitter = new Emitter();
+emitter.on("event", 1);
 ```
 
 This demonstrates how native Rust classes integrate with the Zuqe JavaScript environment, allowing you to expose powerful Rust functionality to JavaScript code.

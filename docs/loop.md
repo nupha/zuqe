@@ -1,60 +1,83 @@
 # Running Loop
 
-The running loop is the core execution mechanism in the Zuqe runtime that manages the lifecycle of JavaScript execution, from simple scripts to complex asynchronous operations. When the `async_support` feature is enabled, the **recommended** way to drive the loop is as a Rust `Future` (section 1). The older synchronous APIs (`eval_wait()` and manual `tick()`) are documented at the end as a reference for hosts that cannot use an async runtime.
+The running loop is the core execution mechanism in the Zuqe runtime that manages the lifecycle of JavaScript execution, from simple scripts to complex asynchronous operations. When the `async_support` feature is enabled (the default), the **recommended** way to drive the loop is `Context::eval_wait()` as an async function (section 1). The lower-level `Runtime::run_async()` and the synchronous API are documented afterwards as a reference for hosts that cannot use an async runtime.
 
 ## 1. Async runtime mode (`async_support` feature)
 
-When the `async_support` Cargo feature is enabled (by default), you can drive
-the runtime as a Rust `Future` with `Runtime::run_async()`. This allows your
-host application to `await` the runtime alongside other concurrent work in a
-Tokio (or other async runtime) context.
+When the `async_support` Cargo feature is enabled (by default), `Context` exposes an **async** `eval_wait()` that evaluates a script (or module) and drives the event loop to completion in a single `.await`:
 
 ```rust
-use zuqe::{EvalFlags, EvalType, Promise};
+use zuqe::{
+    Context, EvalFlags, EvalName, EvalType, Exception, ExitStatus, Runtime, ScopedContext,
+};
 
-async fn run_in_async_context(mut rt: Runtime, mut ctx: Context) {
-    let mut promise_future = None;
+#[tokio::main]
+async fn main() -> std::process::ExitCode {
+    let mut rt = Runtime::create().unwrap();
+    let mut ctx = rt
+        .create_context(|cx| ScopedContext::ECMA_CONTEXT_SETUP(cx))
+        .unwrap();
 
-    ctx.with_new_scope(|mut scope| {
-        let val = scope.eval(
+    // The entry name must be a canonical `file://` URL: `module_name`
+    // (and `import.meta.url`) is a URL, and a `file://` base is also required
+    // so that dynamic `import()` from a script entry resolves relative
+    // specifiers correctly.
+    let entry_url =
+        zuqe::path_to_url("example.js").expect("entry path must convert to a file:// URL");
+
+    let run_result = ctx
+        .eval_wait(
+            &mut rt,
             b"Promise.resolve(42)",
-            "example.js",
+            &EvalName::BaseUrl(entry_url),
             EvalType::Global,
             EvalFlags::empty(),
-        )?;
+        )
+        .await;
 
-        if let Ok(promise) = Promise::try_from(val) {
-            promise_future = Some(promise.into_future(&mut scope)?);
+    match run_result {
+        ExitStatus::Value(v) => {
+            // A value produced by the executed script (a module entry, or a
+            // script with a meaningful tail value; `Promise.resolve(42)` above
+            // settles to `undefined` at the top level).
+            println!("result: {:?}", v);
+            std::process::ExitCode::SUCCESS
         }
-        Ok(())
-    });
-
-    if let Some(js_fut) = promise_future {
-        // Drive the runtime loop and the JS Promise concurrently
-        let (_rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
-        // The JS Promise has now settled
+        ExitStatus::Interrupted(code) => code,
+        ExitStatus::Exception(Exception::OutOfMemory) => {
+            eprintln!("out of memory");
+            std::process::ExitCode::FAILURE
+        }
+        ExitStatus::Exception(Exception::Error(err)) => {
+            ctx.with_root_scope(|mut cx| {
+                eprintln!(
+                    "{}",
+                    err.to_string(&mut cx).unwrap().content().encode_utf8(false)
+                );
+            });
+            std::process::ExitCode::FAILURE
+        }
+        ExitStatus::Exception(_) => std::process::ExitCode::FAILURE,
     }
 }
 ```
 
-In this mode:
+This async `eval_wait` handles **top-level Promise observation** internally. A module entrypoint evaluates to a Promise; a rejected top-level promise is surfaced as `ExitStatus::Exception(Exception::Error(reason))` so the host can exit non-zero — the rejection is never silently dropped. This mirrors the synchronous `eval_wait` semantics exactly.
 
-- The runtime’s internal tick loop is driven by `RunFuture` (the return type
-  of `run_async()`), which integrates with the Rust async executor’s waker
-  mechanism.
-- JS Promises are converted to Rust `Future`s via `Promise::into_future()`.
-- `tokio::join!` (or `futures::join!`) runs them both until completion.
+Alternatively you can drive the loop at a lower level yourself:
+
+- `Runtime::run_async()` returns a `RunFuture` (a Rust `Future` with output `ExitStatus`) that repeatedly ticks the runtime until no more work is pending.
+- Convert a returned JS `Promise` to a Rust `Future` via `Promise::into_future()` and `await` it alongside `rt.run_async()` (usually with `tokio::join!`). See [Basic Usage](basic.md) and the [Promise documentation](promise.md).
 
 ## 2. The Tick
 
-The tick system is the heart-beat of the running loop — both in the async mode (where `RunFuture` repeatedly calls `tick()`) and in the synchronous mode. Each `tick()` call returns a status indicating whether more ticks are needed or the loop should stop:
+The tick is the heart-beat of the running loop — both in the async mode (where `RunFuture` repeatedly calls `tick()`) and in the synchronous mode. Each `tick()` runs, in order:
 
-```rust
-pub enum TickStatus {
-    Continue,    // More ticks
-    Stop(i32),   // Execution should stop
-}
-```
+1. **One-shot jobs** (always complete, never retry) — promise reactions, timer callbacks.
+2. **Polling jobs** (one round only) — jobs that may return `Again` to be re-polled on a later tick (e.g. `Promise::create_with_job`, channel- or slot-driven promises).
+3. **Customized tick handlers** registered via `ScopedContext::add_tick_handler()`.
+
+The `tick()` function and its `TickStatus` are internal to the runtime — hosts drive the loop through `eval_wait()` / `run_async()`, they never call `tick()` directly.
 
 ### Customized tick handler
 
@@ -98,101 +121,63 @@ The tick handler registration design is especially useful for:
 ## 3. Synchronous mode (reference)
 
 When `async_support` is disabled — or when a host cannot use an async runtime —
-the loop runs synchronously. The host calls `eval_wait()` (which polls `tick()`
-internally), or manually loops on `rt.tick()`.
+the loop runs synchronously. `Context::eval_wait()` blocks, polling the internal
+tick loop until all pending microtasks and Promise jobs have finished or the
+execution is interrupted.
 
 ### 3.1 Basic Execution with eval_wait()
 
-The simplest way to execute JavaScript code is the `eval_wait()` method on a scoped context:
-
 ```rust
+use zuqe::{Context, EvalFlags, EvalName, EvalType, Exception, ExitStatus, ScopedContext};
+
 // ...
 
-ctx.with_new_scope(|mut scope| {
-    match scope.eval_wait(
-        script.as_bytes(), // source script
-        &filename,         // file name
-        EvalType::Global,  // eval as global
+let exit_status = ctx.with_root_scope(|mut scope| {
+    scope.eval_wait(
+        script.as_bytes(),                   // source script
+        &EvalName::Name("<script>".into()),  // file name
+        EvalType::Global,                    // eval as global
         EvalFlags::empty(),
-    ) {
-        Ok(val) => {
-            println!("Result: {}", val.inspect(&mut scope).unwrap());
-        }
-        Err(e) => {
-            println!("Error: {}", e.message);
-        }
-    }
+    )
 });
-```
 
-### How eval_wait() works
-
-1. **Script Compilation**: The source code is compiled into bytecode
-2. **Execution**: The script is executed in the given context
-3. **Promise Handling**: If the script returns a Promise, this function waits for it to resolve
-4. **Result Return**: The final value is returned to the caller
-
-Internally, this method works like this:
-
-```rust
-pub fn eval_wait(
-    &mut self,
-    source: &[u8],
-    filename: &str,
-    eval_type: EvalType,
-    eval_flags: EvalFlags,
-) -> Result<JSValue, ErrorText> {
-    // 1. Execute the script
-    let val = self
-        .eval_internal(source, filename, eval_type, eval_flags)
-        .map_err(|_| {
-            let exc = self.rt_mut().take_exception();
-            ErrorText::from(self, exc)
-        })?;
-
-    // 2. If returned promise, wait for completion
-    if let Ok(p) = Promise::try_from(val) {
-        loop {
-            match self.rt_mut().tick() {
-                Ok(TickStatus::Continue) => {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                    continue;
-                }
-                Ok(TickStatus::Stop(_)) => {
-                    // Promise resolved or rejected
-                    break;
-                }
-                Err(_) => {
-                    // Error occurred
-                    break;
-                }
-            }
-        }
+match exit_status {
+    ExitStatus::Value(v) => {
+        // A synchronous result value produced by the script.
     }
-
-    Ok(val)
+    ExitStatus::Interrupted(code) => {
+        // The script called std.exit(code) or the host interrupted it.
+    }
+    ExitStatus::Exception(Exception::Error(err)) => {
+        // An uncaught error; `err` is the JS error value.
+    }
+    _ => {}
 }
 ```
 
+The synchronous `eval_wait` works like this:
+
+1. **Compile & Execute**: The source is compiled into bytecode and run in the given context.
+2. **Promise Handling**: If the script returns a Promise, it keeps ticking until the Promise settles or the loop is interrupted.
+3. **Result Return**: The final outcome is returned as an `ExitStatus`.
+
 ### 3.2 A complex synchronous loop example
 
-Looking at `examples/zjs/main.rs` (synchronous variant), here's how a complex
-application sets up its execution loop:
+Looking at `examples/zjs/main.rs` (the `#[cfg(not(feature = "async_support"))]` variant), here's how a complex application sets up its execution loop:
 
 ```rust
 fn main() -> ExitCode {
-    // 1. Create runtime
     let mut rt = Runtime::create().unwrap();
 
-    // 2. Set up module loader
+    // 1. Set up module loader
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
-    // 3. Configure GC
+    // 2. Configure GC
     rt.gc_set_trace_handler(|tracer| {
         mod_os_gc_trace(tracer);
     });
 
-    // 4. Create context and register modules/classes
+    // 3. Create context and register modules/classes
     let mut ctx = rt
         .create_context(|cx| {
             ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
@@ -202,36 +187,33 @@ fn main() -> ExitCode {
         })
         .unwrap();
 
-    // 5. Execute script with eval_wait inside a scope
-    let exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
-        let ret = scope.eval_wait(
+    // 4. Execute script with eval_wait inside the root scope
+    let entry_name =
+        zuqe::path_to_url(&filename).expect("entry path must convert to a file:// URL");
+
+    let exit_code = ctx.with_root_scope(|mut scope| {
+        scope.eval_wait(
             script.as_bytes(),
-            &filename,
+            &EvalName::BaseUrl(entry_name),
             if is_module {
                 EvalType::Module
             } else {
                 EvalType::Global
             },
             EvalFlags::empty(),
-        );
-
-        match ret {
-            Ok(val) => {
-                colorize_println(val.inspect(&mut scope).unwrap(), GreenFg);
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                let mut err_msg = e.message;
-                if let Some(tb) = e.traceback {
-                    err_msg = format!("{err_msg}\n{tb}");
-                }
-                colorize_println(err_msg, RedFg);
-                ExitCode::FAILURE
-            }
-        }
+        )
     });
 
-    exit_code
+    match exit_code {
+        ExitStatus::Value(_) => ExitCode::SUCCESS,
+        ExitStatus::Interrupted(code) => code,
+        ExitStatus::Exception(Exception::Error(err)) => {
+            let msg = err.to_string(&mut ctx.root_scope());
+            eprintln!("{}", msg.unwrap().content().encode_utf8(false));
+            ExitCode::FAILURE
+        }
+        _ => ExitCode::FAILURE,
+    }
 }
 ```
 

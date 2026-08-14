@@ -28,11 +28,11 @@ Use the `CallContext` methods to access JavaScript arguments:
 
 ```rust
 fn js_add_numbers(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    // Get first argument as i32
-    let a = cc.arg(0).to_i32(ctx)?;
+    // Get first argument as i32: ToNumber then coerce to a 32-bit integer
+    let a = cc.arg(0).to_number(ctx)?.to_i32();
 
     // Get second argument as i32
-    let b = cc.arg(1).to_i32(ctx)?;
+    let b = cc.arg(1).to_number(ctx)?.to_i32();
 
     // Return sum as JavaScript number
     Ok(JSValue::from(a + b))
@@ -41,11 +41,10 @@ fn js_add_numbers(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 Common conversion methods:
 
-- `to_i32(ctx)` - Convert to 32-bit integer
-- `to_f64(ctx)` - Convert to float
-- `to_string(ctx)` - Convert to JavaScript string
-- `to_bool()` - Convert to boolean
-- `to_index(ctx)` - Convert to array index
+- `to_number(ctx)?` — convert to a JS number, then use `.to_i32()` / `.to_f64()` / `.to_u32()` / `.to_i64()` on the returned `IntOrFloat`
+- `to_bool()` — convert to boolean
+- `to_string(ctx)` — convert to a JS string (`StringRef`)
+- `to_index(ctx)` — convert to an array index in the range `[0, MAX_SAFE_INTEGER]`
 
 ## 3. Working with `this` Value
 
@@ -56,7 +55,7 @@ fn js_get_this_property(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this_value = cc.this();
 
     // Get property 'name' from 'this'
-    let name = this_value.get_property(ctx, "name")?;
+    let name = this_value.get_property_str(ctx, "name")?;
     Ok(name)
 }
 ```
@@ -114,8 +113,8 @@ Throw JavaScript errors from native functions:
 
 ```rust
 fn js_divide(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let a = cc.arg(0).to_f64(ctx)?;
-    let b = cc.arg(1).to_f64(ctx)?;
+    let a = cc.arg(0).to_number(ctx)?.to_f64();
+    let b = cc.arg(1).to_number(ctx)?.to_f64();
 
     if b == 0.0 {
         ctx.throw_range_error("Division by zero");
@@ -160,9 +159,9 @@ fn js_person_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     // Create new object with properties
     let mut obj = ctx.create_base_object()?;
-    obj.set_property_str(ctx, "name", name.into())?;
+    obj.set_property_str(ctx, "name", JSValue::make_string(name))?;
 
-    Ok(JSValue::Object(obj))
+    Ok(JSValue::from(obj))
 }
 
 let constructor = ctx.create_native_function(
@@ -183,13 +182,13 @@ fn js_greet(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let name = cc.arg(0).to_string(ctx)?;
     let greeting = format!("Hello, {}!", name.content().encode_utf8(false));
 
-    ctx.create_string_from_str(&greeting).map(JSValue::String)
+    ctx.create_string_from_str(&greeting).map(JSValue::make_string)
 }
 
 fn js_calculate(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let operation = cc.arg(0).to_string(ctx)?;
-    let a = cc.arg(1).to_f64(ctx)?;
-    let b = cc.arg(2).to_f64(ctx)?;
+    let a = cc.arg(1).to_number(ctx)?.to_f64();
+    let b = cc.arg(2).to_number(ctx)?.to_f64();
 
     let result = match operation.content().encode_utf8(false).as_ref() {
         "add" => a + b,

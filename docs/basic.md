@@ -19,7 +19,7 @@ The core of any `zuqe` application is the `Runtime` and `Context`. The `Runtime`
 ```rust
 use zuqe::{Context, Runtime, ScopedContext};
 
-fn build() -> (Runtime, Context) {
+fn build() -> (Runtime, Context<'static>) {
     let mut rt = Runtime::create().unwrap();
 
     let ctx = rt
@@ -38,8 +38,12 @@ fn build() -> (Runtime, Context) {
 
 In async mode you drive the runtime with `Runtime::run_async()` and evaluate scripts with the non-blocking `eval()` (not the blocking `eval_wait()`). When a script returns a JS `Promise`, convert it to a Rust `Future` via `Promise::into_future()` and `await` it alongside `rt.run_async()`.
 
+The name you pass to `eval()` is an [`EvalName`](loop.md): `EvalName::Name(s)` is a plain debug filename, while `EvalName::BaseUrl(url)` also binds the base URL so that `import.meta.url` and relative dynamic `import()` inside the script resolve correctly.
+
 ```rust
-use zuqe::{Context, EvalFlags, EvalType, JSValue, Promise, Runtime, ScopedContext};
+use zuqe::{
+    Context, EvalFlags, EvalName, EvalType, JSValue, Promise, Runtime, ScopedContext,
+};
 
 #[tokio::main]
 async fn main() {
@@ -58,16 +62,16 @@ async fn main() {
     let mut promise_future = None;
     let mut direct_value = None;
 
-    ctx.with_new_scope(|mut scope| {
-        let val = scope.eval(
+    ctx.with_root_scope(|mut cx| {
+        let val = cx.eval(
             script.as_bytes(),
-            "example.js",
+            &EvalName::Name("example.js".into()),
             EvalType::Global,
             EvalFlags::empty(),
         )?;
 
         if let Ok(promise) = Promise::try_from(val) {
-            promise_future = Some(promise.into_future(&mut scope)?);
+            promise_future = Some(promise.into_future(&mut cx)?);
         } else {
             direct_value = Some(val);
         }
@@ -85,8 +89,13 @@ async fn main() {
         direct_value.unwrap_or(JSValue::UNDEFINED)
     };
 
-    ctx.with_new_scope(|mut scope| {
-        println!("result: {}", value.inspect(&mut scope).unwrap());
+    ctx.with_root_scope(|mut cx| {
+        let s = value
+            .to_string(&mut cx)
+            .unwrap()
+            .content()
+            .encode_utf8(false);
+        println!("result: {s}");
         Ok(())
     });
 }
@@ -94,7 +103,8 @@ async fn main() {
 
 Key points of the async workflow:
 
-- Use **`scope.eval()`** (non-blocking) instead of the blocking `scope.eval_wait()`.
+- Use **`eval()`** (non-blocking) instead of the blocking `eval_wait()`. The name argument is an `EvalName`; `EvalName::BaseUrl` is required for module evals and for correct `import.meta.url` / relative `import()` resolution.
+- Enter a GC scope with **`ctx.with_root_scope(|cx| ...)`** before calling `eval()`; temporary values that must survive the call can be promoted with `cx.with_new_scope(...)` (see the [GC documentation](gc.md)).
 - Convert a returned JS `Promise` into a Rust `Future` via `Promise::into_future()`.
 - Drive the runtime with **`rt.run_async().await`** — usually via `tokio::join!` so the runtime loop and the Promise future progress concurrently.
 - A plain (non-Promise) value from `eval()` is available immediately after the scope, with no need to await the runtime.

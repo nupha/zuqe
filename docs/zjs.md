@@ -137,7 +137,7 @@ The ZJS example demonstrates how to embed the Zuqe engine in a Rust application.
 
 2. **Global Functions** (`global.rs`):
    - Implementation of built-in globals: `print()`, the `console` object (`log`/`debug`/`info`/`warn`/`error`), and `scriptArgs`
-   - Integration with the Zhuque runtime
+   - Integration with the Zuqe runtime
 
 3. **Native class `File`** (`class_file.rs`):
    - Custom `File` class implementation
@@ -156,7 +156,7 @@ The ZJS example demonstrates how to embed the Zuqe engine in a Rust application.
 
 The main application flow:
 
-1. **Initialize Runtime**: Create a new Zhuque runtime instance
+1. **Initialize Runtime**: Create a new Zuqe runtime instance
 2. **Configure Stack Size**: Parse and set the virtual machine stack size
 3. **Setup Module Loader**: Configure custom module loading mechanism
 4. **Register Native Classes**: Register custom JavaScript classes (e.g., `File`)
@@ -167,9 +167,10 @@ The main application flow:
 
 ```rust
 // Create runtime
-let mut rt = Runtime::create()?;
+let mut rt = Runtime::create().unwrap();
 
-// Configure memory / stack limits (all optional)
+// Optional: memory / stack limits (parsed from `--memory-limit`,
+// `--stack-arena`, `--stack-limit`, `--stack-overflow`)
 // rt.gc_set_memory_limit(limit_in_bytes);
 // rt.set_stack_arena(1 << 20);       // 1 MiB VM stack arena
 // rt.set_stack_limit(512 << 10);     // 512 KiB value-stack limit
@@ -178,27 +179,50 @@ let mut rt = Runtime::create()?;
 // Setup module loader
 rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
+// Customized GC trace handler (see docs/gc.md)
+rt.gc_set_trace_handler(|tr| {
+    mod_os_gc_trace(tr);
+});
+
+// Auto-detect module mode: explicit `-m`, `.mjs` extension, or
+// `import`/`export` syntax in the source.
+let is_module = args.module
+    || args.filename.ends_with(".mjs")
+    || ModuleDef::detect_module(script.as_bytes());
+
 // Register native classes
-let class_id_file = JSFile::register(&mut rt)?;
-let class_id_emitter = JSEmitter::register(&mut rt)?;
+let class_id_file = JSFile::register(&mut rt).unwrap();
+let class_id_emitter = JSEmitter::register(&mut rt).unwrap();
 
 // Create execution context and set up environment
-let mut ctx = rt.create_context(|cx| {
-    // ECMA standard stuff
-    ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+let ctx = rt
+    .create_context(|cx| {
+        // ECMA standard stuff
+        ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
 
-    // enable the native classes in this context
-    cx.use_class(class_id_file)?;
-    cx.use_class(class_id_emitter)?;
-    init_mod_std(cx)?;
-    init_mod_os(cx)?;
-    setup_globals(cx, &args.script_args)
-})?;
+        // enable the native classes in this context
+        cx.use_class(class_id_file)?;
+        cx.use_class(class_id_emitter)?;
+        init_mod_std(cx)?;
+        init_mod_os(cx)?;
+        setup_globals(cx, &args.script_args)
+    })
+    .unwrap();
 
-// Execute script inside a scope
-ctx.with_new_scope(|mut scope| {
-    scope.eval_wait(script_bytes, filename, eval_type, eval_flags)
-})
+// Execute the script — this final step runs inside the async `main` (see
+// "Async mode" below). The entry name must be a canonical `file://` URL so
+// that relative dynamic `import()` and `import.meta.url` resolve correctly.
+let entry_name =
+    zuqe::path_to_url(&args.filename).expect("entry path must convert to a file:// URL");
+let run_result = ctx
+    .eval_wait(
+        &mut rt,
+        script.as_bytes(),
+        &EvalName::BaseUrl(entry_name),
+        if is_module { EvalType::Module } else { EvalType::Global },
+        EvalFlags::empty(),
+    )
+    .await;
 ```
 
 The ZJS example serves as both a practical command-line tool and an educational resource for understanding how to integrate JavaScript capabilities into Rust applications using the Zuqe engine.
@@ -207,8 +231,8 @@ The ZJS example serves as both a practical command-line tool and an educational 
 
 When zjs is compiled with the `async_support` Cargo feature enabled (default in
 the workspace), the main function switches to an async entry point using Tokio.
-Instead of `eval_wait()`, it uses the non-blocking `eval()` and converts the
-returned JS Promise into a Rust `Future` via `Promise::into_future()`:
+It uses the **async** `Context::eval_wait()`, which evaluates the entry and
+drives the event loop to completion:
 
 ```rust
 #[cfg(feature = "async_support")]
@@ -216,71 +240,59 @@ returned JS Promise into a Rust `Future` via `Promise::into_future()`:
 async fn main() -> ExitCode {
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
-    // The entry filename must be a `file://` URL so that relative dynamic
-    // `import()` and `import.meta.url` resolve correctly.
-    let entry_name = zuqe::path_to_url(&args.filename)
-        .expect("entry path must convert to a file:// URL")
-        .to_string();
+    // Convert the entry filename to a canonical `file://` URL. `module_name`
+    // (and `import.meta.url`) is a URL, and a `file://` base is also required
+    // so that dynamic `import()` from a *script* entry resolves relative
+    // specifiers correctly instead of being handed a bare filesystem path.
+    let entry_name =
+        zuqe::path_to_url(&args.filename).expect("entry path must convert to a file:// URL");
 
-    // Non-blocking eval: returns immediately with a JS value (possibly a Promise).
-    let result = ctx.eval(
-        script.as_bytes(),
-        &entry_name,
-        if is_module { EvalType::Module } else { EvalType::Global },
-        EvalFlags::empty(),
-    );
+    // Eval the entry and drive the event loop to completion. `eval_wait`
+    // handles top-level module Promise observation internally via
+    // `futures_util::future::select` (never `tokio::join!`), so a rejected
+    // top-level promise is surfaced as `ExitStatus::Exception` and never
+    // silently dropped. A synchronous (non-Promise) result is returned as
+    // `ExitStatus::Value` for the host to print.
+    let run_result = ctx
+        .eval_wait(
+            &mut rt,
+            script.as_bytes(),
+            &EvalName::BaseUrl(entry_name),
+            if is_module { EvalType::Module } else { EvalType::Global },
+            EvalFlags::empty(),
+        )
+        .await;
 
-    let mut promise_future = None;
-
-    // If the result is a Promise, turn it into a Rust Future we can await.
-    let res = ctx.with_root_scope(|mut cx| match result {
-        Ok(val) => {
-            if let Ok(promise) = Promise::try_from(val) {
-                match promise.into_future(&mut cx) {
-                    Ok(fut) => {
-                        promise_future = Some(fut);
-                        Ok(())
-                    }
-                    Err(_) => Err(cx.take_exception().to_text(&mut cx)),
-                }
-            } else {
-                colorize_println(val.inspect(&mut cx).unwrap(), GreenFg);
-                Ok(())
-            }
-        }
-        Err(_) => Err(cx.take_exception().to_text(&mut cx)),
-    });
-
-    if let Err(e) = res {
-        let mut err_msg = e.message;
-        if let Some(tb) = e.traceback {
-            err_msg = format!("{err_msg}\n{tb}");
-        }
-        colorize_println(err_msg, RedFg);
-        return ExitCode::FAILURE;
-    }
-
-    // Drive the runtime and (optionally) await the Promise result concurrently.
-    let run_result = if let Some(js_fut) = promise_future {
-        let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
-        ctx.with_root_scope(|mut cx| match promise_res {
-            Ok(val) => colorize_println(val.inspect(&mut cx).unwrap(), GreenFg),
-            Err(reason) => colorize_println(
-                reason.to_string(&mut cx).unwrap().encode_utf8(false).to_string(),
-                RedFg,
-            ),
-        });
-        rt_res
-    } else {
-        rt.run_async().await
-    };
-
-    // Map the runtime exit status to a process exit code.
     match run_result {
-        ExitStatus::Value(_) => ExitCode::SUCCESS,
-        ExitStatus::Interrupted(code) => code,
+        ExitStatus::Value(v) => {
+            // A module (or a script with no meaningful tail value) evaluates to
+            // `undefined`; printing it is just noise. Only surface real values,
+            // matching how a REPL/CLI treats an absent result.
+            if !v.is_undefined() {
+                ctx.with_root_scope(|mut cx| {
+                    colorize_println(
+                        inspect::js_inspect_value(
+                            &mut cx,
+                            v,
+                            &inspect::InspectOptions::default(),
+                        ),
+                        GreenFg,
+                    );
+                });
+            }
+            ExitCode::SUCCESS
+        }
+        ExitStatus::Interrupted(code) => {
+            #[cfg(debug_assertions)]
+            log::debug!("Process interrupted with code {:?}", code);
+            code
+        }
         ExitStatus::Exception(Exception::OutOfMemory) => {
             colorize_println("out of memory", RedFg);
+            ExitCode::FAILURE
+        }
+        ExitStatus::Exception(Exception::TooManyAtoms) => {
+            colorize_println("too many atoms", RedFg);
             ExitCode::FAILURE
         }
         ExitStatus::Exception(Exception::Error(err)) => {
@@ -289,7 +301,9 @@ async fn main() -> ExitCode {
             });
             ExitCode::FAILURE
         }
-        _ => ExitCode::FAILURE,
+        ExitStatus::Exception(Exception::No | Exception::TooManyClasses) => {
+            unreachable!();
+        }
     }
 }
 ```
@@ -297,7 +311,10 @@ async fn main() -> ExitCode {
 Key differences from the synchronous variant:
 
 - `#[tokio::main]` makes the entry point async.
-- `scope.eval()` is used instead of `scope.eval_wait()` — it does not block.
-- `rt.run_async().await` drives the runtime’s tick loop as a `Future`.
-- `Promise::into_future()` converts a JS Promise into a Rust `Future` that can
-  be `await`ed directly.
+- The async `ctx.eval_wait(&mut rt, ...)` is used instead of the blocking
+  `eval_wait()` — it drives the runtime's tick loop as a `Future` and observes
+  the top-level Promise, so a rejected module entry surfaces as
+  `ExitStatus::Exception` instead of being silently dropped.
+- `Promise::into_future()` is still available to convert individual JS
+  Promises into Rust `Future`s that can be `await`ed directly (see
+  [Basic Usage](basic.md) and [Promise](promise.md)).

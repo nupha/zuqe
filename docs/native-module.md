@@ -25,8 +25,8 @@ fn js_os_now(_: &mut ScopedContext, _: CallContext) -> JSResult {
 
 /// Test whether the given file descriptor refers to a TTY.
 fn js_os_isatty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let fd = cc.arg(0).to_i32(ctx)?;
-    Ok(JSValue::Bool(unsafe { libc::isatty(fd) != 0 }))
+    let fd = cc.arg(0).to_number(ctx)?.to_i32();
+    Ok(JSValue::from(unsafe { libc::isatty(fd) != 0 }))
 }
 ```
 
@@ -77,7 +77,8 @@ If your module has objects that need garbage collector to manage memory cycle, y
 A module‑specific trace function typically walks your data structures and calls `trace` on any embedded JavaScript values:
 
 ```rust
-use gc_lite::GcTraceCtx;
+// `gc_lite` is re-exported by `zuqe`: `use zuqe::gc_lite::{GcTrace, GcTraceCtx};`
+use gc_lite::{GcTrace, GcTraceCtx};
 
 pub fn mod_os_gc_trace(tr: &mut GcTraceCtx) {
     // Trace all JSValue fields that are kept alive by the os module.

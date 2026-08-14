@@ -70,7 +70,7 @@ Typical pattern (create, then resolve from native code):
 let (promise, resolving_funcs) = Promise::create(ctx)?;
 
 // ... later, in native code:
-promise.resolve(&mut ctx, JSValue::Int(42));
+promise.resolve(&mut ctx, JSValue::from(42));
 // or: promise.reject(&mut ctx, error_value);
 ```
 
@@ -78,7 +78,7 @@ The `then` method creates a new wrapper Promise (following ECMAScript `SpeciesCo
 
 On the JS side, Promise behaves as specified by ECMAScript and is exposed as the global `Promise` constructor with:
 
-- Static methods: `Promise.resolve`, `Promise.reject`, `Promise.all`, `Promise.allSettled`, `Promise.any`, `Promise.race`, `Promise.withResolvers`.
+- Static methods: `Promise.resolve`, `Promise.reject`, `Promise.all`, `Promise.allSettled`, `Promise.any`, `Promise.race`, `Promise.try`, `Promise.withResolvers`.
 - Instance methods: `then`, `catch`, `finally`.
 
 ## Creating Promises from Rust
@@ -179,7 +179,7 @@ let promise = Promise::create_with_receiver(ctx, rx, |cx, res: Result<Vec<u8>, S
     match res {
         Ok(bytes) => {
             let obj = JSFileData::new_instance(cx, bytes)?;
-            Ok(JSValue::Object(obj))
+            Ok(JSValue::from(obj))
         }
         Err(e) => {
             cx.throw_internal_error(&e);
@@ -241,7 +241,7 @@ let (promise, tx) =
             -1
         })?;
         let obj = JSLlamaModel::new_instance(cx, model)?;
-        Ok(JSValue::Object(obj))
+        Ok(JSValue::from(obj))
     })?;
 
 let _ = std::thread::spawn(move || {
@@ -261,7 +261,7 @@ let (promise, tx) = Promise::create_with_channel(ctx, |cx, res: std::io::Result<
     match res {
         Ok(bytes) => {
             let obj = JSFileData::new_instance(cx, bytes)?;
-            Ok(JSValue::Object(obj))
+            Ok(JSValue::from(obj))
         }
         Err(e) => {
             cx.throw_internal_error(&e.to_string());
@@ -333,7 +333,7 @@ Example:
 ```rust
 let slot = PromiseResultSlot::<i32>::new();
 let promise = Promise::create_with_result_slot(ctx, slot.clone(), |_, n: i32| {
-    Ok(JSValue::Int(n))
+    Ok(JSValue::from(n))
 })?;
 
 // From another thread:
@@ -350,7 +350,7 @@ let promise = Promise::create_with_result_slot(ctx, slot.clone(), |cx, res: Resu
     match res {
         Ok(bytes) => {
             let obj = JSFileData::new_instance(cx, bytes)?;
-            Ok(JSValue::Object(obj))
+            Ok(JSValue::from(obj))
         }
         Err(e) => {
             cx.throw_internal_error(&e);
@@ -383,7 +383,7 @@ Convert a JS Promise into a Rust `Future` that can be `await`ed in host code. Yo
 
 ```rust
 impl TryFrom<JSValue> for Promise {
-    type Error = TryFromValueError;
+    type Error = i32;
     // succeeds when the value is a Promise object
 }
 ```
@@ -391,12 +391,12 @@ impl TryFrom<JSValue> for Promise {
 Usage pattern:
 
 ```rust
-// Evaluate JS code that returns a Promise:
-let val = scope.eval(code, filename, eval_type, flags)?;
+// Evaluate JS code that returns a Promise (non-blocking):
+let val = scope.eval(code, &EvalName::Name("<test>".into()), eval_type, flags)?;
 
 // Convert JSValue to Promise:
 if let Ok(promise) = Promise::try_from(val) {
-    let fut = promise.into_future(&mut scope)?;
+    let fut = promise.into_future(scope)?;
     let result = fut.await?; // Result<JSValue, JSValue>
 }
 ```
@@ -420,24 +420,29 @@ impl Future for PromiseFuture {
 Usage example:
 
 ```rust
-async fn call_js_compute(rt: &mut Runtime) -> JSResult<JSValue> {
+async fn call_js_compute(rt: &mut Runtime) -> JSResult {
     let mut ctx = rt
         .create_context(|cx| {
-            Context::ECMA_CONTEXT_SETUP(cx)?;
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
             Ok(())
         })
         .unwrap();
 
-    let promise_value = ctx.with_new_scope(|mut scope| {
-        let code = b"import { compute } from './mod.mjs'; compute(21);";
-        let val = scope.eval_wait(code, "main.mjs", EvalType::Module, EvalFlags::empty())?;
-        Ok(val)
-    })?;
+    // Non-blocking eval: a script that returns a JS Promise comes back
+    // immediately as that Promise value.
+    let promise_value = ctx.eval(
+        b"Promise.resolve(42)",
+        &EvalName::Name("<test>".into()),
+        EvalType::Global,
+        EvalFlags::empty(),
+    )?;
 
     let promise = Promise::try_from(promise_value).map_err(|_| -1)?;
-    let js_future = promise.into_future(&mut ctx)?;
+    let js_future = promise.into_future(&mut ctx.root_scope())?;
 
-    let result = js_future.await?;
+    // Drive the runtime's tick loop and await the JS Promise concurrently.
+    let (_rt_res, promise_res) = tokio::join!(rt.run_async(), js_future);
+    let result = promise_res.map_err(|_| -1)?;
     Ok(result)
 }
 ```
@@ -498,7 +503,7 @@ Internally, `create_from_future`:
   - If so, resolves or rejects the `Promise` accordingly and completes the job.
   - Otherwise, reschedules the job to be polled again in a later tick.
 
-This design keeps the JS Promise semantics inside Zhuque’s job + tick system, while allowing the host to decide how to schedule and execute the actual Rust async work.
+This design keeps the JS Promise semantics inside Zuqe's job + tick system, while allowing the host to decide how to schedule and execute the actual Rust async work.
 
 ## JS-level APIs
 
@@ -506,7 +511,7 @@ On the JS side, the runtime exposes a standard `Promise` constructor and methods
 
 - `new Promise(executor)` – creates a Promise and calls the executor with `resolve` and `reject` functions.
 - `Promise.resolve(value)` / `Promise.reject(value)` – create an already-settled Promise.
-- `Promise.all`, `Promise.allSettled`, `Promise.any`, `Promise.race` – combinator methods implemented via microtask jobs.
+- `Promise.all`, `Promise.allSettled`, `Promise.any`, `Promise.race`, `Promise.try` – combinator methods implemented via microtask jobs.
 - `Promise.withResolvers()` – returns an object `{ promise, resolve, reject }`.
 - `promise.then(onFulfilled, onRejected)` – attaches reaction handlers.
 - `promise.catch(onRejected)` and `promise.finally(onFinally)` – implemented in terms of `then`.
@@ -529,7 +534,7 @@ When embedding Zuqe in a Rust application, you can mix JS Promise code and Rust 
     - Using `Promise::create_with_result_slot` when you prefer a slot-based, single-shot pattern to submit results from another thread.
     - Using `Promise::create_from_future` when you prefer a callback-based integration with existing `Future`-returning APIs.
 
-In all cases, Promise settlement (state transitions and reaction execution) remains inside Zhuque’s job + tick microtask engine, preserving ECMAScript semantics while giving the host full control over how and where asynchronous work is actually performed.
+In all cases, Promise settlement (state transitions and reaction execution) remains inside Zuqe's job + tick microtask engine, preserving ECMAScript semantics while giving the host full control over how and where asynchronous work is actually performed.
 
 ## `async_support` feature and runtime modes
 
@@ -538,38 +543,45 @@ Promise–Future integration and async helpers are guarded by the Cargo feature 
 - When `async_support` is **enabled** (the default), Zuqe exposes:
   - `Runtime::run_async() -> RunFuture<'_>` to drive the JS runtime as a `Future`.
   - `Promise::into_future` and `Promise::create_from_future` to bridge JS Promise and Rust async/await.
-- When `async_support` is **disabled**, you can still run JS code and Promises, but the host drives execution explicitly by looping `rt.tick()` or using high-level helpers like `eval_wait`.
+- When `async_support` is **disabled**, you can still run JS code and Promises, but the host drives execution explicitly. The synchronous `eval_wait` (on `ScopedContext`/`Context`) blocks, polling the tick loop until all pending Promise jobs and microtasks are complete.
 
 ### Example: synchronous host without `async_support`
 
-When the feature is disabled, the `examples/zjs` main entry point uses a synchronous flow:
+When the feature is disabled, the `examples/zjs` main entry point uses a synchronous flow built on `eval_wait`, which returns an `ExitStatus`:
 
 ```rust
 #[cfg(not(feature = "async_support"))]
 fn main() -> ExitCode {
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
-    let exit_code = ctx.with_new_scope(|mut scope| -> ExitCode {
-        let result = scope.eval_wait(
+    // The entry filename must be a canonical `file://` URL so that relative
+    // dynamic `import()` and `import.meta.url` resolve correctly.
+    let entry_name =
+        zuqe::path_to_url(&args.filename).expect("entry path must convert to a file:// URL");
+
+    let exit_code = ctx.with_root_scope(|mut scope| {
+        match scope.eval_wait(
             script.as_bytes(),
-            &args.filename,
+            &EvalName::BaseUrl(entry_name),
             if is_module { EvalType::Module } else { EvalType::Global },
             EvalFlags::empty(),
-        );
-
-        match result {
-            Ok(val) => {
-                colorize_println(val.inspect(scope.rt_mut()).unwrap(), GreenFg);
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                let mut err_msg = e.message;
-                if let Some(tb) = e.traceback {
-                    err_msg = format!("{err_msg}\n{tb}");
-                }
-                colorize_println(err_msg, RedFg);
+        ) {
+            ExitStatus::Value(_) => ExitCode::SUCCESS,
+            ExitStatus::Interrupted(code) => code,
+            ExitStatus::Exception(Exception::Error(err)) => {
+                let msg = err
+                    .to_string(&mut scope)
+                    .unwrap()
+                    .content()
+                    .encode_utf8(false);
+                eprintln!("{msg}");
                 ExitCode::FAILURE
             }
+            ExitStatus::Exception(Exception::OutOfMemory) => {
+                eprintln!("out of memory");
+                ExitCode::FAILURE
+            }
+            _ => ExitCode::FAILURE,
         }
     });
 
@@ -581,13 +593,13 @@ Here `eval_wait`:
 
 - Evaluates the script.
 - Drives the job + tick engine until all pending Promise jobs and microtasks are complete.
-- Returns the final result value or error.
+- Returns the final outcome as an `ExitStatus`: `Value(jsvalue)` for a settled script value, `Exception(...)` for an uncaught error, or `Interrupted(code)` if `std.exit()` / the host interrupt fired.
 
 The host does not use Rust async/await; it simply blocks until the JS program (including all Promises) has finished.
 
 ### Example: async host with `async_support` enabled
 
-With `async_support` enabled, `examples/zjs` switches to an async main and uses both `Promise::into_future` and `Runtime::run_async`:
+With `async_support` enabled, `examples/zjs` switches to an async main that uses `Context::eval_wait` as an async function. The async `eval_wait` drives the loop to completion and observes the top-level module Promise, surfacing a rejection as `ExitStatus::Exception`:
 
 ```rust
 #[cfg(feature = "async_support")]
@@ -595,76 +607,40 @@ With `async_support` enabled, `examples/zjs` switches to an async main and uses 
 async fn main() -> ExitCode {
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
-    // The entry filename must be a `file://` URL so that relative dynamic
-    // `import()` and `import.meta.url` resolve correctly.
-    let entry_name = zuqe::path_to_url(&args.filename)
-        .expect("entry path must convert to a file:// URL")
-        .to_string();
+    // The entry filename must be a canonical `file://` URL so that relative
+    // dynamic `import()` and `import.meta.url` resolve correctly.
+    let entry_name =
+        zuqe::path_to_url(&args.filename).expect("entry path must convert to a file:// URL");
 
-    // Non-blocking eval: returns immediately with a JS value (possibly a Promise).
-    let result = ctx.eval(
-        script.as_bytes(),
-        &entry_name,
-        if is_module { EvalType::Module } else { EvalType::Global },
-        EvalFlags::empty(),
-    );
-
-    let mut promise_future = None;
-
-    // If the result is a Promise, turn it into a Rust Future we can await.
-    let res = ctx.with_root_scope(|mut cx| match result {
-        Ok(val) => {
-            if let Ok(promise) = Promise::try_from(val) {
-                match promise.into_future(&mut cx) {
-                    Ok(fut) => {
-                        promise_future = Some(fut);
-                        Ok(())
-                    }
-                    Err(_) => Err(cx.take_exception().to_text(&mut cx)),
-                }
-            } else {
-                colorize_println(val.inspect(&mut cx).unwrap(), GreenFg);
-                Ok(())
-            }
-        }
-        Err(_) => Err(cx.take_exception().to_text(&mut cx)),
-    });
-
-    if let Err(e) = res {
-        let mut err_msg = e.message;
-        if let Some(tb) = e.traceback {
-            err_msg = format!("{err_msg}\n{tb}");
-        }
-        colorize_println(err_msg, RedFg);
-        return ExitCode::FAILURE;
-    }
-
-    let run_result = if let Some(js_fut) = promise_future {
-        // Drive the runtime and the Promise future concurrently.
-        let (rt_res, promise_res) = tokio::join!(rt.run_async(), js_fut);
-        ctx.with_root_scope(|mut cx| match promise_res {
-            Ok(val) => colorize_println(val.inspect(&mut cx).unwrap(), GreenFg),
-            Err(reason) => colorize_println(
-                reason.to_string(&mut cx).unwrap().encode_utf8(false).to_string(),
-                RedFg,
-            ),
-        });
-        rt_res
-    } else {
-        rt.run_async().await
-    };
+    // Eval the entry and drive the event loop to completion. `eval_wait`
+    // handles top-level module Promise observation internally, so a rejected
+    // top-level promise is surfaced as `ExitStatus::Exception` and never
+    // silently dropped. A synchronous (non-Promise) result is returned as
+    // `ExitStatus::Value`.
+    let run_result = ctx
+        .eval_wait(
+            &mut rt,
+            script.as_bytes(),
+            &EvalName::BaseUrl(entry_name),
+            if is_module { EvalType::Module } else { EvalType::Global },
+            EvalFlags::empty(),
+        )
+        .await;
 
     // Map the runtime exit status to a process exit code.
     match run_result {
         ExitStatus::Value(_) => ExitCode::SUCCESS,
         ExitStatus::Interrupted(code) => code,
         ExitStatus::Exception(Exception::OutOfMemory) => {
-            colorize_println("out of memory", RedFg);
+            eprintln!("out of memory");
             ExitCode::FAILURE
         }
         ExitStatus::Exception(Exception::Error(err)) => {
             ctx.with_root_scope(|mut cx| {
-                colorize_println(err.to_string(&mut cx).unwrap().encode_utf8(false), RedFg);
+                eprintln!(
+                    "{}",
+                    err.to_string(&mut cx).unwrap().content().encode_utf8(false)
+                );
             });
             ExitCode::FAILURE
         }
@@ -676,13 +652,9 @@ async fn main() -> ExitCode {
 Key points:
 
 - `#[tokio::main]` creates a Tokio runtime; `main` becomes an async function.
-- The script is evaluated once. If the result is a JS Promise:
-  - `Promise::into_future(&mut scope)` converts it to a Rust `Future`.
-  - `tokio::join!(rt.run_async(), js_fut)` concurrently:
-    - Drives the JS runtime’s job + tick engine (`rt.run_async()`).
-    - Awaits the JS Promise result as a Rust `Future` (`js_fut`).
-  - The final JS value (or rejection) is printed and mapped to an `ExitCode`.
-- If the script does not return a Promise, the result is printed immediately, and `rt.run_async().await` is called once to flush any remaining microtasks.
+- `ctx.eval_wait(&mut rt, ...).await` evaluates the script once and drives the JS runtime's job + tick engine until the loop stops and the top-level Promise has settled.
+- A rejected top-level module promise is never silently dropped — it becomes `ExitStatus::Exception(Exception::Error(reason))`.
+- If you need finer control, you can still evaluate with the non-blocking `eval()`, convert the returned JS `Promise` with `Promise::into_future()`, and run `rt.run_async()` concurrently via `tokio::join!` — see [Basic Usage](basic.md).
 
 This pattern shows how `async_support` lets you:
 

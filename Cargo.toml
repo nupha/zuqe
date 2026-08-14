@@ -1,6 +1,6 @@
 [package]
 name = "zuqe"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 description = "Zuqe JS Engine - A lightweight JS engine implemented in Rust, designed for embedded systems and general‑purpose use."
 build = "build.rs"
@@ -54,8 +54,6 @@ default = [
     "builtin_date",
     "builtin_math",
     "builtin_weakref",
-
-    "zapi",
 ]
 
 [profile.release]
@@ -91,8 +89,6 @@ hash-link = "0.1"
 smallvec = "1.13"
 fallible_collections = "0.5"
 gc-lite = "0.6.2"
-zuqe_zapi = { path = "../zuqe-zapi", optional = true }
-libloading = { version = "0.9", optional = true }
 lre = { version = "0.3.1", optional = true }
 libc = { version = "0.2", optional = true }
 unicode-id-start = { version = "1.4", optional = true }
@@ -103,6 +99,8 @@ log = "0.4"
 futures-util = { version = "0.3", optional = true }
 crossbeam = { version = "0.8", optional = true }
 serde_json = { version = "1.0", optional = true }
+zuqe_zapi = { version = "0.1", optional = true }
+libloading = { version = "0.9", optional = true }
 
 [build-dependencies]
 cc = "1.0"

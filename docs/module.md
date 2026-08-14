@@ -68,7 +68,7 @@ fn module_loader(
         && attrs
             .get_property_str(ctx, "type")
             .map(|v| {
-                v.as_string()
+                v.as_string(true)
                     .is_some_and(|s| s.content().encode_utf8(false).as_ref() == "json")
             })
             .unwrap_or(false);
@@ -81,9 +81,9 @@ fn module_loader(
                 let mut src = String::from("export default ");
                 src.push_str(&content);
                 src.push('\n');
-                ctx.compile_module(src.as_bytes(), module_name.as_str(), false)
+                ctx.compile_module(src.as_bytes(), module_name, false)
             } else {
-                ctx.compile_module(content.as_bytes(), module_name.as_str(), false)
+                ctx.compile_module(content.as_bytes(), module_name, false)
             }
         }
         Err(_) => {
