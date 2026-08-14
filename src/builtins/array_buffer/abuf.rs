@@ -474,9 +474,17 @@ impl ArrayBuffer {
                 v.resize(new_length, 0);
                 ABufData::Shared(Arc::new(RwLock::new(v.into_boxed_slice())))
             }
-            _ => {
-                // Non-shared buffers use `resize`, not `grow`.
-                return Err(ctx.throw_type_error("grow is only valid on SharedArrayBuffer"));
+            // An initial size of 0 leaves the backing `Empty` (the SAB constructor
+            // only allocates a Data Block for non-zero lengths). A grow from 0 is
+            // valid for a resizable SharedArrayBuffer, so create the shared
+            // backing now rather than treating `Empty`/`Owned` as an error.
+            ABufData::Empty | ABufData::Owned(_) | ABufData::Raw(..) => {
+                let mut v = Vec::<u8>::new();
+                if v.try_reserve_exact(new_length).is_err() {
+                    return Err(ctx.throw_out_of_memory());
+                }
+                v.resize(new_length, 0);
+                ABufData::Shared(Arc::new(RwLock::new(v.into_boxed_slice())))
             }
         };
 

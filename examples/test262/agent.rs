@@ -1,4 +1,4 @@
-// test262 $262.agent harness
+﻿// test262 $262.agent harness
 //
 // Implements the multi-agent (concurrent thread) API used by Atomics /
 // SharedArrayBuffer tests. The parent side (running inside the main test
@@ -23,6 +23,8 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock};
 
 use zuqe::builtins::array_buffer::ArrayBuffer;
+use zuqe::builtins::atomics::WAIT_ASYNC_COUNT;
+use zuqe::builtins::promise::Promise;
 use zuqe::{
     CallContext, Callback, EvalFlags, EvalName, EvalType, JSValue, Object, Runtime, ScopedContext,
 };
@@ -33,6 +35,12 @@ struct Broadcast {
     sab: Option<Arc<RwLock<Box<[u8]>>>>,
     // textual message, if the broadcast carries a string
     msg: Option<String>,
+    // Signalled once the agent has consumed this broadcast and run its
+    // `receiveBroadcast` callback. The parent's `$262.agent.broadcast` waits on
+    // this so that operations performed inside the callback (e.g.
+    // `Atomics.waitAsync` registering a waiter) are guaranteed to have
+    // completed before the parent's subsequent `Atomics.notify` runs.
+    consumed: Option<Arc<(Mutex<bool>, Condvar)>>,
 }
 
 struct HubInner {
@@ -119,6 +127,11 @@ impl Hub {
         inner.leaving = true;
         self.cond.notify_all();
     }
+
+    /// Whether an agent has called `$262.agent.leaving()` (its script finished).
+    fn is_leaving(&self) -> bool {
+        self.inner.lock().unwrap().leaving
+    }
 }
 
 pub(crate) struct AgentHub {
@@ -173,7 +186,7 @@ fn to_js_string(ctx: &mut ScopedContext, s: &str) -> Result<JSValue, i32> {
     Ok(JSValue::make_string(sr))
 }
 
-/// Set up the parent-side `$262.agent` object, installing it onto the given
+//// Set up the parent-side `$262.agent` object, installing it onto the given
 /// `$262` target object.
 pub fn setup_parent_agent(ctx: &mut ScopedContext, obj262: &mut Object) -> Result<(), i32> {
     let mut agent = ctx.create_base_object().map_err(|_| -1)?;
@@ -209,6 +222,28 @@ pub fn setup_parent_agent(ctx: &mut ScopedContext, obj262: &mut Object) -> Resul
         .map(|_| ())
         .map_err(|_| -1)?;
 
+    let f = ctx.create_native_function(
+        Callback::Func(agent_safe_broadcast_async),
+        "safeBroadcastAsync",
+        3,
+        0,
+    )?;
+    agent
+        .set_property_str(ctx, "safeBroadcastAsync", f.into())
+        .map(|_| ())
+        .map_err(|_| -1)?;
+
+    let f = ctx.create_native_function(
+        Callback::Func(agent_get_report_async),
+        "getReportAsync",
+        0,
+        0,
+    )?;
+    agent
+        .set_property_str(ctx, "getReportAsync", f.into())
+        .map(|_| ())
+        .map_err(|_| -1)?;
+
     // Timeout constants used by $262.agent.tryYield / trySleep / etc.
     let mut timeouts = ctx.create_base_object().map_err(|_| -1)?;
     timeouts
@@ -229,6 +264,20 @@ pub fn setup_parent_agent(ctx: &mut ScopedContext, obj262: &mut Object) -> Resul
         .map_err(|_| -1)?;
     agent
         .set_property_str(ctx, "timeouts", timeouts.into())
+        .map(|_| ())
+        .map_err(|_| -1)?;
+
+    // `setTimeout`: needed by the test262 `atomicsHelper.js` harness, whose
+    // `$262.agent.setTimeout` and `getReportAsync` rely on a global `setTimeout`.
+    // Provide both a global binding and `$262.agent.setTimeout`.
+    let st_fn = ctx.create_native_function(Callback::Func(set_timeout), "setTimeout", 2, 0)?;
+    ctx.global_obj()
+        .set_property_str(ctx, "setTimeout", st_fn.into())
+        .map(|_| ())
+        .map_err(|_| -1)?;
+    let st_fn2 = ctx.create_native_function(Callback::Func(set_timeout), "setTimeout", 2, 0)?;
+    agent
+        .set_property_str(ctx, "setTimeout", st_fn2.into())
         .map(|_| ())
         .map_err(|_| -1)?;
 
@@ -288,7 +337,6 @@ fn agent_start(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32>
             ready = cvar.wait(ready).unwrap();
         }
     }
-
     Ok(JSValue::UNDEFINED)
 }
 
@@ -326,8 +374,81 @@ fn agent_broadcast(_ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue,
         }
     }
 
-    agents_hub().current().broadcast(Broadcast { sab, msg });
+    let consumed = Arc::new((Mutex::new(false), Condvar::new()));
+    agents_hub().current().broadcast(Broadcast {
+        sab,
+        msg,
+        consumed: Some(consumed.clone()),
+    });
+    // Wait (with a bounded fallback) until the agent has consumed the broadcast
+    // and run its `receiveBroadcast` callback. This guarantees that any waiter
+    // registered by `Atomics.waitAsync` inside the callback exists before the
+    // parent issues `Atomics.notify` next, matching test262's agent semantics.
+    // The timeout avoids deadlock for tests that never call `receiveBroadcast`.
+    let (lock, cvar) = &*consumed;
+    let guard = lock.lock().unwrap();
+    let (_unused, res) = cvar
+        .wait_timeout(guard, std::time::Duration::from_secs(10))
+        .unwrap();
+    let _ = res;
     Ok(JSValue::UNDEFINED)
+}
+
+/// `$262.agent.safeBroadcastAsync(sab, index, count)` — broadcasts the shared
+/// buffer of `sab` to every agent (mirroring `$262.agent.broadcast`) and
+/// resolves with the number of agents that received it (always 1 here, as zhuque
+/// runs a single agent per `start`). The parent blocks until the agent has
+/// consumed the broadcast and run its `receiveBroadcast` callback, so any waiter
+/// registered by `Atomics.waitAsync` is live before the parent's subsequent
+/// `Atomics.notify`.
+fn agent_safe_broadcast_async(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32> {
+    let a0 = cc.arg(0);
+    let sab = if let Ok(ab) = ArrayBuffer::try_from(a0) {
+        ab.shared_data()
+    } else {
+        None
+    };
+    if sab.is_none() {
+        // Fall back to a plain string message broadcast.
+        let msg = a0
+            .to_string(ctx)
+            .ok()
+            .map(|s| s.encode_utf8(false).to_string());
+        let consumed = Arc::new((Mutex::new(false), Condvar::new()));
+        agents_hub().current().broadcast(Broadcast {
+            sab: None,
+            msg,
+            consumed: Some(consumed.clone()),
+        });
+        let (lock, cvar) = &*consumed;
+        let _ = cvar
+            .wait_timeout(lock.lock().unwrap(), std::time::Duration::from_secs(10))
+            .unwrap();
+    } else {
+        let consumed = Arc::new((Mutex::new(false), Condvar::new()));
+        agents_hub().current().broadcast(Broadcast {
+            sab,
+            msg: None,
+            consumed: Some(consumed.clone()),
+        });
+        let (lock, cvar) = &*consumed;
+        let _ = cvar
+            .wait_timeout(lock.lock().unwrap(), std::time::Duration::from_secs(10))
+            .unwrap();
+    }
+    // zhuque spawns exactly one agent per `start`; resolve with 1.
+    Promise::from_resolve_value(ctx, JSValue::from(1.0)).map(|p| JSValue::from(p))
+}
+
+/// `$262.agent.getReportAsync()` — resolves with the next report value sent by
+/// an agent via `$262.agent.report` (preserving its primitive type). Blocks the
+/// parent synchronously until the report arrives (the agent runs on a separate OS
+/// thread, so this does not deadlock) and wraps the value in an already-resolved
+/// Promise.
+fn agent_get_report_async(ctx: &mut ScopedContext, _cc: CallContext) -> Result<JSValue, i32> {
+    let r = agents_hub().current().get_report();
+    let v = to_js_string(ctx, &r)?;
+    Promise::from_resolve_value(ctx, v).map(|p| JSValue::from(p))
 }
 
 fn agent_get_report(ctx: &mut ScopedContext, _cc: CallContext) -> Result<JSValue, i32> {
@@ -351,6 +472,48 @@ fn agent_monotonic_now(_ctx: &mut ScopedContext, _cc: CallContext) -> Result<JSV
         .unwrap()
         .as_millis();
     Ok(JSValue::from(now as f64))
+}
+
+/// `setTimeout(callback, delay)` — schedules `callback` to run after roughly
+/// `delay` ms. zhuque has no OS-timer backed event loop, so this registers a
+/// *polling* job that yields (`Again`) until `delay` has elapsed, then invokes
+/// the callback and completes.
+///
+/// Using a polling job (rather than a one-shot job that sleeps) is important:
+/// a one-shot job runs inside the tick's one-shot drain loop, so a
+/// self-rescheduling loop like test262's `wait() { ...; setTimeout(wait, 0) }`
+/// would recursively execute forever within a single tick and starve the
+/// polling jobs that settle `Atomics.waitAsync` promises. A polling job yields
+/// each tick, letting the waitAsync polling jobs run in between.
+fn set_timeout(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32> {
+    let cb = cc.arg(0);
+    let delay = cc
+        .arg(1)
+        .to_number(ctx)
+        .ok()
+        .map(|n| n.to_f64())
+        .unwrap_or(0.0);
+    let delay_ns = if delay.is_finite() && delay > 0.0 {
+        (delay * 1_000_000.0) as u64
+    } else {
+        0
+    };
+    let cb = cb;
+    let start = std::time::Instant::now();
+    ctx.queue_job(
+        move |cx| -> Result<zuqe::JobState, i32> {
+            if start.elapsed().as_nanos() as u64 >= delay_ns {
+                if let Ok(f) = Object::try_from(cb) {
+                    let _ = f.call(cx, JSValue::UNDEFINED, &[]);
+                }
+                Ok(zuqe::JobState::Done)
+            } else {
+                Ok(zuqe::JobState::Again)
+            }
+        },
+        cb,
+    );
+    Ok(JSValue::UNDEFINED)
 }
 
 // Child-side agent thread.
@@ -437,6 +600,14 @@ fn agent_thread(hub: Arc<Hub>, src: String, ready_sig: Arc<(Mutex<bool>, Condvar
             .map(|_| ())
             .map_err(|_| -1)?;
 
+        // Keep the event loop polling while an `Atomics.waitAsync` Promise is
+        // outstanding (its worker thread will eventually settle it via notify
+        // or timeout). This ensures the agent's `$DONE`/report fires instead of
+        // being left pending.
+        sctx.add_tick_handler(|_ctx| {
+            WAIT_ASYNC_COUNT.load(std::sync::atomic::Ordering::Relaxed) > 0
+        });
+
         Ok(())
     }) {
         Ok(ctx) => ctx,
@@ -467,12 +638,33 @@ fn agent_thread(hub: Arc<Hub>, src: String, ready_sig: Arc<(Mutex<bool>, Condvar
     );
 
     // The broadcast callback may schedule asynchronous continuation microtasks
-    // (e.g. an `await Atomics.waitAsync(...).value` inside the agent callback in
-    // `false-for-timeout-agent.js`). Those run as promise reactions that only
-    // execute when the event loop is driven. Since the agent runs on a plain OS
-    // thread (no tokio executor), drain them synchronously here so the agent's
-    // `report()` actually fires before the thread exits.
-    rt.drain_jobs();
+    // (e.g. an `await Atomics.waitAsync(...).value`, or `await`-ing a synchronously
+    // resolved value in `null-for-timeout-agent.js`). Those run as promise
+    // reactions that only execute when the event loop is driven. Since the agent
+    // runs on a plain OS thread (no tokio executor), drive the event loop here.
+    //
+    // We keep draining until the agent signals `$262.agent.leaving()` (i.e. its
+    // script finished and all `report()` calls fired) or a bounded timeout. This
+    // guarantees an `await` continuation that produces further microtasks keeps
+    // being serviced until the agent is truly done — a single `drain_jobs()` could
+    // miss reactions scheduled by an earlier reaction. For waitAsync waiters, the
+    // worker thread wakes the waiter *after* the parent's `Atomics.notify`, pushes
+    // a resolve job, and the loop below services it; `leaving()` is called once the
+    // agent's script completes.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        rt.drain_jobs();
+        let done = thread_hub().is_leaving();
+        if done {
+            // Flush any trailing jobs one last time, then stop.
+            rt.drain_jobs();
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
 }
 
 // Child-side native functions (non-capturing; use agents_hub()).
@@ -511,17 +703,34 @@ fn child_receive_broadcast(ctx: &mut ScopedContext, cc: CallContext) -> Result<J
         }
     }
 
+    // Signal the parent that the broadcast has been consumed and its callback
+    // (which may register an `Atomics.waitAsync` waiter) has run. The parent
+    // blocks on this signal before issuing `Atomics.notify`, so we must raise
+    // it *after* the callback completed but *before* draining async jobs, so the
+    // waiter is live when the parent notifies.
+    if let Some(consumed) = b.consumed.as_ref() {
+        let (lock, cvar) = &**consumed;
+        *lock.lock().unwrap() = true;
+        cvar.notify_one();
+    }
+
     Ok(JSValue::UNDEFINED)
 }
 
 fn child_report(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32> {
-    let msg = cc
+    // test262's `$262.agent.report` sends the value as a string (the parent's
+    // `getReportAsync` returns a string). Tests rely on this: e.g.
+    // `value-not-equal-agent.js` asserts the report equals `'42'`, and
+    // `no-spurious-wakeup-on-add.js` compares a reported duration with `>=`
+    // (which coerces the numeric string back to a number). Preserve string
+    // semantics exactly.
+    let rep = cc
         .arg(0)
         .to_string(ctx)
         .map_err(|_| -1)?
         .encode_utf8(false)
         .to_string();
-    thread_hub().report(msg);
+    thread_hub().report(rep);
     Ok(JSValue::UNDEFINED)
 }
 

@@ -9,6 +9,7 @@ use std::{
 };
 
 use url::Url;
+use zuqe::builtins::atomics::WAIT_ASYNC_COUNT;
 use zuqe::{
     CallContext, Callback, Context, EvalFlags, EvalName, EvalType, ExceptionText, JSResult,
     JSValue, ModuleDef, Runtime, ScopedContext,
@@ -450,6 +451,13 @@ pub async fn run_test_file(
         .create_context(|ctx| {
             ScopedContext::ECMA_CONTEXT_SETUP(ctx)?;
             setup_ctx_test262_helpers(ctx)?;
+            // Keep the async event loop ticking while an `Atomics.waitAsync`
+            // Promise is pending (its worker thread settles it via notify or
+            // timeout). Without this, `run_async` stops before the Promise
+            // resolves and the test hangs.
+            ctx.add_tick_handler(|_ctx| {
+                WAIT_ASYNC_COUNT.load(std::sync::atomic::Ordering::Relaxed) > 0
+            });
             Ok(())
         })
         .unwrap();

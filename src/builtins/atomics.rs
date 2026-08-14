@@ -418,6 +418,13 @@ fn drop_waiter(key: WaitKey, waiter: &Waiter) {
     }
 }
 
+/// Number of outstanding `Atomics.waitAsync` waiters. Used by the agent
+/// harness's event loop as a `tick_handler` signal: while this is non-zero the
+/// loop keeps polling so the corresponding Promise can settle (driven by a
+/// worker thread) instead of being left pending.
+pub static WAIT_ASYNC_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 /// Wake every registered waiter regardless of key. Used on agent-harness
 /// teardown so agent threads blocked in `Atomics.wait` are released instead of
 /// leaking across tests.
@@ -569,27 +576,43 @@ pub fn js_atomics_wait_async(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
             "Atomics.waitAsync: typed array must be an Int32Array or BigInt64Array",
         ));
     }
-    let nth = validate_index(ctx, &ta, cc.arg(1))?;
 
-    let mask = mask_for(width);
-    let current = ta.with_bytes(|buf| {
-        let off = nth * (width as usize / 8);
-        read_bits(buf, off, width) & mask
-    });
+    // DoWait step 4 (ValidateAtomicAccess): capture the typed array length
+    // BEFORE coercing the index, so a `valueOf` that grows the buffer cannot
+    // change the recorded bounds.
+    let length = ta.length();
+    let nth = cc.arg(1).to_index(ctx)?;
+    if nth as usize >= length {
+        return Err(ctx.throw_range_error("Atomics.waitAsync: index out of range"));
+    }
 
+    // DoWait step 6-ish: coerce the expected value (after index validation).
     let expected_bits = value_to_bits(ctx, cc.arg(2), signed, is_bigint, width)?;
-    // Evaluate ToNumber(timeout) per spec DoWait step 6, before returning.
-    let _ = cc.arg(3).to_number(ctx)?;
+
+    // DoWait step 6: ToNumber(timeout).
+    let timeout = cc.arg(3);
+    let q = if timeout.is_undefined() {
+        f64::INFINITY
+    } else {
+        timeout.to_number(ctx)?.to_f64()
+    };
+
+    // Read current value and compare with the expected value.
+    let mask = mask_for(width);
+    let off = nth as usize * (width as usize / 8);
+    let current = ta.with_bytes(|buf| read_bits(buf, off, width) & mask);
 
     let mut result = ctx.create_base_object()?;
+
     if current != (expected_bits & mask) {
+        // Synchronous non-wait path: { async: false, value: "not-equal" }.
+        let not_eq = str_val(ctx, "not-equal")?;
         result.define_property_value_str(
             ctx,
             "async",
             JSValue::from(false),
             crate::JS_PROP_WRITABLE | crate::JS_PROP_CONFIGURABLE,
         )?;
-        let not_eq = str_val(ctx, "not-equal")?;
         result.define_property_value_str(
             ctx,
             "value",
@@ -599,13 +622,104 @@ pub fn js_atomics_wait_async(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         return Ok(JSValue::from(result));
     }
 
-    // Equal: return an async result. A real implementation would block until
-    // `notify`; without a cross-thread agent runtime there are no waiters, so
-    // the promise resolves with "timed-out".
-    let (promise, resolving) = Promise::create(ctx)?;
-    let tv = str_val(ctx, "timed-out")?;
-    resolving[0].call(ctx, JSValue::UNDEFINED, &[tv])?;
-    let _ = resolving[1].call(ctx, JSValue::UNDEFINED, &[]);
+    // Value matches. Per spec, a +0 timeout (including `false`, `null`, `0`)
+    // resolves synchronously to "timed-out" with `async: false`.
+    if q == 0.0 || (q.is_finite() && q < 0.0) {
+        let timed_out = str_val(ctx, "timed-out")?;
+        result.define_property_value_str(
+            ctx,
+            "async",
+            JSValue::from(false),
+            crate::JS_PROP_WRITABLE | crate::JS_PROP_CONFIGURABLE,
+        )?;
+        result.define_property_value_str(
+            ctx,
+            "value",
+            timed_out,
+            crate::JS_PROP_WRITABLE | crate::JS_PROP_CONFIGURABLE,
+        )?;
+        return Ok(JSValue::from(result));
+    }
+
+    // Equal: register a waiter and return a Promise ({ async: true, value:
+    // Promise }). The Promise settles to "ok" when woken by `Atomics.notify`,
+    // or "timed-out" on timeout. A worker thread performs the blocking wait so
+    // the calling (agent) thread is never blocked.
+    let key = wait_key(&ta, nth as usize, width);
+    let waiter: Waiter = Arc::new((Mutex::new(false), Condvar::new()));
+    wait_registry()
+        .map
+        .lock()
+        .unwrap()
+        .entry(key)
+        .or_default()
+        .push(waiter.clone());
+    WAIT_ASYNC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    // q is already coerced via ToNumber(timeout). +0 / negative were handled
+    // above (synchronous "timed-out"); here q > 0 or +Infinity.
+    let timeout_ns: i64 = if q.is_nan() || !q.is_finite() {
+        i64::MAX // +Infinity: wait forever (only `notify` can wake it)
+    } else {
+        (q.max(0.0) * 1e6) as i64
+    };
+
+    let (promise, tx) = Promise::create_with_channel::<&'static str>(ctx, |cx, s| str_val(cx, s))?;
+
+    let worker_key = key;
+    let worker_waiter = waiter.clone();
+    std::thread::spawn(move || {
+        let (lock, cvar) = &*worker_waiter;
+        let mut guard = lock.lock().unwrap();
+        let mut woken = false;
+        // A deadline ensures the wait is *at least* `timeout`, never shorter. If a
+        // `wait_timeout` wakes early (e.g. spurious or coarse OS timer resolution),
+        // we re-wait for the remaining time instead of giving up, so `Atomics.waitAsync`
+        // with a positive timeout cannot resolve "timed-out" before the requested
+        // duration — test262's `no-spurious-wakeup-*` tests assert the observed
+        // wait is >= the timeout.
+        let deadline = if timeout_ns > 0 && timeout_ns != i64::MAX {
+            Some(std::time::Instant::now() + Duration::from_nanos(timeout_ns as u64))
+        } else {
+            None // +Infinity: only `notify` can wake it.
+        };
+        loop {
+            if *guard {
+                woken = true;
+                break;
+            }
+            match deadline {
+                Some(dl) => {
+                    let now = std::time::Instant::now();
+                    if now >= dl {
+                        break;
+                    }
+                    let remaining = dl - now;
+                    let (g, _res) = cvar.wait_timeout(guard, remaining).unwrap();
+                    guard = g;
+                    // Loop re-checks `*guard` and the deadline so the total wait is
+                    // at least `timeout` even if this wait returned early.
+                }
+                None => {
+                    guard = match cvar.wait(guard) {
+                        Ok(g) => g,
+                        Err(p) => p.into_inner(),
+                    };
+                }
+            }
+        }
+        drop(guard);
+        drop_waiter(worker_key, &worker_waiter);
+        // Deliver the value to the channel *first*, then drop the waiter count.
+        // The count must remain > 0 while the value is in the channel so a tick
+        // handler sees real pending work and drives the polling job that resolves
+        // the Promise. Decrementing before the send could let the event loop stop
+        // in the (tiny) window before the value arrives, leaving the Promise
+        // unresolved and the test hanging on `$DONE() not called`.
+        let val = if woken { "ok" } else { "timed-out" };
+        let _ = tx.send(val);
+        WAIT_ASYNC_COUNT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    });
 
     result.define_property_value_str(
         ctx,
