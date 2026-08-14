@@ -27,11 +27,23 @@ impl<'rt> std::future::Future for RunFuture<'rt> {
         let this = self.get_mut();
 
         match this.rt.tick() {
-            TickStatus::Continue => {
+            TickStatus::Progress | TickStatus::Parked => {
+                // Progress: real work was produced this round — keep draining.
+                // Parked: a polling job is still waiting on IO (re-queued, not
+                // lost) but produced no progress. Unlike `drain_jobs` (which runs
+                // on a bare OS thread with no waker mechanism and must terminate
+                // on `Parked`), `RunFuture` lives under a tokio executor: we
+                // re-arm our waker and return `Pending` so the executor will
+                // poll us again. We also `yield_now()` to give other tokio tasks
+                // (the fs/fetch IO tasks) a chance to push a value into the
+                // channel, turning the next `tick()` into `Progress` or `Idle`.
+                // This never dead-loops: once the event loop is genuinely idle
+                // (no Progress, no Parked) `tick()` returns `Idle` and we exit.
+                std::thread::yield_now();
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            TickStatus::Stop => {
+            TickStatus::Idle => {
                 debug_assert!(matches!(this.rt.exception(), crate::Exception::No));
 
                 Poll::Ready(if let Some(code) = this.rt.take_interrupt() {

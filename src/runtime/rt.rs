@@ -36,11 +36,10 @@ use crate::{
 /// `Arc` strong reference drops.
 fn default_sab_funcs() -> JSSharedArrayBufferFunctions {
     fn sab_alloc(_opaque: *mut c_void, capacity: usize) -> Result<Box<[u8]>, i32> {
-        let mut v = Vec::<u8>::with_capacity(capacity);
-        v.resize(capacity, 0);
+        let v = vec![0; capacity];
         Ok(v.into_boxed_slice())
     }
-    fn sab_free(_opaque: *mut c_void, _len: usize) {}
+    const fn sab_free(_opaque: *mut c_void, _len: usize) {}
     JSSharedArrayBufferFunctions {
         sab_alloc,
         sab_free,
@@ -288,7 +287,7 @@ impl RuntimeImpl {
 
     /// Set the maximum total live virtual stack size in bytes (bump + heap).
     /// Exceeding it raises `throw_stack_depth_exceeded` on the next frame alloc.
-    pub fn set_stack_limit(&mut self, bytes: usize) {
+    pub const fn set_stack_limit(&mut self, bytes: usize) {
         self.frame_arena.set_stack_limit(bytes);
     }
 
