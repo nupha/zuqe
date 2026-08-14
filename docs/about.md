@@ -24,7 +24,7 @@ As a divine guardian, the Vermilion Bird protects. Zuqe protects the host: it is
 
 Zuqe is a **lightweight JavaScript engine implemented in Rust**. It is designed to be embedded into Rust applications with low memory overhead and a small binary size, balancing **efficiency, safety, and ease of embedding**.
 
-- Implements a comprehensive set of **ES2026** features.
+- Implements a comprehensive set of **ES2024** features.
 - Passes a **substantial portion** of the [Test262](https://github.com/tc39/test262) conformance suite.
 - Ships a rich embedding API: native functions, native classes, native ES modules, scoped execution, and configurable garbage collection.
 

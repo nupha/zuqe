@@ -104,12 +104,14 @@ fn can_be_held_weakly(val: JSValue) -> bool {
     if val.as_object().is_some() {
         return true;
     }
-    if val.is_symbol() {
-        if let Some(sym) = val.as_symbol(false) {
-            return sym.atom_info().is_some_and(|info| info.kind() != AtomKind::GlobalSymbol);
-        }
+    if val.is_symbol()
+        && let Some(sym) = val.as_symbol(false)
+    {
+        sym.atom_info()
+            .is_some_and(|info| info.kind() != AtomKind::GlobalSymbol)
+    } else {
+        false
     }
-    false
 }
 
 // FinalizationRegistry
@@ -278,9 +280,11 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     // SameValue(target, heldValue) check
     let same_value = match &target_weak {
-        WeakRef::Object(_) => target_val.is_object()
-            && held_val.is_object()
-            && target_val.as_object() == held_val.as_object(),
+        WeakRef::Object(_) => {
+            target_val.is_object()
+                && held_val.is_object()
+                && target_val.as_object() == held_val.as_object()
+        }
         WeakRef::Symbol(sym) => held_val.is_symbol() && sym == &held_val,
     };
     if same_value {

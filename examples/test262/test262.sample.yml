@@ -6,7 +6,7 @@ base_path: "/path/to/test262"
 #log: "./test262.log"
 
 # edition preset to run; must name an entry in `presets:` below.
-preset: ES2026
+preset: ES2024
 
 # test scripts whitelist.
 # glob paths to select test scripts, empty means all.
@@ -203,25 +203,26 @@ presets:
         "Math.sumPrecise",
       ]
 
-# Features excluded: stage-3 proposals and separate specs that are
-# not part of any published ECMAScript edition.
+# Features excluded: stage-X proposals or not implemented by zuqe
 exclude_features:
   [
+    "Temporal",
     "Intl.Era-monthcode",
     "Intl.Locale-info",
     "Intl.NumberFormat-v3",
     "legacy-regexp",
-    "ShadowRealm",
-    "decorators",
     "source-phase-imports",
     "source-phase-imports-module-source",
+    "iterator-chunking",
+    "iterator-includes",
+    "import-text",
+    "decorators",
+    "ShadowRealm",
+    "immutable-arraybuffer",
+    "await-dictionary",
     "import-defer",
     "export-defer",
-    "import-text",
-    "immutable-arraybuffer",
     "import-bytes",
     "nonextensible-applies-to-private",
-    "await-dictionary",
     "error-stack-accessor",
-    "Temporal",
   ]
