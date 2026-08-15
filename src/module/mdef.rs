@@ -400,6 +400,7 @@ impl ModuleDef {
     /// Load all dependency modules for module `self`.
     pub(crate) fn resolve_deps(&mut self, ctx: &mut ScopedContext) -> Result<(), i32> {
         if !self.resolved {
+            self.resolved = true;
             let base_utf8 = self.module_name.to_utf8(ctx.rt());
 
             // resolve dependency modules
@@ -415,9 +416,6 @@ impl ModuleDef {
                 dep.module = Some(m1);
                 m1.resolve_deps(ctx)?;
             }
-
-            // Mark as resolved only after all dependencies succeeded
-            self.resolved = true;
         }
 
         Ok(())
