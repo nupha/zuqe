@@ -108,6 +108,7 @@ pub(super) fn js_operator_private_in(ctx: &mut ScopedContext, sp: *mut JSValue) 
 
 /// Arena-aware version of `js_op_define_class` that uses
 /// `make_closure_for_arena` instead of `make_closure`.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn js_op_define_class_for_arena(
     ctx: &mut ScopedContext,
     sp: *mut JSValue,

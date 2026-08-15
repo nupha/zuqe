@@ -1431,7 +1431,7 @@ fn copy_sub_array(
 
     /// the (source, destination) pair of the i-th copy step, honoring direction
     #[inline]
-    fn src_dst(
+    const fn src_dst(
         dir: i32,
         start_pos: usize,
         to_pos: usize,

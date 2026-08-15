@@ -101,7 +101,7 @@ impl RopeImpl {
     /// Build a new rope node from two sub-strings. Returns a (possibly
     /// rebalanced) [`StringRef`]. The node itself is O(1); characters are
     /// only copied when the rope is flattened.
-    pub(crate) fn new(
+    pub(crate) fn create(
         ctx: &mut ScopedContext,
         left: StringRef,
         right: StringRef,
@@ -169,7 +169,7 @@ impl RopeImpl {
         let mid = leaves.len() / 2;
         let left = Self::build_balanced(ctx, &leaves[..mid])?;
         let right = Self::build_balanced(ctx, &leaves[mid..])?;
-        Self::new(ctx, left, right)
+        Self::create(ctx, left, right)
     }
 
     /// Walk the leaves of the deep node `g` and rebuild a balanced tree.

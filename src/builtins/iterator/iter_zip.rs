@@ -91,10 +91,8 @@ fn close_all_remaining(ctx: &mut ScopedContext, zd: &IteratorZipData) -> Result<
                     // Close errors ignored
                     let _ = iterator_return(ctx, o);
                 } else {
-                    if iterator_return(ctx, o).is_err() {
-                        if first_err.is_none() {
-                            first_err = Some(ctx.take_exception());
-                        }
+                    if iterator_return(ctx, o).is_err() && first_err.is_none() {
+                        first_err = Some(ctx.take_exception());
                     }
                 }
             }

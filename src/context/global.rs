@@ -108,10 +108,10 @@ impl<'c> ScopedContext<'c> {
             // Check for non-configurable property on global_obj.
             // e.g. `let NaN` or `let undefined` → SyntaxError.
             let gobj = self.global_obj();
-            if let Some((_, prs_flags)) = gobj.find_shape_property(prop) {
-                if prs_flags & JS_PROP_CONFIGURABLE == 0 {
-                    return Err(JS_ThrowSyntaxErrorVarRedeclaration(self, prop));
-                }
+            if let Some((_, prs_flags)) = gobj.find_shape_property(prop)
+                && prs_flags & JS_PROP_CONFIGURABLE == 0
+            {
+                return Err(JS_ThrowSyntaxErrorVarRedeclaration(self, prop));
             }
 
             gvobj.add_own_property(
@@ -178,20 +178,20 @@ impl<'c> ScopedContext<'c> {
             }
 
             // CanDeclareGlobalFunction check (DEFINE_GLOBAL_FUNC_VAR)
-            if flags & DEFINE_GLOBAL_FUNC_VAR as u32 != 0 {
-                if let Some(prs_flags) = prs {
-                    // Property exists and is non-configurable:
-                    //   → only writable + enumerable data properties are OK.
-                    if prs_flags & JS_PROP_CONFIGURABLE == 0
-                        && (prs_flags & JS_PROP_TMASK == JS_PROP_GETSET
-                            || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
-                                != (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE))
-                    {
-                        return Err(self.throw_type_error(&format!(
-                            "cannot define variable '{}'",
-                            prop.to_utf8(self.rt())
-                        )));
-                    }
+            if flags & DEFINE_GLOBAL_FUNC_VAR as u32 != 0
+                && let Some(prs_flags) = prs
+            {
+                // Property exists and is non-configurable:
+                //   → only writable + enumerable data properties are OK.
+                if prs_flags & JS_PROP_CONFIGURABLE == 0
+                    && (prs_flags & JS_PROP_TMASK == JS_PROP_GETSET
+                        || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
+                            != (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE))
+                {
+                    return Err(self.throw_type_error(&format!(
+                        "cannot define variable '{}'",
+                        prop.to_utf8(self.rt())
+                    )));
                 }
             }
         }

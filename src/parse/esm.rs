@@ -167,7 +167,7 @@ impl<'s> JSParseState<'s> {
             }
 
             self.parse_expect_semi()?;
-            return Ok(());
+            Ok(())
         } else {
             let done = if self.token.kind == TokenKind::IDENT {
                 // import <default>

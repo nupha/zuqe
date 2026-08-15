@@ -10,10 +10,7 @@ use crate::{
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, NativeFunction},
-    module::{
-        JSFreeModuleEnum, get_script_or_module_name, js_free_modules,
-        js_host_resolve_imported_module,
-    },
+    module::{get_script_or_module_name, js_host_resolve_imported_module},
     object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, Object, PropertyKeyKind},
     value::JSValue,
 };

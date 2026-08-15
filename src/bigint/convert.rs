@@ -204,17 +204,12 @@ pub(crate) fn to_string_radix(bi: &BigIntRef, radix: u32) -> String {
 }
 
 /// The largest `radix^k` that still fits in a `u64`, plus the digit count `k`.
-fn largest_power_fit_u64(radix: u32) -> (u64, usize) {
+const fn largest_power_fit_u64(radix: u32) -> (u64, usize) {
     let mut power: u64 = 1;
     let mut digits = 0usize;
-    loop {
-        match power.checked_mul(radix as u64) {
-            Some(p) => {
-                power = p;
-                digits += 1;
-            }
-            None => break,
-        }
+    while let Some(p) = power.checked_mul(radix as u64) {
+        power = p;
+        digits += 1;
     }
     (power, digits)
 }
@@ -270,11 +265,7 @@ pub(crate) fn to_f64(bi: &BigIntRef) -> f64 {
     for &l in i.limbs().iter().rev() {
         d = d * 18446744073709551616.0 + l as f64;
     }
-    if i.sign() {
-        -d
-    } else {
-        d
-    }
+    if i.sign() { -d } else { d }
 }
 
 /// `ToBigInt64` (BigInt → 64-bit two's complement, wrapping mod 2^64).
@@ -292,11 +283,7 @@ pub(crate) fn to_bigint64(bi: &BigIntRef) -> i64 {
 pub(crate) fn to_biguint64(bi: &BigIntRef) -> u64 {
     let i = bi.as_impl();
     let lo = i.limbs().first().copied().unwrap_or(0);
-    if i.sign() {
-        lo.wrapping_neg()
-    } else {
-        lo
-    }
+    if i.sign() { lo.wrapping_neg() } else { lo }
 }
 
 /// Create a BigInt from an `i64` in the current gc scope.

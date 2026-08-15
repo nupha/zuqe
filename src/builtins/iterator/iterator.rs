@@ -545,7 +545,7 @@ fn js_iterator_zipKeyed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         Ok(())
     })();
 
-    if let Err(_) = collect_result {
+    if collect_result.is_err() {
         close_entries_reverse(ctx, &entries);
         return Err(-1);
     }
