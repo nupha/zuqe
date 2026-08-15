@@ -160,7 +160,7 @@ fn js_load_module_internal(
             md.attributes = attrs;
 
             if md.resolve_deps(ctx).is_err() {
-                js_free_modules(ctx, JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED);
+                // Error already cached in eval_error by resolve_deps
                 let err_val = ctx.take_exception().to_value(ctx);
                 let _ = resolving_funcs[1].call(
                     ctx,

@@ -399,26 +399,40 @@ impl ModuleDef {
 
     /// Load all dependency modules for module `self`.
     pub(crate) fn resolve_deps(&mut self, ctx: &mut ScopedContext) -> Result<(), i32> {
-        if !self.resolved {
-            self.resolved = true;
-            let base_utf8 = self.module_name.to_utf8(ctx.rt());
+        if self.resolved {
+            // Per ECMAScript spec §16.2.1.7: if module is in "errored" state,
+            // re-throw the cached error on subsequent import attempts.
+            if !self.eval_error.is_undefined() {
+                return Err(ctx.throw_value(self.eval_error));
+            }
+            return Ok(());
+        }
 
-            // resolve dependency modules
+        self.resolved = true;
+        let base_utf8 = self.module_name.to_utf8(ctx.rt());
+
+        // resolve dependency modules
+        let result = (|| -> Result<(), i32> {
             for dep in self.dependencies.iter_mut() {
                 let dep_utf8 = dep.module_name.to_utf8(ctx.rt());
-                let mut m1 = super::js_host_resolve_imported_module(
-                    ctx,
-                    &base_utf8,
-                    &dep_utf8,
-                    dep.attributes,
-                )?;
+                let mut m1 =
+                    super::js_host_resolve_imported_module(ctx, &base_utf8, &dep_utf8, dep.attributes)?;
 
                 dep.module = Some(m1);
                 m1.resolve_deps(ctx)?;
             }
+            Ok(())
+        })();
+
+        if result.is_err() {
+            // Per ECMAScript spec §16.2.1.7: cache the error so subsequent
+            // imports throw the same error without retrying.
+            let err_val = ctx.take_exception().to_value(ctx);
+            self.set_eval_error(err_val);
+            return Err(-1);
         }
 
-        Ok(())
+        result
     }
 }
 
@@ -628,14 +642,13 @@ pub(crate) fn current_bytecode_filename(ctx: &ScopedContext) -> Option<Atom> {
     let mut cur = rt.active_frame_index;
     while !cur.is_null() {
         let sf = arena.frame(cur);
-        if let Some(bcf) = sf.func_obj.as_BCWrapper() {
-            let bc = bcf.payload().bytecode();
-            if let Some(d) = bc.debug.as_ref() {
-                if !d.filename.is_null() {
-                    return Some(d.filename);
-                }
-            }
+        if let Some(bcf) = sf.func_obj.as_BCWrapper()
+            && let Some(d) = bcf.payload().bytecode().debug.as_ref()
+            && !d.filename.is_null()
+        {
+            return Some(d.filename);
         }
+
         cur = sf.prev;
     }
 
