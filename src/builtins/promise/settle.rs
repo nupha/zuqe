@@ -252,8 +252,33 @@ impl Promise {
 
     /// Save result `value` and update promise status to 'fulfilled' or 'rejected'.
     /// Call chained reactions which was registered by `then()`, `catch()` or `finally()`.
+    ///
+    /// In zuqe, `Promise::resolve()` / `Promise::reject()` bypass the
+    /// resolving-function closure and settle the promise directly. Multiple
+    /// code paths (e.g. abort/error vs. normal completion in Streams) may
+    /// race to settle the same promise. To match the spec's observable
+    /// behaviour (second settle is a silent no-op), we return early when the
+    /// promise is no longer Pending.
     fn settle(&mut self, ctx: &mut ScopedContext, value: JSValue, is_reject: bool) {
-        debug_assert_eq!(self.payload().state(), PromiseState::Pending);
+        // Per ECMAScript 2027 §27.5.1.3 (CreateResolvingFunctions), the resolve
+        // and reject functions produced by `CreateResolvingFunctions` share a
+        // `promiseOrEmpty` record whose `[[Value]]` is set to **empty** after the
+        // first invocation. Subsequent calls hit the early-return step
+        // (`If promiseOrEmpty.[[Value]] is empty, return undefined`) and are
+        // no-ops. The corresponding `FulfillPromise` (§27.5.1.4) and
+        // `RejectPromise` (§27.5.1.7) both carry the normative assertion
+        // `Assert: promise.[[PromiseState]] is pending`, which is guaranteed to
+        // hold because the resolving-function closure prevents double-settling.
+        if self.payload().state() != PromiseState::Pending {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[zuqe] Promise::{} called on already-{} promise (state={:?}) — no-op per ECMA-262 §27.5.1.3",
+                if is_reject { "reject" } else { "resolve" },
+                if is_reject { "rejected" } else { "fulfilled" },
+                self.payload().state(),
+            );
+            return;
+        }
 
         // Remove from pending_promises — the Promise is no longer Pending.
         let self_node = self.gc_node_ptr();
