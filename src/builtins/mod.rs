@@ -24,6 +24,8 @@ pub mod typed_array;
 
 #[cfg(feature = "builtin_date")]
 pub mod date;
+#[cfg(feature = "intl402")]
+pub mod intl;
 #[cfg(feature = "builtin_json")]
 pub mod json;
 #[cfg(feature = "builtin_mapset")]

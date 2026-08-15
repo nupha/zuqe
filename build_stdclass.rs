@@ -50,6 +50,26 @@ enum PayloadKey {
     FinalizationRegistry,
     #[cfg(feature = "big_int")]
     BigInt,
+    // Intl classes are grouped contiguously so that their class ids form a
+    // single `..=` range. All gated behind the `intl402` feature.
+    #[cfg(feature = "intl402")]
+    IntlCollator,
+    #[cfg(feature = "intl402")]
+    IntlDateTimeFormat,
+    #[cfg(feature = "intl402")]
+    IntlDisplayNames,
+    #[cfg(feature = "intl402")]
+    IntlListFormat,
+    #[cfg(feature = "intl402")]
+    IntlLocale,
+    #[cfg(feature = "intl402")]
+    IntlNumberFormat,
+    #[cfg(feature = "intl402")]
+    IntlPluralRules,
+    #[cfg(feature = "intl402")]
+    IntlRelativeTimeFormat,
+    #[cfg(feature = "intl402")]
+    IntlSegmenter,
 }
 
 impl PayloadKey {
@@ -97,6 +117,24 @@ impl PayloadKey {
             PayloadKey::FinalizationRegistry => "finalization_registry",
             #[cfg(feature = "big_int")]
             PayloadKey::BigInt => "bigint",
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlCollator => "intl_collator",
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlDateTimeFormat => "intl_date_time_format",
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlDisplayNames => "intl_display_names",
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlListFormat => "intl_list_format",
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlLocale => "intl_locale",
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlNumberFormat => "intl_number_format",
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlPluralRules => "intl_plural_rules",
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlRelativeTimeFormat => "intl_relative_time_format",
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlSegmenter => "intl_segmenter",
         }
     }
 }
@@ -139,6 +177,51 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     );
     #[cfg(feature = "big_int")]
     m.insert(PayloadKey::BigInt, "crate::bigint::BigIntRef");
+    #[cfg(feature = "intl402")]
+    m.insert(
+        PayloadKey::IntlCollator,
+        "Box<crate::builtins::intl::collator::CollatorData>",
+    );
+    #[cfg(feature = "intl402")]
+    m.insert(
+        PayloadKey::IntlDateTimeFormat,
+        "Box<crate::builtins::intl::date_time_format::DateTimeFormatData>",
+    );
+    #[cfg(feature = "intl402")]
+    m.insert(
+        PayloadKey::IntlDisplayNames,
+        "Box<crate::builtins::intl::display_names::DisplayNamesData>",
+    );
+    #[cfg(feature = "intl402")]
+    m.insert(
+        PayloadKey::IntlListFormat,
+        "Box<crate::builtins::intl::list_format::ListFormatData>",
+    );
+    #[cfg(feature = "intl402")]
+    m.insert(
+        PayloadKey::IntlLocale,
+        "Box<crate::builtins::intl::locale::LocaleData>",
+    );
+    #[cfg(feature = "intl402")]
+    m.insert(
+        PayloadKey::IntlNumberFormat,
+        "Box<crate::builtins::intl::number_format::NumberFormatData>",
+    );
+    #[cfg(feature = "intl402")]
+    m.insert(
+        PayloadKey::IntlPluralRules,
+        "Box<crate::builtins::intl::plural_rules::PluralRulesData>",
+    );
+    #[cfg(feature = "intl402")]
+    m.insert(
+        PayloadKey::IntlRelativeTimeFormat,
+        "Box<crate::builtins::intl::relative_time_format::RelativeTimeFormatData>",
+    );
+    #[cfg(feature = "intl402")]
+    m.insert(
+        PayloadKey::IntlSegmenter,
+        "Box<crate::builtins::intl::segmenter::SegmenterData>",
+    );
     m.insert(
         PayloadKey::DataView,
         "Box<crate::builtins::typed_array::DataViewPayload>",
@@ -658,6 +741,64 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         "FINALIZATION_REGISTRY",
         "crate::builtins::weakref::CLASS_DEF_FINALIZATION_REGISTRY",
         PayloadKey::FinalizationRegistry,
+    ),
+    //
+    // Intl classes. Kept contiguous (and all behind `intl402`) so their class
+    // ids form the contiguous range `JS_CLASS_INTL_COLLATOR ..= JS_CLASS_INTL_SEGMENTER`.
+    //
+    #[cfg(feature = "intl402")]
+    ClassInfo::class_def(
+        "INTL_COLLATOR",
+        "crate::builtins::intl::collator::CLASS_DEF_COLLATOR",
+        PayloadKey::IntlCollator,
+    ),
+    #[cfg(feature = "intl402")]
+    ClassInfo::class_def(
+        "INTL_DATE_TIME_FORMAT",
+        "crate::builtins::intl::date_time_format::CLASS_DEF_DATE_TIME_FORMAT",
+        PayloadKey::IntlDateTimeFormat,
+    ),
+    #[cfg(feature = "intl402")]
+    ClassInfo::class_def(
+        "INTL_DISPLAY_NAMES",
+        "crate::builtins::intl::display_names::CLASS_DEF_DISPLAY_NAMES",
+        PayloadKey::IntlDisplayNames,
+    ),
+    #[cfg(feature = "intl402")]
+    ClassInfo::class_def(
+        "INTL_LIST_FORMAT",
+        "crate::builtins::intl::list_format::CLASS_DEF_LIST_FORMAT",
+        PayloadKey::IntlListFormat,
+    ),
+    #[cfg(feature = "intl402")]
+    ClassInfo::class_def(
+        "INTL_LOCALE",
+        "crate::builtins::intl::locale::CLASS_DEF_LOCALE",
+        PayloadKey::IntlLocale,
+    ),
+    #[cfg(feature = "intl402")]
+    ClassInfo::class_def(
+        "INTL_NUMBER_FORMAT",
+        "crate::builtins::intl::number_format::CLASS_DEF_NUMBER_FORMAT",
+        PayloadKey::IntlNumberFormat,
+    ),
+    #[cfg(feature = "intl402")]
+    ClassInfo::class_def(
+        "INTL_PLURAL_RULES",
+        "crate::builtins::intl::plural_rules::CLASS_DEF_PLURAL_RULES",
+        PayloadKey::IntlPluralRules,
+    ),
+    #[cfg(feature = "intl402")]
+    ClassInfo::class_def(
+        "INTL_RELATIVE_TIME_FORMAT",
+        "crate::builtins::intl::relative_time_format::CLASS_DEF_RELATIVE_TIME_FORMAT",
+        PayloadKey::IntlRelativeTimeFormat,
+    ),
+    #[cfg(feature = "intl402")]
+    ClassInfo::class_def(
+        "INTL_SEGMENTER",
+        "crate::builtins::intl::segmenter::CLASS_DEF_SEGMENTER",
+        PayloadKey::IntlSegmenter,
     ),
 ];
 

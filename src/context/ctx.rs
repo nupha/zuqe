@@ -478,7 +478,35 @@ impl<'c> ScopedContext<'c> {
                 crate::JS_CLASS_FINALIZATION_REGISTRY,
             ]);
 
+            // Intl classes. Their class ids are statically determined (contiguous
+            // range JS_CLASS_INTL_COLLATOR..=JS_CLASS_INTL_SEGMENTER), so they are
+            // simply listed in `use_classes` like every other builtin class.
+            #[cfg(feature = "intl402")]
+            use_classes.extend_from_slice(&[
+                crate::JS_CLASS_INTL_COLLATOR,
+                crate::JS_CLASS_INTL_DATE_TIME_FORMAT,
+                crate::JS_CLASS_INTL_DISPLAY_NAMES,
+                crate::JS_CLASS_INTL_LIST_FORMAT,
+                crate::JS_CLASS_INTL_LOCALE,
+                crate::JS_CLASS_INTL_NUMBER_FORMAT,
+                crate::JS_CLASS_INTL_PLURAL_RULES,
+                crate::JS_CLASS_INTL_RELATIVE_TIME_FORMAT,
+                crate::JS_CLASS_INTL_SEGMENTER,
+            ]);
+
             ctx.use_classes(&use_classes)?;
+
+            // Intl namespace object (after classes are registered & used).
+            #[cfg(feature = "intl402")]
+            {
+                let intl_obj = crate::builtins::intl::js_intl_init(ctx)?;
+                ctx.global_obj().define_property_value_str(
+                    ctx,
+                    "Intl",
+                    intl_obj.into(),
+                    JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+                )?;
+            }
 
             Ok(())
         };

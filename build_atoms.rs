@@ -249,6 +249,43 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     "WeakRef",
     #[cfg(feature = "builtin_weakref")]
     "FinalizationRegistry",
+    //
+    // intl402
+    //
+    #[cfg(feature = "intl402")]
+    "Intl",
+    #[cfg(feature = "intl402")]
+    "Collator",
+    #[cfg(feature = "intl402")]
+    "DateTimeFormat",
+    #[cfg(feature = "intl402")]
+    "ListFormat",
+    #[cfg(feature = "intl402")]
+    "Locale",
+    #[cfg(feature = "intl402")]
+    "NumberFormat",
+    #[cfg(feature = "intl402")]
+    "PluralRules",
+    #[cfg(feature = "intl402")]
+    "RelativeTimeFormat",
+    #[cfg(feature = "intl402")]
+    "Segmenter",
+    #[cfg(feature = "intl402")]
+    "DisplayNames",
+    #[cfg(feature = "intl402")]
+    "getCanonicalLocales",
+    #[cfg(feature = "intl402")]
+    "supportedLocalesOf",
+    #[cfg(feature = "intl402")]
+    "resolvedOptions",
+    #[cfg(feature = "intl402")]
+    "format",
+    #[cfg(feature = "intl402")]
+    "formatToParts",
+    #[cfg(feature = "intl402")]
+    "select",
+    #[cfg(feature = "intl402")]
+    "compare",
     // privates
     "Private_brand",
     //
