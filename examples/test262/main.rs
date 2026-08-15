@@ -21,7 +21,7 @@ use serde::Deserialize;
 use crate::{
     presets::{
         Decisions, PresetDef, available_presets, build_feature_edition, enabled_features,
-        is_known_preset, resolve_decisions,
+        is_known_preset, parse_preset_arg, resolve_decisions,
     },
     report::{NO_FEATURE_KEY, make_last_jsonl_path, write_report},
     runner::{TestStatus, run_test_file},
@@ -160,7 +160,11 @@ pub fn validate_config(cfg: &AppConfig, presets: &[PresetDef], require_preset: b
                 );
                 std::process::exit(1);
             }
-            if !is_known_preset(presets, preset) {
+
+            // A trailing `!` selects strict mode; strip it before matching the
+            // preset name (the original argument is kept for error messages).
+            let (preset_name, _) = parse_preset_arg(preset);
+            if !is_known_preset(presets, preset_name) {
                 eprintln!(
                     "error: unknown preset '{preset}'. available presets: {}",
                     available_presets(presets)
@@ -310,6 +314,7 @@ async fn main_impl() {
             feature_edition: HashMap::new(),
             selected_index: max_index + 1,
             max_index,
+            strict: false,
             exclude: HashSet::new(),
             user_features: None,
         }

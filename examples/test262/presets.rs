@@ -50,6 +50,10 @@ pub struct Decisions {
     pub selected_index: usize,
     /// Index of the latest preset.
     pub max_index: usize,
+    /// Strict mode (`PRESET!`): only tests exercising a feature *newly*
+    /// introduced in the selected edition run; features of older editions are
+    /// not loaded (baseline tests without any feature also run nothing).
+    pub strict: bool,
     /// Features that are always skipped.
     pub exclude: HashSet<String>,
     /// Explicit feature whitelist (`features:` in the config or `--features`).
@@ -83,6 +87,16 @@ pub fn is_known_preset(presets: &[PresetDef], name: &str) -> bool {
     presets.iter().any(|p| p.name == name)
 }
 
+/// Split a preset argument into the preset name and its strict flag. A preset
+/// given as `NAME!` (a trailing `!`) selects strict mode: only the features
+/// newly introduced in `NAME` run, without inheriting older editions.
+pub fn parse_preset_arg(arg: &str) -> (&str, bool) {
+    match arg.strip_suffix('!') {
+        Some(name) => (name, true),
+        None => (arg, false),
+    }
+}
+
 /// Resolve the preset, edition index, and exclude set for a run. Assumes the
 /// config has already been merged with CLI flags and validated. Takes
 /// ownership of the preset list, which lives on in `Decisions`.
@@ -111,16 +125,21 @@ pub fn resolve_decisions(cfg: &AppConfig, presets: Vec<PresetDef>) -> Decisions 
             set
         });
 
-    let selected_index = if user_features.is_some() {
+    let (selected_index, strict) = if user_features.is_some() {
         // USER mode bypasses the edition gate entirely; sit past every edition
-        // so only the whitelist (and the exclude set) decides what runs.
-        max_index + 1
+        // so only the whitelist (and the exclude set) decides what runs. Not
+        // strict.
+        (max_index + 1, false)
     } else {
         let preset_name = cfg.preset.as_deref().expect("preset validated");
-        presets
+        // A trailing `!` on the preset selects strict mode: only the features
+        // newly introduced in that edition run, without older editions.
+        let (name, strict) = parse_preset_arg(preset_name);
+        let idx = presets
             .iter()
-            .position(|p| p.name == preset_name)
-            .expect("preset validated")
+            .position(|p| p.name == name)
+            .expect("preset validated");
+        (idx, strict)
     };
 
     Decisions {
@@ -128,6 +147,7 @@ pub fn resolve_decisions(cfg: &AppConfig, presets: Vec<PresetDef>) -> Decisions 
         feature_edition,
         selected_index,
         max_index,
+        strict,
         exclude,
         user_features,
     }
@@ -146,7 +166,13 @@ pub fn resolve_decisions(cfg: &AppConfig, presets: Vec<PresetDef>) -> Decisions 
 ///   selected preset.
 ///
 /// Tests without any `features` annotation (baseline tests) are always run in
-/// preset mode.
+/// preset mode, except under strict mode (`PRESET!`) where they are skipped
+/// because they exercise no feature of the selected edition.
+///
+/// In strict mode a test additionally runs only if at least one of its declared
+/// features was *newly* introduced in the selected edition; tests whose
+/// features all come from older editions are skipped (they are covered by the
+/// corresponding older preset).
 pub fn should_skip_test(features: Option<&[String]>, dec: &Decisions) -> bool {
     if let Some(user) = &dec.user_features {
         let Some(features) = features else {
@@ -159,7 +185,7 @@ pub fn should_skip_test(features: Option<&[String]>, dec: &Decisions) -> bool {
     }
 
     let Some(features) = features else {
-        return false;
+        return dec.strict;
     };
     for f in features {
         if dec.exclude.contains(f) {
@@ -170,12 +196,24 @@ pub fn should_skip_test(features: Option<&[String]>, dec: &Decisions) -> bool {
             return true;
         }
     }
+    if dec.strict
+        && !features.iter().any(|f| {
+            dec.feature_edition.get(f).copied().unwrap_or(dec.max_index) == dec.selected_index
+        })
+    {
+        // Strict mode: the test exercises no feature newly introduced in the
+        // selected edition (all its features belong to older editions), so it
+        // must not run under this preset.
+        return true;
+    }
     false
 }
 
 /// Sorted list of feature flags actually exercised by a run. In USER mode this
 /// is exactly the whitelist; otherwise it is every configured feature whose
 /// introducing edition is at or before `selected_index`, minus the exclude set.
+/// In strict mode (`PRESET!`) only the features newly introduced in the
+/// selected edition are reported, mirroring what actually runs.
 pub fn enabled_features(dec: &Decisions) -> Vec<String> {
     if let Some(user) = &dec.user_features {
         let mut feats: Vec<String> = user.iter().cloned().collect();
@@ -183,15 +221,22 @@ pub fn enabled_features(dec: &Decisions) -> Vec<String> {
         return feats;
     }
 
-    let mut feats: Vec<String> = dec
-        .presets
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| *idx <= dec.selected_index)
-        .flat_map(|(_, p)| p.features.iter().cloned())
-        .filter(|f| !dec.exclude.contains(f))
-        .collect();
+    let mut feats: Vec<String> = if dec.strict {
+        // Strict mode: only the features of the selected edition itself.
+        dec.presets
+            .get(dec.selected_index)
+            .map(|p| p.features.iter().cloned().collect())
+            .unwrap_or_default()
+    } else {
+        dec.presets
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| *idx <= dec.selected_index)
+            .flat_map(|(_, p)| p.features.iter().cloned())
+            .collect()
+    };
 
+    feats.retain(|f| !dec.exclude.contains(f));
     feats.sort();
     feats.dedup();
     feats
