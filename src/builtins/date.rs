@@ -970,6 +970,41 @@ fn js_date_setTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn get_date_string(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let tm = JS_ThisTimeValue(ctx, cc.this())?;
+
+    // Under intl402, toLocaleString / toLocaleDateString / toLocaleTimeString
+    // (fmt == 3) delegate to Intl.DateTimeFormat.
+    #[cfg(feature = "intl402")]
+    {
+        let fmt = (cc.magic() >> 4) & 0x0F;
+        if fmt == 3 {
+            let defaults = match cc.magic() & 0x0F {
+                1 => crate::builtins::intl::date_time_format::DateTimeDefaults::DateOnly,
+                2 => crate::builtins::intl::date_time_format::DateTimeDefaults::TimeOnly,
+                _ => crate::builtins::intl::date_time_format::DateTimeDefaults::All,
+            };
+            if tm.is_invalid() {
+                return ctx
+                    .create_string_from_str("Invalid Date")
+                    .map(JSValue::make_string);
+            }
+            let data = crate::builtins::intl::date_time_format::build_date_time_format_data(
+                ctx,
+                cc.arg(0),
+                cc.arg(1),
+                defaults,
+            )?;
+            let s = crate::builtins::intl::date_time_format::format_date(
+                ctx,
+                &data,
+                JSValue::from(tm),
+                true,
+            )?;
+            return ctx
+                .create_string_from_utf8(s.into_bytes())
+                .map(JSValue::make_string);
+        }
+    }
+
     datetime_format(ctx, tm.into(), cc.magic()).map(JSValue::make_string)
 }
 

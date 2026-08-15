@@ -10,12 +10,13 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 
 use super::common::{
-    locale_to_string, make_bound_method, make_str, resolve_locale, to_utf8_string, values_to_array,
+    locale_extension_value, locale_to_string, make_bound_method, make_str, resolve_locale,
+    to_utf8_string, values_to_array,
 };
 
 #[derive(Debug)]
@@ -31,10 +32,12 @@ pub(crate) struct NumberFormatData {
     pub style: Style,
     pub currency: Option<String>,
     pub currency_display: &'static str,
+    pub numbering_system: String,
     pub use_grouping: bool,
     pub grouping_sep: char,
     pub decimal_sep: char,
     pub percent_space: bool,
+    pub grouping_indian: bool,
 }
 
 impl GcTrace for NumberFormatData {
@@ -77,17 +80,20 @@ pub(crate) fn is_valid_bcp47_type(s: &str) -> bool {
 
 /// Best-effort locale-aware grouping, decimal and percent spacing separators
 /// (CLDR-derived for common locales; fall back to en-US style).
-fn locale_separators(locale: &Locale) -> (char, char, bool) {
+fn locale_separators(locale: &Locale) -> (char, char, bool, bool) {
     let lang = locale.id.language.to_string();
+    let region = locale.id.region.map(|r| r.to_string()).unwrap_or_default();
     // `percent_space` = whether a (no-break) space precedes the percent sign.
+    // `grouping_indian` = use the Indian (last-3, then-2s) grouping.
+    let indian = lang == "hi" || (lang == "en" && region == "IN");
     match lang.as_str() {
-        "de" => ('.', ',', true),
-        "fr" => ('\u{202f}', ',', true),
+        "de" => ('.', ',', true, false),
+        "fr" => ('\u{202f}', ',', true, false),
         "en" | "th" | "ja" | "es" | "it" | "pt" | "nl" | "sv" | "da" | "nb" | "fi" | "ko"
-        | "zh" => (',', '.', false),
-        "ar" => ('٬', '٫', true),
-        "hi" => (',', '.', false),
-        _ => (',', '.', false),
+        | "zh" => (',', '.', false, indian),
+        "ar" => ('٬', '٫', true, false),
+        "hi" => (',', '.', false, true),
+        _ => (',', '.', false, false),
     }
 }
 
@@ -104,7 +110,7 @@ pub(crate) fn build_number_format_data(
         .map_err(|_| ctx.throw_range_error("Unable to load locale data"))?;
 
     // Locale-aware grouping/decimal separators (best-effort; CLDR-derived).
-    let (grouping_sep, decimal_sep, percent_space) = locale_separators(&locale);
+    let (grouping_sep, decimal_sep, percent_space, grouping_indian) = locale_separators(&locale);
 
     let mut data = NumberFormatData {
         locale,
@@ -118,15 +124,64 @@ pub(crate) fn build_number_format_data(
         style: Style::Decimal,
         currency: None,
         currency_display: "symbol",
+        numbering_system: "latn".to_string(),
         use_grouping: true,
         grouping_sep,
         decimal_sep,
         percent_space,
+        grouping_indian,
     };
 
     if !options.is_undefined() {
         apply_options(ctx, &mut data, options)?;
     }
+
+    // ECMA-402 ResolveLocale: strip `cu`/`nu` extension keys when an explicit
+    // option overrides them or their value is unsupported; strip all other
+    // `u`-extension keys (not relevant to NumberFormat).
+    let ns_opt: Option<&'static str> = if !options.is_undefined() {
+        let obj = options.objectify(ctx)?;
+        let ns = obj.get_property_str(ctx, "numberingSystem")?;
+        if ns.is_undefined() {
+            None
+        } else {
+            let s = to_utf8_string(ctx, ns)?;
+            Some(Box::leak(s.to_owned().into_boxed_str()) as &'static str)
+        }
+    } else {
+        None
+    };
+    // `cu` is a relevant NumberFormat key only in currency style; in other
+    // styles it is stripped (as an irrelevant `u`-extension key).
+    let nu_ext = locale_extension_value(&data.locale, "nu");
+    if matches!(data.style, Style::Currency) {
+        let cu_opt: Option<&'static str> = data
+            .currency
+            .as_deref()
+            .map(|s| Box::leak(s.to_owned().into_boxed_str()) as &'static str);
+        data.locale =
+            super::common::resolve_locale_keys(data.locale, &[("nu", ns_opt), ("cu", cu_opt)]);
+    } else {
+        data.locale = super::common::resolve_locale_keys(data.locale, &[("nu", ns_opt)]);
+    }
+    // Effective numbering system: explicit valid option > `nu` extension > latn.
+    let nu_ext_valid = nu_ext
+        .as_deref()
+        .is_some_and(|e| super::common::supported_extension_key_value("nu", e));
+    data.numbering_system = if let Some(opt) = ns_opt {
+        if super::common::supported_extension_key_value("nu", opt) {
+            opt.to_string()
+        } else if nu_ext_valid {
+            nu_ext.clone().unwrap()
+        } else {
+            "latn".to_string()
+        }
+    } else if nu_ext_valid {
+        nu_ext.clone().unwrap()
+    } else {
+        "latn".to_string()
+    };
+
     Ok(data)
 }
 
@@ -276,8 +331,22 @@ fn apply_options(
         }
         Style::Currency => {
             if max_frac.is_undefined() && min_frac.is_undefined() {
-                data.max_fraction_digits = 2;
-                data.min_fraction_digits = 2;
+                match data.notation {
+                    // The currency fraction-digit special handling only
+                    // applies to "standard" notation.
+                    Notation::Standard => {
+                        data.max_fraction_digits = 2;
+                        data.min_fraction_digits = 2;
+                    }
+                    Notation::CompactShort | Notation::CompactLong => {
+                        data.max_fraction_digits = 0;
+                        data.min_fraction_digits = 0;
+                    }
+                    _ => {
+                        data.max_fraction_digits = 3;
+                        data.min_fraction_digits = 0;
+                    }
+                }
             }
         }
         _ => {}
@@ -435,13 +504,11 @@ fn format_bigint_digits(
     }
     if this.use_grouping {
         // Group integer part with the locale grouping separator.
-        let chars: Vec<char> = int_part.chars().collect();
-        for (i, c) in chars.iter().enumerate() {
-            if i > 0 && (chars.len() - i) % 3 == 0 {
-                s.push(this.grouping_sep);
-            }
-            s.push(*c);
-        }
+        s.push_str(&group_integer(
+            &int_part,
+            this.grouping_sep,
+            this.grouping_indian,
+        ));
     } else {
         s.push_str(&int_part);
     }
@@ -465,6 +532,9 @@ pub(crate) fn format_value(
         let digits = digits.trim_start_matches('-');
         let mut s = format_bigint_digits(ctx, this, negative, digits)?;
         append_percent_suffix(this, &mut s);
+        if this.numbering_system != "latn" {
+            s = translate_digits(&s, &this.numbering_system);
+        }
         return Ok(s);
     }
 
@@ -500,6 +570,7 @@ fn format_f64(ctx: &mut ScopedContext, this: &NumberFormatData, n: f64) -> Resul
             this.use_grouping,
             this.grouping_sep,
             this.decimal_sep,
+            this.grouping_indian,
         )?
     } else {
         // Round to fraction digits; pad to the *minimum* fraction digits.
@@ -513,11 +584,125 @@ fn format_f64(ctx: &mut ScopedContext, this: &NumberFormatData, n: f64) -> Resul
             this.grouping_sep,
             this.decimal_sep,
             this.min_integer_digits,
+            this.grouping_indian,
         )?
     };
 
     append_percent_suffix(this, &mut s);
+    if this.numbering_system != "latn" {
+        s = translate_digits(&s, &this.numbering_system);
+    }
     Ok(s)
+}
+
+/// Replace ASCII digits in `s` with the digits of the given numbering system.
+/// Only the ECMA-402 "simple digit mapping" systems (where each digit maps to
+/// a distinct Unicode codepoint) are handled; `latn` and unknown systems are
+/// returned unchanged.
+pub(crate) fn translate_digits(s: &str, numbering_system: &str) -> String {
+    let digits = numbering_system_digits(numbering_system);
+    let Some(ds) = digits else {
+        return s.to_string();
+    };
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if let Some(d) = c.to_digit(10) {
+            out.push(ds[d as usize]);
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The 10 digit characters of a simple-digit-mapping numbering system, or
+/// None for `latn`/unknown systems.
+fn numbering_system_digits(ns: &str) -> Option<[char; 10]> {
+    fn seq(cp: u32) -> [char; 10] {
+        std::array::from_fn(|i| char::from_u32(cp + i as u32).unwrap_or('0'))
+    }
+    Some(match ns {
+        "latn" => return None,
+        "adlm" => seq(0x1e950),
+        "ahom" => seq(0x11730),
+        "arab" => seq(0x0660),
+        "arabext" => seq(0x06f0),
+        "bali" => seq(0x1b50),
+        "beng" => seq(0x09e6),
+        "bhks" => seq(0x11c50),
+        "brah" => seq(0x11066),
+        "cakm" => seq(0x11136),
+        "cham" => seq(0xaa50),
+        "deva" => seq(0x0966),
+        "diak" => seq(0x11950),
+        "fullwide" => seq(0xff10),
+        "gara" => seq(0x10d40),
+        "gong" => seq(0x11da0),
+        "gonm" => seq(0x11d50),
+        "gujr" => seq(0x0ae6),
+        "gukh" => seq(0x16130),
+        "guru" => seq(0x0a66),
+        "hmng" => seq(0x16b50),
+        "hmnp" => seq(0x1e140),
+        "java" => seq(0xa9d0),
+        "kali" => seq(0xa900),
+        "kawi" => seq(0x11f50),
+        "khmr" => seq(0x17e0),
+        "knda" => seq(0x0ce6),
+        "krai" => seq(0x16d70),
+        "lana" => seq(0x1a80),
+        "lanatham" => seq(0x1a90),
+        "laoo" => seq(0x0ed0),
+        "lepc" => seq(0x1c40),
+        "limb" => seq(0x1946),
+        "mathbold" => seq(0x1d7ce),
+        "mathdbl" => seq(0x1d7d8),
+        "mathmono" => seq(0x1d7f6),
+        "mathsanb" => seq(0x1d7ec),
+        "mathsans" => seq(0x1d7e2),
+        "mlym" => seq(0x0d66),
+        "modi" => seq(0x11650),
+        "mong" => seq(0x1810),
+        "mroo" => seq(0x16a60),
+        "mtei" => seq(0xabf0),
+        "mymr" => seq(0x1040),
+        "mymrepka" => seq(0x116da),
+        "mymrpao" => seq(0x116d0),
+        "mymrshan" => seq(0x1090),
+        "mymrtlng" => seq(0xa9f0),
+        "nagm" => seq(0x1e4f0),
+        "newa" => seq(0x11450),
+        "nkoo" => seq(0x07c0),
+        "olck" => seq(0x1c50),
+        "onao" => seq(0x1e5f1),
+        "orya" => seq(0x0b66),
+        "osma" => seq(0x104a0),
+        "outlined" => seq(0x1ccf0),
+        "rohg" => seq(0x10d30),
+        "saur" => seq(0xa8d0),
+        "segment" => seq(0x1fbf0),
+        "shrd" => seq(0x111d0),
+        "sind" => seq(0x112f0),
+        "sinh" => seq(0x0de6),
+        "sora" => seq(0x110f0),
+        "sund" => seq(0x1bb0),
+        "sunu" => seq(0x11bf0),
+        "takr" => seq(0x116c0),
+        "talu" => seq(0x19d0),
+        "tamldec" => seq(0x0be6),
+        "telu" => seq(0x0c66),
+        "thai" => seq(0x0e50),
+        "tibt" => seq(0x0f20),
+        "tirh" => seq(0x114d0),
+        "tnsa" => seq(0x16ac0),
+        "tols" => seq(0x11de0),
+        "vaii" => seq(0xa620),
+        "wara" => seq(0x118e0),
+        "wcho" => seq(0x1e2f0),
+        // hanidec uses distinct CJK numerals (〇一二三四五六七八九).
+        "hanidec" => ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'],
+        _ => return None,
+    })
 }
 
 /// Append the percent sign (with locale-appropriate spacing) for percent style.
@@ -547,14 +732,14 @@ fn format_fixed(
     grouping_sep: char,
     decimal_sep: char,
     min_int: i32,
+    grouping_indian: bool,
 ) -> Result<String, i32> {
-    // Format with the *maximum* fraction digits, then trim trailing zeros down
-    // to the *minimum*.
-    let f = if max_frac == 0 {
-        n.to_string()
-    } else {
-        format!("{:.*}", max_frac as usize, n)
-    };
+    // Use the *shortest* decimal representation (round-tripping the rounded
+    // f64), then trim trailing zeros down to the *minimum* fraction digits.
+    // This avoids exposing the full binary expansion for large integer values
+    // (e.g. 1.2344501e34 stays "12344501000000000000000000000000000" instead of
+    // the exact f64 digit string).
+    let f = format_shortest(n);
     // Split into sign/integer/fraction at the (single, ASCII) decimal point.
     let (sign, int_str, frac_str) = match f.find('.') {
         Some(dot) => {
@@ -576,8 +761,10 @@ fn format_fixed(
         }
     };
 
-    // Trim trailing zeros of the fraction down to `min_frac`.
-    let nz = frac_str.trim_end_matches('0');
+    // Cap the fraction at `max_frac`, then trim trailing zeros down to
+    // `min_frac` (padding with zeros up to `min_frac` when needed).
+    let capped: String = frac_str.chars().take(max_frac as usize).collect();
+    let nz = capped.trim_end_matches('0');
     let keep = if min_frac == 0 && nz.is_empty() {
         0
     } else {
@@ -594,7 +781,7 @@ fn format_fixed(
         );
     }
     if use_grouping {
-        int_part = group_integer(&int_part, grouping_sep);
+        int_part = group_integer(&int_part, grouping_sep, grouping_indian);
     }
 
     let mut out = String::new();
@@ -602,7 +789,12 @@ fn format_fixed(
     out.push_str(&int_part);
     if keep > 0 {
         out.push(decimal_sep);
-        out.push_str(&frac_str[..keep]);
+        // Pad the fraction to the target length (which may exceed `capped`
+        // when `min_frac` requires trailing zeros).
+        out.push_str(&capped);
+        if capped.len() < keep {
+            out.push_str(&"0".repeat(keep - capped.len()));
+        }
     }
     Ok(out)
 }
@@ -625,36 +817,22 @@ fn pad_min_integer(s: &mut String, min_int: i32) {
     }
 }
 
-fn insert_grouping(s: &mut String, grouping_sep: char) {
+fn insert_grouping(s: &mut String, grouping_sep: char, indian: bool) {
     // Insert grouping separators into the integer part (locale-aware).
     if let Some(dot) = s.find('.') {
         let int_part = &s[..dot];
-        let mut grouped = String::new();
-        let chars: Vec<char> = int_part.chars().collect();
-        let neg = !chars.is_empty() && chars[0] == '-';
-        let digits = if neg { &chars[1..] } else { &chars[..] };
-        for (i, c) in digits.iter().enumerate() {
-            if i > 0 && (digits.len() - i) % 3 == 0 {
-                grouped.push(grouping_sep);
-            }
-            grouped.push(*c);
-        }
-        if neg {
-            *s = format!("-{}{}", grouped, &s[dot..]);
+        let neg = int_part.starts_with('-');
+        let digits = if neg { &int_part[1..] } else { int_part };
+        let grouped = group_integer(digits, grouping_sep, indian);
+        *s = if neg {
+            format!("-{}{}", grouped, &s[dot..])
         } else {
-            *s = format!("{}{}", grouped, &s[dot..]);
-        }
+            format!("{}{}", grouped, &s[dot..])
+        };
     } else {
-        let mut grouped = String::new();
-        let chars: Vec<char> = s.chars().collect();
-        let neg = !chars.is_empty() && chars[0] == '-';
-        let digits = if neg { &chars[1..] } else { &chars[..] };
-        for (i, c) in digits.iter().enumerate() {
-            if i > 0 && (digits.len() - i) % 3 == 0 {
-                grouped.push(grouping_sep);
-            }
-            grouped.push(*c);
-        }
+        let neg = s.starts_with('-');
+        let digits = if neg { &s[1..] } else { s.as_str() };
+        let grouped = group_integer(digits, grouping_sep, indian);
         *s = if neg {
             format!("-{}", grouped)
         } else {
@@ -663,15 +841,31 @@ fn insert_grouping(s: &mut String, grouping_sep: char) {
     }
 }
 
-/// Group a sign-less digit string with `grouping_sep` every three digits.
-fn group_integer(digits: &str, grouping_sep: char) -> String {
+/// Group a sign-less digit string with `grouping_sep`. Standard grouping is
+/// every three digits; Indian grouping (hi/en-IN) uses a last group of 3 then
+/// groups of 2.
+fn group_integer(digits: &str, grouping_sep: char, indian: bool) -> String {
     let chars: Vec<char> = digits.chars().collect();
+    let n = chars.len();
     let mut grouped = String::new();
-    for (i, c) in chars.iter().enumerate() {
-        if i > 0 && (chars.len() - i) % 3 == 0 {
-            grouped.push(grouping_sep);
+    if indian {
+        // Indian grouping: the last group is 3 digits, the preceding groups
+        // are 2 digits each. A separator is inserted before digit positions
+        // whose remaining count is odd and >= 3 (from the right).
+        for (i, c) in chars.iter().enumerate() {
+            let remaining = n - i;
+            if i > 0 && remaining >= 3 && remaining % 2 == 1 {
+                grouped.push(grouping_sep);
+            }
+            grouped.push(*c);
         }
-        grouped.push(*c);
+    } else {
+        for (i, c) in chars.iter().enumerate() {
+            if i > 0 && (n - i) % 3 == 0 {
+                grouped.push(grouping_sep);
+            }
+            grouped.push(*c);
+        }
     }
     grouped
 }
@@ -684,27 +878,191 @@ fn format_with_significant(
     use_grouping: bool,
     grouping_sep: char,
     decimal_sep: char,
+    grouping_indian: bool,
 ) -> Result<String, i32> {
-    // Round n to `max` significant digits.
+    // Format the value as its shortest round-trip decimal, then round to `max`
+    // significant digits and pad to `min` — all in decimal-string space (this
+    // avoids f64 division errors on large values).
     if n == 0.0 {
-        let s = format!("{:.*}", (min as usize).saturating_sub(1).min(20), 0.0);
+        // "0" padded to `min` significant digits (preserve the -0 sign).
+        let neg = n.is_sign_negative();
+        let mut s = String::new();
+        if neg {
+            s.push('-');
+        }
+        s.push('0');
+        if min > 1 {
+            s.push(decimal_sep);
+            s.push_str(&"0".repeat((min as usize).saturating_sub(1)));
+        }
         return Ok(s);
     }
-    let exponent = n.abs().log10().floor() as i32;
-    let scale = 10f64.powi(max as i32 - 1 - exponent);
-    let rounded = (n * scale).round() / scale;
-    // Determine fractional digits needed.
-    let frac = (max as i32 - 1 - exponent).max(0);
-    let mut s = format!("{:.*}", frac.min(20) as usize, rounded);
-    if use_grouping {
-        insert_grouping(&mut s, grouping_sep);
-    }
-    if decimal_sep != '.' {
-        if let Some(i) = s.rfind('.') {
-            s.replace_range(i..=i, &decimal_sep.to_string());
+
+    let neg = n.is_sign_negative();
+    let mag = n.abs();
+    let mut s = format_shortest(mag);
+    let exp = mag.log10().floor() as i32;
+
+    // Reassemble into an "all-digits + scale" form: digits is the full digit
+    // string with an implied decimal point after `int_len` digits.
+    let (int_str, frac_str) = match s.find('.') {
+        Some(dot) => (s[..dot].to_string(), s[dot + 1..].to_string()),
+        None => (s.clone(), String::new()),
+    };
+    let mut all_digits: Vec<char> = int_str.chars().chain(frac_str.chars()).collect();
+    let mut int_len = int_str.len();
+    // Locate the first significant digit (skip leading zeros).
+    let first_nz = all_digits.iter().position(|&c| c != '0');
+    let sig_start = first_nz.unwrap_or(all_digits.len());
+    let sig_count = all_digits.len() - sig_start;
+
+    if sig_count > max as usize {
+        // Round the significant digits to `max` digits.
+        let keep = max as usize;
+        let mut digits: Vec<char> = all_digits[sig_start..sig_start + keep].to_vec();
+        let rest = &all_digits[sig_start + keep..];
+        if rest.iter().any(|&c| c != '0') && rest[0] >= '5' {
+            // Increment the kept digits; propagate carry.
+            let mut carry = true;
+            for i in (0..digits.len()).rev() {
+                if carry {
+                    if digits[i] == '9' {
+                        digits[i] = '0';
+                    } else {
+                        digits[i] = char::from_u32(digits[i] as u32 + 1).unwrap();
+                        carry = false;
+                    }
+                }
+            }
+            if carry {
+                // Rounding carried past the top digit (e.g. 9999… → 10000…).
+                digits.insert(0, '1');
+                int_len += 1;
+            }
+        }
+        // Rebuild the digit sequence: leading zeros + kept digits + zero-fill
+        // to preserve the original magnitude (digits after the kept ones are 0).
+        let orig_len = all_digits.len();
+        all_digits.truncate(sig_start);
+        all_digits.extend_from_slice(&digits);
+        while all_digits.len() < orig_len {
+            all_digits.push('0');
         }
     }
-    Ok(s)
+
+    // Reconstruct the decimal string: place the point after `int_len` digits.
+    let int_digits: String = all_digits.iter().take(int_len).collect();
+    let frac_digits: String = all_digits.iter().skip(int_len).collect();
+    let int_digits = if int_digits.is_empty() {
+        "0".to_string()
+    } else {
+        int_digits
+    };
+    let frac_trimmed = frac_digits.trim_end_matches('0').to_string();
+    let mut result = if frac_trimmed.is_empty() {
+        int_digits.clone()
+    } else {
+        format!("{}.{}", int_digits, frac_trimmed)
+    };
+
+    // Now adjust significant-digit count to lie within [min, max].
+    let mut count = count_sig_digits(&int_digits, &frac_trimmed);
+    while count < min as usize {
+        result.push('0');
+        count += 1;
+    }
+
+    let mut out = if neg { format!("-{}", result) } else { result };
+    if use_grouping {
+        insert_grouping(&mut out, grouping_sep, grouping_indian);
+    }
+    if decimal_sep != '.' {
+        if let Some(i) = out.rfind('.') {
+            out.replace_range(i..=i, &decimal_sep.to_string());
+        }
+    }
+    Ok(out)
+}
+
+/// Count the number of significant digits in an integer/fraction split.
+fn count_sig_digits(int_digits: &str, frac_digits: &str) -> usize {
+    let ic: Vec<char> = int_digits.chars().collect();
+    let first_nz = ic.iter().position(|&c| c != '0');
+    if let Some(start) = first_nz {
+        let mut count = ic.len() - start;
+        let mut seen_nz = ic.iter().skip(start).any(|&c| c != '0');
+        for c in frac_digits.chars() {
+            if seen_nz {
+                count += 1;
+            }
+            if c != '0' {
+                seen_nz = true;
+            }
+        }
+        count
+    } else {
+        let mut count = 0;
+        let mut seen_nz = false;
+        for c in frac_digits.chars() {
+            if seen_nz {
+                count += 1;
+            }
+            if c != '0' {
+                seen_nz = true;
+                count += 1;
+            }
+        }
+        count
+    }
+}
+
+/// Shortest decimal representation of an `f64`, avoiding exponent notation for
+/// the magnitudes handled by Intl.NumberFormat significant-digit formatting.
+fn format_shortest(n: f64) -> String {
+    let s = format!("{}", n);
+    // Rust may emit exponent notation (e.g. "1.2e-30"); expand to a plain
+    // decimal string so the significant-digit logic can count digits.
+    if s.contains('e') || s.contains('E') {
+        expand_exponent(&s)
+    } else {
+        s
+    }
+}
+
+/// Expand a decimal with an exponent (e.g. "1.2e-30", "1.2345e34") into a
+/// plain fixed-point string.
+fn expand_exponent(s: &str) -> String {
+    let (mantissa, exp) = match s.find(['e', 'E']) {
+        Some(i) => (&s[..i], s[i + 1..].parse::<i32>().unwrap_or(0)),
+        None => return s.to_string(),
+    };
+    let (sign, mantissa) = if let Some(stripped) = mantissa.strip_prefix('-') {
+        ("-", stripped)
+    } else {
+        ("", mantissa)
+    };
+    let (int_digits, frac_digits) = match mantissa.find('.') {
+        Some(dot) => (mantissa[..dot].to_string(), mantissa[dot + 1..].to_string()),
+        None => (mantissa.to_string(), String::new()),
+    };
+    let all_digits = format!("{}{}", int_digits, frac_digits);
+    // decimal point position: after `int_digits.len()` + exp places.
+    let point = int_digits.len() as i32 + exp;
+    let mut out = String::new();
+    out.push_str(sign);
+    if point <= 0 {
+        out.push_str("0.");
+        out.push_str(&"0".repeat((-point) as usize));
+        out.push_str(&all_digits);
+    } else if (point as usize) >= all_digits.len() {
+        out.push_str(&all_digits);
+        out.push_str(&"0".repeat((point as usize) - all_digits.len()));
+    } else {
+        out.push_str(&all_digits[..point as usize]);
+        out.push('.');
+        out.push_str(&all_digits[point as usize..]);
+    }
+    out
 }
 
 /// `Intl.NumberFormat.prototype.formatToParts(value)`: returns an array of
@@ -757,9 +1115,9 @@ fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
         .ok_or_else(|| ctx.throw_type_error("not a NumberFormat"))?;
     let mut o = ctx.create_base_object()?;
     let _v1 = locale_to_string(ctx, &this.locale)?;
-    o.set_property_str(ctx, "locale", _v1)?;
-    let _v2 = make_str(ctx, b"latn".to_vec())?;
-    o.set_property_str(ctx, "numberingSystem", _v2)?;
+    o.define_property_value_str(ctx, "locale", _v1, JS_PROP_C_W_E)?;
+    let _v2 = make_str(ctx, this.numbering_system.as_bytes().to_vec())?;
+    o.define_property_value_str(ctx, "numberingSystem", _v2, JS_PROP_C_W_E)?;
     let style = make_str(
         ctx,
         match this.style {
@@ -769,7 +1127,7 @@ fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
             Style::Unit => b"unit".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "style", style)?;
+    o.define_property_value_str(ctx, "style", style, JS_PROP_C_W_E)?;
     let notation = make_str(
         ctx,
         match this.notation {
@@ -780,34 +1138,52 @@ fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
             Notation::Engineering => b"engineering".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "notation", notation)?;
-    o.set_property_str(
+    o.define_property_value_str(ctx, "notation", notation, JS_PROP_C_W_E)?;
+    o.define_property_value_str(
         ctx,
         "minimumIntegerDigits",
         JSValue::from(this.min_integer_digits),
+        JS_PROP_C_W_E,
     )?;
-    o.set_property_str(ctx, "useGrouping", JSValue::from(this.use_grouping))?;
-    o.set_property_str(
+    o.define_property_value_str(
+        ctx,
+        "useGrouping",
+        JSValue::from(this.use_grouping),
+        JS_PROP_C_W_E,
+    )?;
+    o.define_property_value_str(
         ctx,
         "minimumFractionDigits",
         JSValue::from(this.min_fraction_digits),
+        JS_PROP_C_W_E,
     )?;
-    o.set_property_str(
+    o.define_property_value_str(
         ctx,
         "maximumFractionDigits",
         JSValue::from(this.max_fraction_digits),
+        JS_PROP_C_W_E,
     )?;
     if let Some(min) = this.min_significant_digits {
-        o.set_property_str(ctx, "minimumSignificantDigits", JSValue::from(min as i32))?;
+        o.define_property_value_str(
+            ctx,
+            "minimumSignificantDigits",
+            JSValue::from(min as i32),
+            JS_PROP_C_W_E,
+        )?;
     }
     if let Some(max) = this.max_significant_digits {
-        o.set_property_str(ctx, "maximumSignificantDigits", JSValue::from(max as i32))?;
+        o.define_property_value_str(
+            ctx,
+            "maximumSignificantDigits",
+            JSValue::from(max as i32),
+            JS_PROP_C_W_E,
+        )?;
     }
     if let Some(c) = &this.currency {
         let _v3 = make_str(ctx, c.clone().into_bytes())?;
-        o.set_property_str(ctx, "currency", _v3)?;
+        o.define_property_value_str(ctx, "currency", _v3, JS_PROP_C_W_E)?;
         let _v4 = make_str(ctx, this.currency_display.as_bytes().to_vec())?;
-        o.set_property_str(ctx, "currencyDisplay", _v4)?;
+        o.define_property_value_str(ctx, "currencyDisplay", _v4, JS_PROP_C_W_E)?;
     }
     Ok(o.into())
 }

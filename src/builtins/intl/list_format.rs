@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 
@@ -193,31 +193,32 @@ fn js_list_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> 
         .this()
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a ListFormat"))?;
-    let this = this_obj
+    let p = this_obj
         .payload()
         .intl_list_format()
         .ok_or_else(|| ctx.throw_type_error("not a ListFormat"))?;
+
     let mut o = ctx.create_base_object()?;
-    let _v3 = locale_to_string(ctx, &this.locale)?;
-    o.set_property_str(ctx, "locale", _v3)?;
+    let _v3 = locale_to_string(ctx, &p.locale)?;
+    o.define_property_value_str(ctx, "locale", _v3, JS_PROP_C_W_E)?;
     let style = make_str(
         ctx,
-        match this.style {
+        match p.style {
             ListStyle::Long => b"long".to_vec(),
             ListStyle::Short => b"short".to_vec(),
             ListStyle::Narrow => b"narrow".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "style", style)?;
+    o.define_property_value_str(ctx, "style", style, JS_PROP_C_W_E)?;
     let list_type = make_str(
         ctx,
-        match this.list_type {
+        match p.list_type {
             ListType::Conjunction => b"conjunction".to_vec(),
             ListType::Disjunction => b"disjunction".to_vec(),
             ListType::Unit => b"unit".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "type", list_type)?;
+    o.define_property_value_str(ctx, "type", list_type, JS_PROP_C_W_E)?;
     Ok(o.into())
 }
 

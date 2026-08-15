@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 
@@ -23,6 +23,7 @@ pub(crate) struct RelativeTimeFormatData {
     pub locale: Locale,
     pub style: RelStyle,
     pub numeric: RelNumeric,
+    pub numbering_system: String,
 }
 
 impl GcTrace for RelativeTimeFormatData {
@@ -64,6 +65,7 @@ pub(crate) fn js_relative_time_format_constructor(
         locale,
         style: RelStyle::Long,
         numeric: RelNumeric::Always,
+        numbering_system: "latn".to_string(),
     };
 
     if !options.is_undefined() {
@@ -87,6 +89,40 @@ pub(crate) fn js_relative_time_format_constructor(
             };
         }
     }
+
+    // Effective numbering system: explicit valid option > `nu` extension > latn.
+    let ns_opt: Option<String> = if !options.is_undefined() {
+        let obj = options.objectify(ctx)?;
+        let ns = obj.get_property_str(ctx, "numberingSystem")?;
+        if ns.is_undefined() {
+            None
+        } else {
+            Some(to_utf8_string(ctx, ns)?)
+        }
+    } else {
+        None
+    };
+    let ns_static: Option<&'static str> = ns_opt
+        .as_deref()
+        .map(|s| Box::leak(s.to_owned().into_boxed_str()) as &'static str);
+    let nu_ext = super::common::locale_extension_value(&data.locale, "nu");
+    let nu_ext_valid = nu_ext
+        .as_deref()
+        .is_some_and(|e| super::common::supported_extension_key_value("nu", e));
+    data.numbering_system = if let Some(opt) = ns_static {
+        if super::common::supported_extension_key_value("nu", opt) {
+            opt.to_string()
+        } else if nu_ext_valid {
+            nu_ext.clone().unwrap()
+        } else {
+            "latn".to_string()
+        }
+    } else if nu_ext_valid {
+        nu_ext.clone().unwrap()
+    } else {
+        "latn".to_string()
+    };
+    data.locale = super::common::resolve_locale_keys(data.locale, &[("nu", ns_static)]);
 
     let instance = ctx
         .create_instance_with_ctor(
@@ -135,60 +171,68 @@ fn format_relative(this: &RelativeTimeFormatData, n: f64, unit: &str) -> Result<
     if n.is_nan() {
         return Ok("NaN".to_string());
     }
-    if unit != "second"
-        && unit != "minute"
-        && unit != "hour"
-        && unit != "day"
-        && unit != "week"
-        && unit != "month"
-        && unit != "quarter"
-        && unit != "year"
-    {
-        return Err(0);
-    }
-
-    // Singular/plural unit names (en-US).
-    let singular = unit.to_string();
-    let plural = match unit {
-        "second" => "seconds",
-        "minute" => "minutes",
-        "hour" => "hours",
-        "day" => "days",
-        "week" => "weeks",
-        "month" => "months",
-        "quarter" => "quarters",
-        "year" => "years",
-        _ => unit,
+    // Accept both singular and plural unit names (e.g. "second" and "seconds").
+    let (singular, plural): (&str, &str) = match unit {
+        "second" | "seconds" => ("second", "seconds"),
+        "minute" | "minutes" => ("minute", "minutes"),
+        "hour" | "hours" => ("hour", "hours"),
+        "day" | "days" => ("day", "days"),
+        "week" | "weeks" => ("week", "weeks"),
+        "month" | "months" => ("month", "months"),
+        "quarter" | "quarters" => ("quarter", "quarters"),
+        "year" | "years" => ("year", "years"),
+        _ => return Err(0),
     };
+    let singular = singular.to_string();
+    let plural = plural.to_string();
 
     let abs = n.abs().round();
-    let unit_word = if abs == 1.0 { &singular } else { plural };
-    let num = format_abs_number(n);
+    let unit_word = if abs == 1.0 { singular.clone() } else { plural };
+    // Group the integer part (en-US style) and apply the locale's numbering
+    // system, mirroring the internal NumberFormat used by RTF.
+    let format = |v: f64| -> String {
+        let mut s = if v == v.trunc() {
+            format!("{}", v as i64)
+        } else {
+            v.to_string()
+        };
+        if let Some(i) = s.find('.') {
+            // group the integer portion
+            let int = &s[..i];
+            let frac = &s[i..];
+            s = format!("{}{}", group_integer(int), frac);
+        } else {
+            s = group_integer(&s);
+        }
+        if this.numbering_system != "latn" {
+            s = super::number_format::translate_digits(&s, &this.numbering_system);
+        }
+        s
+    };
     let rel = if n < 0.0 {
-        format!("{} {} ago", abs_num(abs), unit_word)
+        format!("{} {} ago", format(abs), unit_word)
     } else if n > 0.0 {
-        format!("in {} {}", num, unit_word)
+        format!("in {} {}", format(n), unit_word)
     } else {
         match this.numeric {
             RelNumeric::Auto => format!("this {}", singular),
             RelNumeric::Always => format!("in 0 {}", unit_word),
         }
     };
-    let _ = num;
     Ok(rel)
 }
 
-fn abs_num(n: f64) -> String {
-    format!("{}", n as i64)
-}
-
-fn format_abs_number(n: f64) -> String {
-    let a = n.abs();
-    if a == a.trunc() {
-        format!("{}", a as i64)
-    } else {
-        a.to_string()
+/// Insert thousands separators into an integer digit string.
+fn group_integer(int: &str) -> String {
+    let chars: Vec<char> = int.chars().collect();
+    let mut out = String::with_capacity(int.len() + int.len() / 3);
+    for (i, c) in chars.iter().enumerate() {
+        if i > 0 && (chars.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(*c);
     }
+    out
 }
 
 fn js_relative_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -224,7 +268,7 @@ fn js_relative_time_format_resolved_options(ctx: &mut ScopedContext, cc: CallCon
         .ok_or_else(|| ctx.throw_type_error("not a RelativeTimeFormat"))?;
     let mut o = ctx.create_base_object()?;
     let _v3 = locale_to_string(ctx, &this.locale)?;
-    o.set_property_str(ctx, "locale", _v3)?;
+    o.define_property_value_str(ctx, "locale", _v3, JS_PROP_C_W_E)?;
     let style = make_str(
         ctx,
         match this.style {
@@ -233,7 +277,7 @@ fn js_relative_time_format_resolved_options(ctx: &mut ScopedContext, cc: CallCon
             RelStyle::Narrow => b"narrow".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "style", style)?;
+    o.define_property_value_str(ctx, "style", style, JS_PROP_C_W_E)?;
     let numeric = make_str(
         ctx,
         match this.numeric {
@@ -241,7 +285,9 @@ fn js_relative_time_format_resolved_options(ctx: &mut ScopedContext, cc: CallCon
             RelNumeric::Auto => b"auto".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "numeric", numeric)?;
+    o.define_property_value_str(ctx, "numeric", numeric, JS_PROP_C_W_E)?;
+    let ns = make_str(ctx, this.numbering_system.as_bytes().to_vec())?;
+    o.define_property_value_str(ctx, "numberingSystem", ns, JS_PROP_C_W_E)?;
     Ok(o.into())
 }
 

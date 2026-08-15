@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 
@@ -180,26 +180,27 @@ fn js_display_names_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
         .this()
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a DisplayNames"))?;
-    let this = this_obj
+    let p = this_obj
         .payload()
         .intl_display_names()
         .ok_or_else(|| ctx.throw_type_error("not a DisplayNames"))?;
+
     let mut o = ctx.create_base_object()?;
-    let _v1 = locale_to_string(ctx, &this.locale)?;
-    o.set_property_str(ctx, "locale", _v1)?;
+    let _v1 = locale_to_string(ctx, &p.locale)?;
+    o.define_property_value_str(ctx, "locale", _v1, JS_PROP_C_W_E)?;
     let _v4 = make_str(
         ctx,
-        match this.style {
+        match p.style {
             DisplayStyle::Narrow => b"narrow".to_vec(),
             DisplayStyle::Short => b"short".to_vec(),
             DisplayStyle::Long => b"long".to_vec(),
             DisplayStyle::Abbreviated => b"abbreviated".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "style", _v4)?;
+    o.define_property_value_str(ctx, "style", _v4, JS_PROP_C_W_E)?;
     let _v5 = make_str(
         ctx,
-        match this.display_type {
+        match p.display_type {
             DisplayType::Language => b"language".to_vec(),
             DisplayType::Region => b"region".to_vec(),
             DisplayType::Script => b"script".to_vec(),
@@ -208,11 +209,12 @@ fn js_display_names_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
             DisplayType::DateTimeField => b"dateTimeField".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "type", _v5)?;
+    o.define_property_value_str(ctx, "type", _v5, JS_PROP_C_W_E)?;
     let _v2 = make_str(ctx, b"code".to_vec())?;
-    o.set_property_str(ctx, "fallback", _v2)?;
+    o.define_property_value_str(ctx, "fallback", _v2, JS_PROP_C_W_E)?;
     let _v3 = make_str(ctx, b"dialect".to_vec())?;
-    o.set_property_str(ctx, "languageDisplay", _v3)?;
+    o.define_property_value_str(ctx, "languageDisplay", _v3, JS_PROP_C_W_E)?;
+
     Ok(o.into())
 }
 

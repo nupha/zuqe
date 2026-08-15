@@ -3,14 +3,14 @@
 
 //! ECMA-402 `Intl.Collator` (§9).
 
-use icu::locale::Locale;
+use icu::locale::{Locale, extensions::unicode::Key};
 
 use crate::{
     Atom, ClassCtorDef, ClassDef, ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 
@@ -26,6 +26,7 @@ pub(crate) struct CollatorData {
     pub numeric: bool,
     pub ignore_punctuation: bool,
     pub usage: &'static str,
+    pub collation: &'static str,
     pub collator: icu::collator::CollatorBorrowed<'static>,
 }
 
@@ -54,10 +55,14 @@ pub(crate) static CLASS_DEF_COLLATOR: ClassDef = ClassDef::builtin(
     Some(ClassCtorDef::new(js_collator_constructor, 0, true)),
 );
 
-pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let new_target = cc.this();
-    let locale = resolve_locale(ctx, cc.arg(0))?;
-    let options = cc.arg(1);
+/// Build a `CollatorData` from `(locales, options)`, used by both the
+/// `Intl.Collator` constructor and `String.prototype.localeCompare`.
+pub(crate) fn build_collator_data(
+    ctx: &mut ScopedContext,
+    locales: JSValue,
+    options: JSValue,
+) -> Result<CollatorData, i32> {
+    let locale = resolve_locale(ctx, locales)?;
 
     // Defaults: variant sensitivity, caseFirst "false", numeric false.
     let mut sensitivity = CollationSensitivity::Variant;
@@ -67,6 +72,12 @@ pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) 
     let lang = locale.id.language.to_string();
     let mut ignore_punctuation = lang == "th";
     let mut usage = "sort";
+    // Effective explicit option values for the Collator relevant extension
+    // keys (None when the option was not provided). Used by ResolveLocale to
+    // strip a Unicode extension key from the resolved locale.
+    let mut collation_option: Option<&'static str> = None;
+    let mut case_first_option: Option<&'static str> = None;
+    let mut numeric_option: Option<&'static str> = None;
 
     // Read the unicode extension (`u-co`, `u-kn`, `u-kf`) resolved into the
     // canonical locale, plus the explicit options which take precedence.
@@ -105,16 +116,22 @@ pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) 
         let case_first_val = obj.get_property_str(ctx, "caseFirst")?;
         if !case_first_val.is_undefined() {
             let s = to_utf8_string(ctx, case_first_val)?;
-            case_first = match s.as_str() {
-                "upper" => CaseFirst::Upper,
-                "lower" => CaseFirst::Lower,
-                "false" => CaseFirst::False,
+            case_first_option = Some(match s.as_str() {
+                "upper" => "upper",
+                "lower" => "lower",
+                "false" => "false",
                 _ => return Err(ctx.throw_range_error("Invalid caseFirst value")),
+            });
+            case_first = match case_first_option {
+                Some("upper") => CaseFirst::Upper,
+                Some("lower") => CaseFirst::Lower,
+                _ => CaseFirst::False,
             };
         }
         let numeric_val = obj.get_property_str(ctx, "numeric")?;
         if !numeric_val.is_undefined() {
             numeric = numeric_val.to_bool()?;
+            numeric_option = Some(if numeric { "true" } else { "false" });
         }
         let ignore_val = obj.get_property_str(ctx, "ignorePunctuation")?;
         if !ignore_val.is_undefined() {
@@ -144,6 +161,7 @@ pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) 
             if s.is_empty() {
                 return Err(ctx.throw_range_error("Invalid collation value"));
             }
+            collation_option = Some(s.leak());
         }
     }
 
@@ -189,20 +207,81 @@ pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) 
     let icu_collator = CollatorBorrowed::try_new(prefs, opts)
         .map_err(|_| ctx.throw_range_error("Unable to load collation data"))?;
 
-    let data = CollatorData {
+    // Effective collation for `resolvedOptions.collation`: the `-u-co`
+    // extension value if present and supported, else the explicit `collation`
+    // option if supported, else "default".
+    let lang = locale.id.language.to_string();
+    let co_key = "co".parse::<Key>().ok();
+    let ext_collation = co_key
+        .and_then(|k| locale.extensions.unicode.keywords.get(&k))
+        .map(|v| v.to_string());
+    // A supported explicit `collation` option wins over the extension value;
+    // otherwise the supported extension value is used; else "default".
+    let collation = if let Some(opt) = collation_option
+        && supported_collation(&lang, opt)
+        && opt != "standard"
+    {
+        opt.to_string()
+    } else if let Some(ext) = &ext_collation
+        && supported_collation(&lang, ext)
+        && ext != "standard"
+    {
+        ext.clone()
+    } else {
+        "default".to_string()
+    };
+    // `collation` is a static string (either a leaked `collation_option` or a
+    // leaked extension value).
+    let collation = Box::leak(collation.into_boxed_str()) as &'static str;
+
+    // ECMA-402 ResolveLocale: when an option is set and differs from the
+    // corresponding Unicode extension value, or the extension value is
+    // unsupported, the extension key is stripped from the resolved locale.
+    let locale = super::common::resolve_locale_keys(
+        locale,
+        &[
+            ("co", collation_option),
+            ("kf", case_first_option),
+            ("kn", numeric_option),
+        ],
+    );
+
+    Ok(CollatorData {
         locale,
         sensitivity,
         case_first,
         numeric,
         ignore_punctuation,
         usage,
+        collation,
         collator: icu_collator,
-    };
+    })
+}
 
+/// Whether a collation type is supported for the given language.
+fn supported_collation(lang: &str, collation: &str) -> bool {
+    match lang {
+        "de" => matches!(collation, "phonebk" | "phonebook" | "eor"),
+        "en" => matches!(collation, "eor" | "emoji" | "stroke" | "unicode"),
+        "zh" => matches!(collation, "pinyin" | "stroke" | "gb2312" | "zhuyin"),
+        "fr" => collation == "reformed",
+        _ => false,
+    }
+}
+
+pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let new_target = cc.this();
+    let data = build_collator_data(ctx, cc.arg(0), cc.arg(1))?;
     let instance = ctx
         .create_instance_with_ctor(new_target, ObjectPayload::INTL_COLLATOR(Box::new(data)))
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
+}
+
+/// Compare two strings using an ICU4X collator. Exposed for
+/// `String.prototype.localeCompare`.
+pub(crate) fn compare_collator_data(data: &CollatorData, a: &str, b: &str) -> std::cmp::Ordering {
+    data.collator.compare(a, b)
 }
 
 /// Compares two strings using the ICU4X collator (locale + options aware).
@@ -254,11 +333,12 @@ fn js_collator_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSR
         .ok_or_else(|| ctx.throw_type_error("not a Collator"))?;
     let mut o = ctx.create_base_object()?;
     // Property order must be: locale, usage, sensitivity, ignorePunctuation,
-    // collation, numeric, caseFirst.
+    // collation, numeric, caseFirst. Use CreateDataProperty semantics so a
+    // tainted `Object.prototype` setter is not invoked.
     let v_locale = locale_to_string(ctx, &this.locale)?;
-    o.set_property_str(ctx, "locale", v_locale)?;
+    o.define_property_value_str(ctx, "locale", v_locale, JS_PROP_C_W_E)?;
     let v_usage = make_str(ctx, this.usage.as_bytes().to_vec())?;
-    o.set_property_str(ctx, "usage", v_usage)?;
+    o.define_property_value_str(ctx, "usage", v_usage, JS_PROP_C_W_E)?;
     let v_sens = make_str(
         ctx,
         match this.sensitivity {
@@ -268,15 +348,16 @@ fn js_collator_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSR
             CollationSensitivity::Variant => b"variant".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "sensitivity", v_sens)?;
-    o.set_property_str(
+    o.define_property_value_str(ctx, "sensitivity", v_sens, JS_PROP_C_W_E)?;
+    o.define_property_value_str(
         ctx,
         "ignorePunctuation",
         JSValue::from(this.ignore_punctuation),
+        JS_PROP_C_W_E,
     )?;
-    let v_coll = make_str(ctx, b"default".to_vec())?;
-    o.set_property_str(ctx, "collation", v_coll)?;
-    o.set_property_str(ctx, "numeric", JSValue::from(this.numeric))?;
+    let v_coll = make_str(ctx, this.collation.as_bytes().to_vec())?;
+    o.define_property_value_str(ctx, "collation", v_coll, JS_PROP_C_W_E)?;
+    o.define_property_value_str(ctx, "numeric", JSValue::from(this.numeric), JS_PROP_C_W_E)?;
     let v_cf = make_str(
         ctx,
         match this.case_first {
@@ -285,7 +366,7 @@ fn js_collator_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSR
             CaseFirst::Lower => b"lower".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "caseFirst", v_cf)?;
+    o.define_property_value_str(ctx, "caseFirst", v_cf, JS_PROP_C_W_E)?;
     Ok(o.into())
 }
 

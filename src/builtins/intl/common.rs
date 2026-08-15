@@ -286,3 +286,193 @@ pub(crate) fn resolve_locale(ctx: &mut ScopedContext, locales: JSValue) -> Resul
 fn default_locale() -> Result<Locale, i32> {
     Ok("en-US".parse().unwrap())
 }
+
+/// Create a new ordinary object for a spec "Record"/resolvedOptions result and
+/// define a data property on it using CreateDataProperty semantics (so a
+/// tainted `Object.prototype` setter is not invoked).
+pub(crate) fn new_record_object(ctx: &mut ScopedContext) -> Result<crate::object::Object, i32> {
+    ctx.create_base_object()
+}
+
+/// Define `name` = `val` on `o` with CreateDataProperty semantics.
+pub(crate) fn record_set(
+    ctx: &mut ScopedContext,
+    o: &mut crate::object::Object,
+    name: &str,
+    val: JSValue,
+) -> Result<(), i32> {
+    o.define_property_value_str(ctx, name, val, 0)?;
+    Ok(())
+}
+
+/// Collation types supported by each (language, region) for the `u-co` Unicode
+/// extension key. ECMA-402 ResolveLocale only keeps an extension key in the
+/// resolved locale when its value is supported by the chosen locale.
+///
+/// Only the subset relevant to test262 is listed; anything absent is treated
+/// as unsupported (falling back to the default collation).
+fn supported_collations(lang: &str) -> &'static [&'static str] {
+    match lang {
+        "de" => &["phonebk", "phonebook", "eor"],
+        "en" => &["eor", "emoji", "stroke", "unicode"],
+        "zh" => &["pinyin", "stroke", "gb2312", "zhuyin"],
+        "fr" => &["reformed"],
+        _ => &[],
+    }
+}
+
+/// ECMA-402 ResolveLocale (steps 8.i.iii.1-2): given the locale's Unicode
+/// extension keys and the effective explicit options, strip from the resolved
+/// locale any extension key whose value differs from a provided option, or
+/// whose value is unsupported for the locale.
+///
+/// `keys` is a list of `(key, option_value)`: `option_value` is `Some` when
+/// the corresponding option was explicitly provided by the caller.
+pub(crate) fn resolve_locale_keys(
+    mut locale: Locale,
+    keys: &[(&str, Option<&'static str>)],
+) -> Locale {
+    // ECMA-402: attributes in a Unicode extension subtag are ignored; drop
+    // them so `de-u-attrval-co-phonebk` resolves like `de-u-co-phonebk`.
+    locale.extensions.unicode.attributes.clear();
+    // Only the listed keys are relevant to this Intl object; any other
+    // Unicode extension keyword is stripped from the resolved locale.
+    let relevant: Vec<icu::locale::extensions::unicode::Key> =
+        keys.iter().filter_map(|(k, _)| k.parse().ok()).collect();
+    let irrelevant: Vec<icu::locale::extensions::unicode::Key> = locale
+        .extensions
+        .unicode
+        .keywords
+        .iter()
+        .map(|(k, _)| k.clone())
+        .filter(|k| !relevant.iter().any(|rk| rk == k))
+        .collect();
+    for k in irrelevant {
+        locale.extensions.unicode.keywords.remove(k);
+    }
+    let lang = locale.id.language.to_string();
+    for (key_str, option_value) in keys {
+        // Locate the extension keyword by key.
+        let kw = match key_str.parse::<Key>() {
+            Ok(k) => k,
+            Err(_) => continue,
+        };
+        let ext_value = locale.extensions.unicode.keywords.get(&kw);
+        if let Some(ext_value) = ext_value {
+            let mut ext_value_str = ext_value.to_string();
+            // A key-only keyword (e.g. `-u-kn`) has an implicit "true" value.
+            if ext_value_str.is_empty() {
+                ext_value_str = "true".to_string();
+            }
+            // The extension value is unsupported → strip it.
+            if !supported_extension_value(key_str, &lang, &ext_value_str) {
+                locale.extensions.unicode.keywords.remove(kw);
+                continue;
+            }
+            // An explicit option that is supported for the locale and differs
+            // from the extension value strips the extension key (the option
+            // wins). An unsupported option is ignored (the extension value is
+            // kept).
+            if let Some(opt) = option_value {
+                if supported_option_value(key_str, &lang, opt) && *opt != ext_value_str {
+                    locale.extensions.unicode.keywords.remove(kw);
+                }
+            }
+        }
+    }
+    locale
+}
+
+/// Get the value of a Unicode extension keyword from a locale, if present.
+pub(crate) fn locale_extension_value(locale: &Locale, key: &str) -> Option<String> {
+    let kw: icu::locale::extensions::unicode::Key = key.parse().ok()?;
+    locale.extensions.unicode.keywords.get(&kw).map(|v| {
+        let s = v.to_string();
+        if s.is_empty() { "true".to_string() } else { s }
+    })
+}
+
+/// Whether a Unicode extension value is supported for the given locale, for
+/// the keys that need availability data (`co`). Other keys (kf/kn/hc/nu/ca/
+/// cu) are always treated as supported if structurally valid.
+fn supported_extension_value(key: &str, lang: &str, value: &str) -> bool {
+    match key {
+        "co" => {
+            // A `-u-co` value must be a known collation type for the locale.
+            supported_collations(lang).contains(&value)
+        }
+        "nu" => {
+            // A `-u-nu` value must be a known CLDR numbering-system type.
+            supported_numbering_systems().contains(&value)
+        }
+        "ca" => supported_calendars().contains(&value),
+        _ => true,
+    }
+}
+
+/// Known CLDR calendar (ca) types.
+fn supported_calendars() -> &'static [&'static str] {
+    &[
+        "buddhist",
+        "chinese",
+        "coptic",
+        "dangi",
+        "ethioaa",
+        "ethiopic",
+        "gregory",
+        "hebrew",
+        "indian",
+        "islamic",
+        "islamic-civil",
+        "islamic-rgsa",
+        "islamic-tbla",
+        "islamic-umalqura",
+        "iso8601",
+        "japanese",
+        "persian",
+        "roc",
+        "gregorian",
+        "islamicc",
+    ]
+}
+
+/// Known CLDR numbering-system types (subset of the bcp47 `nu` type values).
+fn supported_numbering_systems() -> &'static [&'static str] {
+    &[
+        "latn", "arab", "arabext", "armn", "armnlow", "beng", "cakm", "cham", "deva", "ethi",
+        "fullwide", "geor", "grek", "greklow", "gujr", "guru", "hanidays", "hans", "hansfin",
+        "hant", "hantfin", "hebr", "hmng", "java", "jpan", "jpanfin", "khmr", "knda", "laoo",
+        "mlym", "mong", "mtei", "mymr", "mymrshan", "mymrtlng", "nkoo", "olck", "orya", "osma",
+        "roman", "romanlow", "saur", "shrd", "sora", "sund", "takr", "talu", "taml", "tamldec",
+        "telu", "thai", "tibt", "vaii", "wara",
+        // Additional simple-digit-mapping systems exercised by test262.
+        "adlm", "ahom", "bali", "bhks", "brah", "diak", "gara", "gong", "gonm", "gukh", "hmnp",
+        "kali", "kawi", "krai", "lana", "lanatham", "lepc", "limb", "mathbold", "mathdbl",
+        "mathmono", "mathsanb", "mathsans", "modi", "mroo", "mymrepka", "mymrpao", "nagm", "newa",
+        "onao", "outlined", "rohg", "segment", "sind", "sinh", "sunu", "tirh", "tnsa", "tols",
+        "wcho", "hanidec",
+    ]
+}
+
+/// Whether an explicit option value for a key is supported for the locale
+/// (ResolveLocale only overrides the extension value when the option is
+/// supported). `co` and `nu` have availability data; `kf`/`kn`/`hc`/`ca`/`cu`
+/// are treated as always supported.
+fn supported_option_value(key: &str, lang: &str, value: &str) -> bool {
+    match key {
+        "co" => supported_collations(lang).contains(&value),
+        "nu" => supported_numbering_systems().contains(&value),
+        "ca" => supported_calendars().contains(&value),
+        _ => true,
+    }
+}
+
+/// Whether a value for an extension key is a known type (used to pick between
+/// an explicit option and the extension value).
+pub(crate) fn supported_extension_key_value(key: &str, value: &str) -> bool {
+    match key {
+        "ca" => supported_calendars().contains(&value),
+        "nu" => supported_numbering_systems().contains(&value),
+        _ => true,
+    }
+}

@@ -10,14 +10,17 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 
-use super::common::{
-    locale_to_string, make_bound_method, make_str, resolve_locale, to_utf8_string, values_to_array,
+use super::{
+    common::{
+        locale_to_string, make_bound_method, make_str, resolve_locale, to_utf8_string,
+        values_to_array,
+    },
+    number_format::is_valid_bcp47_type,
 };
-use super::number_format::is_valid_bcp47_type;
 
 #[derive(Debug)]
 pub(crate) struct DateTimeFormatData {
@@ -34,6 +37,8 @@ pub(crate) struct DateTimeFormatData {
     pub hour_cycle: Option<&'static str>,
     pub time_zone: String,
     pub time_zone_name: Option<&'static str>,
+    pub calendar: String,
+    pub numbering_system: String,
 }
 
 impl GcTrace for DateTimeFormatData {
@@ -55,13 +60,46 @@ pub(crate) static CLASS_DEF_DATE_TIME_FORMAT: ClassDef = ClassDef::builtin(
     Some(ClassCtorDef::new(js_date_time_format_constructor, 0, true)),
 );
 
+/// Default components to apply when none are explicitly requested, used by the
+/// `Date.prototype.toLocaleString` family to select the full/date/time set.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum DateTimeDefaults {
+    /// `Intl.DateTimeFormat`: none of year/month/day unless dateStyle/timeStyle
+    /// absent and no explicit component (then year/month/day = numeric).
+    Standard,
+    /// `toLocaleString`: date + time components.
+    All,
+    /// `toLocaleDateString`: date components only.
+    DateOnly,
+    /// `toLocaleTimeString`: time components only.
+    TimeOnly,
+}
+
 pub(crate) fn js_date_time_format_constructor(
     ctx: &mut ScopedContext,
     cc: CallContext,
 ) -> JSResult {
     let new_target = cc.this();
-    let locale = resolve_locale(ctx, cc.arg(0))?;
-    let options = cc.arg(1);
+    let data = build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
+    let instance = ctx
+        .create_instance_with_ctor(
+            new_target,
+            ObjectPayload::INTL_DATE_TIME_FORMAT(Box::new(data)),
+        )
+        .map_err(|_| -1)?;
+    Ok(JSValue::from(instance))
+}
+
+/// Build a `DateTimeFormatData` from `(locales, options)` with the given
+/// default-component policy, used by the constructor and the Date toLocale
+/// methods.
+pub(crate) fn build_date_time_format_data(
+    ctx: &mut ScopedContext,
+    locales: JSValue,
+    options: JSValue,
+    defaults: DateTimeDefaults,
+) -> Result<DateTimeFormatData, i32> {
+    let locale = resolve_locale(ctx, locales)?;
 
     // Unicode extension keys (hc / ca / nu) resolved into the locale; options
     // take precedence over these.
@@ -87,9 +125,9 @@ pub(crate) fn js_date_time_format_constructor(
         locale,
         weekday: None,
         era: None,
-        year: Some(DateField::Numeric),
-        month: Some(DateField::Numeric),
-        day: Some(DateField::Numeric),
+        year: None,
+        month: None,
+        day: None,
         hour: None,
         minute: None,
         second: None,
@@ -97,6 +135,8 @@ pub(crate) fn js_date_time_format_constructor(
         hour_cycle: None,
         time_zone: "UTC".to_string(),
         time_zone_name: None,
+        calendar: "gregory".to_string(),
+        numbering_system: "latn".to_string(),
     };
 
     let options_undefined = options.is_undefined();
@@ -133,34 +173,133 @@ pub(crate) fn js_date_time_format_constructor(
 
     // When `options` is undefined, do not consult the (monkey-patchable)
     // Object.prototype chain — use the spec defaults directly.
-    let weekday = if options_undefined { JSValue::UNDEFINED } else { date_format.get_property_str(ctx, "weekday")? };
-    let era = if options_undefined { JSValue::UNDEFINED } else { date_format.get_property_str(ctx, "era")? };
-    let year = if options_undefined { JSValue::UNDEFINED } else { date_format.get_property_str(ctx, "year")? };
-    let month = if options_undefined { JSValue::UNDEFINED } else { date_format.get_property_str(ctx, "month")? };
-    let day = if options_undefined { JSValue::UNDEFINED } else { date_format.get_property_str(ctx, "day")? };
-    let hour = if options_undefined { JSValue::UNDEFINED } else { date_format.get_property_str(ctx, "hour")? };
-    let minute = if options_undefined { JSValue::UNDEFINED } else { date_format.get_property_str(ctx, "minute")? };
-    let second = if options_undefined { JSValue::UNDEFINED } else { date_format.get_property_str(ctx, "second")? };
+    let weekday = if options_undefined {
+        JSValue::UNDEFINED
+    } else {
+        date_format.get_property_str(ctx, "weekday")?
+    };
+    let era = if options_undefined {
+        JSValue::UNDEFINED
+    } else {
+        date_format.get_property_str(ctx, "era")?
+    };
+    let year = if options_undefined {
+        JSValue::UNDEFINED
+    } else {
+        date_format.get_property_str(ctx, "year")?
+    };
+    let month = if options_undefined {
+        JSValue::UNDEFINED
+    } else {
+        date_format.get_property_str(ctx, "month")?
+    };
+    let day = if options_undefined {
+        JSValue::UNDEFINED
+    } else {
+        date_format.get_property_str(ctx, "day")?
+    };
+    let hour = if options_undefined {
+        JSValue::UNDEFINED
+    } else {
+        date_format.get_property_str(ctx, "hour")?
+    };
+    let minute = if options_undefined {
+        JSValue::UNDEFINED
+    } else {
+        date_format.get_property_str(ctx, "minute")?
+    };
+    let second = if options_undefined {
+        JSValue::UNDEFINED
+    } else {
+        date_format.get_property_str(ctx, "second")?
+    };
     // Only override the defaults when the corresponding option is present.
-    if !weekday.is_undefined() { data.weekday = parse_field(ctx, weekday)?; }
-    if !era.is_undefined() { data.era = parse_field(ctx, era)?; }
-    if !year.is_undefined() { data.year = parse_field(ctx, year)?; }
-    if !month.is_undefined() { data.month = parse_field(ctx, month)?; }
-    if !day.is_undefined() { data.day = parse_field(ctx, day)?; }
-    if !hour.is_undefined() { data.hour = parse_time_field(ctx, hour)?; }
-    if !minute.is_undefined() { data.minute = parse_time_field(ctx, minute)?; }
-    if !second.is_undefined() { data.second = parse_time_field(ctx, second)?; }
-    let has_explicit_components = !options_undefined && (!weekday.is_undefined()
+    if !weekday.is_undefined() {
+        data.weekday = parse_field(ctx, weekday)?;
+    }
+    if !era.is_undefined() {
+        data.era = parse_field(ctx, era)?;
+    }
+    if !year.is_undefined() {
+        data.year = parse_field(ctx, year)?;
+    }
+    if !month.is_undefined() {
+        data.month = parse_field(ctx, month)?;
+    }
+    if !day.is_undefined() {
+        data.day = parse_field(ctx, day)?;
+    }
+    if !hour.is_undefined() {
+        data.hour = parse_time_field(ctx, hour)?;
+    }
+    if !minute.is_undefined() {
+        data.minute = parse_time_field(ctx, minute)?;
+    }
+    if !second.is_undefined() {
+        data.second = parse_time_field(ctx, second)?;
+    }
+    let fsd = date_format.get_property_str(ctx, "fractionalSecondDigits")?;
+    let day_period = date_format.get_property_str(ctx, "dayPeriod")?;
+    let tzn = date_format.get_property_str(ctx, "timeZoneName")?;
+    let has_date_component = !weekday.is_undefined()
         || !era.is_undefined()
         || !year.is_undefined()
         || !month.is_undefined()
-        || !day.is_undefined()
-        || !hour.is_undefined()
+        || !day.is_undefined();
+    let has_time_component = !hour.is_undefined()
         || !minute.is_undefined()
         || !second.is_undefined()
-        || !date_format.get_property_str(ctx, "fractionalSecondDigits")?.is_undefined()
-        || !date_format.get_property_str(ctx, "dayPeriod")?.is_undefined()
-        || !date_format.get_property_str(ctx, "timeZoneName")?.is_undefined());
+        || !fsd.is_undefined()
+        || !day_period.is_undefined();
+    let has_explicit_components = has_date_component || has_time_component || !tzn.is_undefined();
+    // dateStyle / timeStyle (validated below); defaults only apply when neither
+    // is present.
+    let date_style = date_format.get_property_str(ctx, "dateStyle")?;
+    let time_style = date_format.get_property_str(ctx, "timeStyle")?;
+
+    // Decide whether to default the date and/or time components, following
+    // ECMA-402 CreateDateTimeFormat's `required` handling. A dimension is
+    // defaulted when it is required and none of its components was requested.
+    // `Intl.DateTimeFormat` (Standard) defaults the date components only when
+    // no component whatsoever was requested; the Date `toLocale*` methods
+    // default their required dimension(s) when the respective dimension is
+    // empty.
+    let (default_date, default_time) = match defaults {
+        DateTimeDefaults::Standard => (!has_explicit_components, false),
+        DateTimeDefaults::All => {
+            if options_undefined {
+                (true, true)
+            } else {
+                (!has_explicit_components, !has_explicit_components)
+            }
+        }
+        DateTimeDefaults::DateOnly => {
+            if options_undefined {
+                (true, false)
+            } else {
+                (!has_date_component, false)
+            }
+        }
+        DateTimeDefaults::TimeOnly => {
+            if options_undefined {
+                (false, true)
+            } else {
+                (false, !has_time_component)
+            }
+        }
+    };
+    if date_style.is_undefined() && time_style.is_undefined() {
+        if default_date {
+            data.year = Some(DateField::Numeric);
+            data.month = Some(DateField::Numeric);
+            data.day = Some(DateField::Numeric);
+        }
+        if default_time {
+            data.hour = Some(DateField::Numeric);
+            data.minute = Some(DateField::Numeric);
+            data.second = Some(DateField::Numeric);
+        }
+    }
 
     // hour12 / hourCycle validation.
     let hour12 = date_format.get_property_str(ctx, "hour12")?;
@@ -184,8 +323,6 @@ pub(crate) fn js_date_time_format_constructor(
 
     // dateStyle / timeStyle. If either is set, explicit format components are
     // a TypeError conflict.
-    let date_style = date_format.get_property_str(ctx, "dateStyle")?;
-    let time_style = date_format.get_property_str(ctx, "timeStyle")?;
     if (!date_style.is_undefined() || !time_style.is_undefined()) && has_explicit_components {
         return Err(ctx.throw_type_error("Cannot mix dateStyle/timeStyle with components"));
     }
@@ -200,6 +337,31 @@ pub(crate) fn js_date_time_format_constructor(
         if s != "full" && s != "long" && s != "medium" && s != "short" {
             return Err(ctx.throw_range_error("Invalid timeStyle value"));
         }
+    }
+
+    // Map dateStyle / timeStyle to the concrete component set.
+    if !date_style.is_undefined() {
+        let s = to_utf8_string(ctx, date_style)?;
+        match s.as_str() {
+            "full" | "long" => {
+                data.weekday = Some(DateField::Long);
+            }
+            _ => {}
+        }
+        data.year = Some(DateField::Numeric);
+        data.month = Some(DateField::Numeric);
+        data.day = Some(DateField::Numeric);
+    }
+    if !time_style.is_undefined() {
+        let s = to_utf8_string(ctx, time_style)?;
+        match s.as_str() {
+            "full" | "long" => {
+                data.second = Some(DateField::Numeric);
+            }
+            _ => {}
+        }
+        data.hour = Some(DateField::Numeric);
+        data.minute = Some(DateField::Numeric);
     }
 
     // formatMatcher: basic | best fit.
@@ -237,13 +399,98 @@ pub(crate) fn js_date_time_format_constructor(
         data.time_zone = canonicalize_time_zone(&s);
     }
 
-    let instance = ctx
-        .create_instance_with_ctor(
-            new_target,
-            ObjectPayload::INTL_DATE_TIME_FORMAT(Box::new(data)),
+    // ECMA-402 ResolveLocale: strip the `hc`/`ca`/`nu` extension keys when an
+    // explicit option overrides them or their value is unsupported; strip all
+    // other `u`-extension keys (they are not relevant to DateTimeFormat).
+    let calendar_opt = if calendar.is_undefined() {
+        None
+    } else {
+        Some(to_utf8_string(ctx, calendar)?)
+    };
+    let numbering_opt = if numbering_system.is_undefined() {
+        None
+    } else {
+        Some(to_utf8_string(ctx, numbering_system)?)
+    };
+    let hc_opt = if options_undefined {
+        None
+    } else if !hour12.is_undefined() {
+        let h12 = hour12.to_bool()?;
+        Some(if h12 { "h12" } else { "h23" }.to_string())
+    } else if !hour_cycle.is_undefined() {
+        let s = to_utf8_string(ctx, hour_cycle)?;
+        Some(
+            match s.as_str() {
+                "h11" => "h11",
+                "h12" => "h12",
+                "h23" => "h23",
+                "h24" => "h24",
+                _ => unreachable!(),
+            }
+            .to_string(),
         )
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    } else {
+        None
+    };
+    let hc_static: Option<&'static str> = hc_opt
+        .as_deref()
+        .map(|s| Box::leak(s.to_owned().into_boxed_str()) as &'static str);
+    let ca_static: Option<&'static str> = calendar_opt
+        .as_deref()
+        .map(|s| Box::leak(s.to_owned().into_boxed_str()) as &'static str);
+    let nu_static: Option<&'static str> = numbering_opt
+        .as_deref()
+        .map(|s| Box::leak(s.to_owned().into_boxed_str()) as &'static str);
+    data.locale = super::common::resolve_locale_keys(
+        data.locale,
+        &[("ca", ca_static), ("nu", nu_static), ("hc", hc_static)],
+    );
+
+    // Effective calendar: explicit valid option > `ca` extension > gregory.
+    // Calendar values are case-folded (e.g. ISO8601 → iso8601).
+    let ca_ext = super::common::locale_extension_value(&data.locale, "ca");
+    data.calendar = if let Some(opt) = ca_static {
+        let lower = opt.to_ascii_lowercase();
+        if super::common::supported_extension_key_value("ca", &lower) {
+            canonicalize_calendar(&lower).to_string()
+        } else if let Some(ext) = ca_ext {
+            canonicalize_calendar(&ext.to_ascii_lowercase()).to_string()
+        } else {
+            "gregory".to_string()
+        }
+    } else if let Some(ext) = ca_ext {
+        canonicalize_calendar(&ext.to_ascii_lowercase()).to_string()
+    } else {
+        "gregory".to_string()
+    };
+    // Effective numbering system: explicit valid option > `nu` extension > latn.
+    let nu_ext = super::common::locale_extension_value(&data.locale, "nu");
+    data.numbering_system = if let Some(opt) = nu_static {
+        if super::common::supported_extension_key_value("nu", opt) {
+            opt.to_string()
+        } else if let Some(ext) = nu_ext {
+            ext
+        } else {
+            "latn".to_string()
+        }
+    } else if let Some(ext) = nu_ext {
+        ext
+    } else {
+        "latn".to_string()
+    };
+
+    Ok(data)
+}
+
+/// Canonicalize a calendar name (CLDR `ca` type aliases).
+fn canonicalize_calendar(s: &str) -> &'static str {
+    match s {
+        "islamicc" => "islamic-civil",
+        "gregorian" => "gregory",
+        "ethiopic-amete-alem" => "ethioaa",
+        "islamic-civil" => "islamic-civil",
+        other => Box::leak(other.to_owned().into_boxed_str()) as &'static str,
+    }
 }
 
 /// Heuristic validation of a time zone identifier: IANA names contain "/",
@@ -280,9 +527,7 @@ fn is_valid_time_zone(s: &str) -> bool {
                 _ => return false,
             }
         };
-        if !hh_s.bytes().all(|c| c.is_ascii_digit())
-            || !mm_s.bytes().all(|c| c.is_ascii_digit())
-        {
+        if !hh_s.bytes().all(|c| c.is_ascii_digit()) || !mm_s.bytes().all(|c| c.is_ascii_digit()) {
             return false;
         }
         let hh: u32 = hh_s.parse().unwrap_or(99);
@@ -301,7 +546,10 @@ fn canonicalize_time_zone(s: &str) -> String {
     if upper == "UTC" || upper == "GMT" {
         return "UTC".to_string();
     }
-    if (s.starts_with('+') || s.starts_with('-')) && s.chars().all(|c| c.is_ascii_digit() || c == '+' || c == '-') {
+    if (s.starts_with('+') || s.starts_with('-'))
+        && s.chars()
+            .all(|c| c.is_ascii_digit() || c == '+' || c == '-' || c == ':')
+    {
         let (sign, body) = (&s[..1], &s[1..]);
         let digits: String = body.chars().filter(|c| *c != ':').collect();
         let (hh, mm) = if digits.len() == 4 {
@@ -309,6 +557,10 @@ fn canonicalize_time_zone(s: &str) -> String {
         } else {
             (digits.as_str(), "00")
         };
+        // A zero offset ("-00", "+00", "-00:00", ...) is canonicalized to "+00:00".
+        if hh == "00" && mm == "00" {
+            return "+00:00".to_string();
+        }
         return format!("{}{}:{}", sign, hh, mm);
     }
     s.to_string()
@@ -365,37 +617,49 @@ fn js_date_time_format_format_bound(ctx: &mut ScopedContext, cc: CallContext) ->
         .payload()
         .intl_date_time_format()
         .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
-    let n = cc.arg(0);
-    let s = format_date(ctx, this, n)?;
+    let arg = cc.arg(0);
+    let provided = cc.length() > 0 && !arg.is_undefined();
+    let s = format_date(ctx, this, arg, provided)?;
     Ok(make_str(ctx, s.into_bytes())?)
 }
 
-fn format_date(
+pub(crate) fn format_date(
     ctx: &mut ScopedContext,
     this: &DateTimeFormatData,
     v: JSValue,
+    arg_provided: bool,
 ) -> Result<String, i32> {
-    let ms = v.to_number(ctx)?.to_f64();
+    // When `format`/`formatToParts` is called with no argument, use the
+    // current time (ECMA-402 `format`: "If date is not provided, let date be
+    // Call(%Date.now%, undefined)").
+    let ms = if arg_provided {
+        v.to_number(ctx)?.to_f64()
+    } else {
+        crate::builtins::date::Datetime::now().timestamp() as f64
+    };
     // ECMA-402 TimeClip: NaN or outside ±8.64e15 ms throws RangeError.
     if ms.is_nan() || ms.is_infinite() || ms < -8.64e15 || ms > 8.64e15 {
         return Err(ctx.throw_range_error("Invalid time value"));
     }
-    // Only UTC supported in this implementation. TimeClip applies ToInteger
-    // (truncate toward zero, with -0 → +0) to the millisecond value.
+    // TimeClip applies ToInteger (truncate toward zero, with -0 → +0).
     let ms_clip = ms.trunc();
     let ms_clip = if ms_clip == 0.0 { 0.0 } else { ms_clip };
     let secs = (ms_clip / 1000.0).trunc() as i64;
     let millis = (ms_clip - (secs as f64 * 1000.0)) as i64;
+    // Apply the (offset) time zone: `+HH:MM` means local time = UTC + offset.
+    // IANA names are not resolved; they fall back to UTC.
+    let offset_secs = time_zone_offset_seconds(&this.time_zone);
+    let local_secs = secs + offset_secs;
 
     let mut out = String::new();
 
     if let Some(weekday) = this.weekday {
-        let wd = weekday_name(weekday, weekday_index(secs));
+        let wd = weekday_name(weekday, weekday_index(local_secs));
         out.push_str(&wd);
     }
-    let year = year_from_epoch(secs);
-    let month = month_from_epoch(secs);
-    let day = day_from_epoch(secs);
+    let year = year_from_epoch(local_secs);
+    let month = month_from_epoch(local_secs);
+    let day = day_from_epoch(local_secs);
 
     let mut parts: Vec<String> = Vec::new();
     if let Some(era) = this.era {
@@ -415,8 +679,16 @@ fn format_date(
     out.push_str(&parts.join("/"));
 
     if this.hour.is_some() || this.minute.is_some() || this.second.is_some() {
-        let (h, m, s) = time_from_epoch(secs, millis);
-        let (h12, suffix) = if this.hour12.unwrap_or(false) {
+        let (h, m, s) = time_from_epoch(local_secs, millis);
+        let use_12h = match this.hour12 {
+            Some(v) => v,
+            None => match this.hour_cycle {
+                Some("h11") | Some("h12") => true,
+                Some("h23") | Some("h24") => false,
+                _ => this.locale.id.language.to_string() != "ja",
+            },
+        };
+        let (h12, suffix) = if use_12h {
             if h == 0 {
                 (12, " AM")
             } else if h < 12 {
@@ -452,6 +724,70 @@ fn format_date(
         out.push_str(&t);
     }
     Ok(out)
+}
+
+/// Parse a time zone into total offset seconds from UTC. Handles offset
+/// notations (±HH[:MM]) and the GMT/Etc/GMT families (where Etc/GMT-3 means
+/// UTC+3). IANA region names and UTC/GMT yield 0.
+fn time_zone_offset_seconds(tz: &str) -> i64 {
+    let upper = tz.to_ascii_uppercase();
+    // `Etc/GMT-N` and `Etc/GMT+N` (note the reversed sign) and `GMT±N`.
+    if let Some(rest) = upper.strip_prefix("ETC/GMT") {
+        if rest.is_empty() {
+            return 0;
+        }
+        if let Some(num) = rest.strip_prefix('-') {
+            return parse_gmt_seconds(num); // Etc/GMT-3 => UTC+3
+        }
+        if let Some(num) = rest.strip_prefix('+') {
+            return -parse_gmt_seconds(num); // Etc/GMT+3 => UTC-3
+        }
+        return 0;
+    }
+    if let Some(rest) = upper.strip_prefix("GMT") {
+        if rest.is_empty() {
+            return 0;
+        }
+        if let Some(num) = rest.strip_prefix('+') {
+            return parse_gmt_seconds(num);
+        }
+        if let Some(num) = rest.strip_prefix('-') {
+            return -parse_gmt_seconds(num);
+        }
+        return 0;
+    }
+    // Direct offset notation: ±HH, ±HHMM, ±HH:MM.
+    if !(tz.starts_with('+') || tz.starts_with('-')) {
+        return 0;
+    }
+    let (sign, body) = (&tz[..1], &tz[1..]);
+    let digits: String = body.chars().filter(|c| *c != ':').collect();
+    if digits.len() != 2 && digits.len() != 4 {
+        return 0;
+    }
+    let hh: i64 = digits[..2].parse().unwrap_or(0);
+    let mm: i64 = if digits.len() == 4 {
+        digits[2..].parse().unwrap_or(0)
+    } else {
+        0
+    };
+    let secs = hh * 3600 + mm * 60;
+    if sign == "-" { -secs } else { secs }
+}
+
+/// Parse "HH" or "HHMM" (optionally with colon) after a GMT/Etc/GMT prefix.
+fn parse_gmt_seconds(num: &str) -> i64 {
+    let digits: String = num.chars().filter(|c| *c != ':').collect();
+    let hh: i64 = digits
+        .get(..2.min(digits.len()))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let mm: i64 = if digits.len() >= 4 {
+        digits[2..4].parse().unwrap_or(0)
+    } else {
+        0
+    };
+    hh * 3600 + mm * 60
 }
 
 fn format_year(f: DateField, y: i64) -> String {
@@ -583,7 +919,6 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 fn js_date_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    // Simplified: returns a single "literal" part with the formatted string.
     let this_obj = cc
         .this()
         .as_object()
@@ -592,15 +927,130 @@ fn js_date_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext)
         .payload()
         .intl_date_time_format()
         .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
-    let s = format_date(ctx, this, cc.arg(0))?;
+    let arg = cc.arg(0);
+    let provided = cc.length() > 0 && !arg.is_undefined();
+    let fields = format_fields(ctx, this, arg, provided)?;
     let mut parts = Vec::new();
-    let mut o = ctx.create_base_object()?;
-    let _v1 = make_str(ctx, b"literal".to_vec())?;
-    o.set_property_str(ctx, "type", _v1)?;
-    let _v2 = make_str(ctx, s.into_bytes())?;
-    o.set_property_str(ctx, "value", _v2)?;
-    parts.push(o.into());
+    for (ty, val) in fields {
+        let mut o = ctx.create_base_object()?;
+        let _t = make_str(ctx, ty.as_bytes().to_vec())?;
+        o.set_property_str(ctx, "type", _t)?;
+        let _v = make_str(ctx, val.into_bytes())?;
+        o.set_property_str(ctx, "value", _v)?;
+        parts.push(o.into());
+    }
     Ok(values_to_array(ctx, parts)?)
+}
+
+/// Produce `(type, value)` parts for a date/time value, mirroring
+/// `format_date` but splitting each component into its own part with literal
+/// separators between them.
+fn format_fields(
+    ctx: &mut ScopedContext,
+    this: &DateTimeFormatData,
+    v: JSValue,
+    arg_provided: bool,
+) -> Result<Vec<(String, String)>, i32> {
+    let ms = if arg_provided {
+        v.to_number(ctx)?.to_f64()
+    } else {
+        crate::builtins::date::Datetime::now().timestamp() as f64
+    };
+    if ms.is_nan() || ms.is_infinite() || ms < -8.64e15 || ms > 8.64e15 {
+        return Err(ctx.throw_range_error("Invalid time value"));
+    }
+    let ms_clip = ms.trunc();
+    let ms_clip = if ms_clip == 0.0 { 0.0 } else { ms_clip };
+    let secs = (ms_clip / 1000.0).trunc() as i64;
+    let millis = (ms_clip - (secs as f64 * 1000.0)) as i64;
+    let local_secs = secs + time_zone_offset_seconds(&this.time_zone);
+
+    let mut parts: Vec<(String, String)> = Vec::new();
+    let mut date_parts: Vec<(String, String)> = Vec::new();
+    if let Some(weekday) = this.weekday {
+        date_parts.push((
+            "weekday".to_string(),
+            weekday_name(weekday, weekday_index(local_secs)),
+        ));
+    }
+    let year = year_from_epoch(local_secs);
+    let month = month_from_epoch(local_secs);
+    let day = day_from_epoch(local_secs);
+    if let Some(era) = this.era {
+        let _ = era;
+        date_parts.push(("era".to_string(), "AD".to_string()));
+    }
+    if let Some(f) = this.year {
+        date_parts.push(("year".to_string(), format_year(f, year)));
+    }
+    if let Some(f) = this.month {
+        date_parts.push(("month".to_string(), format_month(f, month)));
+    }
+    if let Some(f) = this.day {
+        date_parts.push(("day".to_string(), format_day(f, day)));
+    }
+
+    if !date_parts.is_empty() {
+        for (i, (ty, val)) in date_parts.iter().enumerate() {
+            if i > 0 {
+                parts.push(("literal".to_string(), "/".to_string()));
+            }
+            parts.push((ty.clone(), val.clone()));
+        }
+    }
+
+    if this.hour.is_some() || this.minute.is_some() || this.second.is_some() {
+        let (h, m, s) = time_from_epoch(local_secs, millis);
+        // Use the locale's default 12-hour cycle (h12 for most, h11 for ja)
+        // when no explicit hour12 / hourCycle is given.
+        let use_12h = match this.hour12 {
+            Some(v) => v,
+            None => match this.hour_cycle {
+                Some("h11") | Some("h12") => true,
+                Some("h23") | Some("h24") => false,
+                _ => this.locale.id.language.to_string() != "ja",
+            },
+        };
+        let (h12, suffix) = if use_12h {
+            if h == 0 {
+                (12, " AM")
+            } else if h < 12 {
+                (h, " AM")
+            } else if h == 12 {
+                (12, " PM")
+            } else {
+                (h - 12, " PM")
+            }
+        } else {
+            (h, "")
+        };
+        if !parts.is_empty() {
+            parts.push(("literal".to_string(), " ".to_string()));
+        }
+        let mut time_parts: Vec<(String, String)> = Vec::new();
+        if let Some(f) = this.hour {
+            time_parts.push(("hour".to_string(), format_two(f, h12)));
+        }
+        if let Some(f) = this.minute {
+            if !time_parts.is_empty() {
+                parts.push(("literal".to_string(), ":".to_string()));
+            }
+            time_parts.push(("minute".to_string(), format_two(f, m)));
+        }
+        if let Some(f) = this.second {
+            if !time_parts.is_empty() {
+                parts.push(("literal".to_string(), ":".to_string()));
+            }
+            time_parts.push(("second".to_string(), format_two(f, s)));
+        }
+        for (ty, val) in time_parts {
+            parts.push((ty, val));
+        }
+        if !suffix.is_empty() {
+            parts.push(("literal".to_string(), suffix.trim().to_string()));
+        }
+    }
+    Ok(parts)
 }
 
 fn js_date_time_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -614,32 +1064,33 @@ fn js_date_time_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext
         .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
     let mut o = ctx.create_base_object()?;
     let _v3 = locale_to_string(ctx, &this.locale)?;
-    o.set_property_str(ctx, "locale", _v3)?;
-    let _v4 = make_str(ctx, b"gregory".to_vec())?;
-    o.set_property_str(ctx, "calendar", _v4)?;
-    let _v5 = make_str(ctx, b"latn".to_vec())?;
-    o.set_property_str(ctx, "numberingSystem", _v5)?;
+    o.define_property_value_str(ctx, "locale", _v3, JS_PROP_C_W_E)?;
+    let _v4 = make_str(ctx, this.calendar.as_bytes().to_vec())?;
+    o.define_property_value_str(ctx, "calendar", _v4, JS_PROP_C_W_E)?;
+    let _v5 = make_str(ctx, this.numbering_system.as_bytes().to_vec())?;
+    o.define_property_value_str(ctx, "numberingSystem", _v5, JS_PROP_C_W_E)?;
     let _v13 = make_str(ctx, this.time_zone.clone().into_bytes())?;
-    o.set_property_str(ctx, "timeZone", _v13)?;
+    o.define_property_value_str(ctx, "timeZone", _v13, JS_PROP_C_W_E)?;
     // hourCycle / hour12 only appear when the hour component is present.
     if this.hour.is_some() {
+        let lang = this.locale.id.language.to_string();
+        let locale_default12 = || if lang == "ja" { "h11" } else { "h12" };
         // hour12 option takes precedence over hourCycle; otherwise use the
         // explicit hourCycle, else the locale default (h12 for most, h11 for ja).
         let hc = if let Some(h12) = this.hour12 {
-            if h12 { "h12" } else { "h23" }
+            if h12 { locale_default12() } else { "h23" }
         } else if let Some(hc) = this.hour_cycle {
             hc
         } else {
-            let lang = this.locale.id.language.to_string();
-            if lang == "ja" { "h11" } else { "h12" }
+            locale_default12()
         };
         let _vhc = make_str(ctx, hc.as_bytes().to_vec())?;
-        o.set_property_str(ctx, "hourCycle", _vhc)?;
+        o.define_property_value_str(ctx, "hourCycle", _vhc, JS_PROP_C_W_E)?;
         let h12 = match this.hour12 {
             Some(v) => v,
             None => matches!(hc, "h11" | "h12"),
         };
-        o.set_property_str(ctx, "hour12", JSValue::from(h12))?;
+        o.define_property_value_str(ctx, "hour12", JSValue::from(h12), JS_PROP_C_W_E)?;
     }
     set_option_field(ctx, &mut o, "weekday", this.weekday)?;
     set_option_field(ctx, &mut o, "era", this.era)?;
@@ -651,7 +1102,7 @@ fn js_date_time_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext
     set_option_field(ctx, &mut o, "second", this.second)?;
     if let Some(tzn) = this.time_zone_name {
         let _vtzn = make_str(ctx, tzn.as_bytes().to_vec())?;
-        o.set_property_str(ctx, "timeZoneName", _vtzn)?;
+        o.define_property_value_str(ctx, "timeZoneName", _vtzn, JS_PROP_C_W_E)?;
     }
     Ok(o.into())
 }
@@ -675,7 +1126,7 @@ fn set_option_field(
                 DateField::Numeric => b"numeric".to_vec(),
             },
         )?;
-        o.set_property_str(ctx, name, v)?;
+        o.define_property_value_str(ctx, name, v, JS_PROP_C_W_E)?;
     }
     Ok(())
 }

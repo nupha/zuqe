@@ -883,6 +883,22 @@ fn js_string_localeCompare(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     let a = cc.this().to_string_non_undefined_or_null(ctx)?;
     let b = cc.arg(0).to_string(ctx)?;
 
+    // ECMA-402 §13.1.1: localeCompare delegates to a new Intl.Collator with the
+    // same (locales, options) arguments, so validation errors (e.g. `locales`
+    // null, invalid options) are thrown identically.
+    #[cfg(feature = "intl402")]
+    {
+        let data = crate::builtins::intl::collator::build_collator_data(ctx, cc.arg(1), cc.arg(2))?;
+        let a_str = a.content().encode_utf8(false).into_owned();
+        let b_str = b.content().encode_utf8(false).into_owned();
+        let ord = crate::builtins::intl::collator::compare_collator_data(&data, &a_str, &b_str);
+        return Ok(JSValue::from(match ord {
+            std::cmp::Ordering::Less => -1,
+            std::cmp::Ordering::Equal => 0,
+            std::cmp::Ordering::Greater => 1,
+        }));
+    }
+
     // locale normalize
     let mut u1 = a.content().chars_lossy().nfc();
     let mut u2 = b.content().chars_lossy().nfc();

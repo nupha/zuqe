@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 
@@ -83,6 +83,15 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
     let mut compact_display = None;
 
     if let Some(o) = &obj {
+        // localeMatcher: lookup | best fit (getter must be read for
+        // constructor-options-throwing-getters).
+        let lm = o.get_property_str(ctx, "localeMatcher")?;
+        if !lm.is_undefined() {
+            let s = to_utf8_string(ctx, lm)?;
+            if s != "lookup" && s != "best fit" {
+                return Err(ctx.throw_range_error("Invalid localeMatcher value"));
+            }
+        }
         let v = o.get_property_str(ctx, "minimumIntegerDigits")?;
         if !v.is_undefined() {
             let m = v.to_number(ctx)?.to_f64();
@@ -150,6 +159,47 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
         if notation != "compact" {
             compact_display = None;
         }
+        // Read (and validate) the remaining rounding options so their getters
+        // are exercised (constructor-options-throwing-getters).
+        let v = o.get_property_str(ctx, "roundingIncrement")?;
+        if !v.is_undefined() {
+            let m = v.to_number(ctx)?.to_f64();
+            if m.is_nan() || (m != 1.0 && m != 2.0 && m != 5.0 && m != 10.0 && m != 20.0) {
+                return Err(ctx.throw_range_error("Invalid roundingIncrement"));
+            }
+        }
+        let v = o.get_property_str(ctx, "roundingMode")?;
+        if !v.is_undefined() {
+            let s = to_utf8_string(ctx, v)?;
+            if !matches!(
+                s.as_str(),
+                "ceil"
+                    | "floor"
+                    | "expand"
+                    | "trunc"
+                    | "halfCeil"
+                    | "halfFloor"
+                    | "halfExpand"
+                    | "halfTrunc"
+                    | "halfEven"
+            ) {
+                return Err(ctx.throw_range_error("Invalid roundingMode"));
+            }
+        }
+        let v = o.get_property_str(ctx, "roundingPriority")?;
+        if !v.is_undefined() {
+            let s = to_utf8_string(ctx, v)?;
+            if s != "auto" && s != "morePrecision" && s != "lessPrecision" {
+                return Err(ctx.throw_range_error("Invalid roundingPriority"));
+            }
+        }
+        let v = o.get_property_str(ctx, "trailingZeroDisplay")?;
+        if !v.is_undefined() {
+            let s = to_utf8_string(ctx, v)?;
+            if s != "auto" && s != "stripIfInteger" {
+                return Err(ctx.throw_range_error("Invalid trailingZeroDisplay"));
+            }
+        }
     }
 
     let data = PluralRulesData {
@@ -214,7 +264,7 @@ fn js_plural_rules_resolved_options(ctx: &mut ScopedContext, cc: CallContext) ->
         .ok_or_else(|| ctx.throw_type_error("not a PluralRules"))?;
     let mut o = ctx.create_base_object()?;
     let _v1 = locale_to_string(ctx, &this.locale)?;
-    o.set_property_str(ctx, "locale", _v1)?;
+    o.define_property_value_str(ctx, "locale", _v1, JS_PROP_C_W_E)?;
     let type_str = make_str(
         ctx,
         match this.plural_type {
@@ -223,34 +273,47 @@ fn js_plural_rules_resolved_options(ctx: &mut ScopedContext, cc: CallContext) ->
             _ => b"cardinal".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "type", type_str)?;
-    o.set_property_str(
+    o.define_property_value_str(ctx, "type", type_str, JS_PROP_C_W_E)?;
+    o.define_property_value_str(
         ctx,
         "minimumIntegerDigits",
         JSValue::from(this.min_int_digits),
+        JS_PROP_C_W_E,
     )?;
-    o.set_property_str(
+    o.define_property_value_str(
         ctx,
         "minimumFractionDigits",
         JSValue::from(this.min_frac_digits),
+        JS_PROP_C_W_E,
     )?;
-    o.set_property_str(
+    o.define_property_value_str(
         ctx,
         "maximumFractionDigits",
         JSValue::from(this.max_frac_digits),
+        JS_PROP_C_W_E,
     )?;
     if let Some(mn) = this.min_sig_digits {
-        o.set_property_str(ctx, "minimumSignificantDigits", JSValue::from(mn as i32))?;
+        o.define_property_value_str(
+            ctx,
+            "minimumSignificantDigits",
+            JSValue::from(mn as i32),
+            JS_PROP_C_W_E,
+        )?;
     }
     if let Some(mx) = this.max_sig_digits {
-        o.set_property_str(ctx, "maximumSignificantDigits", JSValue::from(mx as i32))?;
+        o.define_property_value_str(
+            ctx,
+            "maximumSignificantDigits",
+            JSValue::from(mx as i32),
+            JS_PROP_C_W_E,
+        )?;
     }
     // notation / compactDisplay.
     let _vn = make_str(ctx, this.notation.as_bytes().to_vec())?;
-    o.set_property_str(ctx, "notation", _vn)?;
+    o.define_property_value_str(ctx, "notation", _vn, JS_PROP_C_W_E)?;
     if let Some(cd) = this.compact_display {
         let _vcd = make_str(ctx, cd.as_bytes().to_vec())?;
-        o.set_property_str(ctx, "compactDisplay", _vcd)?;
+        o.define_property_value_str(ctx, "compactDisplay", _vcd, JS_PROP_C_W_E)?;
     }
     // pluralCategories.
     let mut cats: Vec<String> = Vec::new();
@@ -270,7 +333,7 @@ fn js_plural_rules_resolved_options(ctx: &mut ScopedContext, cc: CallContext) ->
         cat_arr.push(make_str(ctx, c.into_bytes())?);
     }
     let cats_value = crate::object::Array::from_values(ctx, cat_arr)?;
-    o.set_property_str(ctx, "pluralCategories", cats_value.into())?;
+    o.define_property_value_str(ctx, "pluralCategories", cats_value.into(), JS_PROP_C_W_E)?;
     Ok(o.into())
 }
 

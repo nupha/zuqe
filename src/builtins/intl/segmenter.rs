@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 
@@ -186,22 +186,25 @@ fn js_segmenter_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JS
         .this()
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
-    let this = this_obj
+
+    let seg = this_obj
         .payload()
         .intl_segmenter()
         .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
+
     let mut o = ctx.create_base_object()?;
-    let _v1 = locale_to_string(ctx, &this.locale)?;
-    o.set_property_str(ctx, "locale", _v1)?;
+    let _v1 = locale_to_string(ctx, &seg.locale)?;
+    o.define_property_value_str(ctx, "locale", _v1, JS_PROP_C_W_E)?;
     let granularity = make_str(
         ctx,
-        match this.granularity {
+        match seg.granularity {
             SegmentGranularity::Grapheme => b"grapheme".to_vec(),
             SegmentGranularity::Word => b"word".to_vec(),
             SegmentGranularity::Sentence => b"sentence".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "granularity", granularity)?;
+    o.define_property_value_str(ctx, "granularity", granularity, JS_PROP_C_W_E)?;
+
     Ok(o.into())
 }
 
