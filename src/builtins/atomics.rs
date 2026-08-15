@@ -55,8 +55,18 @@ fn str_val(ctx: &mut ScopedContext, s: &str) -> JSResult {
     Ok(JSValue::make_string(sr))
 }
 
-/// Validate that `arg` is an integer TypedArray backed by a SharedArrayBuffer.
-/// `waitable` restricts to the 4 types accepted by `Atomics.wait`.
+/// Validate that `arg` is an integer TypedArray.
+///
+/// This only checks the element type; it deliberately does NOT require a
+/// SharedArrayBuffer. Per the spec (`ValidateIntegerTypedArray`), the plain
+/// Atomics read/write/RMW operations (`load`, `store`, `add`, `and`, `or`,
+/// `xor`, `sub`, `exchange`, `compareExchange`) operate on any integer
+/// TypedArray, shared or not. Only `wait`/`waitAsync`/`notify` require shared
+/// memory, and that check is applied by the callers.
+///
+/// `waitable` restricts to the element types accepted by the waiting
+/// operations (Int32/Uint32/BigInt64/BigUint64; the signedness filter for
+/// Int32/BigInt64-only is applied by the caller).
 fn validate_atomic(
     ctx: &mut ScopedContext,
     arg: JSValue,
@@ -73,13 +83,19 @@ fn validate_atomic(
             "Atomics: the TypedArray element type must be Int32, Uint32, BigInt64 or BigUint64",
         ));
     }
+    ta.ensure_attached(ctx)?;
+    Ok((ta, cid, width, signed, is_bigint))
+}
+
+/// `ValidateSharedIntegerTypedArray` shared-memory check: the buffer backing
+/// `ta` must be a SharedArrayBuffer.
+fn require_shared(ctx: &mut ScopedContext, ta: &TypedArray) -> Result<(), ErrCode> {
     if ta.array_buffer().class_id() != JS_CLASS_SHARED_ARRAY_BUFFER {
         return Err(
             ctx.throw_type_error("Atomics: the typed array must be backed by a SharedArrayBuffer")
         );
     }
-    ta.ensure_attached(ctx)?;
-    Ok((ta, cid, width, signed, is_bigint))
+    Ok(())
 }
 
 /// `ToIntegerOrInfinity` applied to an integer-element value.
@@ -226,8 +242,12 @@ fn validate_index(
     ta: &TypedArray,
     index_val: JSValue,
 ) -> Result<usize, ErrCode> {
+    // `ValidateAtomicAccess`: retrieve the length BEFORE coercing the index, so
+    // an index `valueOf` that resizes/grows the buffer cannot change the
+    // recorded bounds.
+    let length = ta.length();
     let idx = index_val.to_index(ctx)? as usize;
-    if idx >= ta.length() {
+    if idx >= length {
         return Err(ctx.throw_range_error("Atomics: index out of range"));
     }
     Ok(idx)
@@ -252,17 +272,42 @@ pub fn js_atomics_load(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 // Atomics.store
 // ---------------------------------------------------------------------------
 
+/// The value `Atomics.store` must return: `ToBigInt(value)` for a bigint
+/// element type, or `ToNumber(value)` truncated to an integer for a numeric
+/// element type. This is the *converted* value, NOT truncated to the element
+/// width (the width-truncated bit pattern is what gets written to memory).
+fn store_return_value(
+    ctx: &mut ScopedContext,
+    val: JSValue,
+    is_bigint: bool,
+) -> Result<JSValue, ErrCode> {
+    if is_bigint {
+        // `ToBigInt(value)` — return it as-is.
+        to_big_int(ctx, val)
+    } else {
+        // `ToNumber(value)` then truncate toward zero (NaN → 0, ±Infinity
+        // kept). Note: truncation must also normalize `-0` to `+0`, since
+        // `ToInteger` normalizes -0 to +0.
+        let n = val.to_number(ctx)?;
+        let d = n.to_f64();
+        let t = if d.is_nan() { 0.0 } else { d.trunc() };
+        Ok(JSValue::from(if t == 0.0 { 0.0 } else { t }))
+    }
+}
+
 pub fn js_atomics_store(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let (mut ta, _cid, width, signed, is_bigint) = validate_atomic(ctx, cc.arg(0), false)?;
     let nth = validate_index(ctx, &ta, cc.arg(1))?;
+    // `ToBigInt`/`ToNumber` conversion happens before the element-width
+    // truncation, and the *converted* value is what store returns.
+    let ret = store_return_value(ctx, cc.arg(2), is_bigint)?;
     let value_bits = value_to_bits(ctx, cc.arg(2), signed, is_bigint, width)?;
-    let mask = mask_for(width);
-    // Atomics.store returns the stored value (not the previous value).
+    // Atomics.store returns the stored (converted) value, not the previous value.
     ta.with_bytes_mut(|buf| {
         let off = nth * (width as usize / 8);
         write_bits(buf, off, width, value_bits);
     });
-    bits_to_value(ctx, value_bits & mask, signed, is_bigint, width)
+    Ok(ret)
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +470,23 @@ fn drop_waiter(key: WaitKey, waiter: &Waiter) {
 pub static WAIT_ASYNC_COUNT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
+/// Host-controlled `AgentCanSuspend()` flag. `Atomics.wait` throws a TypeError
+/// when this is false (e.g. the main host thread under test262's
+/// `CanBlockIsFalse` flag), and blocks otherwise. Agent threads set it to true
+/// via [`set_agent_can_suspend`] so they may block on `Atomics.wait`.
+static AGENT_CAN_SUSPEND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Override whether the current agent may suspend (block) in `Atomics.wait`.
+/// The test262 harness sets this to `false` when a test declares
+/// `CanBlockIsFalse`, and restores it afterwards.
+pub fn set_agent_can_suspend(v: bool) {
+    AGENT_CAN_SUSPEND.store(v, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn agent_can_suspend() -> bool {
+    AGENT_CAN_SUSPEND.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Wake every registered waiter regardless of key. Used on agent-harness
 /// teardown so agent threads blocked in `Atomics.wait` are released instead of
 /// leaking across tests.
@@ -457,8 +519,23 @@ fn wait_key(ta: &TypedArray, nth: usize, width: u32) -> WaitKey {
 // ---------------------------------------------------------------------------
 
 pub fn js_atomics_notify(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let (ta, _cid, width, _signed, _is_bigint) = validate_atomic(ctx, cc.arg(0), true)?;
-    let nth = validate_index(ctx, &ta, cc.arg(1))?;
+    // Per `Atomics.notify`, the array is validated as an *integer* TypedArray
+    // of a waitable element type (Int32 or BigInt64); the SharedArrayBuffer
+    // check is deferred until AFTER the index and count have been coerced, at
+    // which point a non-shared buffer makes the call return 0.
+    let (ta, _cid, width, signed, _is_bigint) = validate_atomic(ctx, cc.arg(0), true)?;
+    if !signed {
+        return Err(ctx.throw_type_error(
+            "Atomics.notify: typed array must be an Int32Array or BigInt64Array",
+        ));
+    }
+
+    // `ValidateAtomicAccess`: capture the length before coercing the index.
+    let length = ta.length();
+    let nth = cc.arg(1).to_index(ctx)? as usize;
+    if nth >= length {
+        return Err(ctx.throw_range_error("Atomics: index out of range"));
+    }
 
     // Resolve the count argument (default: +Infinity => wake everyone).
     let count = if cc.arguments().len() <= 2 || cc.arg(2).is_undefined() {
@@ -474,6 +551,13 @@ pub fn js_atomics_notify(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     };
 
+    // The shared-memory check comes last: a non-shared buffer returns 0 (it has
+    // no waiters), it does not throw.
+    if ta.array_buffer().class_id() != JS_CLASS_SHARED_ARRAY_BUFFER {
+        return Ok(JSValue::from(0));
+    }
+    ta.ensure_attached(ctx)?;
+
     let key = wait_key(&ta, nth, width);
     let n = wake_waiters(key, count);
     Ok(JSValue::from(n as i64))
@@ -484,13 +568,22 @@ pub fn js_atomics_notify(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 // ---------------------------------------------------------------------------
 
 pub fn js_atomics_wait(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    // `ValidateSharedIntegerTypedArray(typedArray, true)`: an integer
+    // TypedArray that is Int32/BigInt64 AND backed by a SharedArrayBuffer. The
+    // shared check happens before any argument coercion.
     let (ta, _cid, width, signed, is_bigint) = validate_atomic(ctx, cc.arg(0), true)?;
     if !signed {
         return Err(ctx
             .throw_type_error("Atomics.wait: typed array must be an Int32Array or BigInt64Array"));
     }
+    require_shared(ctx, &ta)?;
 
-    let nth = validate_index(ctx, &ta, cc.arg(1))?;
+    // `ValidateAtomicAccess`: capture the length before coercing the index.
+    let length = ta.length();
+    let nth = cc.arg(1).to_index(ctx)? as usize;
+    if nth >= length {
+        return Err(ctx.throw_range_error("Atomics: index out of range"));
+    }
     let mask = mask_for(width);
     let elem_off = nth * (width as usize / 8);
 
@@ -519,6 +612,14 @@ pub fn js_atomics_wait(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         (timeout * 1e6) as i64
     };
 
+    // `AgentCanSuspend`: a host where the agent cannot be suspended (e.g. the
+    // main host thread under test262's `CanBlockIsFalse`) throws a TypeError
+    // instead of blocking.
+    if !agent_can_suspend() {
+        return Err(ctx
+            .throw_type_error("Atomics.wait: cannot be called from a thread that cannot suspend"));
+    }
+
     let key = wait_key(&ta, nth, width);
     let waiter: Waiter = Arc::new((Mutex::new(false), Condvar::new()));
 
@@ -532,6 +633,20 @@ pub fn js_atomics_wait(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let mut woken = false;
     let mut guard = waiter.0.lock().unwrap();
+    // A deadline ensures the wait is *at least* `timeout`, never shorter. If a
+    // `wait_timeout` wakes early (e.g. spurious wakeup or coarse OS timer
+    // resolution), we re-wait for the remaining time instead of giving up, so a
+    // positive timeout cannot resolve "timed-out" before the requested duration
+    // — test262's `no-spurious-wakeup-*` tests assert the observed wait is >=
+    // the timeout.
+    // `timeout_ns <= 0` (negative / zero timeout) must time out immediately,
+    // NOT wait forever — so give it a deadline already in the past. Only
+    // `+Infinity` (`i64::MAX`) waits indefinitely (until a `notify`).
+    let deadline = if timeout_ns == i64::MAX {
+        None
+    } else {
+        Some(std::time::Instant::now() + Duration::from_nanos(timeout_ns.max(0) as u64))
+    };
     loop {
         // Only an explicit `Atomics.notify` (which sets our flag and signals the
         // condvar) wakes a waiter. A plain `store`/`add` must NOT spuriously
@@ -540,22 +655,23 @@ pub fn js_atomics_wait(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             woken = true;
             break;
         }
-        if timeout_ns <= 0 {
-            break;
-        }
-        if timeout_ns == i64::MAX {
-            guard = match waiter.1.wait(guard) {
-                Ok(g) => g,
-                Err(p) => p.into_inner(),
-            };
-        } else {
-            let (g, res) = waiter
-                .1
-                .wait_timeout(guard, Duration::from_nanos(timeout_ns as u64))
-                .unwrap();
-            guard = g;
-            if res.timed_out() {
-                break;
+        match deadline {
+            Some(dl) => {
+                let now = std::time::Instant::now();
+                if now >= dl {
+                    break;
+                }
+                let remaining = dl - now;
+                let (g, _res) = waiter.1.wait_timeout(guard, remaining).unwrap();
+                guard = g;
+                // Loop re-checks `*guard` and the deadline so the total wait is
+                // at least `timeout` even if this wait returned early.
+            }
+            None => {
+                guard = match waiter.1.wait(guard) {
+                    Ok(g) => g,
+                    Err(p) => p.into_inner(),
+                };
             }
         }
     }
@@ -576,6 +692,7 @@ pub fn js_atomics_wait_async(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
             "Atomics.waitAsync: typed array must be an Int32Array or BigInt64Array",
         ));
     }
+    require_shared(ctx, &ta)?;
 
     // DoWait step 4 (ValidateAtomicAccess): capture the typed array length
     // BEFORE coercing the index, so a `valueOf` that grows the buffer cannot

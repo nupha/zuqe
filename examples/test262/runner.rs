@@ -489,7 +489,12 @@ pub async fn run_test_file(
         let mut use_nostrict = true;
         let mut is_async = false;
         let mut is_module = false;
-        if let Some(flags) = config.flags {
+        // `CanBlockIsFalse` declares that the host agent cannot be suspended
+        // (i.e. `AgentCanSuspend()` is false), so a main-thread `Atomics.wait`
+        // must throw a TypeError instead of blocking. `CanBlockIsTrue` (or no
+        // flag) is the default: the host may block.
+        let mut can_block = true;
+        if let Some(flags) = &config.flags {
             if flags.iter().any(|s| s.as_str() == "module") {
                 is_module = true;
             }
@@ -502,9 +507,16 @@ pub async fn run_test_file(
                 use_nostrict = true;
             }
             is_async = flags.iter().any(|s| s.as_str() == "async");
+            if flags.iter().any(|s| s.as_str() == "CanBlockIsFalse") {
+                can_block = false;
+            }
         }
 
         let negative = config.negative;
+
+        // Tell the engine whether the host agent may suspend while the test's
+        // main-thread code runs. Restored at the end of the loop body.
+        zuqe::builtins::atomics::set_agent_can_suspend(can_block);
 
         for strict in [
             if use_nostrict { Some(false) } else { None },
@@ -568,6 +580,9 @@ pub async fn run_test_file(
             }
         }
     }
+
+    // Restore the default (the host may suspend) for the next test.
+    zuqe::builtins::atomics::set_agent_can_suspend(true);
 
     // Tear down any agent threads spawned by this test so they don't leak into
     // the next test (which would corrupt broadcast/hub state across tests).

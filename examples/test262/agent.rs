@@ -695,23 +695,34 @@ fn child_receive_broadcast(ctx: &mut ScopedContext, cc: CallContext) -> Result<J
         JSValue::UNDEFINED
     };
 
+    // Signal the parent that the agent has *received* the broadcast, so
+    // `$262.agent.broadcast`/`safeBroadcast` does not wait for the callback to
+    // finish running. test262's broadcast is asynchronous: the parent proceeds
+    // immediately and relies on `waitUntil`/`tryYield` (which poll the shared
+    // buffer) to ensure the agent has started before `Atomics.notify`. If we
+    // waited for the callback to complete, a callback that blocks in the
+    // synchronous `Atomics.wait` (e.g. `notify-one.js`, `was-woken-before-timeout.js`)
+    // would stall the parent until the wait's timeout, so a subsequent
+    // `Atomics.notify` would find no live waiter and wrongly return 0.
+    //
+    // The signal is raised *before* invoking the callback, but after the agent
+    // has the shared-buffer view in hand. For `Atomics.waitAsync` callbacks
+    // (non-blocking), the waiter is registered synchronously right after the
+    // callback's `Atomics.add(i32a, RUNNING, 1)`, so the parent's subsequent
+    // `waitUntil(RUNNING, …)` + `tryYield` still guarantees the waiter is live
+    // before `Atomics.notify`.
+    if let Some(consumed) = b.consumed.as_ref() {
+        let (lock, cvar) = &**consumed;
+        *lock.lock().unwrap() = true;
+        cvar.notify_one();
+    }
+
     // Invoke the report callback (if any) with the broadcast value.
     let cb = cc.arg(0);
     if !cb.is_undefined() && !cb.is_null() {
         if let Ok(cb_obj) = Object::try_from(cb) {
             let _ = cb_obj.call(ctx, JSValue::UNDEFINED, &[value]);
         }
-    }
-
-    // Signal the parent that the broadcast has been consumed and its callback
-    // (which may register an `Atomics.waitAsync` waiter) has run. The parent
-    // blocks on this signal before issuing `Atomics.notify`, so we must raise
-    // it *after* the callback completed but *before* draining async jobs, so the
-    // waiter is live when the parent notifies.
-    if let Some(consumed) = b.consumed.as_ref() {
-        let (lock, cvar) = &**consumed;
-        *lock.lock().unwrap() = true;
-        cvar.notify_one();
     }
 
     Ok(JSValue::UNDEFINED)
