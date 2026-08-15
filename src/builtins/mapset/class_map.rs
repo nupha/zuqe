@@ -531,15 +531,13 @@ fn js_set_isDisjointFrom(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
         let next_obj = next_method.ensure_callable(ctx)?;
 
-        loop {
-            let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
-                break;
-            };
+        while let Some(value) = iterator_step(ctx, iterator, next_obj)? {
             if this_state.find(ctx, value).is_some() {
                 iterator_return(ctx, iterator)?;
                 return Ok(JSValue::from(false));
             }
         }
+
         return Ok(JSValue::TRUE);
     }
 
@@ -624,10 +622,7 @@ fn js_set_isSupersetOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
     let next_obj = next_method.ensure_callable(ctx)?;
 
-    loop {
-        let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
-            break;
-        };
+    while let Some(value) = iterator_step(ctx, iterator, next_obj)? {
         if this_state.find(ctx, value).is_none() {
             iterator_return(ctx, iterator)?;
             return Ok(JSValue::FALSE);
@@ -672,14 +667,12 @@ fn js_set_intersection(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
         let next_obj = next_method.ensure_callable(ctx)?;
 
-        loop {
-            let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
-                break;
-            };
+        while let Some(value) = iterator_step(ctx, iterator, next_obj)? {
             if this_state.find(ctx, value).is_some() {
                 result_state.upsert(ctx, value, JSValue::UNDEFINED)?;
             }
         }
+
         return Ok(result);
     }
 
@@ -728,10 +721,7 @@ fn js_set_difference(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
         let next_obj = next_method.ensure_callable(ctx)?;
 
-        loop {
-            let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
-                break;
-            };
+        while let Some(value) = iterator_step(ctx, iterator, next_obj)? {
             if this_state.find(ctx, value).is_some() {
                 result_state.remove(ctx, value);
             }

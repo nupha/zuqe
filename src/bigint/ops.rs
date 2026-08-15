@@ -27,7 +27,7 @@ const KARATSUBA_THRESHOLD: usize = 32;
 /// of four. A very unbalanced pair (e.g. `1000 × 32`) is cheaper as schoolbook
 /// because the recursion would otherwise keep splitting the large operand
 /// against the same small one.
-fn should_karatsuba(a: &[u64], b: &[u64]) -> bool {
+const fn should_karatsuba(a: &[u64], b: &[u64]) -> bool {
     let (small, large) = if a.len() < b.len() {
         (a.len(), b.len())
     } else {
@@ -99,8 +99,8 @@ pub(crate) fn sub_mag(a: &[u64], b: &[u64]) -> Vec<u64> {
     debug_assert_ne!(cmp_mag(a, b), Ordering::Less, "sub_mag with a < b");
     let mut result = Vec::with_capacity(a.len());
     let mut borrow: u64 = 0;
-    for i in 0..a.len() {
-        let x = a[i] as u128;
+    for (i, &x) in a.iter().enumerate() {
+        let x = x as u128;
         let y = b.get(i).copied().unwrap_or(0) as u128 + borrow as u128;
         if x >= y {
             result.push((x - y) as u64);
@@ -161,8 +161,16 @@ fn mul_karatsuba(a: &[u64], b: &[u64]) -> Vec<u64> {
     let n = a.len().max(b.len());
     let m = n / 2;
 
-    let (a0, a1) = if a.len() <= m { (a, &[][..]) } else { a.split_at(m) };
-    let (b0, b1) = if b.len() <= m { (b, &[][..]) } else { b.split_at(m) };
+    let (a0, a1) = if a.len() <= m {
+        (a, &[][..])
+    } else {
+        a.split_at(m)
+    };
+    let (b0, b1) = if b.len() <= m {
+        (b, &[][..])
+    } else {
+        b.split_at(m)
+    };
 
     let z0 = mul_mag(a0, b0);
     let z2 = mul_mag(a1, b1);
@@ -211,7 +219,10 @@ fn divmod_small(a: &[u64], d: u64) -> (Vec<u64>, Vec<u64>) {
         q[i] = (cur / d as u128) as u64;
         rem = (cur % d as u128) as u64;
     }
-    (normalize_vec(q), if rem == 0 { Vec::new() } else { vec![rem] })
+    (
+        normalize_vec(q),
+        if rem == 0 { Vec::new() } else { vec![rem] },
+    )
 }
 
 /// Knuth Algorithm D (TAOCP vol.2 4.3.1): divide magnitudes, returning
@@ -532,13 +543,19 @@ impl BigIntRef {
     }
 
     pub(crate) fn inc(ctx: &mut ScopedContext, a: &Self) -> Result<Self, i32> {
-        let one = BigIntImpl { sign: false, limbs: Box::new([1]) };
+        let one = BigIntImpl {
+            sign: false,
+            limbs: Box::new([1]),
+        };
         let (sign, limbs) = Self::add_impl(a.as_impl(), &one);
         Self::create(ctx, sign, limbs)
     }
 
     pub(crate) fn dec(ctx: &mut ScopedContext, a: &Self) -> Result<Self, i32> {
-        let one = BigIntImpl { sign: false, limbs: Box::new([1]) };
+        let one = BigIntImpl {
+            sign: false,
+            limbs: Box::new([1]),
+        };
         let (sign, limbs) = Self::sub_impl(a.as_impl(), &one);
         Self::create(ctx, sign, limbs)
     }
@@ -555,7 +572,12 @@ impl BigIntRef {
         Self::create(ctx, sign, limbs)
     }
 
-    fn bitwise(ctx: &mut ScopedContext, a: &Self, b: &Self, op: impl Fn(u64, u64) -> u64) -> Result<Self, i32> {
+    fn bitwise(
+        ctx: &mut ScopedContext,
+        a: &Self,
+        b: &Self,
+        op: impl Fn(u64, u64) -> u64,
+    ) -> Result<Self, i32> {
         let ai = a.as_impl();
         let bi = b.as_impl();
         let width = ai.limbs().len().max(bi.limbs().len()) + 1;
@@ -684,7 +706,12 @@ mod tests {
         });
     }
 
-    fn check_bin_op(op: fn(&mut ScopedContext, &BigIntRef, &BigIntRef) -> Result<BigIntRef, i32>, a: &str, b: &str, expect: &str) {
+    fn check_bin_op(
+        op: fn(&mut ScopedContext, &BigIntRef, &BigIntRef) -> Result<BigIntRef, i32>,
+        a: &str,
+        b: &str,
+        expect: &str,
+    ) {
         with_ctx(|ctx| {
             let x = s(ctx, a);
             let y = s(ctx, b);
@@ -701,7 +728,12 @@ mod tests {
         check_bin_op(BigIntRef::add, "-5", "-3", "-8");
         check_bin_op(BigIntRef::add, "5", "-5", "0");
         // multi-limb carry: 2^64 - 1 + 2 = 2^64 + 1
-        check_bin_op(BigIntRef::add, "18446744073709551615", "2", "18446744073709551617");
+        check_bin_op(
+            BigIntRef::add,
+            "18446744073709551615",
+            "2",
+            "18446744073709551617",
+        );
     }
 
     #[test]
@@ -711,8 +743,18 @@ mod tests {
         check_bin_op(BigIntRef::sub, "-3", "5", "-8");
         check_bin_op(BigIntRef::sub, "-3", "-5", "2");
         check_bin_op(BigIntRef::sub, "0", "0", "0");
-        check_bin_op(BigIntRef::sub, "18446744073709551615", "1", "18446744073709551614");
-        check_bin_op(BigIntRef::sub, "1", "18446744073709551615", "-18446744073709551614");
+        check_bin_op(
+            BigIntRef::sub,
+            "18446744073709551615",
+            "1",
+            "18446744073709551614",
+        );
+        check_bin_op(
+            BigIntRef::sub,
+            "1",
+            "18446744073709551615",
+            "-18446744073709551614",
+        );
     }
 
     #[test]
@@ -722,8 +764,18 @@ mod tests {
         check_bin_op(BigIntRef::mul, "-12", "12", "-144");
         check_bin_op(BigIntRef::mul, "-12", "-12", "144");
         // 2^64 * 2^64 = 2^128
-        check_bin_op(BigIntRef::mul, "18446744073709551616", "18446744073709551616", "340282366920938463463374607431768211456");
-        check_bin_op(BigIntRef::mul, "12345678901234567890", "98765432109876543210", "1219326311370217952237463801111263526900");
+        check_bin_op(
+            BigIntRef::mul,
+            "18446744073709551616",
+            "18446744073709551616",
+            "340282366920938463463374607431768211456",
+        );
+        check_bin_op(
+            BigIntRef::mul,
+            "12345678901234567890",
+            "98765432109876543210",
+            "1219326311370217952237463801111263526900",
+        );
     }
 
     #[test]
@@ -734,10 +786,25 @@ mod tests {
         check_bin_op(BigIntRef::div, "-7", "-2", "3");
         check_bin_op(BigIntRef::div, "1", "2", "0");
         check_bin_op(BigIntRef::div, "-1", "2", "0");
-        check_bin_op(BigIntRef::div, "12345678901234567890", "7", "1763668414462081127");
+        check_bin_op(
+            BigIntRef::div,
+            "12345678901234567890",
+            "7",
+            "1763668414462081127",
+        );
         // multi-limb: 2^128 / 12345
-        check_bin_op(BigIntRef::div, "340282366920938463463374607431768211456", "12345", "27564387761922921301204909471994184");
-        check_bin_op(BigIntRef::div, "123456789012345678901234567890", "12345678901234567890123456789", "10");
+        check_bin_op(
+            BigIntRef::div,
+            "340282366920938463463374607431768211456",
+            "12345",
+            "27564387761922921301204909471994184",
+        );
+        check_bin_op(
+            BigIntRef::div,
+            "123456789012345678901234567890",
+            "12345678901234567890123456789",
+            "10",
+        );
     }
 
     #[test]
@@ -767,13 +834,14 @@ mod tests {
         with_ctx(|ctx| {
             let mut seed: u64 = 0x1234_5678_9abc_def0;
             let mut next = move || {
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 (seed >> 33) as u64
             };
             for _ in 0..2000 {
                 // build a dividend in [0, 2^192) and a divisor in [1, 2^128)
-                let a: u128 =
-                    ((next() as u128) << 64 | (next() as u128)) << 64 | next() as u128;
+                let a: u128 = ((next() as u128) << 64 | (next() as u128)) << 64 | next() as u128;
                 let b: u128 = ((next() as u128) << 64 | next() as u128) | 1;
                 let a_limbs = normalize_vec(vec![a as u64, (a >> 64) as u64, 0u64]);
                 let b_limbs = normalize_vec(vec![b as u64, (b >> 64) as u64]);
@@ -781,7 +849,11 @@ mod tests {
                 // verify q*b + r == a and r < b (limb arithmetic)
                 let ident = add_mag(&mul_mag(&q, &b_limbs), &r);
                 assert_eq!(ident, a_limbs, "identity a={a} b={b}");
-                assert_eq!(cmp_mag(&r, &b_limbs), Ordering::Less, "remainder below divisor");
+                assert_eq!(
+                    cmp_mag(&r, &b_limbs),
+                    Ordering::Less,
+                    "remainder below divisor"
+                );
             }
         });
     }
@@ -843,7 +915,12 @@ mod tests {
         check_bin_op(BigIntRef::pow, "3", "7", "2187");
         check_bin_op(BigIntRef::pow, "7", "2", "49");
         // 2^100
-        check_bin_op(BigIntRef::pow, "2", "100", "1267650600228229401496703205376");
+        check_bin_op(
+            BigIntRef::pow,
+            "2",
+            "100",
+            "1267650600228229401496703205376",
+        );
         with_ctx(|ctx| {
             let a = s(ctx, "2");
             let b = s(ctx, "-1");
@@ -861,9 +938,21 @@ mod tests {
                 ("-1", "0", Ordering::Less),
                 ("-1", "-2", Ordering::Greater),
                 ("-2", "-1", Ordering::Less),
-                ("123456789012345678901234567890", "12345678901234567890123456789", Ordering::Greater),
-                ("-123456789012345678901234567890", "12345678901234567890123456789", Ordering::Less),
-                ("18446744073709551616", "18446744073709551615", Ordering::Greater),
+                (
+                    "123456789012345678901234567890",
+                    "12345678901234567890123456789",
+                    Ordering::Greater,
+                ),
+                (
+                    "-123456789012345678901234567890",
+                    "12345678901234567890123456789",
+                    Ordering::Less,
+                ),
+                (
+                    "18446744073709551616",
+                    "18446744073709551615",
+                    Ordering::Greater,
+                ),
             ];
             for (a, b, exp) in cases {
                 let ra = s(ctx, a);
@@ -876,7 +965,10 @@ mod tests {
     #[test]
     fn neg_abs_inc_dec() {
         with_ctx(|ctx| {
-            let check = |ctx: &mut ScopedContext, txt: &str, op: fn(&mut ScopedContext, &BigIntRef) -> Result<BigIntRef, i32>, expect: i64| {
+            let check = |ctx: &mut ScopedContext,
+                         txt: &str,
+                         op: fn(&mut ScopedContext, &BigIntRef) -> Result<BigIntRef, i32>,
+                         expect: i64| {
                 let x = s(ctx, txt);
                 assert_eq!(i64(&op(ctx, &x).unwrap()), expect, "{op:?} of {txt}");
             };
@@ -955,7 +1047,9 @@ mod tests {
         // empty after the split — exercises the z1 carry into the z2 region.
         with_ctx(|ctx| {
             let a: Vec<u64> = vec![0x0123_4567_89ab_cdef; 32];
-            let b: Vec<u64> = (0..128u64).map(|i| i.wrapping_mul(0x9e3779b97f4a7c15)).collect();
+            let b: Vec<u64> = (0..128u64)
+                .map(|i| i.wrapping_mul(0x9e3779b97f4a7c15))
+                .collect();
             let r = mul_mag(&a, &b);
             assert_eq!(r, super::mul_schoolbook(&a, &b));
             assert_eq!(mul_mag(&b, &a), r, "commutative");
@@ -982,7 +1076,11 @@ mod tests {
                 let bi = BigIntRef::create(ctx, false, limbs.clone()).unwrap();
                 let s1 = to_string_radix(&bi, 10);
                 let back = parse_str(ctx, &s1, 10).unwrap();
-                assert_eq!(back.as_impl().limbs(), &*normalize_vec(limbs), "roundtrip {s1}");
+                assert_eq!(
+                    back.as_impl().limbs(),
+                    &*normalize_vec(limbs),
+                    "roundtrip {s1}"
+                );
             }
         });
     }

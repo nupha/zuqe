@@ -437,7 +437,7 @@ mod tests {
                 // Finite or subnormal (non-NaN/Inf): must be recognized as float,
                 // never as a tag.
                 assert!(
-                    raw_tag < -8 || raw_tag > 6,
+                    !(-8..=6).contains(&raw_tag),
                     "h={h:#06x} raw_tag={raw_tag} would collide with a tag"
                 );
             }

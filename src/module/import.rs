@@ -10,10 +10,7 @@ use crate::{
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, NativeFunction},
-    module::{
-        JSFreeModuleEnum, get_script_or_module_name, js_free_modules,
-        js_host_resolve_imported_module,
-    },
+    module::{get_script_or_module_name, js_host_resolve_imported_module},
     object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, Object, PropertyKeyKind},
     value::JSValue,
 };
@@ -160,7 +157,7 @@ fn js_load_module_internal(
             md.attributes = attrs;
 
             if md.resolve_deps(ctx).is_err() {
-                js_free_modules(ctx, JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED);
+                // Error already cached in eval_error by resolve_deps
                 let err_val = ctx.take_exception().to_value(ctx);
                 let _ = resolving_funcs[1].call(
                     ctx,

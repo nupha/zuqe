@@ -17,7 +17,7 @@ use crate::{
     function::{
         AsyncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind, NativeFunction,
     },
-    object::{JS_PROP_CONFIGURABLE, AsyncGeneratorFunction, Object, ObjectImpl, ObjectPayload},
+    object::{AsyncGeneratorFunction, JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
     utils::unlikely,
     value::JSValue,
 };
@@ -329,7 +329,7 @@ impl AGenPayload {
     /// fields in the current scope. The fields lose GC trace protection
     /// when removed from AGenPayload::queue; this method ensures they
     /// survive GC during the subsequent resolve/reject call.
-    pub fn dequeue(&mut self, ctx: &ScopedContext) -> Box<JSAsyncGeneratorRequest> {
+    pub fn dequeue(&mut self, _ctx: &ScopedContext) -> Box<JSAsyncGeneratorRequest> {
         let req = self.queue.remove(0);
 
         #[cfg(feature = "gc_protect_transient")]
@@ -341,7 +341,7 @@ impl AGenPayload {
         ]
         .iter()
         {
-            ctx.gc_protect_transient(&v);
+            _ctx.gc_protect_transient(&v);
         }
 
         req

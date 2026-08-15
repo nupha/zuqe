@@ -689,9 +689,3 @@ pub fn js_shared_array_buffer_constructor(ctx: &mut ScopedContext, cc: CallConte
     )
     .map(JSValue::from)
 }
-
-// // also used for SharedArrayBuffer
-// #[deprecated(note = "use ArrayBuffer::class_finalize() instead")]
-// pub fn js_array_buffer_finalizer(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
-//     ArrayBuffer::class_finalize(rt, isa, id);
-// }

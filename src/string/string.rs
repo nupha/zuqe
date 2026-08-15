@@ -735,7 +735,7 @@ impl StringRef {
         {
             return s1.as_flat().concat(ctx, JSValue::make_string(s2));
         }
-        RopeImpl::new(ctx, s1, s2)
+        RopeImpl::create(ctx, s1, s2)
     }
 
     /// Compare two string references (rope-aware, no flatten unless needed by

@@ -525,8 +525,8 @@ impl<'s> JSParseState<'s> {
 
 /// True for `eval` / `arguments`, the binding names restricted in
 /// strict-mode code.
-#[inline]
-pub(super) fn is_eval_or_arguments(name: Atom) -> bool {
+#[inline(always)]
+pub(super) const fn is_eval_or_arguments(name: Atom) -> bool {
     matches!(name, Atom::CONST_eval | Atom::CONST_arguments)
 }
 

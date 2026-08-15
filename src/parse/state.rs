@@ -181,16 +181,6 @@ impl<'s> JSParseState<'s> {
         unsafe { &mut *self.cur_func_def }
     }
 
-    /// Run closure with cur_func mut ref.
-    /// If cur_func is null, returns None.
-    #[inline]
-    pub(super) fn with_cur_func_mut<R>(
-        &mut self,
-        f: impl FnOnce(&mut JSParseState, &mut FunctionDef) -> R,
-    ) -> Option<R> {
-        unsafe { self.cur_func_def.as_mut().map(|fd| f(self, fd)) }
-    }
-
     /// Perform push scope on current function def. For detail, see FunctionDef::push_scope()
     ///
     /// # Returns
