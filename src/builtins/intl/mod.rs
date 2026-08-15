@@ -18,7 +18,7 @@ pub(crate) mod relative_time_format;
 pub(crate) mod segmenter;
 
 use crate::{
-    Callback, Object, context::ScopedContext, error::JSResult, function::CallContext,
+    Callback, JSValue, Object, context::ScopedContext, error::JSResult, function::CallContext,
     object::JS_PROP_CONFIGURABLE,
 };
 
@@ -37,6 +37,12 @@ pub(crate) fn js_intl_init(ctx: &mut ScopedContext) -> Result<Object, i32> {
     use crate::object::JS_PROP_WRITABLE;
 
     let mut intl = ctx.create_base_object()?;
+
+    // Intl[@@toStringTag] = "Intl" (non-writable, non-enumerable, configurable).
+    {
+        let tag = make_str(ctx, b"Intl".to_vec())?;
+        intl.define_property_value_str(ctx, "[Symbol.toStringTag]", tag, JS_PROP_CONFIGURABLE)?;
+    }
 
     // getCanonicalLocales
     let fn_obj = ctx.create_native_function(
@@ -96,8 +102,38 @@ pub(crate) fn js_intl_init(ctx: &mut ScopedContext) -> Result<Object, i32> {
 }
 
 /// Shared static `supportedLocalesOf(locales, options)` for all Intl
-/// constructors. Returns the canonicalized locales that are supported.
+/// constructors. Validates `localeMatcher`, then returns the canonicalized
+/// locales that are actually supported (e.g. excluding `zxx`, "no linguistic
+/// content").
 fn js_intl_supported_locales_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    // Validate the `localeMatcher` option (ECMA-402 §8.2.2 step 5).
+    let options = cc.arg(1);
+    if options.is_object() {
+        let obj = options.objectify(ctx)?;
+        let matcher = obj.get_property_str(ctx, "localeMatcher")?;
+        if !matcher.is_undefined() {
+            let s = to_utf8_string(ctx, matcher)?;
+            if s != "lookup" && s != "best fit" {
+                return Err(ctx.throw_range_error("Invalid localeMatcher value"));
+            }
+        }
+    }
+
     let arr = canonicalize_locale_list(ctx, cc.arg(0))?;
-    Ok(arr.into())
+    // Filter out locales that are not supported by any Intl constructor.
+    // The "no linguistic content" locale `zxx` is not supported.
+    let mut out: Vec<JSValue> = Vec::new();
+    if let Some(obj) = arr.as_object() {
+        let len = obj.get_length_prop(ctx)?;
+        for i in 0..len {
+            let v = obj.get_property_i64(ctx, i)?;
+            let tag = to_utf8_string(ctx, v)?;
+            let language = tag.split(['-', '_']).next().unwrap_or("");
+            if language == "zxx" {
+                continue;
+            }
+            out.push(v);
+        }
+    }
+    Ok(values_to_array(ctx, out)?.into())
 }

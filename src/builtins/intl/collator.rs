@@ -24,6 +24,9 @@ pub(crate) struct CollatorData {
     pub sensitivity: CollationSensitivity,
     pub case_first: CaseFirst,
     pub numeric: bool,
+    pub ignore_punctuation: bool,
+    pub usage: &'static str,
+    pub collator: icu::collator::CollatorBorrowed<'static>,
 }
 
 impl GcTrace for CollatorData {
@@ -56,39 +59,145 @@ pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) 
     let locale = resolve_locale(ctx, cc.arg(0))?;
     let options = cc.arg(1);
 
-    let mut data = CollatorData {
-        locale,
-        sensitivity: CollationSensitivity::Variant,
-        case_first: CaseFirst::False,
-        numeric: false,
-    };
+    // Defaults: variant sensitivity, caseFirst "false", numeric false.
+    let mut sensitivity = CollationSensitivity::Variant;
+    let mut case_first = CaseFirst::False;
+    let mut numeric = false;
+    // Thai collation ignores punctuation by default.
+    let lang = locale.id.language.to_string();
+    let mut ignore_punctuation = lang == "th";
+    let mut usage = "sort";
+
+    // Read the unicode extension (`u-co`, `u-kn`, `u-kf`) resolved into the
+    // canonical locale, plus the explicit options which take precedence.
+    for (k, v) in locale.extensions.unicode.keywords.iter() {
+        let key = k.to_string();
+        let val = v.to_string();
+        match key.as_str() {
+            "kn" => {
+                // `-u-kn` (no value) and `-u-kn-true` mean true; `-u-kn-false` means false.
+                numeric = !(val == "false");
+            }
+            "kf" => {
+                case_first = match val.as_str() {
+                    "upper" => CaseFirst::Upper,
+                    "lower" => CaseFirst::Lower,
+                    _ => CaseFirst::False,
+                };
+            }
+            _ => {}
+        }
+    }
 
     if !options.is_undefined() {
         let obj = options.objectify(ctx)?;
-        let sensitivity = obj.get_property_str(ctx, "sensitivity")?;
-        if !sensitivity.is_undefined() {
-            let s = to_utf8_string(ctx, sensitivity)?;
-            data.sensitivity = match s.as_str() {
+        let sensitivity_val = obj.get_property_str(ctx, "sensitivity")?;
+        if !sensitivity_val.is_undefined() {
+            let s = to_utf8_string(ctx, sensitivity_val)?;
+            sensitivity = match s.as_str() {
                 "base" => CollationSensitivity::Base,
                 "accent" => CollationSensitivity::Accent,
                 "case" => CollationSensitivity::Case,
-                _ => CollationSensitivity::Variant,
+                "variant" => CollationSensitivity::Variant,
+                _ => return Err(ctx.throw_range_error("Invalid sensitivity value")),
             };
         }
-        let case_first = obj.get_property_str(ctx, "caseFirst")?;
-        if !case_first.is_undefined() {
-            let s = to_utf8_string(ctx, case_first)?;
-            data.case_first = match s.as_str() {
+        let case_first_val = obj.get_property_str(ctx, "caseFirst")?;
+        if !case_first_val.is_undefined() {
+            let s = to_utf8_string(ctx, case_first_val)?;
+            case_first = match s.as_str() {
                 "upper" => CaseFirst::Upper,
                 "lower" => CaseFirst::Lower,
-                _ => CaseFirst::False,
+                "false" => CaseFirst::False,
+                _ => return Err(ctx.throw_range_error("Invalid caseFirst value")),
             };
         }
-        let numeric = obj.get_property_str(ctx, "numeric")?;
-        if !numeric.is_undefined() {
-            data.numeric = numeric.to_bool()?;
+        let numeric_val = obj.get_property_str(ctx, "numeric")?;
+        if !numeric_val.is_undefined() {
+            numeric = numeric_val.to_bool()?;
+        }
+        let ignore_val = obj.get_property_str(ctx, "ignorePunctuation")?;
+        if !ignore_val.is_undefined() {
+            ignore_punctuation = ignore_val.to_bool()?;
+        }
+        let usage_val = obj.get_property_str(ctx, "usage")?;
+        if !usage_val.is_undefined() {
+            let s = to_utf8_string(ctx, usage_val)?;
+            match s.as_str() {
+                "sort" => usage = "sort",
+                "search" => usage = "search",
+                _ => return Err(ctx.throw_range_error("Invalid usage value")),
+            }
+        }
+        let matcher = obj.get_property_str(ctx, "localeMatcher")?;
+        if !matcher.is_undefined() {
+            let s = to_utf8_string(ctx, matcher)?;
+            if s != "lookup" && s != "best fit" {
+                return Err(ctx.throw_range_error("Invalid localeMatcher value"));
+            }
+        }
+        // collation is validated (so its getter is read) but its value is not
+        // otherwise used in this implementation.
+        let collation_val = obj.get_property_str(ctx, "collation")?;
+        if !collation_val.is_undefined() {
+            let s = to_utf8_string(ctx, collation_val)?;
+            if s.is_empty() {
+                return Err(ctx.throw_range_error("Invalid collation value"));
+            }
         }
     }
+
+    // Build the ICU4X collator from the resolved locale + options.
+    use icu::collator::CollatorPreferences;
+    use icu::collator::options::{AlternateHandling, MaxVariable, Strength};
+    use icu::collator::{CollatorBorrowed, options::CollatorOptions};
+    use icu::locale::preferences::extensions::unicode::keywords::{
+        CollationCaseFirst, CollationNumericOrdering,
+    };
+
+    let mut opts = CollatorOptions::default();
+    // strength: base -> Primary, accent -> Secondary, case -> Secondary+CaseLevel, variant -> Tertiary
+    opts.strength = Some(match sensitivity {
+        CollationSensitivity::Base => Strength::Primary,
+        CollationSensitivity::Accent => Strength::Secondary,
+        CollationSensitivity::Case => Strength::Secondary,
+        CollationSensitivity::Variant => Strength::Tertiary,
+    });
+    if ignore_punctuation {
+        opts.alternate_handling = Some(AlternateHandling::Shifted);
+        opts.max_variable = Some(MaxVariable::Punctuation);
+    } else {
+        // Explicitly disable punctuation ignoring (locale tailoring might
+        // otherwise enable Shifted handling).
+        opts.alternate_handling = Some(AlternateHandling::NonIgnorable);
+    }
+    // Start from the locale's own collation preferences (language tailoring,
+    // `-u-co` collation type, `-u-kn`/`-u-kf`), then override with the explicit
+    // JS options which take precedence.
+    let mut prefs = CollatorPreferences::from(&locale);
+    prefs.case_first = Some(match case_first {
+        CaseFirst::Upper => CollationCaseFirst::Upper,
+        CaseFirst::Lower => CollationCaseFirst::Lower,
+        CaseFirst::False => CollationCaseFirst::False,
+    });
+    prefs.numeric_ordering = Some(if numeric {
+        CollationNumericOrdering::True
+    } else {
+        CollationNumericOrdering::False
+    });
+
+    let icu_collator = CollatorBorrowed::try_new(prefs, opts)
+        .map_err(|_| ctx.throw_range_error("Unable to load collation data"))?;
+
+    let data = CollatorData {
+        locale,
+        sensitivity,
+        case_first,
+        numeric,
+        ignore_punctuation,
+        usage,
+        collator: icu_collator,
+    };
 
     let instance = ctx
         .create_instance_with_ctor(new_target, ObjectPayload::INTL_COLLATOR(Box::new(data)))
@@ -96,138 +205,9 @@ pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) 
     Ok(JSValue::from(instance))
 }
 
-/// Compares two strings. Uses locale-aware comparison when a collator data is
-/// available; otherwise falls back to a case/accent-insensitive comparison.
+/// Compares two strings using the ICU4X collator (locale + options aware).
 fn compare_strings(data: &CollatorData, a: &str, b: &str) -> std::cmp::Ordering {
-    // numeric collation
-    if data.numeric {
-        if let (Some(x), Some(y)) = (parse_leading_number(a), parse_leading_number(b)) {
-            if x != y {
-                return x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal);
-            }
-        }
-    }
-
-    let (norm_a, norm_b) = match data.sensitivity {
-        CollationSensitivity::Base | CollationSensitivity::Accent => {
-            let na = lowercase(a);
-            let nb = lowercase(b);
-            match data.sensitivity {
-                CollationSensitivity::Accent => {
-                    // compare with accents but ignore case
-                    (na, nb)
-                }
-                _ => (strip_diacritics(&na), strip_diacritics(&nb)),
-            }
-        }
-        CollationSensitivity::Case => (lowercase(a), lowercase(b)),
-        CollationSensitivity::Variant => (a.to_string(), b.to_string()),
-    };
-
-    let mut ord = norm_a.cmp(&norm_b);
-    // caseFirst adjustments (secondary).
-    if ord == std::cmp::Ordering::Equal {
-        match data.case_first {
-            CaseFirst::Upper => {
-                // uppercase sorts before lowercase
-                let (a_upper, b_upper) = (is_uppercase(a), is_uppercase(b));
-                if a_upper != b_upper {
-                    ord = if a_upper {
-                        std::cmp::Ordering::Less
-                    } else {
-                        std::cmp::Ordering::Greater
-                    };
-                }
-            }
-            CaseFirst::Lower => {
-                let (a_upper, b_upper) = (is_uppercase(a), is_uppercase(b));
-                if a_upper != b_upper {
-                    ord = if a_upper {
-                        std::cmp::Ordering::Greater
-                    } else {
-                        std::cmp::Ordering::Less
-                    };
-                }
-            }
-            CaseFirst::False => {}
-        }
-    }
-    ord
-}
-
-fn parse_leading_number(s: &str) -> Option<f64> {
-    let mut end = 0;
-    for (i, c) in s.char_indices() {
-        if c.is_ascii_digit() {
-            end = i + c.len_utf8();
-        } else {
-            break;
-        }
-    }
-    if end > 0 { s[..end].parse().ok() } else { None }
-}
-
-fn lowercase(s: &str) -> String {
-    s.to_lowercase()
-}
-
-fn is_uppercase(s: &str) -> bool {
-    s.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
-}
-
-fn strip_diacritics(s: &str) -> String {
-    use std::collections::HashMap;
-    let map: HashMap<char, char> = [
-        ('á', 'a'),
-        ('à', 'a'),
-        ('â', 'a'),
-        ('ä', 'a'),
-        ('ã', 'a'),
-        ('å', 'a'),
-        ('ā', 'a'),
-        ('é', 'e'),
-        ('è', 'e'),
-        ('ê', 'e'),
-        ('ë', 'e'),
-        ('ē', 'e'),
-        ('ė', 'e'),
-        ('ę', 'e'),
-        ('í', 'i'),
-        ('ì', 'i'),
-        ('î', 'i'),
-        ('ï', 'i'),
-        ('ī', 'i'),
-        ('į', 'i'),
-        ('ó', 'o'),
-        ('ò', 'o'),
-        ('ô', 'o'),
-        ('ö', 'o'),
-        ('õ', 'o'),
-        ('ō', 'o'),
-        ('ú', 'u'),
-        ('ù', 'u'),
-        ('û', 'u'),
-        ('ü', 'u'),
-        ('ū', 'u'),
-        ('ů', 'u'),
-        ('ý', 'y'),
-        ('ÿ', 'y'),
-        ('ç', 'c'),
-        ('ć', 'c'),
-        ('č', 'c'),
-        ('ñ', 'n'),
-        ('ň', 'n'),
-        ('š', 's'),
-        ('ś', 's'),
-        ('ž', 'z'),
-        ('ź', 'z'),
-        ('ř', 'r'),
-        ('ł', 'l'),
-    ]
-    .iter()
-    .copied()
-    .collect();
-    s.chars().map(|c| *map.get(&c).unwrap_or(&c)).collect()
+    data.collator.compare(a, b)
 }
 
 fn js_collator_compare_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -235,7 +215,8 @@ fn js_collator_compare_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     if !is_collator(&this_val) {
         return Err(ctx.throw_type_error("not a Collator"));
     }
-    make_bound_method(ctx, this_val, js_collator_compare_bound, "compare", 2)
+    // The bound `compare` function is anonymous (name is the empty string).
+    make_bound_method(ctx, this_val, js_collator_compare_bound, "", 2)
 }
 
 fn is_collator(v: &JSValue) -> bool {
@@ -272,9 +253,13 @@ fn js_collator_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSR
         .intl_collator()
         .ok_or_else(|| ctx.throw_type_error("not a Collator"))?;
     let mut o = ctx.create_base_object()?;
-    let _v1 = locale_to_string(ctx, &this.locale)?;
-    o.set_property_str(ctx, "locale", _v1)?;
-    let _v2 = make_str(
+    // Property order must be: locale, usage, sensitivity, ignorePunctuation,
+    // collation, numeric, caseFirst.
+    let v_locale = locale_to_string(ctx, &this.locale)?;
+    o.set_property_str(ctx, "locale", v_locale)?;
+    let v_usage = make_str(ctx, this.usage.as_bytes().to_vec())?;
+    o.set_property_str(ctx, "usage", v_usage)?;
+    let v_sens = make_str(
         ctx,
         match this.sensitivity {
             CollationSensitivity::Base => b"base".to_vec(),
@@ -283,8 +268,16 @@ fn js_collator_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSR
             CollationSensitivity::Variant => b"variant".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "sensitivity", _v2)?;
-    let _v3 = make_str(
+    o.set_property_str(ctx, "sensitivity", v_sens)?;
+    o.set_property_str(
+        ctx,
+        "ignorePunctuation",
+        JSValue::from(this.ignore_punctuation),
+    )?;
+    let v_coll = make_str(ctx, b"default".to_vec())?;
+    o.set_property_str(ctx, "collation", v_coll)?;
+    o.set_property_str(ctx, "numeric", JSValue::from(this.numeric))?;
+    let v_cf = make_str(
         ctx,
         match this.case_first {
             CaseFirst::False => b"false".to_vec(),
@@ -292,8 +285,7 @@ fn js_collator_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSR
             CaseFirst::Lower => b"lower".to_vec(),
         },
     )?;
-    o.set_property_str(ctx, "caseFirst", _v3)?;
-    o.set_property_str(ctx, "numeric", JSValue::from(this.numeric))?;
+    o.set_property_str(ctx, "caseFirst", v_cf)?;
     Ok(o.into())
 }
 

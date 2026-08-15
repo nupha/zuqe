@@ -21,6 +21,13 @@ pub(crate) struct PluralRulesData {
     pub locale: icu::locale::Locale,
     pub rules: IcuPluralRules,
     pub plural_type: PluralRuleType,
+    pub min_int_digits: i32,
+    pub min_frac_digits: i32,
+    pub max_frac_digits: i32,
+    pub min_sig_digits: Option<u8>,
+    pub max_sig_digits: Option<u8>,
+    pub notation: &'static str,
+    pub compact_display: Option<&'static str>,
 }
 
 impl GcTrace for PluralRulesData {
@@ -30,7 +37,7 @@ impl GcTrace for PluralRulesData {
 pub(crate) static CLASS_DEF_PLURAL_RULES: ClassDef = ClassDef::builtin(
     Atom::CONST_PluralRules,
     js_plural_rules_proto_funcs,
-    Some(ClassCtorDef::new(js_plural_rules_constructor, 0, true)),
+    Some(ClassCtorDef::new(js_plural_rules_constructor, 0, false)),
 );
 
 pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -38,31 +45,124 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
     let locale = resolve_locale(ctx, cc.arg(0))?;
     let options = cc.arg(1);
 
-    // type: cardinal | ordinal (default cardinal)
-    let plural_type = if options.is_undefined() {
-        PluralRuleType::Cardinal
+    let obj = if options.is_undefined() {
+        None
     } else {
-        let obj = options.objectify(ctx)?;
-        let v = obj.get_property_str(ctx, "type")?;
-        if !v.is_undefined() {
-            let s = to_utf8_string(ctx, v)?;
-            if s == "ordinal" {
-                PluralRuleType::Ordinal
-            } else {
-                PluralRuleType::Cardinal
-            }
+        Some(options.objectify(ctx)?)
+    };
+
+    // type: cardinal | ordinal (default cardinal), invalid -> RangeError.
+    let plural_type = {
+        let v = if let Some(o) = &obj {
+            o.get_property_str(ctx, "type")?
         } else {
+            JSValue::UNDEFINED
+        };
+        if v.is_undefined() {
             PluralRuleType::Cardinal
+        } else {
+            let s = to_utf8_string(ctx, v)?;
+            match s.as_str() {
+                "cardinal" => PluralRuleType::Cardinal,
+                "ordinal" => PluralRuleType::Ordinal,
+                _ => return Err(ctx.throw_range_error("Invalid type value")),
+            }
         }
     };
 
     let rules = IcuPluralRules::try_new(locale.clone().into(), Default::default())
         .map_err(|_| ctx.throw_range_error("Unable to load locale data"))?;
 
+    // Rounding options.
+    let mut min_int_digits = 1i32;
+    let mut min_frac_digits = 0i32;
+    let mut max_frac_digits = 3i32;
+    let mut min_sig_digits = None;
+    let mut max_sig_digits = None;
+    let mut notation = "standard";
+    let mut compact_display = None;
+
+    if let Some(o) = &obj {
+        let v = o.get_property_str(ctx, "minimumIntegerDigits")?;
+        if !v.is_undefined() {
+            let m = v.to_number(ctx)?.to_f64();
+            if m.is_nan() || m < 1.0 || m > 21.0 {
+                return Err(ctx.throw_range_error("Invalid minimumIntegerDigits"));
+            }
+            min_int_digits = m as i32;
+        }
+        let v = o.get_property_str(ctx, "minimumFractionDigits")?;
+        if !v.is_undefined() {
+            let m = v.to_number(ctx)?.to_f64();
+            if m.is_nan() || m < 0.0 || m > 100.0 {
+                return Err(ctx.throw_range_error("Invalid minimumFractionDigits"));
+            }
+            min_frac_digits = m as i32;
+        }
+        let v = o.get_property_str(ctx, "maximumFractionDigits")?;
+        if !v.is_undefined() {
+            let m = v.to_number(ctx)?.to_f64();
+            if m.is_nan() || m < 0.0 || m > 100.0 {
+                return Err(ctx.throw_range_error("Invalid maximumFractionDigits"));
+            }
+            max_frac_digits = m as i32;
+        }
+        let vs = o.get_property_str(ctx, "minimumSignificantDigits")?;
+        if !vs.is_undefined() {
+            let m = vs.to_number(ctx)?.to_f64();
+            if m.is_nan() || m < 1.0 || m > 21.0 {
+                return Err(ctx.throw_range_error("Invalid significant digits"));
+            }
+            min_sig_digits = Some(m as u8);
+        }
+        let vs = o.get_property_str(ctx, "maximumSignificantDigits")?;
+        if !vs.is_undefined() {
+            let m = vs.to_number(ctx)?.to_f64();
+            if m.is_nan() || m < 1.0 || m > 21.0 {
+                return Err(ctx.throw_range_error("Invalid significant digits"));
+            }
+            max_sig_digits = Some(m as u8);
+        }
+        let v = o.get_property_str(ctx, "notation")?;
+        if !v.is_undefined() {
+            let s = to_utf8_string(ctx, v)?;
+            match s.as_str() {
+                "standard" => notation = "standard",
+                "compact" => {
+                    notation = "compact";
+                    compact_display = Some("short");
+                }
+                "scientific" => notation = "scientific",
+                "engineering" => notation = "engineering",
+                _ => return Err(ctx.throw_range_error("Invalid notation value")),
+            }
+        }
+        // compactDisplay is only meaningful (and only reported) for compact.
+        let v = o.get_property_str(ctx, "compactDisplay")?;
+        if !v.is_undefined() {
+            let s = to_utf8_string(ctx, v)?;
+            match s.as_str() {
+                "short" => compact_display = Some("short"),
+                "long" => compact_display = Some("long"),
+                _ => return Err(ctx.throw_range_error("Invalid compactDisplay value")),
+            }
+        }
+        if notation != "compact" {
+            compact_display = None;
+        }
+    }
+
     let data = PluralRulesData {
         locale,
         rules,
         plural_type,
+        min_int_digits,
+        min_frac_digits,
+        max_frac_digits,
+        min_sig_digits,
+        max_sig_digits,
+        notation,
+        compact_display,
     };
     let instance = ctx
         .create_instance_with_ctor(new_target, ObjectPayload::INTL_PLURAL_RULES(Box::new(data)))
@@ -124,6 +224,53 @@ fn js_plural_rules_resolved_options(ctx: &mut ScopedContext, cc: CallContext) ->
         },
     )?;
     o.set_property_str(ctx, "type", type_str)?;
+    o.set_property_str(
+        ctx,
+        "minimumIntegerDigits",
+        JSValue::from(this.min_int_digits),
+    )?;
+    o.set_property_str(
+        ctx,
+        "minimumFractionDigits",
+        JSValue::from(this.min_frac_digits),
+    )?;
+    o.set_property_str(
+        ctx,
+        "maximumFractionDigits",
+        JSValue::from(this.max_frac_digits),
+    )?;
+    if let Some(mn) = this.min_sig_digits {
+        o.set_property_str(ctx, "minimumSignificantDigits", JSValue::from(mn as i32))?;
+    }
+    if let Some(mx) = this.max_sig_digits {
+        o.set_property_str(ctx, "maximumSignificantDigits", JSValue::from(mx as i32))?;
+    }
+    // notation / compactDisplay.
+    let _vn = make_str(ctx, this.notation.as_bytes().to_vec())?;
+    o.set_property_str(ctx, "notation", _vn)?;
+    if let Some(cd) = this.compact_display {
+        let _vcd = make_str(ctx, cd.as_bytes().to_vec())?;
+        o.set_property_str(ctx, "compactDisplay", _vcd)?;
+    }
+    // pluralCategories.
+    let mut cats: Vec<String> = Vec::new();
+    let all = this
+        .rules
+        .categories()
+        .map(|c| plural_category_str(c))
+        .collect::<Vec<_>>();
+    let order = ["zero", "one", "two", "few", "many", "other"];
+    for want in order.iter() {
+        if all.contains(want) {
+            cats.push(want.to_string());
+        }
+    }
+    let mut cat_arr = Vec::new();
+    for c in cats {
+        cat_arr.push(make_str(ctx, c.into_bytes())?);
+    }
+    let cats_value = crate::object::Array::from_values(ctx, cat_arr)?;
+    o.set_property_str(ctx, "pluralCategories", cats_value.into())?;
     Ok(o.into())
 }
 

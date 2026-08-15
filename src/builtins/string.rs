@@ -842,6 +842,42 @@ fn js_string_toLowerCase(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(sbuf).map(JSValue::make_string)
 }
 
+#[cfg(feature = "intl402")]
+fn js_string_toLocaleCase(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let to_lower = cc.magic() != 0;
+    let this = cc.this();
+    let p = this.to_string_non_undefined_or_null(ctx)?;
+
+    // ECMA-402 TransformCase: CanonicalizeLocaleList(locales) validates every
+    // element (throwing RangeError for any invalid identifier), then uses the
+    // first canonical locale.
+    let arg0 = cc.arg(0);
+    let list = crate::builtins::intl::common::canonicalize_locale_list(ctx, arg0)?;
+    let first = list
+        .as_object()
+        .and_then(|obj| obj.get_property_i64(ctx, 0).ok())
+        .filter(|v| v.is_string())
+        .and_then(|v| crate::builtins::intl::common::to_utf8_string(ctx, v).ok());
+
+    let root = icu::locale::langid!("und");
+    let langid = match first {
+        Some(s) => s.parse::<icu::locale::LanguageIdentifier>().unwrap_or(root),
+        None => root,
+    };
+
+    let src = p.content().encode_utf8(false).into_owned();
+    let cm = icu::casemap::CaseMapper::new();
+    let result = if to_lower {
+        cm.lowercase_to_string(&src, &langid)
+    } else {
+        cm.uppercase_to_string(&src, &langid)
+    };
+
+    let bytes = result.into_owned().into_bytes();
+    let str_ref = ctx.create_string_from_utf8(bytes)?;
+    Ok(JSValue::make_string(str_ref))
+}
+
 #[cfg(feature = "all_unicode")]
 fn js_string_localeCompare(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let a = cc.this().to_string_non_undefined_or_null(ctx)?;
@@ -962,8 +998,6 @@ pub const js_string_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("valueOf", 0, js_string_toString, 0),
     FieldDef::FUNC("toLowerCase", 0, js_string_toLowerCase, 1),
     FieldDef::FUNC("toUpperCase", 0, js_string_toLowerCase, 0),
-    FieldDef::FUNC("toLocaleLowerCase", 0, js_string_toLowerCase, 1),
-    FieldDef::FUNC("toLocaleUpperCase", 0, js_string_toLowerCase, 0),
     FieldDef::FUNC(
         "[Symbol.iterator]",
         0,
@@ -974,6 +1008,10 @@ pub const js_string_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("normalize", 0, js_string_normalize, 0),
     #[cfg(feature = "all_unicode")]
     FieldDef::FUNC("localeCompare", 1, js_string_localeCompare, 0),
+    #[cfg(feature = "intl402")]
+    FieldDef::FUNC("toLocaleLowerCase", 0, js_string_toLocaleCase, 1),
+    #[cfg(feature = "intl402")]
+    FieldDef::FUNC("toLocaleUpperCase", 0, js_string_toLocaleCase, 0),
     // DEBUG: for repl only
     FieldDef::FUNC("__quote", 0, js_string__quote, 0),
 ];

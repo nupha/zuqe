@@ -44,9 +44,7 @@ pub(crate) fn to_big_int(ctx: &mut ScopedContext, val: JSValue) -> JSResult {
             let p = val.to_primitive(ctx, HINT_NUMBER)?;
             to_big_int(ctx, p)
         }
-        _ => Err(ctx.throw_type_error(
-            "Cannot convert undefined, null or Symbol to BigInt",
-        )),
+        _ => Err(ctx.throw_type_error("Cannot convert undefined, null or Symbol to BigInt")),
     }
 }
 
@@ -70,12 +68,11 @@ pub fn js_bigint_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let prim = cc.arg(0).to_primitive(ctx, HINT_NUMBER)?;
     match prim.tag() {
         crate::JSValueTag::Int => Ok(
-            crate::bigint::from_i64(ctx, prim.payload_i32() as i64).map(JSValue::make_bigint)?,
+            crate::bigint::from_i64(ctx, prim.payload_i32() as i64).map(JSValue::make_bigint)?
         ),
-        crate::JSValueTag::Float64 => Ok(JSValue::make_bigint(number_to_big_int(
-            ctx,
-            unsafe { prim.as_float_unchecked() },
-        )?)),
+        crate::JSValueTag::Float64 => Ok(JSValue::make_bigint(number_to_big_int(ctx, unsafe {
+            prim.as_float_unchecked()
+        })?)),
         _ => to_big_int(ctx, prim),
     }
 }
@@ -110,7 +107,19 @@ fn js_bigint_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     let s = crate::bigint::to_string_radix(&bi, radix);
-    ctx.create_string_from_str(s.as_str()).map(JSValue::make_string)
+    ctx.create_string_from_str(s.as_str())
+        .map(JSValue::make_string)
+}
+
+#[cfg(feature = "intl402")]
+fn js_bigint_toLocaleString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let val = js_thisBigIntValue(ctx, cc.this())?;
+    let data =
+        crate::builtins::intl::number_format::build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
+    let s =
+        crate::builtins::intl::number_format::format_value(ctx, &data, JSValue::make_bigint(val))?;
+    ctx.create_string_from_utf8(s.into_bytes())
+        .map(JSValue::make_string)
 }
 
 fn js_bigint_valueOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -170,7 +179,8 @@ fn js_bigint_asUintN(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub const js_bigint_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("toString", 0, js_bigint_toString, 0),
-    FieldDef::FUNC("toLocaleString", 0, js_bigint_toString, 1),
+    #[cfg(feature = "intl402")]
+    FieldDef::FUNC("toLocaleString", 0, js_bigint_toLocaleString, 0),
     FieldDef::FUNC("valueOf", 0, js_bigint_valueOf, 0),
     FieldDef::STR("[Symbol.toStringTag]", "BigInt", JS_PROP_CONFIGURABLE),
 ];

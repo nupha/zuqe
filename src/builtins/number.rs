@@ -235,13 +235,24 @@ fn js_number_toFixed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .map(JSValue::make_string)
 }
 
+#[cfg(feature = "intl402")]
+fn js_number_toLocaleString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let val = js_thisNumberValue(ctx, cc.this())?;
+    let data =
+        crate::builtins::intl::number_format::build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
+    let s = crate::builtins::intl::number_format::format_value(ctx, &data, val)?;
+    ctx.create_string_from_utf8(s.into_bytes())
+        .map(JSValue::make_string)
+}
+
 pub const js_number_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("toFixed", 1, js_number_toFixed, 0),
     FieldDef::FUNC("toPrecision", 1, js_number_toPrecision, 0),
     FieldDef::FUNC("toExponential", 1, js_number_toExponential, 0),
     FieldDef::FUNC("toString", 1, js_number_toString, 0),
-    FieldDef::FUNC("toLocaleString", 0, js_number_toString, 1),
     FieldDef::FUNC("valueOf", 0, js_number_valueOf, 0),
+    #[cfg(feature = "intl402")]
+    FieldDef::FUNC("toLocaleString", 0, js_number_toLocaleString, 0),
 ];
 
 fn js_number_isNaN_isFinite(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

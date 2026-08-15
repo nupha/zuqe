@@ -1375,7 +1375,12 @@ fn js_typed_array_toSorted(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 }
 
 fn js_typed_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    // `toLocaleString` (magic=1) is only registered when intl402 is enabled;
+    // otherwise this function is only used by `join` (magic=0).
+    #[cfg(feature = "intl402")]
     let to_locale = cc.magic() != 0;
+    #[cfg(not(feature = "intl402"))]
+    let to_locale = false;
 
     let this = cc.this();
 
@@ -1400,7 +1405,8 @@ fn js_typed_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         // Can return undefined for example if the typed array is detached
         if !el.is_undefined_or_null() {
             let s = if to_locale {
-                el.to_locale_string(ctx)?.to_string(ctx)?
+                let v = el.invoke(ctx, Atom::CONST_toLocaleString, &[cc.arg(0), cc.arg(1)])?;
+                v.to_string(ctx)?
             } else {
                 el.to_string(ctx)?
             };
@@ -1891,6 +1897,7 @@ pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("sort", 1, js_typed_array_sort, 0),
     FieldDef::FUNC("toSorted", 1, js_typed_array_toSorted, 0),
     FieldDef::FUNC("join", 1, js_typed_array_join, 0),
+    #[cfg(feature = "intl402")]
     FieldDef::FUNC("toLocaleString", 0, js_typed_array_join, 1),
     FieldDef::FUNC("indexOf", 1, js_typed_array_indexOf, special_indexOf as i16),
     FieldDef::FUNC(

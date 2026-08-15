@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::common::{
-    locale_to_string, make_bound_method, make_str, resolve_locale, to_utf8_string,
+    locale_to_string, make_bound_method, make_str, resolve_locale, to_utf8_string, values_to_array,
 };
 
 #[derive(Debug)]
@@ -26,10 +26,15 @@ pub(crate) struct NumberFormatData {
     pub max_fraction_digits: i32,
     pub min_significant_digits: Option<u8>,
     pub max_significant_digits: Option<u8>,
+    pub min_integer_digits: i32,
     pub notation: Notation,
     pub style: Style,
     pub currency: Option<String>,
+    pub currency_display: &'static str,
     pub use_grouping: bool,
+    pub grouping_sep: char,
+    pub decimal_sep: char,
+    pub percent_space: bool,
 }
 
 impl GcTrace for NumberFormatData {
@@ -59,13 +64,47 @@ pub(crate) static CLASS_DEF_NUMBER_FORMAT: ClassDef = ClassDef::builtin(
     Some(ClassCtorDef::new(js_number_format_constructor, 0, true)),
 );
 
-pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let new_target = cc.this();
-    let locale = resolve_locale(ctx, cc.arg(0))?;
-    let options = cc.arg(1);
+/// Validate a BCP-47 `type`-like value: `3*8alphanum *("-" (3*8alphanum))`.
+pub(crate) fn is_valid_bcp47_type(s: &str) -> bool {
+    for part in s.split('-') {
+        let len = part.len();
+        if !(3..=8).contains(&len) || !part.bytes().all(|b| b.is_ascii_alphanumeric()) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Best-effort locale-aware grouping, decimal and percent spacing separators
+/// (CLDR-derived for common locales; fall back to en-US style).
+fn locale_separators(locale: &Locale) -> (char, char, bool) {
+    let lang = locale.id.language.to_string();
+    // `percent_space` = whether a (no-break) space precedes the percent sign.
+    match lang.as_str() {
+        "de" => ('.', ',', true),
+        "fr" => ('\u{202f}', ',', true),
+        "en" | "th" | "ja" | "es" | "it" | "pt" | "nl" | "sv" | "da" | "nb" | "fi" | "ko"
+        | "zh" => (',', '.', false),
+        "ar" => ('٬', '٫', true),
+        "hi" => (',', '.', false),
+        _ => (',', '.', false),
+    }
+}
+
+/// Build a `NumberFormatData` from `(locales, options)`, used by both the
+/// `Intl.NumberFormat` constructor and `Number.prototype.toLocaleString`.
+pub(crate) fn build_number_format_data(
+    ctx: &mut ScopedContext,
+    locales: JSValue,
+    options: JSValue,
+) -> Result<NumberFormatData, i32> {
+    let locale = resolve_locale(ctx, locales)?;
 
     let formatter = DecimalFormatter::try_new(locale.clone().into(), Default::default())
         .map_err(|_| ctx.throw_range_error("Unable to load locale data"))?;
+
+    // Locale-aware grouping/decimal separators (best-effort; CLDR-derived).
+    let (grouping_sep, decimal_sep, percent_space) = locale_separators(&locale);
 
     let mut data = NumberFormatData {
         locale,
@@ -74,15 +113,26 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
         max_fraction_digits: 3,
         min_significant_digits: None,
         max_significant_digits: None,
+        min_integer_digits: 1,
         notation: Notation::Standard,
         style: Style::Decimal,
         currency: None,
+        currency_display: "symbol",
         use_grouping: true,
+        grouping_sep,
+        decimal_sep,
+        percent_space,
     };
 
     if !options.is_undefined() {
         apply_options(ctx, &mut data, options)?;
     }
+    Ok(data)
+}
+
+pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let new_target = cc.this();
+    let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
 
     let instance = ctx
         .create_instance_with_ctor(
@@ -100,33 +150,94 @@ fn apply_options(
 ) -> Result<(), i32> {
     let obj = options.objectify(ctx)?;
 
+    // localeMatcher: lookup | best fit
+    let matcher = obj.get_property_str(ctx, "localeMatcher")?;
+    if !matcher.is_undefined() {
+        let s = to_utf8_string(ctx, matcher)?;
+        if s != "lookup" && s != "best fit" {
+            return Err(ctx.throw_range_error("Invalid localeMatcher value"));
+        }
+    }
+
+    // numberingSystem: must match the `type` BCP47 nonterminal
+    // (3*8alphanum *("-" (3*8alphanum))).
+    let ns = obj.get_property_str(ctx, "numberingSystem")?;
+    if !ns.is_undefined() {
+        let s = to_utf8_string(ctx, ns)?;
+        if !is_valid_bcp47_type(&s) {
+            return Err(ctx.throw_range_error("Invalid numberingSystem value"));
+        }
+    }
+
     // style: decimal | percent | currency | unit
     let style = obj.get_property_str(ctx, "style")?;
     if !style.is_undefined() {
         let s = to_utf8_string(ctx, style)?;
         data.style = match s.as_str() {
+            "decimal" => Style::Decimal,
             "percent" => Style::Percent,
             "currency" => Style::Currency,
             "unit" => Style::Unit,
-            _ => Style::Decimal,
+            _ => return Err(ctx.throw_range_error("Invalid style value")),
         };
     }
 
-    // currency
+    // currency (must be present and a valid 3-letter code for currency style)
     let currency = obj.get_property_str(ctx, "currency")?;
-    if !currency.is_undefined() {
-        data.currency = Some(to_utf8_string(ctx, currency)?);
+    let currency_str = if currency.is_undefined() {
+        None
+    } else {
+        let s = to_utf8_string(ctx, currency)?;
+        // Per ECMA-402, an invalid currency code throws RangeError.
+        let code = s.to_ascii_uppercase();
+        if code.len() != 3 || !code.bytes().all(|b| b.is_ascii_alphabetic()) {
+            return Err(ctx.throw_range_error("Invalid currency code"));
+        }
+        Some(code)
+    };
+    if matches!(data.style, Style::Currency) {
+        data.currency = currency_str.clone();
+        if currency_str.is_none() {
+            return Err(ctx.throw_type_error("Currency style requires a currency"));
+        }
+    } else {
+        // currency is only exposed for currency style.
+        data.currency = None;
     }
 
-    // notation
+    // currencyDisplay: symbol | code | name | narrowSymbol
+    let currency_display = obj.get_property_str(ctx, "currencyDisplay")?;
+    if !currency_display.is_undefined() {
+        let s = to_utf8_string(ctx, currency_display)?;
+        match s.as_str() {
+            "symbol" => data.currency_display = "symbol",
+            "code" => data.currency_display = "code",
+            "name" => data.currency_display = "name",
+            "narrowSymbol" => data.currency_display = "narrowSymbol",
+            _ => return Err(ctx.throw_range_error("Invalid currencyDisplay value")),
+        }
+    }
+
+    // minimumIntegerDigits: integer in [1, 21].
+    let min_int = obj.get_property_str(ctx, "minimumIntegerDigits")?;
+    if !min_int.is_undefined() {
+        let m = min_int.to_number(ctx)?.to_f64();
+        if m.is_nan() || m < 1.0 || m > 21.0 {
+            return Err(ctx.throw_range_error("Invalid minimumIntegerDigits"));
+        }
+        data.min_integer_digits = m as i32;
+    }
+
+    // notation: standard | compact | scientific | engineering
     let notation = obj.get_property_str(ctx, "notation")?;
     if !notation.is_undefined() {
         let s = to_utf8_string(ctx, notation)?;
         data.notation = match s.as_str() {
+            "standard" => Notation::Standard,
             "compact" => Notation::CompactShort,
             "engineering" => Notation::Engineering,
             "scientific" => Notation::Scientific,
-            _ => Notation::Standard,
+            _ => return Err(ctx.throw_range_error("Invalid notation value")),
         };
     }
 
@@ -136,14 +247,22 @@ fn apply_options(
         data.use_grouping = use_grouping.to_bool()?;
     }
 
-    // minimumFractionDigits / maximumFractionDigits
+    // minimumFractionDigits / maximumFractionDigits (each in [0, 100]).
     let min_frac = obj.get_property_str(ctx, "minimumFractionDigits")?;
     let max_frac = obj.get_property_str(ctx, "maximumFractionDigits")?;
     if !max_frac.is_undefined() {
-        data.max_fraction_digits = max_frac.to_number(ctx)?.to_f64() as i32;
+        let m = max_frac.to_number(ctx)?.to_f64();
+        if m.is_nan() || m < 0.0 || m > 100.0 {
+            return Err(ctx.throw_range_error("Invalid maximumFractionDigits"));
+        }
+        data.max_fraction_digits = m as i32;
     }
     if !min_frac.is_undefined() {
-        data.min_fraction_digits = min_frac.to_number(ctx)?.to_f64() as i32;
+        let m = min_frac.to_number(ctx)?.to_f64();
+        if m.is_nan() || m < 0.0 || m > 100.0 {
+            return Err(ctx.throw_range_error("Invalid minimumFractionDigits"));
+        }
+        data.min_fraction_digits = m as i32;
         if data.max_fraction_digits < data.min_fraction_digits {
             data.max_fraction_digits = data.min_fraction_digits;
         }
@@ -171,14 +290,22 @@ fn apply_options(
         let min = if min_sig.is_undefined() {
             1
         } else {
-            min_sig.to_number(ctx)?.to_f64() as u8
+            let m = min_sig.to_number(ctx)?.to_f64();
+            if !(1.0..=21.0).contains(&m) {
+                return Err(ctx.throw_range_error("Invalid significant digits"));
+            }
+            m as u8
         };
         let max = if max_sig.is_undefined() {
             let min2 = min.max(1);
             // default max is min for min>1 else 21
             if min2 > 1 { min2 } else { 21 }
         } else {
-            max_sig.to_number(ctx)?.to_f64() as u8
+            let mx = max_sig.to_number(ctx)?.to_f64();
+            if !(1.0..=21.0).contains(&mx) {
+                return Err(ctx.throw_range_error("Invalid significant digits"));
+            }
+            mx as u8
         };
         data.min_significant_digits = Some(min);
         data.max_significant_digits = Some(max);
@@ -196,7 +323,8 @@ fn js_number_format_format_getter(ctx: &mut ScopedContext, cc: CallContext) -> J
     if !is_number_format(&this_val) {
         return Err(ctx.throw_type_error("not a NumberFormat"));
     }
-    make_bound_method(ctx, this_val, js_number_format_format_bound, "format", 1)
+    // The bound `format` function is anonymous (name is the empty string).
+    make_bound_method(ctx, this_val, js_number_format_format_bound, "", 1)
 }
 
 fn is_number_format(v: &JSValue) -> bool {
@@ -218,14 +346,135 @@ fn js_number_format_format_bound(ctx: &mut ScopedContext, cc: CallContext) -> JS
     Ok(make_str(ctx, s.into_bytes())?)
 }
 
-fn format_value(
+/// Format an integer value given as a decimal digit string (no sign, no
+/// leading zeros) using the NumberFormat options, with exact integer arithmetic.
+/// `negative` selects the leading sign.
+/// Round an integer digit string (no sign) to `sig` significant digits, half-up.
+fn round_significant(digits: &str, sig: usize) -> String {
+    if sig >= digits.len() {
+        return digits.to_string();
+    }
+    let keep = &digits[..sig];
+    let next = digits.as_bytes()[sig];
+    let mut keep = keep.to_string();
+    if next >= b'5' {
+        // Increment the kept digits (may carry, e.g. 9999 -> 10000).
+        let chars: Vec<u8> = keep.bytes().collect();
+        let mut result = Vec::with_capacity(chars.len());
+        let mut carry = 1;
+        for &c in chars.iter().rev() {
+            if carry == 0 {
+                result.push(c);
+            } else if c == b'9' {
+                result.push(b'0');
+            } else {
+                result.push(c + 1);
+                carry = 0;
+            }
+        }
+        if carry == 1 {
+            result.push(b'1');
+        }
+        result.reverse();
+        keep = String::from_utf8(result).unwrap();
+    }
+    // Pad back to the original magnitude with zeros.
+    keep.push_str(&"0".repeat(digits.len() - sig));
+    keep
+}
+
+fn format_bigint_digits(
+    _ctx: &mut ScopedContext,
+    this: &NumberFormatData,
+    negative: bool,
+    digits: &str,
+) -> Result<String, i32> {
+    // Apply a power-of-ten scale for percent (×100). BigInts are integers, so
+    // the scaled value is still an integer.
+    let scaled_digits = match this.style {
+        Style::Percent => format!("{}{}", digits, "00"),
+        _ => digits.to_string(),
+    };
+
+    let mut digits = scaled_digits.trim_start_matches('0').to_string();
+    if digits.is_empty() {
+        digits = "0".to_string();
+    }
+    // Round to the significant-digit count when significant digits are set
+    // (BigInt-exact, half-up).
+    if let (Some(min_sig), Some(max_sig)) =
+        (this.min_significant_digits, this.max_significant_digits)
+    {
+        let sig = max_sig.max(min_sig) as usize;
+        digits = round_significant(&digits, sig);
+        // Pad to at least `min_sig` significant digits with trailing zeros.
+        if digits.len() < min_sig as usize {
+            digits.push_str(&"0".repeat(min_sig as usize - digits.len()));
+        }
+    }
+    let mut int_part = if digits.is_empty() {
+        "0".to_string()
+    } else {
+        digits
+    };
+
+    // Pad to the minimum integer digits.
+    let min_int = this.min_integer_digits.max(1) as usize;
+    if int_part.len() < min_int {
+        int_part = format!("{}{}", "0".repeat(min_int - int_part.len()), int_part);
+    }
+
+    // Fraction digits only arise from `minimumFractionDigits` padding, since a
+    // BigInt input is an exact integer (NumberFormat rounding never introduces
+    // a fractional remainder for an integer value).
+    let min_frac = this.min_fraction_digits.max(0) as usize;
+
+    let mut s = String::new();
+    if negative {
+        s.push('-');
+    }
+    if this.use_grouping {
+        // Group integer part with the locale grouping separator.
+        let chars: Vec<char> = int_part.chars().collect();
+        for (i, c) in chars.iter().enumerate() {
+            if i > 0 && (chars.len() - i) % 3 == 0 {
+                s.push(this.grouping_sep);
+            }
+            s.push(*c);
+        }
+    } else {
+        s.push_str(&int_part);
+    }
+    if min_frac > 0 {
+        s.push(this.decimal_sep);
+        s.push_str(&"0".repeat(min_frac));
+    }
+    Ok(s)
+}
+
+pub(crate) fn format_value(
     ctx: &mut ScopedContext,
     this: &NumberFormatData,
     v: JSValue,
 ) -> Result<String, i32> {
+    // BigInt inputs must be formatted exactly (no f64 conversion).
+    if v.is_bigint() {
+        let bi = v.as_bigint().unwrap();
+        let negative = bi.as_impl().sign();
+        let digits = crate::bigint::to_string_radix(&bi, 10);
+        let digits = digits.trim_start_matches('-');
+        let mut s = format_bigint_digits(ctx, this, negative, digits)?;
+        append_percent_suffix(this, &mut s);
+        return Ok(s);
+    }
+
     // 11.1.6 FormatNumericValue: ToIntlMathematicalValue then rounding.
     let n = v.to_number(ctx)?.to_f64();
+    format_f64(ctx, this, n)
+}
 
+/// Format an already-converted `f64` value (no further coercion).
+fn format_f64(ctx: &mut ScopedContext, this: &NumberFormatData, n: f64) -> Result<String, i32> {
     if n.is_nan() {
         return Ok("NaN".to_string());
     }
@@ -240,16 +489,45 @@ fn format_value(
     };
 
     // Significant digits take precedence over fraction digits.
-    if let (Some(min), Some(max)) = (this.min_significant_digits, this.max_significant_digits) {
-        return format_with_significant(ctx, scaled, min, max, this.use_grouping);
-    }
+    let mut s = if let (Some(min), Some(max)) =
+        (this.min_significant_digits, this.max_significant_digits)
+    {
+        format_with_significant(
+            ctx,
+            scaled,
+            min,
+            max,
+            this.use_grouping,
+            this.grouping_sep,
+            this.decimal_sep,
+        )?
+    } else {
+        // Round to fraction digits; pad to the *minimum* fraction digits.
+        let rounded = round_to_fraction(scaled, this.min_fraction_digits, this.max_fraction_digits);
+        format_fixed(
+            ctx,
+            rounded,
+            this.min_fraction_digits,
+            this.max_fraction_digits,
+            this.use_grouping,
+            this.grouping_sep,
+            this.decimal_sep,
+            this.min_integer_digits,
+        )?
+    };
 
-    // Round to fraction digits; pad to the *minimum* number of fraction digits.
-    let rounded = round_to_fraction(scaled, this.min_fraction_digits, this.max_fraction_digits);
-    let s = format_fixed(ctx, rounded, this.min_fraction_digits, this.use_grouping)?;
-
-    // Currency/Unit/compact formatting fall back to plain numeric here.
+    append_percent_suffix(this, &mut s);
     Ok(s)
+}
+
+/// Append the percent sign (with locale-appropriate spacing) for percent style.
+fn append_percent_suffix(this: &NumberFormatData, s: &mut String) {
+    if matches!(this.style, Style::Percent) {
+        if this.percent_space {
+            s.push('\u{00a0}');
+        }
+        s.push('%');
+    }
 }
 
 fn round_to_fraction(n: f64, min: i32, max: i32) -> f64 {
@@ -263,28 +541,92 @@ fn round_to_fraction(n: f64, min: i32, max: i32) -> f64 {
 fn format_fixed(
     ctx: &mut ScopedContext,
     n: f64,
-    frac: i32,
+    min_frac: i32,
+    max_frac: i32,
     use_grouping: bool,
+    grouping_sep: char,
+    decimal_sep: char,
+    min_int: i32,
 ) -> Result<String, i32> {
-    if frac == 0 {
-        let mut s = n.to_string();
-        if !use_grouping {
-            return Ok(s);
+    // Format with the *maximum* fraction digits, then trim trailing zeros down
+    // to the *minimum*.
+    let f = if max_frac == 0 {
+        n.to_string()
+    } else {
+        format!("{:.*}", max_frac as usize, n)
+    };
+    // Split into sign/integer/fraction at the (single, ASCII) decimal point.
+    let (sign, int_str, frac_str) = match f.find('.') {
+        Some(dot) => {
+            let int_part = &f[..dot];
+            let (sg, int_digits) = if let Some(stripped) = int_part.strip_prefix('-') {
+                ("-", stripped)
+            } else {
+                ("", int_part)
+            };
+            (sg, int_digits.to_string(), f[dot + 1..].to_string())
         }
-        insert_grouping(&mut s);
-        return Ok(s);
+        None => {
+            let (sg, int_digits) = if let Some(stripped) = f.strip_prefix('-') {
+                ("-", stripped)
+            } else {
+                ("", f.as_str())
+            };
+            (sg, int_digits.to_string(), String::new())
+        }
+    };
+
+    // Trim trailing zeros of the fraction down to `min_frac`.
+    let nz = frac_str.trim_end_matches('0');
+    let keep = if min_frac == 0 && nz.is_empty() {
+        0
+    } else {
+        nz.len().max(min_frac as usize)
+    };
+
+    // Pad the integer part to the minimum integer digits.
+    let mut int_part = int_str;
+    if int_part.len() < min_int as usize {
+        int_part = format!(
+            "{}{}",
+            "0".repeat(min_int as usize - int_part.len()),
+            int_part
+        );
     }
-    // format with fixed decimals.
-    let mut s = format!("{:.*}", frac as usize, n);
-    if !use_grouping {
-        return Ok(s);
+    if use_grouping {
+        int_part = group_integer(&int_part, grouping_sep);
     }
-    insert_grouping(&mut s);
-    Ok(s)
+
+    let mut out = String::new();
+    out.push_str(sign);
+    out.push_str(&int_part);
+    if keep > 0 {
+        out.push(decimal_sep);
+        out.push_str(&frac_str[..keep]);
+    }
+    Ok(out)
 }
 
-fn insert_grouping(s: &mut String) {
-    // Insert commas into the integer part (en-US default grouping).
+/// Pad the integer part of a plain number string to at least `min_int` digits.
+fn pad_min_integer(s: &mut String, min_int: i32) {
+    if min_int <= 1 {
+        return;
+    }
+    let neg = s.starts_with('-');
+    let digits = if neg { &s[1..] } else { s.as_str() };
+    if digits.len() < min_int as usize {
+        let padding = "0".repeat(min_int as usize - digits.len());
+        let new = if neg {
+            format!("-{}{}", padding, digits)
+        } else {
+            format!("{}{}", padding, digits)
+        };
+        *s = new;
+    }
+}
+
+fn insert_grouping(s: &mut String, grouping_sep: char) {
+    // Insert grouping separators into the integer part (locale-aware).
     if let Some(dot) = s.find('.') {
         let int_part = &s[..dot];
         let mut grouped = String::new();
@@ -293,7 +635,7 @@ fn insert_grouping(s: &mut String) {
         let digits = if neg { &chars[1..] } else { &chars[..] };
         for (i, c) in digits.iter().enumerate() {
             if i > 0 && (digits.len() - i) % 3 == 0 {
-                grouped.push(',');
+                grouped.push(grouping_sep);
             }
             grouped.push(*c);
         }
@@ -309,7 +651,7 @@ fn insert_grouping(s: &mut String) {
         let digits = if neg { &chars[1..] } else { &chars[..] };
         for (i, c) in digits.iter().enumerate() {
             if i > 0 && (digits.len() - i) % 3 == 0 {
-                grouped.push(',');
+                grouped.push(grouping_sep);
             }
             grouped.push(*c);
         }
@@ -321,12 +663,27 @@ fn insert_grouping(s: &mut String) {
     }
 }
 
+/// Group a sign-less digit string with `grouping_sep` every three digits.
+fn group_integer(digits: &str, grouping_sep: char) -> String {
+    let chars: Vec<char> = digits.chars().collect();
+    let mut grouped = String::new();
+    for (i, c) in chars.iter().enumerate() {
+        if i > 0 && (chars.len() - i) % 3 == 0 {
+            grouped.push(grouping_sep);
+        }
+        grouped.push(*c);
+    }
+    grouped
+}
+
 fn format_with_significant(
     ctx: &mut ScopedContext,
     n: f64,
     min: u8,
     max: u8,
     use_grouping: bool,
+    grouping_sep: char,
+    decimal_sep: char,
 ) -> Result<String, i32> {
     // Round n to `max` significant digits.
     if n == 0.0 {
@@ -338,8 +695,55 @@ fn format_with_significant(
     let rounded = (n * scale).round() / scale;
     // Determine fractional digits needed.
     let frac = (max as i32 - 1 - exponent).max(0);
-    let s = format!("{:.*}", frac.min(20) as usize, rounded);
+    let mut s = format!("{:.*}", frac.min(20) as usize, rounded);
+    if use_grouping {
+        insert_grouping(&mut s, grouping_sep);
+    }
+    if decimal_sep != '.' {
+        if let Some(i) = s.rfind('.') {
+            s.replace_range(i..=i, &decimal_sep.to_string());
+        }
+    }
     Ok(s)
+}
+
+/// `Intl.NumberFormat.prototype.formatToParts(value)`: returns an array of
+/// `{ type, value }` parts that concatenate to the formatted result.
+fn js_number_format_formatToParts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let this_obj = cc
+        .this()
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error("not a NumberFormat"))?;
+    let this = this_obj
+        .payload()
+        .intl_number_format()
+        .ok_or_else(|| ctx.throw_type_error("not a NumberFormat"))?;
+
+    let value = cc.arg(0);
+    // ToNumber must be applied exactly once (per spec step 4).
+    let (formatted, part_type): (String, &str) = if value.is_bigint() {
+        (format_value(ctx, this, value)?, "integer")
+    } else {
+        let n = value.to_number(ctx)?.to_f64();
+        let ptype = if n.is_nan() {
+            "nan"
+        } else if n.is_infinite() {
+            if n > 0.0 { "infinity" } else { "-infinity" }
+        } else {
+            "integer"
+        };
+        (format_f64(ctx, this, n)?, ptype)
+    };
+
+    let mut parts: Vec<JSValue> = Vec::new();
+    let mut part_obj = ctx.create_base_object()?;
+    let type_str = make_str(ctx, part_type.as_bytes().to_vec())?;
+    part_obj.set_property_str(ctx, "type", type_str)?;
+    let val_str = make_str(ctx, formatted.into_bytes())?;
+    part_obj.set_property_str(ctx, "value", val_str)?;
+    parts.push(part_obj.into());
+
+    Ok(values_to_array(ctx, parts)?.into())
 }
 
 fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -377,6 +781,11 @@ fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
         },
     )?;
     o.set_property_str(ctx, "notation", notation)?;
+    o.set_property_str(
+        ctx,
+        "minimumIntegerDigits",
+        JSValue::from(this.min_integer_digits),
+    )?;
     o.set_property_str(ctx, "useGrouping", JSValue::from(this.use_grouping))?;
     o.set_property_str(
         ctx,
@@ -397,7 +806,7 @@ fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
     if let Some(c) = &this.currency {
         let _v3 = make_str(ctx, c.clone().into_bytes())?;
         o.set_property_str(ctx, "currency", _v3)?;
-        let _v4 = make_str(ctx, b"symbol".to_vec())?;
+        let _v4 = make_str(ctx, this.currency_display.as_bytes().to_vec())?;
         o.set_property_str(ctx, "currencyDisplay", _v4)?;
     }
     Ok(o.into())
@@ -405,7 +814,7 @@ fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
 
 const js_number_format_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("format", Some(js_number_format_format_getter), None, 0),
-    FieldDef::FUNC("formatToParts", 1, js_number_format_format_bound, 0),
+    FieldDef::FUNC("formatToParts", 1, js_number_format_formatToParts, 0),
     FieldDef::FUNC("resolvedOptions", 0, js_number_format_resolved_options, 0),
     FieldDef::STR(
         "[Symbol.toStringTag]",

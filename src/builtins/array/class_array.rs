@@ -769,7 +769,11 @@ fn js_array_includes(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    #[cfg(feature = "intl402")]
     let to_locale_string = cc.magic() == 1;
+    #[cfg(not(feature = "intl402"))]
+    let to_locale_string = false;
+
     let (this_obj, len) = this_obj_and_len(ctx, &cc)?;
 
     let mut c = b',' as i32; // default separator
@@ -801,7 +805,8 @@ pub(crate) fn js_array_join(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         let el = this_obj.get_property_i64(ctx, i)?;
         if !el.is_undefined_or_null() {
             let ss: StringRef = if to_locale_string {
-                el.to_locale_string(ctx)?.to_string(ctx)?
+                let s = el.invoke(ctx, Atom::CONST_toLocaleString, &[cc.arg(0), cc.arg(1)])?;
+                s.to_string(ctx)?
             } else if let Some(s) = el.as_string(true) {
                 s
             } else {
@@ -1270,6 +1275,7 @@ pub const js_array_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("includes", 1, js_array_includes, 0),
     FieldDef::FUNC("join", 1, js_array_join, 0),
     FieldDef::FUNC("toString", 0, js_array_toString, 0),
+    #[cfg(feature = "intl402")]
     FieldDef::FUNC("toLocaleString", 0, js_array_join, 1),
     FieldDef::FUNC("pop", 0, js_array_pop, 0),
     FieldDef::FUNC("push", 1, js_array_push, 0),
