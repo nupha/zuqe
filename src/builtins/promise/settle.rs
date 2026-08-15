@@ -253,7 +253,15 @@ impl Promise {
     /// Save result `value` and update promise status to 'fulfilled' or 'rejected'.
     /// Call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     fn settle(&mut self, ctx: &mut ScopedContext, value: JSValue, is_reject: bool) {
-        debug_assert_eq!(self.payload().state(), PromiseState::Pending);
+        // Per ECMAScript spec §25.6, resolving an already-settled promise is a no-op: a
+        // second `resolve`/`reject` call must be ignored (the first settlement
+        // wins). Some callers register both a resolve and a reject callback
+        // (e.g. chaining a write's result onto `ready`); if the promise was
+        // already settled by another path (e.g. abort), the later callback must
+        // not re-settle or panic.
+        if self.payload().state() != PromiseState::Pending {
+            return;
+        }
 
         // Remove from pending_promises — the Promise is no longer Pending.
         let self_node = self.gc_node_ptr();
