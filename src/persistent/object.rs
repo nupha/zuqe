@@ -95,7 +95,7 @@ fn serialize_descriptor(
     ctx.write_u8(kind);
 
     // attribute flags (configurable / writable / enumerable) occupy the low bits
-    let attr: u8 = ((if desc.flags & JS_PROP_CONFIGURABLE != 0 {
+    let attr: u8 = (if desc.flags & JS_PROP_CONFIGURABLE != 0 {
         1u8
     } else {
         0
@@ -107,7 +107,7 @@ fn serialize_descriptor(
         1u8 << 2
     } else {
         0
-    }));
+    });
     ctx.write_u8(attr);
 
     if is_accessor {
@@ -130,16 +130,16 @@ fn serialize_descriptor(
     Ok(())
 }
 
-pub fn deserialize_object(dctx: &mut DeserializeCtx) -> Result<JSValue, BytecodeSerializeError> {
+pub fn deserialize_object(inp: &mut DeserializeCtx) -> Result<JSValue, BytecodeSerializeError> {
     // Read the header before borrowing the context, so the two mutable
     // borrows never overlap (the context field and the read cursor are
     // disjoint, but `&mut self` methods borrow the whole struct).
-    let cid = dctx.read_u32()? as u16;
-    let count = dctx.read_u32()?;
+    let cid = inp.read_u32()? as u16;
+    let count = inp.read_u32()?;
 
     // Re-bind to the intrinsic prototype for the recorded class.
     let proto = {
-        let sc = &mut *dctx.ctx;
+        let sc = &mut *inp.ctx;
         if cid == JS_CLASS_ARRAY {
             sc.class_proto(JS_CLASS_ARRAY).ok_or_else(|| {
                 BytecodeSerializeError::InvalidValue("missing Array.prototype".into())
@@ -152,7 +152,7 @@ pub fn deserialize_object(dctx: &mut DeserializeCtx) -> Result<JSValue, Bytecode
     };
 
     let mut obj = {
-        let sc = &mut *dctx.ctx;
+        let sc = &mut *inp.ctx;
         if cid == JS_CLASS_ARRAY {
             sc.create_instance_with_proto_payload(
                 Some(proto),
@@ -167,47 +167,47 @@ pub fn deserialize_object(dctx: &mut DeserializeCtx) -> Result<JSValue, Bytecode
 
     // register the materialized object *before* its contents are read, so a
     // self/back reference (cyclical or shared) inside resolves to this instance.
-    dctx.register_seen(JSValue::from(obj));
+    inp.register_seen(JSValue::from(obj));
 
     for _ in 0..count {
         // the key was written as a (deduplicated) atom.
-        let atom = dctx.read_atom()?;
+        let atom = inp.read_atom()?;
         // Reconstruct the key value for the array fast-path decision below.
         let key_val = {
-            let sc = &mut *dctx.ctx;
+            let sc = &mut *inp.ctx;
             atom.to_value(sc)
                 .map_err(|_| BytecodeSerializeError::InvalidValue("atom.to_value failed".into()))?
         };
 
-        let kind = dctx.read_u8()?;
-        let attr = dctx.read_u8()?;
+        let kind = inp.read_u8()?;
+        let attr = inp.read_u8()?;
         let flags = build_flags(attr, kind == 1);
 
         if kind == 1 {
             // accessor
-            let has_get = dctx.read_u8()? == 1;
+            let has_get = inp.read_u8()? == 1;
             let getter = if has_get {
-                dctx.deserialize_value()?
+                inp.deserialize_value()?
             } else {
                 JSValue::UNDEFINED
             };
-            let has_set = dctx.read_u8()? == 1;
+            let has_set = inp.read_u8()? == 1;
             let setter = if has_set {
-                dctx.deserialize_value()?
+                inp.deserialize_value()?
             } else {
                 JSValue::UNDEFINED
             };
             let _ = {
-                let sc = &mut *dctx.ctx;
+                let sc = &mut *inp.ctx;
                 obj.define_property_getset(sc, atom, getter, setter, flags)
                     .map_err(|_| {
                         BytecodeSerializeError::InvalidValue("define_property_getset".into())
                     })?
             };
         } else {
-            let val = dctx.deserialize_value()?;
+            let val = inp.deserialize_value()?;
             let _ = {
-                let sc = &mut *dctx.ctx;
+                let sc = &mut *inp.ctx;
                 // Array elements must go through the assignment path so they
                 // land in the fast array; `define_property_value` would create
                 // a sparse shape property whose value the fast array reads as

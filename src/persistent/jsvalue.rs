@@ -6,22 +6,19 @@ use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_GENERATOR_FUNCTION, JSValue, JSValueTag, ScopedContext,
     atom::AtomKind,
     bigint::BigIntRef,
-    function::{BFuncPayload, FunctionKind, VarRef},
+    function::{BFuncPayload, Bytecode, FunctionKind, VarRef},
     object::{LazyInit, Object, ObjectPayload},
     string::StringRef,
 };
 
-use super::{
-    BYTECODE_SERIALIZE_MAGIC, BYTECODE_SERIALIZE_VERSION, BytecodeSerializeError,
-    atom_lut::atom_kind_from_u8,
-};
+use super::{BytecodeSerializeError, atom_lut::atom_kind_from_u8};
 
 /// Wire type tag that opens every serialized value record (the first byte of
 /// `serialize_value` / `deserialize_value`). Discriminant values are part of
 /// the persisted blob format and must remain stable across versions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-enum ValueType {
+pub(super) enum ValueType {
     Undefined = 0,
     Null = 1,
     Bool = 2,
@@ -87,63 +84,56 @@ impl SerializeCtx {
     }
 
     #[inline]
-    pub(crate) fn write_u8(&mut self, v: u8) {
+    pub(super) fn write_u8(&mut self, v: u8) {
         self.buffer.push(v);
     }
 
     /// Write the type tag that opens a serialized value record.
     #[inline]
-    pub(crate) fn write_bc_type(&mut self, ty: ValueType) {
+    pub(super) fn write_bc_type(&mut self, ty: ValueType) {
         self.write_u8(ty as u8);
     }
 
     #[inline]
-    pub(crate) fn write_u32(&mut self, v: u32) {
+    pub(super) fn write_u32(&mut self, v: u32) {
         self.buffer.extend_from_slice(&v.to_le_bytes());
     }
 
     #[inline]
-    pub(crate) fn write_u64(&mut self, v: u64) {
+    pub(super) fn write_u64(&mut self, v: u64) {
         self.buffer.extend_from_slice(&v.to_le_bytes());
     }
 
     #[inline]
-    pub(crate) fn write_u16(&mut self, v: u16) {
+    pub(super) fn write_u16(&mut self, v: u16) {
         self.buffer.extend_from_slice(&v.to_le_bytes());
     }
 
     #[inline]
-    pub(crate) fn write_i32(&mut self, v: i32) {
+    pub(super) fn write_i32(&mut self, v: i32) {
         self.buffer.extend_from_slice(&v.to_le_bytes());
     }
 
     #[inline]
-    pub(crate) fn write_i64(&mut self, v: i64) {
+    pub(super) fn write_i64(&mut self, v: i64) {
         self.buffer.extend_from_slice(&v.to_le_bytes());
     }
 
     #[inline]
-    pub(crate) fn write_f64(&mut self, v: f64) {
+    pub(super) fn write_f64(&mut self, v: f64) {
         self.buffer.extend_from_slice(&v.to_bits().to_le_bytes());
     }
 
     #[inline]
-    pub(crate) fn write_bytes(&mut self, b: &[u8]) {
+    pub(super) fn write_bytes(&mut self, b: &[u8]) {
         self.buffer.extend_from_slice(b);
-    }
-
-    /// Write a UTF-8 string with a u32 length prefix.
-    #[inline]
-    pub(crate) fn write_string(&mut self, s: &str) {
-        self.write_u32(s.len() as u32);
-        self.write_bytes(s.as_bytes());
     }
 
     // --- object reference table ---------------------------------------
 
     /// Record `obj` in the reference table and return its index, registering
     /// it before serialization of its contents so back-references resolve.
-    pub(crate) fn register_object(&mut self, obj: Object) -> u32 {
+    pub(super) fn register_object(&mut self, obj: Object) -> u32 {
         let idx = self.seen_obj.len() as u32;
         self.seen_obj.push(obj);
         idx
@@ -151,19 +141,17 @@ impl SerializeCtx {
 
     /// Look up `obj` in the reference table. Returns `Some(idx)` if already
     /// serialized (caller should emit a `tag 3` back-reference instead).
-    pub(crate) fn lookup_object(&self, obj: Object) -> Option<u32> {
+    pub(super) fn lookup_object(&self, obj: Object) -> Option<u32> {
         self.seen_obj
             .iter()
             .position(|o| *o == obj)
             .map(|i| i as u32)
     }
 
-    // --- value writer ------------------------------------------------------
-
     /// Serialize a single `JSValue`, appending to `self.buffer`.
-    pub(crate) fn serialize_value(
+    pub(super) fn serialize_value(
         &mut self,
-        sc: &mut ScopedContext,
+        cx: &mut ScopedContext,
         val: JSValue,
     ) -> Result<(), BytecodeSerializeError> {
         match val.tag() {
@@ -213,7 +201,7 @@ impl SerializeCtx {
                     // expose that name on the global object; if it does not, the
                     // reference cannot be resolved (mirrors QuickJS where native
                     // funcs are bound by name at load time, never byte-built).
-                    let name_val = obj.get_property_str(sc, "name");
+                    let name_val = obj.get_property_str(cx, "name");
                     let name = match name_val {
                         Ok(v) if v.is_string() => v.as_string(false).unwrap(),
                         _ => {
@@ -245,21 +233,22 @@ impl SerializeCtx {
                         | ObjectPayload::ASYNC_GENERATOR_FUNCTION(p) => p,
                         _ => unreachable!("class id matches but payload is not bytecode function"),
                     };
-                    crate::persistent::bytecode::serialize_bytecode(sc, &payload.bytecode(), self)?;
+                    payload.bytecode().serialize(cx, self)?;
                     let captured = payload.captured_vars();
                     self.write_u32(captured.len() as u32);
                     for vref in captured.iter() {
-                        self.serialize_value(sc, vref.value())?;
+                        self.serialize_value(cx, vref.value())?;
                     }
                     match payload.home_object() {
                         Some(h) => {
                             self.write_u8(1);
-                            self.serialize_value(sc, JSValue::from(h))?;
+                            self.serialize_value(cx, JSValue::from(h))?;
                         }
                         None => self.write_u8(0),
                     }
                     return Ok(());
                 }
+
                 // shared reference / cycle handling. If we have already
                 // started serializing this exact object, emit a back-reference
                 // (`tag 3`) instead of recursing. The object is registered
@@ -271,14 +260,14 @@ impl SerializeCtx {
                 }
                 self.register_object(obj);
                 self.write_bc_type(ValueType::Object);
-                crate::persistent::object::serialize_object(sc, obj, self)
+                crate::persistent::object::serialize_object(cx, obj, self)
             }
             JSValueTag::FunctionBytecode => {
                 let bc = val.as_bytecode().ok_or_else(|| {
                     BytecodeSerializeError::InvalidValue("bytecode without payload".into())
                 })?;
                 self.write_bc_type(ValueType::FunctionBytecode);
-                crate::persistent::bytecode::serialize_bytecode(sc, &bc, self)
+                bc.serialize(cx, self)
             }
             #[cfg(feature = "big_int")]
             JSValueTag::BigInt => {
@@ -290,7 +279,7 @@ impl SerializeCtx {
                     "module without backing def".into(),
                 ))?;
                 self.write_bc_type(ValueType::Module);
-                crate::persistent::module::serialize_module(sc, &m, self)
+                crate::persistent::module::serialize_module(cx, &m, self)
             }
             JSValueTag::CatchOffset | JSValueTag::Uninitialized | JSValueTag::Exception => Err(
                 BytecodeSerializeError::InvalidValue("internal value not serializable".into()),
@@ -428,27 +417,10 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
         String::from_utf8(b).map_err(|e| BytecodeSerializeError::Encode(e.to_string()))
     }
 
-    // --- atom table --------------------------------------------------------
-
-    // --- reference table ---------------------------------------------------
-
     pub(crate) fn register_seen(&mut self, v: JSValue) -> JSValue {
         self.seen.push(v);
         v
     }
-
-    #[inline]
-    fn read_backref(&mut self) -> Result<JSValue, BytecodeSerializeError> {
-        let idx = self.read_u32()? as usize;
-        self.seen
-            .get(idx)
-            .copied()
-            .ok_or(BytecodeSerializeError::InvalidValue(format!(
-                "bad backref {idx}"
-            )))
-    }
-
-    // --- value reader ------------------------------------------------------
 
     /// Deserialize a single `JSValue` from the current cursor.
     pub(crate) fn deserialize_value(&mut self) -> Result<JSValue, BytecodeSerializeError> {
@@ -491,7 +463,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
             }
             // compiled bytecode — reconstructed and wrapped as a callable `Bytecode` value.
             ValueType::FunctionBytecode => {
-                let bc = crate::persistent::bytecode::deserialize_bytecode(self)?;
+                let bc = Bytecode::deserialize(self)?;
                 Ok(JSValue::from(bc))
             }
             ValueType::Module => {
@@ -500,7 +472,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
             }
             // closure function object (captured vars + home_object)
             ValueType::ClosureFunction => {
-                let bc = crate::persistent::bytecode::deserialize_bytecode(self)?;
+                let bc = Bytecode::deserialize(self)?;
                 let n = self.read_u32()? as usize;
                 let mut captured: Vec<VarRef> = Vec::with_capacity(n);
                 for _ in 0..n {
@@ -528,7 +500,9 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                     FunctionKind::Normal => ObjectPayload::BYTECODE_FUNCTION(payload),
                     FunctionKind::Generator => ObjectPayload::GENERATOR_FUNCTION(payload),
                     FunctionKind::Async => ObjectPayload::ASYNC_FUNCTION(payload),
-                    FunctionKind::AsyncGenerator => ObjectPayload::ASYNC_GENERATOR_FUNCTION(payload),
+                    FunctionKind::AsyncGenerator => {
+                        ObjectPayload::ASYNC_GENERATOR_FUNCTION(payload)
+                    }
                 };
                 let proto = self.ctx.class_proto(isa.class_id());
                 let mut obj = self
@@ -548,20 +522,26 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                     func_name,
                     bc_ref.attrs.defined_arg_count as i32,
                 )
-                .map_err(|_| BytecodeSerializeError::InvalidValue("cannot set func props".into()))?;
+                .map_err(|_| {
+                    BytecodeSerializeError::InvalidValue("cannot set func props".into())
+                })?;
 
                 if let Some(gen_class_id) = bc_ref.func_kind().generator_class_id() {
                     let gen_proto = self
                         .ctx
                         .create_base_object_with_proto(self.ctx.class_proto(gen_class_id))
-                        .map_err(|_| BytecodeSerializeError::InvalidValue("cannot create gen proto".into()))?;
+                        .map_err(|_| {
+                            BytecodeSerializeError::InvalidValue("cannot create gen proto".into())
+                        })?;
                     obj.define_property_value(
                         self.ctx,
                         Atom::CONST_prototype,
                         JSValue::from(gen_proto),
                         crate::JS_PROP_WRITABLE,
                     )
-                    .map_err(|_| BytecodeSerializeError::InvalidValue("cannot set gen prototype".into()))?;
+                    .map_err(|_| {
+                        BytecodeSerializeError::InvalidValue("cannot set gen prototype".into())
+                    })?;
                 } else if bc_ref.has_prototype() {
                     obj.set_flag_constructor(true);
                     obj.define_lazy_property(
@@ -570,7 +550,9 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                         LazyInit::Prototype,
                         crate::JS_PROP_WRITABLE,
                     )
-                    .map_err(|_| BytecodeSerializeError::InvalidValue("cannot set prototype".into()))?;
+                    .map_err(|_| {
+                        BytecodeSerializeError::InvalidValue("cannot set prototype".into())
+                    })?;
                 }
                 Ok(JSValue::from(obj))
             }
@@ -635,11 +617,3 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
         Ok(JSValue::make_bigint(b))
     }
 }
-
-// keep the imports referenced so the skeleton compiles without the deeper
-// pieces wired up yet.
-#[allow(unused_imports)]
-use BYTECODE_SERIALIZE_MAGIC as _MAGIC;
-#[allow(unused_imports)]
-use BYTECODE_SERIALIZE_VERSION as _VERSION;
-use gc_lite::{GcTrace, GcTraceCtx};
