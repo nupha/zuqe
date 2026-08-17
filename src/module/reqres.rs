@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(super) struct ModuleDependency {
+pub(crate) struct ModuleDependency {
     pub module_name: Atom,
     /// None when module is not resolved.
     pub module: Option<ModuleDef>,

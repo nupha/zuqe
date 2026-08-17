@@ -9,7 +9,7 @@ mod val;
 
 pub use val::JSValue;
 
-pub(crate) use tag::*;
+pub(crate) use tag::JSValueTag;
 
 pub(crate) const HINT_STRING: i32 = 0;
 pub(crate) const HINT_NUMBER: i32 = 1;

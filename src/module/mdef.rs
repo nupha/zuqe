@@ -43,8 +43,8 @@ pub(crate) trait ModuleInitFn:
 impl<F> ModuleInitFn for F where F: Fn(&mut ScopedContext, &ModuleDef) -> Result<(), i32> {}
 
 pub struct ModuleDefImpl {
-    pub(super) module_name: Atom,
-    pub(super) dependencies: Vec<ModuleDependency>,
+    pub(crate) module_name: Atom,
+    pub(crate) dependencies: Vec<ModuleDependency>,
 
     pub(crate) import_entries: Vec<ImportEntry>,
     pub(crate) export_entries: Vec<ExportEntry>,
@@ -52,7 +52,7 @@ pub struct ModuleDefImpl {
     pub(crate) star_export_entries: Vec<u16>,
 
     /// module namespace.
-    pub(super) module_ns: Option<Object>,
+    pub(crate) module_ns: Option<Object>,
 
     /// for js module, when func_created is:
     /// - true: bytecode field is a function object value
@@ -415,8 +415,12 @@ impl ModuleDef {
         let result = (|| -> Result<(), i32> {
             for dep in self.dependencies.iter_mut() {
                 let dep_utf8 = dep.module_name.to_utf8(ctx.rt());
-                let mut m1 =
-                    super::js_host_resolve_imported_module(ctx, &base_utf8, &dep_utf8, dep.attributes)?;
+                let mut m1 = super::js_host_resolve_imported_module(
+                    ctx,
+                    &base_utf8,
+                    &dep_utf8,
+                    dep.attributes,
+                )?;
 
                 dep.module = Some(m1);
                 m1.resolve_deps(ctx)?;

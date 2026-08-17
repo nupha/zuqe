@@ -42,4 +42,11 @@ pub use {
     var_ref::*,
 };
 
-pub(crate) use {a_state::*, argument::*, closure::*, emit::*};
+pub(crate) use {
+    a_state::*,
+    argument::*,
+    bfun::FunctionKind,
+    bytecode::{BytecodeAttrs, GcScopeKind},
+    closure::*,
+    emit::*,
+};

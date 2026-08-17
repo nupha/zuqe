@@ -23,6 +23,8 @@ mod module;
 mod number;
 mod object;
 mod parse;
+#[cfg(feature = "persistent")]
+pub mod persistent;
 mod runtime;
 mod stack_frame;
 mod string;

@@ -17,6 +17,7 @@ async_support = ["futures-util"]
 crossbeam_channel = ["crossbeam"]
 serde_json_support = ["serde_json"]
 zapi = ["zuqe_zapi", "libloading"]
+persistent = []
 
 builtin_proxy = []
 builtin_atomic = []
@@ -31,6 +32,7 @@ intl402 = ["dep:icu", "dep:fixed_decimal"]
 
 dump_bytecode = []
 debug_gc = []
+
 
 # Protect temporarily dangling GC objects taken out of traced locations before
 # they are re-anchored. Enable only when gc_alloc may trigger collect (arena
@@ -136,6 +138,11 @@ path = "src/lib.rs"
 [[example]]
 name = "zjs"
 path = "examples/zjs/main.rs"
+
+[[example]]
+name = "persistent"
+path = "examples/persistent/main.rs"
+required-features = ["persistent"]
 
 [[example]]
 name = "test262"

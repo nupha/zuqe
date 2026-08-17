@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::marker::PhantomData;
-use std::ptr::NonNull;
+use std::{marker::PhantomData, ptr::NonNull};
 
 use gc_lite::{GcHead, GcNode, GcRef, GcTrace, GcTraceCtx};
 
@@ -642,10 +641,9 @@ impl JSValue {
             #[cfg(feature = "big_int")]
             JSValueTag::BigInt => {
                 // ToString(BigInt): decimal string without the `n` suffix.
-                let s = unsafe {
-                    crate::bigint::to_string_radix(&self.as_bigint_unchecked(), 10)
-                };
-                ctx.create_string_from_str(s.as_str()).map(Self::make_string)
+                let s = unsafe { crate::bigint::to_string_radix(&self.as_bigint_unchecked(), 10) };
+                ctx.create_string_from_str(s.as_str())
+                    .map(Self::make_string)
             }
 
             JSValueTag::Object => self

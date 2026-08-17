@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cell::UnsafeCell;
-use std::marker::PhantomData;
+use std::{cell::UnsafeCell, marker::PhantomData};
 
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 
@@ -144,7 +143,7 @@ impl Default for BytecodeAttrs {
 }
 
 pub struct BytecodeImpl {
-    realm: ContextPtr,
+    pub(crate) realm: ContextPtr,
     pub(crate) func_name: Atom,
     pub(crate) attrs: BytecodeAttrs,
 
@@ -166,13 +165,13 @@ pub struct BytecodeImpl {
     /// which may contain value and atom. must manually free them when dropped
     pub(crate) binary: Box<[u8]>,
     /// consts section (start_index, length)
-    consts_section: Option<(u16, u16)>,
+    pub(crate) consts_section: Option<(u16, u16)>,
     /// start index of vardefs in binary >=0 for valid index
-    vardefs_start: i32,
+    pub(crate) vardefs_start: i32,
     /// start index of closure vars >=0 for valid index
-    closure_var_start: i32,
+    pub(crate) closure_var_start: i32,
     /// index where opcodes starts
-    opcodes_start: u32,
+    pub(crate) opcodes_start: u32,
 
     /// debug info
     pub(crate) debug: Option<BytecodeDebugInfo>,
@@ -615,7 +614,10 @@ gcref_wrapper!(Bytecode, BytecodeImpl);
 impl From<Bytecode> for JSValue {
     #[inline(always)]
     fn from(value: Bytecode) -> Self {
-        Self(crate::JSValueTag::FunctionBytecode.mknode(value.gc_node_ptr()), PhantomData)
+        Self(
+            crate::JSValueTag::FunctionBytecode.mknode(value.gc_node_ptr()),
+            PhantomData,
+        )
     }
 }
 
