@@ -12,9 +12,9 @@ pub use jsvalue::{DeserializeCtx, SerializeCtx};
 use crate::{JSValue, ScopedContext};
 
 /// Magic header written at the start of every serialized bytecode blob.
-pub const BYTECODE_SERIALIZE_MAGIC: &[u8; 4] = b"ZBCP";
+const BYTECODE_SERIALIZE_MAGIC: &[u8; 4] = b"ZBCP";
 /// Serialization format version. Bump on incompatible layout changes.
-pub const BYTECODE_SERIALIZE_VERSION: u32 = 1;
+const BYTECODE_SERIALIZE_VERSION: u32 = 1;
 
 /// Error returned when (de)serializing a value fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,7 +98,12 @@ impl JSValue {
         if &magic != BYTECODE_SERIALIZE_MAGIC {
             return Err(BytecodeSerializeError::Encode("bad magic header".into()));
         }
-        let _version = inp.read_u32()?;
+        let version = inp.read_u32()?;
+        if version != BYTECODE_SERIALIZE_VERSION {
+            return Err(BytecodeSerializeError::Encode(format!(
+                "unsupported bytecode version {version} (expected {BYTECODE_SERIALIZE_VERSION})"
+            )));
+        }
         inp.deserialize_value()
     }
 }
