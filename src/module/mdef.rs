@@ -431,9 +431,11 @@ impl ModuleDef {
         if result.is_err() {
             // Per ECMAScript spec §16.2.1.7: cache the error so subsequent
             // imports throw the same error without retrying.
-            let err_val = ctx.take_exception().to_value(ctx);
+            let e = ctx.rt().exception(); // peek only
+            debug_assert_ne!(e, crate::Exception::No);
+            let err_val = e.to_value(ctx);
             self.set_eval_error(err_val);
-            return Err(-1);
+            return Err(-1); // current exception is still there
         }
 
         result
