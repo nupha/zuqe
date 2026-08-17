@@ -12,7 +12,7 @@ pub use jsvalue::{DeserializeCtx, SerializeCtx};
 use crate::{JSValue, ScopedContext};
 
 /// Magic header written at the start of every serialized bytecode blob.
-const BYTECODE_SERIALIZE_MAGIC: &[u8; 4] = b"ZBCP";
+const BYTECODE_SERIALIZE_MAGIC: &[u8; 4] = b"ZQBC";
 /// Serialization format version. Bump on incompatible layout changes.
 const BYTECODE_SERIALIZE_VERSION: u32 = 1;
 
