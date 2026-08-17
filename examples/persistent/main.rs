@@ -325,8 +325,8 @@ async fn check_call(name: &str, script: &str, call_args: &[i32], expect: i32) {
 ///
 /// The module is first executed in rt1 (which evaluates `export` bindings and
 /// populates the namespace we bridge out via `globalThis.__ns`), then that
-/// namespace object — holding the module's exported function `inc` and const
-/// `answer` — is serialized. On rt2 we deserialize and invoke `inc`.
+/// namespace object 閳?holding the module's exported function `inc` and const
+/// `answer` 閳?is serialized. On rt2 we deserialize and invoke `inc`.
 async fn check_module_call_file(name: &str, source: &str) {
     let path = std::env::temp_dir().join("zhuque_persist_module_call.bin");
     let blob = {
@@ -503,38 +503,41 @@ async fn check_call_file_f64(name: &str, script: &str, call_args: &[f64], expect
     }
 }
 
+/// Register a native `myAdd(a, b)` on the runtime's global object. Natives are
+/// persisted by JS name only, so every runtime that must resolve a persisted
+/// native has to re-expose it under the same name.
+fn register_my_add(c: &mut Context<'_>) {
+    use zuqe::Callback;
+    c.with_root_scope(|mut s| {
+        let f = s
+            .create_native_function(
+                Callback::Func(|ctx, cc| {
+                    let a = cc.arg(0).to_number(ctx).map_err(|_| -1)?.to_i32();
+                    let b = cc.arg(1).to_number(ctx).map_err(|_| -1)?.to_i32();
+                    Ok(JSValue::from(a + b))
+                }),
+                "myAdd",
+                2,
+                0,
+            )
+            .expect("create native");
+        s.global_obj()
+            .define_property_value_str(
+                &mut s,
+                "myAdd",
+                JSValue::from(f),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )
+            .expect("register native");
+    });
+}
+
 /// Serialize a JS closure whose body *calls a native function*, reload it in a
 /// FRESH Runtime (which must re-expose that native by the same global name), then
 /// invoke. Proves native functions are persisted by name only (QuickJS-aligned):
 /// the blob records the function's JS `name`; restore resolves it via the target
 /// runtime's global object. If the name is absent there, restore fails.
 async fn check_native_call(name: &str, expect: i32) {
-    use zuqe::Callback;
-    fn register_my_add(c: &mut Context<'_>) {
-        c.with_root_scope(|mut s| {
-            let f = s
-                .create_native_function(
-                    Callback::Func(|ctx, cc| {
-                        let a = cc.arg(0).to_number(ctx).map_err(|_| -1)?.to_i32();
-                        let b = cc.arg(1).to_number(ctx).map_err(|_| -1)?.to_i32();
-                        Ok(JSValue::from(a + b))
-                    }),
-                    "myAdd",
-                    2,
-                    0,
-                )
-                .expect("create native");
-            s.global_obj()
-                .define_property_value_str(
-                    &mut s,
-                    "myAdd",
-                    JSValue::from(f),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )
-                .expect("register native");
-        });
-    }
-
     let blob = {
         let mut rt1 = new_runtime();
         let mut ctx1 = mk_ctx!(&mut rt1);
@@ -592,6 +595,448 @@ async fn check_native_call(name: &str, expect: i32) {
     }
 }
 
+/// Persist the native `myAdd` function VALUE directly (no wrapper closure),
+/// reload in a fresh Runtime that re-exposes it under the same name, and call
+/// it. Natives survive as a name reference, so restore yields the target
+/// runtime's OWN function object. Returns true on success (non-fatal).
+async fn check_native_direct(name: &str, expect: i32) -> bool {
+    let path = std::env::temp_dir().join(format!(
+        "zhuque_persist_{}.bin",
+        name.replace([' ', '/', '\\', ':'], "_")
+    ));
+    let blob = {
+        let mut rt1 = new_runtime();
+        let mut ctx1 = mk_ctx!(&mut rt1);
+        register_my_add(&mut ctx1);
+        let native = ctx1.with_root_scope(|mut s| {
+            let gobj = s.global_obj();
+            gobj.get_property_str(&mut s, "myAdd").expect("read myAdd")
+        });
+        match ctx1.with_root_scope(|mut s| JSValue::dump(&mut s, native)) {
+            Ok(b) => b,
+            Err(e) => {
+                println!("[FAIL] {name}: serialize native: {e:?}");
+                return false;
+            }
+        }
+    };
+    std::fs::write(&path, &blob).expect("write blob to file");
+
+    let blob = std::fs::read(&path).expect("read blob from file");
+    let ok = {
+        let mut rt2 = new_runtime();
+        let mut ctx2 = mk_ctx!(&mut rt2);
+        register_my_add(&mut ctx2);
+        ctx2.with_root_scope(|mut s| {
+            let back = match JSValue::restore(&mut s, &blob) {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("[FAIL] {name}: restore native: {e:?}");
+                    return false;
+                }
+            };
+            if !back.is_callable() {
+                println!("[FAIL] {name}: restored native is not callable");
+                return false;
+            }
+            match back.call(&mut s, JSValue::UNDEFINED, &[JSValue::from(40), JSValue::from(2)]) {
+                Ok(r) => match r.to_number(&mut s) {
+                    Ok(n) => n.to_i32() == expect,
+                    Err(_) => {
+                        println!("[FAIL] {name}: call returned non-number");
+                        false
+                    }
+                },
+                Err(_) => {
+                    let exc = s.take_exception();
+                    println!("[FAIL] {name}: call threw: {:?}", exc.to_text(&mut s));
+                    false
+                }
+            }
+        })
+    };
+    let _ = std::fs::remove_file(&path);
+    println!(
+        "[{}] {name} (native myAdd value round-trip, expect {expect})",
+        if ok { "OK " } else { "FAIL" }
+    );
+    ok
+}
+
+/// Persist the native `myAdd` VALUE but reload into a runtime that does NOT
+/// expose that name. Restore must fail with a clear error (natives are bound by
+/// name at load time, never rebuilt). Returns true when restore is rejected.
+async fn check_native_missing(name: &str) -> bool {
+    let path = std::env::temp_dir().join(format!(
+        "zhuque_persist_{}.bin",
+        name.replace([' ', '/', '\\', ':'], "_")
+    ));
+    let blob = {
+        let mut rt1 = new_runtime();
+        let mut ctx1 = mk_ctx!(&mut rt1);
+        register_my_add(&mut ctx1);
+        let native = ctx1.with_root_scope(|mut s| {
+            let gobj = s.global_obj();
+            gobj.get_property_str(&mut s, "myAdd").expect("read myAdd")
+        });
+        ctx1.with_root_scope(|mut s| JSValue::dump(&mut s, native)).expect("serialize native")
+    };
+    std::fs::write(&path, &blob).expect("write blob to file");
+
+    let blob = std::fs::read(&path).expect("read blob from file");
+    let (ok, msg) = {
+        let mut rt2 = new_runtime();
+        let mut ctx2 = mk_ctx!(&mut rt2); // deliberately does NOT register myAdd
+        ctx2.with_root_scope(|mut s| match JSValue::restore(&mut s, &blob) {
+            Err(e) => (true, format!("restore rejected: {e:?}")),
+            Ok(v) => (false, format!("restore unexpectedly succeeded: {}", repr(&mut s, v))),
+        })
+    };
+    let _ = std::fs::remove_file(&path);
+    println!("[{}] {name} ({msg})", if ok { "OK " } else { "FAIL" });
+    ok
+}
+
+/// Persist a closure whose CAPTURED variable is a native function (`let g =
+/// myAdd`), reload with the native re-exposed, and call. The native travels
+/// through the global-lexical snapshot as a name reference.
+async fn check_native_capture(name: &str, expect: i32) -> bool {
+    let path = std::env::temp_dir().join(format!(
+        "zhuque_persist_{}.bin",
+        name.replace([' ', '/', '\\', ':'], "_")
+    ));
+    let blob = {
+        let mut rt1 = new_runtime();
+        let mut ctx1 = mk_ctx!(&mut rt1);
+        register_my_add(&mut ctx1);
+        let url = zuqe::path_to_url("repl.js").expect("repl.js url");
+        let val1 = match ctx1
+            .eval_wait(
+                &mut rt1,
+                b"let g = myAdd; (function(x){ return g(x, 1) })",
+                &EvalName::BaseUrl(url),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .await
+        {
+            ExitStatus::Value(v) => v,
+            other => {
+                println!("[FAIL] {name}: eval failed: {other:?}");
+                return false;
+            }
+        };
+        match ctx1.with_root_scope(|mut s| JSValue::dump(&mut s, val1)) {
+            Ok(b) => b,
+            Err(e) => {
+                println!("[FAIL] {name}: serialize: {e:?}");
+                return false;
+            }
+        }
+    };
+    std::fs::write(&path, &blob).expect("write blob to file");
+
+    let blob = std::fs::read(&path).expect("read blob from file");
+    let ok = {
+        let mut rt2 = new_runtime();
+        let mut ctx2 = mk_ctx!(&mut rt2);
+        register_my_add(&mut ctx2);
+        ctx2.with_root_scope(|mut s| {
+            let back = match JSValue::restore(&mut s, &blob) {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("[FAIL] {name}: restore: {e:?}");
+                    return false;
+                }
+            };
+            let args = [JSValue::from(41)];
+            match back.call(&mut s, JSValue::UNDEFINED, &args) {
+                Ok(r) => match r.to_number(&mut s) {
+                    Ok(n) => n.to_i32() == expect,
+                    Err(_) => {
+                        println!("[FAIL] {name}: call returned non-number");
+                        false
+                    }
+                },
+                Err(_) => {
+                    let exc = s.take_exception();
+                    println!("[FAIL] {name}: call threw: {:?}", exc.to_text(&mut s));
+                    false
+                }
+            }
+        })
+    };
+    let _ = std::fs::remove_file(&path);
+    println!(
+        "[{}] {name} (closure capturing native `myAdd`, expect {expect})",
+        if ok { "OK " } else { "FAIL" }
+    );
+    ok
+}
+
+/// Same as [`check_native_capture`] but the target runtime does NOT expose
+/// `myAdd`; restoring the closure must fail because its captured native cannot
+/// be resolved by name.
+async fn check_native_capture_missing(name: &str) -> bool {
+    let path = std::env::temp_dir().join(format!(
+        "zhuque_persist_{}.bin",
+        name.replace([' ', '/', '\\', ':'], "_")
+    ));
+    let blob = {
+        let mut rt1 = new_runtime();
+        let mut ctx1 = mk_ctx!(&mut rt1);
+        register_my_add(&mut ctx1);
+        let url = zuqe::path_to_url("repl.js").expect("repl.js url");
+        let val1 = match ctx1
+            .eval_wait(
+                &mut rt1,
+                b"let g = myAdd; (function(x){ return g(x, 1) })",
+                &EvalName::BaseUrl(url),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .await
+        {
+            ExitStatus::Value(v) => v,
+            other => {
+                println!("[FAIL] {name}: eval failed: {other:?}");
+                return false;
+            }
+        };
+        ctx1.with_root_scope(|mut s| JSValue::dump(&mut s, val1)).expect("serialize")
+    };
+    std::fs::write(&path, &blob).expect("write blob to file");
+
+    let blob = std::fs::read(&path).expect("read blob from file");
+    let (ok, msg) = {
+        let mut rt2 = new_runtime();
+        let mut ctx2 = mk_ctx!(&mut rt2); // no myAdd on purpose
+        ctx2.with_root_scope(|mut s| match JSValue::restore(&mut s, &blob) {
+            Err(e) => (true, format!("restore rejected: {e:?}")),
+            Ok(v) => (false, format!("restore unexpectedly succeeded: {}", repr(&mut s, v))),
+        })
+    };
+    let _ = std::fs::remove_file(&path);
+    println!("[{}] {name} ({msg})", if ok { "OK " } else { "FAIL" });
+    ok
+}
+
+/// General cross-runtime helper: eval `script` in rt1, dump its value to a
+/// file, restore it in a FRESH rt2 as `globalThis.__v`, then eval `check_js`
+/// and compare its textual result with `expect`. Returns true on match
+/// (non-fatal, reports [FAIL] but keeps going so every edge case is observed).
+async fn check_roundtrip_js(name: &str, script: &str, check_js: &str, expect: &str) -> bool {
+    let path = std::env::temp_dir().join(format!(
+        "zhuque_persist_{}.bin",
+        name.replace([' ', '/', '\\', ':'], "_")
+    ));
+    let repl = zuqe::path_to_url("repl.js").expect("repl.js url");
+    let blob = {
+        let mut rt1 = new_runtime();
+        let mut ctx1 = mk_ctx!(&mut rt1);
+        let val1 = match ctx1
+            .eval_wait(
+                &mut rt1,
+                script.as_bytes(),
+&EvalName::BaseUrl(repl.clone()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .await
+        {
+            ExitStatus::Value(v) => v,
+            other => {
+                println!("[FAIL] {name}: eval failed: {other:?}");
+                return false;
+            }
+        };
+        match ctx1.with_root_scope(|mut s| JSValue::dump(&mut s, val1)) {
+            Ok(b) => b,
+            Err(e) => {
+                println!("[FAIL] {name}: serialize: {e:?}");
+                return false;
+            }
+        }
+    };
+    std::fs::write(&path, &blob).expect("write blob to file");
+
+    let blob = std::fs::read(&path).expect("read blob from file");
+    let mut rt2 = new_runtime();
+    let mut ctx2 = mk_ctx!(&mut rt2);
+    let restore_ok = ctx2.with_root_scope(|mut s| {
+        let back = match JSValue::restore(&mut s, &blob) {
+            Ok(v) => v,
+            Err(e) => {
+                println!("[FAIL] {name}: restore: {e:?}");
+                return false;
+            }
+        };
+        s.global_obj()
+            .define_property_value_str(
+                &mut s,
+                "__v",
+                JSValue::from(back),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )
+            .is_ok()
+    });
+    if !restore_ok {
+        let _ = std::fs::remove_file(&path);
+        return false;
+    }
+
+    let got = match ctx2
+        .eval_wait(
+            &mut rt2,
+            check_js.as_bytes(),
+            &EvalName::BaseUrl(repl),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .await
+    {
+        ExitStatus::Value(v) => ctx2.with_root_scope(|mut s| repr(&mut s, v)),
+        other => {
+            let msg = ctx2.with_root_scope(|mut s| {
+                let exc = s.take_exception();
+                format!("{:?}", exc.to_text(&mut s))
+            });
+            println!("[FAIL] {name}: check_js eval failed: {other:?}\n    exception: {msg}");
+            let _ = std::fs::remove_file(&path);
+            return false;
+        }
+    };
+    let _ = std::fs::remove_file(&path);
+
+    let ok = got == expect;
+    println!(
+        "[{}] {name}\n    expect: {expect}\n    got:    {got}",
+        if ok { "OK " } else { "FAIL" }
+    );
+    ok
+}
+
+/// Cross-runtime module namespace helper. The module source must bridge its
+/// exports out via `globalThis.__ns`. rt1 evals the module, dumps `__ns`, rt2
+/// restores it as `globalThis.__v`, then `check_js` is evaluated and compared
+/// textually with `expect`.
+async fn check_module_roundtrip_js(
+    name: &str,
+    source: &str,
+    base: Url,
+    check_js: &str,
+    expect: &str,
+) -> bool {
+    let path = std::env::temp_dir().join(format!(
+        "zhuque_persist_{}.bin",
+        name.replace([' ', '/', '\\', ':'], "_")
+    ));
+    let repl = zuqe::path_to_url("repl.js").expect("repl.js url");
+    let blob = {
+        let mut rt1 = new_runtime();
+        let mut ctx1 = mk_ctx!(&mut rt1);
+        match ctx1
+            .eval_wait(
+                &mut rt1,
+                source.as_bytes(),
+                &EvalName::BaseUrl(base),
+                EvalType::Module,
+                EvalFlags::empty(),
+            )
+            .await
+        {
+            ExitStatus::Value(_) => {}
+            other => {
+                let msg = ctx1.with_root_scope(|mut s| {
+                    let exc = s.take_exception();
+                    format!("{:?}", exc.to_text(&mut s))
+                });
+                println!("[FAIL] {name}: module eval failed: {other:?}\n    exception: {msg}");
+                return false;
+            }
+        }
+        let ns = match ctx1
+            .eval_wait(
+                &mut rt1,
+                b"globalThis.__ns",
+                &EvalName::BaseUrl(repl.clone()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .await
+        {
+            ExitStatus::Value(v) => v,
+            other => {
+                println!("[FAIL] {name}: cannot read module ns: {other:?}");
+                return false;
+            }
+        };
+        match ctx1.with_root_scope(|mut s| JSValue::dump(&mut s, ns)) {
+            Ok(b) => b,
+            Err(e) => {
+                println!("[FAIL] {name}: serialize ns: {e:?}");
+                return false;
+            }
+        }
+    };
+    std::fs::write(&path, &blob).expect("write blob to file");
+
+    let blob = std::fs::read(&path).expect("read blob from file");
+    let mut rt2 = new_runtime();
+    let mut ctx2 = mk_ctx!(&mut rt2);
+    let restore_ok = ctx2.with_root_scope(|mut s| {
+        let back = match JSValue::restore(&mut s, &blob) {
+            Ok(v) => v,
+            Err(e) => {
+                println!("[FAIL] {name}: restore ns: {e:?}");
+                return false;
+            }
+        };
+        s.global_obj()
+            .define_property_value_str(
+                &mut s,
+                "__v",
+                JSValue::from(back),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )
+            .is_ok()
+    });
+    if !restore_ok {
+        let _ = std::fs::remove_file(&path);
+        return false;
+    }
+
+    let got = match ctx2
+        .eval_wait(
+            &mut rt2,
+            check_js.as_bytes(),
+            &EvalName::BaseUrl(repl),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .await
+    {
+        ExitStatus::Value(v) => ctx2.with_root_scope(|mut s| repr(&mut s, v)),
+        other => {
+            let msg = ctx2.with_root_scope(|mut s| {
+                let exc = s.take_exception();
+                format!("{:?}", exc.to_text(&mut s))
+            });
+            println!("[FAIL] {name}: check_js eval failed: {other:?}\n    exception: {msg}");
+            let _ = std::fs::remove_file(&path);
+            return false;
+        }
+    };
+    let _ = std::fs::remove_file(&path);
+
+    let ok = got == expect;
+    println!(
+        "[{}] {name}\n    expect: {expect}\n    got:    {got}",
+        if ok { "OK " } else { "FAIL" }
+    );
+    ok
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     check("undefined", "undefined").await;
@@ -603,7 +1048,7 @@ async fn main() -> ExitCode {
     check("nan", "NaN").await;
     check("infinity", "Infinity").await;
     check("string ascii", "'hello world'").await;
-    check("string utf8", "'你好，世界 🌍'").await;
+    check("string utf8", "'娴ｇ姴銈介敍灞肩瑯閻?棣冨'").await;
     check("string empty", "''").await;
     check("symbol global", "Symbol.for('k')").await;
     check("bigint", "12345678901234567890123456789n").await;
@@ -720,6 +1165,157 @@ async fn main() -> ExitCode {
     // round-trip: the native is recorded by name and re-resolved on the target
     // runtime's global object (QuickJS-aligned).
     check_native_call("closure calling native function", 42).await;
+
+    // function edge cases (cross-runtime file reload)
+    let mut failed = 0;
+    failed += !check_roundtrip_js(
+        "default params",
+        "(function(a, b=10){ return a+b })",
+        "__v(5)",
+        "15",
+    )
+    .await
+        as i32;
+    failed += !check_roundtrip_js(
+        "rest params",
+        "(function(...args){ return args.length })",
+        "__v(1,2,3)",
+        "3",
+    )
+    .await
+        as i32;
+    failed += !check_roundtrip_js("arrow function", "((x)=>{ return x*3 })", "__v(5)", "15")
+        .await
+        as i32;
+    failed += !check_roundtrip_js(
+        "nested closure chain",
+        "function f(){let a=1; return function(){let b=2; return function(){return a+b}};} f()()",
+        "__v()",
+        "3",
+    )
+    .await
+        as i32;
+    failed += !check_roundtrip_js(
+        "string consts",
+        "(function(){ return 'ab' + 'cd' })",
+        "__v()",
+        "abcd",
+    )
+    .await
+        as i32;
+    failed += !check_roundtrip_js(
+        "global const capture",
+        "const c = 42; (function(){ return c })",
+        "__v()",
+        "42",
+    )
+    .await
+        as i32;
+    failed += !check_roundtrip_js(
+        "this binding",
+        "(function(){ return this.v })",
+        "__v.call({v: 99})",
+        "99",
+    )
+    .await
+        as i32;
+    failed += !check_roundtrip_js(
+        "name and length",
+        "(function myFunc(a,b){ return a+b })",
+        "__v.name + '/' + __v.length",
+        "myFunc/2",
+    )
+    .await
+        as i32;
+    failed += !check_roundtrip_js(
+        "global builtin JSON",
+        "(function(){ return JSON.stringify({a: 1}) })",
+        "__v()",
+        r#"{"a":1}"#,
+    )
+    .await
+        as i32;
+    failed += !check_roundtrip_js(
+        "captured function value",
+        "let add = (a,b)=>a+b; (function(){ return add(2,3) })",
+        "__v()",
+        "5",
+    )
+    .await
+        as i32;
+    failed += !check_roundtrip_js(
+        "cyclic object capture",
+        "let o = {}; o.self = o; (function(){ return o })",
+        "__v().self === __v()",
+        "true",
+    )
+    .await
+        as i32;
+    failed += !check_roundtrip_js(
+        "generator function",
+        "(function* g(){ yield 1; yield 2 })",
+        "String(__v().next().value)",
+        "1",
+    )
+    .await
+        as i32;
+
+    // module edge cases (cross-runtime namespace reload)
+    let mod_dir = std::env::temp_dir().join("zhuque_persist_mod");
+    std::fs::create_dir_all(&mod_dir).expect("create module temp dir");
+    std::fs::write(
+        mod_dir.join("dep.mjs"),
+        "export function add(a,b){return a+b}\nexport const BASE = 10;\n",
+    )
+    .expect("write dep.mjs");
+    let mod_base = zuqe::path_to_url(&mod_dir.join("mod.mjs").to_string_lossy())
+        .expect("mod.mjs url");
+
+    failed += !check_module_roundtrip_js(
+        "module stateful closure",
+        "export let count = 0;\nexport function inc(){ return ++count }\nglobalThis.__ns = { inc, count };\n",
+        mod_base.clone(),
+        "String(__v.inc()) + ',' + String(__v.count)",
+        "1,0",
+    )
+    .await
+        as i32;
+
+    failed += !check_module_roundtrip_js(
+        "module import + re-export",
+        "import { add, BASE } from './dep.mjs';\n\
+         export const sum = add(BASE, 5);\n\
+         export function f(x){ return add(x, sum) }\n\
+         globalThis.__ns = { f, sum };\n",
+        mod_base.clone(),
+        "String(__v.f(1)) + ',' + String(__v.sum)",
+        "16,15",
+    )
+    .await
+        as i32;
+    failed += !check_module_roundtrip_js(
+        "module re-export",
+        "import { add, BASE } from './dep.mjs';\n\
+         export { add as plus, BASE as base } from './dep.mjs';\n\
+         globalThis.__ns = { f: add, base: BASE };\n",
+        mod_base.clone(),
+        "String(__v.f(2,3)) + ',' + String(__v.base)",
+        "5,10",
+    )
+    .await
+        as i32;
+    let _ = std::fs::remove_dir_all(&mod_dir);
+
+    // 閳ユ柡鈧柡鈧柡鈧柡鈧?native function persistence 閳ユ柡鈧柡鈧柡鈧柡鈧?    failed += !check_native_direct("native function value round-trip", 42).await as i32;
+    failed += !check_native_missing("native function missing on target").await as i32;
+    failed += !check_native_capture("closure capturing native", 42).await as i32;
+    failed += !check_native_capture_missing("closure capturing native missing on target").await
+        as i32;
+
+    if failed > 0 {
+        println!("\n{failed} new edge-case checks FAILED");
+        return ExitCode::FAILURE;
+    }
 
     println!("\nall persistent round-trip checks passed");
     ExitCode::SUCCESS
