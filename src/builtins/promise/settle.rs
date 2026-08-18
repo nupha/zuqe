@@ -250,6 +250,21 @@ impl Promise {
         Ok(wrap_promise)
     }
 
+    /// Internal `PerformPromiseThen` equivalent: create a wrapper promise and
+    /// register reaction handlers **without** looking up `@@species`.  Use this
+    /// from host code (e.g. Streams pipeTo) that must not call the
+    /// user-visible `Promise.prototype.then`.
+    pub fn perform_then(
+        &mut self,
+        ctx: &mut ScopedContext,
+        success: JSValue,
+        fail: JSValue,
+    ) -> Result<Object, i32> {
+        let (wrap_promise, rr) = Self::create_with_ctor(ctx, JSValue::UNDEFINED)?;
+        self.reaction(ctx, [success, fail], rr)?;
+        Ok(wrap_promise)
+    }
+
     /// Save result `value` and update promise status to 'fulfilled' or 'rejected'.
     /// Call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     ///
