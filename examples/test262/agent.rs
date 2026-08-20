@@ -1,4 +1,4 @@
-﻿// test262 $262.agent harness
+// test262 $262.agent harness
 //
 // Implements the multi-agent (concurrent thread) API used by Atomics /
 // SharedArrayBuffer tests. The parent side (running inside the main test
