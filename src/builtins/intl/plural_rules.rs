@@ -17,17 +17,17 @@ use crate::{
 use super::common::{locale_to_string, make_str, resolve_locale, to_utf8_string};
 
 #[derive(Debug)]
-pub(crate) struct PluralRulesData {
-    pub locale: icu::locale::Locale,
-    pub rules: IcuPluralRules,
-    pub plural_type: PluralRuleType,
-    pub min_int_digits: i32,
-    pub min_frac_digits: i32,
-    pub max_frac_digits: i32,
-    pub min_sig_digits: Option<u8>,
-    pub max_sig_digits: Option<u8>,
-    pub notation: &'static str,
-    pub compact_display: Option<&'static str>,
+pub struct PluralRulesData {
+    pub(crate) locale: icu::locale::Locale,
+    pub(crate) rules: IcuPluralRules,
+    pub(crate) plural_type: PluralRuleType,
+    pub(crate) min_int_digits: i32,
+    pub(crate) min_frac_digits: i32,
+    pub(crate) max_frac_digits: i32,
+    pub(crate) min_sig_digits: Option<u8>,
+    pub(crate) max_sig_digits: Option<u8>,
+    pub(crate) notation: &'static str,
+    pub(crate) compact_display: Option<&'static str>,
 }
 
 impl GcTrace for PluralRulesData {

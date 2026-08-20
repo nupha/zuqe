@@ -17,10 +17,10 @@ use crate::{
 use super::common::{locale_to_string, make_str, resolve_locale, to_utf8_string};
 
 #[derive(Debug)]
-pub(crate) struct DisplayNamesData {
-    pub locale: Locale,
-    pub style: DisplayStyle,
-    pub display_type: DisplayType,
+pub struct DisplayNamesData {
+    pub(crate) locale: Locale,
+    pub(crate) style: DisplayStyle,
+    pub(crate) display_type: DisplayType,
 }
 
 impl GcTrace for DisplayNamesData {

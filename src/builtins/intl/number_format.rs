@@ -20,24 +20,24 @@ use super::common::{
 };
 
 #[derive(Debug)]
-pub(crate) struct NumberFormatData {
-    pub locale: Locale,
-    pub formatter: DecimalFormatter,
-    pub min_fraction_digits: i32,
-    pub max_fraction_digits: i32,
-    pub min_significant_digits: Option<u8>,
-    pub max_significant_digits: Option<u8>,
-    pub min_integer_digits: i32,
-    pub notation: Notation,
-    pub style: Style,
-    pub currency: Option<String>,
-    pub currency_display: &'static str,
-    pub numbering_system: String,
-    pub use_grouping: bool,
-    pub grouping_sep: char,
-    pub decimal_sep: char,
-    pub percent_space: bool,
-    pub grouping_indian: bool,
+pub struct NumberFormatData {
+    pub(crate) locale: Locale,
+    pub(crate) formatter: DecimalFormatter,
+    pub(crate) min_fraction_digits: i32,
+    pub(crate) max_fraction_digits: i32,
+    pub(crate) min_significant_digits: Option<u8>,
+    pub(crate) max_significant_digits: Option<u8>,
+    pub(crate) min_integer_digits: i32,
+    pub(crate) notation: Notation,
+    pub(crate) style: Style,
+    pub(crate) currency: Option<String>,
+    pub(crate) currency_display: &'static str,
+    pub(crate) numbering_system: String,
+    pub(crate) use_grouping: bool,
+    pub(crate) grouping_sep: char,
+    pub(crate) decimal_sep: char,
+    pub(crate) percent_space: bool,
+    pub(crate) grouping_indian: bool,
 }
 
 impl GcTrace for NumberFormatData {

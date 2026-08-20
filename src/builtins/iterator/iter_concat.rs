@@ -18,7 +18,7 @@ use super::{call_iterator_next, iterator_return, make_iterator_next_result};
 
 /// Payload for `Iterator.concat` — lazily concatenates iterables.
 #[derive(Debug)]
-pub(crate) struct IteratorConcatData {
+pub struct IteratorConcatData {
     pub(crate) values: Vec<(JSValue, JSValue)>,
     pub(crate) index: Cell<usize>,
     pub(crate) iter: Cell<Option<Object>>,

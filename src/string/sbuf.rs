@@ -844,32 +844,3 @@ pub(super) unsafe fn s16_into_s8(mut d16: Vec<u16>) -> Vec<u8> {
         Vec::from_raw_parts(ptr, len, cap * 2)
     }
 }
-
-pub(super) fn is_char_visible(ch: char) -> bool {
-    let code_point = ch as u32;
-
-    // 明确的不可见字符范围
-    match code_point {
-        // 控制字符
-        0x0000..=0x001F | 0x007F..=0x009F => false,
-
-        // 零宽和格式字符
-        0x200B..=0x200F |  // 零宽字符
-        0x2028..=0x202F |  // 分隔符和格式
-        0x2060..=0x206F |  // 格式字符
-        0xFEFF |           // 零宽空格 (BOM)
-        0xFFF9..=0xFFFB |  // 注解字符
-        0x1D159..=0x1D172 | // 音乐符号格式
-        0xE0000..=0xE0FFF   // 标签字符
-        => false,
-
-        // 特殊情况：空格类字符的处理
-        0x0020 | 0x00A0 | 0x1680 | 0x2000..=0x200A | 0x2028..=0x2029 | 0x202F..=0x205F | 0x3000 => {
-            // 空格字符，根据需求决定是否算作可见
-            true // 这里认为空格是"可见"的（虽然显示为空白）
-        },
-
-        // 其他字符
-        _ => !ch.is_control()
-    }
-}

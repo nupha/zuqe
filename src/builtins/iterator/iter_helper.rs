@@ -30,7 +30,7 @@ pub(crate) enum JSIteratorHelperKind {
 }
 
 #[derive(Debug)]
-pub(crate) struct IteratorHelperData {
+pub struct IteratorHelperData {
     pub(crate) obj: Object,
     pub(crate) next: JSValue,
     pub(crate) func: JSValue,

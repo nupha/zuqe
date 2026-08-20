@@ -19,7 +19,7 @@ use super::common::{
 };
 
 #[derive(Debug)]
-pub(crate) struct RelativeTimeFormatData {
+pub struct RelativeTimeFormatData {
     pub locale: Locale,
     pub style: RelStyle,
     pub numeric: RelNumeric,

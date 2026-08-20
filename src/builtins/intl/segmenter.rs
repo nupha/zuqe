@@ -17,9 +17,9 @@ use crate::{
 use super::common::{locale_to_string, make_str, resolve_locale, to_utf8_string};
 
 #[derive(Debug)]
-pub(crate) struct SegmenterData {
-    pub locale: Locale,
-    pub granularity: SegmentGranularity,
+pub struct SegmenterData {
+    pub(crate) locale: Locale,
+    pub(crate) granularity: SegmentGranularity,
 }
 
 impl GcTrace for SegmenterData {

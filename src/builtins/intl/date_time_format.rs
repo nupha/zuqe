@@ -23,22 +23,22 @@ use super::{
 };
 
 #[derive(Debug)]
-pub(crate) struct DateTimeFormatData {
-    pub locale: Locale,
-    pub weekday: Option<DateField>,
-    pub era: Option<DateField>,
-    pub year: Option<DateField>,
-    pub month: Option<DateField>,
-    pub day: Option<DateField>,
-    pub hour: Option<DateField>,
-    pub minute: Option<DateField>,
-    pub second: Option<DateField>,
-    pub hour12: Option<bool>,
-    pub hour_cycle: Option<&'static str>,
-    pub time_zone: String,
-    pub time_zone_name: Option<&'static str>,
-    pub calendar: String,
-    pub numbering_system: String,
+pub struct DateTimeFormatData {
+    pub(crate) locale: Locale,
+    pub(crate) weekday: Option<DateField>,
+    pub(crate) era: Option<DateField>,
+    pub(crate) year: Option<DateField>,
+    pub(crate) month: Option<DateField>,
+    pub(crate) day: Option<DateField>,
+    pub(crate) hour: Option<DateField>,
+    pub(crate) minute: Option<DateField>,
+    pub(crate) second: Option<DateField>,
+    pub(crate) hour12: Option<bool>,
+    pub(crate) hour_cycle: Option<&'static str>,
+    pub(crate) time_zone: String,
+    pub(crate) time_zone_name: Option<&'static str>,
+    pub(crate) calendar: String,
+    pub(crate) numbering_system: String,
 }
 
 impl GcTrace for DateTimeFormatData {
@@ -662,10 +662,8 @@ pub(crate) fn format_date(
     let day = day_from_epoch(local_secs);
 
     let mut parts: Vec<String> = Vec::new();
-    if let Some(era) = this.era {
-        let _ = era;
-        // era name (AD for positive years)
-        parts.push("AD".to_string());
+    if this.era.is_some() {
+        parts.push(if year <= 0 { "BC" } else { "AD" }.to_string());
     }
     if let Some(f) = this.year {
         parts.push(format_year(f, year));
@@ -792,10 +790,9 @@ fn parse_gmt_seconds(num: &str) -> i64 {
 
 fn format_year(f: DateField, y: i64) -> String {
     let _ = f;
-    if y < 0 {
-        format!("{} BC", -y)
-    } else if y == 0 {
-        "1 BC".to_string()
+    if y <= 0 {
+        // Proleptic Gregorian: no year 0. Astronomical 0 = 1 BC, -1 = 2 BC, etc.
+        format!("{} BC", 1 - y)
     } else {
         y.to_string()
     }
@@ -976,9 +973,11 @@ fn format_fields(
     let year = year_from_epoch(local_secs);
     let month = month_from_epoch(local_secs);
     let day = day_from_epoch(local_secs);
-    if let Some(era) = this.era {
-        let _ = era;
-        date_parts.push(("era".to_string(), "AD".to_string()));
+    if this.era.is_some() {
+        date_parts.push((
+            "era".to_string(),
+            if year <= 0 { "BC" } else { "AD" }.to_string(),
+        ));
     }
     if let Some(f) = this.year {
         date_parts.push(("year".to_string(), format_year(f, year)));

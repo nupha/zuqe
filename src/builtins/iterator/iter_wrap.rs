@@ -15,7 +15,7 @@ use crate::{
 use super::{call_iterator_next, make_iterator_next_result};
 
 #[derive(Debug)]
-pub(crate) struct IteratorWrapData {
+pub struct IteratorWrapData {
     pub(crate) obj: Object,
     pub(crate) next: JSValue,
 }

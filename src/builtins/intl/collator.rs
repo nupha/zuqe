@@ -3,7 +3,7 @@
 
 //! ECMA-402 `Intl.Collator` (§9).
 
-use icu::locale::{Locale, extensions::unicode::Key};
+use icu::locale::{Locale, extensions::unicode::{Key, Value}};
 
 use crate::{
     Atom, ClassCtorDef, ClassDef, ScopedContext,
@@ -19,15 +19,15 @@ use super::common::{
 };
 
 #[derive(Debug)]
-pub(crate) struct CollatorData {
-    pub locale: Locale,
-    pub sensitivity: CollationSensitivity,
-    pub case_first: CaseFirst,
-    pub numeric: bool,
-    pub ignore_punctuation: bool,
-    pub usage: &'static str,
-    pub collation: &'static str,
-    pub collator: icu::collator::CollatorBorrowed<'static>,
+pub struct CollatorData {
+    pub(crate) locale: Locale,
+    pub(crate) sensitivity: CollationSensitivity,
+    pub(crate) case_first: CaseFirst,
+    pub(crate) numeric: bool,
+    pub(crate) ignore_punctuation: bool,
+    pub(crate) usage: &'static str,
+    pub(crate) collation: &'static str,
+    pub(crate) collator: icu::collator::CollatorBorrowed<'static>,
 }
 
 impl GcTrace for CollatorData {
@@ -62,10 +62,11 @@ pub(crate) fn build_collator_data(
     locales: JSValue,
     options: JSValue,
 ) -> Result<CollatorData, i32> {
-    let locale = resolve_locale(ctx, locales)?;
+    let mut locale = resolve_locale(ctx, locales)?;
 
     // Defaults: variant sensitivity, caseFirst "false", numeric false.
     let mut sensitivity = CollationSensitivity::Variant;
+    let mut sensitivity_provided = false;
     let mut case_first = CaseFirst::False;
     let mut numeric = false;
     // Thai collation ignores punctuation by default.
@@ -105,6 +106,7 @@ pub(crate) fn build_collator_data(
         let sensitivity_val = obj.get_property_str(ctx, "sensitivity")?;
         if !sensitivity_val.is_undefined() {
             let s = to_utf8_string(ctx, sensitivity_val)?;
+            sensitivity_provided = true;
             sensitivity = match s.as_str() {
                 "base" => CollationSensitivity::Base,
                 "accent" => CollationSensitivity::Accent,
@@ -165,22 +167,31 @@ pub(crate) fn build_collator_data(
         }
     }
 
+    // ECMA-402 §15.2.2 step 23: if sensitivity is undefined, default to
+    // "variant" for sort and "base" for search/other usages.
+    if !sensitivity_provided && usage != "sort" {
+        sensitivity = CollationSensitivity::Base;
+    }
+
     // Build the ICU4X collator from the resolved locale + options.
     use icu::collator::CollatorPreferences;
-    use icu::collator::options::{AlternateHandling, MaxVariable, Strength};
+    use icu::collator::options::{AlternateHandling, CaseLevel, MaxVariable, Strength};
     use icu::collator::{CollatorBorrowed, options::CollatorOptions};
     use icu::locale::preferences::extensions::unicode::keywords::{
         CollationCaseFirst, CollationNumericOrdering,
     };
 
     let mut opts = CollatorOptions::default();
-    // strength: base -> Primary, accent -> Secondary, case -> Secondary+CaseLevel, variant -> Tertiary
+    // strength: base -> Primary, accent -> Secondary, case -> Primary+CaseLevel, variant -> Tertiary
     opts.strength = Some(match sensitivity {
         CollationSensitivity::Base => Strength::Primary,
         CollationSensitivity::Accent => Strength::Secondary,
-        CollationSensitivity::Case => Strength::Secondary,
+        CollationSensitivity::Case => Strength::Primary,
         CollationSensitivity::Variant => Strength::Tertiary,
     });
+    if matches!(sensitivity, CollationSensitivity::Case) {
+        opts.case_level = Some(CaseLevel::On);
+    }
     if ignore_punctuation {
         opts.alternate_handling = Some(AlternateHandling::Shifted);
         opts.max_variable = Some(MaxVariable::Punctuation);
@@ -192,6 +203,14 @@ pub(crate) fn build_collator_data(
     // Start from the locale's own collation preferences (language tailoring,
     // `-u-co` collation type, `-u-kn`/`-u-kf`), then override with the explicit
     // JS options which take precedence.
+    // ECMA-402 §15.2.2 step 12: search usage forces collation "search".
+    if usage == "search" {
+        if let Ok(co_key) = "co".parse::<Key>() {
+            if let Ok(co_val) = Value::try_from_str("search") {
+                locale.extensions.unicode.keywords.set(co_key, co_val);
+            }
+        }
+    }
     let mut prefs = CollatorPreferences::from(&locale);
     prefs.case_first = Some(match case_first {
         CaseFirst::Upper => CollationCaseFirst::Upper,
@@ -210,25 +229,30 @@ pub(crate) fn build_collator_data(
     // Effective collation for `resolvedOptions.collation`: the `-u-co`
     // extension value if present and supported, else the explicit `collation`
     // option if supported, else "default".
+    // ECMA-402 §15.2.2 step 12: search usage forces collation "search".
     let lang = locale.id.language.to_string();
-    let co_key = "co".parse::<Key>().ok();
-    let ext_collation = co_key
-        .and_then(|k| locale.extensions.unicode.keywords.get(&k))
-        .map(|v| v.to_string());
-    // A supported explicit `collation` option wins over the extension value;
-    // otherwise the supported extension value is used; else "default".
-    let collation = if let Some(opt) = collation_option
-        && supported_collation(&lang, opt)
-        && opt != "standard"
-    {
-        opt.to_string()
-    } else if let Some(ext) = &ext_collation
-        && supported_collation(&lang, ext)
-        && ext != "standard"
-    {
-        ext.clone()
+    let collation = if usage == "search" {
+        "search".to_string()
     } else {
-        "default".to_string()
+        let co_key = "co".parse::<Key>().ok();
+        let ext_collation = co_key
+            .and_then(|k| locale.extensions.unicode.keywords.get(&k))
+            .map(|v| v.to_string());
+        // A supported explicit `collation` option wins over the extension value;
+        // otherwise the supported extension value is used; else "default".
+        if let Some(opt) = collation_option
+            && supported_collation(&lang, opt)
+            && opt != "standard"
+        {
+            opt.to_string()
+        } else if let Some(ext) = &ext_collation
+            && supported_collation(&lang, ext)
+            && ext != "standard"
+        {
+            ext.clone()
+        } else {
+            "default".to_string()
+        }
     };
     // `collation` is a static string (either a leaked `collation_option` or a
     // leaked extension value).

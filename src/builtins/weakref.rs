@@ -16,7 +16,7 @@ use crate::{
 
 /// Internal data for a WeakRef instance.
 /// Per ES2027: target can be an Object or a non-registered Symbol.
-pub(crate) struct WeakRefData {
+pub struct WeakRefData {
     target: WeakRefTarget,
 }
 
@@ -167,7 +167,7 @@ impl GcTrace for FinRecEntry {
 }
 
 /// Internal data for a FinalizationRegistry instance.
-pub(crate) struct FinalizationRegistryData {
+pub struct FinalizationRegistryData {
     pub(crate) callback: JSValue,
     entries: Vec<FinRecEntry>,
     pub(crate) realm: ContextPtr,

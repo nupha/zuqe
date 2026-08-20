@@ -18,8 +18,8 @@ use super::common::{canonicalize_locale, locale_to_string, make_str, to_utf8_str
 
 /// Opaque payload holding the ICU4X locale for a `Locale` instance.
 #[derive(Debug)]
-pub(crate) struct LocaleData {
-    pub locale: IcuLocale,
+pub struct LocaleData {
+    pub(crate) locale: IcuLocale,
 }
 
 impl GcTrace for LocaleData {

@@ -17,7 +17,7 @@ use crate::{
 use super::{iterator_return, make_iterator_next_result};
 
 #[derive(Debug)]
-pub(crate) struct IteratorZipData {
+pub struct IteratorZipData {
     /// (inner_iterator, next_method) for each compiled entry
     pub entries: Vec<(JSValue, JSValue)>,
     /// Property keys for zipKeyed (empty for zip)

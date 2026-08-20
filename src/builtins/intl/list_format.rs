@@ -17,10 +17,10 @@ use crate::{
 use super::common::{locale_to_string, make_str, resolve_locale, to_utf8_string, values_to_array};
 
 #[derive(Debug)]
-pub(crate) struct ListFormatData {
-    pub locale: Locale,
-    pub style: ListStyle,
-    pub list_type: ListType,
+pub struct ListFormatData {
+    pub(crate) locale: Locale,
+    pub(crate) style: ListStyle,
+    pub(crate) list_type: ListType,
 }
 
 impl GcTrace for ListFormatData {
