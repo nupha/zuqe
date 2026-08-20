@@ -92,6 +92,15 @@ impl RuntimeImpl {
                                 job.gc_trace = gc_trace;
                                 cx.polling_jobs.push_back(job);
                             }
+                            Ok(JobState::AgainNoHold) => {
+                                // Same re-queue safety as `Again`, but does NOT count
+                                // as `Parked`: an unobserved (fire-and-forget) promise
+                                // must not keep the event loop — and thus the process —
+                                // alive. The job is never lost, so it keeps polling on
+                                // any later round driven by other work.
+                                job.gc_trace = gc_trace;
+                                cx.polling_jobs.push_back(job);
+                            }
                             Ok(JobState::Done) => {
                                 had_progress = true;
                             }

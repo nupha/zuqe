@@ -9,6 +9,12 @@ use crate::{ScopedContext, context::ContextImpl, value::JSValue};
 pub enum JobState {
     Done,
     Again,
+    /// Re-queued for the next tick like `Again`, but does NOT count as
+    /// `Parked`: the event loop may go idle — and the process exit — while
+    /// this job is still pending. Used by promises that only need polling
+    /// while observed (awaited / `.then`-ed); an unobserved promise must
+    /// not keep the process alive.
+    AgainNoHold,
 }
 
 /// A polling job running in background, known as 'micro task'.

@@ -61,6 +61,17 @@ impl GcTrace for PromisePayload {
     }
 }
 
+impl Default for PromisePayload {
+    fn default() -> Self {
+        Self {
+            state: PromiseState::Pending,
+            reactions: [Vec::new(), Vec::new()],
+            result: JSValue::UNDEFINED,
+            is_handled: false,
+        }
+    }
+}
+
 impl PromisePayload {
     #[inline(always)]
     pub const fn state(&self) -> PromiseState {
@@ -93,6 +104,14 @@ impl PromisePayload {
     #[inline(always)]
     pub(super) fn take_reactions(&mut self) -> [Vec<PromiseReaction>; 2] {
         std::mem::take(&mut self.reactions)
+    }
+
+    /// Whether any reaction (then/catch/await) is attached. A promise with no
+    /// reactions is observed by nobody; `create_with_receiver_hold_when_awaited`
+    /// uses this to decide whether to keep the event loop alive.
+    #[inline(always)]
+    pub(crate) const fn has_reactions(&self) -> bool {
+        !self.reactions[0].is_empty() || !self.reactions[1].is_empty()
     }
 
     #[deprecated]
@@ -316,49 +335,52 @@ impl Promise {
         ctx: &mut ScopedContext,
         job: impl Fn(&mut ScopedContext) -> Result<Option<JSValue>, i32> + 'static,
     ) -> Result<Self, i32> {
+        Self::create_with_job_state(ctx, move |cx, _promise, rr| match job(cx) {
+            Ok(Some(v)) => {
+                rr[0].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&v))?;
+                debug_assert_eq!(
+                    cx.rt().exception(),
+                    crate::Exception::No,
+                    "[promise create_with_job] resolve() left exception behind"
+                );
+                Ok(JobState::Done)
+            }
+            Ok(None) => {
+                debug_assert_eq!(
+                    cx.rt().exception(),
+                    crate::Exception::No,
+                    "[promise create_with_job] job returned Ok(None) but left exception behind"
+                );
+                Ok(JobState::Again)
+            }
+            Err(_) => {
+                let err_val = cx.take_exception().to_value(cx);
+                rr[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
+                Ok(JobState::Done)
+            }
+        })
+    }
+
+    /// Shared plumbing for `create_with_job` and the hold-when-awaited channel
+    /// constructors: create the pending Promise, its \[resolve, reject\]
+    /// functions, and queue `job` (which receives the promise and the resolving
+    /// functions, and returns the `JobState` directly).
+    fn create_with_job_state(
+        ctx: &mut ScopedContext,
+        job: impl Fn(&mut ScopedContext, Promise, &[JSValue; 2]) -> Result<JobState, i32> + 'static,
+    ) -> Result<Self, i32> {
         let promise = Self(
             ctx.create_instance_with_ctor(
                 JSValue::UNDEFINED,
-                ObjectPayload::PROMISE(Box::new(PromisePayload {
-                    state: PromiseState::Pending,
-                    reactions: [Vec::new(), Vec::new()],
-                    result: JSValue::UNDEFINED,
-                    is_handled: false,
-                })),
+                ObjectPayload::PROMISE(Box::default()),
             )
             .map_err(|_| -1)?
             .0,
         );
 
         let rr = promise.create_resolving_functions(ctx)?;
-
         ctx.queue_job(
-            move |cx| -> Result<JobState, i32> {
-                match job(cx) {
-                    Ok(Some(v)) => {
-                        rr[0].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&v))?;
-                        debug_assert_eq!(
-                            cx.rt().exception(),
-                            crate::Exception::No,
-                            "[promise create_with_job] resolve() left exception behind"
-                        );
-                        Ok(JobState::Done)
-                    }
-                    Ok(None) => {
-                        debug_assert_eq!(
-                            cx.rt().exception(),
-                            crate::Exception::No,
-                            "[promise create_with_job] job returned Ok(None) but left exception behind"
-                        );
-                        Ok(JobState::Again)
-                    }
-                    Err(_) => {
-                        let err_val = cx.take_exception().to_value(cx);
-                        rr[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
-                        Ok(JobState::Done)
-                    }
-                }
-            },
+            move |cx| job(cx, promise, &rr),
             JobGcTrace2 { a: rr[0], b: rr[1] },
         );
 
@@ -417,6 +439,54 @@ impl Promise {
     ) -> Result<(Self, Sender<D>), i32> {
         let (tx, rx) = make_bounded_channel::<D>(1);
         let promise = Promise::create_with_receiver(ctx, rx, convert)?;
+        Ok((promise, tx))
+    }
+
+    /// Create Promise driven by a `Receiver`-backed channel, keeping the event
+    /// loop alive only while the Promise is observed (awaited or `.then`-ed).
+    /// An unobserved (fire-and-forget) promise must not block the process from
+    /// exiting — used by `Aike.spawn` so an unawaited child does not keep aike
+    /// alive, while an awaited child still does.
+    pub fn create_with_receiver_hold_when_awaited<D: Send + 'static>(
+        ctx: &mut ScopedContext,
+        rx: Receiver<D>,
+        convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
+    ) -> Result<Self, i32> {
+        let convert_slot = Rc::new(RefCell::new(Some(convert)));
+
+        Self::create_with_job_state(ctx, move |cx, promise, rr| match rx.try_recv() {
+            Ok(data) => {
+                let mut slot = convert_slot.borrow_mut();
+                if let Some(conv) = slot.take() {
+                    let v = conv(cx, data)?;
+                    rr[0].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&v))?;
+                    Ok(JobState::Done)
+                } else {
+                    Err(cx.throw_internal_error("result already handled"))
+                }
+            }
+            Err(TryRecvError::Empty) => {
+                // Hold the loop only while the promise is observed; a
+                // fire-and-forget promise must not keep the process alive.
+                if promise.payload().has_reactions() {
+                    Ok(JobState::Again)
+                } else {
+                    Ok(JobState::AgainNoHold)
+                }
+            }
+            Err(TryRecvError::Disconnected) => Err(cx.throw_internal_error("channel disconnected")),
+        })
+    }
+
+    /// Create Promise driven by an internal `sync_channel`, keeping the event
+    /// loop alive only while the Promise is observed. See
+    /// [`Promise::create_with_receiver_hold_when_awaited`].
+    pub fn create_with_channel_hold_when_awaited<D: Send + 'static>(
+        ctx: &mut ScopedContext,
+        convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
+    ) -> Result<(Self, Sender<D>), i32> {
+        let (tx, rx) = make_bounded_channel::<D>(1);
+        let promise = Promise::create_with_receiver_hold_when_awaited(ctx, rx, convert)?;
         Ok((promise, tx))
     }
 
